@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::resolve::TypeBinding;
 use oxc::ast::ast::TSTypeName;
 use smelt_hir::{ErasureReason, FunctionType, Item, Type};
 
@@ -41,7 +42,16 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        if let Some(param_ty) = self.types.param_type(&name_text) {
+        // One resolver decides what the name is: a type parameter in scope
+        // first, then a declaration or import of this module, then the lib.
+        // Only an unqualified identifier can name a type parameter or shadow
+        // the lib (a qualified `NS.Set` never reaches the lib table's
+        // spellings).
+        let binding = match &reference.type_name {
+            TSTypeName::IdentifierReference(_) => self.resolve_type_name(&name_text),
+            _ => self.types.param_type(&name_text).map_or(TypeBinding::Source, TypeBinding::Param),
+        };
+        if let TypeBinding::Param(param_ty) = binding {
             if reference.type_arguments.is_some() {
                 return Err(SmeltError::unsupported(
                     self.span(reference.span.start, reference.span.end),
@@ -68,15 +78,12 @@ impl ModuleBuilder<'_> {
         // module declares itself shadows the global one, so it skips the table
         // and resolves through the declaration path in the fallback arm; an
         // empty spelling matches no builtin arm.
-        let builtin_spelling = if self.source_shadows_global_type(reference) {
-            ""
-        } else {
-            name_text.as_str()
-        };
+        let builtin_spelling = if binding == TypeBinding::Lib { name_text.as_str() } else { "" };
         // `Omit` with a fixed key set over a known record. Anything else keeps
         // the opaque reference below, whose `T` a call site still instantiates.
+        // `builtin_spelling` is only `Omit` when the resolver answered
+        // `TypeBinding::Lib`, so a source `Omit` never reaches here.
         if let ("Omit", [base, keys]) = (builtin_spelling, args.as_slice())
-            && !self.source_declares_type("Omit")
             && let Some(removed) = self.literal_record_keys(keys)
         {
             let lowered = self.ts_type_to_hir(base)?;
@@ -87,6 +94,12 @@ impl ModuleBuilder<'_> {
         }
         match (builtin_spelling, args.as_slice()) {
             ("RegExp", []) => Ok(self.regexp_type()),
+            // The lib's `type PropertyKey = string | number | symbol`: a VALUE
+            // of this type keeps its kind (`typeof` still tells a number from a
+            // string), so it is the union of the three, not the converted key a
+            // record stores (`Type::PropKey`). A source declaration of the name
+            // never reaches here (`builtin_spelling` is empty for it).
+            ("PropertyKey", []) => Ok(self.property_key_value_type()),
             // `BodyInit` is a UNION, not an opaque class. Leaving it opaque made
             // `JSON.stringify(body)` report "value must be JSON-serializable
             // (got Class `BodyInit`)" for a value that is a `string` on every
@@ -722,29 +735,6 @@ impl ModuleBuilder<'_> {
             })
             .min_by_key(|(path, _)| *path)
             .map(|(_, rendered)| rendered.clone())
-    }
-
-    /// Whether a type reference names a declaration of the current module that
-    /// shadows a same-spelled global lib type.
-    ///
-    /// TypeScript resolves an unqualified type name lexically: a module-scope
-    /// `interface Set<E> { … }` binds `Set` for the whole module, so every
-    /// `Set<…>` written there is that interface and never the global
-    /// `Set<T>` collection. Smelt's lib-type table matches by spelling alone, so
-    /// without this check Hono's `set: Set<E> = (key, value) => …` class field
-    /// lowered to a `Type::Set` collection, the callable-interface field lost
-    /// its call signatures, and `c.set('k', v)` failed as an unknown method.
-    ///
-    /// Only an unqualified identifier can be shadowed this way (a qualified
-    /// `NS.Set` never reaches the global table's spellings), and only a
-    /// declaration of THIS module counts: an interface item another module
-    /// lowered is visible crate-wide by symbol, so consulting the crate's items
-    /// would let one file's `Set` hijack every other file's builtin `Set<T>`.
-    fn source_shadows_global_type(&self, reference: &oxc::ast::ast::TSTypeReference<'_>) -> bool {
-        let TSTypeName::IdentifierReference(name) = &reference.type_name else {
-            return false;
-        };
-        self.source_shadows_global(name.name.as_str())
     }
 
     /// Whether the module declares a type of this name.

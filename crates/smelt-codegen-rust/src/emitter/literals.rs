@@ -32,12 +32,9 @@ pub(crate) fn constant_expr(constant: &Constant, js_text: bool) -> RustExpr {
         Constant::String(value) if js_text => RustExpr::js_string_literal(value),
         Constant::StringUnits(units) => RustExpr::js_string_units_literal(units),
         Constant::String(value) => RustExpr::string_literal(value),
-        Constant::Symbol(value) => {
-            RustExpr::atom(format!(
-                "SmeltUnknown::Symbol({}.into())",
-                RustExpr::string_literal(value).into_string()
-            ))
-        }
+        // A symbol constant is a typed `symbol`; an erased slot takes it
+        // through the coercion seam like any other typed value.
+        Constant::Symbol(value) => RustExpr::chain(format!("SmeltSymbol::from_spelling({value:?})")),
         Constant::Undefined => RustExpr::unit(),
         Constant::None => RustExpr::unit(),
     }

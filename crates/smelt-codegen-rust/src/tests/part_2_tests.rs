@@ -55,7 +55,7 @@ function parseValue(value: any): number {
         .map_or(source.as_str(), |(_, program)| program);
 
     assert!(
-        program.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"),
+        program.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"),
         "expected erased input to pass through JavaScript string coercion: {program}"
     );
     assert!(

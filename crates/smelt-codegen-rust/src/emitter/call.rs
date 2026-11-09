@@ -1041,7 +1041,8 @@ impl FunctionEmitter<'_> {
             return Ok(self.dynamic_callable_dispatch_expr(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref())?.into());
         }
         let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
-            return Err(EmitError::new("indirect call target is not a function"));
+            // The statement form of `closure_call_rvalue_expr`'s fallback.
+            return Ok(self.erased_callee_call_expr(indirect_callee, args)?.into());
         };
         let callee_text = self.operand_expr(indirect_callee)?;
         // An erased-unknown-rest callable *value* (e.g. an untyped

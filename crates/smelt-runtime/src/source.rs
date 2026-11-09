@@ -295,6 +295,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/structural_eq.rs"),
     },
     RuntimeModule {
+        name: "symbol",
+        source: include_str!("runtime/symbol.rs"),
+    },
+    RuntimeModule {
         name: "symbol_keys",
         source: include_str!("runtime/symbol_keys.rs"),
     },
@@ -883,10 +887,15 @@ mod tests {
     ///
     /// The emitted crate has one flat module, so `crate::` / `super::` inside a
     /// region would compile here and break every generated crate.
+    ///
+    /// The one exception is `use super::*;` as the first line of a module the
+    /// SAME item declares (`SmeltPropKey`'s sealing module): there `super` is
+    /// the flat module itself, here and in a generated crate alike.
     #[test]
     fn item_text_has_no_module_relative_paths() {
         for name in item_names() {
             let lines = render_item(name, &|_| true).expect("indexed item must resolve");
+            let mut opened_module = false;
             for line in lines {
                 let RenderedLine::Text(line) = line else {
                     continue;
@@ -894,6 +903,15 @@ mod tests {
                 if line.trim_start().starts_with("//") {
                     continue;
                 }
+                if line.trim_start().starts_with("mod ") && line.trim_end().ends_with('{') {
+                    opened_module = true;
+                    continue;
+                }
+                if opened_module && line.trim() == "use super::*;" {
+                    opened_module = false;
+                    continue;
+                }
+                opened_module = false;
                 for forbidden in ["crate::", "super::", "self::"] {
                     assert!(
                         !line.contains(forbidden),

@@ -1,6 +1,7 @@
 //! Union annotations: flattening members, dropping members, the union-or-unknown
 //! join, and the dict/list/byte-source unions annotations name.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use smelt_hir::{ErasureReason, Type};
 
@@ -44,7 +45,7 @@ impl ModuleBuilder<'_> {
         items: Vec<smelt_hir::TypeId>,
     ) -> smelt_hir::TypeId {
         // not a new erasure: an erased item was recorded where it was decided
-        let unknown = self.unknown_type();
+        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
         if items.contains(&unknown) {
             return unknown;
         }

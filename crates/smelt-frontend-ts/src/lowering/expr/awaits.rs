@@ -1,5 +1,6 @@
 //! `await` expressions: the awaited value's type, including awaited unions.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Type};
@@ -64,7 +65,7 @@ impl ModuleBuilder<'_> {
                     .unwrap_or_else(|| {
                         if matches!(self.ctx.krate.types.get(awaited_ty), Some(Type::Unknown)) {
                             // not a new erasure: the awaited operand is already erased
-                            self.unknown_type()
+                            self.unknown_type(NotNewErasure::ErasedUpstream)
                         } else {
                             self.erase_with(ErasureReason::DynamicOperator, "await union")
                         }

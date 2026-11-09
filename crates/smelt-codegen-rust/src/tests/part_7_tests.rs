@@ -249,8 +249,11 @@ export function cycle(): unknown {
 ",
     );
 
+    // The record is a property-key record (its keys were the erased carrier
+    // before symbols were a type), so the dotted member is inserted under the
+    // property key `"loop"`.
     assert!(
-        source.contains(".insert(SmeltUnknown::String(\"loop\".into()),"),
+        source.contains(".insert(SmeltToPropKey::smelt_to_prop_key(&(JsString::from(\"loop\"))),"),
         "{source}"
     );
     assert!(!source.contains("expect(\"missing field\") ="), "{source}");
@@ -2968,7 +2971,7 @@ function isArray(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::String"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
-    assert!(source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"));
+    assert!(source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
 }
 
@@ -3091,7 +3094,7 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"),
+        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"),
         "{source}"
     );
     assert!(
@@ -3749,7 +3752,7 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
 
     assert!(
         source.contains(
-            ".map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"
+            ".map_or(JsString::new(), |smelt_value| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"
         ),
         "{source}"
     );
@@ -3946,14 +3949,23 @@ function read(): unknown {
 "#,
     );
 
+    // Both symbol keys are typed symbols (they were erased
+    // `SmeltUnknown::Symbol` literals before symbols were a type), each a new
+    // symbol per evaluation, and the literal they key is a property-key
+    // record holding all three properties.
     assert!(
-        source.contains("SmeltUnknown::Symbol(\"Symbol(kind)"),
+        source.contains("SmeltSymbol::unique(SmeltSymbol::from_spelling(\"Symbol(kind)"),
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Symbol(\"Symbol(inline)"),
+        source.contains("SmeltSymbol::unique(SmeltSymbol::from_spelling(\"Symbol(inline)"),
         "{source}"
     );
+    // Old requirement: the record was a `SmeltJsMap<SmeltPropKey, _>`. New:
+    // a property-key record is an object, `SmeltPropKeyRecord<_>` over the
+    // object field store, so its erased form shares that store (remeda's
+    // `clone`); the key is still the sealed `SmeltPropKey`.
+    assert!(source.contains("let item: SmeltPropKeyRecord<SmeltUnknown>"), "{source}");
     assert!(
         source.contains("SmeltUnknown::String(\"cat\".into())"),
         "{source}"
@@ -5289,7 +5301,7 @@ function matchUnknown(value: unknown): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string()"),
+        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"),
         "{source}"
     );
     assert!(source.contains(".match_string(&match "), "{source}");
@@ -12059,15 +12071,17 @@ export function readDestructured(): unknown {
     let member = program
         .split_once("fn read_member()")
         .map_or("", |(_, rest)| rest);
+    // The recorded value is a typed `symbol` (it was the erased
+    // `SmeltUnknown::Symbol` literal before symbols were a type).
     assert!(
-        member.contains("SmeltUnknown::Symbol("),
+        member.contains("SmeltSymbol::from_spelling("),
         "a static-property member read must resolve to the recorded value:\n{generated}"
     );
     let destructured = program
         .split_once("fn read_destructured()")
         .map_or("", |(_, rest)| rest);
     assert!(
-        destructured.contains("SmeltUnknown::Symbol("),
+        destructured.contains("SmeltSymbol::from_spelling("),
         "destructuring a static property off a function must resolve too:\n{generated}"
     );
     assert!(
@@ -14123,13 +14137,16 @@ export function byArgumentType(): ((...args: any[]) => any) & { placeholder: unk
 /// overload that merely shares the call's arity.
 ///
 /// es-toolkit's `CurriedFunction2` declares `(t1: __, t2: T2)` — a placeholder
-/// position typed by a `unique symbol` — before `(t1: T1, t2: T2): R`. Smelt
-/// carries symbols as opaque runtime values, so both parameter positions read
-/// as `unknown` and no static rule separates them: which overload runs is
-/// decided by the callee comparing its argument against a sentinel. Taking the
-/// first of them made `curried(2, 3)` claim to return a `Curried1`, so the
-/// comparison against a number const-folded to `false`. Only what every
-/// surviving overload agrees on is reported instead.
+/// position typed by a `unique symbol` — before `(t1: T1, t2: T2): R`. Taking
+/// the first of them made `curried(2, 3)` claim to return a `Curried1`, so the
+/// comparison against a number const-folded to `false`.
+///
+/// Old requirement: both positions read as `unknown` (symbols were erased), so
+/// no static rule separated the two overloads and the call answered the erased
+/// result every surviving overload agreed on. New requirement: `__` is a real
+/// `symbol`, a number argument cannot be one, so the call selects
+/// `(t1: T1, t2: T2): R` and its result is `R` itself (`number`) -- still
+/// never `Curried1`, and still passing both arguments to the erased callable.
 #[test]
 fn ambiguous_same_arity_call_signatures_answer_the_erased_call_result() {
     let source = source_for(&format!(
@@ -14141,13 +14158,17 @@ const total = curried(2, 3);
 
     assert!(
         source.contains(
-            "smelt_callback.call(vec![smelt_arg0.clone(), (smelt_arg1.clone()).into_smelt_unknown()])"
+            "smelt_callback.call(vec![(smelt_arg0.clone()).into_smelt_unknown(), (smelt_arg1.clone()).into_smelt_unknown()])"
         ),
         "both arguments must reach the erased callable:\n{source}"
     );
     assert!(
         !source.contains("total: Curried1"),
-        "the ambiguous call must not claim one overload's return type:\n{source}"
+        "the call must not claim the placeholder overload's return type:\n{source}"
+    );
+    assert!(
+        source.contains("let total: f64"),
+        "a number argument selects the value overload, whose result is the number:\n{source}"
     );
 }
 

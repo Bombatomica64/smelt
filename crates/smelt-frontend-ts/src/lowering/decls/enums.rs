@@ -32,6 +32,7 @@ use oxc::ast::ast::{ComputedMemberExpression, Expression, TSEnumDeclaration, TSE
 use std::borrow::Cow;
 
 use crate::lowering::{ConstLiteral, ModuleBuilder};
+use crate::lowering::resolve::ValueBinding;
 use crate::error::SmeltError;
 use smelt_hir::{Body, Expr, ExprId, ExprKind, Item, Literal, Type, TypeAlias};
 
@@ -122,7 +123,7 @@ impl ModuleBuilder<'_> {
         // context so later modules that import this enum fold its members too.
         self.consts.set_enum_members(enum_name.clone(), members.clone());
         if publish {
-            self.ctx.enum_members.write().insert(enum_name, members);
+            self.publish_export(|ctx| &mut ctx.enum_members, enum_name, members);
         }
     }
 
@@ -144,10 +145,10 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = member.object.without_parentheses() else {
             return Ok(None);
         };
-        if self.scope.lookup(object.name.as_str()).is_some() {
+        let ValueBinding::Enum(binding) = self.resolve_value(object.name.as_str()) else {
             return Ok(None);
-        }
-        let Some(entries) = self.enum_reverse_names.get(object.name.as_str()).cloned() else {
+        };
+        let Some(entries) = self.enum_reverse_names.get(binding.name()).cloned() else {
             return Ok(None);
         };
         let mut table: Vec<(f64, String)> = Vec::new();
@@ -273,11 +274,17 @@ impl ModuleBuilder<'_> {
     ///
     /// Shared by the switch-label folder and the ordinary static-member reader
     /// so both inline the identical literal for an enum member reference.
+    ///
+    /// `enum_name` is resolved first ([`Self::resolve_value`]): a local that
+    /// shadows the enum is not it.
     pub(in crate::lowering) fn enum_member_literal(
         &self,
         enum_name: &str,
         member_name: &str,
     ) -> Option<ConstLiteral> {
-        self.consts.enum_member(enum_name, member_name).cloned()
+        let ValueBinding::Enum(binding) = self.resolve_value(enum_name) else {
+            return None;
+        };
+        self.consts.enum_member(&binding, member_name).cloned()
     }
 }

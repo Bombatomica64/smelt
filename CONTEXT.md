@@ -41,6 +41,21 @@ Smelt lowers source through four stages, each behind a small interface:
 - **MIR** — mid-level IR with an explicit CFG and a flat `Rvalue` algebra (`lower_hir`).
 - **codegen-rust** — emits Rust source text from MIR (`emit_source`).
 
+## Frontend name resolution
+
+- **Resolver** — `resolve_value` / `resolve_type_name` in
+  `crates/smelt-frontend-ts/src/lowering/resolve.rs`: the one place that decides
+  what an unqualified name is, asking the lexical scope FIRST, then the module's
+  declarations and imports, and only then the host/lib. Callers match on the
+  answer (`ValueBinding`, `TypeBinding`) instead of consulting tables in their
+  own order.
+- **EnumBinding** — proof that a name resolved to an enum; only the resolver
+  mints one, and enum members are read through it.
+- **QualifiedExport** — `(ModuleKey, name)`: the key of every crate-wide table
+  that carries facts (object constants, enum members, overloads, rest
+  parameters, ...) from a declaring module to its importers. An import reads
+  the module its `from` names, never a bare name.
+
 ## Runtime
 
 - **Runtime item** — a marked region of real Rust in `smelt-runtime`, rendered

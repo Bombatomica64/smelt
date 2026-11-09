@@ -2707,7 +2707,7 @@ export const formatters: { [token: string]: Formatter } = {
     )?;
     let namespace = ctx
         .object_namespaces
-        .get("formatters")
+        .exported("formatters")
         .ok_or_else(|| "expected formatters namespace metadata".to_owned())?;
     let month = namespace
         .get("M")

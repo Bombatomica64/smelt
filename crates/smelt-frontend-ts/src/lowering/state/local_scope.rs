@@ -501,22 +501,22 @@ impl LocalScope {
         }
     }
 
-    /// Push a fresh narrowing scope carrying a single fact, so the caller can
-    /// pop exactly the fact it added.
-    pub(in crate::lowering) fn push_narrowing_fact(&mut self, name: String, target: TypeId) {
+    /// Push a fresh narrowing scope carrying a single fact.
+    ///
+    /// Private, like the raw push: a scope is only opened by
+    /// [`ModuleBuilder::with_narrowing`] or for a fresh body's own facts
+    /// ([`Self::seed_narrowings`]), so nothing can leave one open.
+    fn push_narrowing_fact(&mut self, name: String, target: TypeId) {
         let mut scope = HashMap::new();
         scope.insert(name, target);
-        self.push_narrowing_scope(scope);
+        self.narrowings.0.push(scope);
     }
 
-    /// Push a whole narrowing scope, as produced by guard analysis.
-    pub(in crate::lowering) fn push_narrowing_scope(&mut self, facts: HashMap<String, TypeId>) {
+    /// Open the base narrowing scope of a fresh body (whose stack the
+    /// enclosing body's was swapped out for, see [`Self::take_narrowings`])
+    /// with the facts it captured.
+    pub(in crate::lowering) fn seed_narrowings(&mut self, facts: HashMap<String, TypeId>) {
         self.narrowings.0.push(facts);
-    }
-
-    /// Pop the innermost narrowing scope.
-    pub(in crate::lowering) fn pop_narrowing_scope(&mut self) {
-        self.narrowings.0.pop();
     }
 
     /// Return the active narrowed type for a source local, innermost first.
@@ -539,6 +539,30 @@ impl LocalScope {
     /// Restore a stack captured by [`Self::take_narrowings`].
     pub(in crate::lowering) fn restore_narrowings(&mut self, saved: Narrowings) {
         self.narrowings = saved;
+    }
+}
+
+impl crate::lowering::ModuleBuilder<'_> {
+    /// Lower `lower` with `facts` (when `Some`) as the innermost narrowing
+    /// scope, and close it again on EVERY exit of `lower`, an early `?` or a
+    /// swallowed `Err` included (audit finding A11).
+    ///
+    /// The only way to open a scope on the stack of the body being lowered:
+    /// the raw push and pop are private to this module, so a scope can no
+    /// longer stay open past the expression or statement that proved it and
+    /// narrow an unrelated read.
+    pub(in crate::lowering) fn with_narrowing<R>(
+        &mut self,
+        facts: Option<HashMap<String, TypeId>>,
+        lower: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let depth = self.scope.narrowings.0.len();
+        if let Some(facts) = facts {
+            self.scope.narrowings.0.push(facts);
+        }
+        let lowered = lower(self);
+        self.scope.narrowings.0.truncate(depth);
+        lowered
     }
 }
 
@@ -588,10 +612,11 @@ mod tests {
     fn narrowings_resolve_innermost_first() {
         let mut scope = LocalScope::default();
         scope.apply_narrowing("x".to_owned(), TypeId(1));
+        let depth = scope.narrowings.0.len();
         scope.push_narrowing_fact("x".to_owned(), TypeId(2));
 
         assert_eq!(scope.narrowed_type("x"), Some(TypeId(2)));
-        scope.pop_narrowing_scope();
+        scope.narrowings.0.truncate(depth);
         assert_eq!(scope.narrowed_type("x"), Some(TypeId(1)));
     }
 

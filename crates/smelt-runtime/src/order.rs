@@ -125,6 +125,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_index_assign"),
     Entry::Item("smelt_symbol_key_escape"),
     Entry::Item("smelt_property_key"),
+    Entry::Item("SmeltSymbol"),
+    Entry::Item("SmeltPropKey"),
     Entry::Item("smelt_concat_spread"),
     Entry::Item("smelt_map_entry_key_is"),
     Entry::Item("smelt_get_object_field"),

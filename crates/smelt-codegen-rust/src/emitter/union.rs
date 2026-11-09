@@ -244,7 +244,7 @@ impl FunctionEmitter<'_> {
                 // generated wrapper, so a dynamic next-input boundary does not
                 // make the generator value itself an erased runtime object.
             }
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String | Type::PyStr) => true,
+            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String | Type::PyStr | Type::Symbol | Type::PropKey) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.

@@ -53,9 +53,10 @@ impl ModuleBuilder<'_> {
         if let Ok(signature) = self.overload_signature(function) {
             self.functions
                 .push_overload(id.name.to_string(), signature.clone());
+            let key = self.export_key(id.name.as_str());
             self.ctx
                 .overloads
-                .write().entry(id.name.to_string())
+                .write().entry(key)
                 .or_default()
                 .push(signature);
         }
@@ -209,7 +210,7 @@ impl ModuleBuilder<'_> {
                 .set_forward_type(id.name.to_string(), symbol, ty);
             if let Some(rest) = rest {
                 self.functions.set_rest(id.name.to_string(), rest);
-                self.ctx.function_rests.write().insert(id.name.to_string(), rest);
+                self.publish_export(|ctx| &mut ctx.function_rests, id.name.to_string(), rest);
             }
         }
     }
@@ -479,9 +480,7 @@ impl ModuleBuilder<'_> {
             rest_index = Some(index);
             let rest_param = RestParam { index, item_ty };
             self.functions.set_rest(name_text.to_owned(), rest_param);
-            self.ctx
-                .function_rests
-                .write().insert(name_text.to_owned(), rest_param);
+            self.publish_export(|ctx| &mut ctx.function_rests, name_text.to_owned(), rest_param);
             params.push(Param {
                 name: self.intern_source_name(binding.name.as_str()),
                 local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
@@ -565,7 +564,7 @@ impl ModuleBuilder<'_> {
             }
             let exported = binding.name.as_str().to_owned();
             self.items.insert(exported.clone(), item);
-            self.ctx.export_aliases.insert(exported, item);
+            self.publish_export_alias(exported, item);
         }
     }
 }

@@ -10,11 +10,10 @@ use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
-    AssignmentTarget, BinaryOperator, BindingPattern, Body, Class, Declaration, Expression, Field,
+    AssignmentTarget, BindingPattern, Body, Class, Declaration, Expression, Field,
     Function, FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
     Program, SmeltError, Span, Statement, Type, Visibility,
 };
-use crate::lowering::support::arrow_block_statements;
 use smelt_hir::ErasureReason;
 
 impl ModuleBuilder<'_> {
@@ -23,14 +22,12 @@ impl ModuleBuilder<'_> {
     ///
     /// A bare `function Foo(){}` that is only ever called normally is left as a
     /// plain function; it only becomes a class when the surrounding scope uses it
-    /// with `new`, `instanceof`, or `Foo.prototype.x = …`.
+    /// with `new` or `Foo.prototype.x = …` (see `scoped_references::BindingUses`).
     pub(in crate::lowering) fn statements_use_function_as_constructor(
         name: &str,
         statements: &[Statement<'_>],
     ) -> bool {
-        statements
-            .iter()
-            .any(|statement| Self::statement_uses_constructor_function(name, statement))
+        crate::lowering::scoped_references::statements_use(statements, name).constructed
     }
 
     /// Collect module top-level `function Foo(){}` declarations that this module
@@ -47,28 +44,23 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn module_constructor_function_names(
         program: &Program<'_>,
     ) -> HashSet<String> {
-        let mut names = HashSet::new();
-        for function in Self::module_function_declarations(program) {
-            let Some(id) = &function.id else {
-                continue;
-            };
-            // An ambient `declare function` has no body to derive fields from.
-            if function.declare || function.body.is_none() {
-                continue;
-            }
-            let name = id.name.as_str();
-            if names.contains(name) {
-                continue;
-            }
-            if program
-                .body
-                .iter()
-                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
-            {
-                names.insert(name.to_owned());
-            }
+        // An ambient `declare function` has no body to derive fields from.
+        let candidates: HashSet<&str> = Self::module_function_declarations(program)
+            .filter(|function| !function.declare && function.body.is_some())
+            .filter_map(|function| function.id.as_ref().map(|id| id.name.as_str()))
+            .collect();
+        if candidates.is_empty() {
+            return HashSet::new();
         }
-        names
+        // One scoped walk of the module for every candidate at once: a walk
+        // per candidate made a module of `n` functions quadratic.
+        let mut constructed = HashSet::new();
+        for statement in &program.body {
+            constructed.extend(
+                crate::lowering::scoped_references::statement_name_uses(statement, &candidates).constructed,
+            );
+        }
+        constructed
     }
 
     /// Return whether a module top-level function declaration was recorded as a
@@ -96,183 +88,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Scan a module top-level statement for constructor uses of `name`.
-    ///
-    /// Extends [`Self::statement_uses_constructor_function`] across the two
-    /// shapes that only occur at module scope — `export` declaration wrappers
-    /// and sibling function declarations whose bodies hold the `new` site — then
-    /// delegates to the shared scan for everything else. It is deliberately a
-    /// separate entry point: widening the shared scan would also change which
-    /// *inner-scope* functions become synthesized classes.
-    fn module_statement_uses_constructor_function(name: &str, statement: &Statement<'_>) -> bool {
-        match statement {
-            Statement::FunctionDeclaration(function) => {
-                Self::function_body_uses_constructor_function(name, function)
-            }
-            Statement::ExportDeclaration(export) => match &export.declaration {
-                Declaration::FunctionDeclaration(function) => {
-                    Self::function_body_uses_constructor_function(name, function)
-                }
-                Declaration::VariableDeclaration(variable) => {
-                    variable.declarations.iter().any(|declarator| {
-                        declarator.init.as_ref().is_some_and(|init| {
-                            Self::expression_uses_constructor_function(name, init)
-                        })
-                    })
-                }
-                _ => false,
-            },
-            Statement::ExportDefaultDeclaration(export) => match &export.declaration {
-                oxc::ast::ast::ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
-                    Self::function_body_uses_constructor_function(name, function)
-                }
-                other => other.as_expression().is_some_and(|expression| {
-                    Self::expression_uses_constructor_function(name, expression)
-                }),
-            },
-            other => Self::statement_uses_constructor_function(name, other),
-        }
-    }
-
-    /// Scan a function declaration's body for constructor uses of `name`.
-    fn function_body_uses_constructor_function(
-        name: &str,
-        function: &oxc::ast::ast::Function<'_>,
-    ) -> bool {
-        function.body.as_ref().is_some_and(|body| {
-            body.statements
-                .iter()
-                .any(|statement| Self::module_statement_uses_constructor_function(name, statement))
-        })
-    }
-
-    /// Recursively scan a statement for constructor uses of `name`.
-    fn statement_uses_constructor_function(name: &str, statement: &Statement<'_>) -> bool {
-        match statement {
-            Statement::ExpressionStatement(statement) => {
-                Self::expression_uses_constructor_function(name, &statement.expression)
-            }
-            Statement::VariableDeclaration(declaration) => {
-                declaration.declarations.iter().any(|declarator| {
-                    declarator
-                        .init
-                        .as_ref()
-                        .is_some_and(|init| Self::expression_uses_constructor_function(name, init))
-                })
-            }
-            Statement::ReturnStatement(statement) => statement
-                .argument
-                .as_ref()
-                .is_some_and(|argument| Self::expression_uses_constructor_function(name, argument)),
-            Statement::BlockStatement(block) => {
-                Self::statements_use_function_as_constructor(name, &block.body)
-            }
-            Statement::IfStatement(statement) => {
-                Self::expression_uses_constructor_function(name, &statement.test)
-                    || Self::statement_uses_constructor_function(name, &statement.consequent)
-                    || statement.alternate.as_ref().is_some_and(|alternate| {
-                        Self::statement_uses_constructor_function(name, alternate)
-                    })
-            }
-            // Every statement that nests another is descended, not only `for`:
-            // a `new name()` inside a `while`, a `for..of` or a labelled loop
-            // makes `name` a constructor function just the same.
-            Statement::ForStatement(statement) => {
-                Self::statement_uses_constructor_function(name, &statement.body)
-            }
-            Statement::WhileStatement(statement) => {
-                Self::expression_uses_constructor_function(name, &statement.test)
-                    || Self::statement_uses_constructor_function(name, &statement.body)
-            }
-            Statement::DoWhileStatement(statement) => {
-                Self::statement_uses_constructor_function(name, &statement.body)
-                    || Self::expression_uses_constructor_function(name, &statement.test)
-            }
-            Statement::ForOfStatement(statement) => {
-                Self::expression_uses_constructor_function(name, &statement.right)
-                    || Self::statement_uses_constructor_function(name, &statement.body)
-            }
-            Statement::ForInStatement(statement) => {
-                Self::expression_uses_constructor_function(name, &statement.right)
-                    || Self::statement_uses_constructor_function(name, &statement.body)
-            }
-            Statement::LabeledStatement(statement) => {
-                Self::statement_uses_constructor_function(name, &statement.body)
-            }
-            _ => false,
-        }
-    }
-
-    /// Recursively scan an expression for constructor uses of `name`:
-    /// `new name(...)`, `value instanceof name`, or `name.prototype.x = …`.
-    fn expression_uses_constructor_function(name: &str, expression: &Expression<'_>) -> bool {
-        match expression {
-            Expression::NewExpression(new_expr) => {
-                if matches!(
-                    &new_expr.callee,
-                    Expression::Identifier(callee) if callee.name == name
-                ) {
-                    return true;
-                }
-                Self::expression_uses_constructor_function(name, &new_expr.callee)
-                    || new_expr.arguments.iter().any(|argument| {
-                        argument.as_expression().is_some_and(|argument_expr| {
-                            Self::expression_uses_constructor_function(name, argument_expr)
-                        })
-                    })
-            }
-            Expression::BinaryExpression(binary)
-                if binary.operator == BinaryOperator::Instanceof =>
-            {
-                if matches!(
-                    &binary.right,
-                    Expression::Identifier(target) if target.name == name
-                ) {
-                    return true;
-                }
-                Self::expression_uses_constructor_function(name, &binary.left)
-                    || Self::expression_uses_constructor_function(name, &binary.right)
-            }
-            Expression::AssignmentExpression(assign) => {
-                Self::assignment_target_is_prototype_member(name, &assign.left)
-                    || Self::expression_uses_constructor_function(name, &assign.right)
-            }
-            Expression::CallExpression(call) => {
-                // Test scaffolding (`describe`/`it`) passes its body as a
-                // callback argument, so the construction site is frequently
-                // nested inside an arrow or function expression. Recurse into
-                // those bodies so a `function Foo` declared in an enclosing
-                // scope is still recognized as a constructor.
-                Self::expression_uses_constructor_function(name, &call.callee)
-                    || call.arguments.iter().any(|argument| {
-                        argument.as_expression().is_some_and(|argument_expr| {
-                            Self::expression_uses_constructor_function(name, argument_expr)
-                        })
-                    })
-            }
-            Expression::ArrowFunctionExpression(arrow) => {
-                Self::statements_use_function_as_constructor(name, arrow_block_statements(arrow))
-            }
-            Expression::FunctionExpression(function) => function
-                .body
-                .as_ref()
-                .is_some_and(|body| {
-                    Self::statements_use_function_as_constructor(name, &body.statements)
-                }),
-            Expression::ParenthesizedExpression(parenthesized) => {
-                Self::expression_uses_constructor_function(name, &parenthesized.expression)
-            }
-            Expression::BinaryExpression(binary) => {
-                Self::expression_uses_constructor_function(name, &binary.left)
-                    || Self::expression_uses_constructor_function(name, &binary.right)
-            }
-            Expression::LogicalExpression(logical) => {
-                Self::expression_uses_constructor_function(name, &logical.left)
-                    || Self::expression_uses_constructor_function(name, &logical.right)
-            }
-            _ => false,
-        }
-    }
 
     /// Collect `this.<name>` members assigned anywhere in a constructor body.
     ///
@@ -421,21 +236,6 @@ impl ModuleBuilder<'_> {
             &member.object,
             Expression::Identifier(object) if self.classes.contains(object.name.as_str())
         )
-    }
-
-    /// Return whether an assignment target writes `name.prototype.<member>`.
-    fn assignment_target_is_prototype_member(name: &str, target: &AssignmentTarget<'_>) -> bool {
-        let AssignmentTarget::StaticMemberExpression(member) = target else {
-            return false;
-        };
-        let Expression::StaticMemberExpression(prototype) = &member.object else {
-            return false;
-        };
-        prototype.property.name == "prototype"
-            && matches!(
-                &prototype.object,
-                Expression::Identifier(object) if object.name == name
-            )
     }
 
     /// Find a `const Foo = function (…) { … }` constructor binding in a
@@ -588,7 +388,7 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             let used_in_setup = setup.iter().any(|setup_statement| {
-                Self::statement_uses_constructor_function(id.name.as_str(), setup_statement)
+                crate::lowering::scoped_references::statement_uses(setup_statement, id.name.as_str()).constructed
             });
             let used_in_body =
                 Self::statements_use_function_as_constructor(id.name.as_str(), body_statements);

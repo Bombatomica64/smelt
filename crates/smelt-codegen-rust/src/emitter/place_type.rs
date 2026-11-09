@@ -359,6 +359,18 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(_, value) | Type::JsMap(_, value)) => Ok(*value),
             Some(Type::String | Type::PyStr) => Ok(base_ty),
+            // A concrete union whose arms the per-arm read above cannot
+            // answer (`PropertyKey | PropertyKey[]`: a number has no
+            // elements) is read through its erased form (`place_expr`), so the
+            // value it reads is erased too, not the union itself.
+            Some(Type::Union(_)) if self.concrete_union_members(base_ty).is_some() => {
+                self.erased_fallback_ty(|| {
+                    format!(
+                        "the indexed read on the union `{}`, whose arms are not all indexable",
+                        self.blocker_type_text(base_ty)
+                    )
+                })
+            }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;

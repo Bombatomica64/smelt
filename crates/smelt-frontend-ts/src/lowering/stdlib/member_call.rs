@@ -1,6 +1,7 @@
 //! Member calls: `receiver.method(..)`, computed method calls, class statics and
 //! private callable fields, and the receiver facts those calls are decided on.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::support::source_spelling;
 use crate::SmeltError;
@@ -103,7 +104,7 @@ impl ModuleBuilder<'_> {
                     self.erase(ErasureReason::TestHarness)
                 } else {
                     // not a new erasure: the method's result is already erased
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 };
                 args.push(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
@@ -135,13 +136,24 @@ impl ModuleBuilder<'_> {
             // No declaration answers this method, so the value decides at run
             // time through the erased call ABI.
             let span = self.span(call.span.start, call.span.end);
+            // `valueOf()` on a closed prototype is the value itself:
+            // `Object.prototype.valueOf` for an array, and each primitive
+            // wrapper's `valueOf` for its primitive. An absent optional
+            // receiver (`x?.valueOf()`) is `undefined`, which is the receiver
+            // too.
+            if property_name == "valueOf"
+                && args.is_empty()
+                && self.value_of_is_identity(access_receiver_ty)
+            {
+                return Ok(receiver);
+            }
             if let Some(blocked) =
                 self.closed_prototype_call_blocked(access_receiver_ty, property_name, span, body)?
             {
                 return Ok(blocked);
             }
             // not a new erasure: the resolved method already returns `unknown`
-            let ty = self.unknown_type();
+            let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
             let value = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: receiver },
                 ty,
@@ -249,7 +261,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         // not a new erasure: the erased call this replaces answered `unknown`
-        let ty = self.unknown_type();
+        let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall { callee, args: Vec::new() },
             ty,
@@ -288,6 +300,25 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         (!answered && method != "toString").then_some(prototype)
+    }
+
+    /// Whether `receiver_ty.valueOf()` is the receiver itself: an array, a
+    /// tuple or a primitive, whose prototypes no source can redefine.
+    fn value_of_is_identity(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(
+                Type::String
+                    | Type::List(_)
+                    | Type::Tuple(_)
+                    | Type::Float
+                    | Type::Int
+                    | Type::FixedInt(_)
+                    | Type::Bool
+                    | Type::BigInt
+                    | Type::Symbol
+            )
+        )
     }
 
     /// Contextual types for function-valued parameters of a class method.
@@ -939,6 +970,11 @@ impl ModuleBuilder<'_> {
         if self.static_member_is_class_static_method(member) {
             return Ok(None);
         }
+        if matches!(member.property.name.as_str(), "call" | "apply")
+            && let Some(expr) = self.erased_function_method_call(member, call, body)?
+        {
+            return Ok(Some(expr));
+        }
         if member.property.name == "call" {
             let callable = self.expression(&member.object, body)?;
             let callable_ty = Self::expr_ty(body, callable);
@@ -1286,7 +1322,7 @@ impl ModuleBuilder<'_> {
             } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
                 let unknown = if self.type_contains_unknown(callee_ty) {
                     // not a new erasure: the callee already carries an erased type
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 } else {
                     self.erase(ErasureReason::ByName)
                 };
@@ -1443,7 +1479,7 @@ impl ModuleBuilder<'_> {
             {
                 let unknown = if self.type_contains_unknown(callee_ty) {
                     // not a new erasure: the callee already carries an erased type
-                    self.unknown_type()
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
                 } else {
                     self.erase(ErasureReason::ByName)
                 };
@@ -1653,6 +1689,56 @@ impl ModuleBuilder<'_> {
             return callee;
         }
         self.bind_this_receiver(callee, receiver, body, span)
+    }
+
+    /// `f.call(thisArg, ..)` / `f.apply(thisArg, args)` on an ERASED `f`
+    /// (`unknown`, or a local of `unknown | undefined`), as one
+    /// [`ExprKind::ErasedFunctionMethodCall`]; `None` for any other receiver,
+    /// and for a spread argument list, which the member-call paths below
+    /// handle.
+    ///
+    /// The member is resolved at run time, as JavaScript resolves it: a
+    /// function runs with `thisArg` as its `this`, an object with its own
+    /// `call` runs that. The typed `call` arm cannot take an erased callee:
+    /// with no arity to go by it bound the leading operand as an argument,
+    /// so `typeof value === "function" ? value.call(object) : value`
+    /// (es-toolkit's `result`) called `value` with `object` as its first
+    /// parameter and no `this`.
+    fn erased_function_method_call(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if Self::call_has_spread_arguments(call) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        // A local of `unknown | undefined` read at its narrowed `unknown` is
+        // taken as stored: the operation erases it anyway.
+        let receiver = self.stored_erased_callee(receiver, body);
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let erased = match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(inner)) => {
+                matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+                    && matches!(body.expr_at(receiver).map(|expr| &expr.kind), Some(ExprKind::Local(_)))
+            }
+            _ => false,
+        };
+        if !erased {
+            return Ok(None);
+        }
+        let args = call.arguments.iter().map(|argument| self.argument(argument, body)).collect::<Result<Vec<_>, _>>()?;
+        let method = self.intern_source_name(member.property.name.as_str());
+        // not a new erasure: the receiver is already erased, and so is what
+        // calling it answers.
+        let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ErasedFunctionMethodCall { receiver, method, args },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Return true when a member access names an actual lowered class method.

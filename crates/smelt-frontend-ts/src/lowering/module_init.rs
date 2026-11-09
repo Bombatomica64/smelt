@@ -64,7 +64,6 @@ impl ModuleBuilder<'_> {
                 file: self.file_id,
             },
         );
-        let previous_export_aliases = self.ctx.export_aliases.clone();
 
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
@@ -126,10 +125,17 @@ impl ModuleBuilder<'_> {
             &mut module,
             &mut errors,
         );
+        // The previous top-level statement, examined once it is lowered
+        // (`note_lowered_function`): the loop body leaves through `continue`s.
+        let mut previous: Option<&Statement<'_>> = None;
         for statement in &program.body {
+            if let Some(lowered) = previous.take() {
+                self.note_lowered_function(lowered, &module.items);
+            }
             if let Statement::ImportDeclaration(_) = statement {
                 continue;
             }
+            previous = Some(statement);
             self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
             // A queued arrow still waiting on a class is lowered no later than
             // its own source position, where every class above it is lowered.
@@ -429,7 +435,11 @@ impl ModuleBuilder<'_> {
             return Err(errors);
         }
 
-        self.record_module_exports(&module, &previous_export_aliases, signatures);
+        if let Some(lowered) = previous.take() {
+            self.note_lowered_function(lowered, &module.items);
+        }
+        self.close_unchecked_generic_returns(&module.items);
+        self.record_module_exports(&module, signatures);
 
         self.fn_ctx = outer_fn_ctx;
         // The body needs the async runtime when it awaits, or when it starts

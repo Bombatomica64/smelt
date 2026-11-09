@@ -99,9 +99,7 @@ impl ModuleBuilder<'_> {
             {
                 if let Some(collection) = self.const_collection_from_object_const(&value) {
                     self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
-                    self.ctx
-                        .object_value_collections
-                        .write().insert(binding.name.as_str().to_owned(), collection);
+                    self.publish_export(|ctx| &mut ctx.object_value_collections, binding.name.as_str().to_owned(), collection);
                 }
                 self.consts.set_object(binding.name.as_str().to_owned(), value);
             } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -110,9 +108,7 @@ impl ModuleBuilder<'_> {
                 && let Some(collection) = self.const_unknown_value_collection_from_object(object)
             {
                 self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
-                self.ctx
-                    .object_value_collections
-                    .write().insert(binding.name.as_str().to_owned(), collection);
+                self.publish_export(|ctx| &mut ctx.object_value_collections, binding.name.as_str().to_owned(), collection);
             }
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && !self.consts.has_object(binding.name.as_str())
@@ -177,9 +173,7 @@ impl ModuleBuilder<'_> {
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
                         self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
-                        self.ctx
-                            .const_collections
-                            .write().insert(binding.name.as_str().to_owned(), collection);
+                        self.publish_export(|ctx| &mut ctx.const_collections, binding.name.as_str().to_owned(), collection);
                     }
                 }
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -209,9 +203,7 @@ impl ModuleBuilder<'_> {
                     && let Some(collection) = self.declared_const_collection(init, ty)
                 {
                     self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
-                    self.ctx
-                        .const_collections
-                        .write().insert(binding.name.as_str().to_owned(), collection);
+                    self.publish_export(|ctx| &mut ctx.const_collections, binding.name.as_str().to_owned(), collection);
                 }
             }
         }
@@ -228,7 +220,8 @@ impl ModuleBuilder<'_> {
         let lifted: Vec<String> = self.mutable_global_items.keys().cloned().collect();
         for name in lifted {
             if self.consts.forget_collection(&name) {
-                self.ctx.const_collections.write().remove(&name);
+                let key = self.export_key(name);
+                self.ctx.const_collections.write().remove(&key);
             }
         }
     }

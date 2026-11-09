@@ -33,7 +33,7 @@ impl ModuleBuilder<'_> {
                 self.reexport_namespace_members(&local, &exported);
             } else if let Some(item) = self.items.get(&local).copied() {
                 self.items.insert(exported.clone(), item);
-                self.ctx.export_aliases.insert(exported, item);
+                self.publish_export_alias(exported, item);
             }
         }
     }
@@ -52,7 +52,7 @@ impl ModuleBuilder<'_> {
         members.sort_by(|left, right| left.0.cmp(&right.0));
         for (alias, item) in members {
             self.items.insert(alias.clone(), item);
-            self.ctx.export_aliases.insert(alias, item);
+            self.publish_export_alias(alias, item);
         }
     }
 
@@ -78,20 +78,18 @@ impl ModuleBuilder<'_> {
             });
             self.alias_imported_item(source_text, &imported, &exported);
             if let Some(item) = self.items.get(&exported).copied() {
-                self.ctx.export_aliases.insert(exported.clone(), item);
+                self.publish_export_alias(exported.clone(), item);
                 let exported_symbol = alias.unwrap_or(name);
                 module.reexports.push((exported_symbol, item));
             }
             if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
-                self.ctx
-                    .object_namespaces
-                    .write().insert(exported.clone(), namespace);
+                self.publish_export(|ctx| &mut ctx.object_namespaces, exported.clone(), namespace);
             }
             if let Some(value) = self.consts.object(exported.as_str()).cloned() {
-                self.ctx.object_consts.write().insert(exported.clone(), value);
+                self.publish_export(|ctx| &mut ctx.object_consts, exported.clone(), value);
             }
             if let Some(overloads) = self.functions.overloads(&exported).cloned() {
-                self.ctx.overloads.write().insert(exported, overloads);
+                self.publish_export(|ctx| &mut ctx.overloads, exported, overloads);
             }
         }
     }
@@ -141,7 +139,7 @@ impl ModuleBuilder<'_> {
         )]
         for (name, item) in exports {
             let alias = format!("{namespace}.{name}");
-            self.ctx.export_aliases.insert(alias.clone(), item);
+            self.publish_export_alias(alias.clone(), item);
             self.items.insert(alias.clone(), item);
             if self.classes.has_item(item) {
                 self.classes.register(alias.clone(), item);

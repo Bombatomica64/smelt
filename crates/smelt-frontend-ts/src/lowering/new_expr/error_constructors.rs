@@ -2,6 +2,7 @@
 //! error subclasses, lowered to the error record with its message, `cause` and
 //! `errors` parts.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
@@ -35,7 +36,7 @@ impl ModuleBuilder<'_> {
     ) {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         // not a new erasure: a slot of the erased Error record, recorded by its builder
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String(name.to_owned())),
             ty: string_ty,

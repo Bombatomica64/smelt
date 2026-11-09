@@ -3,6 +3,7 @@
 //! Lowers standard-library `Map` and `Set` receiver methods into typed HIR
 //! dict/set operations. The impl block below documents the concern in detail.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
 use oxc::ast::ast::{Argument, Expression};
@@ -1006,7 +1007,7 @@ impl ModuleBuilder<'_> {
                             Some(Type::Unknown)
                         ) {
                             // not a new erasure: the iterable is already erased
-                            self.unknown_type()
+                            self.unknown_type(NotNewErasure::ErasedUpstream)
                         } else {
                             self.erase_with(ErasureReason::DynamicOperator, "new Set(union)")
                         };
@@ -1242,7 +1243,7 @@ impl ModuleBuilder<'_> {
                 // The iterable's own type is erased, so its entries are too:
                 // this is the dynamic boundary the argument already crossed,
                 // not a new erasure.
-                let unknown = self.unknown_type();
+                let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
                 let entry_ty = self.ctx.krate.types.intern(Type::Tuple(vec![unknown, unknown]));
                 let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
                 let entries = body.push_expr(Expr {

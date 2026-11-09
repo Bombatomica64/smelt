@@ -281,6 +281,10 @@ impl FunctionEmitter<'_> {
         // its `String` text transcoded.
         match self.mir.types.get(source_key) {
             Some(Type::String) => Ok(value_text.cloned_value()),
+            // A symbol, or a property key holding one, is stored on an erased
+            // object under its reserved spelling; a string key is itself.
+            Some(Type::PropKey) => Ok(value_text.postfix(".storage_key()")),
+            Some(Type::Symbol) => Ok(RustExpr::chain(format!("JsString::from({value_text}.storage_key())", value_text = value_text.tight()))),
             Some(Type::Optional(inner)) => {
                 let owned_value_text = value_text.cloned_value();
                 let inner_text = self.property_key_to_string_expr(&RustExpr::path("smelt_value"), *inner)?;
@@ -308,6 +312,8 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(source_key) {
             Some(Type::String) => Ok(owned_value_text.postfix(".to_string()")),
             Some(Type::PyStr) => Ok(owned_value_text),
+            Some(Type::PropKey) => Ok(value_text.postfix(".storage_key().to_string()")),
+            Some(Type::Symbol) => Ok(value_text.postfix(".storage_key()")),
             Some(Type::Bool) => Ok(value_text.postfix(".to_string()")),
             // A property KEY is a stringified number, and JavaScript's rule is
             // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
@@ -362,7 +368,7 @@ impl FunctionEmitter<'_> {
             Operand::Const(Constant::BigInt(_)) => self.type_id(Type::BigInt),
             Operand::Const(Constant::String(_)) => self.type_id(self.text_type()),
             Operand::Const(Constant::StringUnits(_)) => self.type_id(Type::String),
-            Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Unknown),
+            Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Symbol),
         }
     }
 }

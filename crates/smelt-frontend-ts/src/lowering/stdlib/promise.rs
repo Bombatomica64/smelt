@@ -1,5 +1,6 @@
 //! `Promise`: its statics, its constructor and executor, and `then`/`catch`/`finally`.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
@@ -322,7 +323,7 @@ impl ModuleBuilder<'_> {
                     None
                 };
                 // not a new erasure: only compared against the inferred output below
-                let unknown_ty = self.unknown_type();
+                let unknown_ty = self.unknown_type(NotNewErasure::Comparison);
                 match resolved {
                     // `unknown` is exactly the erased resolver the executor
                     // was just lowered against, so only the output changes.
@@ -397,7 +398,7 @@ impl ModuleBuilder<'_> {
     /// erased (ignored) resolve value.
     fn promise_executor_type(&mut self, output_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         // runtime-helper signature: a valueless promise's resolve takes an ignored tagged value
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let resolve_value_ty = if output_ty == none_ty { unknown_ty } else { output_ty };
         let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -570,7 +571,7 @@ impl ModuleBuilder<'_> {
         };
         // not a new erasure: only the contextual return hint for the callback,
         // whose real result is inferred from its body below.
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::NoHint);
         // The continuation parameter type is contextual, but its return type is
         // inferred from the callback body. `Promise.then` is generic in that
         // return (`U | PromiseLike<U>`); forcing `void` here erased values such

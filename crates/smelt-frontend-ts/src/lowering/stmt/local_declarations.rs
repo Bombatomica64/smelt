@@ -1,6 +1,7 @@
 //! Local declarations: `var`/`let`/`const` statements, `catch` bindings, and the
 //! forward declarations a body needs before its statements run.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::js_text::{js_str_text, static_name_text};
@@ -296,6 +297,23 @@ impl ModuleBuilder<'_> {
         // `new`/`instanceof`/`Foo.prototype.x = …` in this block are synthesized
         // into classes here, before the binding is treated as a function value.
         self.synthesize_const_constructor_functions(statements)?;
+        // Which sibling functions the block constructs, in one scoped walk of
+        // the block for all of them.
+        let sibling_names: HashSet<&str> = statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::FunctionDeclaration(function) => function.id.as_ref().map(|id| id.name.as_str()),
+                _ => None,
+            })
+            .collect();
+        let mut constructed = HashSet::new();
+        if !sibling_names.is_empty() {
+            for statement in statements {
+                constructed.extend(
+                    crate::lowering::scoped_references::statement_name_uses(statement, &sibling_names).constructed,
+                );
+            }
+        }
         for statement in statements {
             let Statement::FunctionDeclaration(function) = statement else {
                 continue;
@@ -310,9 +328,7 @@ impl ModuleBuilder<'_> {
             // `Foo.prototype.x = …` in this block is a JavaScript constructor
             // function: synthesize a class for it instead of a plain local
             // function so the construction and prototype-chain sites resolve.
-            if !self.classes.contains(id.name.as_str())
-                && Self::statements_use_function_as_constructor(id.name.as_str(), statements)
-            {
+            if !self.classes.contains(id.name.as_str()) && constructed.contains(id.name.as_str()) {
                 self.synthesize_constructor_function_class(function, statements)?;
                 continue;
             }
@@ -340,7 +356,7 @@ impl ModuleBuilder<'_> {
                     .unwrap_or_else(|| {
                         // not a new erasure: provisional return, replaced by the
                         // inferred one once the body lowers
-                        let unknown = self.unknown_type();
+                        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
                         if function.r#async {
                             self.ctx.krate.types.intern(Type::Future(unknown))
                         } else {
@@ -556,7 +572,7 @@ impl ModuleBuilder<'_> {
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
             {
                 // not a new erasure: provisional self-binding while the initializer lowers
-                let ty = annotated_ty.unwrap_or_else(|| self.unknown_type());
+                let ty = annotated_ty.unwrap_or_else(|| self.unknown_type(NotNewErasure::ErasedUpstream));
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),

@@ -234,9 +234,8 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
-        self.scope.push_narrowing_fact(name.to_owned(), inner);
-        let lowered = self.call_expression(call, body);
-        self.scope.pop_narrowing_scope();
+        let fact = HashMap::from([(name.to_owned(), inner)]);
+        let lowered = self.with_narrowing(Some(fact), |this| this.call_expression(call, body));
         let op = lowered?;
         Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
     }
@@ -309,6 +308,52 @@ impl<'builder> ModuleBuilder<'builder> {
         }
     }
 
+    /// `callee` re-read at its local's stored type when
+    /// [`Self::erased_callee_read_ty`] says the narrowed read is only an
+    /// unwrap the erased call does anyway; any other expression unchanged.
+    pub(in crate::lowering) fn stored_erased_callee(
+        &self,
+        callee: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some((local, read_ty, span)) = body.expr_at(callee).and_then(|expr| match expr.kind {
+            ExprKind::Local(local) => Some((local, expr.ty, expr.span)),
+            _ => None,
+        }) else {
+            return callee;
+        };
+        let ty = self.erased_callee_read_ty(read_ty, Self::local_ty(body, local));
+        if ty == read_ty {
+            return callee;
+        }
+        body.push_expr(Expr { kind: ExprKind::Local(local), ty, span })
+    }
+
+    /// The type a call reads its erased callee local at.
+    ///
+    /// A local of `unknown | undefined` read at its narrowed `unknown` is an
+    /// unwrap of the `Option`. A call of it goes through the dynamic dispatch,
+    /// which erases the callee anyway and throws for an absent one, so the
+    /// call takes the local as it is stored and the unwrap is not a value of
+    /// its own (es-toolkit's `value => lastValue(value)` on the
+    /// `unknown | undefined` that `last(values)` returns). Any other read
+    /// keeps `read_ty`.
+    pub(in crate::lowering) fn erased_callee_read_ty(
+        &self,
+        read_ty: smelt_hir::TypeId,
+        stored_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let stored_optional_unknown = matches!(
+            self.ctx.krate.types.get(stored_ty),
+            Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+        );
+        if stored_optional_unknown && self.ctx.krate.types.get(read_ty) == Some(&Type::Unknown) {
+            stored_ty
+        } else {
+            read_ty
+        }
+    }
+
     /// Lower `callee(args)` for a callee whose static type has no typed call
     /// signature, through the erased callable ABI.
     ///
@@ -329,11 +374,16 @@ impl<'builder> ModuleBuilder<'builder> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let callee = self.stored_erased_callee(callee, body);
         let callee_ty = Self::expr_ty(body, callee);
+        let optional_unknown = match self.ctx.krate.types.get(callee_ty) {
+            Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) => Some(*inner),
+            _ => None,
+        };
         // The call result is decided by the run-time callee; a callee that is
         // already erased was recorded where it was erased.
-        let unknown_ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
-        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+        let unknown_ty = optional_unknown.unwrap_or_else(|| self.erase_unless_unknown(callee_ty, ErasureReason::ByName));
+        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) || optional_unknown.is_some() {
             callee
         } else {
             body.push_expr(Expr {

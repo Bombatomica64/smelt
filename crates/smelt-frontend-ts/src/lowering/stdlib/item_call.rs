@@ -3,6 +3,7 @@
 //! The decision runs in stages: resolve the item, pick its rest slot and overload,
 //! lower the arguments, then settle the return type the call site sees.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::spread_arguments::CallArg;
 use crate::lowering::{ModuleBuilder, RestParam};
 use crate::{OverloadSignature, SmeltError};
@@ -120,7 +121,11 @@ impl ModuleBuilder<'_> {
         // return still carries the raw `TypeParam`. Instantiate it from
         // the lowered argument types the same way overload selection
         // does, so `shuffle([1, 2]).sort()` sees `number[]`, not `T[]`.
-        let return_ty = if selected_overload.is_none() {
+        let return_ty = if self.ctx.unchecked_generic_returns.contains(&callee.item) {
+            // The callee returns an erased value as its `T`; the instantiation
+            // is a promise its body never checks (`lowering::unchecked_returns`).
+            self.erase_with(ErasureReason::ExplicitAny, "generic return fed by an erased value")
+        } else if selected_overload.is_none() {
             self.instantiated_call_return(&callee.type_params, &callee.params, &args, return_ty, call, body)?
         } else {
             return_ty
@@ -317,6 +322,22 @@ impl ModuleBuilder<'_> {
             }) {
                 return Some(bound);
             }
+            // An object literal is never typed by a RECORD hint that names the
+            // callee's own uninstantiated type parameters (`obj: Record<K,
+            // V>`): they name nothing at the call site, so the literal would
+            // become `Dict<K, V>` and inference would bind `K := K`, leaking the
+            // raw parameters into the call's result. Its own shape decides, and
+            // the parameters are inferred from it. A declared shape (`box:
+            // Box<T>`, a generated struct) keeps its hint: the literal must be
+            // built as that struct.
+            if matches!(arg, Argument::ObjectExpression(_))
+                && implementation_hint.is_some_and(|hint| {
+                    matches!(builder.ctx.krate.types.get(hint), Some(Type::Dict(..)))
+                        && builder.mentions_type_params(hint, callee_type_params)
+                })
+            {
+                return None;
+            }
             if matches!(arg, Argument::RegExpLiteral(_)) {
                 selected_overload
                     .and_then(|signature| signature.params.get(index).copied())
@@ -424,6 +445,9 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
+        // A callback's `key: K` with `K extends keyof T` is a string, whatever
+        // the value arguments left unbound.
+        self.bind_primitive_constraints(callee_type_params, &mut substitutions);
         substitutions
     }
 
@@ -519,7 +543,7 @@ impl ModuleBuilder<'_> {
             )
             // not a new erasure: a non-function falls through to the
             // recorded `ByName` site below
-            .unwrap_or_else(|_| self.unknown_type());
+            .unwrap_or_else(|_| self.unknown_type(NotNewErasure::ErasedUpstream));
         if let Some(Type::Function(function)) =
             self.ctx.krate.types.get(item_ty).cloned()
         {

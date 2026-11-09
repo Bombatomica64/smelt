@@ -732,6 +732,9 @@ jobs:
           python3 scripts/check_library_gate.py compile-pin \
             --baseline blocker-logs/hono-ci-baseline.json \
             --log hono-tests.log
+          python3 scripts/check_library_gate.py runtime-ratchet \
+            --baseline blocker-logs/hono-ci-baseline.json \
+            --log hono-tests.log
 
       # Advisory SmeltUnknown metric, remeda-style: a regression never blocks,
       # but a missing blocker-logs/smelt-unknown-baseline-hono.json does, because

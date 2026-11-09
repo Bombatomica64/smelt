@@ -35,6 +35,10 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok(RustExpr::path("0.0")),
             Type::String => Ok(RustExpr::atom("JsString::new()")),
             Type::PyStr => Ok(RustExpr::atom("String::new()")),
+            // Placeholders for a slot declared before its first write; no
+            // source value is ever this default.
+            Type::Symbol => Ok(RustExpr::atom("SmeltSymbol::default()").delegating_default()),
+            Type::PropKey => Ok(RustExpr::atom("SmeltPropKey::default()").delegating_default()),
             Type::Unknown => Ok(self.null_value()?),
             Type::Never => Ok(self.null_value()?),
             Type::None => Ok(RustExpr::unit()),
@@ -48,6 +52,9 @@ impl FunctionEmitter<'_> {
             Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
                 Ok(RustExpr::atom("SmeltRecord::new()"))
+            }
+            Type::Dict(key, _) if self.is_prop_key_record_key(*key) => {
+                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltPropKeyRecord::new()")))
             }
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
                 Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()")))

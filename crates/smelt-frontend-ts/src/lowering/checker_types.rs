@@ -520,14 +520,15 @@ fn program_relative(path: &str) -> String {
     normalize(&path.strip_prefix(PROGRAM_ROOT).unwrap_or(path).replace('\\', "/"))
 }
 
-/// `module_path` as the bridge places it: absolute (the transpiler locates
-/// program files at `std::path::absolute` of their source path), normalized.
-///
-/// `std::path::absolute` is pure path arithmetic against the working
-/// directory; it does not touch the file system.
+/// `module_path` as the bridge places it: canonical (the transpiler locates
+/// program files at the canonical path of their source, so a file reached
+/// through a symlink is the one file it names), normalized. A path that does
+/// not exist (an in-memory source) is made absolute instead, as the bridge does.
 fn module_program_relative(module_path: &str) -> String {
-    let absolute = std::path::absolute(module_path).map_or_else(|_| module_path.to_owned(), |path| path.display().to_string());
-    program_relative(&absolute)
+    let located = std::fs::canonicalize(module_path)
+        .or_else(|_| std::path::absolute(module_path))
+        .map_or_else(|_| module_path.to_owned(), |path| path.display().to_string());
+    program_relative(&located)
 }
 
 /// Whether the checker's program `file` is the module at `module_path`.

@@ -7,6 +7,7 @@
 //! somewhere activate this machinery; every other name keeps today's byte
 //! -identical folding and native construction (pay-for-use).
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
@@ -373,7 +374,7 @@ impl ModuleBuilder<'_> {
             return value;
         }
         // not a new erasure: joins the erased sibling slot-dispatch branch (recorded in wrap_host_global_new)
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         body.push_expr(Expr {
             kind: ExprKind::UnknownCast {
                 value,

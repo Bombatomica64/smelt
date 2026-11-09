@@ -60,19 +60,6 @@ pub(in crate::lowering) struct FunctionRegistry {
 }
 
 impl FunctionRegistry {
-    /// Build the registry a fresh module starts from, seeded with the overloads
-    /// and rest parameters published by earlier modules.
-    pub(in crate::lowering) fn new(
-        overloads: Published<HashMap<String, Vec<OverloadSignature>>>,
-        rests: Published<HashMap<String, RestParam>>,
-    ) -> Self {
-        Self {
-            overloads,
-            rests,
-            ..Self::default()
-        }
-    }
-
     /// Append one overload signature for `name`, preserving source order.
     pub(in crate::lowering) fn push_overload(
         &mut self,

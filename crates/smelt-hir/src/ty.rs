@@ -49,6 +49,27 @@ pub enum Type {
     /// text asks [`Type::is_text`]; logic that holds for one language's
     /// strings matches its variant.
     PyStr,
+    /// A JavaScript `symbol`: a value with identity, compared by `===` and
+    /// usable as a property key that never collides with a string key.
+    ///
+    /// Its runtime kind is [`UnknownKind::Symbol`] (`typeof` answers
+    /// `"symbol"`). Python has no symbols, so only the TypeScript frontend
+    /// produces it. A unique `Symbol()` and a registry `Symbol.for(d)` share
+    /// this one type; which of the two a value is lives in the value.
+    Symbol,
+    /// A JavaScript property key after `ToPropertyKey`: a string or a symbol.
+    ///
+    /// The key type of a TypeScript record whose source key is not a plain
+    /// string (`Record<K, V>` with a type-parameter `K`, or a key space that
+    /// holds `symbol`). JavaScript converts every key it stores on an object to
+    /// a property key: `r[1]` and `r['1']` name one entry and a symbol key never
+    /// meets a string key. Carrying the converted key as its own type is what
+    /// makes the conversion impossible to skip: codegen renders it as a runtime
+    /// type that only the conversion constructs, so a raw `number` key does not
+    /// type-check against the record. Never a value type a source annotation
+    /// spells, and never produced by the Python frontend, whose dict keys keep
+    /// their own values.
+    PropKey,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
     Unknown,
     /// TypeScript `never`, the bottom type with no runtime values.
@@ -163,6 +184,8 @@ impl Type {
             | Self::BigInt
             | Self::String
             | Self::PyStr
+            | Self::Symbol
+            | Self::PropKey
             | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }
@@ -210,6 +233,8 @@ impl Type {
             | Self::BigInt
             | Self::String
             | Self::PyStr
+            | Self::Symbol
+            | Self::PropKey
             | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }
@@ -275,6 +300,7 @@ impl Type {
             Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
             Self::BigInt => Some(UnknownKind::BigInt),
             Self::String | Self::PyStr => Some(UnknownKind::String),
+            Self::Symbol => Some(UnknownKind::Symbol),
             Self::Function(_) => Some(UnknownKind::Function),
             Self::List(_) | Self::Tuple(_) => Some(UnknownKind::Array),
             Self::Dict(_, _)
@@ -284,7 +310,9 @@ impl Type {
             | Self::Generator { .. }
             | Self::GeneratorResult { .. } => Some(UnknownKind::Object),
             Self::Future(_) => Some(UnknownKind::Promise),
-            Self::Unknown
+            // A property key is a string or a symbol, two kinds.
+            Self::PropKey
+            | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }
             | Self::None

@@ -99,15 +99,23 @@ fn union_member_fields_erase_at_the_member_type_arguments() {
     );
 }
 
-/// A value of an exact arm of a union that is itself a member of the target
-/// union (a callable interface merging `status?: number` and `init?: InitOrBox` into `number | InitOrBox`, given a `Box<string>`) is wrapped twice.
+/// A value of an arm of a union that a callable interface merges into
+/// another union (`status?: number` and `init?: InitOrBox` into
+/// `number | InitOrBox`, given a `Box<string>`) injects into its own arm.
+///
+/// Old requirement: the merged type kept `InitOrBox` as a nested union arm,
+/// and the box was wrapped twice (inner union, then outer). New requirement:
+/// type normalization flattens a union arm that is itself a union (the
+/// invariant the union emitter documents and every `typeof`/arm-projection
+/// rule reads only the top-level arms of), so `number | Init | Box<string>`
+/// holds the box in its own arm, wrapped once.
 #[test]
 fn value_injects_through_a_nested_union_member() {
     let source = source_for(FIXTURE);
     let caller = emitted_function_body(&source, "fn respond_with_box(");
     assert!(
-        caller.contains("::M1(SmeltUnion") && caller.contains("::M1(box_"),
-        "the box is wrapped in the inner union, then the outer: {caller}"
+        caller.contains("::M2(box_") && !caller.contains("::M1(SmeltUnion"),
+        "the box is wrapped once, in the flattened union's own arm: {caller}"
     );
 }
 

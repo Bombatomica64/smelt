@@ -364,6 +364,13 @@ pub mod function_length {
     /// Records an erased callable's source arity at the erasure site.
     pub const REGISTER: &str = "smelt_register_function_length";
 
+    /// Records an erased callable's arity unless one is already recorded.
+    ///
+    /// An erasure of an already-typed callable value uses it: the arity its
+    /// origin recorded (the source-declared one) wins over the arity of the
+    /// static type it is erased at.
+    pub const REGISTER_ONCE: &str = "smelt_register_function_length_once";
+
     /// Reads an erased value's `Function.prototype.length`, or `0` for a
     /// non-callable — which is also what JavaScript answers for a value with no
     /// `length` property.

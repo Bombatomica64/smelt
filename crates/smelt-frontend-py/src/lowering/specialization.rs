@@ -388,6 +388,22 @@ impl ModuleBuilder<'_> {
         provenance: &smelt_specialize::CallableProvenance,
         span: Span,
     ) -> Result<ItemId, SmeltError> {
+        // The span must still name the code the guest ran (audit finding
+        // A9): an edited file moves the span onto other code, and the nearest
+        // item below would silently be some other function. A file that cannot
+        // be read here (an in-memory fixture) cannot be checked.
+        if let Ok(source) = std::fs::read(&provenance.span.file)
+            && provenance.span_matches(&source) == Some(false)
+        {
+            return Err(SmeltError::native_specialization_adapter_required(
+                span,
+                "python.callable-source",
+                &format!(
+                    "callable '{}' no longer matches the source its specialization recorded: re-run specialization",
+                    provenance.qualified_name
+                ),
+            ));
+        }
         let expected_name = provenance
             .qualified_name
             .rsplit('.')

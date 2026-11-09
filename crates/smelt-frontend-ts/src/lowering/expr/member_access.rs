@@ -1,6 +1,7 @@
 //! Member access: namespace member calls, static and computed member reads, and the
 //! well-known `Symbol`, `Number`, `Object` and `process` static surfaces.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -573,10 +574,11 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.blob_member_read(member, receiver, access_receiver_ty, body)? {
                 return Ok(expr);
             }
+            if let Some(expr) = self.symbol_member_read(member, receiver, receiver_ty, body) {
+                return Ok(expr);
+            }
         }
-        if member.property.name == "length" && self.supports_stdlib_length(access_receiver_ty)
-            || member.property.name == "size" && self.supports_stdlib_size(access_receiver_ty)
-        {
+        if self.element_count_member(access_receiver_ty, member.property.name.as_str()) {
             let ty = self.ctx.krate.types.intern(Type::Float);
             let operand = if optional_access {
                 body.push_expr(Expr {
@@ -920,9 +922,8 @@ impl ModuleBuilder<'_> {
             crate::lowering::ty::computed_key_symbols::well_known_symbol_value_spelling(
                 member.property.name.as_str(),
             )?;
-        // Symbol values are erased at runtime (`SmeltUnknown::Symbol`), the same
-        // type the `Symbol()` / `Symbol.for()` call paths intern.
-        let ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
+        // The same `symbol` type the `Symbol()` / `Symbol.for()` calls have.
+        let ty = self.ctx.krate.types.intern(Type::Symbol);
         Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(spelling)),
             ty,
@@ -971,7 +972,7 @@ impl ModuleBuilder<'_> {
         // not a new erasure: names the parameter type of a synthesized runtime
         // helper closure (any JS value is accepted); the result's erasure is
         // recorded by the caller.
-        let unknown = self.unknown_type();
+        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
         let mut closure_body = Body::new(None, span);
         let mut params = Vec::new();
         let mut param_tys = Vec::new();

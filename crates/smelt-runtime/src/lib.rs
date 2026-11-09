@@ -139,6 +139,7 @@ mod runtime {
     include!("runtime/string_to_number.rs");
     include!("runtime/strings.rs");
     include!("runtime/structural_eq.rs");
+    include!("runtime/symbol.rs");
     include!("runtime/symbol_keys.rs");
     include!("runtime/text_codec.rs");
     include!("runtime/this_channel.rs");

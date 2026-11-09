@@ -131,6 +131,67 @@ pub struct OverloadSignature {
     pub is_async: bool,
 }
 
+/// One source module's identity as a key of the crate-wide export tables.
+///
+/// The canonical path when the module exists on disk, so `./a.ts`, `a.ts` and
+/// the absolute spelling of one file are one key; otherwise the path as given,
+/// without a leading `./` (a module lowered on its own in a unit test).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModuleKey(String);
+
+impl ModuleKey {
+    /// The key of the module at `path`.
+    #[must_use]
+    pub fn of_path(path: &str) -> Self {
+        if let Ok(canonical) = std::fs::canonicalize(path) {
+            return Self(canonical.display().to_string());
+        }
+        // Not on disk: normalize lexically, so `src/./number.ts` (an
+        // importer's `./number` joined onto its directory) and `src/number.ts`
+        // are one key.
+        let mut normalized = std::path::PathBuf::new();
+        for component in std::path::Path::new(path).components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    if !normalized.pop() {
+                        normalized.push("..");
+                    }
+                }
+                other => normalized.push(other),
+            }
+        }
+        Self(normalized.display().to_string())
+    }
+}
+
+/// A name as one module exports it: the key of every crate-wide table that
+/// carries facts from a declaring module to its importers.
+///
+/// Two modules may export the same name (`a.ts` and `b.ts` both
+/// `export const DEFAULTS`), so a table keyed by the bare name answers with
+/// whichever module wrote last. An importer instead asks for the name in the
+/// module its `from` clause resolves to (audit finding A2).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct QualifiedExport {
+    /// The exporting module.
+    pub module: ModuleKey,
+    /// The exported name (dotted for a static hung off an export: `partial.placeholder`).
+    pub name: String,
+}
+
+/// A crate-wide table of facts about exported names, keyed by [`QualifiedExport`].
+pub type ExportTable<V> = Published<HashMap<QualifiedExport, V>>;
+
+#[cfg(test)]
+impl<V> Published<HashMap<QualifiedExport, V>> {
+    /// The entry some module published for `name`, for tests that lower one
+    /// module and inspect what it exported.
+    pub(crate) fn exported(&self, name: &str) -> Option<&V> {
+        self.0.iter().find(|(key, _)| key.name == name).map(|(_, value)| value)
+    }
+}
+
 /// A table every module has published, shared with the builders that read it.
 ///
 /// A builder takes a snapshot when it starts: taking one shares the table, and the
@@ -180,8 +241,16 @@ pub struct ItemPredicate {
 pub struct HirCtx {
     /// The HIR crate being constructed.
     pub krate: HirCrate,
-    /// Exported aliases created by re-export declarations.
-    pub export_aliases: HashMap<String, ItemId>,
+    /// Exported aliases created by re-export declarations, keyed by the
+    /// module that publishes them.
+    pub export_aliases: HashMap<QualifiedExport, ItemId>,
+    /// Generic functions whose declared type-parameter return is fed by an
+    /// erased value (`lowering::unchecked_returns`): a call keeps the erased
+    /// result instead of converting it to the instantiation.
+    pub unchecked_generic_returns: HashSet<ItemId>,
+    /// Every module a builder has been created for, so an importer can tell
+    /// which of a specifier's candidate paths names a crate module.
+    pub known_modules: HashSet<ModuleKey>,
     /// Exported item names grouped by source module path.
     pub module_exports: HashMap<String, HashMap<String, ItemId>>,
     /// What each exported `value is T` or `asserts value is T` function proves.
@@ -200,24 +269,24 @@ pub struct HirCtx {
     pub module_global_object_aliases: HashMap<String, HashSet<String>>,
     /// Exported object constants used as namespace-like API surfaces, each with
     /// its entries in source order.
-    pub object_namespaces: Published<HashMap<String, IndexMap<String, ItemId>>>,
+    pub object_namespaces: ExportTable<IndexMap<String, ItemId>>,
     /// Exported object constants with literal data values.
-    pub object_consts: Published<HashMap<String, ObjectConst>>,
+    pub object_consts: ExportTable<ObjectConst>,
     /// Exported object constants whose values can be projected by `Object.values`.
-    pub object_value_collections: Published<HashMap<String, ConstCollection>>,
+    pub object_value_collections: ExportTable<ConstCollection>,
     /// Exported array/set constants that can be inlined by later modules.
-    pub const_collections: Published<HashMap<String, ConstCollection>>,
+    pub const_collections: ExportTable<ConstCollection>,
     /// Const-folded TypeScript `enum` member values visible to later modules.
     ///
-    /// Keyed by enum name then member name. Populated when an `enum`
+    /// Keyed by the exporting enum then member name. Populated when an `enum`
     /// declaration is lowered, and read by later modules so an imported enum's
     /// members still fold to their constant literal in `EnumName.Member` reads
     /// and `case EnumName.Member:` labels.
-    pub enum_members: Published<HashMap<String, HashMap<String, ConstLiteral>>>,
+    pub enum_members: ExportTable<HashMap<String, ConstLiteral>>,
     /// Function overload signatures visible to later TypeScript modules.
-    pub overloads: Published<HashMap<String, Vec<OverloadSignature>>>,
+    pub overloads: ExportTable<Vec<OverloadSignature>>,
     /// Rest-parameter metadata visible to later TypeScript modules.
-    pub function_rests: Published<HashMap<String, RestParam>>,
+    pub function_rests: ExportTable<RestParam>,
     /// Functions whose source return contract is a JavaScript `Date` value.
     pub date_returning_functions: HashSet<ItemId>,
     /// Structural fields attached to type aliases visible to later modules.
@@ -389,6 +458,8 @@ impl HirCtx {
         Self {
             krate: HirCrate::new(),
             export_aliases: HashMap::new(),
+            known_modules: HashSet::new(),
+            unchecked_generic_returns: HashSet::new(),
             module_exports: HashMap::new(),
             item_predicates: HashMap::new(),
             module_global_object_aliases: HashMap::new(),

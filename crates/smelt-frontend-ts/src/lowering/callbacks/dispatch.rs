@@ -2,6 +2,7 @@
 //! into a closure value. An inline literal lowers through its closure body; a
 //! name or a callable value is wrapped in a forwarding closure.
 
+use crate::lowering::erasure::NotNewErasure;
 use super::forwarding::ForwardingCallback;
 use crate::lowering::{
     Argument, Body, ClosureCallback, ExprKind, Expression, Item, ModuleBuilder, SmeltError, Type,
@@ -246,7 +247,7 @@ impl ModuleBuilder<'_> {
             );
         }
         // not a new erasure: `unknown` is the "no return hint" sentinel
-        let no_return_hint = self.unknown_type();
+        let no_return_hint = self.unknown_type(NotNewErasure::NoHint);
         if let Some(callback) = self.inline_callback(
             argument,
             expected_param_tys,

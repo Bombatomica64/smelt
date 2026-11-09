@@ -279,6 +279,15 @@ impl FunctionEmitter<'_> {
             // exhaustive match over the tags, keeping the `BigInt` tag's exact
             // value and coercing the primitives a dynamic value can hold
             // exactly as `SmeltFromUnknown for BigInt` does.
+            // A symbol and a property key extract through their runtime
+            // `SmeltFromUnknown` adapters: the symbol tag's spelling moves into
+            // the typed value, and a key is `ToPropertyKey` of whatever arrived.
+            Some(Type::Symbol) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
+                "<SmeltSymbol as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
+            )))),
+            Some(Type::PropKey) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
+                "SmeltToPropKey::smelt_to_prop_key(&({smelt_owned_text}))", smelt_owned_text = smelt_owned_text.delimited()
+            )))),
             Some(Type::BigInt) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "match {smelt_owned_text} {{ SmeltUnknown::BigInt(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_bigint_from_number(smelt_value).unwrap_or_default(), SmeltUnknown::String(smelt_value) => smelt_bigint_from_string(&smelt_value).unwrap_or_default(), SmeltUnknown::Bool(smelt_value) => {big}::from(i64::from(smelt_value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => {big}::default() }}",
                 big = crate::bigint_prelude::BIGINT_TYPE, smelt_owned_text = smelt_owned_text.delimited()
@@ -314,10 +323,10 @@ impl FunctionEmitter<'_> {
             // A JavaScript string target takes the erased payload itself and
             // transcodes only the text a non-string value coerces to.
             Some(Type::String) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other {{ {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}) }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), smelt_owned_text = smelt_owned_text.delimited()
+                "match {smelt_owned_text} {{ SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other {{ {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}) }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), smelt_owned_text = smelt_owned_text.delimited()
             )))),
             Some(Type::PyStr) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), smelt_owned_text = smelt_owned_text.delimited()
+                "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), smelt_owned_text = smelt_owned_text.delimited()
             )))),
             // Iterable-to-list extraction inspects the source through the
             // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
@@ -389,6 +398,24 @@ impl FunctionEmitter<'_> {
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key.to_string_lossy(), {item_text}))), SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (smelt_index.to_string(), {item_text})).collect(), SmeltUnknown::String(smelt_value) => smelt_value.code_point_strings().into_iter().enumerate().map(|(smelt_index, smelt_ch)| {{ let smelt_value = SmeltUnknown::String(smelt_ch); (smelt_index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}", text = text.delimited()
                 )))))
             }
+            // A property-key record reads its keys back through the inverse of
+            // the storage encoding: a reserved `__smelt_symbol` key is the
+            // symbol it was written for, every other key the string it is.
+            // An `unknown`-valued one recovers a second handle on the erased
+            // object's own store, so the record and the value it was read
+            // from stay one object (`data as Record<PropertyKey, unknown>`).
+            Some(Type::Dict(key, item)) if self.is_prop_key_record_key(*key) => {
+                if self.mir.types.get(*item) == Some(&Type::Unknown) {
+                    return Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
+                        "SmeltPropKeyRecord::from_shared_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
+                    ))));
+                }
+                let item_text = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
+                Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
+                    "SmeltPropKeyRecord::from_unknown_with({smelt_owned_text}, |smelt_value| {item_text})",
+                    smelt_owned_text = smelt_owned_text.delimited(), item_text = item_text.delimited()
+                ))))
+            }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
                 let key_text = self.rendered_at_type(&RustExpr::path("smelt_key"), self.type_id(Type::String)?, *key, scope)?;
                 let item_text = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
@@ -433,9 +460,6 @@ impl FunctionEmitter<'_> {
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => self.extract_optional(text, *inner, scope),
             Some(Type::Tuple(items)) => self.extract_tuple(&smelt_owned_text, items, scope),
-            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
-                Ok(text.to_owned())
-            }
             // The prelude `SmeltFromUnknown` impl is the single inverse of the
             // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the
             // writable `lastIndex` all survive a round trip through erased
@@ -925,7 +949,7 @@ impl FunctionEmitter<'_> {
             // it throws, so the adapter answers a callable that does.
             let default_callback = "SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| smelt_value_not_callable()), length: 0.0, object: None }";
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))), length: {length}.0, object: match smelt_value {{ SmeltUnknown::Object(smelt_object) => Some(smelt_object), _ => None }} }} }} else {{ {default_callback} }} }}", smelt_owned_text = smelt_owned_text.delimited()
+                "{{ let smelt_value = {smelt_owned_text}; let smelt_function = match smelt_value.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"{SMELT_CALL}\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ SmeltErasedFunction {{ callback: ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| (smelt_function)(smelt_args).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))), length: smelt_function_length_or(&smelt_value, {length}.0), object: match smelt_value {{ SmeltUnknown::Object(smelt_object) => Some(smelt_object), _ => None }} }} }} else {{ {default_callback} }} }}", smelt_owned_text = smelt_owned_text.delimited()
             ))));
         }
         // The callback slot and its return type render in `scope`, the

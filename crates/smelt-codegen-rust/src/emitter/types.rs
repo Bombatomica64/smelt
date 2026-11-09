@@ -305,6 +305,8 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok(RustType::raw("f64")),
             Type::String => Ok(RustType::raw("JsString")),
             Type::PyStr => Ok(RustType::raw("String")),
+            Type::Symbol => Ok(RustType::raw("SmeltSymbol")),
+            Type::PropKey => Ok(RustType::raw("SmeltPropKey")),
             Type::Unknown => Ok(RustType::erased()),
             Type::Never => {
                 self.note_backend_erasure(ErasureReason::NeverValue, String::new());
@@ -342,6 +344,12 @@ impl FunctionEmitter<'_> {
                 let key = self.rust_type(*key_ty, false, substitution)?;
                 let value = self.rust_type(*value_ty, false, substitution)?;
                 Ok(RustType::composed(format!("SmeltRecord<{key}, {value}>"), [&key, &value]))
+            }
+            // A property-key record is an object keyed by `ToPropertyKey`
+            // results; its runtime type seals the key (see `prop_key.rs`).
+            Type::Dict(key, value) if self.is_prop_key_record_key(*key) => {
+                let value_ty = self.rust_type(*value, false, substitution)?;
+                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltPropKeyRecord<{value_ty}>")), [&value_ty]).on_carrier())
             }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;

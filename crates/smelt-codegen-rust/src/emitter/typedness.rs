@@ -301,7 +301,8 @@ fn measure_body(
                 value:
                     Rvalue::ClosureCall { callee, .. }
                     | Rvalue::ClosureCallSpread { callee, .. }
-                    | Rvalue::ClosureCallRest { callee, .. },
+                    | Rvalue::ClosureCallRest { callee, .. }
+                    | Rvalue::ErasedFunctionMethodCall { receiver: callee, .. },
             } = statement
             {
                 let result =

@@ -237,6 +237,9 @@ impl FunctionEmitter<'_> {
             if self.dict_uses_smelt_record(key_ty) {
                 return Ok(RustExpr::atom(format!("SmeltRecord::from([{entries_text}])", entries_text = entries_text.delimited())));
             }
+            if self.is_prop_key_record_key(key_ty) {
+                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltPropKeyRecord::from([{entries_text}])", entries_text = entries_text.delimited()))));
+            }
             if self.dict_uses_js_key_map(key_ty) {
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap::from([{entries_text}])", entries_text = entries_text.delimited()))));
             }

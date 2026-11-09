@@ -2,6 +2,7 @@
 //! `reduce`, and the reduce-utility recognizers that carry their semantics
 //! through a callback argument.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{
     Argument, Body, Expr, ExprKind, Expression, FunctionType, ListCallbackOp,
     Literal, ModuleBuilder, SmeltError, Type,
@@ -642,7 +643,7 @@ impl ModuleBuilder<'_> {
         // not a new erasure: an `unknown` return hint means "no hint" to
         // closure-body lowering; a return that stays erased is recorded in
         // `callback_argument_with_return_hint`.
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::NoHint);
         let fallback_return_ty = match op {
             ListCallbackOp::Map | ListCallbackOp::FlatMap => unknown_ty,
             ListCallbackOp::Filter

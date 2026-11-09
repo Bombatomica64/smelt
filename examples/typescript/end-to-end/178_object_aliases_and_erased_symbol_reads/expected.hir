@@ -9,63 +9,64 @@ module examples/typescript/end-to-end/178_object_aliases_and_erased_symbol_reads
     fn paths owner Module
     fn context_of owner Module
   locals
-    %0 const MATCH: Unknown
+    %0 const MATCH: Symbol
     %1 const req: Request
     %2 const noRoutes: List<(String, String)>
   exprs
-    #0: Unknown = symbol("Symbol()@663")
-    #1: fn(Optional<Options>) -> String = @2(configure)
-    #2: String = call #1()
-    #3: String = "label"
-    #4: String = "custom"
-    #5: Options = {#3: #4}
-    #6: fn(Optional<Options>) -> String = @2(configure)
-    #7: String = call #6(#5)
-    #8: String = "limit"
-    #9: Float = 9.0
-    #10: Options = {#8: #9}
-    #11: fn(Optional<Options>) -> String = @2(configure)
-    #12: String = call #11(#10)
-    #13: None = @10(console_log)
-    #14: None = call #13(#2, #7, #12)
-    #15: String = "value"
-    #16: String = "a"
-    #17: String = "count"
-    #18: Float = 2.0
-    #19: Tagged<String, Float> = {#15: #16, #17: #18}
-    #20: fn(Tagged<String, Float>) -> String = @3(first)
-    #21: String = call #20(#19)
-    #22: None = @11(console_log)
-    #23: None = call #22(#21)
-    #24: String = "a"
-    #25: String = "/x"
-    #26: (String, String) = (#24, #25)
-    #27: String = "b"
-    #28: String = "/y"
-    #29: (String, String) = (#27, #28)
-    #30: List<(String, String)> = [#26, #29]
-    #31: String = "ctx"
-    #32: Request = new Request(#30, #31)
-    #33: List<(String, String)> = []
-    #34: Request = %1
-    #35: fn(Request) -> String = @4(paths)
-    #36: String = call #35(#34)
-    #37: Request = %1
-    #38: fn(Request) -> String = @5(context_of)
-    #39: String = call #38(#37)
-    #40: List<(String, String)> = %2
-    #41: Request = new Request(#40)
-    #42: fn(Request) -> String = @5(context_of)
-    #43: String = call #42(#41)
-    #44: None = @12(console_log)
-    #45: None = call #44(#36, #39, #43)
+    #0: Symbol = symbol("Symbol()@663")
+    #1: Symbol = symbol_unique #0
+    #2: fn(Optional<Options>) -> String = @2(configure)
+    #3: String = call #2()
+    #4: String = "label"
+    #5: String = "custom"
+    #6: Options = {#4: #5}
+    #7: fn(Optional<Options>) -> String = @2(configure)
+    #8: String = call #7(#6)
+    #9: String = "limit"
+    #10: Float = 9.0
+    #11: Options = {#9: #10}
+    #12: fn(Optional<Options>) -> String = @2(configure)
+    #13: String = call #12(#11)
+    #14: None = @10(console_log)
+    #15: None = call #14(#3, #8, #13)
+    #16: String = "value"
+    #17: String = "a"
+    #18: String = "count"
+    #19: Float = 2.0
+    #20: Tagged<String, Float> = {#16: #17, #18: #19}
+    #21: fn(Tagged<String, Float>) -> String = @3(first)
+    #22: String = call #21(#20)
+    #23: None = @11(console_log)
+    #24: None = call #23(#22)
+    #25: String = "a"
+    #26: String = "/x"
+    #27: (String, String) = (#25, #26)
+    #28: String = "b"
+    #29: String = "/y"
+    #30: (String, String) = (#28, #29)
+    #31: List<(String, String)> = [#27, #30]
+    #32: String = "ctx"
+    #33: Request = new Request(#31, #32)
+    #34: List<(String, String)> = []
+    #35: Request = %1
+    #36: fn(Request) -> String = @4(paths)
+    #37: String = call #36(#35)
+    #38: Request = %1
+    #39: fn(Request) -> String = @5(context_of)
+    #40: String = call #39(#38)
+    #41: List<(String, String)> = %2
+    #42: Request = new Request(#41)
+    #43: fn(Request) -> String = @5(context_of)
+    #44: String = call #43(#42)
+    #45: None = @12(console_log)
+    #46: None = call #45(#37, #40, #44)
   stmts
-    s0: let %0: Unknown = #0
-    s1: #14
-    s2: #23
-    s3: let %1: Request = #32
-    s4: let %2: List<(String, String)> = #33
-    s5: #45
+    s0: let %0: Symbol = #1
+    s1: #15
+    s2: #24
+    s3: let %1: Request = #33
+    s4: let %2: List<(String, String)> = #34
+    s5: #46
 
 interned types
   t0 = String
@@ -79,20 +80,21 @@ interned types
   t8 = Optional<List<String>>
   t9 = T
   t10 = N
-  t11 = Unknown
+  t11 = Symbol
   t12 = List<List<String>>
-  t13 = Options
-  t14 = Optional<Options>
-  t15 = fn(Optional<Options>) -> String
-  t16 = Tagged<String, Float>
-  t17 = fn(Tagged<String, Float>) -> String
-  t18 = Request
-  t19 = fn(Request) -> String
-  t20 = None
-  t21 = Bool
-  t22 = Dict<String, Unknown>
-  t23 = Int
-  t24 = fn((String, String), Int, List<(String, String)>) -> String
-  t25 = fn(Optional<Options>) -> String
-  t26 = fn(Tagged<String, Float>) -> String
-  t27 = fn(Request) -> String
+  t13 = Unknown
+  t14 = Options
+  t15 = Optional<Options>
+  t16 = fn(Optional<Options>) -> String
+  t17 = Tagged<String, Float>
+  t18 = fn(Tagged<String, Float>) -> String
+  t19 = Request
+  t20 = fn(Request) -> String
+  t21 = None
+  t22 = Bool
+  t23 = Dict<String, Unknown>
+  t24 = Int
+  t25 = fn((String, String), Int, List<(String, String)>) -> String
+  t26 = fn(Optional<Options>) -> String
+  t27 = fn(Tagged<String, Float>) -> String
+  t28 = fn(Request) -> String

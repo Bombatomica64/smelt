@@ -24,6 +24,7 @@
 //! receiver's lowered type being the modeled `Headers` class, which is exactly
 //! how the `Map`/`Set` collection dispatch works.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -274,13 +275,16 @@ impl ModuleBuilder<'_> {
     /// Whether this module's own source binds a global type or class `name`.
     ///
     /// The one definition of shadowing: a declaration of this module, at any
-    /// stage of lowering, or an imported class. A class another module declares
-    /// is visible crate-wide by symbol, and must not capture this file's
-    /// `Response`; an import of a host module's class is that host class.
+    /// stage of lowering, or an import of the name, type-only or value, from
+    /// anything but a modeled host module (audit finding A5: `import type {
+    /// Map } from './game'` is the game's `Map`). A class another module
+    /// declares is visible crate-wide by symbol, and must not capture this
+    /// file's `Response`; an import of a host module's class is that host
+    /// class ([`Self::import_shadows_lib`]).
     pub(in crate::lowering) fn source_shadows_global(&self, name: &str) -> bool {
         self.types.module_declares_type_name(name)
             || self.classes.declared_in_module(name)
-            || (self.imports.is_value(name) && self.classes.is_known(name))
+            || self.import_shadows_lib(name)
     }
 
     /// Map a recognized rule and member spelling to its parameter operation.
@@ -1244,7 +1248,7 @@ impl ModuleBuilder<'_> {
                 // so there is no struct to read a field from — the shape is
                 // only present in the record the caller's literal became.
                 // not a new erasure: the ambient receiver is already an erased record
-                let unknown_ty = self.unknown_type();
+                let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
                 let erased = body.push_expr(Expr {
                     kind: ExprKind::Field {
                         receiver: source,

@@ -60,6 +60,28 @@ impl FunctionEmitter<'_> {
                 RustExpr::js_string_literal(self.absent_spelling().text()).delimited()
             )));
         }
+        // A symbol's string is `Symbol(<description>)`, and every symbol is
+        // truthy. (`Number(sym)` throws; the frontend never routes it here.)
+        if self.mir.types.get(operand_ty) == Some(&Type::Symbol) {
+            match op {
+                smelt_hir::PrimitiveCastOp::ToString if to_js_text => {
+                    let operand_expr = self.operand_expr(operand)?;
+                    return Ok(operand_expr.postfix(".to_js_string()"));
+                }
+                smelt_hir::PrimitiveCastOp::ToBool => return Ok(RustExpr::path("true")),
+                _ => {}
+            }
+        }
+        // `String(array)` is `Array.prototype.toString`: the elements joined
+        // with `,`. The erased coercion already spells that rule (holes and
+        // nullish elements as empty text, nested arrays recursively), so the
+        // typed array crosses into it through the seam's `erase`.
+        if op == smelt_hir::PrimitiveCastOp::ToString
+            && matches!(self.mir.types.get(operand_ty), Some(Type::List(_) | Type::Tuple(_)))
+        {
+            let erased = self.erase(operand)?;
+            return self.js_string_coercion_match_expr(&erased, self.absent_spelling(), to_js_text);
+        }
         let text = self.primitive_cast_rust_expr(op, operand, dest_ty)?;
         let answers_rust_string = match op {
             smelt_hir::PrimitiveCastOp::FromCharCodes => !self.indexes_utf16(),

@@ -1,5 +1,6 @@
 //! Building arrays through the global: `Array.from`, `new Array(..)` and `Array(..)`.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{
     Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, ModuleBuilder, ObjectPropertyKind,
@@ -425,7 +426,7 @@ impl ModuleBuilder<'_> {
         }
         let unknown_list_ty = {
             // not a new erasure: only compared against below
-            let unknown_ty = self.unknown_type();
+            let unknown_ty = self.unknown_type(NotNewErasure::Comparison);
             self.ctx.krate.types.intern(Type::List(unknown_ty))
         };
         if let Some(expr) = body.expr_at_mut(value)

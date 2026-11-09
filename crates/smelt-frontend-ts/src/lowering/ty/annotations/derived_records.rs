@@ -178,7 +178,8 @@ impl ModuleBuilder<'_> {
         // instantiation still names the utility: the record is its first argument.
         let base = match self.ctx.krate.types.get(result) {
             Some(Type::Class { name, args })
-                if self.ctx.krate.symbols.get(*name) == Some("Omit") && !self.source_declares_type("Omit") =>
+                if self.ctx.krate.symbols.get(*name) == Some("Omit")
+                    && self.resolve_type_name("Omit") == crate::lowering::resolve::TypeBinding::Lib =>
             {
                 args.first().copied().unwrap_or(result)
             }

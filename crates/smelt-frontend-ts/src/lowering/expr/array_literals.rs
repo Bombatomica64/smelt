@@ -1,5 +1,6 @@
 //! Array literals: element types, contextual hints and spreads.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{
     ArrayExpressionElement, Body, Expr, ExprKind, Literal, ModuleBuilder, SetProjectionOp,
@@ -522,7 +523,7 @@ impl ModuleBuilder<'_> {
                     ..
                 }) => *yield_ty,
                 // not a new erasure: the spread operand is already erased
-                Some(Type::Unknown) | None => self.unknown_type(),
+                Some(Type::Unknown) | None => self.unknown_type(NotNewErasure::ErasedUpstream),
                 Some(
                     Type::TypeParam { .. }
                     | Type::Class { .. }
@@ -657,7 +658,7 @@ impl ModuleBuilder<'_> {
             return *item_ty;
         }
         // Used only to compare candidates against the erased type.
-        let unknown = self.unknown_type();
+        let unknown = self.unknown_type(NotNewErasure::Comparison);
         let mut unified: Option<smelt_hir::TypeId> = None;
         for &(value, is_spread) in pieces {
             let candidate = if is_spread {

@@ -234,16 +234,14 @@ impl ModuleBuilder<'_> {
                 let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 // Assignments performed only within this branch are flow facts
                 // for the branch, not for statements reached from either path.
-                self.scope
-                    .push_narrowing_scope(then_narrowing.unwrap_or_default());
-                let then_block = self.block_from_statement(&if_stmt.consequent, body)?;
-                self.scope.pop_narrowing_scope();
+                let then_block = self.with_narrowing(Some(then_narrowing.unwrap_or_default()), |this| {
+                    this.block_from_statement(&if_stmt.consequent, body)
+                })?;
                 let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
                 let else_block = if let Some(alternate) = &if_stmt.alternate {
-                    self.scope
-                        .push_narrowing_scope(else_narrowing.unwrap_or_default());
-                    let else_block = self.block_from_statement(alternate, body)?;
-                    self.scope.pop_narrowing_scope();
+                    let else_block = self.with_narrowing(Some(else_narrowing.unwrap_or_default()), |this| {
+                        this.block_from_statement(alternate, body)
+                    })?;
                     Some(else_block)
                 } else {
                     None
@@ -319,10 +317,9 @@ impl ModuleBuilder<'_> {
                 }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_narrowing = self.guard_narrowing(&while_stmt.test, body);
-                self.scope
-                    .push_narrowing_scope(loop_narrowing.unwrap_or_default());
-                let loop_body = self.block_from_statement(&while_stmt.body, body)?;
-                self.scope.pop_narrowing_scope();
+                let loop_body = self.with_narrowing(Some(loop_narrowing.unwrap_or_default()), |this| {
+                    this.block_from_statement(&while_stmt.body, body)
+                })?;
                 body.push_stmt_to_block(
                     block,
                     Stmt::While {
@@ -478,7 +475,7 @@ impl ModuleBuilder<'_> {
                     // Discriminant facts apply to labeled arms only; the default
                     // arm handles the "no label matched" path and must not assume
                     // the discriminant property is present.
-                    let narrowing_pushed = if case.test.is_some() {
+                    let case_narrowing = if case.test.is_some() {
                         // Prefer the per-arm `typeof` fact when the discriminant is
                         // `typeof x`; otherwise project the shared field-discriminant
                         // fact. Grouped labels for this arm (`pending_kinds`) union
@@ -498,17 +495,12 @@ impl ModuleBuilder<'_> {
                             }
                         });
                         let fact = typeof_fact.or_else(|| discriminant_narrowing.clone());
-                        if let Some((name, target)) = fact {
-                            self.apply_narrowing_scope(name, target);
-                            true
-                        } else {
-                            false
-                        }
+                        fact.map(|(name, target)| std::collections::HashMap::from([(name, target)]))
                     } else {
                         // The `default` arm proves no discriminant fact; drop any
                         // pending `typeof` group kinds that fell through to it.
                         pending_kinds.clear();
-                        false
+                        None
                     };
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     // A case body ends at the first statement that leaves it.
@@ -521,39 +513,39 @@ impl ModuleBuilder<'_> {
                     // escaper (`utils/html.ts`, `default: continue` inside the
                     // scan loop) was a blocker. The synthetic-loop lowering
                     // used for real fallthrough still rejects it, and says why.
-                    let mut case_ends = false;
-                    for case_statement in &case.consequent {
-                        if let Statement::BlockStatement(block_stmt) = case_statement {
-                            for nested_statement in &block_stmt.body {
-                                if matches!(nested_statement, Statement::BreakStatement(_)) {
-                                    case_ends = true;
+                    let case_ends = self.with_narrowing(case_narrowing, |this| -> Result<bool, SmeltError> {
+                        let mut case_ends = false;
+                        for case_statement in &case.consequent {
+                            if let Statement::BlockStatement(block_stmt) = case_statement {
+                                for nested_statement in &block_stmt.body {
+                                    if matches!(nested_statement, Statement::BreakStatement(_)) {
+                                        case_ends = true;
+                                        break;
+                                    }
+                                    this.statement_in_block(nested_statement, body, case_block)?;
+                                    if matches!(nested_statement, Statement::ContinueStatement(_)) {
+                                        case_ends = true;
+                                        break;
+                                    }
+                                }
+                                if case_ends {
                                     break;
                                 }
-                                self.statement_in_block(nested_statement, body, case_block)?;
-                                if matches!(nested_statement, Statement::ContinueStatement(_)) {
-                                    case_ends = true;
-                                    break;
-                                }
+                                continue;
                             }
-                            if case_ends {
+                            if matches!(case_statement, Statement::BreakStatement(_)) {
+                                case_ends = true;
                                 break;
                             }
-                            continue;
+                            this.statement_in_block(case_statement, body, case_block)?;
+                            if matches!(case_statement, Statement::ContinueStatement(_)) {
+                                case_ends = true;
+                                break;
+                            }
                         }
-                        if matches!(case_statement, Statement::BreakStatement(_)) {
-                            case_ends = true;
-                            break;
-                        }
-                        self.statement_in_block(case_statement, body, case_block)?;
-                        if matches!(case_statement, Statement::ContinueStatement(_)) {
-                            case_ends = true;
-                            break;
-                        }
-                    }
+                        Ok(case_ends)
+                    })?;
                     let saw_break = case_ends;
-                    if narrowing_pushed {
-                        self.scope.pop_narrowing_scope();
-                    }
                     let is_last_case = case_index + 1 == case_count;
                     if !saw_break
                         && !is_last_case
@@ -654,14 +646,12 @@ impl ModuleBuilder<'_> {
                 // either block assigns loses the narrowing it had before the
                 // `try` (`let x: T | undefined; try { x = f() } catch {}` leaves
                 // `x` possibly absent).
-                self.scope.push_narrowing_scope(std::collections::HashMap::new());
-                let try_body = self.block_from_block_statement(&try_stmt.block, body);
-                self.scope.pop_narrowing_scope();
-                let try_body = try_body?;
+                let try_body = self.with_narrowing(Some(std::collections::HashMap::new()), |this| {
+                    this.block_from_block_statement(&try_stmt.block, body)
+                })?;
                 let (catch_binding, catch_body) = if let Some(handler) = &try_stmt.handler {
                     let (catch_binding, catch_body) = self.with_lexical_scope(|this| {
-                        this.scope.push_narrowing_scope(std::collections::HashMap::new());
-                        let lowered = (|| {
+                        this.with_narrowing(Some(std::collections::HashMap::new()), |this| {
                             let catch_binding = handler
                                 .param
                                 .as_ref()
@@ -669,9 +659,7 @@ impl ModuleBuilder<'_> {
                                 .transpose()?;
                             let catch_body = this.block_from_block_statement(&handler.body, body)?;
                             Ok::<_, SmeltError>((catch_binding, catch_body))
-                        })();
-                        this.scope.pop_narrowing_scope();
-                        lowered
+                        })
                     })?;
                     (catch_binding, Some(catch_body))
                 } else {

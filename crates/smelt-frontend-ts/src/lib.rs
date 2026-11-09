@@ -61,8 +61,8 @@ mod untyped_imports;
 pub use untyped_imports::untyped_callback_parameter_spans;
 
 pub use context::{
-    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
-    OverloadSignature,
+    ExportTable, HirCtx, ModuleKey, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
+    OverloadSignature, QualifiedExport,
 };
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
