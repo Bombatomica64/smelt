@@ -90,33 +90,12 @@ impl FunctionEmitter<'_> {
                 ))))
             }
             Some(Type::Set(item)) => {
-                // A `SmeltJsSet`-backed Set carries JS identity: erase through the
-                // single `IntoSmeltUnknown` adapter, which stamps the `__smelt_set`
-                // marker (and preserves the set's stable object id) so
-                // `isSet`/`instanceof Set`/`Object.prototype.toString` recognize the
-                // erased value and `SmeltFromUnknown` round-trips it. Mirrors the
-                // `SmeltJsMap` erasure. A `HashSet`-backed Set (value-equality
-                // primitives) has no such adapter, so it keeps the bare-array
-                // projection below.
-                if !self.type_is_hash_set_key_safe(*item) {
-                    return Ok(smelt_owned_text.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()"))));
-                }
-                let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *item)?;
-                // A Set erases to an array; like list bindings, the SAME source
-                // Set binding erased twice must compare `===` equal (arrays
-                // compare by id). `HashSet` has no `as_ptr`, so key the stable id
-                // on the binding's own address (`&set`). Temps / fresh sets keep
-                // `SmeltArray::new`.
-                // The members erase in the set's own insertion order, which
-                // `SmeltPrimSet` keeps, so the erased array reads like the source set.
-                if let Some(bare_local) = self.list_local_identity_key(operand)? {
-                    return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let smelt_values = {smelt_owned_text}.into_iter().map(|smelt_value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, smelt_values)) }}", smelt_owned_text = smelt_owned_text.tight(), value_wrap = value_wrap.delimited()
-                    ))));
-                }
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_values = {smelt_owned_text}.into_iter().map(|smelt_value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(smelt_values.into()) }}", smelt_owned_text = smelt_owned_text.tight(), value_wrap = value_wrap.delimited()
-                ))))
+                // Every Set erases through its `IntoSmeltUnknown` adapter, which
+                // stamps the `__smelt_set` marker and keeps the set's object id, so
+                // `instanceof Set`, `toString`, inspection and snapshots recognize
+                // the erased value and `SmeltFromUnknown` round-trips it.
+                let _ = item;
+                Ok(smelt_owned_text.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()"))))
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
@@ -188,38 +167,6 @@ impl FunctionEmitter<'_> {
             // The rest has nothing to read from the operand itself.
             Some(_) => self.erase_value(&RenderedValue::new(text, ty)),
         }
-    }
-
-    /// Return the BARE name of a source list local being erased, if any.
-    ///
-    /// When a list value crosses into `SmeltUnknown::Array` straight from a
-    /// `Place::Local`, the local's backing `Vec` is still alive and has a stable
-    /// storage address. That address keys [`smelt_list_identity`] so every
-    /// erasure of the one binding reuses a single id (arrays compare `===` by
-    /// id). The returned name is the local WITHOUT the trailing `.clone()` that
-    /// [`Self::operand_expr`] adds, because the identity key reads `&local`
-    /// (the live binding) while the erased values come from the cloned text.
-    /// Non-local operands (list literals, transform temporaries) return `None`
-    /// and keep the fresh-id `SmeltArray::new` path, matching JS semantics where
-    /// distinct array expressions are never `===`.
-    fn list_local_identity_key(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
-        else {
-            return Ok(None);
-        };
-        // Only real source bindings (params / user `let`/`const`) get stable JS
-        // reference identity. A temp holds a fresh intermediate array (e.g. a
-        // transform/projection result like `Object.entries(..)`), which JS treats
-        // as a new array each time — it keeps the fresh-id `SmeltArray::new` path.
-        if matches!(self.local_decl(*local)?.kind, LocalKind::Temp) {
-            return Ok(None);
-        }
-        // The in-scope place, not the local's source name: a renamed binding or a
-        // shared capture is not spelled like its source. The identity key reads the
-        // live binding
-        // (via `.as_ptr()`, which auto-(de)refs both `Vec` and `&Vec` locals);
-        // the erased values still come from the cloned text.
-        Ok(Some(self.place_expr(&Place::Local(*local))?.into_string()))
     }
 
     /// Return the BARE name of a source future local being erased, if any.
@@ -531,20 +478,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
             Some(Type::Class { .. }) => self.class_unknown_object_expr(value_text, ty),
             Some(Type::Set(item)) => {
-                // See the sibling `Type::Set` arm above: a `SmeltJsSet`-backed Set
-                // erases through the `__smelt_set` marker adapter; only a
-                // `HashSet`-backed primitive Set falls through to a bare array.
-                if !self.type_is_hash_set_key_safe(*item) {
-                    return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "({}).clone().into_smelt_unknown()",
-                        value.parenthesized_if_needed()
-                    ))));
-                }
-                let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *item)?;
-                // Insertion order, not hash order: see the sibling arm.
+                // See the sibling `Type::Set` arm above.
+                let _ = item;
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_values = {}.clone().into_iter().map(|smelt_value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(smelt_values.into()) }}",
-                    value.parenthesized_if_needed(), value_wrap = value_wrap.delimited()
+                    "({}).clone().into_smelt_unknown()",
+                    value.parenthesized_if_needed()
                 ))))
             }
             Some(Type::Tuple(items)) => {
