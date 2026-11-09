@@ -63,6 +63,14 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// An escaping closure keeps its body when it captures a callback parameter: a
+/// body-local sharing a parameter's name owns its callback, so the capture is
+/// judged by the local's identity (radash `series`).
+#[test]
+fn closure_over_defaulted_callback() -> TestResult {
+    verify_node_parity("closure_over_defaulted_callback")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
