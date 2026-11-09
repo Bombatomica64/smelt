@@ -191,10 +191,9 @@ fn smelt_proxy_has(proxy: &SmeltUnknown, key: &str) -> Option<bool> {
 fn smelt_proxy_delete(proxy: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> Option<bool> {
     let key = key.host_text();
     let (target, handler) = smelt_proxy_parts(proxy)?;
-    let answer = match smelt_proxy_trap(&handler, "deleteProperty", vec![target.clone(), smelt_proxy_key(&key)]) {
-        Some(answer) => !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)),
-        None => { if let SmeltUnknown::Object(object) = &target { object.remove(&*key); } true }
-    };
+    let trapped = smelt_proxy_trap(&handler, "deleteProperty", vec![target.clone(), smelt_proxy_key(&key)]);
+    if trapped.is_none() && let SmeltUnknown::Object(object) = &target { object.remove(&*key); }
+    let answer = trapped.is_none_or(|answer| !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)));
     if let SmeltUnknown::Object(object) = proxy { smelt_proxy_sync(object); }
     Some(answer)
 }
