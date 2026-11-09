@@ -15,7 +15,7 @@ use smelt_hir::{
 use super::super::ModuleBuilder;
 
 /// The constructed value of a `new Proxy`, naming the runtime operation (`smelt_construct_like`).
-const PROXY_CONSTRUCT_SENTINEL: &str = "__smelt_new_proxy";
+const PROXY_CONSTRUCT_SENTINEL: &str = smelt_stdlib::runtime_symbols::markers::SMELT_NEW_PROXY;
 
 impl ModuleBuilder<'_> {
     /// Lower `new URLSearchParams(init?)` into a concrete parameter list.
@@ -683,7 +683,7 @@ impl ModuleBuilder<'_> {
             let span = self.span(new_expr.span.start, new_expr.span.end);
             let string_ty = self.ctx.krate.types.intern(Type::String);
             let sentinel = body.push_expr(Expr {
-                kind: ExprKind::Literal(smelt_hir::Literal::String(PROXY_CONSTRUCT_SENTINEL.to_owned())),
+                kind: ExprKind::Literal(Literal::String(PROXY_CONSTRUCT_SENTINEL.to_owned())),
                 ty: string_ty,
                 span,
             });
@@ -696,7 +696,7 @@ impl ModuleBuilder<'_> {
                     for (name, trap) in traps {
                         let hint = self.proxy_trap_hint(trap, target_ty);
                         let key = body.push_expr(Expr {
-                            kind: ExprKind::Literal(smelt_hir::Literal::String(name.to_owned())),
+                            kind: ExprKind::Literal(Literal::String(name.to_owned())),
                             ty: string_ty,
                             span,
                         });
@@ -726,9 +726,9 @@ impl ModuleBuilder<'_> {
             .properties
             .iter()
             .map(|property| match property {
-                oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) if !property.computed => {
+                ObjectPropertyKind::ObjectProperty(property) if !property.computed => {
                     match &property.key {
-                        oxc::ast::ast::PropertyKey::StaticIdentifier(key) => {
+                        PropertyKey::StaticIdentifier(key) => {
                             Some((key.name.as_str(), &property.value))
                         }
                         _ => None,

@@ -139,6 +139,7 @@ smelt_key.to_string().parse::<usize>().ok().and_then(|smelt_position| smelt_valu
 }
 SmeltUnknown::Array(smelt_values) => smelt_get_array_field(&smelt_values, &JsString::from("nope").clone()),
 SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsString::from("nope").clone()),
+smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &JsString::from("nope").clone()),
 _ => SmeltUnknown::Undefined,
 };
 }"#);

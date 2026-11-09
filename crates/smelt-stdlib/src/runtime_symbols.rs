@@ -534,6 +534,8 @@ pub mod markers {
     pub const SMELT_SERVERRESPONSE: &str = "__smelt_serverresponse";
     /// `__smelt_set`.
     pub const SMELT_SET: &str = "__smelt_set";
+    /// `__smelt_new_proxy`.
+    pub const SMELT_NEW_PROXY: &str = "__smelt_new_proxy";
     /// `__smelt_proxy_call`.
     pub const SMELT_PROXY_CALL: &str = "__smelt_proxy_call";
     /// `__smelt_proxy_handler`.
@@ -671,6 +673,7 @@ pub mod markers {
         SMELT_RESPONSE,
         SMELT_SERVERRESPONSE,
         SMELT_SET,
+        SMELT_NEW_PROXY,
         SMELT_PROXY_CALL,
         SMELT_PROXY_HANDLER,
         SMELT_PROXY_TARGET,
