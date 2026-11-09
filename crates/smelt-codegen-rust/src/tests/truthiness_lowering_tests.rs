@@ -1,38 +1,16 @@
-//! Emitted-text tests for JavaScript truthiness, non-null assertions and
-//! `await` over a value whose type is not a future.
+//! Emitted Rust for JavaScript truthiness, non-null assertions and `await`
+//! over a value whose type is not a future.
 //!
-//! Each of these rules used to produce Rust that compiled cleanly and computed
-//! the wrong value, so what has to be pinned is the *shape* of the emitted
-//! code: the truthiness `match`, the absence of a `typeof`-style tag check in
-//! boolean position, the absence of a folded `if true`, the absence of an
-//! `.expect(...)` narrowing, and the presence of the awaited operand. The
-//! runtime tier `tests/truthiness_and_await_runtime.rs` proves the values;
-//! these tests are the cheap guard that runs on every `cargo test`.
+//! The values are checked against Node by the `truthiness_absence_identity`
+//! fixture. These tests compare whole functions: which test a condition lowers
+//! to is the type-preservation requirement.
 
-use super::{emitted_function_body, source_for};
-use crate::PRELUDE_END_MARKER;
+use super::{rust_fn, source_for};
 
-/// Returns only the generated program, dropping the runtime prelude.
-///
-/// The prelude carries every `SmeltUnknown` pattern the runtime needs, so an
-/// assertion over the whole emitted file would match its text rather than the
-/// lowered program's.
-fn program_of(source: &str) -> &str {
-    source
-        .split_once(PRELUDE_END_MARKER)
-        .map_or(source, |(_, program)| program)
-}
-
-/// Fragment of the JS truthiness `match` the `ToBool` primitive cast emits.
-const TRUTHINESS_MATCH: &str = "SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan()";
-
-/// The tag check that must never stand in for a truthiness test.
-const BOOL_TAG_CHECK: &str = "SmeltUnknown::Bool(_)";
-
+/// `item: T` can hold `0`, `""`, `false`, `NaN` or a nullish value, so its
+/// guard is a runtime truthiness test.
 #[test]
 fn a_generic_condition_is_tested_rather_than_folded_to_true() {
-    // `item: T` is unconstrained, so it can hold `0`, `""`, `false`, `NaN` or a
-    // nullish value; folding the guard to `true` made the function an identity.
     let source = source_for(
         r"
 export function compact<T>(items: T[]): T[] {
@@ -46,48 +24,58 @@ export function compact<T>(items: T[]): T[] {
 }
 ",
     );
-    let program = program_of(&source);
-    assert!(
-        program.contains(TRUTHINESS_MATCH),
-        "an unconstrained type parameter in boolean position must emit the JS truthiness match:\n{source}"
-    );
-    assert!(
-        !program.contains("if true {"),
-        "a generic condition must not fold to a constant:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "compact"), r#"fn compact(items: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
+let mut item: SmeltUnknown;
+let mut _smelt_tmp_5: usize;
+let mut _smelt_tmp_6: bool;
+let mut _smelt_tmp_7: bool;
+let mut _smelt_tmp_8: f64;
+let mut out: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));
+let mut _smelt_tmp_4: usize = 0;
+loop {
+_smelt_tmp_5 = items.len();
+_smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
+if !(_smelt_tmp_6) { break; }
+item = items.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| SmeltUnknown::Undefined);
+_smelt_tmp_7 = match item.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
+if _smelt_tmp_7 {
+_smelt_tmp_8 = { let smelt_push_item = item; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
+_smelt_tmp_4 = _smelt_tmp_4 + 1;
+continue;
+} else {
+_smelt_tmp_4 = _smelt_tmp_4 + 1;
+continue;
+}
+}
+return out;
+}"#);
 }
 
+/// A function value is always truthy, so its guard folds and the false arm goes.
 #[test]
 fn a_function_typed_condition_still_folds_to_true() {
-    // The narrowing must not go too far: a function value is always truthy in
-    // JavaScript, so its guard stays folded and no runtime test is emitted.
     let source = source_for(
         r"
 export function describeHandler(handler: () => void): string {
   if (handler) {
+    handler();
     return 'yes';
   }
   return 'no';
 }
 ",
     );
-    let body = emitted_function_body(&source, "fn describe_handler");
-    assert!(
-        !body.contains(TRUTHINESS_MATCH),
-        "a function value is always truthy and needs no runtime test:\n{body}"
-    );
-    // The fold is constant, so MIR optimization drops the false arm entirely.
-    assert!(
-        !body.contains("\"no\""),
-        "a function-typed condition stays folded to `true`, dropping the false arm:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "describe_handler"), r#"fn describe_handler(handler: &dyn Fn() -> ()) -> JsString {
+let _smelt_tmp_1: ();
+_smelt_tmp_1 = handler();
+return JsString::from("yes");
+}"#);
 }
 
+/// `row.enabled` is erased, and negating it is a truthiness test, not a tag
+/// check: a stored `false` has the boolean tag and is falsy.
 #[test]
 fn negating_an_erased_callback_value_emits_truthiness_not_a_tag_check() {
-    // `row.enabled` reads off a `Record<string, unknown>`, so the operand is
-    // erased. `matches!(x, SmeltUnknown::Bool(_))` answers `true` for a stored
-    // `false`, i.e. the inverse of `!row.enabled` on the value that matters.
     let source = source_for(
         r"
 export function firstDisabled(rows: Record<string, unknown>[]): number {
@@ -95,20 +83,22 @@ export function firstDisabled(rows: Record<string, unknown>[]): number {
 }
 ",
     );
-    let program = program_of(&source);
-    assert!(
-        program.contains(TRUTHINESS_MATCH),
-        "an erased operand in a callback's boolean position must emit the truthiness match:\n{source}"
-    );
-    assert!(
-        !program.contains(BOOL_TAG_CHECK),
-        "a truthiness test must not lower to a `typeof === \"boolean\"` tag check:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "first_disabled"), r#"fn first_disabled(rows: SmeltList<SmeltRecord<JsString, SmeltUnknown>>) -> f64 {
+let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: SmeltRecord<JsString, SmeltUnknown>, _arg0: i64, _arg1: &SmeltList<SmeltRecord<JsString, SmeltUnknown>>| {
+let _smelt_tmp_1: bool = !(match smelt_record_property(&closure_arg_0, &JsString::from("enabled")).clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true });
+_smelt_tmp_1
+});
+let _smelt_tmp_2: f64 = { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltRecord<JsString, SmeltUnknown>, _arg0: i64, _arg1: &SmeltList<SmeltRecord<JsString, SmeltUnknown>>| {
+let _smelt_tmp_1: bool = !(match smelt_record_property(&closure_arg_0, &JsString::from("enabled")).clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true });
+_smelt_tmp_1
+}); let smelt_array = rows.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().find_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_index as f64) } else { None }).unwrap_or(-1.0); smelt_value };
+return _smelt_tmp_2;
+}"#);
 }
 
+/// `typeof x === 'boolean'` is the tag check.
 #[test]
 fn a_typeof_boolean_comparison_still_emits_a_tag_check() {
-    // The tag check must stay reachable from the source spelling that means it.
     let source = source_for(
         r"
 export function isBool(value: unknown): boolean {
@@ -116,20 +106,16 @@ export function isBool(value: unknown): boolean {
 }
 ",
     );
-    let program = program_of(&source);
-    assert!(
-        program.contains(BOOL_TAG_CHECK),
-        "`typeof x === 'boolean'` must still emit the boolean tag check:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "is_bool"), r#"fn is_bool(value: SmeltUnknown) -> bool {
+let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::Bool(_));
+return _smelt_tmp_1;
+}"#);
 }
 
+/// A `SmeltList` is an array on every path, so `Array.isArray` on an optional
+/// concrete list only asks whether it is present.
 #[test]
 fn an_is_array_guard_on_a_concrete_list_checks_only_presence() {
-    // H36. `values` is `SmeltList<String>` under an `Option`, so a
-    // `SmeltUnknown::Array(_)` pattern has nothing to match against — it does
-    // not even compile (es-toolkit `pullAllWith.rs:76`). And it is not needed:
-    // a `SmeltList` IS an array on every path, so the only runtime question
-    // left is whether the optional value is there.
     let source = source_for(
         r"
 export function count(values?: string[]): number {
@@ -137,24 +123,24 @@ export function count(values?: string[]): number {
 }
 ",
     );
-    let program = program_of(&source);
-    assert!(
-        program.contains("values.clone().is_some()"),
-        "an isArray guard on an optional concrete list is a presence check:\n{source}"
-    );
-    // The enabling condition: no erased tag pattern is emitted for it. That
-    // pattern is what failed to compile, so asserting its absence is what makes
-    // this test non-vacuous.
-    assert!(
-        !program.contains("SmeltUnknown::Array(_)"),
-        "a concrete list must not be narrowed through an erased tag:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "count"), r#"fn count(values: Option<SmeltList<JsString>>) -> f64 {
+let mut _smelt_tmp_2: f64;
+let _smelt_tmp_3: f64;
+let _smelt_tmp_1: bool = values.clone().is_some();
+let mut _smelt_tmp_2: f64 = 0.0;
+if _smelt_tmp_1 {
+_smelt_tmp_3 = values.as_ref().map_or(0, |smelt_value| smelt_value.len()) as f64;
+_smelt_tmp_2 = _smelt_tmp_3;
+} else {
+_smelt_tmp_2 = 0.0;
+}
+return _smelt_tmp_2;
+}"#);
 }
 
+/// An `unknown` needs the runtime array-tag match.
 #[test]
 fn an_is_array_guard_on_an_erased_value_keeps_its_tag_check() {
-    // The other side of the same rule: an `unknown` really does need the
-    // runtime match, so `static_tag_check` must decline to fold this one.
     let source = source_for(
         r"
 export function isList(value: unknown): boolean {
@@ -162,20 +148,16 @@ export function isList(value: unknown): boolean {
 }
 ",
     );
-    let program = program_of(&source);
-    assert!(
-        program.contains("SmeltUnknown::Array(_)"),
-        "an erased value must keep its array tag check:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "is_list"), r#"fn is_list(value: SmeltUnknown) -> bool {
+let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::Array(_));
+return _smelt_tmp_1;
+}"#);
 }
 
+/// `maximum!` is type-level only: the callee's parameter is optional and
+/// handles absence, so the caller forwards the value unnarrowed.
 #[test]
 fn a_non_null_assertion_into_an_optional_parameter_forwards_the_value() {
-    // `maximum!` is type-level only. The callee's parameter is optional and
-    // handles the absent case, so narrowing here would render `.expect(...)` on
-    // a value that is legitimately absent. Only the *caller* is asserted on:
-    // `span`'s own body narrows `maximum` after a real nullish guard, where the
-    // same `.expect(...)` is provably safe and must stay.
     let source = source_for(
         r"
 function span(minimum: number, maximum?: number): number {
@@ -190,21 +172,16 @@ export function spanFrom(minimum: number, maximum?: number): number {
 }
 ",
     );
-    let caller = emitted_function_body(&source, "fn span_from");
-    assert!(
-        !caller.contains("optional value was absent after narrowing"),
-        "a non-null assertion into an optional parameter must not narrow:\n{caller}"
-    );
-    assert!(
-        !caller.contains(".expect("),
-        "the asserted argument must be forwarded as-is:\n{caller}"
-    );
+    assert_eq!(rust_fn(&source, "span_from"), r#"fn span_from(minimum: f64, maximum: Option<f64>) -> f64 {
+let _smelt_tmp_2: f64 = span(minimum, maximum.clone());
+return _smelt_tmp_2;
+}"#);
 }
 
+/// An erased tuple element may hold a promise at runtime, so `await` drives
+/// the runtime promise chain over it.
 #[test]
 fn awaiting_an_erased_value_keeps_the_operand() {
-    // The awaited operand is an erased tuple element, which may hold a promise
-    // at runtime. Replacing the `await` with `null` deleted the computation.
     let source = source_for(
         r"
 function attempt(func: () => unknown): [unknown, unknown] {
@@ -217,9 +194,19 @@ export async function run(): Promise<unknown> {
 }
 ",
     );
-    let program = program_of(&source);
-    assert!(
-        program.contains("smelt_await_flatten"),
-        "awaiting an erased value must drive the runtime promise chain:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "run"), r#"async fn run() -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
+let result: SmeltUnknown;
+let _smelt_tmp_5: SmeltUnknown;
+let _smelt_tmp_1 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {
+let smelt_async_value = {
+SmeltUnknown::Number(1.0 as f64)
+};
+Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unknown())
+}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>) });
+let _smelt_tmp_2: (SmeltUnknown, SmeltUnknown) = attempt(&mut { let _smelt_adapted_callback = _smelt_tmp_1.clone(); move || { let smelt_future = (_smelt_adapted_callback)(); SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_value) }))) } });
+result = _smelt_tmp_2.1.clone();
+let _smelt_tmp_4: SmeltFuture<SmeltUnknown> = { let smelt_erased_future = (result).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(smelt_awaited) })) };
+_smelt_tmp_5 = _smelt_tmp_4.await?;
+return Ok(_smelt_tmp_5);
+}"#);
 }

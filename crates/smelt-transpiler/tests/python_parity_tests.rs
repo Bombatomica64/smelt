@@ -60,6 +60,12 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// `print` spells booleans and `None` the Python way.
+#[test]
+fn print_spellings() -> TestResult {
+    verify_python_parity("print_spellings")
+}
+
 /// A lambda body is an ordinary expression, and `/`, `//` and `%` are Python's.
 #[test]
 fn lambda_arithmetic() -> TestResult {
