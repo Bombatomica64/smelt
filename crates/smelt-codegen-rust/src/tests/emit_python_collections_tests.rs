@@ -12,11 +12,11 @@ def run() -> None:
 ",
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+    assert_eq!(rust_fn(&source, "run"), r"fn run() -> () {
 let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
 let copied: SmeltList<i64> = Into::<SmeltList<_>>::into(values.fresh_copy());
 return;
-}"#);
+}");
 }
 
 #[test]
@@ -156,9 +156,9 @@ def choose(flag: bool, left: int, right: int) -> int:
 ",
     );
 
-    assert_eq!(rust_fn(&source, "choose"), r#"fn choose(flag: bool, left: i64, right: i64) -> i64 {
+    assert_eq!(rust_fn(&source, "choose"), r"fn choose(flag: bool, left: i64, right: i64) -> i64 {
 let mut _smelt_tmp_3: i64;
 let _smelt_tmp_3: i64 = if flag { left } else { right };
 return _smelt_tmp_3;
-}"#);
+}");
 }
