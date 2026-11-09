@@ -628,7 +628,7 @@ jobs:
             --no-fail-fast 2>&1 | tee radash-tests.log || true
           # Pinned-failure ratchet: rises as the failures real assertions exposed are
           # fixed. The pin fails on any other failure or a changed total.
-          grep -F "test result: FAILED. 379 passed; 8 failed;" radash-tests.log
+          grep -F "test result: FAILED. 381 passed; 6 failed;" radash-tests.log
 
   # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
   #
