@@ -2795,7 +2795,8 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
         _ => false,
@@ -2806,6 +2807,10 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Siz
 fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     
     if smelt_has_own_property(value, key) { return true; }
+    // A buffer view holds its `length`/`byteLength` accessors on this object;
+    // in JavaScript they are prototype accessors, so `in` finds them and
+    // `Object.hasOwn` does not.
+    if let SmeltUnknown::Object(map) = value && smelt_host_buffer_marker(map).is_some() && map.contains_key(key) { return true; }
     match value {
         SmeltUnknown::Object(map) => ((map.contains_key("__smelt_map") || map.contains_key("__smelt_set")) && key == "size") || map.contains_key(&format!("__smelt_method:{key}")) || map.contains_key(&format!("__smelt_proto:{key}")) || smelt_object_prototype_member(key).is_some(),
         SmeltUnknown::Array(_) | SmeltUnknown::String(_) => key == "__smelt_symbol_iterator" || smelt_object_prototype_member(key).is_some(),
@@ -4800,7 +4805,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.clone().to_elements()));
     _smelt_tmp_46 = JsString::join(_smelt_tmp_45.borrow().iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) })), &JsString::from("-"));
     _smelt_tmp_47 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.to_elements()));
-    _smelt_tmp_48 = { let smelt_needle = 171.0; _smelt_tmp_47.borrow().iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |smelt_idx| smelt_idx as f64) };
+    _smelt_tmp_48 = { let smelt_needle = 171.0; _smelt_tmp_47.borrow().iter().position(|smelt_item| *smelt_item == smelt_needle).map_or(-1.0, |smelt_idx| smelt_idx as f64) };
     let _ = { println!("{} {}", _smelt_tmp_46, smelt_console_number(_smelt_tmp_48)); };
     _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![10.0, 255.0]; smelt_list_items }));
     _smelt_tmp_51 = ::std::rc::Rc::new(|closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {

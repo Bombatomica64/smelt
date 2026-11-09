@@ -920,6 +920,36 @@ fn generics_behaviour() -> TestResult {
     verify_node_parity("generics_behaviour")
 }
 
+/// Array methods: every callback spelling, search bounds, slices, in-place mutators and copies.
+#[test]
+fn collection_array_methods() -> TestResult {
+    verify_node_parity("collection_array_methods")
+}
+
+/// Record and object key order, reads, writes, rest copies, and interface literals.
+#[test]
+fn collection_objects_records() -> TestResult {
+    verify_node_parity("collection_objects_records")
+}
+
+/// Map and Set methods, projections, optional receivers, erasure and reference identity.
+#[test]
+fn collection_maps_sets() -> TestResult {
+    verify_node_parity("collection_maps_sets")
+}
+
+/// Typed-array codecs, view/storage construction, own keys and tags; the `arguments` object.
+#[test]
+fn collection_typed_arrays() -> TestResult {
+    verify_node_parity("collection_typed_arrays")
+}
+
+/// Callable objects, overload slots, rest adapters, tuples at erased boundaries.
+#[test]
+fn collection_callable_objects() -> TestResult {
+    verify_node_parity("collection_callable_objects")
+}
+
 /// Option bags, module slots, IIFE typing, generators, optional sort, statics and boxed primitives run as Node runs them.
 #[test]
 fn emission_rules_behaviour() -> TestResult {

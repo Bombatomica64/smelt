@@ -2818,7 +2818,8 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
         _ => false,
@@ -2829,6 +2830,10 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Siz
 fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     
     if smelt_has_own_property(value, key) { return true; }
+    // A buffer view holds its `length`/`byteLength` accessors on this object;
+    // in JavaScript they are prototype accessors, so `in` finds them and
+    // `Object.hasOwn` does not.
+    if let SmeltUnknown::Object(map) = value && smelt_host_buffer_marker(map).is_some() && map.contains_key(key) { return true; }
     match value {
         SmeltUnknown::Object(map) => ((map.contains_key("__smelt_map") || map.contains_key("__smelt_set")) && key == "size") || map.contains_key(&format!("__smelt_method:{key}")) || map.contains_key(&format!("__smelt_proto:{key}")) || smelt_object_prototype_member(key).is_some(),
         SmeltUnknown::Array(_) | SmeltUnknown::String(_) => key == "__smelt_symbol_iterator" || smelt_object_prototype_member(key).is_some(),
