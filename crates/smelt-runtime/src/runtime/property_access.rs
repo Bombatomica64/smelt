@@ -462,6 +462,10 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Siz
 /// Whether `value` has `key` as an own OR inherited property (JS `key in value`).
 fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     if smelt_has_own_property(value, key) { return true; }
+    // A buffer view holds its `length`/`byteLength` accessors on this object;
+    // in JavaScript they are prototype accessors, so `in` finds them and
+    // `Object.hasOwn` does not.
+    if let SmeltUnknown::Object(map) = value && smelt_host_buffer_marker(map).is_some() && map.contains_key(key) { return true; }
     match value {
         //~ A method of an erased class instance lives on its prototype, which
         //~ the erased object carries as `__smelt_method:`/`__smelt_proto:`
