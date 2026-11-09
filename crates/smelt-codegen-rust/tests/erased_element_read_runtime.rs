@@ -6,22 +6,13 @@
 //! out-of-range element read is `undefined` in JavaScript, so erasing it has to
 //! produce `SmeltUnknown::Undefined`.
 //!
-//! The emitter used to make the read TOTAL first and erase the result
-//! afterwards, so the miss became the element type's own missing value and was
-//! then erased as that value:
+//! The miss is decided before erasing, so `row[i] = b[i]` stores `undefined` and
+//! not the element type's own default (`''`, `0`, an empty array).
 //!
-//! * `row[i] = b[i]` for `b: string[]` stored `''` (the `String` default), and
-//! * for `n: number[]` it stored `0`,
-//! * and for `nested: string[][]` it stored an empty array,
-//!
-//! none of which JavaScript ever produces for a missing element. The two
-//! coercion targets disagreed about the same read.
-//!
-//! The same rule applies when the RECEIVER is erased instead of the
-//! destination: indexing a `SmeltUnknown` that holds an array or a string
-//! answered `SmeltUnknown::Null` for an out-of-range index, which is what made
-//! a `zipWith`-shaped combiner over ragged inputs render `"3null"` where
-//! JavaScript renders `"3undefined"`.
+//! The same rule applies when the RECEIVER is erased instead of the destination:
+//! indexing a `SmeltUnknown` that holds an array or a string answers `undefined`
+//! out of range, so a `zipWith`-shaped combiner over ragged inputs renders
+//! `"3undefined"`.
 //!
 //! Golden string assertions live in `the `emit_*_tests.rs` files`; they prove the shape is
 //! emitted. Only running the program proves the stored value really is

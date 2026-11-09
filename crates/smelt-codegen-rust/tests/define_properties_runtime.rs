@@ -1,21 +1,10 @@
 //! Runtime execution tests for `Object.defineProperty` / `Object.defineProperties`,
 //! object-literal method shorthand, and `Number.isSafeInteger`.
 //!
-//! All three used to collapse to a VALUE rather than being modeled, which is the
-//! defect class this repository keeps finding:
-//!
-//! * `Object.defineProperties` was not lowered at all, so the call read
-//!   `defineProperties` off the fabricated empty object standing in for the
-//!   ambient `Object` global, got `undefined`, and invoked a fabricated default
-//!   closure returning `SmeltUnknown::Null`. `Object.defineProperty` *was*
-//!   listed, but only as an opaque no-op that evaluated its arguments and
-//!   dropped the mutation.
-//! * An object-literal METHOD SHORTHAND (`{ f() { .. } }`) was replaced by
-//!   `null` unless a source-text probe found `[Symbol.iterator]` in its span, so
-//!   a descriptor's `get() { return 2 }` had no body left to call.
-//! * `Number.isSafeInteger` had no lowering, so es-toolkit's
-//!   `isLength = Number.isSafeInteger(v) && v >= 0` answered `false` for every
-//!   input.
+//! Each is modeled: the descriptors install real properties, a method shorthand
+//! (`{ f() { .. } }`) keeps its body so a descriptor's `get() { return 2 }` can
+//! run, and es-toolkit's `isLength = Number.isSafeInteger(v) && v >= 0` answers
+//! from the value.
 //!
 //! A string-golden test can only prove the right helper is emitted; only
 //! executing the program proves the property is actually installed, the method
@@ -133,9 +122,7 @@ test("a non-enumerable definition does not become an own key", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn object_literal_method_shorthand_is_callable() {
-    // `{ f() {} }` and `{ f: function () {} }` build the same object. The
-    // shorthand used to lower to `null`, so calling it produced a null-callback
-    // panic or a silent `null` result.
+    // `{ f() {} }` and `{ f: function () {} }` build the same object.
     let source = r#"
 import { test, expect } from "vitest";
 test("a method shorthand is a callable function property", () => {

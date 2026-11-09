@@ -2,12 +2,9 @@
 //!
 //! `Array(n)` and `new Array(n)` do not build an EMPTY array in JavaScript:
 //! they allocate an array of LENGTH `n` whose slots are holes, so `Array(3)`
-//! has `.length === 3` and `Array(3)[0]` is `undefined`. The emitter used to
-//! lower both spellings to `vec![]` and rely on later indexed writes to grow
-//! the list, which silently dropped the length. Every consumer that drives a
-//! loop off `.length` therefore ran zero iterations and returned an empty
-//! array — `fill(Array(3), 2)`, `zip`, `zipWith` and `unzip` all failed this
-//! way, looking like four unrelated array bugs.
+//! has `.length === 3` and `Array(3)[0]` is `undefined`. Every consumer that
+//! drives a loop off `.length` (`fill(Array(3), 2)`, `zip`, `zipWith`, `unzip`)
+//! depends on that length.
 //!
 //! The companion property is that a hole and an out-of-range read agree: both
 //! answer the element type's missing value, so `Array(3)[0]` and `[][0]`
@@ -77,7 +74,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 fn array_length_allocation_has_that_length() {
     // `Array(n)` / `new Array(n)` allocate LENGTH `n`, and a read of an
     // unwritten slot of an erased list is `undefined` — the same answer an
-    // out-of-range read gives. Previously both lengths were `0`.
+    // out-of-range read gives.
     let source = r"
 import { test, expect } from 'vitest';
 

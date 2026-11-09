@@ -9,28 +9,14 @@
 //!
 //! The cases here are the ones the examples corpus cannot hold, because each
 //! needs a value that is erased BY CONSTRUCTION and that corpus keeps a
-//! zero-avoidable-erasure invariant. Measured against Node 22 before the fix:
-//!
-//! | value | Node | Smelt (before) |
-//! | --- | --- | --- |
-//! | `new DataView(new ArrayBuffer(2))` | `{}` | `{}` (already right) |
-//! | `Object.keys(new DataView(..))` | `[]` | `["0","1"]` |
-//! | `{a: () => 1, b: 1}` | `{"b":1}` | `{"a":"function () { [native code] }","b":1}` |
-//! | `[() => 1, 1]` | `[null,1]` | `["function () { [native code] }",1]` |
-//! | `{a: Symbol("s"), b: 1}` | `{"b":1}` | `{"a":"Symbol(s)@32","b":1}` |
-//!
-//! The distinction that fixes the first two is that own indexed properties
-//! belong to an ELEMENT-TYPED view and to nothing else: byte storage and a
+//! zero-avoidable-erasure invariant. Own indexed properties belong to an ELEMENT-TYPED view and to nothing else: byte storage and a
 //! `DataView` address their bytes through accessors, so they have no properties
 //! of their own. `smelt_host_buffer_own_elements` is that rule, and
 //! `Object.keys`, `Object.values`, `for...in` and this serializer all read it.
 //!
-//! The byte-VIEW and byte-STORAGE rows that used to be here moved into the
-//! examples corpus (`74_typed_array_views`) when increment 3 of the typed-array
-//! plan made both concrete: they hold zero avoidable erasure now, and a corpus
-//! fixture is a stronger test than a tier one because it also pins the emitted
-//! Rust. A `DataView` is the one byte host still modeled as the erased record,
-//! so it stays.
+//! Typed byte views and byte storage are covered by the examples corpus
+//! (`74_typed_array_views`). A `DataView` is the one byte host modeled as the
+//! erased record, so it is covered here.
 //!
 //! Each case is a TypeScript Vitest test lowered to a crate and executed with
 //! `cargo test`; a green run means every generated `expect(...)` held. The tier
@@ -164,14 +150,10 @@ test("a union with a byte view arm serializes per arm", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn an_operand_that_is_already_erased_serializes_through_the_runtime_rule() {
-    // The emitter's own `JsonStringify` arm used to REJECT an operand whose
-    // static type was already `SmeltUnknown`, which is exactly the case the
-    // runtime rule exists for: erasing it kept nothing concrete, and rejecting
-    // it refused to serialize the one shape `Serialize for SmeltUnknown` was
-    // written to decide. Hono's whole crate stopped in the emitter on it —
-    // `utils/crypto.ts` reassigns `data: string | boolean | number | JSONValue
-    // | ArrayBufferView | ArrayBuffer` across a narrowing, so the operand's
-    // static type is the erased union rather than any one arm.
+    // The emitter's `JsonStringify` arm accepts an operand whose static type is
+    // already `SmeltUnknown`, the shape `Serialize for SmeltUnknown` decides at run
+    // time. Hono's `utils/crypto.ts` reassigns a union across a narrowing, so its
+    // operand's static type is the erased union rather than any one arm.
     //
     // These cases live in the tier rather than in the examples corpus for the
     // same reason the rest of this file does: an `unknown` parameter and an

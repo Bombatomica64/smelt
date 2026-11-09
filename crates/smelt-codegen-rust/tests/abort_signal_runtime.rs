@@ -116,12 +116,9 @@ fn run_abort_fixture(source: &str, crate_name: &str) {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn optional_chained_abort_listener_cancels_a_pending_timer() {
-    // The load-bearing case. `signal?.addEventListener('abort', handler)` used to
-    // read the erased abort record's *own* fields; the abort methods live on the
-    // host prototype, not in the record, so the read answered `null` and the
-    // optional-call coercion substituted a no-op default callback. Nothing was
-    // registered, `controller.abort()` fired no listeners, and a `wait(...)` with
-    // a signal simply ran to completion.
+    // The load-bearing case. `signal?.addEventListener('abort', handler)` resolves
+    // through the host prototype, because the abort methods are not fields of the
+    // erased record, so the listener is registered and `controller.abort()` fires it.
     //
     // The three cases below distinguish "rejected because the signal aborted"
     // from "rejected eagerly": only the run whose abort lands *before* the timer
@@ -203,10 +200,7 @@ test("each registered abort listener fires once", async () => {
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn async_function_adopts_a_returned_promise() {
     // `return p` inside an `async function` ADOPTS `p`: the caller observes `p`'s
-    // settled value, never the promise object. Smelt used to erase the returned
-    // `Future<T>` into the `T` return slot as a `SmeltUnknown::Promise`, so
-    // `await adopt()` produced "[object Promise]" and a rejection inside the
-    // returned promise never reached the caller's `catch`. Both directions are
+    // settled value, never the promise object. Both directions are
     // asserted: the resolved value must flow through, and the rejection must too.
     let source = format!(
         r#"

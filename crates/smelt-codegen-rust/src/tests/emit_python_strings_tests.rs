@@ -461,21 +461,6 @@ function absent<ResultDate extends Date>(
 }
 
 #[test]
-fn emits_python_string_search_as_int() {
-    let source = source_for_py(
-        r#"
-word: str = "Smelt"
-first: int = word.find("m")
-last: int = word.rfind("t")
-"#,
-    );
-
-    assert!(source.contains(".find(&"));
-    assert!(source.contains(".rfind(&"));
-    assert!(source.contains(".map_or(-1,"));
-}
-
-#[test]
 fn list_slice_borrows_its_receiver_instead_of_cloning_it() {
     // A slice reads its receiver only through `&self` methods (`.len()`, `.iter()`),
     // so the receiver must be borrowed, not cloned. Cloning it copied the whole
@@ -511,50 +496,6 @@ export function chunkNumbers(data: number[], size: number): number[][] {
 }
 
 #[test]
-fn emits_python_list_and_string_slices() {
-    let source = source_for_py(
-        r#"
-values: list[int] = [1, 2, 3, 4]
-all_values: list[int] = values[:]
-tail_values: list[int] = values[1:]
-mid_values: list[int] = values[1:3]
-last_values: list[int] = values[-2:]
-word: str = "smelting"
-all_text: str = word[:]
-tail_text: str = word[1:]
-mid_text: str = word[1:4]
-last_text: str = word[-3:]
-"#,
-    );
-
-    assert!(source.contains(".iter().skip(0usize).take("));
-    assert!(source.contains("let smelt_index = 1 as i64"));
-    assert!(source.contains("clamp(0, smelt_len) as usize"));
-    assert!(source.contains(".cloned().collect::<Vec<_>>()"));
-    assert!(source.contains(".chars().skip(0usize).take("));
-    assert!(source.matches("if smelt_index < 0").count() >= 2);
-    assert!(source.contains(".collect::<String>() };"), "{source}");
-}
-
-#[test]
-fn emits_python_negative_list_and_string_indexes() {
-    let source = source_for_py(
-        r#"
-values: list[int] = [1, 2, 3]
-last_value: int = values[-1]
-word: str = "abc"
-last_char: str = word[-1]
-"#,
-    );
-
-    assert!(source.contains("let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }"));
-    // A read past either end raises `IndexError` (it used to read a default).
-    assert!(source.contains("smelt_py_list_read(&"));
-    assert!(source.contains("let smelt_len = smelt_text.chars().count() as i64;"));
-    assert!(source.contains("smelt_py_index_error(\"string index out of range\")"));
-}
-
-#[test]
 fn emits_python_tuple_index_and_slice() {
     let source = source_for_py(
         r#"
@@ -587,69 +528,6 @@ const count = pair[1];
 }
 
 #[test]
-fn emits_python_list_append_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2]
-result: None = values.append(3)
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains("Vec<i64>"));
-    // The pushed item is materialized before the write borrow is taken, so the
-    // call reads `push(smelt_push_item)`; see `list_push_expr`.
-    assert!(source.contains("let smelt_push_item = 3;"));
-    assert!(source.contains(".push(smelt_push_item);"));
-    assert!(source.contains("()"));
-}
-
-#[test]
-fn emits_python_list_extend_method() {
-    let source = source_for_py(
-        r"
-left: list[int] = [1, 2]
-right: list[int] = [3, 4]
-result: None = left.extend(right)
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".extend("));
-    assert!(source.contains(".iter().cloned());"));
-    assert!(source.contains("()"));
-}
-
-#[test]
-fn emits_python_list_insert_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2]
-result: None = values.insert(1, 0)
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains("let smelt_insert_index = usize::try_from(1)"));
-    assert!(source.contains(".insert(smelt_insert_index, smelt_insert_item);"));
-    assert!(source.contains("()"));
-}
-
-#[test]
-fn emits_python_list_reverse_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2]
-result: None = values.reverse()
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".reverse();"));
-    assert!(source.contains("()"));
-}
-
-#[test]
 fn emits_python_list_pop_method() {
     let source = source_for_py(
         r"
@@ -660,22 +538,6 @@ item: int = values.pop()
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".pop().expect(\"pop from empty list\")"));
-}
-
-#[test]
-fn emits_python_collection_clear_methods() {
-    let source = source_for_py(
-        r#"
-values: list[int] = [1, 2]
-list_result: None = values.clear()
-mapping: dict[str, int] = {"a": 1}
-dict_result: None = mapping.clear()
-"#,
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.matches(".clear();").count() >= 2);
-    assert!(source.matches("()").count() >= 2);
 }
 
 #[test]

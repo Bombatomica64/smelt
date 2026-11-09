@@ -1,13 +1,9 @@
 //! Runtime execution tests for TypeScript ambient (`declare`) value declarations.
 //!
 //! A `declare let x: T` asserts that the HOST already provides `x`; it never
-//! creates a binding. Smelt used to lower it as an ordinary declaration, which
-//! minted a module local seeded with the declared type's default AND registered
-//! the name as a module global, so every read of it resolved to that default.
-//! es-toolkit's `isNode` is the real-world instance: `declare let process: {…} |
-//! undefined` made `typeof process !== 'undefined'` fold to `false` before any
-//! host lookup could happen, so `isNode()` answered the opposite of the target
-//! profile it was compiled for.
+//! creates a binding, so a read resolves to the host's value and never to a
+//! default of the declared type. es-toolkit's `isNode` (`declare let process:
+//! {…} | undefined`) is the real-world instance.
 //!
 //! Two properties are guarded here.
 //!
