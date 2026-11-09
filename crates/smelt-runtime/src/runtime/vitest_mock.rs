@@ -118,7 +118,7 @@ fn smelt_vitest_mock_state(value: &SmeltUnknown) -> Option<::std::rc::Rc<::std::
 //~ A value that is not a mock has recorded no calls, so every call
 //~ assertion about it is FALSE; a vacuous pass would only hide a broken
 //~ assertion.
-fn smelt_vitest_mock_called_times(value: &SmeltUnknown, expected: f64) -> bool { match smelt_vitest_mock_state(value) { Some(state) => state.borrow().calls.len() as f64 == expected, None => expected == 0.0 } }
+fn smelt_vitest_mock_called_times(value: &SmeltUnknown, expected: f64) -> bool { match smelt_vitest_mock_state(value) { Some(state) => state.borrow().calls.len() as f64 == expected, None => false } }
 
 //~ `expect(mock).toHaveBeenCalledWith(...)`: true when any recorded call's
 //~ arguments deep-equal the expected arguments (same `toEqual` structural

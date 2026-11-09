@@ -297,7 +297,7 @@ impl ModuleBuilder<'_> {
         let arity = if check == LibraryCheck::Matcher("toThrow") && !chai { 1 } else { expected_arity(check) };
         let end = (1 + arity).min(call.arguments.len());
         let arguments = call.arguments.get(1..end).unwrap_or_default();
-        self.library_check(check, actual, None, inverted, arguments, call.span, &format!("assert.{name}(...)"), body)?;
+        self.library_check(check, Some(actual), None, inverted, arguments, call.span, &format!("assert.{name}(...)"), body)?;
         Ok(true)
     }
 
@@ -310,17 +310,32 @@ impl ModuleBuilder<'_> {
         // From the outside in: the last word of the chain comes first.
         let mut links: Vec<(&str, Option<&[Argument<'_>]>, oxc::span::Span)> = Vec::new();
         let mut cursor = expression.get_inner_expression();
+        // `chai.should()` only installs the getter this lowering already models.
+        if let Expression::CallExpression(call) = cursor
+            && let Expression::StaticMemberExpression(member) = call.callee.get_inner_expression()
+            && member.property.name == "should"
+            && self.library_root_of(&member.object) == Some(LibraryRoot::ChaiModule)
+        {
+            return Ok(true);
+        }
+        let mut should_receiver = None;
         let expect_call = loop {
             match cursor {
                 Expression::CallExpression(call) => {
                     if self.library_root_of(&call.callee) == Some(LibraryRoot::ChaiExpect) {
-                        break call;
+                        break Some(call);
                     }
                     let Expression::StaticMemberExpression(member) = &call.callee else {
                         return Ok(false);
                     };
                     links.push((member.property.name.as_str(), Some(call.arguments.as_slice()), call.span));
                     cursor = member.object.get_inner_expression();
+                }
+                Expression::StaticMemberExpression(member)
+                    if member.property.name == "should" && self.source.contains("chai") =>
+                {
+                    should_receiver = Some(member.object.get_inner_expression());
+                    break None;
                 }
                 Expression::StaticMemberExpression(member) => {
                     links.push((member.property.name.as_str(), None, member.span));
@@ -330,17 +345,23 @@ impl ModuleBuilder<'_> {
             }
         };
         let span = expression.span();
-        let Some(actual) = expect_call.arguments.first() else {
+        let vitest_expect = expect_call.is_some();
+        let actual = expect_call.and_then(|call| call.arguments.first());
+        if actual.is_none() && should_receiver.is_none() {
             self.unmodelled_assertion("chai expect() without a value", span, body);
             return Ok(true);
-        };
+        }
         links.reverse();
         // A chain may assert more than once (`.to.be.a("string").and.equal("x")`),
         // on one value, so a value that is read more than once gets a local.
         let asserting = links.iter().filter(|(name, args, _)| {
             !CHAI_LANGUAGE_CHAINS.contains(name) && (args.is_some() || !is_chai_flag(name))
         }).count();
-        let shared = if asserting > 1 { Some(self.bind_actual_once(actual, body)?) } else { None };
+        let shared = match (should_receiver, actual) {
+            (Some(receiver), _) => Some(self.bind_expression_once(receiver, body)?),
+            (None, Some(actual)) if asserting > 1 => Some(self.bind_actual_once(actual, body)?),
+            _ => None,
+        };
         let (mut inverted, mut deep, mut contains) = (false, false, false);
         for (name, arguments, link_span) in links {
             if arguments.is_none() && CHAI_LANGUAGE_CHAINS.contains(&name) {
@@ -366,7 +387,26 @@ impl ModuleBuilder<'_> {
             let message = format!("expect(...).{name}(...)");
             self.library_check(check, actual, shared, inverted, arguments.unwrap_or(&[]), link_span, &message, body)?;
         }
+        if vitest_expect {
+            self.tick_planned_assertion(span, body);
+        }
         Ok(true)
+    }
+
+    /// Evaluate a `.should` receiver into a local the chain reads.
+    fn bind_expression_once(
+        &mut self,
+        receiver: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<ExprId, SmeltError> {
+        let value = self.expression(receiver, body)?;
+        let ty = Self::expr_ty(body, value);
+        let span = self.expression_span(receiver);
+        let name = self.intern_source_name("chai_actual");
+        let local = body.push_local(LocalDecl { name: Some(name), ty, mutable: false, span });
+        let pat = body.push_pattern(Pattern::Binding(local));
+        self.push_stmt_to_sink(body, Stmt::Let { pat, ty, value: Some(value) });
+        Ok(body.push_expr(Expr { kind: ExprKind::Local(local), ty, span }))
     }
 
     /// Evaluate an actual value into a local, for a chain that reads it twice.
@@ -390,7 +430,7 @@ impl ModuleBuilder<'_> {
     fn library_check(
         &mut self,
         check: LibraryCheck,
-        actual: &Argument<'_>,
+        actual: Option<&Argument<'_>>,
         shared: Option<ExprId>,
         inverted: bool,
         arguments: &[Argument<'_>],
@@ -398,25 +438,31 @@ impl ModuleBuilder<'_> {
         message: &str,
         body: &mut Body,
     ) -> Result<(), SmeltError> {
-        if check == LibraryCheck::Matcher("toThrow") && arguments.len() > 1 {
-            self.unmodelled_assertion(&format!("{message} with an error class and a message"), span, body);
+        if check == LibraryCheck::Matcher("toThrow") && actual.is_none() {
+            self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
             return Ok(());
         }
         if let LibraryCheck::Matcher(name) = check {
-            let actual = if name == "toThrow" {
-                SiteActual::Argument { argument: actual, inverted }
-            } else {
-                shared.map_or(SiteActual::Argument { argument: actual, inverted }, |value| {
-                    SiteActual::Lowered(LoweredActual { value, inverted })
-                })
+            let actual = match (name == "toThrow", shared, actual) {
+                (false, Some(value), _) => SiteActual::Lowered(LoweredActual { value, inverted }),
+                (_, _, Some(argument)) => SiteActual::Argument { argument, inverted },
+                (true, Some(_) | None, None) | (false, None, None) => {
+                    self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
+                    return Ok(());
+                }
             };
             let handled = self.matcher_site_statement(MatcherSite { name, arguments, span, actual }, body)?;
             debug_assert!(handled, "{name} is a modelled matcher");
             return Ok(());
         }
-        let value = match shared {
-            Some(value) => value,
-            None => self.argument(actual, body)?,
+        let value = if let Some(value) = shared {
+            value
+        } else {
+            let Some(actual) = actual else {
+                self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
+                return Ok(());
+            };
+            self.argument(actual, body)?
         };
         let holds = match check {
             LibraryCheck::LooseEqual | LibraryCheck::StrictEqual => {

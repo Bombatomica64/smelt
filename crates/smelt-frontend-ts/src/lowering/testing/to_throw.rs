@@ -42,6 +42,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn expected_error_predicate(
         &mut self,
         expected_arg: &Argument<'_>,
+        message_arg: Option<&Argument<'_>>,
         body: &mut Body,
     ) -> Result<Option<(LocalId, ExprId)>, SmeltError> {
         let span = self.span(expected_arg.span().start, expected_arg.span().end);
@@ -77,7 +78,26 @@ impl ModuleBuilder<'_> {
         if let Some(name) = class_name
             && (self.classes.is_known(name) || Self::instanceof_builtin_target(name))
         {
-            return Ok(Some(instance_of(self, name, body)));
+            let (caught, is_instance) = instance_of(self, name, body);
+            // chai's `.throw(Class, message)`: both must hold of the same error.
+            let Some(message_arg) = message_arg else {
+                return Ok(Some((caught, is_instance)));
+            };
+            let unknown_ty = self.erase_at(ErasureReason::TestHarness, span, "toThrow message");
+            let value = Self::caught_read(caught, unknown_ty, span, body);
+            let expected = self.argument(message_arg, body)?;
+            let oxc_span = message_arg.span();
+            let message_matches = self.runtime_check_expr("error_message_matches", value, &[expected], oxc_span, body);
+            let both = body.push_expr(Expr {
+                kind: ExprKind::Conditional {
+                    cond: is_instance,
+                    then_expr: message_matches,
+                    else_expr: is_instance,
+                },
+                ty: bool_ty,
+                span,
+            });
+            return Ok(Some((caught, both)));
         }
         let imported_class_candidate = class_name.filter(|name| self.imports.is_value(name));
         let expected = match self.argument(expected_arg, body) {

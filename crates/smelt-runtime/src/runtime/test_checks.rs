@@ -10,6 +10,7 @@
 ///
 /// An unknown rule name is false, so a mismatch between the frontend's table and
 /// this one fails the test instead of passing it.
+thread_local! { static SMELT_TEST_ASSERTION_PLAN: ::std::cell::Cell<(Option<f64>, usize)> = const { ::std::cell::Cell::new((None, 0)) }; }
 #[allow(clippy::cast_lossless, clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss, clippy::float_cmp, clippy::option_if_let_else, clippy::suboptimal_flops, clippy::too_many_lines, clippy::unreadable_literal, reason = "JavaScript numbers and a PRNG convert between f64 and integers on purpose")]
 fn smelt_test_check(check: &str, args: Vec<SmeltUnknown>) -> bool {
     let mut args = args.into_iter();
@@ -37,6 +38,12 @@ fn smelt_test_check(check: &str, args: Vec<SmeltUnknown>) -> bool {
             smelt_test_close_to(&actual, &first, Some(&SmeltUnknown::Number(10f64.powf(-digits) / 2.0)), false)
         }
         "snapshot" => smelt_test_snapshot_matches(&actual, &first),
+        //~ `expect.assertions`: `actual` is the planned count, `-1` for "at least one".
+        "assertions_plan" => { SMELT_TEST_ASSERTION_PLAN.with(|plan| plan.set((Some(smelt_unknown_to_number(&actual)), 0))); true }
+        "assertions_tick" => { SMELT_TEST_ASSERTION_PLAN.with(|plan| { let (planned, made) = plan.get(); plan.set((planned, made + 1)); }); true }
+        "assertions_verify" => { let (planned, made) = SMELT_TEST_ASSERTION_PLAN.with(|plan| plan.replace((None, 0))); match planned { Some(count) if count < 0.0 => made > 0, Some(count) => (made as f64) == count, None => true } }
+        "custom_matcher_passed" => smelt_test_truthy(&smelt_get_unknown_field(&actual, "pass")),
+        "error_message_matches" => { let message = smelt_erased_to_js_string(&smelt_get_unknown_field(&actual, "message")); match &first { SmeltUnknown::Object(object) if object.contains_key("__smelt_regexp") => SmeltRegExp::new(smelt_erased_to_js_string(&smelt_get_unknown_field(&first, "source")).to_string_lossy(), smelt_erased_to_js_string(&smelt_get_unknown_field(&first, "flags")).to_string_lossy()).test(&message), _ => message.to_string_lossy().contains(&*smelt_erased_to_js_string(&first).to_string_lossy()) } }
         _ => false,
     }
 }
@@ -170,7 +177,14 @@ fn smelt_test_snapshot_text(value: &SmeltUnknown, indent: usize) -> String {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_regexp") => format!("/{}/{}", smelt_erased_to_js_string(&smelt_get_unknown_field(value, "source")).to_string_lossy(), smelt_erased_to_js_string(&smelt_get_unknown_field(value, "flags")).to_string_lossy()),
         SmeltUnknown::Object(object) if object.contains_key("__smelt_map") || object.contains_key("__smelt_set") => {
             let name = if object.contains_key("__smelt_map") { "Map" } else { "Set" };
-            if smelt_test_is_empty(value) { format!("{name} {{}}") } else { format!("{name} {{ <{} entries> }}", smelt_erased_to_js_string(&smelt_get_unknown_field(value, "size")).to_string_lossy()) }
+            if smelt_test_is_empty(value) { return format!("{name} {{}}"); }
+            let inner = "  ".repeat(indent + 1);
+            let lines: Vec<String> = match (object.get("__smelt_map"), object.get("__smelt_set")) {
+                (_, Some(SmeltUnknown::Array(members))) => members.iter().map(|member| format!("{inner}{},\n", smelt_test_snapshot_text(&member, indent + 1))).collect(),
+                (Some(SmeltUnknown::Array(entries)), _) => entries.iter().map(|entry| match &entry { SmeltUnknown::Array(pair) => format!("{inner}{} => {},\n", smelt_test_snapshot_text(&pair.get(0).unwrap_or(SmeltUnknown::Undefined), indent + 1), smelt_test_snapshot_text(&pair.get(1).unwrap_or(SmeltUnknown::Undefined), indent + 1)), other => format!("{inner}{},\n", smelt_test_snapshot_text(other, indent + 1)) }).collect(),
+                _ => Vec::new(),
+            };
+            format!("{name} {{\n{}{}}}", lines.concat(), "  ".repeat(indent))
         }
         SmeltUnknown::Object(object) if smelt_object_to_string_tag(value).ends_with("Array]") => {
             let tag = smelt_object_to_string_tag(value);

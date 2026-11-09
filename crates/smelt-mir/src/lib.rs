@@ -922,15 +922,35 @@ export function countBy<T, K extends PropertyKey>(
         std::panic::resume_unwind(Box::new("a fusable entry triple was lowered".to_owned()))
     }
 
-    /// Lowers TypeScript, runs every default pass, and formats the result
-    /// WITHOUT validating, after `mutate` has broken one correctness condition.
-    fn optimized_mir_text_after(source: &str, mutate: impl FnOnce(&mut Mir)) -> String {
+    /// Lowers TypeScript and runs every default pass after `mutate` has broken
+    /// one correctness condition. The result is not validated: the mutated
+    /// program need not be well formed.
+    fn optimized_mir_after(source: &str, mutate: impl FnOnce(&mut Mir)) -> Mir {
         let mut ctx = HirCtx::new();
         ok_or_panic(to_hir(source, FileId(0), &mut ctx), "HIR");
         let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
         mutate(&mut mir);
         opt::optimize(&mut mir);
-        format_compact(&mir)
+        mir
+    }
+
+    /// Lowers TypeScript, runs every default pass, and asserts the result
+    /// validates.
+    fn validated_optimized_mir(source: &str) -> Mir {
+        let mir = optimized_mir_after(source, |_| {});
+        assert!(validate(&mir).is_empty(), "optimized MIR validates");
+        mir
+    }
+
+    /// Asserts `DictEntryUpdate` declined: no entry update was emitted and the
+    /// read/compute/write-back triple is still three statements.
+    fn assert_entry_triple_kept(mir: &Mir, why: &str) {
+        let output = format_compact(mir);
+        assert!(!output.contains("entry_update"), "{why}: {output}");
+        assert!(
+            mir.functions.iter().any(|function| find_entry_triple(function).is_some()),
+            "{why}: the entry read, compute and write-back must survive: {output}"
+        );
     }
 
     #[test]
@@ -938,29 +958,23 @@ export function countBy<T, K extends PropertyKey>(
         // The stored value is evaluated while the backend holds a `RefMut`
         // guard into the container's store, so an update that reads the
         // container itself would panic with `already borrowed` at runtime.
-        let output = optimized_mir_text_after(COUNT_BY, make_update_read_the_container);
+        let mir = optimized_mir_after(COUNT_BY, make_update_read_the_container);
 
-        assert!(
-            !output.contains("entry_update"),
-            "an update reading the container must keep the two-probe form: {output}"
-        );
+        assert_entry_triple_kept(&mir, "an update reading the container must keep the two-probe form");
     }
 
     #[test]
     fn dict_entry_update_keeps_a_triple_with_a_second_reader() {
         // A second reader observes the entry value the fused form folds into
         // the update, so the read must stay a statement of its own.
-        let output = optimized_mir_text_after(COUNT_BY, add_second_entry_read_reader);
+        let mir = optimized_mir_after(COUNT_BY, add_second_entry_read_reader);
 
-        assert!(
-            !output.contains("entry_update"),
-            "a second reader of the entry read blocks the fusion: {output}"
-        );
+        assert_entry_triple_kept(&mir, "a second reader of the entry read blocks the fusion");
     }
 
     #[test]
     fn dict_entry_update_keeps_a_write_to_another_key() {
-        let output = optimized_mir_text(
+        let mir = validated_optimized_mir(
             "\
 export function countBy<T, K extends PropertyKey>(
   arr: readonly T[],
@@ -977,12 +991,12 @@ export function countBy<T, K extends PropertyKey>(
 ",
         );
 
-        assert!(!output.contains("entry_update"), "{output}");
+        assert_entry_triple_kept(&mir, "a write to another key");
     }
 
     #[test]
     fn dict_entry_update_keeps_a_write_to_another_dict() {
-        let output = optimized_mir_text(
+        let mir = validated_optimized_mir(
             "\
 export function countBy<T, K extends PropertyKey>(
   arr: readonly T[],
@@ -999,7 +1013,7 @@ export function countBy<T, K extends PropertyKey>(
 ",
         );
 
-        assert!(!output.contains("entry_update"), "{output}");
+        assert_entry_triple_kept(&mir, "a write to another dict");
     }
 
     #[test]
@@ -1007,7 +1021,7 @@ export function countBy<T, K extends PropertyKey>(
         // Conservative operand rule: anything but constants and the bound entry
         // value is refused, because a container clone SHARES its store and a
         // second local can name the same cell.
-        let output = optimized_mir_text(
+        let mir = validated_optimized_mir(
             "\
 export function countBy<T, K extends PropertyKey>(
   arr: readonly T[],
@@ -1024,14 +1038,14 @@ export function countBy<T, K extends PropertyKey>(
 ",
         );
 
-        assert!(!output.contains("entry_update"), "{output}");
+        assert_entry_triple_kept(&mir, "an update that reads another local");
     }
 
     #[test]
     fn dict_entry_update_keeps_a_non_constant_seed() {
         // `SmeltJsMap::entry_or_insert` calls the seed closure while it holds
         // `store.borrow_mut()`, so only a constant seed is accepted.
-        let output = optimized_mir_text(
+        let mir = validated_optimized_mir(
             "\
 export function countBy<T, K extends PropertyKey>(
   arr: readonly T[],
@@ -1048,7 +1062,7 @@ export function countBy<T, K extends PropertyKey>(
 ",
         );
 
-        assert!(!output.contains("entry_update"), "{output}");
+        assert_entry_triple_kept(&mir, "a non constant seed");
     }
 
     #[test]

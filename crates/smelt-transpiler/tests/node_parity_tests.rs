@@ -63,6 +63,19 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// Captures share one cell, a method call supplies its receiver, a function value
+/// is an object, and every call shape honours the callee's argument ABI.
+#[test]
+fn function_value_semantics() -> TestResult {
+    verify_node_parity("function_value_semantics")
+}
+
+/// A `catch` runs wherever its `try` sits: a loop, a closure, an `if` arm, a callback.
+#[test]
+fn throw_and_catch_forms() -> TestResult {
+    verify_node_parity("throw_and_catch_forms")
+}
+
 /// A throw delivers its operand whole through one channel, whatever it is, and
 /// a `try` around a call that cannot throw still builds and runs.
 #[test]
@@ -89,6 +102,42 @@ fn computed_member_object_keys() -> TestResult {
 #[test]
 fn closure_over_defaulted_callback() -> TestResult {
     verify_node_parity("closure_over_defaulted_callback")
+}
+
+/// `Object` and `Symbol` are values `.constructor` compares equal to, a module
+/// const aliasing a builtin is callable from any body, and a list callback picked
+/// by a conditional is not replaced by one of its arms.
+#[test]
+fn builtin_constructor_values() -> TestResult {
+    verify_node_parity("builtin_constructor_values")
+}
+
+/// A self-reaching class or list erases to one cycle, `c ? [] : {}` keeps the array,
+/// and a callback selected at run time is the one that runs.
+#[test]
+fn cyclic_erasure_and_selected_values() -> TestResult {
+    verify_node_parity("cyclic_erasure_and_selected_values")
+}
+
+/// An erased primitive `Set` keeps the `Set` shape: `instanceof`, `toString`,
+/// iteration and `console.log` match Node.
+#[test]
+fn erased_set_view() -> TestResult {
+    verify_node_parity("erased_set_view")
+}
+
+/// A nested `async function` without a return annotation still returns a Promise.
+#[test]
+fn nested_async_declaration_return() -> TestResult {
+    verify_node_parity("nested_async_declaration_return")
+}
+
+/// A keyed write through an erased view reaches the instance, an implementation
+/// whose overloads return an array or an object returns what it built, and
+/// `Object.fromEntries` accepts `[k, v]` entries spelled as plain arrays.
+#[test]
+fn keyed_view_write_and_shape_overloads() -> TestResult {
+    verify_node_parity("keyed_view_write_and_shape_overloads")
 }
 
 /// A copy keeps its value when a closure writes the source afterwards, whether the
@@ -234,6 +283,13 @@ fn implements_inherited_members() -> TestResult {
 #[test]
 fn console_erased_generic() -> TestResult {
     verify_node_parity("console_erased_generic")
+}
+
+/// `console.log` follows `util.inspect`: quoting, depth, grouping, line breaks,
+/// absent optional properties, class prefixes, tuples and collections.
+#[test]
+fn console_inspect_layout() -> TestResult {
+    verify_node_parity("console_inspect_layout")
 }
 
 /// A class stored in a value keeps its identity for `instanceof` and `new`.
@@ -741,4 +797,16 @@ fn erased_array_search() -> TestResult {
 #[test]
 fn forward_references_and_computed_keys() -> TestResult {
     verify_node_parity("forward_references_and_computed_keys")
+}
+
+/// Index signatures, erased projection, statics, typed arrays and inheritance behave like TypeScript.
+#[test]
+fn classes_behaviour() -> TestResult {
+    verify_node_parity("classes_behaviour")
+}
+
+/// Generic classes, functions and callbacks behave like TypeScript on every lift and demotion path.
+#[test]
+fn generics_behaviour() -> TestResult {
+    verify_node_parity("generics_behaviour")
 }

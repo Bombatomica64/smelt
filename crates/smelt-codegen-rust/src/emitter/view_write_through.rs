@@ -63,7 +63,7 @@ pub(crate) fn program_writes_erased_fields(mir: &Mir) -> bool {
         blocks.iter().flat_map(|block| &block.statements).any(|statement| {
             matches!(
                 statement,
-                Statement::AssignPlace { place: Place::Field { base, .. }, .. }
+                Statement::AssignPlace { place: Place::Field { base, .. } | Place::Index { base, .. }, .. }
                     if erased(locals, *base)
             )
         })

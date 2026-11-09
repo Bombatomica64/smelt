@@ -490,17 +490,25 @@ impl FunctionEmitter<'_> {
         // initializer's signature spells (a base type parameter the derived
         // layout erases is erased on both sides). No callee-generic binding
         // applies, unlike a `Base::new(..)` call into the base's own impl.
+        //
+        // The initializer's parameters are spelled in the derived class's scope
+        // (`extends Base<string>` makes `value: T` a `JsString`), so the targets
+        // come from the same substituted copy the initializer is emitted from.
+        let substituted = self
+            .base_initializer_owner()
+            .and_then(|owner| crate::classes::substituted_inherited_member(self.mir, function, owner));
+        let declared = substituted.as_ref().unwrap_or(function);
         let mut rendered_args = vec![self.operand_expr(receiver)?];
         for (index, arg) in rest.iter().enumerate() {
-            let Some(param) = function.params.get(index).copied() else {
+            let Some(param) = declared.params.get(index).copied() else {
                 rendered_args.push(self.operand_expr(arg)?);
                 continue;
             };
-            let target_ty = self.function_local_decl(function, param)?.ty;
+            let target_ty = self.function_local_decl(declared, param)?.ty;
             rendered_args.push(self.value_at_type(arg, target_ty)?);
         }
-        for param in function.params.iter().skip(rest.len()) {
-            let target_ty = self.function_local_decl(function, *param)?.ty;
+        for param in declared.params.iter().skip(rest.len()) {
+            let target_ty = self.function_local_decl(declared, *param)?.ty;
             rendered_args.push(self.default_value(target_ty)?);
         }
         Ok(RenderedCall::propagating_if(
@@ -511,6 +519,15 @@ impl FunctionEmitter<'_> {
             )),
             self.call_is_throwing(function),
         ))
+    }
+
+    /// The class whose `impl` receives the initializer a `super(..)` here calls:
+    /// the receiving class of a base-initializer copy, else this constructor's own.
+    fn base_initializer_owner(&self) -> Option<Symbol> {
+        match &self.role {
+            emit_role::EmitRole::BaseInitializerCopy { receiver, .. } => Some(receiver.owner),
+            _ => crate::base_init::constructor_class(self.function),
+        }
     }
 
     /// Returns the static return type of a call expression.
