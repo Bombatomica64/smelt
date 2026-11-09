@@ -80,7 +80,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
             {
-                format!("{receiver_text}.as_ref().map_or(0, Vec::len)", receiver_text = receiver_text.tight())
+                format!("{receiver_text}.as_ref().map_or(0, |smelt_value| smelt_value.len())", receiver_text = receiver_text.tight())
             }
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
