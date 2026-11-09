@@ -255,11 +255,8 @@ test("erased keys, values, get and has see the entries", () => {
 fn an_erased_map_receiver_still_mutates_the_map() {
     // A `Map` does not always reach its mutation site at the typed
     // `SmeltJsMap`: declaring it in a union erases the whole union, so
-    // `cache.set(key, value)` runs against a `SmeltUnknown` receiver. The
-    // erased Map used to synthesize only its READ members, so the write found
-    // `undefined`, the call collapsed to a null callback, and the mutation
-    // vanished with no diagnostic -- es-toolkit's `memoize` never memoized.
-    // Writes land in the marker array's shared storage, so a later read of the
+    // `cache.set(key, value)` runs against a `SmeltUnknown` receiver, the shape
+    // es-toolkit's `memoize` relies on. Writes land in the marker array's shared storage, so a later read of the
     // same erased handle sees them.
     let source = r#"
 import { test, expect } from "vitest";

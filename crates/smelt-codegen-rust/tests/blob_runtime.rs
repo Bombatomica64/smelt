@@ -1,9 +1,8 @@
 //! Runtime execution tests for the WHATWG `Blob`/`File` value.
 //!
-//! `Blob` and `File` were marker-bearing records whose content was stored as a
-//! `String`; they are now the byte-backed concrete `SmeltBlob`. Every case
-//! below is behaviour that representation change makes observable and that no
-//! golden or compile-only corpus can see:
+//! `Blob` and `File` are the byte-backed concrete `SmeltBlob`. Every case below
+//! is behaviour of that representation that no golden or compile-only corpus can
+//! see:
 //!
 //! 1. **`size` is a BYTE count**, so `"héllo 😀"` is eleven and not seven, and
 //!    a blob built from several parts is the sum of their byte lengths.
@@ -16,11 +15,9 @@
 //!    the first holds on a blob. The two share one Rust type, so this is the
 //!    check that the optional-name modeling did not collapse the distinction.
 //! 4. **The body readers round-trip bytes losslessly**, including bytes that are
-//!    not valid UTF-8 — which the old `String`-backed record could not hold at
-//!    all — and `arrayBuffer()`/`bytes()` answer the concrete byte view.
+//!    not valid UTF-8, and `arrayBuffer()`/`bytes()` answer the concrete byte view.
 //! 5. **A blob part contributes BYTES.** A nested blob contributes its content,
-//!    a string its UTF-8 bytes, and a `Uint8Array` its raw bytes: the last one
-//!    used to be stringified, so a binary part was corrupted.
+//!    a string its UTF-8 bytes, and a `Uint8Array` its raw bytes.
 //! 6. **An erased blob is the record every existing consumer reads.** The
 //!    `clone`/`cloneDeepWith` idiom — `value instanceof Blob` then
 //!    `new Blob([value], { type: value.type })` over an `unknown` — has to keep
@@ -187,8 +184,7 @@ test("arrayBuffer and bytes answer the byte view", async () => {
   expect((await blob.bytes()).length).toBe(6);
 });
 test("bytes that are not valid UTF-8 survive the round trip", async () => {
-  // 0xFF is not a valid UTF-8 lead byte; the old String-backed record could
-  // not hold it at all.
+  // 0xFF is not a valid UTF-8 lead byte, so it survives only as raw bytes.
   const blob = new Blob([new Uint8Array([104, 105, 255])]);
   expect(blob.size).toBe(3);
   const bytes = await blob.bytes();

@@ -1,19 +1,9 @@
 //! Runtime execution tests for JavaScript construction through a function value.
 //!
 //! A JavaScript function is an object, and every non-arrow function is a
-//! constructor. Smelt used to model neither, and the three gaps compounded:
-//!
-//! * **`f.prototype` read as `undefined`.** An erased property read on a
-//!   `SmeltUnknown::Function` answered `undefined` for every field, so the
-//!   standard `if (func.prototype) { wrapper.prototype = Object.create(func.prototype) }`
-//!   idiom (es-toolkit `partialImpl`) never took its branch.
-//! * **A property write onto a function value was DISCARDED.** The write place
-//!   had no slot for an undeclared member, so `wrapper.prototype = …` emitted
-//!   `let _ = value;`.
-//! * **`new f(args)` lowered to a plain call**, dropping the object allocation,
-//!   the receiver, and the "return the allocated object unless the body returned
-//!   an object" rule; and **`x instanceof f` folded to `false`** at compile
-//!   time for every function-valued target.
+//! constructor, which the es-toolkit `partialImpl` idiom
+//! (`if (func.prototype) { wrapper.prototype = Object.create(func.prototype) }`)
+//! relies on through a property read, a property write and `new` on a function value.
 //!
 //! The four rules checked here, each against Node first:
 //!
@@ -96,8 +86,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 fn new_on_a_function_value_allocates_an_instance_of_it() {
     // The base case both halves of the feature need: construction allocates an
     // object, and `instanceof` finds the constructor's `prototype` on that
-    // object's chain. `new (C as any)()` used to be a plain call returning
-    // `undefined`, and `o instanceof C` folded to a compile-time `false`.
+    // object's chain.
     let source = r#"
 import { test, expect } from "vitest";
 test("new through a function value yields an instance of it", () => {
@@ -168,8 +157,8 @@ fn a_wrapper_whose_prototype_was_replaced_still_constructs_instances_of_the_orig
     // The es-toolkit `partial` shape, and the reason `Object.create(proto)` must
     // record a LINK to `proto` and not merely copy its members: the chain of the
     // object `new w()` allocates has to reach `C.prototype` through the
-    // intermediate object. It also exercises the write side — an undeclared
-    // property write onto a function value used to be discarded outright.
+    // intermediate object. It also exercises an undeclared property write onto a
+    // function value.
     let source = r#"
 import { test, expect } from "vitest";
 test("a wrapper with a derived prototype constructs instances of the original", () => {
@@ -199,8 +188,7 @@ test("a property written onto a function value reads back", () => {
 fn a_function_owns_one_prototype_object_carrying_its_constructor() {
     // `f.prototype` is an OWN property of the function, created once: two reads
     // answer the same object, and its `constructor` is the function itself. This
-    // is the read that `if (func.prototype)` branches on, and it used to be
-    // `undefined` for every function value.
+    // is the read that `if (func.prototype)` branches on.
     let source = r#"
 import { test, expect } from "vitest";
 test("a function's prototype is one object whose constructor is the function", () => {
