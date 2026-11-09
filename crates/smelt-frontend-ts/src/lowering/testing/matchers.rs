@@ -355,6 +355,137 @@ impl ModuleBuilder<'_> {
         Ok(true)
     }
 
+    /// `expect.assertions(n)` and `expect.hasAssertions()`: arm the count the
+    /// test's end verifies. `hasAssertions` is the plan "at least one" (`-1`).
+    fn plan_assertions(
+        &mut self,
+        name: &str,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let hir_span = self.span(call.span.start, call.span.end);
+        let planned = match (name, call.arguments.first()) {
+            ("assertions", Some(count)) => self.argument(count, body)?,
+            _ => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(-1.0)),
+                ty: float_ty,
+                span: hir_span,
+            }),
+        };
+        self.runtime_check("assertions_plan", planned, &[], false, call.span, &format!("expect.{name}"), body)
+    }
+
+    /// Count one vitest assertion when this test planned a number of them.
+    pub(in crate::lowering) fn tick_planned_assertion(&mut self, span: oxc::span::Span, body: &mut Body) {
+        if !self.test_counts_assertions {
+            return;
+        }
+        let none = self.ctx.krate.types.intern(Type::None);
+        let hir_span = self.span(span.start, span.end);
+        let actual = body.push_expr(Expr { kind: ExprKind::Literal(Literal::None), ty: none, span: hir_span });
+        let tick = self.runtime_check_expr("assertions_tick", actual, &[], span, body);
+        self.push_stmt_to_sink(body, Stmt::Expr(tick));
+    }
+
+    /// Whether the source of `span` uses a planned assertion count.
+    pub(in crate::lowering) fn span_plans_assertions(&self, span: oxc::span::Span) -> bool {
+        self.source
+            .get(usize::try_from(span.start).unwrap_or(usize::MAX)..usize::try_from(span.end).unwrap_or(0))
+            .is_some_and(|text| text.contains(".assertions(") || text.contains(".hasAssertions("))
+    }
+
+    /// Fail the test whose run did not make its planned number of assertions.
+    pub(in crate::lowering) fn verify_planned_assertions(&mut self, span: oxc::span::Span, body: &mut Body) {
+        let none = self.ctx.krate.types.intern(Type::None);
+        let hir_span = self.span(span.start, span.end);
+        let actual = body.push_expr(Expr { kind: ExprKind::Literal(Literal::None), ty: none, span: hir_span });
+        let holds = self.runtime_check_expr("assertions_verify", actual, &[], span, body);
+        self.assertion_holds(holds, false, "expect.assertions", span, body);
+    }
+
+    /// The binding that holds the custom matcher `name`.
+    fn custom_matcher_binding(name: &str) -> String {
+        format!("__smelt_custom_matcher_{name}")
+    }
+
+    /// `expect.extend({ name(received, ..) { .. } })`: bind each matcher, so a
+    /// later `expect(v).name(..)` in the same body can call it.
+    fn register_custom_matchers(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let Some(Expression::ObjectExpression(matchers)) =
+            call.arguments.first().and_then(Argument::as_expression)
+        else {
+            self.unmodelled_assertion("expect.extend with a non-literal argument", call.span, body);
+            return Ok(());
+        };
+        for property in &matchers.properties {
+            let oxc::ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+                self.unmodelled_assertion("expect.extend with a spread", call.span, body);
+                return Ok(());
+            };
+            let name = match &property.key {
+                oxc::ast::ast::PropertyKey::StaticIdentifier(key) => key.name.as_str().to_owned(),
+                oxc::ast::ast::PropertyKey::StringLiteral(key) => crate::lowering::js_text::js_str_text(key.value).into_owned(),
+                _ => {
+                    self.unmodelled_assertion("expect.extend with a computed name", call.span, body);
+                    return Ok(());
+                }
+            };
+            let value = self.expression(&property.value, body)?;
+            let ty = Self::expr_ty(body, value);
+            let span = self.span(property.span.start, property.span.end);
+            let binding = Self::custom_matcher_binding(&name);
+            let symbol = self.intern_source_name(&binding);
+            let local = body.push_local(LocalDecl { name: Some(symbol), ty, mutable: false, span });
+            let pat = body.push_pattern(Pattern::Binding(local));
+            self.push_stmt_to_sink(body, Stmt::Let { pat, ty, value: Some(value) });
+            self.scope.bind(binding, local);
+        }
+        Ok(())
+    }
+
+    /// `expect(actual).name(args)` for a matcher `expect.extend` registered: its
+    /// result's `pass` decides the assertion, honouring `.not`.
+    fn custom_matcher_statement(
+        &mut self,
+        name: &str,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Some(local) = self.scope.lookup(&Self::custom_matcher_binding(name)) else {
+            return Ok(false);
+        };
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        let (expect_call, inverted) =
+            self.expect_call_from_matcher_object(member.object.get_inner_expression())?;
+        let Some(actual) = expect_call.arguments.first() else {
+            return Ok(false);
+        };
+        let span = self.span(call.span.start, call.span.end);
+        let matcher_ty = body.local_at(local).map(|decl| decl.ty).ok_or_else(|| {
+            SmeltError::unsupported(span, "custom matcher binding has no declared type")
+        })?;
+        let callee = body.push_expr(Expr { kind: ExprKind::Local(local), ty: matcher_ty, span });
+        let mut args = vec![self.argument(actual, body)?];
+        for argument in &call.arguments {
+            args.push(self.argument(argument, body)?);
+        }
+        let result_ty = match self.ctx.krate.types.get(matcher_ty) {
+            Some(Type::Function(function)) => function.return_ty,
+            _ => self.erase(ErasureReason::TestHarness),
+        };
+        let result = body.push_expr(Expr { kind: ExprKind::ClosureCall { callee, args }, ty: result_ty, span });
+        let holds = self.runtime_check_expr("custom_matcher_passed", result, &[], call.span, body);
+        self.assertion_holds(holds, inverted, &format!("expect(...).{name}(...)"), call.span, body);
+        Ok(true)
+    }
+
     /// Lower supported Node `assert` equality calls into runtime assertions.
     pub(in crate::lowering) fn node_assert_statement(
         &mut self,
@@ -396,6 +527,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
         if self.expect_matcher_call(call, None, body)? {
+            self.tick_planned_assertion(call.span, body);
             return Ok(true);
         }
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -408,7 +540,15 @@ impl ModuleBuilder<'_> {
                     self.always_failing_assertion("expect.fail(...)", call.span, body);
                     true
                 }
-                "assertions" | "hasAssertions" | "extend" | "addSnapshotSerializer" => {
+                "assertions" | "hasAssertions" => {
+                    self.plan_assertions(name, call, body)?;
+                    true
+                }
+                "extend" => {
+                    self.register_custom_matchers(call, body)?;
+                    true
+                }
+                "addSnapshotSerializer" => {
                     self.unmodelled_assertion(&format!("expect.{name}"), call.span, body);
                     true
                 }
@@ -422,6 +562,9 @@ impl ModuleBuilder<'_> {
         // A chai word on vitest's `expect` is a chain the chai recognizer lowers.
         if Self::is_chai_terminal(name) {
             return Ok(false);
+        }
+        if self.custom_matcher_statement(name, call, body)? {
+            return Ok(true);
         }
         self.unmodelled_assertion(&format!("expect(...).{name}"), call.span, body);
         Ok(true)
@@ -1745,7 +1888,7 @@ impl ModuleBuilder<'_> {
             != "toThrowErrorMatchingInlineSnapshot";
         let (catch_binding, matched) = match site.arguments.first().filter(|_| compares_expected) {
             Some(expected_arg) => self
-                .expected_error_predicate(expected_arg, body)?
+                .expected_error_predicate(expected_arg, site.arguments.get(1), body)?
                 .map_or((None, None), |(caught, matched)| (Some(caught), Some(matched))),
             None => (None, None),
         };
