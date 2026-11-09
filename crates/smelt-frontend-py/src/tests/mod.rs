@@ -69,7 +69,7 @@ fn ensure_class_shape(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
     };
     let base = class
         .base
-        .map(|base| render(base).map(|base| format!(": {base}")))
+        .map(|base| render(base).map(|rendered| format!(": {rendered}")))
         .transpose()?
         .unwrap_or_default();
     let fields = class

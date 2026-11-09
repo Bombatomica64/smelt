@@ -1794,7 +1794,7 @@ def run() -> str:
             ExprKind::ClosureCall { callee, .. } => candidate
                 .exprs
                 .get(callee.0 as usize)
-                .is_some_and(|callee| matches!(callee.kind, ExprKind::Field { .. })),
+                .is_some_and(|callee_expr| matches!(callee_expr.kind, ExprKind::Field { .. })),
             _ => false,
         })
     });
