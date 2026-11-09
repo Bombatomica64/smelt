@@ -100,7 +100,7 @@ export function readToString(value: Record<string, unknown>): unknown {
     // the prototype table.
     assert!(
         source.contains(
-            "SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field)"
+            "SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined if field == \"constructor\" => smelt_builtin_namespace(\"Object\"), SmeltUnknown::Undefined => smelt_object_prototype_member(field)"
         ),
         "the prototype table must be consulted only after the own/proto lookups miss"
     );
