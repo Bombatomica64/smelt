@@ -810,3 +810,9 @@ fn classes_behaviour() -> TestResult {
 fn generics_behaviour() -> TestResult {
     verify_node_parity("generics_behaviour")
 }
+
+/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
+#[test]
+fn class_inheritance_behaviour() -> TestResult {
+    verify_node_parity("class_inheritance_behaviour")
+}

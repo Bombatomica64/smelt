@@ -198,3 +198,9 @@ fn writes_through_module_globals() -> TestResult {
 fn frontend_lowering_shapes() -> TestResult {
     verify_python_parity("frontend_lowering_shapes")
 }
+
+/// Inherited methods, overrides, `super()` chains, properties and static members run as Python runs them.
+#[test]
+fn class_inheritance() -> TestResult {
+    verify_python_parity("class_inheritance")
+}
