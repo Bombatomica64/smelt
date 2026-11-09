@@ -391,7 +391,7 @@ impl ModuleBuilder<'_> {
     /// Whether the source of `span` uses a planned assertion count.
     pub(in crate::lowering) fn span_plans_assertions(&self, span: oxc::span::Span) -> bool {
         self.source
-            .get(span.start as usize..span.end as usize)
+            .get(usize::try_from(span.start).unwrap_or(usize::MAX)..usize::try_from(span.end).unwrap_or(0))
             .is_some_and(|text| text.contains(".assertions(") || text.contains(".hasAssertions("))
     }
 
@@ -478,7 +478,7 @@ impl ModuleBuilder<'_> {
         }
         let result_ty = match self.ctx.krate.types.get(matcher_ty) {
             Some(Type::Function(function)) => function.return_ty,
-            _ => self.erase(smelt_hir::ErasureReason::TestHarness),
+            _ => self.erase(ErasureReason::TestHarness),
         };
         let result = body.push_expr(Expr { kind: ExprKind::ClosureCall { callee, args }, ty: result_ty, span });
         let holds = self.runtime_check_expr("custom_matcher_passed", result, &[], call.span, body);

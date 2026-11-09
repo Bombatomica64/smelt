@@ -627,7 +627,7 @@ impl ModuleBuilder<'_> {
                 return None;
             };
             declaration.declarations.iter().find_map(|declarator| {
-                let oxc::ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                     return None;
                 };
                 if binding.name != callee.name {
