@@ -114,7 +114,7 @@ impl ModuleBuilder<'_> {
     /// be passed as callbacks, but a closure has no identity to compare. Compared
     /// with `===`/`==` they read as the interned builtin value that
     /// `value.constructor` also returns.
-    fn equality_operand(
+    pub(in crate::lowering) fn equality_operand(
         &mut self,
         op: BinOp,
         operand: &Expression<'_>,

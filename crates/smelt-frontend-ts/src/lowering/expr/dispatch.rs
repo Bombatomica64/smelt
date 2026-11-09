@@ -217,8 +217,8 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let mut lhs = self.expression(&binary.left, body)?;
-                let mut rhs = self.expression(&binary.right, body)?;
+                let mut lhs = self.equality_operand(op, &binary.left, body)?;
+                let mut rhs = self.equality_operand(op, &binary.right, body)?;
                 // Strict-equality operands narrowed by a `typeof` guard must stay
                 // the erased originals: re-materializing a narrowed function
                 // through an adapter builds a fresh `Rc` whose `Rc::ptr_eq` never
@@ -232,13 +232,16 @@ impl ModuleBuilder<'_> {
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
                 let op = self.loose_equality_op(op, lhs_ty, rhs_ty);
+                // Erased operands say nothing about `+`; the checker's contextual
+                // types may know it concatenates, as in `binary_expression`.
                 let ty = if op == BinOp::Add
-                    && type_hint
-                        .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))
-                    && (self.is_string_compatible_type(lhs_ty)
-                        || self.is_string_compatible_type(rhs_ty)
-                        || self.type_contains_unknown(lhs_ty)
-                        || self.type_contains_unknown(rhs_ty))
+                    && (self.checker_types_as_string(binary.span.start, binary.span.end)
+                        || type_hint
+                            .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))
+                            && (self.is_string_compatible_type(lhs_ty)
+                                || self.is_string_compatible_type(rhs_ty)
+                                || self.type_contains_unknown(lhs_ty)
+                                || self.type_contains_unknown(rhs_ty)))
                 {
                     self.ctx.krate.types.intern(Type::String)
                 } else if let Some(dynamic) =
