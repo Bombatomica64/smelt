@@ -1200,6 +1200,7 @@ let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { sme
 usize::try_from(smelt_normalized).ok().and_then(|smelt_position| smelt_values.get(smelt_position).cloned()).unwrap_or(SmeltUnknown::Undefined)
 }
 SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsString::from(smelt_property_key(name.clone()))),
+smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &JsString::from(smelt_property_key(name.clone()))),
 _ => SmeltUnknown::Undefined,
 };
 }");
