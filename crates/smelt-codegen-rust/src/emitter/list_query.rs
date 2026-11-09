@@ -826,7 +826,7 @@ impl FunctionEmitter<'_> {
             )))
         } else if dest_ty == element_ty {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_reduce_items = {list_read}; let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate(){direction}; let (_, smelt_first) = smelt_reduce_items.next().expect(\"reduce of empty array with no initial value\"); smelt_reduce_items.fold(smelt_first.clone(), |smelt_acc, (smelt_index, smelt_item)| {{ let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = {callback_array_text}; {callback_text} }}) }}", list_read = list_read.delimited()
+                "{{ let smelt_reduce_items = {list_read}; let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate(){direction}; let (_, smelt_first) = smelt_reduce_items.next().expect(\"Reduce of empty array with no initial value\"); smelt_reduce_items.fold(smelt_first.clone(), |smelt_acc, (smelt_index, smelt_item)| {{ let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = {callback_array_text}; {callback_text} }}) }}", list_read = list_read.delimited()
             )))
         } else {
             Err(EmitError::new(

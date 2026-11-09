@@ -810,3 +810,21 @@ fn classes_behaviour() -> TestResult {
 fn generics_behaviour() -> TestResult {
     verify_node_parity("generics_behaviour")
 }
+
+/// Callbacks, optional parameters and the builtin calls reached from them behave like TypeScript.
+#[test]
+fn callback_options_behaviour() -> TestResult {
+    verify_node_parity("callback_options_behaviour")
+}
+
+/// Closures as values capture their bindings and adapt between call shapes like TypeScript.
+#[test]
+fn closure_values_behaviour() -> TestResult {
+    verify_node_parity("closure_values_behaviour")
+}
+
+/// Promises, erased calls and the object runtime they reach behave like TypeScript.
+#[test]
+fn promise_calls_behaviour() -> TestResult {
+    verify_node_parity("promise_calls_behaviour")
+}

@@ -137,6 +137,17 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::cast(format!("{len_expr} as {cast}")))
     }
 
+    /// Pins a float literal receiver to `f64` before a method call: a bare `5.5`
+    /// has no inferred width and `5.5.floor()` does not compile (E0689). Any other
+    /// operand already has a concrete type and renders unchanged.
+    fn float_method_receiver(rendered: RustExpr, operand: &Operand) -> RustExpr {
+        if matches!(operand, Operand::Const(Constant::Float(_))) {
+            RustExpr::atom(format!("({text} as f64)", text = rendered.as_cast_operand()))
+        } else {
+            rendered
+        }
+    }
+
     /// Converts a numeric absolute-value operation to Rust text.
     pub(super) fn numeric_abs_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         if !matches!(
@@ -145,7 +156,7 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("numeric abs operand must be numeric"));
         }
-        Ok(self.operand_expr(operand)?.postfix(".abs()"))
+        Ok(Self::float_method_receiver(self.operand_expr(operand)?, operand).postfix(".abs()"))
     }
 
     /// Converts a numeric rounding operation to Rust text.
@@ -185,7 +196,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("numeric round operand must be numeric"));
         };
         let text = match method_name {
-            Some(method_name) => operand_expr.postfix(format!(".{method_name}()")),
+            Some(method_name) => Self::float_method_receiver(operand_expr, operand).postfix(format!(".{method_name}()")),
             None => RustExpr::chain(format!(
                 "{helper}({operand_expr})",
                 helper = smelt_stdlib::runtime_symbols::math::ROUND, operand_expr = operand_expr.delimited(),
@@ -385,6 +396,14 @@ impl FunctionEmitter<'_> {
             smelt_hir::NumericUnaryFuncOp::Exp => "exp",
         };
         let operand_expr = self.float_operand_expr(operand)?;
+        // `f64::signum` answers 1.0 for 0.0, while `Math.sign` returns a zero (and
+        // NaN) operand unchanged.
+        if op == smelt_hir::NumericUnaryFuncOp::Sign {
+            return Ok(RustExpr::atom(format!(
+                "{{ let smelt_sign_operand = {operand_expr} as f64; if smelt_sign_operand == 0.0 || smelt_sign_operand.is_nan() {{ smelt_sign_operand }} else {{ smelt_sign_operand.signum() }} }}",
+                operand_expr = operand_expr.as_cast_operand(),
+            )));
+        }
         // A literal operand (`Math.sqrt(2)` renders `2.0`) has no inferred
         // float width, and a method call on `{float}` does not compile; pin it
         // with the same `as f64` the binary helpers use.
@@ -428,7 +447,7 @@ impl FunctionEmitter<'_> {
         }
         let y_text = self.float_operand_expr(y_operand)?;
         let x_text = self.float_operand_expr(x_operand)?;
-        Ok(y_text.postfix(format!(".atan2({x_text})", x_text = x_text.delimited())))
+        Ok(Self::float_method_receiver(y_text, y_operand).postfix(format!(".atan2({x_text})", x_text = x_text.delimited())))
     }
 
     /// Converts an inclusive integer random operation to Rust text.

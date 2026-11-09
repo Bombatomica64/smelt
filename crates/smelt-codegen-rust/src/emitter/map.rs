@@ -915,7 +915,7 @@ impl FunctionEmitter<'_> {
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS, dict_text = dict_text.delimited(),
                 )))),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Object(smelt_map) => {index_keys}(&SmeltUnknown::Object(smelt_map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&smelt_map)), SmeltUnknown::Array(smelt_values) => smelt_values.own_keys(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(smelt_map) => {index_keys}(&SmeltUnknown::Object(smelt_map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&smelt_map)), SmeltUnknown::Array(smelt_values) => smelt_values.own_keys().into_iter().map(Into::into).collect(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS, dict_text = dict_text.delimited(),
                 )))),
                 // `Reflect.ownKeys` reports the string keys AND the symbol keys,
