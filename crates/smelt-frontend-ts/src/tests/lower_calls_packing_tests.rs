@@ -74,6 +74,12 @@ export const addLocale = async (params: unknown) => {
     let _module = module(&ctx, module_id)?;
     let errors = smelt_hir::validate(&ctx.krate);
     ensure!(errors.is_empty(), "validation errors: {errors:?}");
+    ensure_signature(&ctx, "assoc", "assoc(key: String, value: String, target: Unknown) -> Unknown")?;
+    ensure_signature(&ctx, "get_default_locale", "async get_default_locale() -> Future<String>")?;
+    ensure!(
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::Await { .. })),
+        "the awaited argument must lower to an await"
+    );
     Ok(())
 }
 
@@ -6904,23 +6910,6 @@ export const createDocumentId = createId;
 const attribute = {
   documentId: { type: 'string', default: createDocumentId },
 };
-"),
-        &mut ctx,
-    )?;
-    Ok(())
-}
-
-#[test]
-fn lowers_computed_member_object_keys() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-function model(identifiers: any, entityId: string) {
-  return {
-    [identifiers.ID_COLUMN]: { type: 'increments' },
-    [entityId]: { type: 'integer' },
-  };
-}
 "),
         &mut ctx,
     )?;

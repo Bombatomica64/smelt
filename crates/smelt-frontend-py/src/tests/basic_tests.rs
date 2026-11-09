@@ -45,11 +45,11 @@ def add(x: int, y: int) -> int:
         .ok_or_else(|| "expected function item".to_owned())?;
     if let Item::Function(f) = item(&ctx, item_id)? {
         ensure_eq(&symbol(&ctx, f.name)?, &"add", "function name")?;
-        ensure_eq(&f.params.len(), &2, "parameter count")?;
         ensure(f.body.is_some(), "expected function body")?;
     } else {
         return Err("expected Function item".to_owned());
     }
+    ensure_signature(&ctx, "add", "add(x: Int, y: Int) -> Int")?;
     Ok(())
 }
 

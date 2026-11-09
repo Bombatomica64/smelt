@@ -1,60 +1,14 @@
-//! Regression tests for the exception-payload ABI (see `crate::thrown`).
-//!
-//! Every `throw`, every `reject`, and every `catch` binding in generated Rust
-//! shares one error channel, `Result<T, Box<dyn std::error::Error>>`. These tests
-//! pin two properties of that channel:
-//!
-//! 1. A thrown value enters it whole, rather than being replaced by
-//!    `format!("{}", value)` (which rendered every erased JavaScript `Error` as
-//!    the literal text `[object Object]`).
-//! 2. An erased `catch` binding leaves it by recovering that same value, rather
-//!    than by rebuilding a synthetic `{__smelt_error, message}` record out of the
-//!    error's `Display` text.
+//! The exact Rust the exception-payload ABI (see `crate::thrown`) emits at a
+//! throw site. What a throw delivers to its catch is checked by running programs:
+//! the `thrown_payload_channel` Node-parity fixture and the
+//! `try_around_infallible_call` Python-parity fixture.
 
 use super::*;
 
-#[test]
-fn payload_channel_declares_its_recovery_adapters() {
-    let source = source_for(
-        r#"
-function boom(value: unknown): void {
-  throw value;
-}
-
-boom(new TypeError("bad"));
-"#,
-    );
-
-    assert!(
-        source.contains("struct SmeltThrown { value: SmeltUnknown }"),
-        "the payload carrier should be emitted:\n{source}"
-    );
-    assert!(
-        source.contains("impl ::std::error::Error for SmeltThrown {}"),
-        "the payload carrier must be usable as the channel's error type:\n{source}"
-    );
-    // `Display` projects `message` so a string-typed `catch` and substring
-    // `toThrow("...")` matchers observe the message rather than "[object Object]".
-    assert!(
-        source.contains("fn smelt_thrown_message(value: &SmeltUnknown) -> String"),
-        "the message projection should be emitted:\n{source}"
-    );
-    // A foreign error that reached the channel through `?` has no payload, so the
-    // adapter must still present it as an erased Error record.
-    assert!(
-        source.contains("if let Some(thrown) = error.downcast_ref::<SmeltThrown>()"),
-        "payload recovery should be a downcast, keeping the channel open to \
-         foreign errors:\n{source}"
-    );
-}
-
-/// The load-bearing justification for the payload being a `SmeltUnknown`.
+/// One function's error channel carries two structurally unrelated payloads,
+/// chosen at run time, each entering it at its own erased representation.
 ///
-/// `CLAUDE.md` requires that any `SmeltUnknown` boundary be accompanied by proof
-/// that concrete types, generated unions, or scoped generics cannot represent it.
-/// Here one function's single error channel carries two structurally unrelated
-/// payloads — a field-bearing object and a bare string — chosen at run time, and
-/// a `catch` in a *different* function observes both:
+/// This is the proof the `SmeltUnknown` payload needs under `CLAUDE.md`:
 ///
 /// * No concrete Rust type spans a two-field record and a string.
 /// * No generated union arm can be selected, because the arm is picked by a
@@ -68,70 +22,27 @@ boom(new TypeError("bad"));
 fn one_channel_carries_structurally_unrelated_payloads() {
     let source = source_for(
         r#"
-declare function pickAtRuntime(): boolean;
-
-function boom(): void {
-  if (pickAtRuntime()) {
+function boom(asRecord: boolean): void {
+  if (asRecord) {
     throw { code: 42, tag: "record" };
   }
   throw "a bare string";
 }
-
-function run(): unknown {
-  try {
-    boom();
-    return null;
-  } catch (error) {
-    return error;
-  }
-}
-
-const caught = run();
 "#,
     );
 
-    // Both arms enter the one channel, and neither is widened to the other.
-    assert_eq!(
-        source
-            .matches("Err::<_, Box<dyn std::error::Error>>(smelt_throw(")
-            .count(),
-        2,
-        "both throw arms should enter the payload channel:\n{source}"
-    );
-    assert!(
-        source.contains(r#"smelt_throw(SmeltUnknown::String("a bare string".into()))"#),
-        "a thrown string must keep its string identity:\n{source}"
-    );
-    assert!(
-        source.contains("smelt_throw(SmeltUnknown::Object("),
-        "a thrown record must keep its object identity:\n{source}"
-    );
-    assert!(
-        source.contains(r#"(JsString::from("code"), SmeltUnknown::Number(42.0 as f64))"#)
-            && source.contains(r#"(JsString::from("tag"), SmeltUnknown::String("record".into()))"#),
-        "a thrown record must keep its fields:\n{source}"
-    );
-    // And the single catch recovers whichever one arrived, without a discriminant
-    // supplied by the signature.
-    assert!(
-        source.contains("let error = smelt_thrown_value(&*__smelt_error);"),
-        "the shared catch should recover either payload:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "boom"), r#"fn boom(as_record: bool) -> Result<(), Box<dyn std::error::Error>> {
+if as_record {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("code"), SmeltUnknown::Number(42.0 as f64)), (JsString::from("tag"), SmeltUnknown::String("record".into()))])).clone()))));
+} else {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("a bare string".into())));
+}
+}"#);
 }
 
-/// An unrelated closure elsewhere in the crate must not suppress the fold.
-///
-/// The fold refuses to touch a local that a closure captures, because such a
-/// local is read through the closure environment rather than through an operand
-/// the read tally can see. That guard was first written against the crate-wide
-/// closure table -- but `MirClosure::captures` records a `source_local`, and a
-/// `LocalId` is meaningful only inside its owning body. A function that
-/// happened to reuse a local number some *other* function's closure captured
-/// was therefore treated as capturing it too. In a two-function fixture nothing
-/// collided and the fold looked correct; across a real library almost every
-/// low-numbered local collided with something, and 29 of 30 throw sites
-/// silently kept their staged temporaries. Hence the many closures below: the
-/// point of the fixture is to occupy a spread of local numbers.
+/// The fold of a throw payload looks only at the throwing function's own
+/// locals. A capturing closure elsewhere reuses the same local numbers, so the
+/// fixture occupies a spread of them.
 #[test]
 fn a_foreign_closure_capture_does_not_suppress_the_fold() {
     let source = source_for(
@@ -161,30 +72,28 @@ export function thrower(size: number): number {
 ",
     );
 
-    assert!(
-        source.contains("smelt_throw(SmeltUnknown::Object("),
-        "the payload must still be built at the throw site when the crate \
-         contains unrelated capturing closures:\n{source}"
-    );
-    assert!(
-        !source.contains("smelt_throw(_smelt_tmp"),
-        "no staged temporary may survive into the throw:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "thrower"), r#"fn thrower(size: f64) -> Result<f64, Box<dyn std::error::Error>> {
+let mut _smelt_tmp_3: bool;
+let _smelt_tmp_4: bool;
+let _smelt_tmp_1: bool = size.fract() == 0.0;
+let _smelt_tmp_2: bool = !(_smelt_tmp_1);
+let mut _smelt_tmp_3: bool = false;
+if _smelt_tmp_2 {
+_smelt_tmp_3 = true;
+} else {
+_smelt_tmp_4 = size <= 0.0;
+_smelt_tmp_3 = _smelt_tmp_4;
+}
+if _smelt_tmp_3 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("Size must be an integer greater than zero.".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
+} else {
+return Ok(size);
+}
+}"#);
 }
 
-/// A thrown `Error` must be built as one expression at the throw site.
-///
-/// Making `throw` value-preserving gave `throw new Error(m)` a
-/// `{__smelt_error, message}` record payload. MIR is three-address, so the
-/// record and its erasure to `SmeltUnknown` each landed in their own temporary,
-/// and one source statement emitted five lines of Rust: two `let` declarations,
-/// two assignments, and the `return Err(..)`. Two of those lines were bare
-/// `SmeltUnknown` bindings that read as erasure in their own right even though
-/// they were only the interior of the exception-payload boundary.
-///
-/// A team writing this Rust by hand would construct the payload inside
-/// `smelt_throw(..)`. The emitter therefore folds the temporaries that only
-/// stage a throw payload into the throw expression.
+/// `throw new Error(m)` is one expression at the throw site: no `let` stages
+/// the record or its erasure, because a hand-written crate would not.
 #[test]
 fn thrown_error_payload_is_built_at_the_throw_site() {
     let source = source_for(
@@ -198,38 +107,18 @@ export function chunk(size: number): number {
 ",
     );
 
-    assert!(
-        source.contains("smelt_throw(SmeltUnknown::Object("),
-        "the thrown payload should be constructed inside smelt_throw:\n{source}"
-    );
-    assert!(
-        source.contains("Size must be an integer greater than zero."),
-        "the thrown message should survive into the throw expression:\n{source}"
-    );
-    assert!(
-        !source.contains(": SmeltUnknown;"),
-        "a thrown payload must not spill an erased SmeltUnknown temporary:\n{source}"
-    );
-    assert!(
-        !source.contains("SmeltRecord<String, SmeltUnknown>;") && !source.contains("SmeltRecord<JsString, SmeltUnknown>;"),
-        "a thrown payload must not spill a staged record temporary:\n{source}"
-    );
-    for line in source.lines() {
-        assert!(
-            !(line.contains("_smelt_tmp") && line.contains("SmeltUnknown::Object(")),
-            "the payload should not be assigned to a temporary first:\n{source}"
-        );
-    }
+    assert_eq!(rust_fn(&source, "chunk"), r#"fn chunk(size: f64) -> Result<f64, Box<dyn std::error::Error>> {
+let _smelt_tmp_1: bool = size <= 0.0;
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("Size must be an integer greater than zero.".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
+} else {
+return Ok(size);
+}
+}"#);
 }
 
-/// Folding the throw payload must not disturb a throw of a plain value.
-///
-/// `throw` is value-preserving for every operand, so the fold is keyed on the
-/// shape of the MIR (a write-once, read-once temporary staged immediately
-/// before the throw), never on the operand being an `Error`. A thrown string
-/// literal is already a constant operand with nothing to fold, and a thrown
-/// object literal folds its record construction the same way an `Error` does —
-/// both must still reach `smelt_throw` carrying their own value.
+/// The fold is keyed on the shape of the MIR, not on the operand being an
+/// `Error`: a thrown string and a thrown object each enter the channel whole.
 #[test]
 fn throwing_a_plain_value_keeps_its_own_payload() {
     let source = source_for(
@@ -247,115 +136,11 @@ export function reject(flag: boolean): number {
 ",
     );
 
-    assert!(
-        source.contains("smelt_throw(SmeltUnknown::String(\"negative\".into()))"),
-        "a thrown string must stay a string payload:\n{source}"
-    );
-    assert!(
-        source.contains("JsString::from(\"code\")"),
-        "a thrown object literal must keep its own fields:\n{source}"
-    );
-    for line in source.lines() {
-        assert!(
-            !(line.contains("_smelt_tmp") && line.contains("JsString::from(\"code\")")),
-            "the object payload should be built at the throw site:\n{source}"
-        );
-    }
+    assert_eq!(rust_fn(&source, "reject"), r#"fn reject(flag: bool) -> Result<f64, Box<dyn std::error::Error>> {
+if flag {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("negative".into())));
+} else {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_record = (SmeltRecord::from([(JsString::from("code"), 1.0)])).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Number(smelt_value as f64))).collect())) }));
 }
-
-/// Names of the panic-route helpers whose call sites the emitter spells
-/// literally.
-///
-/// `emit_throwing_call_terminator` renders a `catch_unwind` recovery for every
-/// caught call, and the prelude emits the helpers behind
-/// `Need::PanicRoute`. The two decisions used to be independent, so a
-/// `try` around a call to a NON-throwing function emitted a call to
-/// `smelt_panic_message` into a crate whose prelude never declared it (E0425).
-const PANIC_ROUTE_HELPERS: &[&str] = &[
-    "smelt_panic_message",
-    "smelt_panic_class",
-    "smelt_panic_error_value",
-    "smelt_panic_throw",
-];
-
-/// Asserts the crate-level invariant "a helper call implies a helper
-/// definition" over every panic-route helper.
-///
-/// A helper is "called" when its name appears followed by `(` on a line that is
-/// not its own definition, and "defined" when the prelude emits `fn <name>(`.
-fn assert_panic_route_helpers_are_defined(source: &str) {
-    for helper in PANIC_ROUTE_HELPERS {
-        let definition = format!("fn {helper}(");
-        let call = format!("{helper}(");
-        let called = source
-            .lines()
-            .any(|line| line.contains(&call) && !line.contains(&definition));
-        if called {
-            assert!(
-                source.contains(&definition),
-                "generated crate calls {helper} but never defines it:\n{source}"
-            );
-        }
-    }
-}
-
-/// A `catch` around a call to a non-throwing callee still recovers panics, so
-/// the crate that emits that recovery must also define the helpers it names.
-///
-/// This is the `py_try_lambda_classbody` corpus program: nothing in it can
-/// throw (`apply` is infallible and the lambda is a plain `int -> int`), yet
-/// the `try` emits `catch_unwind` because a closure handed to a non-throwing
-/// parameter can only report a throw by panicking.
-#[test]
-fn a_catch_around_an_infallible_call_defines_the_panic_helpers_it_calls() {
-    let source = source_for_py_path(
-        r#"
-from typing import Callable
-
-class Marker:
-    """A placeholder class."""
-    ...
-
-def apply(f: Callable[[int], int], value: int) -> int:
-    return f(value)
-
-def guarded(value: int) -> int:
-    try:
-        return apply(lambda x: x + 1, value)
-    except ValueError as error:
-        print(error)
-        return 0
-    finally:
-        print("done")
-"#,
-        "corpus/main.py",
-    );
-
-    assert!(
-        source.contains("catch_unwind"),
-        "a caught call must emit the panic recovery:\n{source}"
-    );
-    assert_panic_route_helpers_are_defined(&source);
-}
-
-/// The same invariant on the TypeScript path, so the rule is not a Python one.
-#[test]
-fn a_typescript_catch_defines_the_panic_helpers_it_calls() {
-    let source = source_for(
-        r"
-function apply(f: (x: number) => number, value: number): number {
-  return f(value);
-}
-
-export function guarded(value: number): number {
-  try {
-    return apply((x) => x + 1, value);
-  } catch {
-    return 0;
-  }
-}
-",
-    );
-
-    assert_panic_route_helpers_are_defined(&source);
+}"#);
 }

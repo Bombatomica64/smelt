@@ -63,6 +63,19 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// A throw delivers its operand whole through one channel, whatever it is, and
+/// a `try` around a call that cannot throw still builds and runs.
+#[test]
+fn thrown_payload_channel() -> TestResult {
+    verify_node_parity("thrown_payload_channel")
+}
+
+/// A computed key read from an `any` receiver names the property at run time.
+#[test]
+fn computed_member_object_keys() -> TestResult {
+    verify_node_parity("computed_member_object_keys")
+}
+
 /// An escaping closure keeps its body when it captures a callback parameter: a
 /// body-local sharing a parameter's name owns its callback, so the capture is
 /// judged by the local's identity (radash `series`).

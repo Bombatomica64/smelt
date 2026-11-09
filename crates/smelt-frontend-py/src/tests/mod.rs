@@ -40,6 +40,18 @@ fn lower_path_module(source: &str, path: &str, ctx: &mut HirCtx) -> Result<Modul
         .map_err(|errors| format!("expected successful lowering, got {errors:?}"))
 }
 
+/// Fails unless the function named `name` lowered to exactly `expected`, the
+/// text of [`smelt_hir::function_signature`].
+fn ensure_signature(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
+    let actual = smelt_hir::function_signature(&ctx.krate, name)
+        .ok_or_else(|| format!("missing function item named `{name}`"))?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("signature of `{name}`:\n  actual: {actual}\nexpected: {expected}"))
+    }
+}
+
 /// Returns the first diagnostic from `errors`.
 fn first_error(errors: &[SmeltError]) -> Result<&SmeltError, String> {
     errors

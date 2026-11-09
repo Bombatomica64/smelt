@@ -553,7 +553,7 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .all(|item| self.is_json_serializable_type(*item)),
             Some(Type::Dict(key, value)) => {
-                matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr))
+                matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr | Type::PropKey))
                     && self.is_json_serializable_type(*value)
             }
             // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
