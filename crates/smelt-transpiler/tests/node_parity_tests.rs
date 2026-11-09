@@ -134,6 +134,13 @@ fn proxy_traps() -> TestResult {
     verify_node_parity("proxy_traps")
 }
 
+/// `+` on contextually typed parameters concatenates, and symbol keys survive a
+/// `keyof` array assertion.
+#[test]
+fn contextual_add_and_symbol_keys() -> TestResult {
+    verify_node_parity("contextual_add_and_symbol_keys")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
