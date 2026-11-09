@@ -26,3 +26,9 @@ function pair<T extends Record<string, number> | number[]>(input: T) {
   return Object.fromEntries(Object.entries(input).map(([k, v]) => [k, v * 2]));
 }
 console.log(pair([1, 2]), pair({ a: 2 }));
+
+const source: any = new Data();
+source.label = "source";
+const copied: any = structuredClone(source);
+copied["label"] = "copy";
+console.log(source.label, copied.label);
