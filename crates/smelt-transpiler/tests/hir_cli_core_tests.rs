@@ -646,10 +646,9 @@ clone-strategy = "aggressive"
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    // Requirement change (2026-11-04): this expected `5`, JavaScript's
-    // number text. The `print` is in the Python entry and `result` is a
-    // Python `float`, so CPython prints `5.0` (`str(5.0)`); Python bodies now
-    // format numbers the Python way.
+    // The `print` is in the Python entry and `result` is a Python `float`, so
+    // CPython prints `5.0` (`str(5.0)`): Python bodies format numbers the Python
+    // way.
     let actual_stdout = common::cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5.0\n".to_owned(), "unexpected stdout")?;
 
@@ -846,8 +845,7 @@ fn building_twice_produces_identical_output() -> TestResult {
 }
 
 /// A single-file command lowers what a build lowers, so a dependency the frontend
-/// rejects fails it, naming that dependency. It used to be skipped, and the target
-/// printed as if its imports had lowered.
+/// rejects fails it, naming that dependency.
 #[test]
 fn dump_hir_reports_a_dependency_that_fails_to_lower() -> TestResult {
     let project = TempProject::new()?;

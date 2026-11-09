@@ -144,8 +144,8 @@ fn a_well_typed_python_program_builds() -> TestResult {
 // ---------------------------------------------------------------------------
 // The checker sees what Smelt resolves.
 //
-// Each test below is a valid program the gate used to refuse because the
-// checker's program lacked a source Smelt's own resolution reaches, paired
+// Each test below is a valid program whose checker program must contain a
+// source Smelt's own resolution reaches, paired
 // with an ill-typed twin through the SAME source. The twin proves the
 // checker reads that source's real types, not an `any` that would let every
 // program through. The typed overlay (`.sound/<pkg>/lay`, served from memory)

@@ -16,6 +16,7 @@ const pattern: RegExp = "\\d+";
     );
 }
 
+/// A callback that returns a string is handed to the replacement as a closure.
 #[test]
 fn emits_regex_replace_callbacks_as_closures() {
     let source = source_for(
@@ -27,54 +28,46 @@ export function localize(enNumber: number): string {
 "#,
     );
 
-    assert!(source.contains("replace_all"), "{source}");
-    assert!(source.contains("|closure_arg_0: JsString|"), "{source}");
-    assert!(
-        !source.contains("|caps: &regex::Captures<'_>| (_smelt_tmp_"),
-        "{source}"
-    );
-    // A callback that already returns `String` is a valid `Replacer`, so it is
-    // handed to `replace_all` without a ToString wrapper.
-    assert!(
-        !source.contains("|caps: &regex::Captures<'_>| match ("),
-        "{source}"
-    );
+    assert_eq!(rust_fn(&source, "localize"), r#"fn localize(en_number: f64) -> JsString {
+let suffix: JsString = JsString::from("!");
+let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("\\d"), JsString::from("g"));
+let _smelt_tmp_3: JsString = JsString::from(smelt_number_to_string(en_number));
+let _smelt_tmp_5: JsString = _smelt_tmp_2.replace_with(&_smelt_tmp_3, true, |smelt_match: &SmeltMatch| ({
+let suffix = suffix.clone();
+move |closure_arg_0: JsString| {
+let _smelt_tmp_2: JsString = closure_arg_0.clone() + &suffix.clone();
+_smelt_tmp_2.clone()
+}
+})(smelt_match.group_owned(0).unwrap_or_default()));
+return _smelt_tmp_5;
+}"#);
 }
 
+/// A replacer whose result is dynamic is converted with JavaScript `ToString`.
 #[test]
 fn coerces_non_string_regex_replace_callback_result() {
-    // A replacer callback whose result is not a `String` is not a valid
-    // `Replacer`, so the regex replacement must coerce it with the JavaScript
-    // `ToString` match. Here the callback returns an `unknown` read out of an
-    // erased parameter, the shape that carries no static type at all.
-    //
-    // This test used to spell the same idea as `htmlEscapes[match]` against a
-    // module-level `Record<string, string>` constant. That read is NOT erased —
-    // the constant is a concrete string-to-string map — and it only looked
-    // erased because a callback could not resolve an object constant at all and
-    // silently read it as `null`. Since that defect was fixed the es-toolkit
-    // `escape` shape produces a `String` directly and needs no coercion, so the
-    // coercion rule is pinned here on a value that is genuinely dynamic.
     let source = source_for(
         r#"
 export function replaceAll(str: string, table: unknown): string {
-  return str.replace(/[&<>"']/g, (match) => (table as Record<string, unknown>)[match]);
+  return str.replace(/[&<>"']/g, (match) => (table as Record<string, any>)[match]);
 }
 "#,
     );
 
-    // `/g` replaces every match; the replacement is JavaScript ToString of the
-    // erased answer.
-    assert!(
-        source.contains(", true, |smelt_match: &SmeltMatch| smelt_erased_to_js_string(&"),
-        "{source}"
-    );
-    assert!(
-        source.contains("SmeltUnknown::Undefined => \"undefined\".to_owned()"),
-        "{source}"
-    );
+    assert_eq!(rust_fn(&source, "replace_all"), r#"fn replace_all(str: JsString, table: SmeltUnknown) -> JsString {
+let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("[&<>\"']"), JsString::from("g"));
+let _smelt_tmp_4: JsString = _smelt_tmp_2.replace_with(&str.clone(), true, |smelt_match: &SmeltMatch| smelt_erased_to_js_string(&(({
+let table = table.clone();
+move |closure_arg_0: JsString| {
+let _smelt_tmp_2: SmeltRecord<JsString, SmeltUnknown> = match (table.clone()).into_smelt_unknown() { SmeltUnknown::Object(smelt_value) => smelt_value.smelt_shared_record(), SmeltUnknown::Array(smelt_values) => smelt_values.own_entries().into_iter().map(|(smelt_key, smelt_value)| (JsString::from(smelt_key), smelt_value)).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| (JsString::from(smelt_index.to_string()), SmeltUnknown::String(JsString::from_units(&[*smelt_unit])))).collect(), SmeltUnknown::Function(smelt_value) => SmeltRecord::from([(JsString::from("__smelt_call"), SmeltUnknown::Function(smelt_value))]), _ => SmeltRecord::new() };
+smelt_record_property(&_smelt_tmp_2, &closure_arg_0.clone())
+}
+})(smelt_match.group_owned(0).unwrap_or_default()))));
+return _smelt_tmp_4;
+}"#);
 }
 
+/// `match` on an erased receiver converts the haystack from its runtime tag.
 #[test]
 fn emits_regex_find_with_erased_haystack_string_coercion() {
     let source = source_for(
@@ -85,13 +78,14 @@ function matchUnknown(value: unknown): string[] | undefined {
 ",
     );
 
-    assert!(
-        source.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"),
-        "{source}"
-    );
-    assert!(source.contains(".match_string(&match "), "{source}");
+    assert_eq!(rust_fn(&source, "match_unknown"), r#"fn match_unknown(value: SmeltUnknown) -> Option<SmeltList<JsString>> {
+let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("a+"), JsString::new());
+let _smelt_tmp_2: Option<SmeltMatch> = _smelt_tmp_1.match_string(&match value.clone() { SmeltUnknown::String(smelt_text) => smelt_text, smelt_value => JsString::from(match smelt_value {   SmeltUnknown::Object(smelt_value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(smelt_value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value)).unwrap_or_default().into_iter().map(|smelt_element| match smelt_element { SmeltUnknown::Number(smelt_element) => smelt_element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key("__smelt_regexp") => smelt_regexp_literal(&smelt_value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) });
+return _smelt_tmp_2.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
+}"#);
 }
 
+/// A regex held in a local keeps its flags through `match`.
 #[test]
 fn emits_string_match_with_regexp_flags_preserved() {
     let source = source_for(
@@ -103,16 +97,14 @@ function parts(value: string): string[] | undefined {
 ",
     );
 
-    assert!(
-        source.contains("SmeltRegExp::new(JsString::from(\"a+|b\"), JsString::from(\"g\"))"),
-        "{source}"
-    );
-    assert!(source.contains("tokens.match_string(&"), "{source}");
+    assert_eq!(rust_fn(&source, "parts"), r#"fn parts(value: JsString) -> Option<SmeltList<JsString>> {
+let tokens: SmeltRegExp = SmeltRegExp::new(JsString::from("a+|b"), JsString::from("g"));
+let _smelt_tmp_3: Option<SmeltMatch> = tokens.match_string(&value.clone());
+return _smelt_tmp_3.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
+}"#);
 }
 
-/// The prelude's `match_string` answers a match value: a non-global regex is
-/// `exec`, a global one is built by `SmeltMatch::from_global_matches`. A
-/// statically global literal skips the match value entirely.
+/// A statically global literal takes the whole-match list directly.
 #[test]
 fn prelude_string_match_answers_match_value_for_both_regex_kinds() {
     let source = source_for(
@@ -123,18 +115,29 @@ function words(text: string): number {
 ",
     );
 
-    assert!(
-        source.contains("pub fn match_string(&self, haystack: &JsStr) -> Option<SmeltMatch>"),
-        "{source}"
-    );
-    assert!(source.contains("if !self.has_flag('g') { return self.exec(haystack); }"), "{source}");
-    assert!(source.contains("fn from_global_matches(matches: Vec<JsString>, input: &JsStr) -> Self"), "{source}");
-    assert!(source.contains("pub fn to_array_view(&self) -> SmeltList<Option<JsString>>"), "{source}");
-    // The literal is statically global, so the call site takes the direct
-    // whole-match list rather than a match value.
-    assert!(source.contains(".match_all_strings(&"), "{source}");
+    assert_eq!(rust_fn(&source, "words"), r#"fn words(text: JsString) -> f64 {
+let mut _smelt_tmp_5: Option<f64>;
+let _smelt_tmp_6: SmeltList<JsString>;
+let _smelt_tmp_7: f64;
+let _smelt_tmp_8: f64;
+let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("[a-z]+"), JsString::from("g"));
+let _smelt_tmp_2: Option<SmeltList<JsString>> = _smelt_tmp_1.match_all_strings(&text.clone()).map(SmeltList::from);
+let _smelt_tmp_3: bool = _smelt_tmp_2.clone().is_none();
+let _smelt_tmp_4: bool = !(_smelt_tmp_3);
+let mut _smelt_tmp_5: Option<f64> = None::<f64>;
+if _smelt_tmp_4 {
+_smelt_tmp_6 = Into::<SmeltList<_>>::into(_smelt_tmp_2.clone().expect("optional value was absent after narrowing"));
+_smelt_tmp_7 = _smelt_tmp_6.len() as f64;
+_smelt_tmp_5 = Some(_smelt_tmp_7);
+} else {
+_smelt_tmp_5 = None::<f64>;
+}
+_smelt_tmp_8 = _smelt_tmp_5.clone().unwrap_or(0.0);
+return _smelt_tmp_8;
+}"#);
 }
 
+/// Each array element keeps its own flags and reads them with `has_flag`.
 #[test]
 fn emits_regexp_array_elements_with_flags_preserved() {
     let source = source_for(
@@ -147,17 +150,16 @@ const usesMultiline = pattern.multiline;
 ",
     );
 
-    assert!(
-        source.contains("SmeltRegExp::new(JsString::from(\"x\"), JsString::from(\"u\"))"),
-        "{source}"
-    );
-    assert!(
-        source.contains("SmeltRegExp::new(JsString::from(\"x\"), JsString::from(\"gimu\"))"),
-        "{source}"
-    );
-    assert!(source.contains(".has_flag('g')"), "{source}");
-    assert!(source.contains(".has_flag('i')"), "{source}");
-    assert!(source.contains(".has_flag('m')"), "{source}");
+    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+let _smelt_tmp_5: SmeltRegExp = SmeltRegExp::new(JsString::from("x"), JsString::from("u"));
+let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new(JsString::from("x"), JsString::from("gimu"));
+let patterns: SmeltList<SmeltRegExp> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltRegExp> = vec![_smelt_tmp_5.clone(), _smelt_tmp_6.clone()]; smelt_list_items }));
+let pattern: SmeltRegExp = patterns.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltRegExp::new(String::new(), String::new()));
+let uses_global: bool = pattern.has_flag('g');
+let ignores_case: bool = pattern.has_flag('i');
+let uses_multiline: bool = pattern.has_flag('m');
+return;
+}"#);
 }
 
 #[test]
@@ -180,13 +182,9 @@ const matches = first.test("Nov");
     );
 }
 
+/// `source` and `flags` of a concrete `RegExp` are typed fields, not erased reads.
 #[test]
 fn regexp_metadata_fields_resolve_to_concrete_types() {
-    // A data-property read on a concrete `RegExp` receiver must type as the
-    // concrete `SmeltRegExp` field (`source`/`flags` are `String`), not the
-    // erased `Unknown` boundary. Otherwise passing the read into
-    // `new RegExp(...)`'s `String` parameters emits a stringify-of-
-    // `SmeltUnknown` match against an already-`String` scrutinee (E0308).
     let source = source_for(
         r"
 export function cloneRe(obj: unknown): RegExp {
@@ -196,18 +194,14 @@ export function cloneRe(obj: unknown): RegExp {
 ",
     );
 
-    assert!(
-        source.contains("smelt_regexp_compile(JsString::from(&*reg_exp.source).clone(), JsString::from(&*reg_exp.flags).clone())?"),
-        "{source}"
-    );
-    // The erased stringify coercion must not be applied to the concrete
-    // `String` field reads.
-    assert!(
-        !source.contains("match reg_exp.source"),
-        "{source}"
-    );
+    assert_eq!(rust_fn(&source, "clone_re"), r"fn clone_re(obj: SmeltUnknown) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
+let reg_exp: SmeltRegExp = <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(obj.clone());
+let _smelt_tmp_3: SmeltRegExp = smelt_regexp_compile(JsString::from(&*reg_exp.source).clone(), JsString::from(&*reg_exp.flags).clone())?;
+return Ok(_smelt_tmp_3);
+}");
 }
 
+/// A record of regex arrays keeps its entries at their concrete type.
 #[test]
 fn preserves_regex_arrays_inside_static_object_consts() {
     let source = source_for(
@@ -233,17 +227,23 @@ const selected = use({
 "#,
     );
 
-    assert!(
-        source.contains("JsString::from(\"any\")")
-            && source.contains("SmeltRegExp::new(JsString::from(\"^ja\"), JsString::from(\"i\"))"),
-        "static regex-array records should preserve their entries: {source}"
-    );
-    assert!(
-        !source.contains("parseMonthPatterns = SmeltRecord::from([])"),
-        "static regex-array records must not collapse to an empty record: {source}"
-    );
+    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+let selected: SmeltUnknown;
+let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("^j"), JsString::from("i"));
+let _smelt_tmp_3: SmeltRegExp = SmeltRegExp::new(JsString::from("^f"), JsString::from("i"));
+let _smelt_tmp_4: SmeltList<SmeltRegExp> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltRegExp> = vec![_smelt_tmp_2.clone(), _smelt_tmp_3.clone()]; smelt_list_items }));
+let _smelt_tmp_5: SmeltRegExp = SmeltRegExp::new(JsString::from("^ja"), JsString::from("i"));
+let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new(JsString::from("^f"), JsString::from("i"));
+let _smelt_tmp_7: SmeltList<SmeltRegExp> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltRegExp> = vec![_smelt_tmp_5.clone(), _smelt_tmp_6.clone()]; smelt_list_items }));
+let parse_month_patterns: SmeltRecord<JsString, SmeltList<SmeltRegExp>> = SmeltRecord::from([(JsString::from("narrow"), _smelt_tmp_4), (JsString::from("any"), _smelt_tmp_7)]);
+let _smelt_tmp_9: Args = Args { parse_patterns: parse_month_patterns, default_parse_width: JsString::from("any") };
+let _smelt_tmp_10: SmeltUnknown = use_(_smelt_tmp_9);
+selected = _smelt_tmp_10;
+return;
+}"#);
 }
 
+/// `matchAll` yields concrete `SmeltMatch` values and the erasure adapter is not emitted.
 #[test]
 fn emits_string_match_all_as_indexed_regexp_iteration() {
     let source = source_for(
@@ -256,39 +256,29 @@ for (const { index } of matches) {
 "#,
     );
 
-    assert!(source.contains(".match_all_indices(&"));
-    assert!(source.contains("pub fn match_all_indices(&self"));
-    // matchAll yields concrete `SmeltMatch` values whose consumer reads stay
-    // typed: the destructured `.index` read is a typed `.index()` accessor, and
-    // the list keeps its concrete `SmeltMatch` element type. The value never
-    // crosses the erased `SmeltUnknown` boundary, so no `into_smelt_unknown`
-    // adapter is emitted for this program.
-    assert!(source.contains("pub struct SmeltMatch"));
-    assert!(
-        source.contains("SmeltList<SmeltMatch>"),
-        "matchAll result should keep its concrete SmeltMatch element type: {source}"
-    );
-    assert!(
-        source.contains(".index()"),
-        "destructured `.index` read should use the typed accessor: {source}"
-    );
-    // No erasure adapter is applied at the matchAll site, and the adapter impl
-    // is not emitted for this program (the only textual mention of
-    // `SmeltMatch::into_smelt_unknown` is the type's docstring).
-    assert!(
-        !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
-        "matchAll must not erase its concrete result: {source}"
-    );
-    assert!(
-        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
-        "typed match reads must not require the SmeltUnknown erasure adapter: {source}"
-    );
-    assert!(
-        source.contains("-> Vec<SmeltMatch>"),
-        "match_all_indices should return concrete SmeltMatch values: {source}"
-    );
+    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+let mut __smelt_for_item: SmeltMatch;
+let mut index: f64;
+let mut _smelt_tmp_7: usize;
+let mut _smelt_tmp_8: bool;
+let pattern: SmeltRegExp = SmeltRegExp::new(JsString::from(",|\\."), JsString::from("gu"));
+let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&JsString::from("a,b.c")));
+let mut _smelt_tmp_6: usize = 0;
+loop {
+_smelt_tmp_7 = matches.len();
+_smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
+if !(_smelt_tmp_8) { break; }
+__smelt_for_item = matches.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| SmeltMatch::default());
+index = __smelt_for_item.index();
+let _ = { println!("{}", smelt_console_number(index)); };
+_smelt_tmp_6 = _smelt_tmp_6 + 1;
+}
+return;
+}"#);
+    assert!(!source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
 }
 
+/// `exec` stays a concrete `Option<SmeltMatch>` and the erasure adapter is not emitted.
 #[test]
 fn emits_regex_exec_as_concrete_smelt_match() {
     let source = source_for(
@@ -299,42 +289,19 @@ console.log(m === null);
 "#,
     );
 
-    // exec returns a concrete `Option<SmeltMatch>` and the result stays typed:
-    // the `m === null` check is a plain `.is_none()` on the concrete option, so
-    // the match never crosses the erased `SmeltUnknown` boundary and no
-    // `into_smelt_unknown` adapter is emitted for this program.
-    assert!(
-        source.contains("pub fn exec(&self, haystack: &JsStr) -> Option<SmeltMatch>"),
-        "exec should return a concrete SmeltMatch option: {source}"
-    );
-    assert!(source.contains("pub struct SmeltMatch"));
-    assert!(
-        source.contains(".exec(&JsString::from(\"2024-07\"))")
-            && !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
-        "typed exec result must not erase to SmeltUnknown: {source}"
-    );
-    assert!(
-        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
-        "typed exec result must not require the SmeltUnknown erasure adapter: {source}"
-    );
-    assert!(
-        source.contains(".is_none()"),
-        "`m === null` should lower to a typed `.is_none()` check: {source}"
-    );
-    // The numbered-group / named-group / index / input shape is modeled with
-    // concrete fields, not assembled as an untyped object during exec.
-    assert!(source.contains("groups: ::std::rc::Rc<Vec<Option<JsString>>>"));
-    assert!(source.contains("named: ::std::rc::Rc<::std::collections::HashMap<String, Option<JsString>>>"));
-    assert!(source.contains("fn from_regress(found: &regress::Match, input: &JsStr, spans: bool)"));
+    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+let re: SmeltRegExp = SmeltRegExp::new(JsString::from("(?<year>\\d{4})-(\\d{2})"), JsString::new());
+let m: Option<SmeltMatch> = re.exec(&JsString::from("2024-07"));
+let _smelt_tmp_4: bool = m.is_none();
+let _ = { println!("{}", _smelt_tmp_4); };
+return;
+}"#);
+    assert!(!source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
 }
 
+/// Numbered groups, named groups, `index`, `input` and destructuring all read typed accessors.
 #[test]
 fn types_regex_match_consumer_reads_against_smelt_match() {
-    // The consumer-side reads of a match value are typed against the concrete
-    // `SmeltMatch` type: numbered groups (`m[0]`, `m[2]`) read `group_owned`,
-    // named groups (`m.groups.letter`) read `named_group_owned`, `m.index` and
-    // `m.input` read their typed accessors, and array destructuring binds the
-    // numbered groups. None of these cross the erased `SmeltUnknown` boundary.
     let source = source_for(
         r#"
 const pattern = /(?<letter>[a-z])(\d)?/g;
@@ -355,51 +322,47 @@ for (const found of matches) {
 "#,
     );
 
-    // Numbered group reads (including the destructured bindings) route through
-    // the typed `group_owned` accessor; the whole match is index 0.
-    assert!(
-        source.contains(".group_owned(0.0 as usize)"),
-        "numbered group read should use group_owned: {source}"
-    );
-    assert!(
-        source.contains(".group_owned(2.0 as usize)"),
-        "optional numbered group read should use group_owned: {source}"
-    );
-    // Named group reads route through `named_group_owned`.
-    assert!(
-        source.contains(".named_group_owned(\"letter\")"),
-        "named group read should use named_group_owned: {source}"
-    );
-    // `.index` / `.input` read the typed accessors.
-    assert!(
-        source.contains(".index()"),
-        "match index read should use the typed accessor: {source}"
-    );
-    assert!(
-        source.contains(".input_owned()"),
-        "match input read should use the typed accessor: {source}"
-    );
-    // The match list keeps its concrete element type and the reads never erase
-    // to `SmeltUnknown`.
-    assert!(
-        source.contains("SmeltList<SmeltMatch>"),
-        "matchAll result should keep its concrete SmeltMatch element type: {source}"
-    );
-    assert!(
-        !source.contains(".map(SmeltMatch::into_smelt_unknown)"),
-        "typed match reads must not erase the matchAll result: {source}"
-    );
-    assert!(
-        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
-        "typed match reads must not require the SmeltUnknown erasure adapter: {source}"
-    );
+    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+let mut found: SmeltMatch;
+let mut whole: Option<JsString>;
+let mut letter: Option<JsString>;
+let mut digit: Option<JsString>;
+let mut full: Option<JsString>;
+let mut first: Option<JsString>;
+let mut _smelt_tmp_11: usize;
+let mut _smelt_tmp_12: bool;
+let mut _smelt_tmp_14: SmeltMatch;
+let pattern: SmeltRegExp = SmeltRegExp::new(JsString::from("(?<letter>[a-z])(\\d)?"), JsString::from("g"));
+let matches: SmeltList<SmeltMatch> = Into::<SmeltList<_>>::into(pattern.match_all_indices(&JsString::from("a1 b")));
+let mut _smelt_tmp_10: usize = 0;
+loop {
+_smelt_tmp_11 = matches.len();
+_smelt_tmp_12 = _smelt_tmp_10 < _smelt_tmp_11;
+if !(_smelt_tmp_12) { break; }
+found = matches.borrow().get(_smelt_tmp_10).cloned().unwrap_or_else(|| SmeltMatch::default());
+whole = found.clone().group_owned(0.0 as usize);
+_smelt_tmp_14 = found.clone();
+letter = _smelt_tmp_14.named_group_owned("letter").clone();
+digit = found.clone().group_owned(2.0 as usize);
+full = found.clone().group_owned(0.0 as usize);
+first = found.clone().group_owned(1.0 as usize);
+let _ = { println!("{}", match &whole { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+let _ = { println!("{}", match &letter { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+let _ = { println!("{}", match &digit { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+let _ = { println!("{}", match &full { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+let _ = { println!("{}", match &first { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+let _ = { println!("{}", smelt_console_number(found.index())); };
+let _ = { println!("{}", found.input_owned().clone()); };
+_smelt_tmp_10 = _smelt_tmp_10 + 1;
+}
+return;
+}"#);
+    assert!(!source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
 }
 
+/// Only a match flowing into `unknown` crosses the explicit adapter; the adjacent typed read stays concrete.
 #[test]
 fn erases_regex_match_value_only_at_a_dynamic_boundary() {
-    // A match value that genuinely flows into `unknown` is erased through the
-    // single explicit `into_smelt_unknown` adapter, while the sibling typed
-    // reads stay concrete.
     let source = source_for(
         r#"
 const re = /(?<letter>[a-z])/;
@@ -413,20 +376,30 @@ if (m !== null) {
 "#,
     );
 
-    assert!(
-        source.contains(".named_group_owned(\"letter\")"),
-        "typed named group read should stay concrete: {source}"
-    );
-    assert!(
-        source.contains(".clone().into_smelt_unknown()"),
-        "a match value flowing into unknown should use the explicit erasure adapter: {source}"
-    );
-    assert!(
-        source.contains("impl IntoSmeltUnknown for SmeltMatch"),
-        "the match erasure adapter should be emitted when the boundary is used: {source}"
-    );
+    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+let letter: Option<JsString>;
+let boxed: SmeltUnknown;
+let _smelt_tmp_7: SmeltMatch;
+let _smelt_tmp_8: SmeltMatch;
+let _smelt_tmp_9: SmeltMatch;
+let re: SmeltRegExp = SmeltRegExp::new(JsString::from("(?<letter>[a-z])"), JsString::new());
+let m: Option<SmeltMatch> = re.exec(&JsString::from("a"));
+let _smelt_tmp_6: bool = !(m.clone().is_none());
+if _smelt_tmp_6 {
+_smelt_tmp_7 = m.clone().expect("optional value was absent after narrowing");
+_smelt_tmp_8 = _smelt_tmp_7.clone();
+letter = _smelt_tmp_8.named_group_owned("letter").clone();
+_smelt_tmp_9 = m.clone().expect("optional value was absent after narrowing");
+boxed = _smelt_tmp_9.clone().into_smelt_unknown();
+let _ = { println!("{}", match &letter { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
+let _ = { println!("{}", SmeltInspect::smelt_console_text(&boxed)); };
+}
+return;
+}"#);
+    assert!(source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
 }
 
+/// `[^]` is ECMAScript syntax the engine reads itself, so the pattern reaches it untranslated.
 #[test]
 fn emits_javascript_any_character_regex_translation() {
     let source = source_for(
@@ -437,18 +410,14 @@ function inner(value: string): string[] | undefined {
 ",
     );
 
-    // `[^]` (any code unit, line terminators included) is ECMAScript syntax
-    // `regress` reads itself, so the pattern reaches it untranslated. (This
-    // used to pin a `[^]` -> `(?s:.)` rewrite for the UTF-8 engine.)
-    assert!(source.contains("[^]*?"), "{source}");
-    assert!(!source.contains("(?s:.)"), "{source}");
-    assert!(source.contains(".match_string(&"), "{source}");
+    assert_eq!(rust_fn(&source, "inner"), r#"fn inner(value: JsString) -> Option<SmeltList<JsString>> {
+let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("^'([^]*?)'?$"), JsString::new());
+let _smelt_tmp_2: Option<SmeltMatch> = _smelt_tmp_1.match_string(&value.clone());
+return _smelt_tmp_2.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
+}"#);
 }
 
-/// A `RegExp.lastIndex` write must target the backing `RefCell<usize>` through
-/// `borrow_mut()`, narrowing the numeric right-hand side back to `usize`. The
-/// former read-path text `(*regex.last_index.borrow() as f64)` is not a valid
-/// assignment target (E0070).
+/// A `lastIndex` write targets the backing cell through `borrow_mut`, narrowing the number to `usize`.
 #[test]
 fn regexp_last_index_write_targets_borrow_mut() {
     let source = source_for(
@@ -461,14 +430,11 @@ export function run(): number {
 ",
     );
 
-    assert!(
-        source.contains("*regex.last_index.borrow_mut() = (") && source.contains(") as usize;"),
-        "lastIndex write should go through borrow_mut with a usize cast\n{source}"
-    );
-    assert!(
-        !source.contains("borrow() as f64) = "),
-        "the invalid cast-as-lvalue read form must not be used for writes\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> f64 {
+let mut regex: SmeltRegExp = SmeltRegExp::new(JsString::from("a"), JsString::from("g"));
+*regex.last_index.borrow_mut() = (10.0) as usize;
+return (*regex.last_index.borrow() as f64);
+}"#);
 }
 
 /// A module-level regex `const` referenced from several functions must compile

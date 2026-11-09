@@ -70,7 +70,7 @@ mod corpus_support;
 use corpus_support::{cargo_check, emit_typescript_crate, rustc_error_count, scratch_root};
 
 // The Python corpus is only built with the `ty` feature, where annotation-free
-// Python resolves its types via `ty` (issue #93).
+// Python resolves its types via `ty`.
 #[cfg(feature = "ty")]
 use smelt_frontend_py::{HirCtx as PyHirCtx, to_hir_with_path as py_to_hir_with_path};
 
@@ -349,7 +349,7 @@ function normalize(values: number[]): number[][] {
         Case {
             name: "non_arrow_array_callbacks",
             area: "closures",
-            // Array methods must accept non-arrow callback forms (issue #86):
+            // Array methods must accept non-arrow callback forms:
             // a `function` expression callback (`mapped`), a `function`
             // expression whose body needs full closure-body lowering because it
             // uses a statement form the compact callback IR cannot model
@@ -395,7 +395,7 @@ function byLocal(values: number[]): number[] {
             // A named/opaque `reduce` callback whose declared return type is not
             // identical to the initial value's type but statically reconciles
             // with it must not be rejected with "array reduce callback returns an
-            // unsupported type" (issue #113). TypeScript threads a single
+            // unsupported type". TypeScript threads a single
             // accumulator type `U` through `reduce<U>`, so the accumulator widens
             // to the callback's return type and the seed is coerced into it. Each
             // form must emit a `fold` that compiles: `intoUnion` seeds a `0`
@@ -521,7 +521,7 @@ function read(value: Left | Right): string {
 "#,
         },
         Case {
-            // Issue #55: structural `in` and discriminant-property comparison on
+            // Structural `in` and discriminant-property comparison on
             // a concrete class union must compile to tagged-enum discriminant
             // checks and concrete arm projections, never SmeltUnknown erasure.
             name: "discriminant_in_and_property_narrowing",
@@ -546,7 +546,7 @@ function tagged(shape: Circle | Square): number {
 "#,
         },
         Case {
-            // Issue #55 invalidation: a widening-compatible write to a narrowed
+            // A widening-compatible write to a narrowed
             // union local re-injects the concrete arm and must still compile.
             name: "narrowed_union_reassignment",
             area: "concrete_unions",
@@ -565,9 +565,8 @@ function resolvePath(path: string | (() => string)): string {
             // (`string | number`) lowers the field to a tagged `SmeltUnion*`
             // enum. The struct derives `Clone, Debug, Default`, so the union
             // enum must provide `Debug` and `Default` too (an enum with
-            // data-carrying variants can derive neither). Regression for the
-            // union-field derive gap: the emitted crate must compile. The same
-            // gap blocks union-valued class index signatures (issue #84).
+            // data-carrying variants can derive neither): the emitted crate must
+            // compile, as must union-valued class index signatures.
             name: "class_union_field",
             area: "concrete_unions",
             source: r"
@@ -616,7 +615,7 @@ export function containsWhole(haystack: string, needle: string): boolean {
 ",
         },
         Case {
-            // Issue #87: `.at(index)` accepts statically numeric-compatible index
+            // `.at(index)` accepts statically numeric-compatible index
             // types beyond an exact `number`. An optional-numeric index
             // (`number | undefined`) is coerced to the runtime `Float` the
             // optional-index path expects, and the emitted normalized-index
@@ -673,7 +672,7 @@ setTimeout(note, 10, "with-optional", "extra");
 "#,
         },
         Case {
-            // Issue #73: exported consts initialized from member expressions
+            // Exported consts initialized from member expressions
             // beyond well-known Number/Math constants. Builtin `.prototype`
             // members and bound builtin methods are erased boundaries that lower
             // to `SmeltUnknown`; a numeric alias and an object-const field keep
@@ -690,7 +689,7 @@ export const UPPER_LIMIT = limits.upper;
 ",
         },
         Case {
-            // Issue #84: class string index signatures `[key: string]: T`. A
+            // Class string index signatures `[key: string]: T`. A
             // class that is purely an index signature (`StringBag`) carries a
             // real runtime keyed store whose statically known value type drives
             // dynamic reads AND writes; a mixed class (`MixedBag`) keeps its
@@ -731,7 +730,7 @@ export function readMixed(bag: MixedBag, key: string): number | undefined {
 ",
         },
         Case {
-            // Issue #96: statically-resolvable computed property names. A
+            // Statically-resolvable computed property names. A
             // `const`-keyed class field (`[TAG]`) folds to the const's string
             // value as a named field; an enum-member-keyed interface field
             // (`[Kind.First]`) folds to the enum member's value; a well-known
@@ -740,8 +739,8 @@ export function readMixed(bag: MixedBag, key: string): number | undefined {
             // members so the emitted Rust compiles, and reading the folded
             // class field back through its concrete member type stays concrete.
             //
-            // Issue #115 extends the folding to more symbol-backed keys, all of
-            // which must likewise become ordinary named members: a well-known
+            // The folding also covers more symbol-backed keys, all of which
+            // must likewise become ordinary named members: a well-known
             // `[Symbol.asyncIterator]` method, an inline `[Symbol.for("k")]`
             // field, and a `Symbol.for("k")`-aliased-const key (`[matcher]`).
             // Registry symbols fold to the same stable synthetic spelling
@@ -793,7 +792,7 @@ export function firstOf(record: ByKind): number {
 "#,
         },
         Case {
-            // Issue #98: static methods lower to receiver-free associated
+            // Static methods lower to receiver-free associated
             // functions (`Class::method(..)`) and static class constants lower
             // to materialized static fields resolvable via `Class.CONST`. Both
             // must round-trip through the pipeline and compile as Rust. The
@@ -832,7 +831,7 @@ export function utilName(): string {
 "#,
         },
         Case {
-            // Issue #97 / #18: optional class/data fields lower to `Option<T>`
+            // Optional class/data fields lower to `Option<T>`
             // with explicit construction. The optional field (`y?: number`)
             // becomes an `Option<f64>` struct slot; construction that supplies
             // the field passes `Some(..)` and construction that omits it passes
@@ -887,7 +886,7 @@ export function sum(adder: Adder): number {
 ",
         },
         Case {
-            // Issue #99: generic classes and interfaces lower to real Rust
+            // Generic classes and interfaces lower to real Rust
             // generics rather than erasing their instantiations to
             // `SmeltUnknown`. `Container<T>` emits `struct Container<T>` with an
             // `impl<T: ..> Container<T>` whose methods return the parameter;
@@ -937,7 +936,7 @@ export function makeOk(v: number): Outcome<number, string> {
 "#,
         },
         Case {
-            // Issue #99 (deferred piece of #102): generic FREE functions lower to
+            // Generic FREE functions lower to
             // real Rust generics rather than erasing `T` to `SmeltUnknown`.
             // `identity<T>` emits `fn identity<T: ..>(x: T) -> T`; `first<T>`
             // exercises a type parameter nested in a `T[]` parameter; `pair<A, B>`
@@ -1044,7 +1043,7 @@ export function useHolder(): number[] {
 "#,
         },
         Case {
-            // Issue #78: `switch` over non-literal case labels. Enum-member and
+            // `switch` over non-literal case labels. Enum-member and
             // const-reference labels const-fold to the member's numeric/string
             // literal, and the enum type resolves to its underlying primitive so
             // the scrutinee matches the folded arms and the emitted Rust
@@ -1123,7 +1122,7 @@ export function redValue(): number {
 "#,
         },
         Case {
-            // Issue #77: method calls on non-class receivers must lower and
+            // Method calls on non-class receivers must lower and
             // compile instead of hard-erroring on "method calls are only lowered
             // for class values". Records, concrete unions, and erased/builtin
             // receivers whose method is not a modeled builtin (`localeCompare`
@@ -1164,7 +1163,7 @@ export function unionMethod(value: string | number): number {
 "#,
         },
         Case {
-            // Issue #83: field access beyond Record/class/interface. Driving an
+            // Field access beyond Record/class/interface. Driving an
             // erased `Iterable<unknown>` through the manual iterator protocol
             // reads `.done`/`.value` off the dynamic iterator result
             // (`iterator.next()`), whose element type is never statically
@@ -1187,11 +1186,10 @@ export function drive(data: Iterable<unknown>): unknown[] {
 ",
         },
         Case {
-            // Issue #114 (follow-up to #83/#84): dotted access to an *undeclared*
-            // member of a class with an index signature used to hit the
-            // `unknown class or interface field` gate. It now resolves through
-            // the index signature's value type: a dotted read is a keyed lookup
-            // into the runtime store (issue #84), typed as the index value `T`
+            // Dotted access to an *undeclared* member of a class with an index
+            // signature resolves through the index signature's value type: a
+            // dotted read is a keyed lookup into the runtime store, typed as the
+            // index value `T`
             // rather than an erased `Unknown`, and the emitted Rust must
             // compile. Declared named members (`bag.size`) still use the
             // concrete struct access; only undeclared names route to the store.
@@ -1321,7 +1319,7 @@ export function bindArgs(func: (...args: number[]) => number, partial: number[])
         },
         Case {
             // `String.raw` tagged template lowers to raw-quasi / substitution
-            // concatenation; tagged templates were previously unsupported.
+            // concatenation.
             name: "string_raw_tagged_template",
             area: "baseline",
             source: r"
@@ -1335,8 +1333,8 @@ export function raw(name: string): string {
             // arities (es-toolkit `once`). The arms must unify into one variadic
             // erased-rest signature so the `func` parameter, the packed-argument
             // wrapper, and the `SmeltUnknown::Function` adapter all agree on
-            // arity; selecting arms inconsistently previously emitted a
-            // 0-argument callee called with one argument and vice versa (E0057).
+            // arity, or a 0-argument callee is called with one argument and
+            // vice versa (E0057).
             // Exercised for both a zero-arg and a multi-arg call of the wrapper.
             name: "union_function_arity_once",
             area: "closures",
@@ -1364,10 +1362,9 @@ export function useOnce(): void {
         Case {
             // A `for` loop nested inside a branch that always diverges (every
             // path `return`s) must keep its loop body when emitted. es-toolkit
-            // `some` has one such loop per branch of a conditional; the diverging
-            // non-array branch's loop was previously dropped down to `i = 0` plus
-            // a `break`, so control fell through into the sibling branch's loop
-            // and read its counter uninitialized (E0381).
+            // `some` has one such loop per branch of a conditional; losing the
+            // diverging branch's loop lets control fall through into the sibling
+            // branch's loop and read its counter uninitialized (E0381).
             name: "loop_in_diverging_branch",
             area: "baseline",
             source: r"
@@ -1416,7 +1413,7 @@ fn emit_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
 }
 
 /// Python corpus: annotation-free source that only lowers because `ty`
-/// resolves the return types (issue #93).
+/// resolves the return types.
 ///
 /// Each function omits its `-> T` return annotation; without the `ty` feature
 /// the Python frontend would reject these with "must have an explicit return
@@ -1449,7 +1446,7 @@ def total(values: list[int]):
 ",
         },
         Case {
-            // Issue #94: method and non-top-level calls. `Counter.total`
+            // Method and non-top-level calls. `Counter.total`
             // (instance method) calls `self.doubled()`, a sibling declared
             // *later* in the class body — resolvable only because method items
             // are pre-registered before any body is lowered. `Counter.make` is a
@@ -1495,7 +1492,7 @@ def via_factory(start: int) -> int:
         Case {
             name: "py_lang_features",
             area: "py_try_lambda_classbody",
-            // Issue #95: try/except/finally lowers to TryCatch, a lambda call
+            // try/except/finally lowers to TryCatch, a lambda call
             // argument recovers its `Callable[...]` type and lowers to a
             // closure, and a class-body `...` placeholder is a no-op.
             source: r#"
@@ -1599,7 +1596,7 @@ fn corpus_emitted_rust_compiles() {
     }
 
     // Python corpus (only when built with `--features ty`): annotation-free
-    // Python whose return types are resolved by `ty` (issue #93).
+    // Python whose return types are resolved by `ty`.
     #[cfg(feature = "ty")]
     for case in python_corpus() {
         if let Some(only_name) = &only
@@ -1691,9 +1688,8 @@ struct ExpectedFailure {
 /// A record whose fixture no longer exists also fails the tier, so this table
 /// cannot rot silently.
 const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
-    // -- Confirmed pre-existing: each of these was re-run at the pre-campaign
-    // commit during the callback-generics campaign and fails there too, so none
-    // is a regression from PRs #202/#203.
+    // Each of these fails for the cause in its record, independent of the
+    // callback-generics work.
     ExpectedFailure {
         name: "generic_class_method_callback",
         errors: 1,

@@ -1,31 +1,24 @@
-//! Codegen regression tests for four general emitter rules about *absence* and
-//! about *reference identity*.
+//! Emitted Rust for four rules about *absence* and *reference identity*.
 //!
-//! Each one is a rule the emitter had spelled two incompatible ways at two
-//! seams, which is why they sit together:
-//!
-//! * A list-to-list coercion whose element types render to ONE Rust type is not
-//!   a coercion. It used to key on `TypeId` inequality and rebuild the backing
-//!   buffer, so a by-reference argument stopped aliasing the caller's array and
-//!   the callee's mutations were lost.
-//! * Reading an erased value out into a `String` slot is not the JS `String(x)`
-//!   conversion, so absence must not become the string `"undefined"` there --
-//!   the sibling `Null` arm had always answered `String::new()`.
+//! * A list-to-list coercion whose element types render to one Rust type is
+//!   not a coercion, so a by-reference argument keeps aliasing the caller's
+//!   array.
+//! * Reading an erased value into a `String` slot is not the JS `String(x)`
+//!   conversion: absence takes the slot's default.
 //! * A container of `Type::None` recovers `undefined` vs `null` from its
-//!   defining literal. The list arm did; the dict arm emitted a constant
-//!   `SmeltUnknown::Null` for every entry.
+//!   defining literal.
 //! * A method reference read off an instance denotes the one prototype method,
-//!   so every read has to resolve to a single canonical identity.
+//!   so every read links to one canonical identity.
+//!
+//! The observable values are checked against Node by the
+//! `truthiness_absence_identity` fixture.
 
 use super::*;
 
+/// The caller's `unknown[]` and the callee's erased `T[]` are different MIR
+/// types and one Rust type, so the callee receives the caller's own list.
 #[test]
 fn a_by_reference_list_argument_with_identical_element_rendering_is_not_rebuilt() {
-    // The caller's `unknown[]` and the callee's erased `T[]` are different MIR
-    // types and one Rust type. Rebuilding the buffer for that pair allocates a
-    // fresh `Rc<RefCell<Vec<_>>>`, so the callee splices a temporary -- the
-    // caller's array is left untouched. The argument must be the caller's own
-    // list.
     let source = source_for(
         r"
 function dropFirst<T>(target: T[]): void {
@@ -38,25 +31,19 @@ export function useDropFirst(): number {
 }
 ",
     );
-
-    let body = emitted_function_body(&source, "fn use_drop_first");
-    assert!(
-        !body.contains("SmeltList::with_id("),
-        "a by-reference argument must not rebuild the buffer:\n{body}"
-    );
-    assert!(
-        body.contains("drop_first(&mut values"),
-        "expected the caller's own list to be borrowed:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "use_drop_first"), r"fn use_drop_first() -> f64 {
+let _smelt_tmp_3: f64;
+let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(1.0 as f64), SmeltUnknown::Number(2.0 as f64), SmeltUnknown::Number(3.0 as f64)]; smelt_list_items }));
+let _ = { let smelt_mut_call_result = drop_first(&mut values); smelt_mut_call_result };
+_smelt_tmp_3 = values.len() as f64;
+return _smelt_tmp_3;
+}");
 }
 
+/// `value as string` is a type assertion, so absence reaching a `String` slot
+/// takes the type's default, as the typed side does for the same situation.
 #[test]
 fn extracting_absence_into_a_string_slot_is_not_the_string_conversion() {
-    // `value as string` is a type ASSERTION: at runtime the value passes
-    // through. So absence reaching a `String` slot must not be given the
-    // `String(undefined)` answer `"undefined"` -- the slot cannot represent
-    // absence at all, and the typed side writes the type's default for the same
-    // situation, which made the two sides of an equality disagree.
     let source = source_for(
         r"
 export function readString(value: unknown): string {
@@ -64,25 +51,16 @@ export function readString(value: unknown): string {
 }
 ",
     );
-
-    let body = emitted_function_body(&source, "fn read_string");
-    assert!(
-        body.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => String::new()"),
-        "absence must extract as the slot's default:\n{body}"
-    );
-    assert!(
-        !body.contains("SmeltUnknown::Undefined => \"undefined\".to_owned()"),
-        "the implicit extraction must not emit the String() conversion:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "read_string"), r#"fn read_string(value: SmeltUnknown) -> JsString {
+let _smelt_tmp_1: JsString = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) };
+return _smelt_tmp_1;
+}"#);
 }
 
+/// `null` and `undefined` share MIR `Type::None`, so only the defining
+/// `Rvalue::Dict` knows which singleton the entries hold.
 #[test]
 fn an_object_literal_holding_undefined_erases_as_undefined() {
-    // `null` and `undefined` share MIR `Type::None`, so only the defining
-    // `Rvalue::Dict` knows which singleton the entries hold. Without that
-    // recovery the per-entry erasure was a CONSTANT `SmeltUnknown::Null` (the
-    // closure did not even read `value`), and `isJSONObject({ a: undefined })`
-    // answered `true` because `null` is valid JSON.
     let source = source_for(
         r"
 export function erase(): unknown {
@@ -91,23 +69,15 @@ export function erase(): unknown {
 }
 ",
     );
-
-    let body = emitted_function_body(&source, "fn erase");
-    assert!(
-        body.contains("SmeltUnknown::Undefined"),
-        "an `{{ a: undefined }}` literal must erase its entry as undefined:\n{body}"
-    );
-    assert!(
-        !body.contains("SmeltUnknown::Null"),
-        "an `{{ a: undefined }}` literal must not erase its entry as null:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "erase"), r#"fn erase() -> SmeltUnknown {
+let holder: SmeltRecord<JsString, SmeltUnknown> = SmeltRecord::from([(JsString::from("a"), SmeltUnknown::Undefined)]);
+return SmeltUnknown::Object(SmeltObject::from_unknown_record(holder.clone()));
+}"#);
 }
 
+/// The other direction of the same recovery: a `null` literal keeps its tag.
 #[test]
 fn an_object_literal_holding_null_still_erases_as_null() {
-    // The recovery above is keyed on the defining constants, so a genuine
-    // `null` literal is untouched. Pinning both directions keeps the rule from
-    // degrading into "erase `Type::None` as undefined".
     let source = source_for(
         r"
 export function erase(): unknown {
@@ -116,20 +86,16 @@ export function erase(): unknown {
 }
 ",
     );
-
-    let body = emitted_function_body(&source, "fn erase");
-    assert!(
-        body.contains("SmeltUnknown::Null"),
-        "an `{{ a: null }}` literal must keep the null tag:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "erase"), r#"fn erase() -> SmeltUnknown {
+let holder: SmeltRecord<JsString, ()> = SmeltRecord::from([(JsString::from("a"), ())]);
+return { let smelt_record = holder.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, { let _ = smelt_value; SmeltUnknown::Null })).collect())) };
+}"#);
 }
 
+/// A method reference captures its receiver, so each read is a fresh `Rc`;
+/// every read links to one canonical id per (defining class, method).
 #[test]
 fn a_class_method_reference_links_one_canonical_identity() {
-    // A method reference has to capture its receiver, so each read is a fresh
-    // `Rc` and a bare address comparison called two reads of one method
-    // unequal. JavaScript disagrees -- the method lives once on the prototype
-    // -- so every read links to one canonical id per (defining class, method).
     let source = source_for(
         r"
 class Greeter {
@@ -142,24 +108,14 @@ export function methodOf(greeter: Greeter): unknown {
 }
 ",
     );
-
-    let body = emitted_function_body(&source, "fn method_of");
-    assert!(
-        body.contains("smelt_link_function_identity_key(&smelt_method, smelt_method_identity("),
-        "a method reference must link the canonical per-method identity:\n{body}"
-    );
-    assert!(
-        body.contains("Greeter::greet"),
-        "the identity key must name the defining class and method:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "method_of"), r#"fn method_of(greeter: Greeter) -> SmeltUnknown {
+return ({ let smelt_receiver = greeter.clone(); let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_receiver.greet()).into()))); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Greeter::greet")); SmeltUnknown::Function(smelt_method) }).clone();
+}"#);
 }
 
+/// A keyed read that resolves to no property is `undefined`.
 #[test]
 fn an_absent_key_on_a_class_receiver_reads_as_undefined() {
-    // A keyed read that resolves to "no such property" is `undefined` in
-    // JavaScript. It used to share the `null` tag helper, which made
-    // `instance['nope'] === null` true and `=== undefined` false -- both
-    // backwards.
     let source = source_for(
         r"
 class Holder {
@@ -170,10 +126,20 @@ export function readMissing(holder: Holder): unknown {
 }
 ",
     );
-
-    let body = emitted_function_body(&source, "fn read_missing");
-    assert!(
-        body.contains("SmeltUnknown::Undefined"),
-        "an absent property read must be undefined:\n{body}"
-    );
+    assert_eq!(rust_fn(&source, "read_missing"), r#"fn read_missing(holder: Holder) -> SmeltUnknown {
+let _smelt_tmp_1: SmeltUnknown = { let smelt_object_value = holder.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("value".to_owned(), SmeltUnknown::Number(smelt_object_value.value as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Holder".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) };
+return match _smelt_tmp_1.clone() {
+SmeltUnknown::String(smelt_value) => {
+let smelt_key = JsString::from("nope").clone();
+if smelt_key == "length" {
+SmeltUnknown::Number(smelt_value.len() as f64)
+} else {
+smelt_key.to_string().parse::<usize>().ok().and_then(|smelt_position| smelt_value.char_at(smelt_position).map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)
+}
+}
+SmeltUnknown::Array(smelt_values) => smelt_get_array_field(&smelt_values, &JsString::from("nope").clone()),
+SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsString::from("nope").clone()),
+_ => SmeltUnknown::Undefined,
+};
+}"#);
 }
