@@ -16,7 +16,9 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
         //~ `view[i]` read and a `slice()` observe it. Writes to any other key, or to
         //~ a record without byte storage, fall through to the property insert.
         SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
-        SmeltUnknown::Object(map) => { map.insert(key, value); }
+        //~ A keyed write through a reference instance's erased view reaches the
+        //~ instance, as a `.field` write does.
+        SmeltUnknown::Object(map) => { /*@if write_through*/smelt_object_write_through(map, &key.to_string_lossy(), &value);/*@end*/ map.insert(key, value); }
         //~ A JavaScript function is an object, so a keyed write onto one is a
         //~ real store into its own-property bag (`smelt-runtime`'s `function_object.rs`) --
         //~ not a reason to replace the function with a record, which is what the

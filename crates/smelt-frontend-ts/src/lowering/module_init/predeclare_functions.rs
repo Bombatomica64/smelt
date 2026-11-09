@@ -289,6 +289,47 @@ impl ModuleBuilder<'_> {
         ))
     }
 
+    /// The return an unannotated overload implementation is lowered at.
+    ///
+    /// One Rust return type cannot be both an array and an object map, so when
+    /// the overloads disagree between those shapes the value is a real dynamic
+    /// boundary: which one a call produces depends on its run-time argument
+    /// (`all(promises)` over an array or a record). Otherwise the implementation
+    /// keeps the last overload's return.
+    fn overload_implementation_return(
+        &mut self,
+        name_text: &str,
+        last_return: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let shape = |builder: &Self, ty: smelt_hir::TypeId| {
+            let settled = match builder.ctx.krate.types.get(ty) {
+                Some(Type::Future(inner)) => *inner,
+                _ => ty,
+            };
+            match builder.ctx.krate.types.get(settled) {
+                Some(Type::List(_) | Type::Tuple(_)) => Some(false),
+                Some(Type::Dict(..)) => Some(true),
+                _ => None,
+            }
+        };
+        let returns = self
+            .functions
+            .overloads(name_text)
+            .map(|signatures| signatures.iter().map(|signature| signature.return_ty).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let is_async = matches!(self.ctx.krate.types.get(last_return), Some(Type::Future(_)));
+        let shapes = returns.iter().filter_map(|ty| shape(self, *ty)).collect::<Vec<_>>();
+        if !(shapes.contains(&true) && shapes.contains(&false)) {
+            return last_return;
+        }
+        let erased = self.erase_with(ErasureReason::OpenLayout, "overloads return an array or an object");
+        if is_async {
+            self.ctx.krate.types.intern(Type::Future(erased))
+        } else {
+            erased
+        }
+    }
+
     /// Resolve an optional function return annotation or implementation overload.
     pub(in crate::lowering) fn function_return_type_annotation_or_overload(
         &mut self,
@@ -299,7 +340,8 @@ impl ModuleBuilder<'_> {
             return self.ts_type_to_hir(&return_type.type_annotation).map(Some);
         }
         if let Some(signature) = self.functions.last_overload(name_text) {
-            return Ok(Some(signature.return_ty));
+            let last_return = signature.return_ty;
+            return Ok(Some(self.overload_implementation_return(name_text, last_return)));
         }
         Ok(None)
     }

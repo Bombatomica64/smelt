@@ -99,6 +99,14 @@ fn nested_async_declaration_return() -> TestResult {
     verify_node_parity("nested_async_declaration_return")
 }
 
+/// A keyed write through an erased view reaches the instance, an implementation
+/// whose overloads return an array or an object returns what it built, and
+/// `Object.fromEntries` accepts `[k, v]` entries spelled as plain arrays.
+#[test]
+fn keyed_view_write_and_shape_overloads() -> TestResult {
+    verify_node_parity("keyed_view_write_and_shape_overloads")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
