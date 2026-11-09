@@ -255,7 +255,7 @@ impl ModuleBuilder<'_> {
                     &before_each,
                     &after_each,
                     &[],
-                    guard,
+                    guard.into_guard(),
                 ) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),

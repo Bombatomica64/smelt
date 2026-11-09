@@ -10,6 +10,7 @@
 ///
 /// An unknown rule name is false, so a mismatch between the frontend's table and
 /// this one fails the test instead of passing it.
+thread_local! { static SMELT_TEST_ASSERTION_PLAN: ::std::cell::Cell<(Option<f64>, usize)> = const { ::std::cell::Cell::new((None, 0)) }; }
 #[allow(clippy::cast_lossless, clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss, clippy::float_cmp, clippy::option_if_let_else, clippy::suboptimal_flops, clippy::too_many_lines, clippy::unreadable_literal, reason = "JavaScript numbers and a PRNG convert between f64 and integers on purpose")]
 fn smelt_test_check(check: &str, args: Vec<SmeltUnknown>) -> bool {
     let mut args = args.into_iter();
@@ -37,6 +38,12 @@ fn smelt_test_check(check: &str, args: Vec<SmeltUnknown>) -> bool {
             smelt_test_close_to(&actual, &first, Some(&SmeltUnknown::Number(10f64.powf(-digits) / 2.0)), false)
         }
         "snapshot" => smelt_test_snapshot_matches(&actual, &first),
+        //~ `expect.assertions`: `actual` is the planned count, `-1` for "at least one".
+        "assertions_plan" => { SMELT_TEST_ASSERTION_PLAN.with(|plan| plan.set((Some(smelt_unknown_to_number(&actual)), 0))); true }
+        "assertions_tick" => { SMELT_TEST_ASSERTION_PLAN.with(|plan| { let (planned, made) = plan.get(); plan.set((planned, made + 1)); }); true }
+        "assertions_verify" => { let (planned, made) = SMELT_TEST_ASSERTION_PLAN.with(|plan| plan.replace((None, 0))); match planned { Some(count) if count < 0.0 => made > 0, Some(count) => (made as f64) == count, None => true } }
+        "custom_matcher_passed" => smelt_test_truthy(&smelt_get_unknown_field(&actual, "pass")),
+        "error_message_matches" => { let message = smelt_erased_to_js_string(&smelt_get_unknown_field(&actual, "message")); match &first { SmeltUnknown::Object(object) if object.contains_key("__smelt_regexp") => SmeltRegExp::new(smelt_erased_to_js_string(&smelt_get_unknown_field(&first, "source")).to_string_lossy(), smelt_erased_to_js_string(&smelt_get_unknown_field(&first, "flags")).to_string_lossy()).test(&message), _ => message.to_string_lossy().contains(&*smelt_erased_to_js_string(&first).to_string_lossy()) } }
         _ => false,
     }
 }

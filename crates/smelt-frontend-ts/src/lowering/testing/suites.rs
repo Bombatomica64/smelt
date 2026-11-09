@@ -27,6 +27,25 @@ pub(in crate::lowering) struct TestRunGuard<'a> {
     run_when: bool,
 }
 
+/// What a `cond ? it : it.skip` alias does with its test.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) enum ConditionalTestAlias<'a> {
+    /// Both arms run the test.
+    AlwaysRuns,
+    /// The test runs only when the guard holds.
+    Guarded(TestRunGuard<'a>),
+}
+
+impl<'a> ConditionalTestAlias<'a> {
+    /// The run-time guard, if the alias has one.
+    pub(in crate::lowering) fn into_guard(self) -> Option<TestRunGuard<'a>> {
+        match self {
+            Self::AlwaysRuns => None,
+            Self::Guarded(guard) => Some(guard),
+        }
+    }
+}
+
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
     pub(in crate::lowering) fn describe_declaration(
@@ -207,7 +226,7 @@ impl ModuleBuilder<'_> {
                         &before_each,
                         &after_each,
                         table_bindings,
-                        guard,
+                        guard.into_guard(),
                     )?);
                 }
                 continue;
@@ -595,12 +614,11 @@ impl ModuleBuilder<'_> {
     /// The `cond ? it : it.skip` a dynamic test alias call names, as a run guard.
     ///
     /// `None` when the callee is not bound to such a conditional in `setup`.
-    /// Inner `Some(None)` is an alias that always runs; [`TestRunGuard`] otherwise.
     pub(in crate::lowering) fn conditional_test_alias<'a>(
         &self,
         call: &oxc::ast::ast::CallExpression<'_>,
         setup: &[&'a Statement<'a>],
-    ) -> Option<Option<TestRunGuard<'a>>> {
+    ) -> Option<ConditionalTestAlias<'a>> {
         let Expression::Identifier(callee) = &call.callee else {
             return None;
         };
@@ -631,10 +649,10 @@ impl ModuleBuilder<'_> {
             .then_some(true)
         };
         match (runs(&conditional.consequent)?, runs(&conditional.alternate)?) {
-            (true, true) => Some(None),
+            (true, true) => Some(ConditionalTestAlias::AlwaysRuns),
             (false, false) => None,
-            (true, false) => Some(Some(TestRunGuard { condition: &conditional.test, run_when: true })),
-            (false, true) => Some(Some(TestRunGuard { condition: &conditional.test, run_when: false })),
+            (true, false) => Some(ConditionalTestAlias::Guarded(TestRunGuard { condition: &conditional.test, run_when: true })),
+            (false, true) => Some(ConditionalTestAlias::Guarded(TestRunGuard { condition: &conditional.test, run_when: false })),
         }
     }
 
@@ -865,6 +883,8 @@ impl ModuleBuilder<'_> {
         guard: Option<TestRunGuard<'_>>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let class_scope = self.test_case_class_scope();
+        let plans_assertions = self.span_plans_assertions(arrow.span);
+        let counted = std::mem::replace(&mut self.test_counts_assertions, plans_assertions);
         let ctx = self.nested_fn_ctx(BodyKind::Arrow, arrow.r#async, None);
         let (mut body, errors) = self.with_nested_body(ctx, ScopeGroups::ALL, |this, _| {
             // Flow-narrowing facts are keyed by NAME, so a fact recorded in one test
@@ -899,11 +919,15 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
             this.test_arrow_body(arrow, &mut body, &mut errors);
+            if this.test_counts_assertions {
+                this.verify_planned_assertions(arrow.span, &mut body);
+            }
             for hook in after_each {
                 this.test_arrow_body(hook, &mut body, &mut errors);
             }
             (body, errors)
         });
+        self.test_counts_assertions = counted;
         self.restore_test_case_class_scope(&class_scope);
         if let Some(error) = errors.into_iter().next() {
             return Err(error);

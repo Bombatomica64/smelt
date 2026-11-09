@@ -967,6 +967,8 @@ struct ModuleBuilder<'ctx> {
     /// `new`?") is the shape that asks for it, so
     /// [`Self::instanceof_expression`] consults this stack instead of emitting a
     /// reference the body cannot resolve.
+    /// Whether the test being lowered counts its assertions (`expect.assertions`).
+    test_counts_assertions: bool,
     defining_local_functions: Vec<String>,
     /// Whether lowering may index erased unknown metadata, and why; see
     /// [`state::lowering_mode::UnknownIndexAccess`].
