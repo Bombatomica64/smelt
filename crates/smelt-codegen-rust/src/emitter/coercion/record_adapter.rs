@@ -5,6 +5,23 @@ use super::*;
 use crate::generic_bindings::substitute_existing_type;
 
 impl FunctionEmitter<'_> {
+    /// `mapped`, a conversion of field `key` of `target`, with a step on the
+    /// error path while it runs, when the field's type holds a record.
+    fn conversion_framed(
+        &self,
+        mapped: RustExpr,
+        source_is_erased: bool,
+        target: TypeId,
+        key: &str,
+        field_ty: TypeId,
+    ) -> RustExpr {
+        if !source_is_erased || !record_coercion::type_holds_generated_record(self.mir, field_ty) {
+            return mapped;
+        }
+        let record = json_decode::ts_type_text(self.mir, target);
+        RustExpr::atom(format!("{{ let _smelt_conv_frame = smelt_conv_enter({record:?}, {key:?}); {mapped} }}", mapped = mapped.delimited()))
+    }
+
     /// Returns whether `source` can be coerced before wrapping into `Option`.
     pub(super) fn can_coerce_to_optional_inner(&self, source: TypeId, inner: TypeId) -> bool {
         self.has_dynamic_shape(inner)
@@ -471,27 +488,28 @@ impl FunctionEmitter<'_> {
             // spelling and cannot be inverted back into it.
             let field_key = self.symbol_source_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
-            // A JavaScript member read falls through to the prototype when the
-            // own property is absent, which is what `smelt_get_object_field`
-            // already does for the erased-object path. A record projection is
-            // the same read against the same value, so it consults the same
-            // `__smelt_proto:` slot — otherwise an erased class instance
-            // projected into an interface-shaped record loses exactly the
-            // methods the object path can still see, and each missing member
-            // silently becomes a fabricated default callback.
-            let prototype_fallback = if source_is_erased {
-                format!(
-                    ".or_else(|| smelt_record_map.get_text({proto_key:?})).or_else(|| smelt_record_map.get_text({method_key:?}))",
-                    proto_key = format!("{SMELT_PROTO}:{field_key}"),
-                    method_key = format!(
-                        "{prefix}{field_key}",
-                        prefix = crate::class_proto::METHOD_KEY_PREFIX,
-                    ),
-                )
+            // A record projection of an erased value is a JavaScript member read
+            // of each field, so it answers what `smelt_get_object_field` would:
+            // prototype members, accessors, a host object's members. A
+            // `#private` field travels under a method-prefixed key instead.
+            let hidden = !field.visibility.is_own_property();
+            let own_read = if source_is_erased && hidden {
+                let hidden_key = format!("{}{field_key}", crate::class_proto::METHOD_KEY_PREFIX);
+                format!("smelt_record_map.get_text({hidden_key:?})")
+            } else if source_is_erased {
+                format!("smelt_erased_record_member(&smelt_record_map, {field_key:?})")
             } else {
-                String::new()
+                format!("smelt_record_map.get_text({field_key:?})")
             };
-            let lookup_text = format!("smelt_record_map.get_text({field_key:?}){prototype_fallback}");
+            // A callable slot is not a property in JavaScript, so a non-callable
+            // object asserted to a callable type is observably fine until it is
+            // called, and then it throws. Remeda hands `pipe` plain
+            // `{ lazy, lazyArgs }` definitions through exactly that assertion.
+            let lookup_text = if source_is_erased && field_key == SMELT_CALL {
+                format!("{own_read}.or_else(|| Some(smelt_not_callable_slot()))")
+            } else {
+                own_read
+            };
             let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {
                 if self.dict_uses_smelt_record(*key) {
                     lookup_text
@@ -519,7 +537,8 @@ impl FunctionEmitter<'_> {
                 RustExpr::path("None")
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
-                    let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, *inner, scope)?;
+                    let rendered = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, *inner, scope)?;
+                    let mapped = self.conversion_framed(rendered, source_is_erased, target, field_key, *inner);
                     if source_is_erased
                         && !matches!(self.mir.types.get(*inner), Some(Type::Unknown))
                     {
@@ -544,14 +563,30 @@ impl FunctionEmitter<'_> {
                     RustExpr::path("None")
                 }
             } else if self.can_render_dict_value_as(source_value, field.ty) {
-                let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, field.ty, scope)?;
-                RustExpr::atom(lookup_value).postfix(format!(
-                    ".map_or({}, |smelt_value| {mapped})",
-                    self.default_value_with_scoped_type_params(
-                        field.ty,
-                        &TypeSubstitution::lexical_subset(&scoped_type_params),
-                    )?.delimited(), mapped = mapped.delimited()
-                ))
+                let rendered = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, field.ty, scope)?;
+                let mapped = self.conversion_framed(rendered, source_is_erased, target, field_key, field.ty);
+                // See `emit_record_from_smelt_unknown_impl` for why `#private` is exempt.
+                let missing = (source_is_erased && !hidden)
+                    .then(|| {
+                        let record = json_decode::ts_type_text(self.mir, target);
+                        record_coercion::missing_required_field_throw(
+                            self.mir, &record, field_key, field.ty,
+                        )
+                    })
+                    .flatten();
+                if let Some(throw) = missing {
+                    RustExpr::atom(lookup_value).postfix(format!(
+                        ".map_or_else(|| {throw}, |smelt_value| {mapped})", mapped = mapped.delimited()
+                    ))
+                } else {
+                    RustExpr::atom(lookup_value).postfix(format!(
+                        ".map_or({}, |smelt_value| {mapped})",
+                        self.default_value_with_scoped_type_params(
+                            field.ty,
+                            &TypeSubstitution::lexical_subset(&scoped_type_params),
+                        )?.delimited(), mapped = mapped.delimited()
+                    ))
+                }
             } else {
                 self.default_value_with_scoped_type_params(
                     field.ty,

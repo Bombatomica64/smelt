@@ -148,7 +148,7 @@ impl ModuleBuilder<'_> {
         }
         let result = self.widened_call_type(resolved, substituted);
         let span = self.span(call.span.start, call.span.end);
-        self.call_result_shaped_by_checker(result, call.span.start, call.span.end, span)
+        self.call_result_shaped_by_checker(result, call, span)
     }
 
     /// Whether `ty` mentions any of `params` anywhere.

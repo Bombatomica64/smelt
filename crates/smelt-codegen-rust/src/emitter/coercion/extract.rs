@@ -146,8 +146,12 @@ impl FunctionEmitter<'_> {
             } else {
                 String::new()
             };
+            let not_a_record = format!(
+                "smelt_throw_not_a_record({:?}, &smelt_other)",
+                json_decode::ts_type_text(self.mir, target)
+            );
             return Ok(Some(self.carrier_format(self.carrier()?, format_args!(
-                "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => {{ let smelt_record_map = {record_view}; {adapter} }},{function_arm} _ => Default::default() }}", text = text.delimited(), adapter = adapter.delimited()
+                "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => {{ let smelt_record_map = {record_view}; {adapter} }},{function_arm} smelt_other => {not_a_record} }}", text = text.delimited(), adapter = adapter.delimited()
             ))));
         }
         Ok(None)
@@ -358,7 +362,13 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::List(item)) => {
-                let item_text = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
+                let rendered_item = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
+                let holds_record = record_coercion::type_holds_generated_record(self.mir, *item);
+                let item_text = if holds_record {
+                    RustExpr::atom(format!("{{ smelt_conv_next_item(); {rendered_item} }}", rendered_item = rendered_item.delimited()))
+                } else {
+                    rendered_item
+                };
                 let shared = SharedItemConversion::new(item_text);
                 let char_text = match shared.binding() {
                     Some(_) => RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
@@ -370,7 +380,12 @@ impl FunctionEmitter<'_> {
                         scope,
                     )?,
                 };
-                Ok(shared.wrap(erased_to_list_expr(text, Some(shared.use_text()), &char_text)))
+                let list = shared.wrap(erased_to_list_expr(text, Some(shared.use_text()), &char_text));
+                Ok(if holds_record {
+                    RustExpr::atom(format!("{{ let _smelt_conv_list = smelt_conv_enter_list(); {list} }}", list = list.delimited()))
+                } else {
+                    list
+                })
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key).is_some_and(Type::is_text)

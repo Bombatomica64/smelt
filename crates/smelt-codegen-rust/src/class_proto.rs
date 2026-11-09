@@ -77,15 +77,13 @@ pub(crate) const PROTO_ENTRIES_METHOD: &str = "__smelt_proto_entries";
 /// enumeration, structural-equality, hashing and JSON view skips both.
 pub(crate) const METHOD_KEY_PREFIX: &str = "__smelt_method:";
 
-/// Prefixes the frontends give a synthesized accessor method.
-///
-/// A source `get x()` / `set x(v)` lowers to an ordinary method named
-/// `__smelt_get_x` / `__smelt_set_x`; the accessor is reached in JavaScript by
-/// *reading* `x`, never by calling `__smelt_get_x`. Publishing it as a callable
-/// member would invent a method the source never declared, so accessors are
-/// excluded here. Exposing them properly needs an accessor slot the erased
-/// carrier does not yet have (a read that invokes), which is separate work.
-const ACCESSOR_PREFIXES: [&str; 2] = ["__smelt_get_", "__smelt_set_"];
+/// Prefix the frontends give a synthesized getter: `get x()` lowers to an
+/// ordinary method named `__smelt_get_x`. It is published under the property's
+/// own name as an accessor record, which a member read runs.
+const GETTER_PREFIX: &str = "__smelt_get_";
+
+/// Prefix of a synthesized setter, which a member READ never reaches.
+const SETTER_PREFIX: &str = "__smelt_set_";
 
 /// Whether `ty` can be produced from an erased `SmeltUnknown` result.
 ///
@@ -148,10 +146,7 @@ pub(crate) fn method_is_proto_eligible(
     let Some(spelling) = mir.symbols.get(name) else {
         return false;
     };
-    if ACCESSOR_PREFIXES
-        .iter()
-        .any(|prefix| spelling.starts_with(prefix))
-    {
+    if spelling.starts_with(SETTER_PREFIX) {
         return false;
     }
     if !return_type_is_erasable(mir, function.return_ty) {
@@ -441,9 +436,6 @@ pub(crate) fn class_proto_entries_method(
         let Some(function) = function_by_id(mir, method) else {
             continue;
         };
-        if !method_is_proto_eligible(mir, context, class.name, function) {
-            continue;
-        }
         let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
             continue;
         };
@@ -453,6 +445,18 @@ pub(crate) fn class_proto_entries_method(
             .or_else(|| mir.symbols.get(name))
             .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?
             .to_owned();
+        if source_name.starts_with(SETTER_PREFIX) {
+            continue;
+        }
+        let property = source_name.strip_prefix(GETTER_PREFIX);
+        if !method_is_proto_eligible(mir, context, class.name, function) {
+            let member = format!("{}.{}", class_source_name(mir, class), property.unwrap_or(&source_name));
+            let key = format!("{METHOD_KEY_PREFIX}{}", property.unwrap_or(&source_name));
+            pushes.push(format!(
+                "        smelt_proto_entries.push(({key:?}.to_owned(), smelt_unbridged_member({member:?})));\n"
+            ));
+            continue;
+        }
         let rust_method = context
             .names()
             .method(name)
@@ -460,11 +464,17 @@ pub(crate) fn class_proto_entries_method(
             .as_str()
             .to_owned();
         let adapter = method_adapter(mir, context, function, &rust_method)?;
-        let key = format!("{METHOD_KEY_PREFIX}{source_name}");
+        let key = format!("{METHOD_KEY_PREFIX}{}", property.unwrap_or(&source_name));
+        let member = if property.is_some() {
+            format!("SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_get\".to_owned(), {adapter})])))", adapter = adapter.delimited())
+        } else {
+            adapter.into_string()
+        };
         pushes.push(format!(
-            "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n", adapter = adapter.delimited()
+            "        smelt_proto_entries.push(({key:?}.to_owned(), {member}));\n"
         ));
     }
+    pushes.extend(hidden_field_entries(mir, context, class)?);
     if let Some(adapter) = constructor_adapter(mir, context, class)? {
         pushes.push(format!(
             "        smelt_proto_entries.push(({CONSTRUCTOR_KEY:?}.to_owned(), {adapter}));\n", adapter = adapter.delimited()
@@ -492,6 +502,32 @@ pub(crate) fn class_proto_entries_method(
     Ok(Some(out))
 }
 
+/// The source spelling of `class`'s name.
+fn class_source_name<'mir>(mir: &'mir Mir, class: &MirClass) -> &'mir str {
+    mir.names.get(class.name).or_else(|| mir.symbols.get(class.name)).unwrap_or("class")
+}
+
+/// One entry per `#private` field, so an instance round-trips through the
+/// erased carrier with its private state. Under the method prefix every
+/// enumeration, equality and JSON view skips it; `value["#x"]` misses it,
+/// since a member read of a `#` name does not consult the prefix.
+fn hidden_field_entries(mir: &Mir, context: &EmitContext, class: &MirClass) -> Result<Vec<String>, EmitError> {
+    let base = if context.is_reference_class(class.name) { "self.0.borrow()" } else { "self" };
+    class
+        .fields
+        .iter()
+        .filter(|field| !field.visibility.is_own_property())
+        .map(|field| {
+            let source = mir.names.get(field.name).or_else(|| mir.symbols.get(field.name)).unwrap_or("field");
+            let key = format!("{METHOD_KEY_PREFIX}{source}");
+            let rust_field = context.names().field(mir, field.name).into_string();
+            let read = RustExpr::chain(format!("{base}.{rust_field}")).cloned_value();
+            let value = record_field_unknown_expr(mir, &read, field.ty)?;
+            Ok(format!("        smelt_proto_entries.push(({key:?}.to_owned(), {value}));\n", value = value.delimited()))
+        })
+        .collect()
+}
+
 /// Whether a class emits a `__smelt_proto_entries` method at all.
 ///
 /// The erasure sites consult this before appending the call, so a class with no
@@ -504,7 +540,11 @@ pub(crate) fn class_has_proto_entries(
     effective_class_methods(mir, class)
         .into_iter()
         .filter_map(|method| function_by_id(mir, method))
-        .any(|function| method_is_proto_eligible(mir, context, class.name, function))
+        .any(|function| {
+            matches!(function.origin, HirOrigin::ClassMethod { method, .. }
+                if mir.symbols.get(method).is_some_and(|name| !name.starts_with(SETTER_PREFIX)))
+        })
+        || class.fields.iter().any(|field| !field.visibility.is_own_property())
         || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
 }
 

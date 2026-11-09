@@ -245,54 +245,7 @@ impl FunctionEmitter<'_> {
 
     /// Describe `ty` the way TypeScript spells it, for `expected …` messages.
     fn json_decode_expected(&self, ty: TypeId) -> String {
-        match self.mir.types.get(ty) {
-            Some(Type::Bool) => "boolean".to_owned(),
-            Some(Type::Int) => "integer".to_owned(),
-            Some(Type::FixedInt(smelt_hir::IntWidth::I32)) => "int32".to_owned(),
-            Some(Type::FixedInt(_)) => "integer".to_owned(),
-            Some(Type::Float) => "number".to_owned(),
-            Some(Type::String | Type::PyStr) => "string".to_owned(),
-            Some(Type::None) => "null".to_owned(),
-            Some(Type::Unknown) => "unknown".to_owned(),
-            Some(Type::List(item)) => {
-                let item_text = self.json_decode_expected(*item);
-                if matches!(
-                    self.mir.types.get(*item),
-                    Some(Type::Union(_) | Type::Optional(_))
-                ) {
-                    format!("({item_text})[]")
-                } else {
-                    format!("{item_text}[]")
-                }
-            }
-            Some(Type::Tuple(items)) => format!(
-                "[{}]",
-                items
-                    .iter()
-                    .map(|item| self.json_decode_expected(*item))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Some(Type::Dict(_, value)) => {
-                format!("Record<string, {}>", self.json_decode_expected(*value))
-            }
-            Some(Type::Optional(item)) => {
-                format!("{} | null", self.json_decode_expected(*item))
-            }
-            Some(Type::Union(items)) => items
-                .iter()
-                .map(|item| self.json_decode_expected(*item))
-                .collect::<Vec<_>>()
-                .join(" | "),
-            Some(Type::Class { name, .. }) => self
-                .mir
-                .names
-                .get(*name)
-                .or_else(|| self.mir.symbols.get(*name))
-                .unwrap_or("object")
-                .to_owned(),
-            _ => "value".to_owned(),
-        }
+        ts_type_text(self.mir, ty)
     }
 
     /// The expression decoding `value_text` (a `&SmeltUnknown`) at `ty`, as a
@@ -795,3 +748,55 @@ fn smelt_decode_throw(issue: SmeltDecodeIssue) -> Box<dyn ::std::error::Error> {
 "#
     )
 }
+
+/// Describe `ty` the way TypeScript spells it, for `expected …` messages.
+pub(crate) fn ts_type_text(mir: &Mir, ty: TypeId) -> String {
+    match mir.types.get(ty) {
+        Some(Type::Bool) => "boolean".to_owned(),
+        Some(Type::Int) => "integer".to_owned(),
+        Some(Type::FixedInt(smelt_hir::IntWidth::I32)) => "int32".to_owned(),
+        Some(Type::FixedInt(_)) => "integer".to_owned(),
+        Some(Type::Float) => "number".to_owned(),
+        Some(Type::String | Type::PyStr) => "string".to_owned(),
+        Some(Type::None) => "null".to_owned(),
+        Some(Type::Unknown) => "unknown".to_owned(),
+        Some(Type::List(item)) => {
+            let item_text = ts_type_text(mir, *item);
+            if matches!(
+                mir.types.get(*item),
+                Some(Type::Union(_) | Type::Optional(_))
+            ) {
+                format!("({item_text})[]")
+            } else {
+                format!("{item_text}[]")
+            }
+        }
+        Some(Type::Tuple(items)) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(|item| ts_type_text(mir, *item))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Some(Type::Dict(_, value)) => {
+            format!("Record<string, {}>", ts_type_text(mir, *value))
+        }
+        Some(Type::Optional(item)) => {
+            format!("{} | null", ts_type_text(mir, *item))
+        }
+        Some(Type::Union(items)) => items
+            .iter()
+            .map(|item| ts_type_text(mir, *item))
+            .collect::<Vec<_>>()
+            .join(" | "),
+        Some(Type::Class { name, .. }) => mir
+            .names
+            .get(*name)
+            .or_else(|| mir.symbols.get(*name))
+            .unwrap_or("object")
+            .to_owned(),
+        _ => "value".to_owned(),
+    }
+}
+

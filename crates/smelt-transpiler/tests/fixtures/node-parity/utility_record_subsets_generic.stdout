@@ -4,4 +4,5 @@ pick-none  {} {}
 omit-one b {"b":1} {"b":1}
 1
 omit-anonymous right {"right":"r"} {"right":"r"}
+pick-order b,a {"b":1,"a":"a"} {"b":1,"a":"a"}
 a true

@@ -217,15 +217,18 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
     writer.block(
         format!("impl{impl_generics} SmeltFromUnknown for {name}{type_args}"),
         |impl_writer| {
+            impl_writer.line("const HOLDS_RECORD: bool = true;");
             impl_writer.block(
                 "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
                 |fn_writer| {
                     fn_writer.line("let mut result = Self::default();");
-                    fn_writer.block("if let SmeltUnknown::Object(object) = value", |body| {
+                    let record_text = name.to_owned();
+                    fn_writer.block("if let SmeltUnknown::Object(object) = value.clone()", |body| {
                         for field in fields {
-                            if !field.visibility.is_own_property() {
-                                continue;
-                            }
+                            // A `#private` field travels under a method-prefixed
+                            // key: enumeration skips it and `value["#x"]` misses,
+                            // as in JavaScript.
+                            let hidden = !field.visibility.is_own_property();
                             // Only rebuild fields whose type can actually be
                             // recovered. This is a whitelist rather than a
                             // blacklist: a field the erased view cannot restore
@@ -240,6 +243,9 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
                                 .get(field.name)
                                 .or_else(|| mir.symbols.get(field.name))
                                 .unwrap_or("field");
+                            if hidden && matches!(mir.types.get(field.ty), Some(Type::Function(_))) {
+                                continue;
+                            }
                             if matches!(mir.types.get(field.ty), Some(Type::Function(_))) {
                                 emit_function_field_origin_restore(
                                     body,
@@ -250,6 +256,11 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
                                     key,
                                     field.ty,
                                 );
+                                if let Some(throw) = missing_required_field_throw(mir, &record_text, key, field.ty) {
+                                    body.block(format!("if smelt_erased_member(&object, {key:?}).is_none()"), |absent| {
+                                        absent.line(format!("{throw};"));
+                                    });
+                                }
                                 continue;
                             }
                             if !type_supports_from_unknown(mir, context, field.ty) {
@@ -258,15 +269,36 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
                             // Read the SOURCE spelling out of the erased object;
                             // write the sanitized Rust field. See the outbound
                             // impl above.
+                            let read = if hidden {
+                                let hidden_key = format!("{}{key}", crate::class_proto::METHOD_KEY_PREFIX);
+                                format!("object.get({hidden_key:?})")
+                            } else {
+                                format!("smelt_erased_member(&object, {key:?})")
+                            };
                             body.block(
-                                format!("if let Some(smelt_field) = object.get({key:?})"),
+                                format!("if let Some(smelt_field) = {read}"),
                                 |assign| {
-                                    assign.line(format!(
-                                        "result.{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field);"
-                                    ));
+                                    let converted = if type_holds_generated_record(mir, field.ty) {
+                                        format!(
+                                            "{{ let _smelt_conv_frame = smelt_conv_enter({record_text:?}, {key:?}); SmeltFromUnknown::smelt_from_unknown(smelt_field) }}"
+                                        )
+                                    } else {
+                                        "SmeltFromUnknown::smelt_from_unknown(smelt_field)".to_owned()
+                                    };
+                                    assign.line(format!("result.{field_name} = {converted};"));
                                 },
                             );
+                            // A clone of an instance does not get its `#private` fields, and that is
+                            // only observable if one is read, so absence is not a shape mismatch
+                            // (es-toolkit's `cloneDeep` spec reads the clone's other members).
+                            if let Some(throw) = missing_required_field_throw(mir, &record_text, key, field.ty).filter(|_| !hidden) {
+                                body.block("else", |absent| absent.line(format!("{throw};")));
+                            }
                         }
+                    });
+                    // `else` of the object test: the value is not a record.
+                    fn_writer.block("else", |absent| {
+                        absent.line(format!("smelt_throw_not_a_record({name:?}, &value);"));
                     });
                     fn_writer.line("result");
                 },
@@ -323,6 +355,52 @@ fn emit_function_field_origin_restore(
             "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_rendered}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
         ));
     });
+}
+
+/// Whether converting a value of `ty` may convert a record this program
+/// generates, and so whether its conversion is worth a step on the error path.
+pub(crate) fn type_holds_generated_record(mir: &Mir, ty: TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Class { name, .. }) => mir.has_class(*name) || mir.has_interface(*name),
+        Some(Type::List(item) | Type::Optional(item) | Type::Set(item) | Type::Dict(_, item) | Type::JsMap(_, item)) => {
+            type_holds_generated_record(mir, *item)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => items.iter().any(|item| type_holds_generated_record(mir, *item)),
+        _ => false,
+    }
+}
+
+/// The call that throws for a required field absent from an erased object, or
+/// `None` when `ty` can hold the absence (an optional, erased, generic or
+/// nullable field), which then keeps its own absent spelling.
+///
+/// A deliberate divergence from JavaScript, which misbehaves only if the field
+/// is read: the conversion is where a value stops matching its declared type,
+/// so it fails there, naming the type and path like the typed `JSON.parse`
+/// decoder does, rather than inventing the field's default.
+pub(crate) fn missing_required_field_throw(
+    mir: &Mir,
+    record: &str,
+    field: &str,
+    ty: TypeId,
+) -> Option<String> {
+    // The call slot of a callable record is not a source property; a call of
+    // an absent one throws instead (`smelt_not_callable_slot`).
+    if field == "__smelt_call" {
+        return None;
+    }
+    let holds_absence = |candidate: TypeId| {
+        matches!(
+            mir.types.get(candidate),
+            Some(Type::Optional(_) | Type::Unknown | Type::TypeParam { .. } | Type::None | Type::Never) | None
+        )
+    };
+    let can_be_absent = holds_absence(ty)
+        || matches!(mir.types.get(ty), Some(Type::Union(members)) if members.iter().any(|member| holds_absence(*member)));
+    (!can_be_absent).then(|| {
+        let expected = crate::emitter::json_decode::ts_type_text(mir, ty);
+        format!("smelt_throw_missing_record_field({expected:?}, {record:?}, {field:?})")
+    })
 }
 
 /// Recovers a value of type `ty` from a `SmeltUnknown` expression.

@@ -273,7 +273,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ same way `Object.create(proto)` answers an inherited property from
     //~ `__smelt_proto:`. Both are consulted only after the own property
     //~ misses, exactly as JavaScript's prototype chain does.
-    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None => map.get(&format!("__smelt_method:{field}")) } };
+    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")) } };
     smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
 }
 
@@ -401,7 +401,10 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         //~ `__smelt_proto:` strings are prototype SENTINELS rather than source
         //~ text, so they keep answering `undefined` as before.
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
-        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        //~ Every function inherits `constructor` from `Function.prototype`:
+        //~ `value.constructor && value.call && value.apply` is how libraries
+        //~ recognise one.
+        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         //~ A PROMISE reached dynamically still has its continuation members: the
         //~ typed `p.catch(f)` lowers to an `AsyncOp`, and this is the same
         //~ operation for a promise the static types lost (see

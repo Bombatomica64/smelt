@@ -1044,6 +1044,18 @@ impl ModuleBuilder<'_> {
         matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
     }
 
+    /// Whether an assertion's operand, under any further assertions, is the
+    /// literal `null` or `undefined`.
+    fn asserted_operand_is_nullish(expression: &Expression<'_>) -> bool {
+        match expression.without_parentheses() {
+            Expression::TSAsExpression(inner) => Self::asserted_operand_is_nullish(&inner.expression),
+            Expression::TSTypeAssertion(inner) => Self::asserted_operand_is_nullish(&inner.expression),
+            Expression::NullLiteral(_) => true,
+            Expression::Identifier(identifier) => identifier.name == "undefined",
+            _ => false,
+        }
+    }
+
     /// Lower TypeScript type assertions against `unknown` as checked extractions.
     pub(super) fn type_assertion_expression(
         &mut self,
@@ -1064,8 +1076,8 @@ impl ModuleBuilder<'_> {
             let value = self.expression(expression, body)?;
             return Ok(self.int32_assertion_expression(value, span, body));
         }
-        let target = self.ts_type_to_hir(annotation)?;
-        if self.concrete_type_requires_never_value(target) {
+        let asserted = self.ts_type_to_hir(annotation)?;
+        if self.concrete_type_requires_never_value(asserted) {
             // TypeScript assertions are erased at runtime. An assertion such
             // as `null as unknown as never` does not construct an impossible
             // value; it evaluates the original `null`. Keep the operand's real
@@ -1074,6 +1086,15 @@ impl ModuleBuilder<'_> {
             // remain rejected by their declaration and literal checks.
             return self.expression(expression, body);
         }
+        // `null as unknown as Options` is still `null` at runtime, and a record
+        // struct cannot hold it: the value keeps its absence as `Option`.
+        let target = if Self::asserted_operand_is_nullish(expression)
+            && matches!(self.ctx.krate.types.get(asserted), Some(Type::Class { .. } | Type::Dict(..)))
+        {
+            self.ctx.krate.types.intern(Type::Optional(asserted))
+        } else {
+            asserted
+        };
         if let Some(parsed) = self.json_parse_call_with_target(expression, target, span, body)? {
             return Ok(parsed);
         }

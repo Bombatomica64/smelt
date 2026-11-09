@@ -632,10 +632,56 @@ impl ModuleBuilder<'_> {
                 "function parameters must have explicit type annotations or default initializers",
             ));
         };
-        if param.optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
-            Ok(self.ctx.krate.types.intern(Type::Optional(ty)))
+        let widened = self.presence_widened_param_type(param, ty);
+        if param.optional && !matches!(self.ctx.krate.types.get(widened), Some(Type::Optional(_))) {
+            Ok(self.ctx.krate.types.intern(Type::Optional(widened)))
         } else {
-            Ok(ty)
+            Ok(widened)
+        }
+    }
+
+    /// Whether the checker reads `param`'s annotation as an object type with
+    /// named properties.
+    fn annotation_is_named_object_type(&self, param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
+        let (Some(annotation), Some(facts)) = (&param.type_annotation, self.ts_facts) else {
+            return false;
+        };
+        let span = oxc::span::GetSpan::span(&annotation.type_annotation);
+        facts
+            .type_node_at(&self.path, span.start, span.end)
+            .is_some_and(|ty| matches!(&ty.kind, smelt_ts_model::TsTypeKind::Object(object) if !object.properties.is_empty()))
+    }
+
+    /// `ty`, the annotated record type of `param`, as `Option` when the body
+    /// tests the parameter for presence (`presence_tested_locals`): such a
+    /// function accepts an absent value whatever its annotation says, and a
+    /// record struct has no way to hold one.
+    pub(in crate::lowering) fn presence_widened_param_type(
+        &mut self,
+        param: &oxc::ast::ast::FormalParameter<'_>,
+        ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        let tested = matches!(
+            &param.pattern,
+            BindingPattern::BindingIdentifier(binding)
+                if self.presence_widened_bindings.contains_key(&binding.span.start)
+        );
+        // A `Dict` here is either a record struct (an object type with named
+        // properties, spelled inline or through an alias) or a real `Record`,
+        // which holds no fields to miss and keeps its plain ABI. The name of an
+        // alias that already admits `null` is not a record item either.
+        let record = match self.ctx.krate.types.get(ty) {
+            Some(Type::Class { name, .. }) => {
+                let item = *name;
+                self.find_interface(item).is_some() || self.class_by_symbol(item).is_some()
+            }
+            Some(Type::Dict(..)) => self.annotation_is_named_object_type(param),
+            _ => false,
+        };
+        if tested && record {
+            self.ctx.krate.types.intern(Type::Optional(ty))
+        } else {
+            ty
         }
     }
 

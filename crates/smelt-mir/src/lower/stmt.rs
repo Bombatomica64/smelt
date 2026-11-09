@@ -189,10 +189,15 @@ impl LoweringCtx<'_> {
                 // see the `Undefined` tag, not `Null`. Typed targets coerce both
                 // constants to the same `default_value`, so this only changes the
                 // erased case, where `Undefined` is the JS-correct sentinel.
-                let lowered_value = value
-                    .map(|expr| self.lower_expr(expr))
-                    .transpose()?
-                    .unwrap_or(Operand::Const(Constant::Undefined));
+                let lowered_value = match value {
+                    Some(expr) => {
+                        let lowered = self.lower_expr(*expr)?;
+                        let info = self.hir_expr(*expr)?;
+                        let (from, span) = (info.ty, info.span);
+                        self.erased_conversion_in_try(lowered, from, *ty, span)?
+                    }
+                    None => Operand::Const(Constant::Undefined),
+                };
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::Use(lowered_value),
@@ -201,7 +206,11 @@ impl LoweringCtx<'_> {
             }
             HirStmt::Assign { target, value } => {
                 let (place, writebacks) = self.lower_place(*target)?;
-                let lowered_value = self.lower_expr(*value)?;
+                let assigned = self.lower_expr(*value)?;
+                let info = self.hir_expr(*value)?;
+                let (from, span) = (info.ty, info.span);
+                let to = self.hir_expr(*target)?.ty;
+                let lowered_value = self.erased_conversion_in_try(assigned, from, to, span)?;
                 self.block_mut()?.statements.push(Statement::AssignPlace {
                     place,
                     value: Rvalue::Use(lowered_value),
@@ -217,7 +226,11 @@ impl LoweringCtx<'_> {
                 Ok(())
             }
             HirStmt::Return(Some(expr)) => {
-                let lowered_operand = self.lower_expr(*expr)?;
+                let returned = self.lower_expr(*expr)?;
+                let info = self.hir_expr(*expr)?;
+                let (from, return_span) = (info.ty, info.span);
+                let to = self.function.return_ty;
+                let lowered_operand = self.erased_conversion_in_try(returned, from, to, return_span)?;
                 // A finalizer runs *after* the return expression is evaluated but
                 // *before* the value leaves the function, so it may reassign the
                 // very binding the operand names — `try { return x } finally { x = 2 }`

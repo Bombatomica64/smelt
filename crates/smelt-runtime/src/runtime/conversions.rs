@@ -60,6 +60,9 @@ impl IntoSmeltUnknown for () {
 impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
 
 pub trait SmeltFromUnknown {
+    /// Whether converting a value of this type may convert a generated record,
+    /// so a container tracks its element index for the error path.
+    const HOLDS_RECORD: bool = false;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self;
 }
 
@@ -119,7 +122,7 @@ impl SmeltFromUnknown for () {
 //~ converts each element/entry through the element type's own
 //~ `SmeltFromUnknown`. A non-matching `SmeltUnknown` variant yields an empty
 //~ container (the JS-coercion fallback, matching the scalar impls above).
-impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => { let id = array.id; let list = SmeltList::with_id(id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()); smelt_array_props_adopt(id, &list.storage()); list }, _ => SmeltList::new(Vec::new()) } } }
+impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T> { const HOLDS_RECORD: bool = T::HOLDS_RECORD; fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => { let id = array.id; let list = if T::HOLDS_RECORD { let _smelt_conv_list = smelt_conv_enter_list(); Self::with_id(id, array.into_vec().into_iter().map(|item| { smelt_conv_next_item(); T::smelt_from_unknown(item) }).collect()) } else { SmeltList::with_id(id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()) }; smelt_array_props_adopt(id, &list.storage()); list }, _ => SmeltList::new(Vec::new()) } } }
 
 impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key.into())), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }
 
@@ -137,7 +140,7 @@ impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> Sm
 //~ that is a plain array (e.g. produced outside this stage's marker path,
 //~ or a genuine dynamic-interop array coerced to a `Set`) still decodes as
 //~ set members via SameValueZero insert. Any other value yields an empty set.
-impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }
+impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { const HOLDS_RECORD: bool = T::HOLDS_RECORD; fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }
 impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get("__smelt_set") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }
 
 //~ Un-erase a TUPLE: the exact inverse of `IntoSmeltUnknown for (A, B)`

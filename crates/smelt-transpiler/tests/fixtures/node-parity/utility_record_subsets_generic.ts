@@ -44,6 +44,8 @@ function main(): void {
   console.log(without.b);
   const anonymous = omit({ left: 1, right: "r" }, ["left"]);
   report("omit-anonymous", Object.keys(anonymous), JSON.stringify(anonymous), JSON.stringify({ ...anonymous }));
+  const reversed = pick(base, ["b", "a"]);
+  report("pick-order", Object.keys(reversed), JSON.stringify(reversed), JSON.stringify({ ...reversed }));
   const relaxed = loose(base);
   console.log(relaxed.a, relaxed.c === undefined);
 }

@@ -257,3 +257,94 @@ console.log(literal.keep, called.gone);
     let picked = body("PickBase").ok_or_else(|| format!("no PickBase struct:\n{emitted}"))?;
     ensure(picked.contains("gone: f64") && !picked.contains("keep"), format!("PickBase: {picked}"))
 }
+
+/// Deliberate divergence from JavaScript, which only misbehaves at the read: an
+/// erased value that does not have a record's shape throws a catchable
+/// `TypeError` at the conversion, naming the expected type and the path. Node
+/// would print `undefined` here, so this is a Smelt-side test and not a parity
+/// fixture.
+#[test]
+fn a_shape_mismatch_throws_at_the_record_conversion() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(
+        root.join("src/main.ts"),
+        r#"interface Data { count: number; name: string }
+function raw(value: unknown): any { return value; }
+function report(label: string, action: () => void): void {
+  try { action(); console.log(label, "no throw"); }
+  catch (error) { console.log(label, error instanceof TypeError, (error as Error).message); }
+}
+report("cast", () => { const d = raw({ name: "x" }) as Data; console.log(d.name); });
+report("number", () => { const d = raw(5) as Data; console.log(d.name); });
+report("list", () => { const d = raw([{ name: "x" }]) as Data[]; console.log(d.length); });
+try { const bound: Data = raw({ name: "y" }); console.log(bound.name); }
+catch (error) { console.log("let", (error as Error).message); }
+function take(d: Data): number { return d.count; }
+try { console.log(take(raw({ name: "z" }))); }
+catch (error) { console.log("arg", (error as Error).message); }
+interface Leaf { count: number }
+interface Inner { items: Leaf[]; leaf: Leaf }
+interface Outer { inner: Inner }
+report("nested-list", () => { const o = raw({ inner: { items: [{ count: 1 }, {}], leaf: { count: 1 } } }) as Outer; console.log(o.inner); });
+report("nested-field", () => { const o = raw({ inner: { items: [], leaf: {} } }) as Outer; console.log(o.inner); });
+report("nested-kind", () => { const o = raw({ inner: { items: [], leaf: 3 } }) as Outer; console.log(o.inner); });
+report("null", () => { const d = raw(null) as Data; console.log(d.name); });
+report("not-a-function", () => { const c = raw({ tag: 1 }) as { (): number; tag: number }; console.log(c()); });
+"#,
+    )?;
+    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    let (ok, stdout, stderr) = run(root, &["build"])?;
+    ensure(ok, format!("build must succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    let output = Command::new("cargo")
+        .arg("run")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(root.join("dist/Cargo.toml"))
+        .env("CARGO_TARGET_DIR", root.join("dist/target"))
+        .output()?;
+    let printed = String::from_utf8(output.stdout)?;
+    ensure_eq(
+        &printed,
+        &"cast true expected number, got undefined at Data.count\n\
+         number true expected Data, got number\n\
+         list true expected number, got undefined at Data[0].count\n\
+         let expected number, got undefined at Data.count\n\
+         arg expected number, got undefined at Data.count\n\
+         nested-list true expected number, got undefined at Outer.inner.items[1].count\n\
+         nested-field true expected number, got undefined at Outer.inner.leaf.count\n\
+         nested-kind true expected Leaf, got number at Outer.inner.leaf\n\
+         null true expected Data, got null\n\
+         not-a-function true value is not a function\n"
+            .to_owned(),
+        "conversion throws",
+    )
+}
+
+/// Type half of the presence rule: a parameter whose body tests it for presence
+/// is `Option` of its concrete record, and one that is never tested stays the
+/// plain record, so the rule cannot pass by erasing or by widening everything.
+#[test]
+fn a_presence_tested_parameter_is_an_option_of_its_record() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(
+        root.join("src/main.ts"),
+        r"interface Options { times?: number }
+function tested(options: Options): number { return options?.times ?? 3; }
+function plain(options: Options): number { return options.times ?? 3; }
+console.log(tested({}), plain({}));
+",
+    )?;
+    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    let (ok, stdout, stderr) = run(root, &["build"])?;
+    ensure(ok, format!("build failed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    let mut emitted = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        emitted.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    ensure(emitted.contains("fn tested(options: Option<Options>)"), format!("tested signature:\n{emitted}"))?;
+    ensure(emitted.contains("fn plain(options: Options)"), format!("plain signature:\n{emitted}"))
+}

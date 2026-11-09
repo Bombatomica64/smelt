@@ -3030,7 +3030,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     }
     // A missing property reads as JS `undefined`, distinct from an
     // explicit `null` value (`obj.missing === undefined`, `!== null`).
-    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None => map.get(&format!("__smelt_method:{field}")) } };
+    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")) } };
     smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
 }
 
@@ -3447,6 +3447,46 @@ fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("Type
 /// Throw JavaScript's `TypeError` for a call of a value that holds no function,
 /// where the source spelling of the callee is not known.
 fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
+/// The member `key` of an erased object as a record conversion reads it, the
+/// way a JavaScript property read does: the own property (an accessor is run),
+/// else the prototype members, else a host object's modelled members. `None`
+/// when the read answers `undefined`, so an absent property and a present
+/// `undefined` are the same to the conversion, as they are to a reader.
+fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(getter)) if getter.contains_key("__smelt_get") => Some(smelt_resolve_accessor(SmeltUnknown::Object(getter))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
+/// [`smelt_erased_member`] on a string-keyed record view of an erased object.
+fn smelt_erased_record_member(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> Option<SmeltUnknown> { smelt_erased_member(&SmeltObject::from_unknown_record(record.clone()), key) }
+/// The placeholder an erased class view holds for a method it cannot bridge
+/// (`async`, a generator, a parameter the carrier cannot rebuild). The member
+/// exists, as it does in JavaScript, so the conversion finds it and a
+/// `typeof` sees a function; only a call through the erased view fails, and it
+/// fails naming the method rather than answering a fabricated value.
+fn smelt_unbridged_member(name: &'static str) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| smelt_throw_builtin_error("TypeError", format!("{name} cannot be called through an erased value")))) }
+/// The call slot of a record converted from a non-callable object: a call
+/// throws JavaScript's `TypeError`, as calling that object would.
+fn smelt_not_callable_slot() -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| smelt_value_not_callable())) }
+/// One step of the path a record conversion is at: a field, or a list element.
+enum SmeltConvStep { Field(String), Item(usize) }
+thread_local! { static SMELT_CONV_PATH: ::std::cell::RefCell<Vec<SmeltConvStep>> = const { ::std::cell::RefCell::new(Vec::new()) }; }
+/// Keeps a step on the conversion path; dropping it (unwinding included) leaves the step.
+struct SmeltConvFrame;
+impl Drop for SmeltConvFrame { fn drop(&mut self) { SMELT_CONV_PATH.with(|path| { path.borrow_mut().pop(); }); } }
+/// Enter field `field` of `record` while converting a nested record.
+#[allow(dead_code)]
+fn smelt_conv_enter(record: &str, field: &str) -> SmeltConvFrame { SMELT_CONV_PATH.with(|path| { let mut path = path.borrow_mut(); let step = if path.is_empty() { format!("{record}.{field}") } else { format!(".{field}") }; path.push(SmeltConvStep::Field(step)); }); SmeltConvFrame }
+/// Enter a list whose elements hold records; each element calls [`smelt_conv_next_item`].
+#[allow(dead_code)]
+fn smelt_conv_enter_list() -> SmeltConvFrame { SMELT_CONV_PATH.with(|path| path.borrow_mut().push(SmeltConvStep::Item(usize::MAX))); SmeltConvFrame }
+/// Advance the innermost list frame to its next element.
+#[allow(dead_code)]
+fn smelt_conv_next_item() { SMELT_CONV_PATH.with(|path| { if let Some(SmeltConvStep::Item(index)) = path.borrow_mut().last_mut() { *index = index.wrapping_add(1); } }); }
+/// The path so far, rooted at `record` when no field frame names a root.
+fn smelt_conv_path(record: &str) -> String { SMELT_CONV_PATH.with(|path| { let path = path.borrow(); let mut text = if matches!(path.first(), Some(SmeltConvStep::Field(_))) { String::new() } else { record.to_owned() }; for step in path.iter() { match step { SmeltConvStep::Field(field) => text.push_str(field), SmeltConvStep::Item(index) => { text.push('['); text.push_str(&index.to_string()); text.push(']'); } } } text }) }
+/// Throw for an erased value converted to a record that lacks required field
+/// `field`: `TypeError: expected number, got undefined at Data.items[1].count`.
+fn smelt_throw_missing_record_field(expected: &str, record: &str, field: &str) -> ! { let path = smelt_conv_path(record); smelt_throw_builtin_error("TypeError", format!("expected {expected}, got undefined at {path}.{field}")) }
+/// Throw for a non-object erased value converted to the record `expected`; the
+/// path is named when the record is nested.
+fn smelt_throw_not_a_record(expected: &str, value: &SmeltUnknown) -> ! { let received = match value { SmeltUnknown::Undefined => "undefined", SmeltUnknown::Null => "null", SmeltUnknown::Bool(_) => "boolean", SmeltUnknown::Number(_) => "number", SmeltUnknown::String(_) => "string", SmeltUnknown::Array(_) => "array", SmeltUnknown::Function(_) => "function", _ => "a non-object value" }; let nested = SMELT_CONV_PATH.with(|path| !path.borrow().is_empty()); let location = if nested { format!(" at {}", smelt_conv_path(expected)) } else { String::new() }; smelt_throw_builtin_error("TypeError", format!("expected {expected}, got {received}{location}")) }
 /// The value of an import with no model: every call answers it, and so does every
 /// member read (see `smelt_get_unknown_field`).
 fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
@@ -3466,7 +3506,7 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
-        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),
         _ => SmeltUnknown::Undefined,
     }
@@ -3871,6 +3911,9 @@ impl IntoSmeltUnknown for () {
 impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
 
 pub trait SmeltFromUnknown {
+    /// Whether converting a value of this type may convert a generated record,
+    /// so a container tracks its element index for the error path.
+    const HOLDS_RECORD: bool = false;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self;
 }
 
@@ -3916,13 +3959,13 @@ impl SmeltFromUnknown for () {
     }
 }
 
-impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => { let id = array.id; let list = SmeltList::with_id(id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()); smelt_array_props_adopt(id, &list.storage()); list }, _ => SmeltList::new(Vec::new()) } } }
+impl<T: SmeltFromUnknown + 'static> SmeltFromUnknown for SmeltList<T> { const HOLDS_RECORD: bool = T::HOLDS_RECORD; fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Array(array) => { let id = array.id; let list = if T::HOLDS_RECORD { let _smelt_conv_list = smelt_conv_enter_list(); Self::with_id(id, array.into_vec().into_iter().map(|item| { smelt_conv_next_item(); T::smelt_from_unknown(item) }).collect()) } else { SmeltList::with_id(id, array.into_vec().into_iter().map(T::smelt_from_unknown).collect()) }; smelt_array_props_adopt(id, &list.storage()); list }, _ => SmeltList::new(Vec::new()) } } }
 
 impl<K: SmeltFromUnknown + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltRecord<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => SmeltRecord::with_id_from_entries(object.id, object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key.into())), V::smelt_from_unknown(value)))), _ => SmeltRecord::with_id_from_entries(smelt_next_object_id(), ::std::iter::empty()) } } }
 
 impl<K: SmeltFromUnknown + SmeltJsKeyEq + Clone, V: SmeltFromUnknown + Clone> SmeltFromUnknown for SmeltJsMap<K, V> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(pairs)) = object.get("__smelt_map") { let mut map = SmeltJsMap { id: object.id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsMapStore::new())) }; for pair in pairs.into_vec() { if let SmeltUnknown::Array(entry) = pair { let mut entry = entry.into_vec().into_iter(); if let (Some(key), Some(value)) = (entry.next(), entry.next()) { map.insert(K::smelt_from_unknown(key), V::smelt_from_unknown(value)); } } } map } else { object.iter().map(|(key, value)| (K::smelt_from_unknown(SmeltUnknown::String(key.into())), V::smelt_from_unknown(value))).collect() } }, _ => SmeltJsMap::default() } } }
 
-impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }
+impl<T: SmeltFromUnknown> SmeltFromUnknown for Option<T> { const HOLDS_RECORD: bool = T::HOLDS_RECORD; fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Null | SmeltUnknown::Undefined => None, other => Some(T::smelt_from_unknown(other)) } } }
 impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown> SmeltFromUnknown for SmeltJsSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { match value { SmeltUnknown::Object(object) => { if let Some(SmeltUnknown::Array(members)) = object.get("__smelt_set") { let mut set = SmeltJsSet::with_id(object.id); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set } else { SmeltJsSet::default() } }, SmeltUnknown::Array(members) => { let mut set = SmeltJsSet::new(); for member in members.into_vec() { set.insert(T::smelt_from_unknown(member)); } set }, _ => SmeltJsSet::default() } } }
 
 impl<A: SmeltFromUnknown, B: SmeltFromUnknown> SmeltFromUnknown for (A, B) { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() }; (A::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)), B::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined))) } }
@@ -4700,12 +4743,13 @@ impl IntoSmeltUnknown for Greeter {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for Greeter {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Greeter", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Greeter", "name"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Greeter", "msg"); }
         result
     }
 }
@@ -4770,12 +4814,13 @@ impl IntoSmeltUnknown for SmartGreeter {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for SmartGreeter {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("SmartGreeter", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "name") { result.0.borrow_mut().name = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "SmartGreeter", "name"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "msg") { result.0.borrow_mut().msg = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "SmartGreeter", "msg"); }
         result
     }
 }
@@ -4843,12 +4888,13 @@ impl IntoSmeltUnknown for AppBase {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for AppBase {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("AppBase", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string[]", "AppBase", "routes"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "AppBase", "prefix"); }
         result
     }
 }
@@ -4916,12 +4962,13 @@ impl IntoSmeltUnknown for App {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for App {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("App", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string[]", "App", "routes"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "App", "prefix"); }
         result
     }
 }
@@ -4989,12 +5036,13 @@ impl IntoSmeltUnknown for PlainApp {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for PlainApp {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("PlainApp", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "routes") { result.0.borrow_mut().routes = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string[]", "PlainApp", "routes"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "prefix") { result.0.borrow_mut().prefix = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "PlainApp", "prefix"); }
         result
     }
 }
@@ -5043,12 +5091,13 @@ impl IntoSmeltUnknown for Tally {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for Tally {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Tally", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Tally", "total"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Tally", "history"); }
         result
     }
 }
@@ -5099,13 +5148,14 @@ impl IntoSmeltUnknown for DoubleTally {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for DoubleTally {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("DoubleTally", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("doubled") { result.0.borrow_mut().doubled = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "total") { result.0.borrow_mut().total = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "DoubleTally", "total"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "history") { result.0.borrow_mut().history = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "DoubleTally", "history"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "doubled") { result.0.borrow_mut().doubled = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("boolean", "DoubleTally", "doubled"); }
         result
     }
 }
@@ -5124,15 +5174,25 @@ impl IntoSmeltUnknown for Point {
     }
 }
 impl SmeltFromUnknown for Point {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(smelt_field) = object.get("x") {
+        if let SmeltUnknown::Object(object) = value.clone() {
+            if let Some(smelt_field) = smelt_erased_member(&object, "x") {
                 result.x = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("y") {
+            else {
+                smelt_throw_missing_record_field("number", "Point", "x");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "y") {
                 result.y = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
+            else {
+                smelt_throw_missing_record_field("number", "Point", "y");
+            }
+        }
+        else {
+            smelt_throw_not_a_record("Point", &value);
         }
         result
     }
@@ -5154,18 +5214,31 @@ impl IntoSmeltUnknown for Point3 {
     }
 }
 impl SmeltFromUnknown for Point3 {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(smelt_field) = object.get("x") {
+        if let SmeltUnknown::Object(object) = value.clone() {
+            if let Some(smelt_field) = smelt_erased_member(&object, "x") {
                 result.x = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("y") {
+            else {
+                smelt_throw_missing_record_field("number", "Point3", "x");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "y") {
                 result.y = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("z") {
+            else {
+                smelt_throw_missing_record_field("number", "Point3", "y");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "z") {
                 result.z = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
+            else {
+                smelt_throw_missing_record_field("number", "Point3", "z");
+            }
+        }
+        else {
+            smelt_throw_not_a_record("Point3", &value);
         }
         result
     }
@@ -5191,24 +5264,43 @@ impl IntoSmeltUnknown for Point4 {
     }
 }
 impl SmeltFromUnknown for Point4 {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(smelt_field) = object.get("x") {
+        if let SmeltUnknown::Object(object) = value.clone() {
+            if let Some(smelt_field) = smelt_erased_member(&object, "x") {
                 result.x = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("y") {
+            else {
+                smelt_throw_missing_record_field("number", "Point4", "x");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "y") {
                 result.y = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("z") {
+            else {
+                smelt_throw_missing_record_field("number", "Point4", "y");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "z") {
                 result.z = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("w") {
+            else {
+                smelt_throw_missing_record_field("number", "Point4", "z");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "w") {
                 result.w = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
-            if let Some(smelt_field) = object.get("tag") {
+            else {
+                smelt_throw_missing_record_field("number", "Point4", "w");
+            }
+            if let Some(smelt_field) = smelt_erased_member(&object, "tag") {
                 result.tag = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
+            else {
+                smelt_throw_missing_record_field("string", "Point4", "tag");
+            }
+        }
+        else {
+            smelt_throw_not_a_record("Point4", &value);
         }
         result
     }
@@ -5256,11 +5348,12 @@ impl IntoSmeltUnknown for Counter {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for Counter {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Counter", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Counter", "count"); }
         result
     }
 }
@@ -5307,11 +5400,12 @@ impl IntoSmeltUnknown for FromThree {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for FromThree {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("FromThree", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "count") { result.0.borrow_mut().count = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "FromThree", "count"); }
         result
     }
 }
@@ -5328,12 +5422,19 @@ impl IntoSmeltUnknown for Labelled {
     }
 }
 impl SmeltFromUnknown for Labelled {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(smelt_field) = object.get("label") {
+        if let SmeltUnknown::Object(object) = value.clone() {
+            if let Some(smelt_field) = smelt_erased_member(&object, "label") {
                 result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
+            else {
+                smelt_throw_missing_record_field("string", "Labelled", "label");
+            }
+        }
+        else {
+            smelt_throw_not_a_record("Labelled", &value);
         }
         result
     }
@@ -5351,12 +5452,19 @@ impl IntoSmeltUnknown for Named {
     }
 }
 impl SmeltFromUnknown for Named {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value {
-            if let Some(smelt_field) = object.get("label") {
+        if let SmeltUnknown::Object(object) = value.clone() {
+            if let Some(smelt_field) = smelt_erased_member(&object, "label") {
                 result.label = SmeltFromUnknown::smelt_from_unknown(smelt_field);
             }
+            else {
+                smelt_throw_missing_record_field("string", "Named", "label");
+            }
+        }
+        else {
+            smelt_throw_not_a_record("Named", &value);
         }
         result
     }
@@ -5424,12 +5532,13 @@ impl IntoSmeltUnknown for Router {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for Router {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Router", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Router", "label"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Router", "handler"); }
         result
     }
 }
@@ -5496,12 +5605,13 @@ impl IntoSmeltUnknown for RoutedApp {
 /// Recover this reference record from an erased value: the live instance
 /// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for RoutedApp {
+    const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let SmeltUnknown::Object(object) = value else { return Self::default() };
-        if let Some(origin) = object.smelt_origin::<Self>() { return origin; }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("RoutedApp", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = object.get("label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
-        if let Some(smelt_field) = object.get("handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "RoutedApp", "label"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "RoutedApp", "handler"); }
         result
     }
 }

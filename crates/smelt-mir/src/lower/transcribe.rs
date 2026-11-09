@@ -142,7 +142,7 @@ impl LoweringCtx<'_> {
         span: Span,
         value: Rvalue,
     ) -> Result<Operand, LowerError> {
-        if !self.takes_function(&value) {
+        if !self.takes_function(&value) && !self.converts_to_record(&value) {
             return self.assign_temp(ty, span, value);
         }
         self.place_source_call_op(ty, span, value)
@@ -170,6 +170,41 @@ impl LoweringCtx<'_> {
         })?;
         self.switch_to(target);
         Ok(Operand::Copy(Place::Local(dest)))
+    }
+
+    /// Whether `value` converts an erased value to a record, which throws when
+    /// the value does not have the record's shape; inside a `try` it needs the
+    /// handler's unwind edge like any op that can run source code.
+    fn converts_to_record(&self, value: &Rvalue) -> bool {
+        matches!(value, Rvalue::UnknownCast { target, .. } if self.type_holds_record(*target))
+    }
+
+    /// Whether a value of `ty` is, or directly contains, a generated record.
+    fn type_holds_record(&self, ty: TypeId) -> bool {
+        self.krate.types.get(ty).is_some_and(|kind| {
+            matches!(kind, Type::Class { .. })
+                || (!matches!(kind, Type::Function(_))
+                    && kind.children().any(|child| self.type_holds_record(child)))
+        })
+    }
+
+    /// `value` at `to`: inside a `try`, an erased value bound where a record is
+    /// declared converts HERE, on a call terminator, so that its throw reaches
+    /// the handler. Elsewhere the coercion at the assignment does it.
+    pub(super) fn erased_conversion_in_try(
+        &mut self,
+        value: Operand,
+        from: TypeId,
+        to: TypeId,
+        span: Span,
+    ) -> Result<Operand, LowerError> {
+        if self.current_exception_handler().is_none()
+            || self.krate.types.get(from) != Some(&Type::Unknown)
+            || !self.type_holds_record(to)
+        {
+            return Ok(value);
+        }
+        self.place_source_call_op(to, span, Rvalue::UnknownCast { value, target: to })
     }
 
     /// Whether `value` reads a local holding a function.

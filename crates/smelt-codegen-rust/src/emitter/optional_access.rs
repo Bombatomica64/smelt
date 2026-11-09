@@ -396,6 +396,24 @@ impl FunctionEmitter<'_> {
             )));
         }
         match self.mir.types.get(optional_ty) {
+            // `Some` of an erased value can still hold `undefined` or `null`
+            // (`receiver?.missing` keeps the raw read so `=== null` stays exact),
+            // and `??` tests the value, not the wrapper.
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Unknown))
+                    && !matches!(self.mir.types.get(self.operand_ty(fallback)?), Some(Type::None)) =>
+            {
+                let optional_text = self.operand_expr(optional)?;
+                let fallback_text = self.value_at_type(fallback, *inner)?;
+                let coalesced = optional_text.postfix(format!(
+                    ".filter(|smelt_value| !smelt_unknown_is_nullish(smelt_value)).unwrap_or_else(|| {fallback_text})",
+                    fallback_text = fallback_text.delimited()
+                ));
+                if dest_ty == *inner {
+                    return Ok(coalesced);
+                }
+                self.rendered_at_type(&coalesced, *inner, dest_ty, &self.render_scope())
+            }
             Some(Type::Optional(inner)) => {
                 if self.has_dynamic_shape(dest_ty)
                 {

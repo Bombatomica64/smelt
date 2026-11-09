@@ -654,3 +654,23 @@ fn collection_copies() -> TestResult {
 fn regexp_call_form() -> TestResult {
     verify_node_parity("regexp_call_form")
 }
+
+/// An erased value converted to a declared record keeps its present fields,
+/// leaves optional ones absent, tolerates a guarded `null`, and does not treat
+/// a member an instance's view omits as missing.
+#[test]
+fn erased_record_conversion() -> TestResult {
+    verify_node_parity("erased_record_conversion")
+}
+
+/// `??` on an optional chain over an erased receiver tests the value read.
+#[test]
+fn erased_optional_coalesce() -> TestResult {
+    verify_node_parity("erased_optional_coalesce")
+}
+
+/// A record parameter the body tests for presence accepts an absent value.
+#[test]
+fn presence_tested_parameters() -> TestResult {
+    verify_node_parity("presence_tested_parameters")
+}

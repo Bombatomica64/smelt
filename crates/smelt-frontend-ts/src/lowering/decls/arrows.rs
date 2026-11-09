@@ -126,7 +126,10 @@ impl ModuleBuilder<'_> {
                     let param_annotation_ty = match param
                         .type_annotation
                         .as_ref()
-                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .map(|annotation| {
+                            let annotated = this.ts_type_to_hir(&annotation.type_annotation)?;
+                            Ok::<_, SmeltError>(this.presence_widened_param_type(param, annotated))
+                        })
                         .transpose()
                     {
                         Ok(value) => value,
