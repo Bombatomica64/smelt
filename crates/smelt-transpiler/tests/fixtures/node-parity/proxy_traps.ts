@@ -53,6 +53,13 @@ try {
 const empty = new Proxy({ typed: 5 }, {});
 console.log(empty.typed);
 
+// A trap that hands its target back keeps the target's own type.
+const returned: any = new Proxy(new Date(0), {
+  get(target) {
+    return target;
+  },
+});
+console.log(returned.anything instanceof Date, returned.anything.getTime());
 const FUNC: any = () => {};
 const callableTarget: any = Object.assign(FUNC, { source: "c", doors: 2 });
 console.log(callableTarget.doors, Object.keys(callableTarget));

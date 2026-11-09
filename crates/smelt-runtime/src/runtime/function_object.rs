@@ -199,9 +199,19 @@ fn smelt_proxy_own_keys(proxy: &SmeltObject) -> Option<Vec<SmeltUnknown>> {
 //~ An array is a new array and a plain object a new plain object: their
 //~ constructors are `Array` and `Object`, which no read answers as a value.
 fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {
-    if let SmeltUnknown::Object(object) = &value && object.contains_key("__smelt_builtin_namespace") && matches!(object.get("name"), Some(SmeltUnknown::String(name)) if name == "Proxy") {
+    //~ `new Proxy`: `[target, handler]`, or `[target, name, trap, ..]` for a handler
+    //~ literal, whose traps arrive one by one at their own static types.
+    if matches!(&value, SmeltUnknown::String(name) if name == "__smelt_new_proxy") {
         let mut args = args.into_iter();
-        return smelt_new_proxy(args.next().unwrap_or(SmeltUnknown::Undefined), args.next().unwrap_or(SmeltUnknown::Undefined));
+        let target = args.next().unwrap_or(SmeltUnknown::Undefined);
+        let rest = args.collect::<Vec<_>>();
+        let handler = if rest.len() == 1 { rest.into_iter().next().unwrap_or(SmeltUnknown::Undefined) } else {
+            let mut entries = Vec::new();
+            let mut rest = rest.into_iter();
+            while let (Some(SmeltUnknown::String(name)), Some(trap)) = (rest.next(), rest.next()) { entries.push((name.to_string_lossy(), trap)); }
+            SmeltUnknown::Object(SmeltObject::new(entries))
+        };
+        return smelt_new_proxy(target, handler);
     }
     //~ A class instance carries its real constructor as a prototype entry when
     //~ the program needs it, so field initialisers and the constructor body run.

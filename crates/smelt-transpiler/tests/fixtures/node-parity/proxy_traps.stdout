@@ -7,6 +7,7 @@
 6
 trap true
 5
+true 0
 2 [ 'source', 'doors' ]
 2 2 23 [ 'source', 'doors' ]
 { source: 'c', doors: 2 }
