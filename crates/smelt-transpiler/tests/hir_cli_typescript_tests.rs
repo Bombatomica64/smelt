@@ -87,7 +87,7 @@ console.log(Example.label);
 
 #[test]
 fn build_lowers_negative_bracket_indexes_as_property_lookups() -> TestResult {
-    // Regression for issue #79: a negative (or otherwise out-of-range) bracket
+    // A negative (or otherwise out-of-range) bracket
     // index is a JavaScript property lookup, not `.at(...)`. Reads yield
     // `undefined`; a `arr[-1] = x` write sets a string-keyed property that does
     // not change the array's elements, so it is a no-op on the collection while
@@ -142,7 +142,7 @@ console.log(strNeg === undefined);\n",
 
 #[test]
 fn build_round_trips_class_index_signature_keyed_store() -> TestResult {
-    // Issue #84 / #18: a class declaring `[key: string]: T` carries a real
+    // A class declaring `[key: string]: T` carries a real
     // runtime keyed store. A dynamic `x[k] = v` write must round-trip to a
     // later `x[k]` read, a missing key must read as `undefined`, and declared
     // named fields must stay concrete alongside the store. This program builds
@@ -216,7 +216,7 @@ console.log(counters.total);
 
 #[test]
 fn build_round_trips_optional_class_field() -> TestResult {
-    // Issue #97 / #18: an optional class field (`y?: number`) lowers to a real
+    // An optional class field (`y?: number`) lowers to a real
     // `Option<T>` slot with explicit construction. Constructing with the field
     // present stores `Some(value)`; omitting it stores `None`. Reading the field
     // back through `??` observes the stored value or the fallback. The required
@@ -1177,8 +1177,8 @@ clone-strategy = "aggressive"
 /// A workspace package resolves the same when the manifest path is RELATIVE.
 ///
 /// Run from inside the project (`smelt --manifest-path Smelt.toml`), importer
-/// paths are relative and the package search root used to become the empty
-/// path, so `read_dir("")` failed and the package was reported unresolved.
+/// paths are relative; the package search root must not become the empty path,
+/// where `read_dir("")` fails and the package is reported unresolved.
 #[test]
 fn check_resolves_workspace_package_with_a_relative_manifest_path() -> TestResult {
     let project = TempProject::new()?;
@@ -1731,7 +1731,7 @@ fn build_runs_construct_signature_slot_construction() -> TestResult {
     // Counter }`) is a typed constructor slot. A class value passed where the
     // slot is expected is adapted into a constructor closure, and `new ctor()`
     // constructs the concrete `Counter` — the generated Rust must compile and
-    // run, keeping the concrete constructed type end to end (issue #54).
+    // run, keeping the concrete constructed type end to end.
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -1781,14 +1781,13 @@ console.log(counter.value);
     Ok(())
 }
 
-/// `dump-hir` on a single file now lowers that file's local relative-import
+/// `dump-hir` on a single file lowers that file's local relative-import
 /// dependencies first, so a `switch` whose case labels reference *imported*
 /// string constants (es-toolkit's `case argumentsTag:` pattern, where the tag
 /// values live in a sibling module) folds instead of failing with
 /// `switch case labels must be string, number, boolean, or null literals`.
 ///
-/// This exercises the isolation-only regression that previously made `dump-hir`
-/// and `probe` report a blocker a full manifest build never hit.
+/// `dump-hir` and `probe` must not report a blocker a full manifest build never hits.
 #[test]
 fn dump_hir_folds_imported_const_switch_labels_from_sibling_module() -> TestResult {
     let project = TempProject::new()?;
@@ -1952,8 +1951,7 @@ fn build_types_cycle_early_reads_of_a_pending_class() -> TestResult {
     // annotated data property (`finalized: boolean`), a getter keyed by an
     // IMPORTED unique symbol (`Response | undefined`), and a getter returning a
     // callable interface, called through the getter read rather than as a
-    // method the class does not have (that last one used to stop MIR lowering
-    // with "class method `text` is not resolvable").
+    // method the class does not have.
     let (project, manifest) = multi_module_project("cycle-early-reads", false, CYCLE_EARLY_FILES)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = fs::read_to_string(project.path().join("dist/src/main.rs"))?;
@@ -1978,11 +1976,10 @@ fn build_types_cycle_early_reads_of_a_pending_class() -> TestResult {
 #[test]
 fn build_dispatches_abstract_methods_of_an_imported_abstract_base() -> TestResult {
     // An abstract method is a virtual-dispatch slot on the base class. Called
-    // through a base-typed receiver in ANOTHER module, the slot used to be
-    // invisible (the per-module class registry holds no fields for imported
-    // classes), so `setter.set(..)` lowered as a direct method call and MIR
-    // stopped with "class method `set` is not resolvable" (date-fns `parse`
-    // over `parse/_lib/Setter.ts`). Behaviour: each subclass's override runs
+    // through a base-typed receiver in ANOTHER module (date-fns `parse` over
+    // `parse/_lib/Setter.ts`), the call dispatches through that slot even though
+    // the per-module class registry holds no fields for imported classes.
+    // Behaviour: each subclass's override runs
     // in list order, and Node prints `10 1,1,1`. Types: the list stays
     // `SmeltList<Setter>`, not an erased carrier.
     let files: &[(&str, &str)] = &[
@@ -2357,14 +2354,13 @@ console.log(grow(animal), animal.legs)
 
 #[test]
 fn build_shares_a_date_between_aliases_and_compares_it_by_identity() -> TestResult {
-    // Bounded-generics plan, increment 4: `Date` is the shared handle
+    // `Date` is the shared handle
     // `SmeltDate`, not an erased record. Behaviour (Node prints the three lines
     // below): a setter through one alias is observed through the other
     // (`bump(b)` moves `a` to 86400000), `===` and `==` compare identity (a
     // copy made by `new Date(a)` or `new Date(a.getTime())` is a different
     // date, and mutating the copy leaves `a` alone), `<` compares time values,
-    // and an Invalid Date stays invalid through a setter. Before this, the
-    // setter re-bound only the local, so Smelt printed `0 0 true ..`. Types: a
+    // and an Invalid Date stays invalid through a setter. Types: a
     // `Date` parameter is `SmeltDate`, never `SmeltUnknown`.
     let files: &[(&str, &str)] = &[(
         "src/main.ts",

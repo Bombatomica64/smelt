@@ -424,7 +424,7 @@ const OBJECT_IDENTITY_OUTPUT: &str = concat!(
 ///
 /// - an object rest (`const { [k]: v, ...rest } = record`) is a new object,
 ///   so the source keeps `k`, and spreading it into an object literal copies
-///   every own key (it used to be dropped when the key types differed);
+///   every own key, also when the key types differ;
 /// - an `unknown`-valued record and its erased form are ONE object, so a
 ///   write after it was pushed into an `unknown[]` is seen there;
 /// - a callable erased at a `(first, ...rest)` type reports `length` 1, and
@@ -504,11 +504,10 @@ const ERASED_FUNCTIONS_OUTPUT: &str = "[11,21,51]\ntrue false\n4 7\n123\n2 -1\nc
 /// A value `typeof` proves a function, still erased:
 ///
 /// - called through `unknown | undefined` (directly, and captured by a
-///   callback) it is called with every argument, where it used to answer
-///   `null` without being called;
+///   callback) it is called with every argument;
 /// - assigned to a typed function local it is that function;
-/// - `f.call(t)` and `f.apply(t, args)` run it with `t` as its `this` (the
-///   leading operand used to become its first argument), and its throw
+/// - `f.call(t)` and `f.apply(t, args)` run it with `t` as its `this`, not as
+///   its first argument, and its throw
 ///   reaches an enclosing `try`;
 /// - `f.length` is the arity it was declared with, also for an element
 ///   destructured out of an erased array (an `unknown | undefined` local).
