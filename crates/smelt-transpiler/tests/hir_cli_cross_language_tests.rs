@@ -45,8 +45,8 @@ clone-strategy = "aggressive"
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    // Requirement change (2026-11-04): `result` is a Python `float` printed
-    // by the Python entry, so CPython prints `5.0`, not JavaScript's `5`.
+    // `result` is a Python `float` printed by the Python entry, so CPython
+    // prints `5.0`, not JavaScript's `5`.
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5.0\n".to_owned(), "unexpected stdout")?;
 
@@ -103,8 +103,8 @@ clone-strategy = "aggressive"
         dependency_module.contains("fn main_1()"),
         "dependency module body should be renamed away from main",
     )?;
-    // Requirement change (2026-11-04): `result` is a Python `float` printed
-    // by the Python entry, so CPython prints `10.0`, not JavaScript's `10`.
+    // `result` is a Python `float` printed by the Python entry, so CPython
+    // prints `10.0`, not JavaScript's `10`.
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"10.0\n".to_owned(), "unexpected stdout")?;
 
@@ -1002,9 +1002,8 @@ export class Tag {
 ";
 
 /// The other half of the cycle: it type-imports the CLASS and bakes it into an
-/// alias of its own, which is where the wrong resolution used to be recorded --
-/// `Held` resolving to the union alias instead of the class would make
-/// `held.read()` in `holder.ts` unlowerable.
+/// alias of its own. `Held` resolving to the union alias instead of the class
+/// would make `held.read()` in `holder.ts` unlowerable.
 const CROSS_KIND_READERS: &str = r"import type { Slot } from './holder';
 
 export type Held = Slot<string>;
@@ -1488,13 +1487,11 @@ const END_TO_END_EXAMPLES: &[&str] = &[
 
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.
 ///
-/// Before this, a program whose lowering split into modules had its user code
-/// in `source_<entry>.rs` while the golden held `main.rs` — the runtime prelude
-/// and a `mod` declaration — so 34 of the corpus's fixtures golden-checked the
-/// prelude and nothing they were written to exercise. A feature could change
-/// its own emitted Rust with every golden still green.
+/// A program whose lowering splits into modules has its user code in
+/// `source_<entry>.rs`, so a golden of `main.rs` alone would check only the
+/// runtime prelude and a `mod` declaration.
 ///
-/// This asserts the shape that closed it: a multi-file golden exists, its
+/// This asserts the shape: a multi-file golden exists, its
 /// sections are introduced by the `// ==== <file>` header the harness writes,
 /// and the first section is unheaded — which is what keeps a single-file
 /// program's golden byte-for-byte its `main.rs`.
