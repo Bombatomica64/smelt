@@ -383,16 +383,9 @@ test("a map built from entries accepts later writes and deletes", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn dict_entry_push_mutates_the_stored_group_in_place() {
-    // `groups[key].push(item)` used to copy the whole stored list out of the
-    // dict, push onto the copy, and copy it back — twice over, because the push
-    // wrote the entry back and the statement after it wrote the same entry back
-    // again. `smelt_mir::opt::DictEntryInPlaceMutation` now retargets the push at
-    // the entry itself, so the group is mutated through the container and
-    // neither copy is emitted.
-    //
-    // Deleting those copies is only correct if the in-place write is what every
-    // later reader sees, so these cases pin the behavior the copies used to
-    // provide. This fixture uses the plain `HashMap` backing a string-keyed dict
+    // `smelt_mir::opt::DictEntryInPlaceMutation` retargets `groups[key].push(item)`
+    // at the entry itself, so the group is mutated through the container and every
+    // later reader sees the write. This fixture uses the plain `HashMap` backing a string-keyed dict
     // takes when the program needs no erased runtime; the two fixtures below
     // cover the `SmeltRecord` and `SmeltJsMap` backings.
     let source = r#"

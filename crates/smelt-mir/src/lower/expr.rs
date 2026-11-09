@@ -426,15 +426,15 @@ impl LoweringCtx<'_> {
             ExprKind::ListRemove { list, item } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operand = self.lower_expr(*item)?;
-                self.assign_temp_with_writeback(
-                    expr.ty,
-                    expr.span,
+                let removed = self.finish_op(
+                    &expr,
                     Rvalue::ListRemove {
                         list: list_operand,
                         item: item_operand,
                     },
-                    writeback,
-                )?
+                )?;
+                self.write_back_mutation_receiver(writeback)?;
+                removed
             }
             ExprKind::ListSort {
                 list,

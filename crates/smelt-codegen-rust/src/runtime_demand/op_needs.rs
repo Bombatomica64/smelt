@@ -400,7 +400,10 @@ impl RuntimeDemand {
             Rvalue::PythonSequenceRead { .. } => {
                 self.add(Need::PyException);
             }
-            Rvalue::PythonStepSlice { .. } | Rvalue::PythonListExtrema { .. } => {
+            Rvalue::PythonStepSlice { .. }
+            | Rvalue::PythonListExtrema { .. }
+            | Rvalue::ListIndex { .. }
+            | Rvalue::ListRemove { .. } => {
                 self.add(Need::PyException);
             }
             Rvalue::Base64Transcode { .. } => {
@@ -501,7 +504,6 @@ impl RuntimeDemand {
             | Rvalue::ListEnumerate { .. }
             | Rvalue::ListZip { .. }
             | Rvalue::ListRange { .. }
-            | Rvalue::ListIndex { .. }
             | Rvalue::ListNext { .. }
             | Rvalue::TupleContains { .. }
             | Rvalue::DictContainsKey { .. }
@@ -543,7 +545,6 @@ impl RuntimeDemand {
             | Rvalue::ListUnshift { .. }
             | Rvalue::ListReverse { .. }
             | Rvalue::ListClear { .. }
-            | Rvalue::ListRemove { .. }
             | Rvalue::ListSort { .. }
             | Rvalue::ListPop { .. }
             | Rvalue::ListShift { .. }

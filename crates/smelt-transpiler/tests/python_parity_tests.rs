@@ -197,6 +197,20 @@ fn writes_through_module_globals() -> TestResult {
     verify_python_parity("writes_through_module_globals")
 }
 
+/// List, dict, set, tuple and str methods and the math helpers behave as
+/// Python's, including the exceptions for missing items.
+#[test]
+fn collection_methods() -> TestResult {
+    verify_python_parity("collection_methods")
+}
+
+/// Searches, slices, negative indexes, tuple access and list mutation behave
+/// as Python's, including the exceptions for out-of-range reads.
+#[test]
+fn sequence_operations() -> TestResult {
+    verify_python_parity("sequence_operations")
+}
+
 /// Comprehensions, inheritance, abstract bases, generics, static forward
 /// references, constructor-declared fields and every type-alias spelling run
 /// as Python runs them.
@@ -215,4 +229,10 @@ fn list_pop_empty() -> TestResult {
 #[test]
 fn builtins_and_sequences() -> TestResult {
     verify_python_parity("builtins_and_sequences")
+}
+
+/// Inherited methods, overrides, `super()` chains, properties and static members run as Python runs them.
+#[test]
+fn class_inheritance() -> TestResult {
+    verify_python_parity("class_inheritance")
 }

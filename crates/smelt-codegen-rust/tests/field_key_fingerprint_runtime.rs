@@ -82,8 +82,8 @@ fn run_fixture(source: &str, crate_name: &str) {
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn same_length_and_fingerprint_colliding_keys_still_resolve() {
     // The case the fingerprint exists for, and the case that would break it.
-    // `group`/`value`/`count` are the same length, so the scan used to compare
-    // all of their bytes; `alphaqx`/`alpha1x` additionally share their first and
+    // `group`/`value`/`count` are the same length, so only the fingerprint tells
+    // them apart cheaply; `alphaqx`/`alpha1x` additionally share their first and
     // last byte, so they share a FINGERPRINT and must fall through to full key
     // equality rather than resolving to whichever entry comes first.
     let source = r#"

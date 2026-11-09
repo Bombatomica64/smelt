@@ -1,10 +1,7 @@
 //! Runtime execution test for `fetch(url)` answering a whole `Response`.
 //!
-//! `fetch` used to lower to `HttpGetText`, a fused "GET and give me the body
-//! text" operation. That is not what `fetch` returns in any runtime: it
-//! resolves to a `Response`, and a caller reads the status, the header list and
-//! the body separately. Collapsing it threw away every field but one, and no
-//! compile step could notice — the program simply could not ask.
+//! `fetch` resolves to a `Response`, and a caller reads the status, the header
+//! list and the body separately.
 //!
 //! This test proves the whole round trip against a **real HTTP server**: a
 //! plain `TcpListener` on port 0 (so the kernel picks a free port), speaking

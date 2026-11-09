@@ -423,7 +423,9 @@ impl FunctionEmitter<'_> {
         };
         let operand_expr = self.operand_expr(operand)?;
         Ok(RustExpr::loose(format!(
-            "!{operand_expr}.is_empty() && {operand_expr}.chars().all(char::{method_name})", operand_expr = operand_expr.tight()
+            // A closure, not a `char::` path: `char::is_ascii_digit` takes `&self`
+            // while `chars()` yields owned `char`s.
+            "!{operand_expr}.is_empty() && {operand_expr}.chars().all(|smelt_char| smelt_char.{method_name}())", operand_expr = operand_expr.tight()
         )))
     }
 

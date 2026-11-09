@@ -871,3 +871,9 @@ fn list_pop_empty() -> TestResult {
 fn json_loops_and_globals() -> TestResult {
     verify_node_parity("json_loops_and_globals")
 }
+
+/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
+#[test]
+fn class_inheritance_behaviour() -> TestResult {
+    verify_node_parity("class_inheritance_behaviour")
+}

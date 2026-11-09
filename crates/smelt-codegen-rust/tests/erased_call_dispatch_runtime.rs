@@ -24,8 +24,7 @@
 //! `anyValue.reduceRight(f, 0)` reads `reduceRight` off the runtime value and
 //! calls it: an erased array answers `Array.prototype`, an erased string
 //! `String.prototype`, and anything else throws `TypeError: x.m is not a
-//! function` (see `erased_method_prelude`). The read used to answer
-//! `undefined` and the call a `null` stub.
+//! function` (see `erased_method_prelude`).
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!
@@ -228,9 +227,7 @@ test('jest.fn counts its calls', () => {
 fn array_methods_on_an_erased_array_run_the_list_operation() {
     // An `any` receiver has no static shape, so `value.reduceRight(..)` is a
     // property read through `smelt_get_unknown_field` followed by the erased
-    // call ABI. The read used to answer `undefined` for every
-    // `Array.prototype` method and the call returned a `null` stub. The
-    // runtime now binds the method to the array it meets; callbacks see
+    // call ABI. The runtime binds the method to the array it meets; callbacks see
     // `(element, index, array)` exactly as in JavaScript.
     let source = r"
 import { test, expect } from 'vitest';

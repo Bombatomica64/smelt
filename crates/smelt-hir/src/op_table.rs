@@ -1512,6 +1512,8 @@ macro_rules! op_group_transcribed {
                 /// Item to locate.
                 item: one @READ,
             }
+                fallible(true)
+                call("@list_index".to_owned())
                 => (format!("list_index {list}, {item}"));
             /// Consume the first list item and return a JavaScript iterator-result object.
             ListNext {
@@ -2686,6 +2688,8 @@ macro_rules! op_group_custom {
                 item: one @READ,
             }
                 mutates(Some(list))
+                fallible(true)
+                call("@list_remove".to_owned())
                 => (format!("list_remove {list}, {item}"));
             /// Sort a list in place and return `None`.
             ListSort {

@@ -224,13 +224,10 @@ test("distinct values stay unequal", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_valueless_return_reads_as_undefined_not_null() {
-    // Falling off the end of a JavaScript function evaluates to `undefined`. The
-    // value-less return terminator used to emit `SmeltUnknown::Null`, and at an
-    // erased return type that difference is observable — which is what broke the
-    // customizer protocol es-toolkit's `cloneDeepWith` uses: it treats
-    // `undefined` as "no custom value, keep cloning" and anything else, `null`
-    // included, as the replacement. A fall-through customizer therefore replaced
-    // the whole clone with `null` on its first call.
+    // Falling off the end of a JavaScript function evaluates to `undefined`, and
+    // at an erased return type that differs observably from `null`: the customizer
+    // protocol of es-toolkit's `cloneDeepWith` treats `undefined` as "no custom
+    // value, keep cloning" and anything else, `null` included, as the replacement.
     //
     // The `apply` helper below is that protocol in miniature. An explicit
     // `return null` must stay `null`, so both spellings are asserted together.

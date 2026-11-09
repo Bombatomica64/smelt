@@ -1,22 +1,12 @@
 //! Runtime execution tests for the byte-backed host objects, host-constructor
 //! identity, and the `arguments` exotic object.
 //!
-//! These three families used to be identity-only stand-ins, and every clone or
-//! deep-equality path over binary data walks straight into what was missing:
-//!
-//! * `ArrayBuffer` / `SharedArrayBuffer` / Node `Buffer` / `DataView` carried a
-//!   marker and nothing else. `buffer.slice(0)` handed the *same* object back, so
-//!   the standard `clone(buf) { return buf.slice(0) }` shape returned its own
-//!   argument; `byteLength`, `byteOffset` and indexed element reads answered
-//!   `undefined`; and `new Uint8Array(arrayBuffer)` panicked outright.
-//! * A bare `Blob` reference built a *fresh* record per mention, so `Blob === Blob`
-//!   was false, and a host record's `.constructor` was `undefined`, so
-//!   `clonedBlob.constructor === Blob` could never hold.
-//! * `arguments` was a `{ length: n }` stand-in holding no argument values, so
-//!   `Object.keys(arguments)` enumerated `["length"]` rather than the index keys.
-//!   Comparing an `arguments` object with the plain object of the same indexed
-//!   properties — which is what `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2, 2: 3 })`
-//!   does — could not work.
+//! Every clone or deep-equality path over binary data needs these: the byte
+//! buffers carry real bytes, so `buffer.slice(0)` is a new object of the same
+//! identity and `new Uint8Array(arrayBuffer)` views the bytes; `Blob === Blob` holds
+//! and a host record's `.constructor` is the constructor; and `arguments` holds its
+//! values and enumerates index keys, as `isEqual(toArgs([1, 2, 3]), { 0: 1, 1: 2,
+//! 2: 3 })` requires.
 //!
 //! String-golden tests in `src/tests/part_7_tests.rs` prove the right helpers and
 //! markers are *emitted*. Only running the program proves the resulting records
@@ -121,9 +111,7 @@ fn run_fixture(source: &str, crate_name: &str) {
 fn byte_buffer_slice_returns_a_distinct_record_of_the_same_host_kind() {
     // `buffer.slice(0)` is *the* shallow-clone shape for a byte buffer, so it has
     // to answer a new object of the same host identity with the same bytes.
-    // Previously the erased-slice lowering forwarded any non-array receiver
-    // unchanged, so `cloned === buffer` and `expect(cloned).not.toBe(buffer)`
-    // could not hold. A slice must also report *its own* length, not its source's.
+    // A slice must also report *its own* length, not its source's.
     let source = r#"
 import { test, expect } from "vitest";
 test("ArrayBuffer.slice yields a distinct ArrayBuffer with the same bytes", () => {
@@ -159,11 +147,9 @@ test("Buffer.subarray yields a distinct Buffer with the same bytes", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn byte_buffer_elements_are_readable_writable_and_viewable() {
-    // A byte buffer's indexed slots are its bytes. Index reads used to miss the
-    // `bytes` storage and answer `null`, which made the `a[i]` element walk that
-    // deep-equality performs over a typed-array-tagged value compare two different
-    // buffers as equal. `new Uint8Array(arrayBuffer)` panicked with
-    // "unknown is not array" instead of viewing the buffer's bytes.
+    // A byte buffer's indexed slots are its bytes, so the `a[i]` element walk that
+    // deep-equality performs over a typed-array-tagged value tells two buffers apart,
+    // and `new Uint8Array(arrayBuffer)` views the buffer's bytes.
     let source = r#"
 import { test, expect } from "vitest";
 test("Buffer index reads see the bytes", () => {
@@ -276,8 +262,6 @@ fn buffer_from_a_string_holds_the_encoded_bytes() {
     // `Buffer.from(string[, encoding])` is the one byte-buffer constructor form
     // whose source is text: a Buffer built from a string holds that string's
     // encoded bytes (a typed array built from a string has no elements at all).
-    // The bytes used to be dropped for an empty buffer, so a buffer built from
-    // text had length 0 and compared equal to every other empty buffer.
     let source = r#"
 import { test, expect } from "vitest";
 test("a buffer from text holds its UTF-8 bytes", () => {

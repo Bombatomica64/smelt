@@ -1,30 +1,28 @@
 //! Runtime execution tests for mutable module globals beyond primitives.
 //!
 //! A module-level `let` mutated from a hoisted item body lifts to a
-//! "mutable global" backed by a per-thread cell. V1 accepted only a **literal**
-//! initializer of a **primitive** type, which rejected the ordinary shape of a
+//! "mutable global" backed by a per-thread cell, including the ordinary shape of a
 //! module cache:
 //!
 //! ```ts
-//! let cache: Record<string, RegExp> = createNullObject()   // both restrictions
+//! let cache: Record<string, RegExp> = createNullObject()
 //! ```
 //!
-//! Two things changed. The initializer may now be any expression: it becomes a
+//! The initializer may be any expression: it becomes a
 //! synthesized nullary function the cell's `thread_local!` initializer calls,
 //! which runs once per thread on first access — the same "module state is
 //! initialized before any consumer runs" guarantee JavaScript gives, per
 //! generated test. And the type may be anything: a `Copy` primitive keeps its
 //! `Cell`, everything else gets a `RefCell` and is read by cloning the borrow.
 //!
-//! What these fixtures are really checking is the *pairing* of three decisions
-//! that used to be made in separate places — the cell type, the read spelling,
-//! and the write spelling. A `Cell::get` on a non-`Copy` value does not
+//! What these fixtures are really checking is the *pairing* of three decisions:
+//! the cell type, the read spelling, and the write spelling. A `Cell::get` on a non-`Copy` value does not
 //! compile, and a `RefCell` read that forgot to clone does not either, so the
 //! interesting failures are compile failures; the value assertions then confirm
 //! the initializer actually ran and the writes actually landed.
 //!
 //! A **one-deep write through** a non-`Copy` global (`cache[key] = value`) is
-//! now lowered too, via `Place::Global`: the assignment names the cell rather
+//! lowered via `Place::Global`: the assignment names the cell rather
 //! than a copy read out of it, so the mutation happens inside the cell. The
 //! fixture for it asserts the property a copy would break — a write from one
 //! function is visible to another — because a type-level test cannot see the

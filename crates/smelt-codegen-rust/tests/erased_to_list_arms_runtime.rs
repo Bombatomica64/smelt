@@ -1,16 +1,9 @@
 //! Runtime execution tests for the "erased value -> typed list" conversion.
 //!
-//! Rebuilding a `SmeltList<T>` from a `SmeltUnknown` is one conceptual
-//! operation, but it used to be emitted three times with three different arm
-//! sets: the `SmeltUnknown`-element and `String`-element forms iterated a source
-//! STRING into characters, and the general form did not — it fell through to
-//! `panic!("unknown is not array")`. So the same JavaScript value converted fine
-//! where the element type happened to be erased (`groupBy`'s adapter) and blew
-//! up where it happened to be concrete (`map`'s), which is a hole no hand-written
-//! Rust team would leave between two spellings of one conversion.
-//!
-//! The arms now come from a single emitter helper, so every element type accepts
-//! exactly what JavaScript's iteration protocol accepts.
+//! Rebuilding a `SmeltList<T>` from a `SmeltUnknown` is one operation: the arms
+//! come from a single emitter helper, so every element type accepts exactly what
+//! JavaScript's iteration protocol accepts, whether the element type is erased
+//! (`groupBy`'s adapter) or concrete (`map`'s).
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!
@@ -106,12 +99,8 @@ fn an_array_extracted_from_an_erased_value_aliases_the_source_array() {
     //
     // `SmeltList<SmeltUnknown>` and `SmeltArray` have the identical
     // `id` + `Rc<RefCell<Vec<SmeltUnknown>>>` representation, so the extraction
-    // is a re-wrap of one array and not the construction of a second. It used to
-    // rebuild the element vector into a fresh `Rc`, which kept the identity but
-    // detached the storage: the write below landed in a copy that died with the
-    // call, and the caller observed `[1, 2, 3]`. (That rebuild was also an O(n)
-    // memcpy per crossing, which is what made a per-callback erased dispatcher
-    // quadratic.)
+    // is a re-wrap of one array and not the construction of a second, which also
+    // keeps each crossing O(1) for a per-callback erased dispatcher.
     let source = r#"
 import { test, expect } from "vitest";
 

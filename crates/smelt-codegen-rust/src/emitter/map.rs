@@ -530,8 +530,10 @@ impl FunctionEmitter<'_> {
     /// Whether a string-keyed record may hold the runtime's `__smelt` marker
     /// keys, which only the erased carrier ever writes: without the carrier a
     /// record's keys are exactly the program's own keys.
-    fn records_may_hold_markers(&self) -> bool {
-        self.context.demand().has(Need::Unknown)
+    fn records_may_hold_markers(&self, key_ty: TypeId) -> bool {
+        // Markers are JavaScript object representation; a Python `str`-keyed
+        // dict never holds them.
+        !matches!(self.mir.types.get(key_ty), Some(Type::PyStr)) && self.context.demand().has(Need::Unknown)
     }
 
     /// Converts a dictionary pop operation to Rust text.
@@ -968,7 +970,7 @@ impl FunctionEmitter<'_> {
         // whatever its key type.
         if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
             && self.dict_uses_smelt_record(*key_ty)
-            && !self.records_may_hold_markers()
+            && !self.records_may_hold_markers(*key_ty)
         {
             let projection = match op {
                 smelt_hir::DictProjectionOp::Keys | smelt_hir::DictProjectionOp::ForInKeys => Some("keys"),
@@ -1002,11 +1004,8 @@ impl FunctionEmitter<'_> {
                     // rule from `smelt_own_js_map_entries` in the non-`String`
                     // key branch below. A `SmeltJsMap` DOES carry the markers: the
                     // erased-object coercion copies them in verbatim.
-                    // A Python dict's keys are its own, so it never carries markers.
-                    let keys_may_be_markers = self.records_may_hold_markers()
-                        && !matches!(self.mir.types.get(*key_ty), Some(Type::PyStr));
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
-                        && !keys_may_be_markers
+                        && !self.records_may_hold_markers(*key_ty)
                     {
                         Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.keys().collect::<Vec<_>>()", dict_text = dict_text.tight())))
                     } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
@@ -1085,7 +1084,7 @@ impl FunctionEmitter<'_> {
                     // The `SmeltRecord` / `SmeltJsMap` / plain-dict split the
                     // sibling `Keys` arm needs therefore does not apply here, so
                     // this is one branch rather than three identical ones.
-                    if self.records_may_hold_markers() {
+                    if self.records_may_hold_markers(*key_ty) {
                         Ok(RustExpr::chain(format!("smelt_for_in_record_keys(&{dict_text})", dict_text = dict_text.tight())))
                     } else {
                         Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.keys().collect::<Vec<_>>()", dict_text = dict_text.tight())))
@@ -1140,7 +1139,7 @@ impl FunctionEmitter<'_> {
                 };
                 if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
-                        && !self.records_may_hold_markers()
+                        && !self.records_may_hold_markers(*key_ty)
                     {
                         Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.values().collect::<Vec<_>>()", dict_text = dict_text.tight())))
                     } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
@@ -1186,7 +1185,7 @@ impl FunctionEmitter<'_> {
                 };
                 if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
-                        && !self.records_may_hold_markers()
+                        && !self.records_may_hold_markers(*key_ty)
                     {
                         Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.iter().collect::<Vec<_>>()", dict_text = dict_text.tight())))
                     } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
