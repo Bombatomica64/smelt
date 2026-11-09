@@ -198,8 +198,7 @@ fn python_declared_returns_are_kept() -> TestResult {
 /// `size` and `length` count elements only on a receiver whose TYPE is a
 /// collection: a `Map`/`Set` for `size`, an array or string for `length`. On
 /// an object constant, an annotated object or a `Record`, the member is the
-/// source's own property. `DEFAULTS.size` used to lower to the record's entry
-/// count, because records and maps share one HIR shape.
+/// source's own property, even though records and maps share one HIR shape.
 const COUNT_MEMBERS_TS: &str = r#"const DEFAULTS = { size: 3, length: 9, name: "d" };
 const box: { size: number; length: number } = { size: 5, length: 6 };
 const scores: Record<string, number> = { size: 11, a: 1 };
@@ -337,8 +336,8 @@ fn a_callback_result_returned_as_t_keeps_its_runtime_value() -> TestResult {
     ensure_eq(&output, &UNCHECKED_RETURNS_OUTPUT.to_owned(), "the unchecked-returns program's output")
 }
 
-/// A parameter named like a host global is the parameter, on every path that
-/// used to ask the host first (audit A4): `new` of a host constructor (`Map`,
+/// A parameter named like a host global is the parameter, on every path where
+/// a host name could be asked first: `new` of a host constructor (`Map`,
 /// `Set`, `Promise`, `Date`, `URL`, typed arrays), a namespace call
 /// (`Math.max`, `JSON.parse`, `Object.assign`, `Reflect.ownKeys`, `console.log`),
 /// a global function call (`String(x)`, `parseInt`, `Symbol`, `isNaN`), a

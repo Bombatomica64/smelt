@@ -977,6 +977,37 @@ impl ModuleBuilder<'_> {
         matches!(&await_expr.argument, Expression::ImportExpression(_))
     }
 
+    /// Evaluate `export default <expression>` in the module body.
+    ///
+    /// A name, a function, a class or a literal runs no code when evaluated, so
+    /// only an expression that can have effects is lowered.
+    pub(in crate::lowering) fn export_default_statement(
+        &mut self,
+        export: &oxc::ast::ast::ExportDefaultDeclaration<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let Some(expression) = export.declaration.as_expression() else {
+            return Ok(());
+        };
+        if matches!(
+            peel(expression, Wrappers::Parens),
+            Expression::Identifier(_)
+                | Expression::ArrowFunctionExpression(_)
+                | Expression::FunctionExpression(_)
+                | Expression::ClassExpression(_)
+                | Expression::NullLiteral(_)
+                | Expression::BooleanLiteral(_)
+                | Expression::NumericLiteral(_)
+                | Expression::StringLiteral(_)
+        ) {
+            return Ok(());
+        }
+        let block = body.root;
+        self.with_stmt_block(block, |this| {
+            this.expression_statement(expression, export.span, body, block)
+        })
+    }
+
     /// Lower a statement in the current scope.
     pub(in crate::lowering) fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
