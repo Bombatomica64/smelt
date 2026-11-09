@@ -674,6 +674,35 @@ jobs:
       - name: Transpile ts-pattern (a refused corpus fails here)
         run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build --allow-type-errors
 
+  # A build-only check, as for ts-pattern: date-fns is not pinned to a test count,
+  # so nothing else would notice lowering refusing it (a `while` over a call once
+  # stopped it, unseen). Its generated crate does not compile yet, so the gate
+  # stops at `smelt build`.
+  date-fns-build:
+    if: >-
+      ${{ github.event_name == 'push'
+          || contains(github.event.pull_request.labels.*.name, 'run-regressions') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          shared-key: build
+
+      - name: Build smelt
+        run: cargo build --bin smelt
+
+      - name: Check out date-fns
+        uses: ./.github/actions/checkout-library
+        with:
+          name: date-fns
+
+      - name: Transpile date-fns (a refused corpus fails here)
+        run: target/debug/smelt --manifest-path target/compat-repos/date-fns/Smelt.toml build
+
   hono:
     # Opt-in on PRs via the `run-regressions` label; always on for main pushes.
     # See the banner above `remeda-regression`.

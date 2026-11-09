@@ -637,6 +637,16 @@ fn labeled_statements() -> TestResult {
     verify_node_parity("labeled_statements")
 }
 
+/// A loop whose condition is a call or `await`: the loop header ends in a
+/// terminator rather than a statement, so the edge back to the decision is not
+/// a `Goto`. Bodies with ternaries, joins, `break`/`continue` and `try`; `for`
+/// and `do`/`while`; the same loops nested in an outer loop, an `if` and a
+/// closure. Call counts pin that nothing in the body runs twice.
+#[test]
+fn loop_call_condition() -> TestResult {
+    verify_node_parity("loop_call_condition")
+}
+
 /// `new Set(set)`, `new Map(map)`, `new Map(pairs)` and
 /// `new Map(Object.entries(o))` build NEW collections in iteration order: a
 /// later write to either side leaves the other unchanged, a repeated key keeps
