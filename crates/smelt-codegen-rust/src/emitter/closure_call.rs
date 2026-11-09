@@ -138,20 +138,9 @@ impl FunctionEmitter<'_> {
             .mir
             .closures
             .get(id_index(id.0, "closure id does not fit usize")?)
-            && closure.captures.iter().any(|capture| {
-                self.capture_is_borrowed_callback_param(capture.source_local)
-                    .unwrap_or(false)
-                    || self
-                        .capture_symbol_is_borrowed_callback_param(
-                            capture.symbol,
-                            capture.ty,
-                        )
-                        .unwrap_or(false)
-            })
-            && (closure.escapes
-                || !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))))
         {
-            return self.default_value(dest_ty);
+            let erased = !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)));
+            self.ensure_closure_owns_callbacks(closure, erased)?;
         }
         // Emit the closure value directly at its destination type.
         //
