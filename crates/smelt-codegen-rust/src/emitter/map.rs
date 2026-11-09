@@ -465,6 +465,14 @@ impl FunctionEmitter<'_> {
                 if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                     dict
                 {
+                    // A proxy can be behind any erased receiver: its
+                    // `deleteProperty` trap decides.
+                    if self.context.demand().has(Need::Construct) {
+                        return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                            "match smelt_proxy_delete(&{receiver}, &{key_text}) {{ Some(smelt_answer) => smelt_answer, None => match &mut {receiver} {{ SmeltUnknown::Object(smelt_map) => smelt_map.remove(&{key_text}).is_some(), _ => true }} }}",
+                            receiver = self.local_mut_value(*local)?.tight(), key_text = key_text.tight()
+                        ))));
+                    }
                     return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                         "match &mut {} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.remove(&{key_text}); true }}, _ => true }}",
                         self.local_mut_value(*local)?.tight(), key_text = key_text.tight()

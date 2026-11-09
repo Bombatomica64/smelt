@@ -718,6 +718,43 @@ impl ModuleBuilder<'_> {
         Ok(target)
     }
 
+    /// Refuse a trapped Proxy flowing straight into a concretely valued record.
+    ///
+    /// A `Record<string, string>` is a typed map: it cannot hold traps, and a
+    /// conversion would silently keep only the target's entries.
+    pub(in crate::lowering) fn reject_proxy_into_typed_record(
+        &self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        hint: Option<smelt_hir::TypeId>,
+    ) -> Result<(), SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(());
+        };
+        if !self.names_host(callee.name.as_str(), "Proxy") {
+            return Ok(());
+        }
+        let trapless = matches!(
+            new_expr.arguments.get(1).and_then(Argument::as_expression),
+            Some(Expression::ObjectExpression(handler)) if handler.properties.is_empty()
+        );
+        let Some(Type::Dict(_, value_ty)) = hint.and_then(|hint| self.ctx.krate.types.get(hint)) else {
+            return Ok(());
+        };
+        if trapless
+            || matches!(
+                self.ctx.krate.types.get(*value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
+            return Ok(());
+        }
+        Err(SmeltError::unsupported(
+            self.span(new_expr.span.start, new_expr.span.end),
+            "a Proxy with traps cannot flow into a Record with a concrete value type, which \
+             would silently lose its traps; declare the destination as `any` or `unknown`",
+        ))
+    }
+
     /// The `(name, trap)` pairs of a handler literal, when every key is static.
     fn static_trap_entries<'h, 'a>(
         handler: &'h oxc::ast::ast::ObjectExpression<'a>,

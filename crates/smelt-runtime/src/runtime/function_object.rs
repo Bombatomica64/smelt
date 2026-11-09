@@ -186,6 +186,19 @@ fn smelt_proxy_has(proxy: &SmeltUnknown, key: &str) -> Option<bool> {
     Some(smelt_proxy_trap(&handler, "has", vec![target.clone(), smelt_proxy_key(key)]).map_or_else(|| smelt_has_property(&target, key), |answer| !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)) && !matches!(&answer, SmeltUnknown::Number(number) if *number == 0.0 || number.is_nan()) && !matches!(&answer, SmeltUnknown::String(text) if text.is_empty())))
 }
 
+//~ `delete proxy.key`: the `deleteProperty` trap, else a delete on the target.
+//~ `None` when `proxy` is not a proxy.
+fn smelt_proxy_delete(proxy: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> Option<bool> {
+    let key = key.host_text();
+    let (target, handler) = smelt_proxy_parts(proxy)?;
+    let answer = match smelt_proxy_trap(&handler, "deleteProperty", vec![target.clone(), smelt_proxy_key(&key)]) {
+        Some(answer) => !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)),
+        None => { if let SmeltUnknown::Object(object) = &target { object.remove(&*key); } true }
+    };
+    if let SmeltUnknown::Object(object) = proxy { smelt_proxy_sync(object); }
+    Some(answer)
+}
+
 //~ The `ownKeys` trap's answer, when the proxy has one.
 fn smelt_proxy_own_keys(proxy: &SmeltObject) -> Option<Vec<SmeltUnknown>> {
     let (target, handler) = (proxy.get("__smelt_method:__smelt_proxy_target")?, proxy.get("__smelt_method:__smelt_proxy_handler")?);

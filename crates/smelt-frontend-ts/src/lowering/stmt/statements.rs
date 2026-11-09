@@ -854,6 +854,19 @@ impl ModuleBuilder<'_> {
         }
         let assertion_narrowing = self.assertion_call_narrowing(expression, body);
         let value = self.expression(expression, body)?;
+        // A property read of an erased receiver can run a getter or a proxy
+        // trap, so a bare `value.x;` is bound rather than dropped as unused.
+        if matches!(expression.get_inner_expression(), Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_))
+            && matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Unknown))
+        {
+            let ty = Self::expr_ty(body, value);
+            let span = self.span(expression_span.start, expression_span.end);
+            let name = self.intern_source_name("smelt_discarded_read");
+            let local = body.push_local(smelt_hir::LocalDecl { name: Some(name), ty, mutable: false, span });
+            let pat = body.push_pattern(smelt_hir::Pattern::Binding(local));
+            body.push_stmt_to_block(block, Stmt::Let { pat, ty, value: Some(value) });
+            return Ok(());
+        }
         let value = if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::Future(_))
