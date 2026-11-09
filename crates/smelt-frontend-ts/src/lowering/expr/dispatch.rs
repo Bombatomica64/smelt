@@ -234,15 +234,14 @@ impl ModuleBuilder<'_> {
                 let op = self.loose_equality_op(op, lhs_ty, rhs_ty);
                 // Erased operands say nothing about `+`; the checker's contextual
                 // types may know it concatenates, as in `binary_expression`.
-                let ty = if op == BinOp::Add && self.checker_types_as_string(binary.span.start, binary.span.end) {
-                    self.ctx.krate.types.intern(Type::String)
-                } else if op == BinOp::Add
-                    && type_hint
-                        .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))
-                    && (self.is_string_compatible_type(lhs_ty)
-                        || self.is_string_compatible_type(rhs_ty)
-                        || self.type_contains_unknown(lhs_ty)
-                        || self.type_contains_unknown(rhs_ty))
+                let ty = if op == BinOp::Add
+                    && (self.checker_types_as_string(binary.span.start, binary.span.end)
+                        || type_hint
+                            .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))
+                            && (self.is_string_compatible_type(lhs_ty)
+                                || self.is_string_compatible_type(rhs_ty)
+                                || self.type_contains_unknown(lhs_ty)
+                                || self.type_contains_unknown(rhs_ty)))
                 {
                     self.ctx.krate.types.intern(Type::String)
                 } else if let Some(dynamic) =
