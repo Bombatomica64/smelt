@@ -117,7 +117,7 @@ impl ModuleBuilder<'_> {
     fn equality_operand(
         &mut self,
         op: BinOp,
-        operand: &oxc::ast::ast::Expression<'_>,
+        operand: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let comparing =
