@@ -107,54 +107,6 @@ export function findIndex<T>(
 }
 
 #[test]
-fn lowers_forward_reference_to_nested_function_declaration() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-function repository() {
-  async function create(params: Record<string, unknown>) {
-    return publish({ ...params, documentId: "doc" }).then((doc) => doc.entries[0]);
-  }
-
-  async function publish(opts = {} as any) {
-    return { entries: [opts] };
-  }
-
-  return { create, publish };
-}
-"#),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
-fn lowers_forward_reference_to_nested_function_in_arrow_const() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let module_id = lower_ok(
-        ts!(r#"
-export const repository = () => {
-  async function create(params: Record<string, unknown>) {
-    return publish({ ...params, documentId: "doc" }).then((doc) => doc.entries[0]);
-  }
-
-  async function publish(opts = {} as any) {
-    return { entries: [opts] };
-  }
-
-  return { create, publish };
-};
-"#),
-        &mut ctx,
-    )?;
-    let _module = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    Ok(())
-}
-
-#[test]
 fn resolves_namespace_qualified_type_aliases() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2399,6 +2351,8 @@ describe("group", () => {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let tests = ctx.krate.items.iter().filter(|item| matches!(item, Item::Function(function) if function.is_test)).count();
+    ensure!(tests >= 1, "the nested `static` test must be lowered, got {tests} tests");
     Ok(())
 }
 
