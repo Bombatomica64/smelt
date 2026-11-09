@@ -63,6 +63,43 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// Truthiness of every value kind, nullish fallbacks, non-null forwarding, by-reference
+/// list aliasing, method-reference identity and absent keyed reads.
+#[test]
+fn truthiness_absence_identity() -> TestResult {
+    verify_node_parity("truthiness_absence_identity")
+}
+
+/// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
+#[test]
+fn bigint_boundaries() -> TestResult {
+    verify_node_parity("bigint_boundaries")
+}
+
+/// `console.log` renders lists, records and class instances as `util.inspect` does.
+#[test]
+fn console_inspect_shapes() -> TestResult {
+    verify_node_parity("console_inspect_shapes")
+}
+
+/// String methods on concrete and erased receivers, and strings in boolean position.
+#[test]
+fn string_method_semantics() -> TestResult {
+    verify_node_parity("string_method_semantics")
+}
+
+/// Replacement callbacks, flags, match values, named groups and `lastIndex`.
+#[test]
+fn regexp_semantics() -> TestResult {
+    verify_node_parity("regexp_semantics")
+}
+
+/// Date parsing, setters and ISO output, and URL host accessors.
+#[test]
+fn date_semantics() -> TestResult {
+    verify_node_parity("date_semantics")
+}
+
 /// Captures share one cell, a method call supplies its receiver, a function value
 /// is an object, and every call shape honours the callee's argument ABI.
 #[test]

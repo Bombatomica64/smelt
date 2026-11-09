@@ -1,0 +1,10 @@
+-15241578772255839096557247486568035256
+-3 0 true false
+bigint other other
+9223372036854775808
+2 RangeError
+TypeError: Do not know how to serialize a BigInt
+{"owner":"b"}
+1010 256 128 1099511627776
+7 -2147483648 -4 1 4294967295
+RangeError

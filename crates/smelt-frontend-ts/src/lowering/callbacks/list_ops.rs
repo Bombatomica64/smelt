@@ -362,6 +362,14 @@ impl ModuleBuilder<'_> {
             Expression::TSNonNullExpression(non_null) => {
                 self.static_receiver_type(&non_null.expression, body)?
             }
+            // `items[i].m()`: an element read off a list has the list's item type.
+            Expression::ComputedMemberExpression(member) => {
+                let owner = self.static_receiver_type(&member.object, body)?;
+                match self.ctx.krate.types.get(owner) {
+                    Some(Type::List(item)) => *item,
+                    _ => return None,
+                }
+            }
             Expression::StaticMemberExpression(member) => {
                 let owner = self.static_receiver_type(&member.object, body)?;
                 // Only a USER class's declared fields are read here: a host
