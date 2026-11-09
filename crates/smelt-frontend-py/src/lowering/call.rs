@@ -876,7 +876,13 @@ impl ModuleBuilder<'_> {
             // A value is an `Optional` of its own type (a defaulted parameter).
             let optional_of_supplied =
                 matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner)) if *inner == supplied);
-            if supplied != *expected && !optional_of_supplied && !self.structurally_conforms(*expected, supplied) {
+            // A value of one arm is a value of the union declaring that arm.
+            let arm_of_union = matches!(self.ctx.krate.types.get(*expected), Some(Type::Union(arms)) if arms.contains(&supplied));
+            if supplied != *expected
+                && !optional_of_supplied
+                && !arm_of_union
+                && !self.structurally_conforms(*expected, supplied)
+            {
                 return Err(SmeltError::unsupported(
                     span,
                     format!(

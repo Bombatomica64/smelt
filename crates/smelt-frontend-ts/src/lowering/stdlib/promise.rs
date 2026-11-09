@@ -624,6 +624,55 @@ impl ModuleBuilder<'_> {
             // No closure or function type to read the callback's result from.
             _ => self.erase_with(ErasureReason::MissingAnnotation, "promise callback result"),
         };
+        // `.then(onFulfilled, onRejected)`: the second handler answers only the
+        // receiver's rejection, so it is a third operand of `Then` rather than a
+        // chained `.catch`, which would also catch a throw from `onFulfilled`.
+        if method == "then"
+            && let Some(rejected_arg) = call.arguments.get(1)
+        {
+            let reason_ty = self.erase_with(ErasureReason::ExternalType, "rejection reason");
+            let rejected_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![reason_ty],
+                rest: None,
+                required_params: Some(1),
+                mutable_params: Vec::new(),
+                return_ty: unknown_ty,
+                is_async: false,
+                may_throw: false,
+            }));
+            let rejected = self.argument_with_hint(rejected_arg, body, Some(rejected_ty))?;
+            let rejected_return = body
+                .expr_at(rejected)
+                .and_then(|expr| match &expr.kind {
+                    ExprKind::Closure(closure) => Some(closure.return_ty),
+                    _ => None,
+                })
+                .or_else(|| match self.ctx.krate.types.get(Self::expr_ty(body, rejected)) {
+                    Some(Type::Function(function)) => Some(function.return_ty),
+                    _ => None,
+                });
+            let rejected_result_ty = match rejected_return {
+                Some(ty) => match self.ctx.krate.types.get(ty) {
+                    Some(Type::Future(item)) => *item,
+                    _ => ty,
+                },
+                None => self.erase_with(ErasureReason::MissingAnnotation, "promise callback result"),
+            };
+            let joined = if rejected_result_ty == callback_result_ty {
+                callback_result_ty
+            } else {
+                self.erased_join(&[callback_result_ty, rejected_result_ty])
+            };
+            let output_ty = self.ctx.krate.types.intern(Type::Future(joined));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::Then,
+                    args: vec![receiver, callback, rejected],
+                },
+                ty: output_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let (op, output_ty) = if method == "catch" {
             (AsyncOp::Catch, receiver_ty)
         } else if method == "finally" {

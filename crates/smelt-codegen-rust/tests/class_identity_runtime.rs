@@ -151,9 +151,10 @@ test("different classes have different constructor identities", () => {
   const beta: any = new Beta();
   expect(alpha.constructor).not.toBe(beta.constructor);
 });
-test("a plain object has no constructor identity", () => {
+test("a plain object's constructor is the Object global", () => {
   const plain: any = { a: 1 };
-  expect(plain.constructor).toBe(undefined);
+  expect(plain.constructor === Object).toBe(true);
+  expect(plain.constructor === new Alpha().constructor).toBe(false);
 });
 "#;
     run_fixture(source, "smelt_declared_class_constructor_identity");

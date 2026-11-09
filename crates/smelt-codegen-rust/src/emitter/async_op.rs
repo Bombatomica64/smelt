@@ -369,9 +369,18 @@ impl FunctionEmitter<'_> {
         &self,
         callback: &Operand,
     ) -> Result<(String, String), EmitError> {
+        self.promise_callback_hoist_as(callback, "smelt_promise_callback")
+    }
+
+    /// [`Self::promise_callback_hoist`] under a caller-chosen binding, for an
+    /// operation holding more than one callback.
+    fn promise_callback_hoist_as(
+        &self,
+        callback: &Operand,
+        binding: &str,
+    ) -> Result<(String, String), EmitError> {
         let callback_text = self.operand_expr(callback)?;
         if matches!(callback, Operand::Copy(_) | Operand::Move(_)) {
-            let binding = "smelt_promise_callback";
             Ok((
                 format!("let {binding} = ({callback_text}).clone(); ", callback_text = callback_text.delimited()),
                 binding.to_owned(),
@@ -803,10 +812,14 @@ impl FunctionEmitter<'_> {
 
     /// `.then`.
     fn promise_then_expr(&self, args: &[Operand], dest_ty: TypeId) -> Result<RustExpr, EmitError> {
-        let [future, callback] = args else {
-            return Err(EmitError::new(
-                "Promise.then requires future and callback operands",
-            ));
+        let (future, callback, rejected) = match args {
+            [future, callback] => (future, callback, None),
+            [future, callback, rejected] => (future, callback, Some(rejected)),
+            _ => {
+                return Err(EmitError::new(
+                    "Promise.then requires future and callback operands",
+                ));
+            }
         };
         let Some(Type::Future(_)) = self.mir.types.get(self.operand_ty(future)?) else {
             return Err(EmitError::new("Promise.then receiver must be a future"));
@@ -821,6 +834,28 @@ impl FunctionEmitter<'_> {
         let (settle, settled_ty) = self.promise_callback_settle(callback, &invocation)?;
         let output =
             self.rendered_at_type(&RustExpr::path("smelt_callback_value"), settled_ty, *output_ty, &self.render_scope())?;
+        if let Some(on_rejected) = rejected {
+            let (rejected_prelude, rejected_expr) =
+                self.promise_callback_hoist_as(on_rejected, "smelt_promise_rejected")?;
+            let rejected_invocation = self.promise_callback_invocation_with(
+                on_rejected,
+                &RustExpr::opaque(rejected_expr),
+                &crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error")),
+            )?;
+            let (rejected_settle, rejected_settled_ty) = self.promise_callback_settle(on_rejected, &rejected_invocation)?;
+            let rejected_output = self.rendered_at_type(
+                &RustExpr::path("smelt_callback_value"),
+                rejected_settled_ty,
+                *output_ty,
+                &self.render_scope(),
+            )?;
+            return Ok(RustExpr::atom(format!(
+                "{{ {prelude}{rejected_prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => {{ {settle} Ok::<_, {ERROR_BOX}>({output}) }} Err(smelt_error) => {{ {rejected_settle} Ok::<_, {ERROR_BOX}>({rejected_output}) }} }} }})) }}",
+                future_text = future_text.tight(),
+                output = output.delimited(),
+                rejected_output = rejected_output.delimited(),
+            )));
+        }
         Ok(RustExpr::atom(format!(
             "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}", future_text = future_text.tight(), output = output.delimited()
         )))
