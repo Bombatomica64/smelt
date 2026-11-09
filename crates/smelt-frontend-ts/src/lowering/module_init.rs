@@ -407,8 +407,16 @@ impl ModuleBuilder<'_> {
                     | Statement::ExportFromDeclaration(_)
                     | Statement::ExportNamedDeclaration(_)
                     | Statement::ExportAllDeclaration(_)
-                    | Statement::ExportDefaultDeclaration(_)
             ) {
+                continue;
+            }
+            // `export default <expression>` is evaluated where it is written, so
+            // its effects run in source order. A function or class declaration
+            // is an item, consumed by the item pass.
+            if let Statement::ExportDefaultDeclaration(export) = statement {
+                if let Err(error) = self.export_default_statement(export, &mut body) {
+                    errors.push(error);
+                }
                 continue;
             }
             if self.is_predeclared_arrow_const_statement(statement) {
