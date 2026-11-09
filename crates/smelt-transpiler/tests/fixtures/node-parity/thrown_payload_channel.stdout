@@ -1,0 +1,13 @@
+TypeError:bad
+Error:plain
+string:a bare string
+number:7
+object:{"code":42,"tag":"record"}
+object:{"code":42,"tag":"record"}
+string:a bare string
+Error:range
+object:{"again":true}
+13,16
+3
+Error:Size must be an integer greater than zero.
+42

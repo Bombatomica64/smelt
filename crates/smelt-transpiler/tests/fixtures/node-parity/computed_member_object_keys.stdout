@@ -1,0 +1,6 @@
+id,entity
+{"id":{"type":"increments"},"entity":{"type":"integer"}}
+pk,owner
+{"pk":{"type":"increments"},"owner":{"type":"integer"}}
+1
+{"plain":2}

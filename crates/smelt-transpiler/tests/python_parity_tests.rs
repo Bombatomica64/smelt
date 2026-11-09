@@ -108,6 +108,13 @@ fn print_container_repr() -> TestResult {
     verify_python_parity("print_container_repr")
 }
 
+/// A `try` around a call that cannot raise defines the recovery helpers it
+/// emits, runs its body and its `finally`.
+#[test]
+fn try_around_infallible_call() -> TestResult {
+    verify_python_parity("try_around_infallible_call")
+}
+
 /// A user `open` is the user's function, not the builtin.
 #[test]
 fn user_open_shadows_builtin() -> TestResult {

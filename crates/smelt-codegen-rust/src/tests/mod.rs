@@ -25,6 +25,55 @@ fn program_body(source: &str) -> &str {
         .map_or(source, |(_, program)| program)
 }
 
+/// Returns the full text of the emitted function `name`, from its signature to
+/// its closing brace, with each line's indentation removed.
+///
+/// A test that means "this function is emitted with exactly this signature and
+/// body" compares against the whole item, so unrelated text elsewhere in the
+/// crate cannot satisfy it.
+#[track_caller]
+fn rust_fn(source: &str, name: &str) -> String {
+    let lines: Vec<&str> = program_body(source).lines().map(str::trim).collect();
+    let start = lines.iter().position(|line| {
+        let line = line.strip_prefix("pub ").unwrap_or(line);
+        let line = line.strip_prefix("async ").unwrap_or(line);
+        line.strip_prefix("fn ")
+            .and_then(|rest| rest.strip_prefix(name))
+            .is_some_and(|rest| rest.starts_with(['(', '<']))
+    });
+    let Some(start) = start else {
+        panic!("no emitted function named `{name}`:\n{source}");
+    };
+    let mut depth = 0_i32;
+    let mut item = Vec::new();
+    for line in &lines[start..] {
+        item.push(*line);
+        depth += brace_delta(line);
+        if depth == 0 && line.contains('}') {
+            return item.join("\n");
+        }
+    }
+    panic!("emitted function `{name}` has no closing brace:\n{source}");
+}
+
+/// Net `{`/`}` count of one line of Rust, ignoring braces in string literals.
+fn brace_delta(line: &str) -> i32 {
+    let mut delta = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for character in line.chars() {
+        match (in_string, escaped, character) {
+            (true, true, _) => escaped = false,
+            (true, false, '\\') => escaped = true,
+            (_, false, '"') => in_string = !in_string,
+            (false, _, '{') => delta += 1,
+            (false, _, '}') => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
 /// Shared TypeScript prelude for the callable-interface overload tests.
 ///
 /// It mirrors the shape es-toolkit's `curry` declares: a callable interface with

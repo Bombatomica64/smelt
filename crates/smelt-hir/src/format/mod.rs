@@ -37,6 +37,43 @@ pub fn type_display(krate: &Crate, ty: TypeId) -> String {
     type_ref(krate, ty)
 }
 
+/// Formats the signature of the first function item named `name`:
+/// `name<T>(value: T, count: Float) -> List<T>`.
+///
+/// `None` when the crate has no function item with that name. Tests compare a
+/// lowered function against this text, so a parameter or return type that loses
+/// its shape fails on the type itself.
+#[must_use]
+pub fn function_signature(krate: &Crate, name: &str) -> Option<String> {
+    krate.items.iter().find_map(|item| {
+        let Item::Function(function) = item else {
+            return None;
+        };
+        (krate.symbols.get(function.name) == Some(name)).then(|| {
+            let symbol = |symbol| krate.symbols.get(symbol).unwrap_or("<missing>");
+            let generics = function
+                .type_params
+                .iter()
+                .map(|param| symbol(param.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let generics = if generics.is_empty() { generics } else { format!("<{generics}>") };
+            let params = function
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    let rest = if function.rest == Some(index) { "..." } else { "" };
+                    format!("{rest}{}: {}", symbol(param.name), type_ref(krate, param.ty))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let prefix = if function.is_async { "async " } else { "" };
+            format!("{prefix}{name}{generics}({params}) -> {}", type_ref(krate, function.return_ty))
+        })
+    })
+}
+
 /// Formats the HIR of the given modules in a compact, human-readable form.
 #[must_use]
 pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {

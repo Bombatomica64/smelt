@@ -6911,23 +6911,6 @@ const attribute = {
 }
 
 #[test]
-fn lowers_computed_member_object_keys() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    lower_ok(
-        ts!(r"
-function model(identifiers: any, entityId: string) {
-  return {
-    [identifiers.ID_COLUMN]: { type: 'increments' },
-    [entityId]: { type: 'integer' },
-  };
-}
-"),
-        &mut ctx,
-    )?;
-    Ok(())
-}
-
-#[test]
 fn lowers_truthy_dynamic_index_filter_callbacks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

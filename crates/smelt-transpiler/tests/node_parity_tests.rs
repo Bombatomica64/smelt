@@ -63,6 +63,19 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// A throw delivers its operand whole through one channel, whatever it is, and
+/// a `try` around a call that cannot throw still builds and runs.
+#[test]
+fn thrown_payload_channel() -> TestResult {
+    verify_node_parity("thrown_payload_channel")
+}
+
+/// A computed key read from an `any` receiver names the property at run time.
+#[test]
+fn computed_member_object_keys() -> TestResult {
+    verify_node_parity("computed_member_object_keys")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]

@@ -150,6 +150,18 @@ fn function_item<'a>(
     Ok(function)
 }
 
+/// Fail unless the function named `name` lowered to exactly `expected`, the
+/// text of [`smelt_hir::function_signature`].
+fn ensure_signature(ctx: &HirCtx, name: &str, expected: &str) -> Result<(), String> {
+    let actual = smelt_hir::function_signature(&ctx.krate, name)
+        .ok_or_else(|| format!("missing function item named `{name}`"))?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("signature of `{name}`:\n  actual: {actual}\nexpected: {expected}"))
+    }
+}
+
 /// Find a module's function item by its source name.
 ///
 /// Modules that declare types (interfaces, aliases) before functions cannot be

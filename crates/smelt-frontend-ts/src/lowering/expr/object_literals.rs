@@ -898,11 +898,12 @@ impl ModuleBuilder<'_> {
         } else if entries.iter().all(|(key, _)| {
             matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, *key)),
-                Some(Type::String | Type::Float | Type::Int | Type::FixedInt(_) | Type::Symbol | Type::PropKey)
+                Some(Type::String | Type::Float | Type::Int | Type::FixedInt(_) | Type::Symbol | Type::PropKey | Type::Unknown)
             )
         }) {
             // Computed keys that are strings, numbers and symbols are all
-            // property keys: the literal is a property-key record.
+            // property keys, and a key only known at run time goes through the
+            // same `ToPropertyKey`: the literal is a property-key record.
             self.ctx.krate.types.intern(Type::PropKey)
         } else {
             self.erase_with(ErasureReason::DynamicOperator, "object literal key")
