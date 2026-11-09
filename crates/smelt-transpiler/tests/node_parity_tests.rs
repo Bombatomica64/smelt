@@ -71,6 +71,14 @@ fn closure_over_defaulted_callback() -> TestResult {
     verify_node_parity("closure_over_defaulted_callback")
 }
 
+/// `Object` and `Symbol` are values `.constructor` compares equal to, a module
+/// const aliasing a builtin is callable from any body, and a list callback picked
+/// by a conditional is not replaced by one of its arms.
+#[test]
+fn builtin_constructor_values() -> TestResult {
+    verify_node_parity("builtin_constructor_values")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]

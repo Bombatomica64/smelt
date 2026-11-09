@@ -377,7 +377,7 @@ impl ModuleBuilder<'_> {
             }
             if matches!(
                 name,
-                "AbortSignal" | "Object" | "Symbol" | "process" | "require"
+                "AbortSignal" | "process" | "require"
             ) {
                 let ty = self.erase_with(ErasureReason::ByName, "ambient global");
                 return self.module_global_expression(name, ty, start, end, body);
@@ -1047,7 +1047,7 @@ impl ModuleBuilder<'_> {
         // `Promise`/`Array`/`Function` stay listed here: they are CONSTRUCTORS,
         // not namespace objects, and keep the value model they had.
         if smelt_stdlib::global_namespace(name).is_none()
-            && !matches!(name, "Promise" | "Array" | "Function")
+            && !matches!(name, "Promise" | "Array" | "Function" | "Object" | "Symbol")
             && !Self::is_known_defined_global_constructor(host)
             && name != "Blob"
             && name != "ArrayBuffer"

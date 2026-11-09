@@ -525,17 +525,6 @@ impl ModuleBuilder<'_> {
         item: smelt_hir::ItemId,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if self.imports.is_value(callee_ident.name.as_str()) {
-            for arg in &call.arguments {
-                let _ = self.argument(arg, body)?;
-            }
-            let ty = self.erase(ErasureReason::UntypedPackage);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            }));
-        }
         let item_ty = self
             .item_expr_type(
                 item,
@@ -544,6 +533,13 @@ impl ModuleBuilder<'_> {
             // not a new erasure: a non-function falls through to the
             // recorded `ByName` site below
             .unwrap_or_else(|_| self.unknown_type(NotNewErasure::ErasedUpstream));
+        // A module slot's item has no value type of its own; its binding does.
+        let item_ty = self
+            .module_globals
+            .get(callee_ident.name.as_str())
+            .copied()
+            .filter(|ty| matches!(self.ctx.krate.types.get(*ty), Some(Type::Function(_))))
+            .unwrap_or(item_ty);
         if let Some(Type::Function(function)) =
             self.ctx.krate.types.get(item_ty).cloned()
         {
@@ -574,12 +570,33 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             }));
         }
-        for arg in &call.arguments {
-            let _ = self.argument(arg, body)?;
+        if self.imports.is_value(callee_ident.name.as_str()) {
+            for arg in &call.arguments {
+                let _ = self.argument(arg, body)?;
+            }
+            let ty = self.erase(ErasureReason::UntypedPackage);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
         }
+        // A callable with no static signature is still called: JavaScript reads
+        // the binding and invokes whatever it holds at run time.
+        let callee = self.identifier_expression(
+            callee_ident.name.as_str(),
+            callee_ident.span.start,
+            callee_ident.span.end,
+            body,
+        )?;
+        let args = call
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
         let ty = self.erase(ErasureReason::ByName);
         Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
+            kind: ExprKind::ClosureCall { callee, args },
             ty,
             span: self.span(call.span.start, call.span.end),
         }))

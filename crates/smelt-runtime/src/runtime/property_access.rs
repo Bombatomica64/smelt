@@ -390,7 +390,15 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         //~ header list's `get` rather than `undefined`. The sibling erased-read
         //~ path in `place.rs` already asked; this one did not, so the same read
         //~ answered differently depending on which spelling reached it.
-        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Object"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        //~ `value.constructor` of a primitive or array is its builtin: the same
+        //~ interned value the bare global reads, so `===` holds.
+        SmeltUnknown::Array(_) if field == "constructor" => smelt_builtin_namespace("Array"),
+        SmeltUnknown::Number(_) if field == "constructor" => smelt_builtin_namespace("Number"),
+        SmeltUnknown::Bool(_) if field == "constructor" => smelt_builtin_namespace("Boolean"),
+        /*@if bigint*/SmeltUnknown::BigInt(_) if field == "constructor" => smelt_builtin_namespace("BigInt"),/*@end*/
+        SmeltUnknown::Symbol(_) if field == "constructor" => smelt_builtin_namespace("Symbol"),
+        SmeltUnknown::String(text) if field == "constructor" && !text.starts_with("__smelt_proto:") => smelt_builtin_namespace("String"),
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         //~ An erased STRING answers `length`, its character indices and the
