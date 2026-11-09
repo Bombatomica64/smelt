@@ -684,8 +684,16 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
 struct SmeltPanic { class: String, message: String }
 impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
 static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
-/// Silence the panic report for Smelt-thrown payloads only.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+thread_local! { static SMELT_PANIC_CATCH_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) }; }
+/// Arm a Smelt `catch` around the call about to unwind into it.
+#[allow(dead_code)]
+fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() + 1)); }
+/// Disarm the `catch` armed by [`smelt_panic_catch_enter`].
+#[allow(dead_code)]
+fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
+/// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
+/// must say what was thrown, as Node does, instead of exiting silently.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -4028,7 +4036,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_27: bool;
     let _smelt_tmp_8: Context = Context::new();
     c = _smelt_tmp_8;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail(c.clone()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail(c.clone()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_9: () = __smelt_value;
         }
@@ -4052,7 +4060,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{} {} {} {}", c.0.borrow().res.clone(), _smelt_tmp_12, smelt_console_number(c.0.borrow().count.clone()), _smelt_tmp_13); };
         }
     }
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail_later(c.clone()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| fail_later(c.clone()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_15 = __smelt_value;
     match _smelt_tmp_15.await {

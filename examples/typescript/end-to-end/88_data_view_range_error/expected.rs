@@ -684,8 +684,16 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
 struct SmeltPanic { class: String, message: String }
 impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
 static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
-/// Silence the panic report for Smelt-thrown payloads only.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+thread_local! { static SMELT_PANIC_CATCH_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) }; }
+/// Arm a Smelt `catch` around the call about to unwind into it.
+#[allow(dead_code)]
+fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() + 1)); }
+/// Disarm the `catch` armed by [`smelt_panic_catch_enter`].
+#[allow(dead_code)]
+fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
+/// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
+/// must say what was thrown, as Node does, instead of exiting silently.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -4121,7 +4129,7 @@ pub(crate) fn read_at(target: SmeltDataView, offset: f64) -> JsString {
     let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: JsString;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Int16, (offset) as f64, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Int16, (offset) as f64, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: f64 = __smelt_value;
     _smelt_tmp_4 = JsString::from("ok:") + &JsString::from(smelt_number_to_string(_smelt_tmp_3));
@@ -4158,7 +4166,7 @@ pub(crate) fn read_at(target: SmeltDataView, offset: f64) -> JsString {
 pub(crate) fn write_at(target: SmeltDataView, offset: f64) -> JsString {
     let _smelt_tmp_4: bool;
     let _smelt_tmp_5: JsString;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_set_throwing(&target.clone(), SmeltTypedArrayKind::Int32, (offset) as f64, 7.0, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_set_throwing(&target.clone(), SmeltTypedArrayKind::Int32, (offset) as f64, 7.0, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: () = __smelt_value;
     return JsString::from("wrote");
@@ -4197,7 +4205,7 @@ pub(crate) fn read_wide(target: SmeltDataView, width: f64) -> JsString {
     let _smelt_tmp_12: JsString;
     _smelt_tmp_3 = width == 2.0;
     if _smelt_tmp_3 {
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Uint16, (0.0) as f64, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Uint16, (0.0) as f64, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_4: f64 = __smelt_value;
     _smelt_tmp_5 = JsString::from("ok:") + &JsString::from(smelt_number_to_string(_smelt_tmp_4));
@@ -4228,7 +4236,7 @@ pub(crate) fn read_wide(target: SmeltDataView, width: f64) -> JsString {
     } else {
     _smelt_tmp_6 = width == 4.0;
     if _smelt_tmp_6 {
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Uint32, (0.0) as f64, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Uint32, (0.0) as f64, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_7: f64 = __smelt_value;
     _smelt_tmp_8 = JsString::from("ok:") + &JsString::from(smelt_number_to_string(_smelt_tmp_7));
@@ -4257,7 +4265,7 @@ pub(crate) fn read_wide(target: SmeltDataView, width: f64) -> JsString {
         }
     }
     } else {
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Float64, (0.0) as f64, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Float64, (0.0) as f64, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_9: f64 = __smelt_value;
     _smelt_tmp_10 = JsString::from("ok:") + &JsString::from(smelt_number_to_string(_smelt_tmp_9));
@@ -4293,7 +4301,7 @@ pub(crate) fn read_byte(target: SmeltDataView, offset: f64) -> JsString {
     let _smelt_tmp_4: JsString;
     let _smelt_tmp_5: bool;
     let _smelt_tmp_6: JsString;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Uint8, (offset) as f64, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Uint8, (offset) as f64, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: f64 = __smelt_value;
     _smelt_tmp_4 = JsString::from("ok:") + &JsString::from(smelt_number_to_string(_smelt_tmp_3));
@@ -4329,7 +4337,7 @@ pub(crate) fn brand_of(target: SmeltDataView) -> JsString {
     let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: bool;
     let _smelt_tmp_7: JsString;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Float64, (0.0) as f64, false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_data_view_get_throwing(&target.clone(), SmeltTypedArrayKind::Float64, (0.0) as f64, false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_2: f64 = __smelt_value;
     return JsString::from("no throw");
@@ -4365,7 +4373,7 @@ pub(crate) fn propagated(target: SmeltDataView) -> JsString {
     let _smelt_tmp_3: JsString;
     let _smelt_tmp_4: bool;
     let _smelt_tmp_5: JsString;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| uncaught(target.clone()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| uncaught(target.clone()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_2: f64 = __smelt_value;
     _smelt_tmp_3 = JsString::from("ok:") + &JsString::from(smelt_number_to_string(_smelt_tmp_2));

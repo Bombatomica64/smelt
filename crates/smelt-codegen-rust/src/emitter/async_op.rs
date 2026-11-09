@@ -834,15 +834,15 @@ impl FunctionEmitter<'_> {
         let (settle, settled_ty) = self.promise_callback_settle(callback, &invocation)?;
         let output =
             self.rendered_at_type(&RustExpr::path("smelt_callback_value"), settled_ty, *output_ty, &self.render_scope())?;
-        if let Some(rejected) = rejected {
+        if let Some(on_rejected) = rejected {
             let (rejected_prelude, rejected_expr) =
-                self.promise_callback_hoist_as(rejected, "smelt_promise_rejected")?;
-            let invocation = self.promise_callback_invocation_with(
-                rejected,
+                self.promise_callback_hoist_as(on_rejected, "smelt_promise_rejected")?;
+            let rejected_invocation = self.promise_callback_invocation_with(
+                on_rejected,
                 &RustExpr::opaque(rejected_expr),
                 &crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error")),
             )?;
-            let (rejected_settle, rejected_settled_ty) = self.promise_callback_settle(rejected, &invocation)?;
+            let (rejected_settle, rejected_settled_ty) = self.promise_callback_settle(on_rejected, &rejected_invocation)?;
             let rejected_output = self.rendered_at_type(
                 &RustExpr::path("smelt_callback_value"),
                 rejected_settled_ty,

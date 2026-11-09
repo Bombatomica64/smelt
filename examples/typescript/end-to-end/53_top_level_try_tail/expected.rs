@@ -684,8 +684,16 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
 struct SmeltPanic { class: String, message: String }
 impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
 static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
-/// Silence the panic report for Smelt-thrown payloads only.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+thread_local! { static SMELT_PANIC_CATCH_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) }; }
+/// Arm a Smelt `catch` around the call about to unwind into it.
+#[allow(dead_code)]
+fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() + 1)); }
+/// Disarm the `catch` armed by [`smelt_panic_catch_enter`].
+#[allow(dead_code)]
+fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
+/// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
+/// must say what was thrown, as Node does, instead of exiting silently.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -3790,7 +3798,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_28: JsString;
     let _smelt_tmp_34: ();
     let mut outcome: JsString = JsString::from("not run");
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_6 = __smelt_value;
     match _smelt_tmp_6.await {
@@ -3817,7 +3825,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_14 = _smelt_tmp_12 + _smelt_tmp_13;
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_14)); };
     thrown = JsString::from("not run");
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_16 = __smelt_value;
     match _smelt_tmp_16.await {
@@ -3841,7 +3849,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_21 = thrown.len() as f64;
     let _ = { println!("{} {}", last, smelt_console_number(_smelt_tmp_21)); };
     nested = JsString::from("not run");
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_23 = __smelt_value;
     match _smelt_tmp_23.await {
@@ -3860,7 +3868,7 @@ smelt_local.block_on(&smelt_runtime, async move {
         }
     }
     _smelt_tmp_25 = nested + &JsString::from("|");
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(false))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(false))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_26 = __smelt_value;
     match _smelt_tmp_26.await {
@@ -3881,7 +3889,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     }
     let _ = { println!("{}", nested); };
     final_ = JsString::from("not run");
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| work(true))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_30 = __smelt_value;
     match _smelt_tmp_30.await {
