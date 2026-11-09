@@ -266,6 +266,19 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// The statement storing the rendered `value` (already at the global's
+    /// type) into mutable global `global`'s thread-local cell; the same store
+    /// [`Self::global_set_expr`] emits.
+    pub(super) fn global_store_text(&self, global: u32, value: &RustExpr) -> Result<String, EmitError> {
+        let name = crate::globals::global_static_name(self.mir, global);
+        let ty = self.global_ty(global)?;
+        Ok(if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
+            format!("{name}.with(|smelt_cell| smelt_cell.set({value}))", value = value.delimited())
+        } else {
+            format!("{name}.with(|smelt_cell| *smelt_cell.borrow_mut() = {value})", value = value.delimited())
+        })
+    }
+
     /// Emit a write *through* a mutable global into its `thread_local!` cell.
     ///
     /// The whole statement is one `with` closure so the `RefCell` borrow lives

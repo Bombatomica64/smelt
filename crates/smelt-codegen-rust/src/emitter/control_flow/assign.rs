@@ -226,9 +226,24 @@ impl FunctionEmitter<'_> {
             // on the instance the view stands for; see
             // `view_write_through`. The value is bound once so the view
             // and the instance receive the same value.
-            if self.context.erased_view_write_through() {
+            // A write through a CLASS VALUE reaches the class's live static
+            // storage (`smelt_class_static_write`) when the program has class
+            // values at all.
+            let write_through = self.context.erased_view_write_through();
+            let class_statics = self.context.demand().has(Need::ClassValue);
+            if write_through || class_statics {
+                let view_write = if write_through {
+                    format!(" smelt_object_write_through(smelt_map, {field_name:?}, &smelt_value);")
+                } else {
+                    String::new()
+                };
+                let static_write = if class_statics {
+                    format!(" smelt_class_static_write(smelt_map, {field_name:?}, &smelt_value);")
+                } else {
+                    String::new()
+                };
                 out.push_str(&self.carrier_format(self.carrier()?, format_args!(
-                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), smelt_value.clone()); smelt_object_write_through(smelt_map, {field_name:?}, &smelt_value); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
+                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), smelt_value.clone());{view_write}{static_write} }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
                 )));
                 return Ok(true);
             }

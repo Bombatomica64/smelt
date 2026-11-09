@@ -563,6 +563,29 @@ impl ModuleBuilder<'_> {
                     static_fields.push(static_field);
                 }
             }
+            // A mutable static is live storage: one module mutable global per
+            // field, initialized from its literal, which every read and write
+            // (direct, or through the class used as a value) goes through.
+            for static_field in &mut static_fields {
+                if static_field.mutable
+                    && static_field.storage.is_none()
+                    && let Some(initial) = static_field.value.clone()
+                {
+                    let field_text = super::super::support::source_spelling(&this.ctx.krate, static_field.name)
+                        .unwrap_or_default()
+                        .to_owned();
+                    let symbol = this.intern_source_name(&format!("{class_source_name}_{field_text}"));
+                    static_field.storage = Some(this.ctx.krate.push_item(Item::MutableGlobal(
+                        smelt_hir::MutableGlobalItem {
+                            name: symbol,
+                            ty: static_field.ty,
+                            init: smelt_hir::MutableGlobalInit::Literal(initial),
+                            visibility: Visibility::Public,
+                            span: static_field.span,
+                        },
+                    )));
+                }
+            }
             this.classes.push_statics_in_flight(class_source_name.clone(), static_fields.clone());
             let method_sigs = this.class_method_signatures(&class.body.body)?;
             let virtual_method_fields =

@@ -208,6 +208,8 @@ impl ModuleBuilder<'_> {
             ty,
             visibility,
             value: Some(literal),
+            mutable: !property.readonly,
+            storage: None,
             span: self.span(property.span.start, property.span.end),
         }))
     }

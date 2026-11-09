@@ -19,7 +19,7 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Some(&(_, temp, present_ty)) = self
-            .narrowed_receiver_nodes
+            .pinned_nodes
             .iter()
             .rev()
             .find(|(node, _, _)| *node == std::ptr::from_ref(expression).addr())

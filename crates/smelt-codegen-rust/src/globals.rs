@@ -132,6 +132,22 @@ fn emit_module_init_failed(writer: &mut CodeWriter) {
     );
 }
 
+/// The expression reading mutable global `index`'s current value: a `Cell`
+/// read for the `Copy` primitives, a cloned borrow otherwise (the cell kinds
+/// `emit_mutable_globals` declares).
+pub(crate) fn global_read_text(mir: &Mir, index: u32) -> String {
+    let name = global_static_name(mir, index);
+    let copy = usize::try_from(index)
+        .ok()
+        .and_then(|idx| mir.globals.get(idx))
+        .is_some_and(|global| matches!(mir.types.get(global.ty), Some(Type::Float | Type::Int | Type::Bool)));
+    if copy {
+        format!("{name}.with(::std::cell::Cell::get)")
+    } else {
+        format!("{name}.with(|smelt_value| smelt_value.borrow().clone())")
+    }
+}
+
 /// Compute the thread-local static name for a mutable global by index.
 ///
 /// The name is derived from the binding's source symbol (sanitized and

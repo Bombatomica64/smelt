@@ -1334,6 +1334,8 @@ impl ModuleBuilder<'_> {
             ty,
             visibility: Visibility::Public,
             value: Some(value),
+            mutable: false,
+            storage: None,
             span: self.span(assign.range),
         }))
     }

@@ -173,4 +173,13 @@ fn smelt_same_prototype_link(left: &SmeltUnknown, right: &SmeltUnknown) -> bool 
 /// methods as own properties, keyed as `smelt_property_key` keys them.
 fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); entries.extend(statics); SmeltUnknown::Object(SmeltObject::new(entries)) }
 
+//~ A class's MUTABLE static fields are live storage the program reads and
+//~ writes directly (`Box.PI`), so a class value cannot hold copies of them:
+//~ it carries a `__smelt_static_get` hook a read of a missing own property
+//~ asks (`smelt_get_object_field`) and a `__smelt_static_set` hook a property
+//~ write calls through this function. A write the hook stores (an own static
+//~ of the class) leaves no own data property behind, so a later read, through
+//~ this value or any other, asks the storage again.
+/// Forward a property write on a class value to the class's live static storage.
+fn smelt_class_static_write(map: &SmeltObject, key: &str, value: &SmeltUnknown) { let stored = matches!(map.get("__smelt_method:__smelt_static_set"), Some(SmeltUnknown::Function(setter)) if matches!(setter(vec![SmeltUnknown::String(key.into()), value.clone()]), Ok(SmeltUnknown::Bool(true)))); if stored { map.remove(key); } }
 // @smelt:item-end

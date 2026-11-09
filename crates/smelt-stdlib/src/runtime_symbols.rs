@@ -529,6 +529,10 @@ pub mod markers {
     pub const SMELT_SET: &str = "__smelt_set";
     /// `__smelt_set_field`.
     pub const SMELT_SET_FIELD: &str = "__smelt_set_field";
+    /// A class value's hook reading its mutable statics from their storage.
+    pub const SMELT_STATIC_GET: &str = "__smelt_static_get";
+    /// A class value's hook writing its own mutable statics to their storage.
+    pub const SMELT_STATIC_SET: &str = "__smelt_static_set";
     /// `__smelt_sharedarraybuffer`.
     pub const SMELT_SHAREDARRAYBUFFER: &str = "__smelt_sharedarraybuffer";
     /// `__smelt_statementsync`.
@@ -652,6 +656,8 @@ pub mod markers {
         SMELT_SET,
         SMELT_SET_FIELD,
         SMELT_SHAREDARRAYBUFFER,
+        SMELT_STATIC_GET,
+        SMELT_STATIC_SET,
         SMELT_STATEMENTSYNC,
         SMELT_STRING,
         SMELT_SYMBOL,
