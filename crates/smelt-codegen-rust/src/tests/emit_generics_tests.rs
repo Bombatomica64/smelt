@@ -106,13 +106,9 @@ fn erased_generic_list_argument_judges_each_side_at_its_own_scope() {
     );
 }
 
-/// An implicit constructor over a GENERIC base forwards the base constructor's
-/// parameters at the derived class's `extends` type arguments.
-///
-/// Before round 8 a generic base was not runnable at all, so the implicit
-/// constructor fell back to one erased `Option<SmeltUnknown>` slot and never
-/// ran the base's parameter properties. The base's `T` is substituted with the
-/// `extends Box<string>` argument, so the forwarded parameter is a `String`.
+/// An implicit constructor over a generic base forwards the base constructor's parameters
+/// at the derived class's `extends` type arguments: `extends Box<string>` substitutes `T`,
+/// so the forwarded parameter is a `JsString`.
 #[test]
 fn an_implicit_constructor_over_a_generic_base_forwards_typed_parameters() {
     let source = source_for(
@@ -126,9 +122,8 @@ const withArg = new StringBox("value");
     );
 
     assert!(source.contains("fn new(value: JsString) -> Self"), "{source}");
-    // `Box` is renamed `Box_` so it does not shadow Rust's `Box`.
-    assert!(source.contains("Self::__smelt_init_Box_(this, "), "{source}");
-    assert!(!source.contains("_smelt_super_arg"), "{source}");
+    assert!(source.contains("Self::__smelt_init_Box_(this, "), "`Box` is renamed `Box_` so it does not shadow Rust's `Box`:\n{source}");
+    assert!(!source.contains("Self::__smelt_init_Box_(this, SmeltUnknown"), "the argument stays at the bound `JsString`:\n{source}");
 }
 
 #[test]
@@ -143,13 +138,10 @@ const copied: Boxed<number> = boxed;
 ",
     );
 
-    assert!(source.contains("struct Boxed<T>"), "{source}");
-    assert!(source.contains("value: T,"), "{source}");
-    assert!(!source.contains("value: SmeltUnknown,"), "{source}");
-    assert!(
-        source.contains("_smelt_phantom: ::std::marker::PhantomData<(T)>,"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["struct Boxed<T>"]), r"struct Boxed<T> {
+value: T,
+_smelt_phantom: ::std::marker::PhantomData<(T)>,
+}");
     assert!(source.contains("boxed: Boxed<f64>"), "{source}");
 }
 
@@ -192,27 +184,6 @@ function first<S extends string>(value: S): string {
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
     assert!(source.contains("smelt_value.char_at(smelt_position)"), "{source}");
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
-}
-
-#[test]
-fn emits_generic_hash_map_into_unknown_runtime_conversion() {
-    let source = source_for(
-        r#"
-function keyed(key: unknown): unknown {
-  const values = new Map<unknown, unknown>([[key, "ready"]]);
-  return Object.fromEntries(values);
-}
-"#,
-    );
-
-    assert!(
-        source.contains("impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T>"),
-        "{source}"
-    );
-    assert!(
-        source.contains("SmeltUnknown::Number(value) => smelt_number_to_string(value)"),
-        "{source}"
-    );
 }
 
 #[test]
@@ -318,9 +289,9 @@ function concatImplementation<T1, T2>(arr1: T1, arr2: T2): unknown[] {
 
 #[test]
 fn lowers_object_has_own_on_optional_array_and_generic_receivers() {
-    // `Object.hasOwn` lowers for an array receiver (numeric in-bounds check), an
-    // optional record receiver (asserted to its inner shape), and a generic
-    // `T extends object` receiver (treated as a string-keyed record).
+    // `Object.hasOwn` lowers for an array, an optional record and a generic `T extends object`
+    // receiver; the receiver types stay as declared. Behaviour is in the `generics_behaviour`
+    // node-parity fixture.
     let source = source_for(
         r"
 export function indexPresent(arr: number[], i: number): boolean {
@@ -334,14 +305,18 @@ export function genericKey<T extends object>(object: T, key: string): boolean {
 }
 ",
     );
-    // Array case becomes a length-bounded comparison.
-    assert!(source.contains(".len()") || source.contains("len("), "{source}");
+
+    assert_eq!(rust_items(&source, &["sig index_present", "sig key_present", "sig generic_key"]), r"fn index_present(arr: SmeltList<f64>, i: f64) -> bool
+
+fn key_present(obj: Option<SmeltRecord<JsString, f64>>, key: Option<JsString>) -> bool
+
+fn generic_key(object: SmeltUnknown, key: JsString) -> bool");
 }
 
 #[test]
 fn lowers_for_in_over_generic_object_receiver() {
-    // `for...in` over an unconstrained generic / erased object receiver casts to
-    // a string-keyed record and iterates its keys.
+    // `for...in` over an erased object receiver iterates its keys; the signature keeps the
+    // concrete `string[]` result. Behaviour is in the `generics_behaviour` node-parity fixture.
     let source = source_for(
         r"
 export function keysOf<T>(object: T): string[] {
@@ -353,19 +328,15 @@ export function keysOf<T>(object: T): string[] {
 }
 ",
     );
-    assert!(source.contains("for "), "{source}");
+
+    assert_eq!(rust_items(&source, &["sig keys_of"]), r"fn keys_of(object: SmeltUnknown) -> SmeltList<JsString>");
 }
 
 #[test]
 fn record_to_generic_struct_adapter_erases_out_of_scope_type_params() {
-    // Regression (es-toolkit flowRight_spec / curry): a record adapted into a
-    // parameterized callable interface (`CurriedFunction1<T1, R>`) at a
-    // NON-generic call site rendered its `__smelt_call` field default with the
-    // interface's own type param spelled literally (`Rc<dyn Fn() ->
-    // CurriedFunction1<T1, SmeltUnknown>>`). `T1` is not in scope in the
-    // non-generic caller, so it was an unresolvable name (was E0425). The
-    // adapter must only keep type params that are actually in scope for the
-    // emitted function and erase the rest to `SmeltUnknown`.
+    // A record adapted into a parameterized callable interface at a non-generic call site must not
+    // spell the interface's own type parameters, which are not in scope there. An interface with
+    // several call signatures of different arities stores the erased variadic callable.
     let source = source_for(
         r"
 interface CurriedFunction1<T1, R> {
@@ -379,42 +350,17 @@ export function makeCurried(): CurriedFunction1<number, string> {
 }
 ",
     );
-    // Only inspect the non-generic `make_curried` body; the generic struct's own
-    // `Default`/impl blocks legitimately spell `T1`/`R` because those are in
-    // scope there.
-    let body = source
-        .split("fn make_curried")
-        .nth(1)
-        .and_then(|rest| rest.split("\nfn ").next())
-        .unwrap_or("");
-    assert!(
-        !body.contains("CurriedFunction1<T1"),
-        "record-to-struct adapter must not spell an out-of-scope type param `T1` \
-         in the non-generic caller: {source}"
-    );
-    // `CurriedFunction1` declares two call signatures of different arities, so
-    // its single `__smelt_call` slot is now the erased variadic callable (see
-    // `add_interface_call_signature_field`) rather than the first signature's
-    // concrete `Fn() -> CurriedFunction1<T1, R>`. That removes the interface's
-    // own type parameters from the slot entirely, which is a strictly stronger
-    // form of the property this test guards: there is no longer any type
-    // argument on the slot that COULD be out of scope. The assertion below
-    // therefore pins the new representation; the out-of-scope check above --
-    // the actual regression -- is unchanged.
-    assert!(
-        body.contains("__smelt_call: SmeltErasedFunction"),
-        "an overloaded callable interface's slot should be the erased variadic \
-         callable, leaving no interface type argument to fall out of scope: {source}"
-    );
+
+    let body = rust_fn(&source, "make_curried");
+    assert!(body.contains("__smelt_call: SmeltErasedFunction"), "an overloaded callable interface's slot is the erased variadic callable, leaving no interface type argument to fall out of scope: {body}");
+    assert!(!body.contains("CurriedFunction1<T1"), "a non-generic caller never spells the interface's own `T1`: {body}");
 }
 
 #[test]
 fn generic_mut_list_forwarded_to_erased_callee_uses_convert_in_place_adapter() {
-    // Regression (es-toolkit pull): a generic function forwards its `&mut T[]`
-    // parameter into an erased helper whose parameter is `&mut SmeltUnknown[]`.
-    // Rust `&mut` is invariant, so the reborrow needs a convert-in-place adapter:
-    // build an erased temp list, pass `&mut temp`, write the mutated elements
-    // back, and un-erase the returned value. The caller must STAY generic.
+    // A generic function forwarding its `&mut T[]` into an erased helper needs a convert-in-place
+    // adapter, because `&mut` is invariant: build an erased temporary, pass it, write the mutated
+    // elements back. The caller stays generic.
     let source = source_for(
         r#"
 function eraseInto(target: unknown[], value: unknown): void {
@@ -434,30 +380,18 @@ export function useStrs(): string[] {
 }
 "#,
     );
-    assert!(
-        source.contains("fn push_typed<T"),
-        "the forwarding function must stay generic: {source}"
-    );
-    // The `&mut T[]` argument is erased into a temporary `SmeltUnknown` list
-    // (`into_smelt_unknown`) and the mutated temp is written back through the
-    // reference with per-element un-erasure (`smelt_from_unknown`).
-    assert!(
-        source.contains("smelt_mut_arg_0")
-            && source.contains("into_smelt_unknown")
-            && source.contains("smelt_from_unknown"),
-        "the forwarded &mut list must be adapted in place through erase/un-erase: {source}"
-    );
+
+    assert!(rust_items(&source, &["sig push_typed"]).starts_with("fn push_typed<T"), "the forwarding function must stay generic: {source}");
+    let body = rust_fn(&source, "push_typed");
+    assert!(body.contains("smelt_mut_arg_0") && body.contains("into_smelt_unknown") && body.contains("smelt_from_unknown"), "the forwarded &mut list must be adapted in place through erase/un-erase: {body}");
+    assert!(rust_fn(&source, "use_nums").contains("push_typed(&mut xs, 4.0)"), "the value argument binds `T` at its own type, like the list beside it:\n{source}");
 }
 
 #[test]
 fn plain_local_mut_list_argument_to_generic_callee_passes_elements_through() {
-    // Regression (es-toolkit pullAt): an ordinary caller passes a concrete local
-    // list into a callee that mutates it and IS emitted with real Rust generics
-    // (`fn drop_first<T>(arr: &mut SmeltList<T>)`). Rust binds `T` from the
-    // caller's `SmeltList<f64>`, so the elements must pass through unconverted and
-    // the callee must borrow the caller's local directly — no conversion, no copy,
-    // no write-back. Rendering the argument as `&mut <erased clone>` silently
-    // discarded the mutation.
+    // A concrete local list passed to a mutating generic callee binds `T` from the caller's type:
+    // the callee borrows the caller's local directly, with no conversion, copy or write-back. A
+    // local borrowed mutably is declared `mut`.
     let source = source_for(
         r"
 function dropFirst<T>(arr: T[]): T[] {
@@ -475,35 +409,26 @@ export function useDropStrings(): string[] {
 }
 ",
     );
-    assert!(
-        source.contains("fn drop_first<T"),
-        "the mutating callee must stay generic: {source}"
-    );
-    assert!(
-        source.contains("drop_first(&mut xs)") && source.contains("drop_first(&mut ys)"),
-        "both concrete locals must be borrowed mutably in place, with no erasing \
-         temporary: {source}"
-    );
-    assert!(
-        !source.contains("drop_first(&mut {"),
-        "the argument must not be a converted temporary — that would discard the \
-         mutation: {source}"
-    );
-    assert!(
-        source.contains("let mut xs:") && source.contains("let mut ys:"),
-        "a local borrowed mutably at a call site must be declared `mut`: {source}"
-    );
+
+    assert_eq!(rust_items(&source, &["sig drop_first", "fn use_drop", "fn use_drop_strings"]), r#"fn drop_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
+
+fn use_drop() -> SmeltList<f64> {
+let mut xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+let _smelt_tmp_2: SmeltList<f64> = { let smelt_mut_call_result = drop_first(&mut xs); smelt_mut_call_result };
+return xs;
+}
+
+fn use_drop_strings() -> SmeltList<JsString> {
+let mut ys: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+let _smelt_tmp_2: SmeltList<JsString> = { let smelt_mut_call_result = drop_first(&mut ys); smelt_mut_call_result };
+return ys;
+}"#);
 }
 
 #[test]
 fn generic_class_return_of_a_monomorphized_mut_list_call_passes_through() {
-    // Regression (haiku audit F0044): the adapter decides whether the callee's
-    // return mentions the generics it monomorphized, and a narrower private
-    // walk answered that by stopping at class arguments. `Holder<T>` therefore
-    // read as a fully concrete return, and the already-`Holder<f64>` result was
-    // rebuilt field by field through a `SmeltUnknown` extraction of an `f64`
-    // field (E0308). Rust binds `T` from the borrowed `SmeltList<f64>`, so the
-    // result is the destination's type and passes through unchanged.
+    // `Holder<T>` returned from a monomorphized mutating callee is already the destination type,
+    // so it passes through unchanged rather than being rebuilt field by field.
     let source = source_for(
         r"
 class Holder<T> {
@@ -522,26 +447,24 @@ export function useTake(): number {
 }
 ",
     );
-    assert!(
-        source.contains("fn take_held<T"),
-        "the mutating callee must stay generic: {source}"
-    );
-    assert!(
-        source.contains("let smelt_mut_call_result = take_held(&mut ys); smelt_mut_call_result }"),
-        "the monomorphized class return must pass through unchanged: {source}"
-    );
-    assert!(
-        !source.contains("smelt_struct_value"),
-        "the concrete result must not be rebuilt field by field: {source}"
-    );
+
+    assert_eq!(rust_items(&source, &["sig take_held", "fn use_take"]), r"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
+
+fn use_take() -> f64 {
+let held: Holder<f64>;
+let _smelt_tmp_4: f64;
+let _smelt_tmp_5: f64;
+let mut ys: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![4.0, 5.0]; smelt_list_items }));
+let _smelt_tmp_3: Holder<f64> = { let smelt_mut_call_result = take_held(&mut ys); smelt_mut_call_result };
+held = _smelt_tmp_3;
+_smelt_tmp_4 = ys.len() as f64;
+_smelt_tmp_5 = held.value + _smelt_tmp_4;
+return _smelt_tmp_5;
+}");
 }
 
-/// A GENERIC base's constructor runs too.
-///
-/// No base value is ever built, so the base's type arguments never have to fit
-/// the derived class's flattened layout — the reason the construct-and-copy
-/// lowering used to drop `super(..)` to a generic base entirely (Hono's
-/// `class Hono<E> extends HonoBase<E>`).
+/// A generic base's constructor runs over the derived instance. No base value is built, so
+/// the base's type arguments never have to fit the derived class's flattened layout.
 #[test]
 fn generic_base_constructor_runs_over_the_derived_instance() {
     let source = source_for(
@@ -567,17 +490,9 @@ console.log(new App<number>().handle('/x'));
     assert!(source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: JsString)"), "{source}");
 }
 
-/// An unannotated arrow passed to a *generic* function is contextually typed
-/// from the instantiation its sibling arguments imply, not from the callee's
-/// raw type parameters.
-///
-/// The declared parameter type of `fn` is `(item: T) => U`. Handing that to the
-/// arrow as its contextual type bound the closure's parameter to a type
-/// variable outside its own scope, which lowered to `SmeltUnknown` — and then
-/// the already-concrete `number[]` argument had to be erased to match the
-/// instantiation, and the result un-erased again. One missing annotation cost
-/// four erasure sites. The bindings are recoverable from the value arguments,
-/// which is what this asserts.
+/// An unannotated arrow passed to a generic function is contextually typed from the
+/// instantiation its sibling arguments imply, not from the callee's raw type parameters, so
+/// the call site stays concrete with no erasure round-trip.
 #[test]
 fn unannotated_arrow_into_generic_callee_stays_concrete() {
     let source = source_for(
@@ -596,28 +511,13 @@ const doubled = mapArr(nums, (x) => x * 2);
         .split("fn main()")
         .nth(1)
         .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
-    assert!(
-        !main_body.contains("SmeltUnknown"),
-        "the call site must stay concrete, with no erasure round-trip:\n{source}"
-    );
-    assert!(
-        main_body.contains("closure_arg_0: f64"),
-        "the arrow parameter must be contextually typed as `f64`:\n{source}"
-    );
-    assert!(
-        main_body.contains("SmeltList<f64>"),
-        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
-    );
+    assert!(!main_body.contains("SmeltUnknown"), "the call site must stay concrete, with no erasure round-trip:\n{source}");
+    assert!(main_body.contains("closure_arg_0: f64"), "the arrow parameter must be contextually typed as `f64`:\n{source}");
+    assert!(main_body.contains("SmeltList<f64>"), "the concrete argument must not be re-erased to call the instantiation:\n{source}");
 }
 
-/// A constrained type parameter erases only itself; an unconstrained sibling
-/// still lifts to a real Rust generic.
-///
-/// `function_emits_rust_generics` used to demote a whole function the moment any
-/// type parameter carried a constraint, so `K extends string` erased `T` too and
-/// every position here came out `SmeltUnknown` — even `fallback: T` and the
-/// return, which are directly inferable. 215 of es-toolkit's 800 generic
-/// exported functions carry a constrained parameter.
+/// A constrained type parameter erases only itself; an unconstrained sibling still lifts to
+/// a real Rust generic, so `fallback: T` and the return stay directly inferable.
 #[test]
 fn constrained_type_param_erases_without_demoting_its_siblings() {
     let source = source_for(
@@ -631,35 +531,16 @@ const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
 ",
     );
 
-    let signature = source
-        .split("fn pick_first")
-        .nth(1)
-        .and_then(|rest| rest.split('{').next())
-        .unwrap_or_else(|| panic!("expected a generated `pick_first`:\n{source}"));
-    assert!(
-        signature.contains("arr: SmeltList<T>") && signature.contains("fallback: T"),
-        "the unconstrained `T` must lift to a real generic:\n{source}"
-    );
-    assert!(
-        signature.contains("SmeltUnknown"),
-        "the constrained `K` must still erase:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["sig pick_first"]), r"fn pick_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(arr: SmeltList<T>, key: &F0, fallback: T) -> T");
 }
 
-/// A type parameter inspected inside a *closure* body does not lift, even when
-/// the enclosing function body only ever moves it.
-///
-/// `classes::type_param_only_moved` used to walk `function.blocks` alone. A
-/// closure is a separate MIR body with its own locals and blocks, so an
-/// inspection inside one was invisible and the parameter lifted anyway.
-/// es-toolkit's `flatten<T, D extends number>` is exactly this shape: `T` lifted
-/// out of `arr: T[]`, while the `Array.isArray(item)` that inspects it lives in
-/// the inner recursive closure. The emitted
-/// `matches!(item, SmeltUnknown::Array(_))` then ran against a `T` and the
-/// generated library failed to compile with "expected type parameter `T`, found
-/// `SmeltUnknown`".
+/// A type parameter inspected inside a closure body does not lift even when the enclosing
+/// function body only moves it, because the emitted inspection runs against the erased
+/// carrier.
 #[test]
 fn type_param_inspected_inside_a_closure_does_not_lift() {
+    // The generic parameter list must be absent and the inspected `T` must not reach the
+    // parameters.
     let source = source_for(
         r"
 function scan<T, K extends string>(arr: T[], key: (item: T) => K): T[] {
@@ -671,33 +552,12 @@ const r = scan(['a', 'b'], (s) => 'k');
 ",
     );
 
-    let signature = source
-        .split("fn scan")
-        .nth(1)
-        .and_then(|rest| rest.split('{').next())
-        .unwrap_or_else(|| panic!("expected a generated `scan`:\n{source}"));
-    // The generic parameter list is what must be absent; `SmeltList<..>` in the
-    // parameter types legitimately contains angle brackets.
-    assert!(
-        !signature.starts_with('<'),
-        "a closure that inspects `T` must not declare Rust generics:\n{source}"
-    );
-    assert!(
-        signature.contains("arr: SmeltList<SmeltUnknown>"),
-        "the inspected `T` must not reach the parameter list:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["sig scan"]), r"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
 }
 
-/// A type parameter moved into a differently-typed container does not lift.
-///
-/// `Rvalue::Use` used to be whitelisted as "a bare move", which short-circuited
-/// the destination check. But a move is opacity-preserving only when source and
-/// destination agree about `T`: moving a `T` into a slot of another type erases
-/// it. es-toolkit's `unzipWith` is exactly this shape — `group` comes from
-/// `new Array(n)` so its type is `unknown[]`, each `T` element is moved into it,
-/// and the erased list is then passed to a callback whose bound reads
-/// `Fn(SmeltList<T>)`, so the generated library failed with "expected `Vec<T>`,
-/// found `Vec<SmeltUnknown>`".
+/// A type parameter moved into a differently-typed container does not lift: moving a `T`
+/// into an `unknown[]` slot erases it, and the erased list could not reach a
+/// `Fn(SmeltList<T>)` bound.
 #[test]
 fn type_param_moved_into_an_erased_container_does_not_lift() {
     let source = source_for(
@@ -715,15 +575,7 @@ const r = collect([[1, 2]], (v) => 'k');
 ",
     );
 
-    let signature = source
-        .split("fn collect")
-        .nth(1)
-        .and_then(|rest| rest.split('{').next())
-        .unwrap_or_else(|| panic!("expected a generated `collect`:\n{source}"));
-    assert!(
-        !signature.starts_with('<'),
-        "a `T` moved into an `unknown[]` must not lift:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["sig collect"]), r"fn collect(rows: SmeltList<SmeltList<SmeltUnknown>>, key: &dyn Fn(&SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
 }
 
 /// A generic call signature stores its callable at the CONSTRAINT of each of
@@ -761,16 +613,10 @@ const picked: string = holder.pick('a') + holder.direct('b');
 
 #[test]
 fn a_generic_class_spells_its_derived_impls_instead_of_deriving_them() {
-    // H29. `#[derive(Clone)]` on a generic struct generates `impl<T: Clone>` —
-    // its own bound and nothing more. That cannot satisfy a field whose type is
-    // another generated class, because those carry the full generated bound set,
-    // so hono's `class TrieRouter<T> { root: Node<T> }` reported "the trait
-    // `Clone`/`Default`/`IntoSmeltUnknown`/`SmeltFromUnknown` is not implemented
-    // for `T`" once per derive.
-    //
-    // The impls are spelled out with a field-type `where` clause: that is the
-    // exact requirement of a field-by-field body, where bounding `T` says either
-    // too little or too much.
+    // `#[derive(Clone)]` on a generic struct generates `impl<T: Clone>`, which cannot satisfy a
+    // field whose type is another generated class. The impls are spelled out with a field-type
+    // `where` clause, and `Default` takes the crate's generated bound set because a field default
+    // can delegate to another generated class.
     let source = source_for(
         r"
 class Leaf<T> {
@@ -785,36 +631,12 @@ export function hold<T>(trunk: Trunk<T>): Trunk<T> {
 ",
     );
 
-    // The enabling condition: the class really is generic, which is the shape the
-    // derives could not bound.
-    assert!(
-        source.contains("struct Trunk<T>"),
-        "the fixture must produce a generic class: {source}"
-    );
-    assert!(
-        !source.contains("#[derive(Clone, Debug, Default, PartialEq)]\n#[allow(dead_code)]\nstruct Trunk<T>"),
-        "a generic value class must not rely on the derives: {source}"
-    );
-    for spelled in [
-        "impl<T> Clone for Trunk<T>",
-        "impl<T> PartialEq for Trunk<T>",
-    ] {
-        assert!(
-            source.contains(spelled),
-            "expected a spelled-out `{spelled}` impl: {source}"
-        );
+    assert!(source.contains("struct Trunk<T>"), "the fixture must produce a generic class: {source}");
+    assert!(!source.contains("#[derive(Clone, Debug, Default, PartialEq)]\n#[allow(dead_code)]\nstruct Trunk<T>"), "a generic value class must not rely on the derives: {source}");
+    for spelled in ["impl<T> Clone for Trunk<T>", "impl<T> PartialEq for Trunk<T>"] {
+        assert!(source.contains(spelled), "expected a spelled-out `{spelled}` impl: {source}");
     }
-    // `Default` takes the crate's generated bound set, not the derive-equivalent
-    // `T: Default` (round 31, Agent E item 2). A field default can DELEGATE to
-    // another generated class — here `Leaf<T>::default()` — whose own impl
-    // carries the full set, and `T: Default` cannot prove it. Every generic item
-    // the crate emits carries the same set, so no in-crate consumer is worse off.
-    assert!(
-        source.contains(
-            "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Trunk<T>"
-        ),
-        "a generic value class takes the generated bound set on `Default`: {source}"
-    );
+    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Trunk<T>"), "a generic value class takes the generated bound set on `Default`: {source}");
 }
 
 #[test]

@@ -73,6 +73,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             pinned_nodes: Vec::new(),
             asymmetric_matchers_lowered: 0,
             presence_widened_bindings: HashMap::new(),
+            test_counts_assertions: false,
             defining_local_functions: Vec::new(),
             unknown_index_access,
             object_namespaces: crate::context::Published::default(),

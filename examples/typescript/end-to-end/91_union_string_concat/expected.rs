@@ -684,8 +684,16 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
 struct SmeltPanic { class: String, message: String }
 impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
 static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
-/// Silence the panic report for Smelt-thrown payloads only.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+thread_local! { static SMELT_PANIC_CATCH_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) }; }
+/// Arm a Smelt `catch` around the call about to unwind into it.
+#[allow(dead_code)]
+fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() + 1)); }
+/// Disarm the `catch` armed by [`smelt_panic_catch_enter`].
+#[allow(dead_code)]
+fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
+/// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
+/// must say what was thrown, as Node does, instead of exiting silently.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -1032,6 +1040,21 @@ fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>)
         if identities.borrow().wants_sweep(cell) { smelt_sweep_address_table(identities); }
         *identities.borrow_mut().slot(cell, smelt_next_object_id)
     })
+}
+
+thread_local! { static SMELT_OPEN_REFERENCE_VIEWS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+
+#[allow(dead_code)]
+fn smelt_open_reference_view(id: usize) -> Option<SmeltObject> { SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow().get(&id).cloned()) }
+
+#[allow(dead_code)]
+fn smelt_begin_reference_view(id: usize, view: &SmeltObject) { SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().insert(id, view.clone())); }
+
+#[allow(dead_code)]
+fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(String, SmeltUnknown)>) -> SmeltUnknown {
+    SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().remove(&id));
+    for (key, value) in entries { view.insert(key, value); }
+    SmeltUnknown::Object(view)
 }
 
 /// Return a stable erased promise id for a source future local.
@@ -2173,7 +2196,7 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
     let key: JsString = key.into();
     match target {
         SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
-        SmeltUnknown::Object(map) => { map.insert(key, value); }
+        SmeltUnknown::Object(map) => {  map.insert(key, value); }
         SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
             let key_text = key.to_string_lossy();
@@ -2679,7 +2702,13 @@ fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Siz
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     match value {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
-        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Object"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Array(_) if field == "constructor" => smelt_builtin_namespace("Array"),
+        SmeltUnknown::Number(_) if field == "constructor" => smelt_builtin_namespace("Number"),
+        SmeltUnknown::Bool(_) if field == "constructor" => smelt_builtin_namespace("Boolean"),
+        
+        SmeltUnknown::Symbol(_) if field == "constructor" => smelt_builtin_namespace("Symbol"),
+        SmeltUnknown::String(text) if field == "constructor" && !text.starts_with("__smelt_proto:") => smelt_builtin_namespace("String"),
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
@@ -3241,7 +3270,16 @@ impl IntoSmeltUnknown for () {
     }
 }
 
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown {
+    thread_local! { static SMELT_LISTS_BEING_ERASED: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltArray>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+    let id = self.id();
+    if let Some(array) = SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow().get(&id).cloned()) { return SmeltUnknown::Array(array); }
+    let array = SmeltArray::with_id(id, Vec::new());
+    SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow_mut().insert(id, array.clone()));
+    for item in self.into_vec() { let value = item.into_smelt_unknown(); array.push(value); }
+    SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow_mut().remove(&id));
+    SmeltUnknown::Array(array)
+} }
 
 pub trait SmeltFromUnknown {
     const HOLDS_RECORD: bool = false;
@@ -4117,6 +4155,16 @@ impl SmeltInspect for SmeltUnknown {
                 smelt_inspect_array(ctx, depth, &entries)
             }
             Self::Object(object) => {
+                if let Some(Self::Array(members)) = object.get("__smelt_set") {
+                    let members = members.iter().collect::<Vec<_>>();
+                    let entries = members.iter().map(|member| (member as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+                    return smelt_inspect_collection(ctx, depth, "Set", &entries);
+                }
+                if let Some(Self::Array(items)) = object.get("__smelt_map") {
+                    let pairs = items.iter().filter_map(|item| match item { Self::Array(pair) => Some((pair.get(0).unwrap_or(Self::Undefined), pair.get(1).unwrap_or(Self::Undefined))), _ => None }).collect::<Vec<_>>();
+                    let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
+                    return smelt_inspect_collection(ctx, depth, "Map", &entries);
+                }
                 let pairs = object.iter().collect::<Vec<_>>();
                 if pairs.iter().any(|(key, value)| key.eq_str_prefix("__smelt") || matches!(value, Self::Function(_))) {
                     return self.to_string();

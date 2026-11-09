@@ -854,3 +854,15 @@ impl FunctionEmitter<'_> {
     }
 
 }
+
+/// Whether parameter `local` of `function` is emitted `&mut`, for callers outside
+/// a function emitter. A function no emitter can be built for answers `false`.
+pub(crate) fn parameter_is_mutable_reference(
+    mir: &Mir,
+    context: &EmitContext,
+    function: &MirFunction,
+    local: LocalId,
+) -> bool {
+    FunctionEmitter::new(mir, context, function)
+        .is_ok_and(|emitter| emitter.parameter_needs_mutable_reference_in(function, local))
+}

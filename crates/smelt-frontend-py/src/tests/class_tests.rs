@@ -17,6 +17,9 @@ class Child(Base):
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_class_shape(&ctx, "Base", "Base { x: Int }")?;
+    ensure_class_shape(&ctx, "Child", "Child: Base { y: Int }")?;
+    ensure_signature(&ctx, "total", "total(self: Child) -> Int")?;
     Ok(())
 }
 
@@ -36,21 +39,26 @@ class Child(Base):
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_abstract_methods(&ctx, "Base", &["value"])?;
+    ensure_abstract_methods(&ctx, "Child", &[])?;
     Ok(())
 }
 
 #[test]
 fn generic_marker_base_lowers_class_type_params() -> TestResult {
-    let source = py!(r"
-from typing import Generic
+    let source = py!(r#"
+import typing
 
-class Box(Generic[T]):
+T = typing.TypeVar("T")
+
+class Box(typing.Generic[T]):
     value: T
     def __init__(self, value: T) -> None:
         self.value = value
-");
+"#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_class_shape(&ctx, "Box", "Box<T> { value: T }")?;
     Ok(())
 }
 
@@ -377,11 +385,8 @@ class Point:
     Ok(())
 }
 
-// The source used to omit `from dataclasses import dataclass`. CPython rejects
-// that module with `NameError: name 'dataclass' is not defined`, and the
-// frontend now resolves decorators through the module's imports, so an
-// unbound `dataclass` no longer counts as the stdlib decorator. The assertion
-// is unchanged: a valid `@dataclass(frozen=True)` lowers as a frozen dataclass.
+// Decorators resolve through the module's imports, so the source imports
+// `dataclass`: a valid `@dataclass(frozen=True)` lowers as a frozen dataclass.
 #[test]
 fn frozen_dataclass_lowers() -> TestResult {
     let source = py!(r"
@@ -619,7 +624,7 @@ class codes(IntEnum):
     Ok(())
 }
 
-/// Issue #98: a `@staticmethod` lowers to a `ClassStaticMethod`-owned function
+/// A `@staticmethod` lowers to a `ClassStaticMethod`-owned function
 /// with no `self` binding, and a class-level variable lowers to a static field.
 #[test]
 fn staticmethod_and_class_var_lower_to_static_members() -> TestResult {
@@ -687,7 +692,7 @@ def area(radius: float) -> float:
 }
 
 // ---------------------------------------------------------------------------
-// Issue #94: method and non-top-level calls.
+// Method and non-top-level calls.
 // ---------------------------------------------------------------------------
 
 /// Return the body of the named function/method item in `module`.
@@ -858,6 +863,10 @@ class Ops:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_signature(&ctx, "start", "start() -> Int")?;
+    ensure_signature(&ctx, "base", "base() -> Int")?;
+    ensure_owner_is_static(&ctx, "start")?;
+    ensure_owner_is_static(&ctx, "base")?;
     Ok(())
 }
 
@@ -884,7 +893,7 @@ def f(c: C) -> int:
 }
 
 // ---------------------------------------------------------------------------
-// Instance fields declared by assignment in `__init__` (issue #94).
+// Instance fields declared by assignment in `__init__`.
 // ---------------------------------------------------------------------------
 
 /// A field assigned from an `__init__` parameter is declared with that
@@ -907,14 +916,15 @@ class B:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_class_shape(&ctx, "B", "B { inner: A }")?;
+    ensure_eq(&method_receiver_types(&ctx, "b")?, &vec!["A".to_owned()], "receivers of `b`")?;
     Ok(())
 }
 
 /// Reading an undeclared attribute is rejected even when the class is empty.
 ///
-/// The former fieldless-class fallback silently assigned the receiver's own
-/// class type to every unknown attribute, accepting invalid Python and
-/// poisoning later method dispatch with a fabricated static type.
+/// An unknown attribute has no type to report, and giving it the receiver's
+/// own class would accept invalid Python and fabricate later method dispatch.
 #[test]
 fn fieldless_class_does_not_fabricate_unknown_field_types() -> TestResult {
     let source = py!(r"
@@ -1049,11 +1059,13 @@ class B:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_class_shape(&ctx, "B", "B { inner: A }")?;
+    ensure_eq(&method_receiver_types(&ctx, "b")?, &vec!["A".to_owned()], "receivers of `b`")?;
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// `super().__init__(...)` in a derived constructor (issue #94).
+// `super().__init__(...)` in a derived constructor.
 // ---------------------------------------------------------------------------
 
 /// A derived `__init__` may run its base's initialization via `super()`.
@@ -1204,6 +1216,7 @@ class Box(Generic[T]):
 "#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_class_shape(&ctx, "Box", "Box<T> { value: T }")?;
     Ok(())
 }
 
@@ -1225,6 +1238,10 @@ def identity(value: V) -> V:
 "#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_signature(&ctx, "identity", "identity<V>(value: V) -> V")?;
+    for name in ["P", "Ts", "U", "V"] {
+        ensure(!has_module_binding(&ctx, name), format!("{name} is a type-level declaration, not a value"))?;
+    }
     Ok(())
 }
 
@@ -1369,6 +1386,8 @@ def check(r: Result) -> bool:
     ] {
         let mut ctx = HirCtx::new();
         lower_module(source, &mut ctx)?;
+        ensure_signature(&ctx, "check", "check(r: Ok | Err) -> Bool")?;
+        ensure(!has_module_binding(&ctx, "Result"), format!("a type alias binds no value: {source}"))?;
     }
     Ok(())
 }
@@ -1775,7 +1794,7 @@ def run() -> str:
             ExprKind::ClosureCall { callee, .. } => candidate
                 .exprs
                 .get(callee.0 as usize)
-                .is_some_and(|callee| matches!(callee.kind, ExprKind::Field { .. })),
+                .is_some_and(|callee_expr| matches!(callee_expr.kind, ExprKind::Field { .. })),
             _ => false,
         })
     });

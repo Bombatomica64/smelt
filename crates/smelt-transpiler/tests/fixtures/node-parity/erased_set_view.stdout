@@ -1,0 +1,7 @@
+true [object Set]
+2 [ 'a', 'b' ] true true
+a
+b
+true {}
+Map(1) { 'a' => 1 } Set(0) {} Set(1) { 'x' } Set(1) { { a: 1 } }
+[ Set(1) { 1 } ] { s: Set(1) { 1 } }

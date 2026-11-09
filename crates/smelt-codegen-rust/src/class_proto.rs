@@ -180,6 +180,14 @@ fn param_crosses_erased_call(
     index: usize,
     ty: TypeId,
 ) -> bool {
+    // A parameter the method mutates in place enters as `&mut`. An argument
+    // rebuilt from the erased call is a temporary the caller cannot see, so the
+    // write would be lost: such a method has no erased adapter.
+    if let Some(param) = function.params.get(index)
+        && crate::emitter::parameter_is_mutable_reference(mir, context, function, *param)
+    {
+        return false;
+    }
     if function.rest == Some(index) {
         return matches!(mir.types.get(ty), Some(Type::List(item))
             if type_supports_from_unknown(mir, context, *item)

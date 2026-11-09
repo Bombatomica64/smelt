@@ -146,21 +146,17 @@ impl ModuleBuilder<'_> {
     fn lower_materialized_class_methods(
         &mut self,
         target: &MaterializedClassTarget<'_>,
+        class: &StmtClassDef,
         materialized: &smelt_specialize::ClassDefinition,
         module: &ModModule,
     ) -> Result<Vec<ItemId>, SmeltError> {
         let mut generated = Vec::new();
         for method in &materialized.methods {
-            let existing = self
-                .class_methods
-                .get(target.name)
-                .and_then(|methods| methods.get(&method.name))
-                .copied();
-            if existing
-                .is_some_and(|item| self.materialized_method_matches_item(item, &method.callable))
-            {
-                continue;
-            }
+            // A source `@staticmethod`/`@classmethod` is registered with the
+            // receiver-free methods; the manifest lists it among the methods.
+            let existing = [&self.class_methods, &self.class_static_methods]
+                .into_iter()
+                .find_map(|table| table.get(target.name)?.get(&method.name).copied());
             let source = find_specialized_function(module, &method.callable).ok_or_else(|| {
                 SmeltError::native_specialization_adapter_required(
                     target.span,
@@ -171,6 +167,13 @@ impl ModuleBuilder<'_> {
                     ),
                 )
             })?;
+            if existing.is_some_and(|item| self.materialized_method_matches_item(item, source)) {
+                continue;
+            }
+            // An abstract method is a signature on the class, with no body to lower.
+            if self.is_abstractmethod(class, source)? {
+                continue;
+            }
             if let Some(original) = existing {
                 let hidden = self.intern_synthesized_name(&format!("__smelt_original_{}", method.name));
                 self.rename_function_item(original, hidden)?;
@@ -204,11 +207,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Returns whether a final host method still points at its source class method.
-    fn materialized_method_matches_item(
-        &self,
-        item: ItemId,
-        callable: &smelt_specialize::CallableProvenance,
-    ) -> bool {
+    fn materialized_method_matches_item(&self, item: ItemId, source: &StmtFunctionDef) -> bool {
         let Some(Item::Function(function)) = self
             .ctx
             .krate
@@ -217,7 +216,7 @@ impl ModuleBuilder<'_> {
         else {
             return false;
         };
-        (function.span.start..function.span.end).contains(&callable.span.start)
+        function.span == self.span(source.range)
     }
 
     /// Validates a generated instance method while treating its receiver as the owner class.

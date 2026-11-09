@@ -14,7 +14,8 @@ fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { Sme
 // by es-toolkit `cloneDeep` (Error) and remeda `clone` (host objects it
 // delegates to the platform). Primitives/functions/promises pass through.
 // @smelt:item smelt_structured_clone when structured_clone
-fn smelt_structured_clone(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { let cloned: Vec<(JsString, SmeltUnknown)> = map.iter().map(|(key, field)| (key, smelt_structured_clone(field))).collect(); SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), cloned)) }, SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec().into_iter().map(smelt_structured_clone).collect())), other => other } }
+//~ The copy is a new object: the write-through hook naming the source instance stays behind.
+fn smelt_structured_clone(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { let cloned: Vec<(JsString, SmeltUnknown)> = map.iter().filter(|(key, _)| key.to_string_lossy() != "__smelt_method:__smelt_set_field").map(|(key, field)| (key, smelt_structured_clone(field))).collect(); SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), cloned)) }, SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec().into_iter().map(smelt_structured_clone).collect())), other => other } }
 // @smelt:item-end
 
 // `Object.create(proto)` must mint a FRESH object. Two failure modes make
