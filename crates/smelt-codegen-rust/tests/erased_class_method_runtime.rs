@@ -1,13 +1,8 @@
 //! Runtime execution tests for methods surviving class-instance erasure.
 //!
-//! Erasing a class instance to `SmeltUnknown` used to keep only its fields and
-//! the hidden `__smelt_class` marker; the methods were dropped, because MIR has
-//! no method-as-value node. Every later method read off the erased value missed,
-//! and the erased call site substituted a fabricated default (`|_| false`,
-//! `|_| SmeltUnknown::Null`) — so es-toolkit's `memoize` with a custom cache
-//! stored nothing at all, silently.
-//!
-//! A class's methods now ride along as prototype-carried members keyed
+//! A method read off an erased class instance has to find the method, which is
+//! what es-toolkit's `memoize` with a custom cache does. A class's methods ride
+//! along as prototype-carried members keyed
 //! `__smelt_method:<name>`, which `smelt_get_object_field` and the record
 //! projection resolve after the own property misses. The prefix is deliberately
 //! distinct from `__smelt_proto:` (used by `Object.create`): a class's methods

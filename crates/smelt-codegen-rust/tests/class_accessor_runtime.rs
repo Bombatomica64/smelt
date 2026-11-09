@@ -1,11 +1,8 @@
 //! Runtime execution tests for source-declared class ACCESSORS (`get`/`set`).
 //!
-//! A getter lowered as a `&self` method plus an accessor descriptor, so
-//! `obj.prop` already dispatched to it. A `set prop(v)` was rejected outright
-//! (`setters are not lowered yet`) even though the descriptor machinery and the
-//! `__smelt_set_<name>` method emission were both already there — only the
-//! source-level registration was missing. That blocker is what stopped Hono's
-//! `src/context.ts` (`set res(_res: Response | undefined)`) from lowering.
+//! A getter lowers as a `&self` method plus an accessor descriptor, and a setter
+//! as its `__smelt_set_<name>` method. Hono's `src/context.ts`
+//! (`set res(_res: Response | undefined)`) is the real-world shape.
 //!
 //! Two things have to be right, and only execution shows either:
 //!
@@ -13,11 +10,9 @@
 //!   field. A setter usually does more than assign (Hono's clones the response
 //!   and remembers a flag), so a direct field write silently loses that work;
 //! * a `#name` private field must NOT be confused with the property of the same
-//!   spelling. `#res` beside `get res()/set res()` is exactly Hono's shape, and
-//!   the two used to intern to one symbol: the accessor was shadowed by the
-//!   private slot, so a write skipped the setter — and once setters lowered,
-//!   `set res(v) { this.#res = v }` recursed into itself and overflowed the
-//!   stack. A private name now interns as `#res`, its own namespace.
+//!   spelling. `#res` beside `get res()/set res()` is exactly Hono's shape: a
+//!   private name interns as `#res`, its own namespace, so `set res(v) { this.#res
+//!   = v }` writes the slot and does not recurse into the setter.
 //!
 //! Every expectation is what Node 22 prints for the same source.
 //!

@@ -5,17 +5,14 @@
 //! `partialRight.placeholder`, `curry.placeholder`, `curryRight.placeholder`,
 //! `bind.placeholder`, `bindKey.placeholder` — and `memoize.Cache = Map`.
 //!
-//! The assignment used to lower into the module-init body, which nothing calls,
-//! with the target dropped outright, so every read answered `null`. A sentinel that
-//! reads `null` is worse than a missing one: `partial(fn, placeholder, 'b',
-//! placeholder)` filled the placeholder slots with a real argument instead of
-//! skipping them, and the spec saw a plausible-but-wrong argument list.
+//! The sentinel must read back as itself for `partial(fn, placeholder, 'b',
+//! placeholder)` to skip the placeholder slots.
 //!
 //! What matters at runtime is IDENTITY: the value read through the member spelling,
 //! the value read through destructuring, and the value the function's own body
 //! compares against must all be one thing. A string golden
-//! (`a_static_property_on_a_function_declaration_resolves`) can prove the read no
-//! longer answers null; only running the program proves the three agree.
+//! (`a_static_property_on_a_function_declaration_resolves`) proves the read
+//! resolves; only running the program proves the three agree.
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!

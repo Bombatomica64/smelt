@@ -9,13 +9,10 @@
 //! rest(fn)(1, 2, 3, 4);             // fn(1, 2, [3, 4])  -> [1, 2, [3, 4]]
 //! ```
 //!
-//! Smelt used to emit such a function at its declared arity, and the erased-call
-//! boundary padded a short call up to that arity — so `arguments` answered
-//! `['a', 'b', null]` where JavaScript answers `['a', 'b']`. The padding cannot
-//! simply be trimmed either: a real trailing `undefined` is a legitimate argument
-//! (es-toolkit's `partial` placeholder specs expect `[undefined, 'b', undefined]`),
-//! so the count has to travel with the call. A function that reads `arguments` is
-//! therefore lowered variadically — see `lowering::arguments_forwarding`.
+//! A trailing `undefined` is a legitimate argument (es-toolkit's `partial`
+//! placeholder specs expect `[undefined, 'b', undefined]`), so the count has to
+//! travel with the call: a function that reads `arguments` is lowered variadically
+//! (see `lowering::arguments_forwarding`).
 //!
 //! `Function.prototype.length` is the other half. It is the *declared* arity, which
 //! the variadic rewrite removes from the signature, and it has to survive erasure
