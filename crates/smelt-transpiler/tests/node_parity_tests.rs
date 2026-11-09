@@ -76,6 +76,12 @@ fn throw_and_catch_forms() -> TestResult {
     verify_node_parity("throw_and_catch_forms")
 }
 
+/// Async closures, generators and timers behave as Node runs them.
+#[test]
+fn async_forms() -> TestResult {
+    verify_node_parity("async_forms")
+}
+
 /// A throw delivers its operand whole through one channel, whatever it is, and
 /// a `try` around a call that cannot throw still builds and runs.
 #[test]

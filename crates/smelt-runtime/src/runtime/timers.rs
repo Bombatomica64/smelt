@@ -122,7 +122,6 @@ fn smelt_drain_due_timers(id_barrier: u64) {
         });
         if due.is_empty() { break; }
         for timer in due {
-            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
             //~ Re-arm repeating `setInterval` timers for their next period. The
             //~ next fire is scheduled `period` ms from the current virtual time, so
             //~ it is strictly in the future and cannot re-fire within this drain pass.
@@ -130,6 +129,8 @@ fn smelt_drain_due_timers(id_barrier: u64) {
                 let next_due = now.saturating_add(period_ms);
                 SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
             }
+            //~ Armed before the callback runs, so a `clearInterval` from inside it finds the timer.
+            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
         }
     }
 }
