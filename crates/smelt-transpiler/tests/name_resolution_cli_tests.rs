@@ -336,3 +336,85 @@ fn a_callback_result_returned_as_t_keeps_its_runtime_value() -> TestResult {
     let output = build_and_run(root)?;
     ensure_eq(&output, &UNCHECKED_RETURNS_OUTPUT.to_owned(), "the unchecked-returns program's output")
 }
+
+/// A parameter named like a host global is the parameter, on every path that
+/// used to ask the host first (audit A4): `new` of a host constructor (`Map`,
+/// `Set`, `Promise`, `Date`, `URL`, typed arrays), a namespace call
+/// (`Math.max`, `JSON.parse`, `Object.assign`, `Reflect.ownKeys`, `console.log`),
+/// a global function call (`String(x)`, `parseInt`, `Symbol`, `isNaN`), a
+/// static member read (`Number.MAX_SAFE_INTEGER`, `Symbol.iterator`), `typeof`,
+/// and a bare value (`Infinity`, `NaN`, `undefined`, `RegExp`).
+const HOST_SHADOW_TS: &str = r#"class Box { v: number; constructor(v: number) { this.v = v; } static of(v: number): Box { return new Box(v * 2); } }
+type Ctor = typeof Box;
+function a1(Map: Ctor) { return new Map(5).v; }
+function a2(Set: Ctor) { return new Set(4).v; }
+function a3(Promise: Ctor) { return new Promise(3).v; }
+function a4(Date: Ctor) { return new Date(2).v; }
+function a5(Error: Ctor) { return new Error(1).v; }
+function a6(URL: Ctor) { return new URL(6).v; }
+function a7(Array: Ctor) { return new Array(8).v; }
+function a8(WeakMap: Ctor) { return new WeakMap(9).v; }
+function a9(Uint8Array: Ctor) { return new Uint8Array(10).v; }
+function b1(console: { log: (x: string) => number }) { return console.log("z"); }
+function b2(Promise: Ctor) { return Promise.of(7).v; }
+function b4(Number: { MAX_SAFE_INTEGER: string }) { return Number.MAX_SAFE_INTEGER; }
+function b5(Symbol: { iterator: string }) { return Symbol.iterator; }
+function b6(Object: { assign: (a: number, b: number) => number }) { return Object.assign(1, 2); }
+function b7(Array: { from: (a: string) => number }) { return Array.from("ab"); }
+function b8(String: { fromCharCode: (a: number) => number }) { return String.fromCharCode(65); }
+function b9(Date: { now: () => string; UTC: (y: number) => string }) { return Date.now() + Date.UTC(1); }
+function c1(JSON: { parse: (s: string) => number }) { return JSON.parse("1") + 1; }
+function c2(Symbol: { for: (s: string) => string }) { return Symbol.for("k"); }
+function c3(String: (x: number) => number) { return String(4) + 1; }
+function c4(Number: (x: string) => string) { return Number("8") + "?"; }
+function c5(Boolean: (x: number) => number) { return Boolean(0) + 10; }
+function c6(parseFloat: (x: string) => string) { return parseFloat("1.5") + "f"; }
+function c7(structuredClone: (x: number) => number) { return structuredClone(3) * 2; }
+function c8(BigInt: (x: number) => string) { return BigInt(3); }
+function c9(Array: (n: number) => string) { return Array(3); }
+function d1(Date: string) { return typeof Date; }
+function d2(Math: number) { return Math + 1; }
+function d3(globalThis: { x: number }) { return globalThis.x; }
+function d4(Infinity: string) { return Infinity + "!"; }
+function d5(process: { env: string }) { return process.env; }
+function d6(Buffer: { from: (s: string) => number }) { return Buffer.from("x"); }
+function d7(Intl: { x: number }) { return Intl.x; }
+function d8(Reflect: { ownKeys: (x: number) => number }) { return Reflect.ownKeys(1); }
+function d9(Object: { keys: (x: number) => number }) { return Object.keys(4); }
+function e1(Error: (m: string) => string) { return Error("m"); }
+function e2(Symbol: (s: string) => string) { return Symbol("s"); }
+function e3(RegExp: (s: string) => number) { return RegExp("s") + 1; }
+function e4(String: { raw: (s: string) => string }) { return String.raw("q"); }
+function e5(Number: { isInteger: (x: number) => string }) { return Number.isInteger(4); }
+function e6(Math: { max: (...xs: number[]) => string }) { return Math.max(1, 2); }
+function e7(isNaN: (x: number) => string) { return isNaN(1); }
+function e8(encodeURIComponent: (x: string) => number) { return encodeURIComponent("a b") + 1; }
+function e9(Promise: { resolve: (x: number) => number }) { return Promise.resolve(1) + 1; }
+function f1(RegExp: string) { return RegExp; }
+const f2 = (Date: number) => Date + 1;
+function f3(NaN: number) { return NaN * 2; }
+function f4(undefined: number) { return undefined + 1; }
+function f5(Set: Ctor) { return typeof Set; }
+console.log(a1(Box), a2(Box), a3(Box), a4(Box), a5(Box), a6(Box), a7(Box), a8(Box), a9(Box));
+console.log(b1({ log: (x) => 42 }), b2(Box), b4({ MAX_SAFE_INTEGER: "m" }), b5({ iterator: "it" }), b6({ assign: (a, b) => a + b }), b7({ from: (a) => a.length }), b8({ fromCharCode: (a) => a + 1 }), b9({ now: () => "N", UTC: (y) => "U" + y }));
+console.log(c1({ parse: (s) => 10 }), c2({ for: (s) => "F" + s }), c3((x) => x * 10), c4((x) => x + x), c5((x) => x + 1), c6((x) => x + x), c7((x) => x + 1), c8((x) => "B" + x), c9((n) => "A" + n));
+console.log(d1("d"), d2(1), d3({ x: 3 }), d4("i"), d5({ env: "E" }), d6({ from: (s) => 5 }), d7({ x: 6 }), d8({ ownKeys: (x) => x + 7 }), d9({ keys: (x) => x * 3 }));
+console.log(e1((m) => m + "E"), e2((s) => s + "y"), e3((s) => 2), e4({ raw: (s) => "R" + s }), e5({ isInteger: (x) => "I" + x }), e6({ max: (...xs) => "M" + xs.length }), e7((x) => "N" + x), e8((x) => 3), e9({ resolve: (x) => x + 5 }));
+console.log(f1("r"), f2(1), f3(3), f4(4), f5(Box), new Map([[1, 2]]).size, typeof Date, Math.max(1, 2));
+"#;
+
+/// What Node prints for [`HOST_SHADOW_TS`].
+const HOST_SHADOW_OUTPUT: &str = "5 4 3 2 1 6 8 9 10\n42 14 m it 3 2 66 NU1\n11 Fk 41 88? 11 1.51.5f 8 B3 A3\n\
+string 2 3 i! E 5 6 8 12\nmE sy 3 Rq I4 M2 N1 4 7\nr 2 6 5 function 1 function 2\n";
+
+/// Every host-global path resolves a shadowing parameter to the parameter.
+#[test]
+fn parameters_shadow_host_globals_everywhere() -> TestResult {
+    let sources = [("main.ts", HOST_SHADOW_TS)];
+    ensure_node_agrees(&sources, "main.ts", HOST_SHADOW_OUTPUT, "host shadowing")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &HOST_SHADOW_OUTPUT.to_owned(), "the host-shadowing program's output")
+}

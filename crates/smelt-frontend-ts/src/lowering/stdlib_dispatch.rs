@@ -51,12 +51,22 @@ pub(super) fn callee_root<'source>(callee: &'source Expression<'_>) -> Option<&'
     }
 }
 
+/// Whether a bare name, where it is read, is the host global of a spelling:
+/// `names_host(name, global)`. The lowering passes
+/// `ModuleBuilder::names_host`, which asks the lexical scope and the module
+/// first, so a recognition helper never decides a host name by spelling alone.
+pub(super) type NamesHost<'a> = &'a dyn Fn(&str, &str) -> bool;
+
 /// Return the shared stdlib rule matching a TypeScript call expression.
+///
+/// The callee's ROOT name is gated by the caller (`recognized_call`); a host
+/// constructor nested in the receiver (`new RegExp(..).test`) is asked of
+/// `names_host`.
 #[must_use]
-pub(super) fn call_rule(call: &CallExpression<'_>) -> Option<RuleId> {
+pub(super) fn call_rule(call: &CallExpression<'_>, names_host: NamesHost<'_>) -> Option<RuleId> {
     match &call.callee {
         Expression::Identifier(callee) => smelt_stdlib::typescript_call_rule(None, &callee.name),
-        Expression::StaticMemberExpression(member) => static_member_rule(member),
+        Expression::StaticMemberExpression(member) => static_member_rule(member, names_host),
         _ => None,
     }
 }
@@ -85,14 +95,14 @@ fn namespace_path(expr: &Expression<'_>) -> Option<String> {
 
 /// Return the pure Math operation for a static `Math.*` call, excluding non-foldable APIs.
 #[must_use]
-pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<MathFunction> {
+pub(super) fn pure_math_call(call: &CallExpression<'_>, names_host: NamesHost<'_>) -> Option<MathFunction> {
     let Expression::StaticMemberExpression(member) = &call.callee else {
         return None;
     };
     let Expression::Identifier(object) = &member.object else {
         return None;
     };
-    if object.name != "Math" {
+    if !names_host(object.name.as_str(), "Math") {
         return None;
     }
     smelt_stdlib::math_function(member.property.name.as_str()).filter(|function| {
@@ -101,7 +111,7 @@ pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<MathFunction> 
 }
 
 /// Return the rule matching a static member call.
-fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
+fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>, names_host: NamesHost<'_>) -> Option<RuleId> {
     let property = member.property.name.as_str();
     // The receiver is the whole DOTTED namespace path, not just an identifier.
     // `Math.random()` and `crypto.subtle.digest(..)` are the same shape at
@@ -119,20 +129,20 @@ fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Opt
             let Expression::Identifier(callee) = &new_expr.callee else {
                 return None;
             };
-            (callee.name == "RegExp").then_some(RuleId::TsRegExpTest)
+            names_host(callee.name.as_str(), "RegExp").then_some(RuleId::TsRegExpTest)
         }
         Expression::CallExpression(call_expr) if property == "test" => {
             let Expression::Identifier(callee) = &call_expr.callee else {
                 return None;
             };
-            (callee.name == "RegExp").then_some(RuleId::TsRegExpTest)
+            names_host(callee.name.as_str(), "RegExp").then_some(RuleId::TsRegExpTest)
         }
         Expression::RegExpLiteral(_) if property == "test" => Some(RuleId::TsRegExpTest),
         Expression::NewExpression(new_expr) if property == "toISOString" => {
             let Expression::Identifier(callee) = &new_expr.callee else {
                 return None;
             };
-            (callee.name == "Date").then_some(RuleId::TsDateToIsoString)
+            names_host(callee.name.as_str(), "Date").then_some(RuleId::TsDateToIsoString)
         }
         _ => None,
     }
@@ -157,7 +167,7 @@ mod tests {
         let Expression::CallExpression(call) = &statement.expression else {
             panic!("expected call expression");
         };
-        call_rule(call)
+        call_rule(call, &|name, global| name == global)
     }
 
     /// Frontend AST recognition delegates exact calls to shared metadata.

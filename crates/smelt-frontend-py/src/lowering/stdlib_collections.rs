@@ -379,6 +379,10 @@ impl ModuleBuilder<'_> {
                 | "intersection"
                 | "difference"
                 | "symmetric_difference"
+                | "update"
+                | "intersection_update"
+                | "difference_update"
+                | "symmetric_difference_update"
                 | "isdisjoint"
                 | "issubset"
                 | "issuperset"
@@ -435,6 +439,36 @@ impl ModuleBuilder<'_> {
                     right,
                 },
                 ty: set_ty,
+                span: self.span(call.range()),
+            })));
+        }
+        if let Some(op) = match method {
+            "update" => Some(SetBinaryOp::Union),
+            "intersection_update" => Some(SetBinaryOp::Intersection),
+            "difference_update" => Some(SetBinaryOp::Difference),
+            "symmetric_difference_update" => Some(SetBinaryOp::SymmetricDifference),
+            _ => None,
+        } {
+            let [other_arg] = call.arguments.args.as_ref() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range()),
+                    "set update methods require exactly one set argument",
+                ));
+            };
+            if !call.arguments.keywords.is_empty() {
+                return Err(SmeltError::unsupported(self.span(call.range()), "set update methods take no keywords"));
+            }
+            let other = self.expression(other_arg, body)?;
+            if Self::expr_ty(body, other) != set_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(call.arguments.args[0].range()),
+                    "set update argument must match the receiver set type",
+                ));
+            }
+            let ty = self.intern_type(Type::None);
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::SetUpdate { op, set, other },
+                ty,
                 span: self.span(call.range()),
             })));
         }

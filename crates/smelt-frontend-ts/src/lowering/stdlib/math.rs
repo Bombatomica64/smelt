@@ -25,7 +25,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" || member.property.name != "pow" {
+        if !self.names_host(object.name.as_str(), "Math") || member.property.name != "pow" {
             return Ok(None);
         }
         if call.arguments.len() != 2 {
@@ -71,7 +71,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" || member.property.name != "imul" {
+        if !self.names_host(object.name.as_str(), "Math") || member.property.name != "imul" {
             return Ok(None);
         }
         let [lhs_argument, rhs_argument] = call.arguments.as_slice() else {
@@ -115,7 +115,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" || member.property.name != "atan2" {
+        if !self.names_host(object.name.as_str(), "Math") || member.property.name != "atan2" {
             return Ok(None);
         }
         if call.arguments.len() != 2 {
@@ -164,7 +164,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" || member.property.name != "abs" {
+        if !self.names_host(object.name.as_str(), "Math") || member.property.name != "abs" {
             return Ok(None);
         }
         if call.arguments.len() != 1 {
@@ -206,7 +206,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" {
+        if !self.names_host(object.name.as_str(), "Math") {
             return Ok(None);
         }
         let op = match member.property.name.as_str() {
@@ -278,7 +278,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" {
+        if !self.names_host(object.name.as_str(), "Math") {
             return Ok(None);
         }
         let op = match member.property.name.as_str() {
@@ -343,7 +343,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" || member.property.name != "hypot" {
+        if !self.names_host(object.name.as_str(), "Math") || member.property.name != "hypot" {
             return Ok(None);
         }
         let args = call
@@ -380,7 +380,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Math" {
+        if !self.names_host(object.name.as_str(), "Math") {
             return Ok(None);
         }
         let Some(op) = smelt_stdlib::math_function(member.property.name.as_str())
@@ -458,7 +458,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Math" {
+        if !self.names_host(object.name.as_str(), "Math") {
             return None;
         }
         let span = self.span(member.span.start, member.span.end);
@@ -559,7 +559,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Math" {
+        if !self.names_host(object.name.as_str(), "Math") {
             return None;
         }
         let Expression::Identifier(method_ident) = &member.expression else {

@@ -238,6 +238,22 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// `value` as a list for a builtin that reads an iterable without caring
+    /// about its order (`sorted`, `sum`, `min`, `max`, `all`, `any`): a set
+    /// is projected to the list of its items, any other value is returned
+    /// unchanged for the builtin's own type check.
+    pub(super) fn order_free_iterable_as_list(&mut self, value: smelt_hir::ExprId, span: Span, body: &mut Body) -> smelt_hir::ExprId {
+        let Some(Type::Set(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned() else {
+            return value;
+        };
+        let ty = self.intern_type(Type::List(item_ty));
+        body.push_expr(HirExpr {
+            kind: ExprKind::SetProjection { op: SetProjectionOp::Values, set: value },
+            ty,
+            span,
+        })
+    }
+
     /// Lower `list(value)` for the currently supported direct container inputs.
     fn list_constructor_from_arg(
         &mut self,

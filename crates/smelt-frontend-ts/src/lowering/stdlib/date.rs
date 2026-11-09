@@ -108,7 +108,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &new_expr.callee else {
             return Ok(None);
         };
-        if callee.name != "Date" {
+        if !self.names_host(callee.name.as_str(), "Date") {
             return Ok(None);
         }
         if !call.arguments.is_empty() {
@@ -136,7 +136,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Date" || member.property.name != "UTC" {
+        if !self.names_host(object.name.as_str(), "Date") || member.property.name != "UTC" {
             return Ok(None);
         }
         if !(2..=7).contains(&call.arguments.len()) {

@@ -79,18 +79,21 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
             return Ok(expr);
         }
-        // `Set`, `Map` and `Promise` are host constructors too, so a class the
-        // program declares under one of those names skips them.
-        let declared_class = matches!(&new_expr.callee, Expression::Identifier(callee)
-            if self.classes.contains(callee.name.as_str()));
-        if !declared_class {
-            if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
+        // `Set`, `Map` and `Promise` are host constructors only where the
+        // callee resolves to the host: a parameter, local, class or import of
+        // one of those names is constructed as that binding (audit A4).
+        let host_callee = match &new_expr.callee {
+            Expression::Identifier(callee) => self.host_global_named(callee.name.as_str()),
+            _ => None,
+        };
+        if let Some(host) = host_callee {
+            if let Some(expr) = self.set_constructor_expression(host, new_expr, body, type_hint)? {
                 return Ok(expr);
             }
-            if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
+            if let Some(expr) = self.map_constructor_expression(host, new_expr, body, type_hint)? {
                 return Ok(expr);
             }
-            if let Some(expr) = self.promise_constructor_expression(new_expr, body, type_hint)? {
+            if let Some(expr) = self.promise_constructor_expression(host, new_expr, body, type_hint)? {
                 return Ok(expr);
             }
         }
@@ -257,17 +260,16 @@ impl ModuleBuilder<'_> {
         // one, else run the native construction. Intercepts before the native
         // constructor and user-class paths so a same-named override class
         // (`class File extends Blob`) does not shadow the dynamic dispatch.
-        if self.is_written_host_global(callee.name.as_str())
-            && let Some(native) =
-                self.native_host_constructor_expression(callee.name.as_str(), new_expr, body)?
+        if let Some(written) = self.written_host_global(callee.name.as_str())
+            && let Some(native) = self.native_host_constructor_expression(written, new_expr, body)?
         {
             return self.wrap_host_global_new(callee.name.as_str(), new_expr, native, body);
         }
         // A class the program declares is that class, whatever host
         // constructor its name spells (`class URL`, `class Date`, `class Map`):
         // the host constructors are consulted only for an undeclared name.
-        if !self.classes.contains(callee.name.as_str())
-            && let Some(expr) = self.host_constructor_expression(callee, new_expr, body, type_hint)?
+        if let Some(host) = host_callee
+            && let Some(expr) = self.host_constructor_expression(host, new_expr, body, type_hint)?
         {
             return Ok(expr);
         }

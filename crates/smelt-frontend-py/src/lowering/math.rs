@@ -350,6 +350,26 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
+        // `min(iterable)` / `max(iterable)`: one positional iterable argument
+        // compares its items (raising `ValueError` when it is empty).
+        if let [iterable] = args.as_slice()
+            && call.arguments.keywords.is_empty()
+        {
+            let list = self.order_free_iterable_as_list(*iterable, span, body);
+            if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, list)).cloned() {
+                if !matches!(self.ctx.krate.types.get(item_ty), Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "Python min() and max() of an iterable require bool, int, float or str items",
+                    ));
+                }
+                return Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::PythonListExtrema { op, list },
+                    ty: item_ty,
+                    span,
+                }));
+            }
+        }
         let ty = Self::expr_ty(body, args[0]);
         if !matches!(self.ctx.krate.types.get(ty), Some(Type::Int | Type::Float))
             || args.iter().any(|arg| Self::expr_ty(body, *arg) != ty)

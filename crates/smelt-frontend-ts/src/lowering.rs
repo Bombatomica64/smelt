@@ -930,6 +930,14 @@ struct ModuleBuilder<'ctx> {
     /// Keyed by the node's address because the address identifies exactly the
     /// one receiver node; nested calls push and pop their own entries.
     array_view_receivers: Vec<usize>,
+    /// Receiver nodes an optional builtin call (`f()?.join(",")`) evaluated
+    /// once into a temporary: `(node address, temporary, present type)`.
+    ///
+    /// While the call is lowered for the present branch, [`Self::expression`]
+    /// answers that node with a read of the temporary narrowed to its present
+    /// type, so the receiver runs once and every builtin rule sees `T`, not
+    /// `T | undefined`. See `ModuleBuilder::optional_builtin_receiver_call`.
+    narrowed_receiver_nodes: Vec<(usize, smelt_hir::LocalId, smelt_hir::TypeId)>,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///

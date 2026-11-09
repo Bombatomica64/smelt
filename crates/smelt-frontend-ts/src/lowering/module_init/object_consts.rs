@@ -48,10 +48,8 @@ impl ModuleBuilder<'_> {
         else {
             return None;
         };
-        let Expression::Identifier(callee) = &new_expr.callee else {
-            return None;
-        };
-        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Map) {
+        let host = self.host_global(&new_expr.callee)?;
+        if !Self::is_ts_stdlib_class_name(host.name(), smelt_stdlib::StdlibClass::Map) {
             return None;
         }
         let [Argument::ArrayExpression(array)] = new_expr.arguments.as_slice() else {

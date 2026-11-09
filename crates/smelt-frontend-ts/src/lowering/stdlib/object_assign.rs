@@ -29,7 +29,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" || member.property.name != "assign" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "assign" {
             return Ok(None);
         }
         let [target_arg, source_args @ ..] = call.arguments.as_slice() else {

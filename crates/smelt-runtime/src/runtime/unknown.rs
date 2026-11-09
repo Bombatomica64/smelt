@@ -346,8 +346,8 @@ fn smelt_unknown_js_relational_ordering(left: &SmeltUnknown, right: &SmeltUnknow
 //~ `ToNumber` for an erased value, mirroring the inline coercion codegen
 //~ emits when a `SmeltUnknown` flows into a numeric context: numeric
 //~ strings parse to their value, non-numeric strings become `NaN`, booleans
-//~ map to `0`/`1`, `__smelt_date` objects surface their timestamp, and
-//~ every remaining shape is `NaN`.
+//~ map to `0`/`1`, `null` to `0`, `__smelt_date` objects surface their
+//~ timestamp, and every remaining shape is `NaN`.
 fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
     match value {
         SmeltUnknown::Number(value) => *value,
@@ -359,7 +359,8 @@ fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
         SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
         SmeltUnknown::String(value) => smelt_js_string_to_number(value),
         SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },
-        SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
+        SmeltUnknown::Null => 0.0,
+        SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
     }
 }
 

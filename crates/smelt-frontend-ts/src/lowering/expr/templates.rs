@@ -86,7 +86,7 @@ impl ModuleBuilder<'_> {
         tagged: &oxc::ast::ast::TaggedTemplateExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if Self::is_string_raw_tag(&tagged.tag) {
+        if self.is_string_raw_tag(&tagged.tag) {
             return self.string_raw_template_expression(tagged, body);
         }
         Err(SmeltError::unsupported(
@@ -101,14 +101,14 @@ impl ModuleBuilder<'_> {
     /// Return true when a tagged-template tag is the `String.raw` builtin,
     /// i.e. a static member read of `raw` off the global `String` identifier
     /// that source has not shadowed with its own binding.
-    fn is_string_raw_tag(tag: &Expression<'_>) -> bool {
+    fn is_string_raw_tag(&self, tag: &Expression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = tag else {
             return false;
         };
         if member.property.name != "raw" {
             return false;
         }
-        matches!(&member.object, Expression::Identifier(ident) if ident.name == "String")
+        matches!(&member.object, Expression::Identifier(ident) if self.names_host(ident.name.as_str(), "String"))
     }
 
     /// Lower a `String.raw` tagged template to interleaved raw-quasi /

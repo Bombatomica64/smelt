@@ -2,7 +2,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use oxc::ast::ast::{Argument, Expression};
+use oxc::ast::ast::Argument;
 use smelt_hir::{AsyncOp, Body, ErasureReason, Expr, ExprKind, Literal, Type};
 
 impl ModuleBuilder<'_> {
@@ -12,10 +12,10 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &call.callee else {
+        let Some(callee) = self.host_global(&call.callee) else {
             return Ok(None);
         };
-        match callee.name.as_str() {
+        match callee.name() {
             "setTimeout" if call.arguments.len() == 1 => {
                 let Some(duration_argument) = call.arguments.first() else {
                     return Err(SmeltError::unsupported(
@@ -156,7 +156,7 @@ impl ModuleBuilder<'_> {
                 let duration = self.argument(duration_arg, body)?;
                 let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "timer id");
                 let span = self.span(call.span.start, call.span.end);
-                let op = if callee.name == "setTimeout" {
+                let op = if callee.is("setTimeout") {
                     AsyncOp::SetTimeout
                 } else {
                     AsyncOp::SetInterval

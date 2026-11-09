@@ -156,7 +156,7 @@ impl ModuleBuilder<'_> {
                 }
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                     && let Some(init) = &declarator.init
-                    && (Self::is_module_global_array_initializer(init)
+                    && (self.is_module_global_array_initializer(init)
                         || Self::object_const_initializer(init).is_some())
                 {
                     let ty = self
@@ -332,29 +332,29 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for const array initializers whose values must be visible in functions.
-    pub(in crate::lowering) fn is_module_global_array_initializer(init: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_module_global_array_initializer(&self, init: &Expression<'_>) -> bool {
         match init {
             Expression::ArrayExpression(_) => true,
             Expression::NewExpression(new_expr) => matches!(
                 &new_expr.callee,
                 Expression::Identifier(callee)
-                    if matches!(callee.name.as_str(), "Set" | "Map")
+                    if self.host_global_named(callee.name.as_str()).is_some_and(|host| matches!(host.name(), "Set" | "Map"))
                         || smelt_stdlib::is_typed_array_class_name(callee.name.as_str())
             ),
             Expression::CallExpression(call) => {
-                Self::object_values_identifier_argument(call).is_some()
+                self.object_values_identifier_argument(call).is_some()
             }
             Expression::TSAsExpression(as_expr) => {
-                Self::is_module_global_array_initializer(&as_expr.expression)
+                self.is_module_global_array_initializer(&as_expr.expression)
             }
             Expression::TSSatisfiesExpression(satisfies) => {
-                Self::is_module_global_array_initializer(&satisfies.expression)
+                self.is_module_global_array_initializer(&satisfies.expression)
             }
             Expression::TSNonNullExpression(non_null) => {
-                Self::is_module_global_array_initializer(&non_null.expression)
+                self.is_module_global_array_initializer(&non_null.expression)
             }
             Expression::ParenthesizedExpression(parenthesized) => {
-                Self::is_module_global_array_initializer(&parenthesized.expression)
+                self.is_module_global_array_initializer(&parenthesized.expression)
             }
             _ => false,
         }

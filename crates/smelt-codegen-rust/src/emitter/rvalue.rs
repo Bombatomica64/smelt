@@ -178,6 +178,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::DictPopItem { .. }
             | Rvalue::PythonSequenceRead { .. }
             | Rvalue::PythonStepSlice { .. }
+            | Rvalue::PythonListExtrema { .. }
             | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
@@ -459,6 +460,7 @@ impl FunctionEmitter<'_> {
             Rvalue::SetAdd { set, item } => self.set_add_expr(set, item, dest_ty),
             Rvalue::SetRemove { op, set, item } => self.set_remove_expr(*op, set, item, dest_ty),
             Rvalue::SetClear { set } => self.collection_clear_expr(set, dest_ty, "set"),
+            Rvalue::SetUpdate { op, set, other } => self.set_update_expr(*op, set, other, dest_ty),
             Rvalue::SetCopy { set } => self.set_copy_expr(set, dest_ty),
             Rvalue::ListToSet { list } => self.list_to_set_expr(list, dest_ty),
             Rvalue::ListPairsToDict { list } => self.list_pairs_to_dict_expr(list, dest_ty),

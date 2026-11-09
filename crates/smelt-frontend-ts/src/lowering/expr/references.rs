@@ -4,7 +4,7 @@ use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
-use crate::lowering::resolve::ValueBinding;
+use crate::lowering::resolve::{HostGlobal, ValueBinding};
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Expression, Statement};
 use oxc::span::GetSpan;
@@ -129,11 +129,12 @@ impl ModuleBuilder<'_> {
     /// always wins.
     fn host_global_identifier(
         &mut self,
-        name: &str,
+        host: HostGlobal<'_>,
         start: u32,
         end: u32,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let name = host.name();
         if name == "Infinity" {
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
@@ -219,8 +220,8 @@ impl ModuleBuilder<'_> {
         let binding = self.resolve_value(name);
         match binding {
             ValueBinding::Class => return self.class_value_expression(name, start, end, body),
-            ValueBinding::Host => {
-                if let Some(expr) = self.host_global_identifier(name, start, end, body)? {
+            ValueBinding::Host(host) => {
+                if let Some(expr) = self.host_global_identifier(host, start, end, body)? {
                     return Ok(expr);
                 }
             }
@@ -328,10 +329,14 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if let Some(expr) = self.builtin_function_value_expression(name, start, end, body) {
+            if let ValueBinding::Host(host) = binding
+                && let Some(expr) = self.builtin_function_value_expression(host, start, end, body)
+            {
                 return Ok(expr);
             }
-            if let Some(expr) = self.builtin_namespace_value_expression(name, start, end, body) {
+            if let ValueBinding::Host(host) = binding
+                && let Some(expr) = self.builtin_namespace_value_expression(host, start, end, body)
+            {
                 return Ok(expr);
             }
             if self.is_ambient_global_alias(name) {
@@ -671,11 +676,12 @@ impl ModuleBuilder<'_> {
     /// caller can continue its normal resolution chain.
     pub(in crate::lowering) fn builtin_function_value_expression(
         &mut self,
-        name: &str,
+        host: HostGlobal<'_>,
         start: u32,
         end: u32,
         outer_body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
+        let name = host.name();
         let span = self.span(start, end);
         Some(match name {
             // Primitive coercion constructors used as callbacks.
@@ -1019,11 +1025,12 @@ impl ModuleBuilder<'_> {
     /// caller continues its normal resolution chain.
     pub(in crate::lowering) fn builtin_namespace_value_expression(
         &mut self,
-        name: &str,
+        host: HostGlobal<'_>,
         start: u32,
         end: u32,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
+        let name = host.name();
         // The namespace objects come from the registry
         // (`smelt_stdlib::GLOBAL_NAMESPACES`) rather than from a list repeated
         // here: a global that IS an object has the same three answers whatever
@@ -1037,7 +1044,7 @@ impl ModuleBuilder<'_> {
         // not namespace objects, and keep the value model they had.
         if smelt_stdlib::global_namespace(name).is_none()
             && !matches!(name, "Promise" | "Array" | "Function")
-            && !Self::is_known_defined_global_constructor(name)
+            && !Self::is_known_defined_global_constructor(host)
             && name != "Blob"
             && name != "ArrayBuffer"
             && name != "DOMException"

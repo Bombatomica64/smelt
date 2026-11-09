@@ -348,6 +348,8 @@ impl SetRelationOp {
         match self {
             Self::IsSubset => "issubset",
             Self::IsSuperset => "issuperset",
+            Self::IsProperSubset => "isproper_subset",
+            Self::IsProperSuperset => "isproper_superset",
         }
     }
 }

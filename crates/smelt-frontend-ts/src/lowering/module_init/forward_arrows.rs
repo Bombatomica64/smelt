@@ -484,7 +484,7 @@ impl ModuleBuilder<'_> {
         // slot itself — the one shared value. So only a written binding that
         // did NOT become a slot (a shape the slot passes decline) still refuses.
         let (reassigned, through, nested) = Self::collect_all_mutated_names(program);
-        let mut identity_bindings = Self::identity_bearing_module_binding_names(program);
+        let mut identity_bindings = self.identity_bearing_module_binding_names(program);
         identity_bindings.retain(|name| {
             !self.mutable_global_items.contains_key(name)
                 && (reassigned.contains(name) || through.contains(name) || nested.contains(name))
@@ -532,7 +532,7 @@ impl ModuleBuilder<'_> {
     /// same contents, and the difference is only observable through mutation --
     /// which is exactly the case that goes silently wrong. Scalars are excluded
     /// because re-materializing one is indistinguishable from reading it.
-    pub(super) fn identity_bearing_module_binding_names(program: &Program<'_>) -> HashSet<String> {
+    pub(super) fn identity_bearing_module_binding_names(&self, program: &Program<'_>) -> HashSet<String> {
         let mut names = HashSet::new();
         for statement in &program.body {
             let variable = match statement {
@@ -552,7 +552,7 @@ impl ModuleBuilder<'_> {
                 let Some(init) = &declarator.init else {
                     continue;
                 };
-                if Self::is_module_global_array_initializer(init)
+                if self.is_module_global_array_initializer(init)
                     || Self::object_const_initializer(init).is_some()
                 {
                     names.insert(binding.name.as_str().to_owned());

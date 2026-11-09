@@ -121,8 +121,9 @@ impl ModuleBuilder<'_> {
         // Lower them to the same concrete single-argument closures used in
         // ordinary value position so the array method runs the builtin's
         // real behavior instead of a placeholder.
-        if let Some(expr) = self.builtin_function_value_expression(
-            name,
+        if let Some(host) = self.host_global_named(name)
+            && let Some(expr) = self.builtin_function_value_expression(
+            host,
             span_start,
             span_end,
             body,

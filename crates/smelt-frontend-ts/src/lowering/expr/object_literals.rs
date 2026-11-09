@@ -54,7 +54,7 @@ impl ModuleBuilder<'_> {
                 ));
             };
             if object_property.kind == PropertyKind::Get {
-                if Self::is_computed_symbol_key(object_property) {
+                if self.is_computed_symbol_key(object_property) {
                     continue;
                 }
                 let key = self.object_property_key_expr(object_property, body)?;
@@ -675,20 +675,22 @@ impl ModuleBuilder<'_> {
     /// other computed key (a constant holding a string or a symbol) lowers
     /// like a data property's key.
     pub(in crate::lowering) fn is_computed_symbol_key(
+        &self,
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> bool {
-        Self::is_direct_computed_symbol_call_key(object_property)
+        self.is_direct_computed_symbol_call_key(object_property)
     }
 
     /// Return true when a computed key is a direct `Symbol(...)` expression.
     pub(in crate::lowering) fn is_direct_computed_symbol_call_key(
+        &self,
         object_property: &oxc::ast::ast::ObjectProperty<'_>,
     ) -> bool {
         object_property.computed
             && matches!(
                 &object_property.key,
                 PropertyKey::CallExpression(call)
-                    if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
+                    if matches!(&call.callee, Expression::Identifier(callee) if self.names_host(callee.name.as_str(), "Symbol"))
             )
     }
 

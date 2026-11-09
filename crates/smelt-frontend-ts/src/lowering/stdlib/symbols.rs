@@ -46,7 +46,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
-            && object.name == "Symbol"
+            && self.names_host(object.name.as_str(), "Symbol")
             && member.property.name == "for"
         {
             return self.symbol_like_call(call, body, true);
@@ -54,7 +54,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "Symbol" {
+        if !self.names_host(callee.name.as_str(), "Symbol") {
             return Ok(None);
         }
         self.symbol_like_call(call, body, false)

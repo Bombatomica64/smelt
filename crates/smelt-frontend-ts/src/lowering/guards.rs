@@ -3,6 +3,7 @@
 
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
+use crate::lowering::resolve::HostGlobal;
 use super::new_expr::HostConstructor;
 use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
@@ -286,7 +287,11 @@ impl ModuleBuilder<'_> {
     /// branch the runtime cannot satisfy would reintroduce the erased-vs-runtime
     /// disagreement the globals plan warns against, so unmodeled host globals are
     /// deliberately excluded.
-    pub(super) fn is_known_defined_global_constructor(name: &str) -> bool {
+    ///
+    /// Takes a [`HostGlobal`]: only a name that resolved to the host is one
+    /// (a parameter named `Blob` is the parameter).
+    pub(super) fn is_known_defined_global_constructor(host: HostGlobal<'_>) -> bool {
+        let name = host.name();
         HostConstructor::of(name).and_then(|kind| kind.overridable(name)).is_some()
     }
 
@@ -400,7 +405,7 @@ impl ModuleBuilder<'_> {
         };
         if kind_lit.value == "undefined"
             && let Expression::Identifier(identifier) = &unary.argument
-            && identifier.name == "crypto"
+            && self.names_host(identifier.name.as_str(), "crypto")
         {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let result = !matches!(
@@ -460,8 +465,8 @@ impl ModuleBuilder<'_> {
         // `false`, `!== 'undefined'` is `true`. Without this, the bare `Blob`
         // identifier would fail to resolve as a value.
         if kind_lit.value == "undefined"
-            && let Expression::Identifier(identifier) = &unary.argument
-            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+            && let Some(host) = self.host_global(&unary.argument)
+            && Self::is_known_defined_global_constructor(host)
         {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let result = matches!(
@@ -713,7 +718,8 @@ impl ModuleBuilder<'_> {
     pub(super) fn typeof_operand_is_absent_global(&self, operand: &Expression<'_>) -> bool {
         match operand {
             Expression::Identifier(identifier) => {
-                Self::is_absent_ambient_global(identifier.name.as_str())
+                self.host_global_named(identifier.name.as_str())
+                    .is_some_and(|host| Self::is_absent_ambient_global(host.name()))
             }
             Expression::StaticMemberExpression(member) if !member.optional => {
                 self.expr_is_global_alias(&member.object)

@@ -490,7 +490,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         // A local binding named `Intl` shadows the global namespace.
-        if object.name != "Intl" || self.scope.is_bound("Intl") {
+        if !self.names_host(object.name.as_str(), "Intl") || self.scope.is_bound("Intl") {
             return Ok(None);
         }
         let qualified = format!("Intl.{}", member.property.name.as_str());

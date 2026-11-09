@@ -1426,6 +1426,62 @@ impl FunctionEmitter<'_> {
         )?))
     }
 
+    /// Emits JavaScript `+` whose result the frontend typed as the erased
+    /// carrier: ECMA-262 `ApplyStringOrNumericBinaryOperator` on the erased
+    /// operands, decided by their RUN-TIME values.
+    ///
+    /// This is a genuine dynamic boundary (the operands are already
+    /// `SmeltUnknown` or a union that may hold a string; see
+    /// `ModuleBuilder::addition_is_dynamic`): whether `+` concatenates or adds
+    /// is a property of the values, not of any static type, so the answer is
+    /// the carrier. An operand that is a string or an object (whose
+    /// `ToPrimitive` is its string) makes `+` concatenate the two `ToString`
+    /// texts; two bigints add as bigints, a bigint beside a number is a
+    /// `TypeError`, a symbol is a `TypeError`, and anything else adds the two
+    /// `ToNumber` values. `None` for any other operation or destination.
+    fn js_dynamic_addition_expr(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        if op != smelt_hir::BinOp::Add || self.mir.types.get(dest_ty) != Some(&Type::Unknown) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        if !self.has_dynamic_shape(lhs_ty) && !self.has_dynamic_shape(rhs_ty) {
+            return Ok(None);
+        }
+        let lhs_text = self.erase(lhs)?;
+        let rhs_text = self.erase(rhs)?;
+        let to_text = self.js_string_coercion_match_expr(
+            &RustExpr::path("smelt_add_operand"),
+            self.absent_spelling(),
+            true,
+        )?;
+        let bigint_arms = self.bigint_unknown_arm(
+            "(SmeltUnknown::BigInt(smelt_left), SmeltUnknown::BigInt(smelt_right)) => SmeltUnknown::BigInt(smelt_left + smelt_right), \
+             (SmeltUnknown::BigInt(_), _) | (_, SmeltUnknown::BigInt(_)) => smelt_add_type_error(\"Cannot mix BigInt and other types, use explicit conversions\"),",
+        );
+        Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "{{ let smelt_add_lhs: SmeltUnknown = {lhs_text}; let smelt_add_rhs: SmeltUnknown = {rhs_text}; \
+             let smelt_add_type_error = |smelt_message: &str| -> SmeltUnknown {{ smelt_panic_throw(smelt_throw(SmeltUnknown::Object(SmeltObject::new(::std::vec::Vec::from([(\"__smelt_error\".to_owned(), SmeltUnknown::String(\"TypeError\".into())), (\"message\".to_owned(), SmeltUnknown::String(smelt_message.into())), (\"stack\".to_owned(), SmeltUnknown::Undefined), (\"cause\".to_owned(), SmeltUnknown::Undefined)]))))) }}; \
+             let smelt_add_concatenates = |smelt_value: &SmeltUnknown| matches!(smelt_value, SmeltUnknown::String(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)); \
+             let smelt_add_strings = smelt_add_concatenates(&smelt_add_lhs) || smelt_add_concatenates(&smelt_add_rhs); \
+             if matches!(smelt_add_lhs, SmeltUnknown::Symbol(_)) || matches!(smelt_add_rhs, SmeltUnknown::Symbol(_)) {{ \
+             smelt_add_type_error(if smelt_add_strings {{ \"Cannot convert a Symbol value to a string\" }} else {{ \"Cannot convert a Symbol value to a number\" }}) \
+             }} else if smelt_add_strings {{ \
+             let smelt_add_text = |smelt_add_operand: SmeltUnknown| -> JsString {{ {to_text} }}; \
+             let mut smelt_sum = smelt_add_text(smelt_add_lhs); smelt_sum += &*smelt_add_text(smelt_add_rhs); SmeltUnknown::String(smelt_sum) \
+             }} else {{ match (smelt_add_lhs, smelt_add_rhs) {{ {bigint_arms}(smelt_left, smelt_right) => SmeltUnknown::Number(smelt_unknown_to_number(&smelt_left) + smelt_unknown_to_number(&smelt_right)) }} }} }}",
+            lhs_text = lhs_text.delimited(),
+            rhs_text = rhs_text.delimited(),
+            to_text = to_text.delimited(),
+        )))))
+    }
+
     /// Emits arithmetic involving erased operands through JavaScript-like numbers.
     pub(super) fn erased_arithmetic_expr(
         &self,
@@ -1567,6 +1623,9 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(text) = self.js_dynamic_addition_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(text);
+        }
         // A bigint against a number has its typed rule, which `==` shares.
         if let Some(text) = self.bigint_binary_expr(op, lhs, rhs, dest_ty)? {
             return Ok(text);

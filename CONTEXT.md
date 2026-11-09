@@ -51,6 +51,14 @@ Smelt lowers source through four stages, each behind a small interface:
   own order.
 - **EnumBinding** — proof that a name resolved to an enum; only the resolver
   mints one, and enum members are read through it.
+- **HostGlobal** — proof that a name resolved to the host's global (`Map`,
+  `Math`, `console`): nothing in the source binds it, a host-module import or
+  an ambient declaration does. Only the resolver mints one, and the host
+  dispatchers (`new` of a host constructor, builtin namespace calls, `typeof`
+  of a host function) take it, so a parameter named `Map` never reaches them.
+  `names_host(name, "Math")` / `host_global(expr)` are the spellings a lowering
+  site uses; `tests/host_resolution_guard_tests.rs` fails on a site that
+  compares an identifier's spelling to a host global itself.
 - **QualifiedExport** — `(ModuleKey, name)`: the key of every crate-wide table
   that carries facts (object constants, enum members, overloads, rest
   parameters, ...) from a declaring module to its importers. An import reads

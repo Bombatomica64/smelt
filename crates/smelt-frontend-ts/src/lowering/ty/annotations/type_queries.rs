@@ -240,6 +240,100 @@ impl ModuleBuilder<'_> {
         lhs_ty
     }
 
+    /// The erased result type of a JavaScript `+` decided at run time, or
+    /// `None` when its operand types (or the checker) decide it statically.
+    ///
+    /// JavaScript `+` concatenates when either operand is a string after
+    /// `ToPrimitive` and adds numerically (or as bigints) otherwise. With an
+    /// `any` operand (or a union holding an erased or string arm beside
+    /// others) which of the two happens is decided by the RUN-TIME value, so
+    /// the result is genuinely dynamic: `(u as any) + 5` is `"t5"` for
+    /// `u = "t"` and `7` for `u = 2`. No concrete type, union of the operand
+    /// types or generic can say which; the result is the erased carrier, and
+    /// codegen applies `ApplyStringOrNumericBinaryOperator` to the erased
+    /// operands (`FunctionEmitter::js_dynamic_addition_expr`).
+    ///
+    /// Static information keeps the typed paths: a side that is DEFINITELY a
+    /// string keeps the typed concatenation (`any + "s"` is a `string`), and
+    /// a sum the checker types as a number, bigint or string keeps that typed
+    /// operation (a parameter Smelt erased whose checker type is `number`). The caller
+    /// asks this BEFORE `binary_result_type`, whose any-arm string rule would
+    /// type `any + (number | string)` as a string though it may add numbers.
+    pub(in crate::lowering) fn dynamic_addition_type(
+        &mut self,
+        op: BinOp,
+        lhs_ty: smelt_hir::TypeId,
+        rhs_ty: smelt_hir::TypeId,
+        start: u32,
+        end: u32,
+    ) -> Option<smelt_hir::TypeId> {
+        (op == BinOp::Add
+            && self.addition_is_dynamic(lhs_ty, rhs_ty)
+            && !self.checker_types_as_numeric(start, end)
+            && !self.checker_types_as_string(start, end))
+            .then(|| {
+                // An `any` operand was erased, and recorded, where its type was
+                // decided: the result only carries that erasure on. A union
+                // that may hold a string is a new decision here.
+                if self.add_operand_is_erased(lhs_ty) || self.add_operand_is_erased(rhs_ty) {
+                    self.unknown_type(NotNewErasure::ErasedUpstream)
+                } else {
+                    self.erase_with(ErasureReason::DynamicOperator, "`+` with a dynamic operand")
+                }
+            })
+    }
+
+    /// Whether a `+` operand of type `ty` is (or holds) the erased carrier.
+    fn add_operand_is_erased(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(inner)) => self.add_operand_is_erased(*inner),
+            Some(Type::Union(items)) => items.iter().copied().any(|item| self.add_operand_is_erased(item)),
+            _ => false,
+        }
+    }
+
+    /// Whether JavaScript `+` over operands of these types is decided at run
+    /// time: neither side is definitely a string, and one side is
+    /// [`Self::add_operand_is_dynamic`].
+    fn addition_is_dynamic(&self, lhs_ty: smelt_hir::TypeId, rhs_ty: smelt_hir::TypeId) -> bool {
+        if self.add_operand_is_definitely_string(lhs_ty) || self.add_operand_is_definitely_string(rhs_ty) {
+            return false;
+        }
+        self.add_operand_is_dynamic(lhs_ty) || self.add_operand_is_dynamic(rhs_ty)
+    }
+
+    /// Whether every value of `ty` is a string for `+` (`string`, a union of
+    /// strings, or an optional string, whose absent arm concatenates as its
+    /// absent word).
+    fn add_operand_is_definitely_string(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::String) => true,
+            Some(Type::Optional(inner)) => self.add_operand_is_definitely_string(*inner),
+            Some(Type::Union(items)) => {
+                !items.is_empty() && items.iter().copied().all(|item| self.add_operand_is_definitely_string(item))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a `+` operand of type `ty` may be a string or a non-string
+    /// depending on its run-time value: `any`/`unknown`, or a union holding
+    /// a string arm beside another arm (or an erased arm).
+    fn add_operand_is_dynamic(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(inner)) => self.add_operand_is_dynamic(*inner),
+            Some(Type::Union(items)) => items.iter().copied().any(|item| {
+                matches!(
+                    self.ctx.krate.types.get(self.type_param_constraint_or_self(item)),
+                    Some(Type::Unknown | Type::String)
+                ) || self.add_operand_is_dynamic(item)
+            }),
+            _ => false,
+        }
+    }
+
     /// Return whether arithmetic should coerce an optional numeric operand to a number.
     pub(in crate::lowering) fn is_optional_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {

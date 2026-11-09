@@ -29,7 +29,7 @@ impl ModuleBuilder<'_> {
         let Expression::CallExpression(right_call) = &logical.right else {
             return Ok(None);
         };
-        let Some((object_left, object_right)) = Self::object_is_identifier_pair(right_call) else {
+        let Some((object_left, object_right)) = self.object_is_identifier_pair(right_call) else {
             return Ok(None);
         };
         if !Self::expression_is_identifier(&left_binary.left, object_left)
@@ -53,6 +53,7 @@ impl ModuleBuilder<'_> {
 
     /// Return identifier names from an `Object.is(left, right)` call.
     pub(in crate::lowering) fn object_is_identifier_pair<'a>(
+        &self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
     ) -> Option<(&'a str, &'a str)> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -61,7 +62,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Object" || member.property.name != "is" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "is" {
             return None;
         }
         let [left_arg, right_arg] = call.arguments.as_slice() else {
@@ -97,7 +98,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" || member.property.name != "is" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "is" {
             return Ok(None);
         }
         let [left_arg, right_arg] = call.arguments.as_slice() else {
@@ -133,7 +134,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Reflect"
+        if !self.names_host(object.name.as_str(), "Reflect")
             || member.property.name != "has"
             || self.builtin_call_identifier_is_shadowed("Reflect")
         {
@@ -166,10 +167,10 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        let Expression::Identifier(object) = &member.object else {
+        let Some(object) = self.host_global(&member.object) else {
             return Ok(None);
         };
-        let op = match (object.name.as_str(), member.property.name.as_str()) {
+        let op = match (object.name(), member.property.name.as_str()) {
             ("Object", "keys" | "getOwnPropertyNames") => DictProjectionOp::Keys,
             ("Object", "values") => DictProjectionOp::Values,
             ("Object", "entries") => DictProjectionOp::Entries,
@@ -181,7 +182,7 @@ impl ModuleBuilder<'_> {
                 self.span(call.span.start, call.span.end),
                 format!(
                     "{}.{} requires exactly one record argument",
-                    object.name, member.property.name
+                    object.name(), member.property.name
                 ),
             ));
         };
@@ -335,7 +336,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" || member.property.name != "getOwnPropertySymbols" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "getOwnPropertySymbols" {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -398,7 +399,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" || member.property.name != "getPrototypeOf" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "getPrototypeOf" {
             return Ok(None);
         }
         let [value] = call.arguments.as_slice() else {
@@ -451,7 +452,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "Object"
+        if !self.names_host(callee.name.as_str(), "Object")
             || self.classes.contains("Object")
             || self.imports.is_value("Object")
         {
@@ -523,7 +524,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object_ident) = &member.object else {
             return Ok(None);
         };
-        if object_ident.name != "Object" || member.property.name != "create" {
+        if !self.names_host(object_ident.name.as_str(), "Object") || member.property.name != "create" {
             return Ok(None);
         }
         let [prototype] = call.arguments.as_slice() else {
@@ -578,7 +579,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" {
+        if !self.names_host(object.name.as_str(), "Object") {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -659,10 +660,10 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        let Expression::Identifier(object) = &member.object else {
+        let Some(object) = self.host_global(&member.object) else {
             return Ok(None);
         };
-        let expected_args = match (object.name.as_str(), member.property.name.as_str()) {
+        let expected_args = match (object.name(), member.property.name.as_str()) {
             ("Object", "setPrototypeOf") => 2,
             ("Object", "defineProperty") => 3,
             ("Object", "freeze") => 1,
@@ -700,7 +701,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object" || member.property.name != "fromEntries" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "fromEntries" {
             return Ok(None);
         }
         if let [argument] = call.arguments.as_slice() {
@@ -868,7 +869,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Object"
+        if !self.names_host(object.name.as_str(), "Object")
             || member.property.name != "getOwnPropertyDescriptor"
             || self.classes.contains("Object")
         {
@@ -1033,7 +1034,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if member.property.name == "call"
-            && Self::is_object_prototype_own_key_probe(&member.object)
+            && self.is_object_prototype_own_key_probe(&member.object)
         {
             let [dict_argument, key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
@@ -1046,7 +1047,7 @@ impl ModuleBuilder<'_> {
             return self.object_has_own_expr(call, body, dict, key);
         }
         if let Expression::Identifier(object) = &member.object
-            && object.name == "Object"
+            && self.names_host(object.name.as_str(), "Object")
             && member.property.name == "hasOwn"
         {
             let [dict_argument, key_argument] = call.arguments.as_slice() else {
@@ -1088,13 +1089,13 @@ impl ModuleBuilder<'_> {
     /// (`getOwnPropertySymbols(o).filter(s => propertyIsEnumerable.call(o, s))`);
     /// reading it off the opaque `Object.prototype` sentinel yielded `undefined`,
     /// the call answered `null`, and every symbol key was filtered away.
-    fn is_object_prototype_own_key_probe(expression: &Expression<'_>) -> bool {
-        Self::is_object_prototype_method(expression, "hasOwnProperty")
-            || Self::is_object_prototype_method(expression, "propertyIsEnumerable")
+    fn is_object_prototype_own_key_probe(&self, expression: &Expression<'_>) -> bool {
+        self.is_object_prototype_method(expression, "hasOwnProperty")
+            || self.is_object_prototype_method(expression, "propertyIsEnumerable")
     }
 
     /// Return true for the unshadowed `Object.prototype.<name>` member expression.
-    fn is_object_prototype_method(expression: &Expression<'_>, name: &str) -> bool {
+    fn is_object_prototype_method(&self, expression: &Expression<'_>, name: &str) -> bool {
         let Expression::StaticMemberExpression(method_member) = expression else {
             return false;
         };
@@ -1109,7 +1110,7 @@ impl ModuleBuilder<'_> {
         }
         matches!(
             &prototype_member.object,
-            Expression::Identifier(object) if object.name == "Object"
+            Expression::Identifier(object) if self.names_host(object.name.as_str(), "Object")
         )
     }
 
@@ -1332,7 +1333,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Array" || member.property.name != "isArray" {
+        if !self.names_host(object.name.as_str(), "Array") || member.property.name != "isArray" {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -1387,7 +1388,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "ArrayBuffer"
+        if !self.names_host(object.name.as_str(), "ArrayBuffer")
             || member.property.name != "isView"
             || self.classes.contains("ArrayBuffer")
         {

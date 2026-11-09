@@ -45,7 +45,7 @@ pub use fields::{FieldRule, typescript_field_rule};
 pub use globals::{
     ERROR_CLASS_NAMES, GLOBAL_NAMESPACES, GLOBAL_OBJECT_ALIASES, GlobalNamespace, GlobalPresence, NODE_PROFILE_VERSION,
     NODE_PROFILE_TIMEZONE, NODE_PROFILE_VERSION_STRING, global_is_absent, global_member_presence, global_namespace,
-    global_namespace_member_is_namespace, is_error_class_name, is_javascript_global_builtin,
+    global_namespace_member_is_namespace, is_error_class_name, is_global_function_value, is_javascript_global_builtin,
 };
 pub use host_modules::{
     HOST_MODULES, HostExport, HostExportKind, HostModule, HostModuleId, HostSurface, host_module,

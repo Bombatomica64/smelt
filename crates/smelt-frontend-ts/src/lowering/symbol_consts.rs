@@ -30,6 +30,20 @@ use smelt_hir::{FileId, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
+/// The host global this pre-pass recognizes; [`module_binds_value`] decides
+/// whether the module shadows it.
+const HOST_SYMBOL: &str = "Symbol";
+
+/// Whether the module scope of `program` binds the value `name`: a top-level
+/// declaration (`SourceFacts`) or an import binding.
+fn module_binds_value(program: &Program<'_>, name: &str) -> bool {
+    crate::lowering::source_facts::SourceFacts::collect(program).declares_module_value(name)
+        || program.body.iter().any(|statement| {
+            matches!(statement, Statement::ImportDeclaration(import)
+                if import.specifiers.iter().flatten().any(|specifier| specifier.local().name == name))
+        })
+}
+
 /// Record the module-level unique-symbol consts `program` declares into
 /// `ctx.predeclared_unique_symbols`, under every key an importer's specifier
 /// can resolve to (the path as given and its canonical form).
@@ -39,6 +53,13 @@ pub(in crate::lowering) fn record_unique_symbol_consts(
     path: &str,
     ctx: &mut HirCtx,
 ) {
+    // `Symbol()` is the host's only where nothing at module scope binds
+    // `Symbol`: a declaration or an import of that name is called instead.
+    // The pre-pass reads only top-level `const`s, so the module scope is the
+    // whole scope chain it can see.
+    if module_binds_value(program, "Symbol") {
+        return;
+    }
     let mut bindings = HashMap::new();
     for statement in &program.body {
         let declaration = match statement {
@@ -59,7 +80,7 @@ pub(in crate::lowering) fn record_unique_symbol_consts(
             let Some(Expression::CallExpression(call)) = &declarator.init else {
                 continue;
             };
-            if !matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
+            if !matches!(&call.callee, Expression::Identifier(callee) if callee.name.as_str() == HOST_SYMBOL)
             {
                 continue;
             }

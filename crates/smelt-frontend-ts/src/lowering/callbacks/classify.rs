@@ -568,9 +568,7 @@ impl ModuleBuilder<'_> {
     /// calls). A file that genuinely calls the global has no such binding, so the
     /// interceptor keeps firing unchanged.
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
-        self.scope.is_bound(name)
-            || self.source_facts.declares_module_value(name)
-            || (self.imports.is_value(name) && self.host_module_identifier_export_path(name).is_none())
+        self.host_global_named(name).is_none()
     }
 
 }
