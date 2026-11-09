@@ -185,6 +185,7 @@ export function hasSeen(id: LocalTypes.Id): boolean {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "has_seen", "has_seen(id: String) -> Bool")?;
     Ok(())
 }
 
@@ -220,6 +221,7 @@ export function hasSeen(id: Ids.Id): boolean {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "has_seen", "has_seen(id: String) -> Bool")?;
     Ok(())
 }
 
@@ -334,6 +336,7 @@ export function hasSeen(id: Ids.Id): boolean {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "has_seen", "has_seen(id: String) -> Bool")?;
     Ok(())
 }
 
@@ -388,6 +391,7 @@ export function hasSeen(id: UID.ContentType): boolean {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "has_seen", "has_seen(id: String) -> Bool")?;
     Ok(())
 }
 
@@ -2097,6 +2101,8 @@ describe("shadowing", () => {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "test_shadowing_uses_the_local", "test_shadowing_uses_the_local() -> None")?;
+    ensure_exprs!(&ctx, ClosureCall);
     Ok(())
 }
 
@@ -2759,7 +2765,7 @@ function read(db: CallableObject): string | undefined {
 #[test]
 fn lowers_unmodeled_method_call_on_builtin_receiver_through_dynamic_boundary()
 -> Result<(), String> {
-    // Issue #77: a method that is not a modeled builtin (`localeCompare`) on a
+    // A method that is not a modeled builtin (`localeCompare`) on a
     // primitive `string` receiver must lower through the shared dynamic-dispatch
     // boundary instead of hard-erroring on "method calls are only lowered for
     // class values". The concrete receiver keeps its `string` type; only the
@@ -2784,7 +2790,7 @@ export function cmp(a: string, b: string): number {
 
 #[test]
 fn lowers_unmodeled_method_call_on_template_string_receiver() -> Result<(), String> {
-    // Issue #77 / radash `sort`: a template-literal string receiver hits the
+    // A template-literal string receiver hits the
     // same non-class method-call path and must lower instead of aborting.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2805,7 +2811,7 @@ export function cmp(a: string, b: string): number {
 
 #[test]
 fn lowers_unmodeled_method_call_on_record_receiver() -> Result<(), String> {
-    // Issue #77: an unmodeled method reached on a `Record<string, T>` receiver
+    // An unmodeled method reached on a `Record<string, T>` receiver
     // lowers through the dynamic boundary rather than being rejected as a
     // non-class value.
     let mut ctx = HirCtx::new();
@@ -2828,7 +2834,7 @@ export function touch(record: Record<string, number>): number {
 
 #[test]
 fn lowers_unmodeled_method_call_on_concrete_union_receiver() -> Result<(), String> {
-    // Issue #77: an unmodeled method reached on a narrowed concrete-union arm
+    // An unmodeled method reached on a narrowed concrete-union arm
     // lowers through the dynamic boundary; the function still returns a concrete
     // value.
     let mut ctx = HirCtx::new();
@@ -3630,6 +3636,7 @@ debounced();
     let _module = module(&ctx, module_id)?;
 
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ClosureCall);
     Ok(())
 }
 

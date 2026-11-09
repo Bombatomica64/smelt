@@ -1,4 +1,4 @@
-//! TypeScript `enum` lowering tests (issue #78).
+//! TypeScript `enum` lowering tests.
 //!
 //! Covers const-folding of enum members into literals, the enum name resolving
 //! to its underlying primitive type, and `switch` statements whose case labels

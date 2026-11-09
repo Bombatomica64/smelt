@@ -4203,7 +4203,7 @@ const values: Mapped<readonly number[], string> = ["a", "b"];
 
 #[test]
 fn in_guard_narrows_class_union_to_concrete_arm() -> Result<(), String> {
-    // Issue #55: a structural `"field" in value` guard narrows a class union so
+    // A structural `"field" in value` guard narrows a class union so
     // the true-branch read is lowered at the single matching arm. Smelt records
     // this as a narrowing fact that re-types the local read with an
     // `UnknownCast` to the narrowed type.
@@ -4288,7 +4288,7 @@ function describe(shape: Circle | Square): number {
 
 #[test]
 fn reassigning_narrowed_local_with_compatible_value_keeps_narrowing() -> Result<(), String> {
-    // Issue #55 invalidation: writing a value still inside the narrowed set
+    // Invalidation: writing a value still inside the narrowed set
     // refines the fact instead of dropping it. The reassigned `path` read stays
     // narrowed to `string`, so the function validates cleanly.
     let mut ctx = HirCtx::new();

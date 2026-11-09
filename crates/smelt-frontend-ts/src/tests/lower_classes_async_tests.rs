@@ -120,6 +120,8 @@ class Service implements Contract<string> {}
         "service.ts",
         &mut ctx,
     )?;
+    ensure!(crate_has_item(&ctx, "Service"), "no item named `Service`");
+    ensure!(crate_has_item(&ctx, "Contract"), "no item named `Contract`");
     Ok(())
 }
 
@@ -199,6 +201,8 @@ interface Value<T> {
         "current.ts",
         &mut ctx,
     )?;
+    ensure!(crate_has_item(&ctx, "StringValue"), "no item named `StringValue`");
+    ensure!(crate_has_field(&ctx, "value"), "no read of field `value`");
     Ok(())
 }
 
@@ -436,7 +440,7 @@ fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), 
     assert_unsupported_ts(&field_errors, "static fields require a concrete literal initializer")?;
 
     // A literal-initialized `static` constant and a `static` method now lower
-    // successfully (issue #98): the constant becomes a materialized static field
+    // successfully: the constant becomes a materialized static field
     // and the method a receiver-free associated function.
     let mut ok_ctx = HirCtx::new();
     lower_ok(

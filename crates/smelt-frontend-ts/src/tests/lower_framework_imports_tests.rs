@@ -600,7 +600,7 @@ export const PI_VALUE = Math.PI;
     Ok(())
 }
 
-/// Issue #73: an exported const initialized from a member expression on a
+/// An exported const initialized from a member expression on a
 /// builtin/global root that is not a well-known Number/Math numeric constant
 /// (`Array.prototype`, `Array.prototype.slice`, `Object.prototype`, ...) is a
 /// genuine dynamic boundary. It must route through general expression lowering
@@ -631,7 +631,7 @@ export const numberProto = Number.prototype;
     Ok(())
 }
 
-/// Issue #73: a builtin `.prototype` member and a well-known numeric constant
+/// A builtin `.prototype` member and a well-known numeric constant
 /// can coexist in the same module — the numeric alias keeps folding to its
 /// literal const while the prototype member routes to the general path — so the
 /// numeric folder is not disturbed by the new member routing.
@@ -2548,6 +2548,8 @@ const first = value.a[0].b;
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Index);
+    ensure!(crate_has_field(&ctx, "b"), "no read of field `b`");
     Ok(())
 }
 
@@ -2584,6 +2586,7 @@ test("nullish", () => {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "test_nullish", "test_nullish() -> None")?;
     Ok(())
 }
 
@@ -2618,6 +2621,7 @@ fn lowers_declaration_type_test_index_access_on_unknown_metadata() -> Result<(),
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Index);
     Ok(())
 }
 

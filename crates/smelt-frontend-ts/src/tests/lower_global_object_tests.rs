@@ -213,6 +213,8 @@ export function bufferish(x: unknown): boolean {
     )?;
     // The imported receiver flows through unknown member access, never producing
     // a bare-`Buffer` resolution failure.
+    ensure_signature(&ctx, "bufferish", "bufferish(x: Unknown) -> Bool")?;
+    ensure!(crate_has_field(&ctx, "buffer"), "no member read on the imported shim");
     Ok(())
 }
 
