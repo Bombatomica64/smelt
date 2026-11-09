@@ -534,6 +534,12 @@ pub mod markers {
     pub const SMELT_SERVERRESPONSE: &str = "__smelt_serverresponse";
     /// `__smelt_set`.
     pub const SMELT_SET: &str = "__smelt_set";
+    /// `__smelt_proxy_call`.
+    pub const SMELT_PROXY_CALL: &str = "__smelt_proxy_call";
+    /// `__smelt_proxy_handler`.
+    pub const SMELT_PROXY_HANDLER: &str = "__smelt_proxy_handler";
+    /// `__smelt_proxy_target`.
+    pub const SMELT_PROXY_TARGET: &str = "__smelt_proxy_target";
     /// `__smelt_set_field`.
     pub const SMELT_SET_FIELD: &str = "__smelt_set_field";
     /// A class value's hook reading its mutable statics from their storage.
@@ -665,6 +671,9 @@ pub mod markers {
         SMELT_RESPONSE,
         SMELT_SERVERRESPONSE,
         SMELT_SET,
+        SMELT_PROXY_CALL,
+        SMELT_PROXY_HANDLER,
+        SMELT_PROXY_TARGET,
         SMELT_SET_FIELD,
         SMELT_SHAREDARRAYBUFFER,
         SMELT_STATIC_GET,

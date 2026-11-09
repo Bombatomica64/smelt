@@ -98,8 +98,8 @@ export function firstNonStringKey(value: object): boolean {
 
     let body = emitted_function_body(&source, "fn first_non_string_key");
     assert!(
-        body.contains("smelt_own_keys"),
-        "`Reflect.ownKeys` must use the own-key projection, not `Object.keys`:\n{body}"
+        body.contains("smelt_own_object_keys"),
+        "`Reflect.ownKeys` of an erased receiver must use the own-key projection, not `Object.keys`:\n{body}"
     );
     assert!(
         !body.contains("if false"),
