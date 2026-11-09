@@ -139,6 +139,21 @@ impl ModuleBuilder<'_> {
             return Ok(callback);
         }
         if let Argument::StaticMemberExpression(_member) = argument {
+            let mark = self.speculation_mark(body);
+            if let Ok(selected) = self.argument(argument, body) {
+                let selected_ty = Self::expr_ty(body, selected);
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(selected_ty).cloned() {
+                    let span = self.span(argument.span().start, argument.span().end);
+                    let symbol = self.ctx.krate.symbols.intern("__selected_callback");
+                    let local = self.capture_bind_value(selected, selected_ty, symbol, span, body);
+                    return Ok(ForwardingCallback {
+                        target: ForwardTarget::Local { local, ty: selected_ty },
+                        arity: expected_param_tys.len(),
+                        ty: function.return_ty,
+                    });
+                }
+            }
+            self.roll_back_to(mark, body);
             return Ok(self.opaque_member_callback(expected_param_tys));
         }
         // A callback chosen at runtime between callable values
