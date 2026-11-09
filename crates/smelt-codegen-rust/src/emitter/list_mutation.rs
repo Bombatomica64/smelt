@@ -665,14 +665,10 @@ impl FunctionEmitter<'_> {
                 "{collection_name} clear receiver must be a place operand"
             )));
         };
-        let collection_text = self.assignment_place_expr(collection_place)?;
+        let place = self.assignment_place_expr(collection_place)?;
         // A list is a shared handle: its buffer is cleared through the write borrow.
-        let collection_text = if collection_name == "list" {
-            list_write_expr(&collection_text)
-        } else {
-            collection_text
-        };
-        Ok(RustExpr::atom(format!("{{ {collection_text}.clear(); () }}", collection_text = collection_text.tight())))
+        let cleared = if collection_name == "list" { list_write_expr(&place) } else { place };
+        Ok(RustExpr::atom(format!("{{ {collection_text}.clear(); () }}", collection_text = cleared.tight())))
     }
 
     /// Renders `list.remove(item)` as a `Result`: a missing item is `ValueError`.
