@@ -38,3 +38,13 @@ describe('chai', () => {
   test('F_unmodelled', () => { (expect(1).to as any).frob })
   test('F_expr_body', () => expect(1).to.equal(2))
 })
+describe('chai_strict', () => {
+  test('F_include_string_element', () => { assert.include(['a'], 'b') })
+  test('T_include_string_element', () => { assert.include(['a'], 'a') })
+  test('F_include_bool_element', () => { assert.include([true], false) })
+  test('T_include_bool_element', () => { assert.include([true], true) })
+  test('F_one_of_string', () => { expect('s').to.be.oneOf(['t']) })
+  test('T_one_of_string', () => { expect('s').to.be.oneOf(['s']) })
+  test('F_members_string', () => { assert.sameMembers(['a'], ['b']) })
+  test('T_members_string', () => { assert.sameMembers(['a', 'b'], ['b', 'a']) })
+})
