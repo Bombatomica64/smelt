@@ -1070,6 +1070,21 @@ fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>)
     })
 }
 
+thread_local! { static SMELT_OPEN_REFERENCE_VIEWS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+
+#[allow(dead_code)]
+fn smelt_open_reference_view(id: usize) -> Option<SmeltObject> { SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow().get(&id).cloned()) }
+
+#[allow(dead_code)]
+fn smelt_begin_reference_view(id: usize, view: &SmeltObject) { SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().insert(id, view.clone())); }
+
+#[allow(dead_code)]
+fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(String, SmeltUnknown)>) -> SmeltUnknown {
+    SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().remove(&id));
+    for (key, value) in entries { view.insert(key, value); }
+    SmeltUnknown::Object(view)
+}
+
 /// Return a stable erased promise id for a source future local.
 fn smelt_promise_identity(source_key: usize) -> usize {
     SMELT_PROMISE_IDENTITIES.with(|identities| {
@@ -2731,7 +2746,13 @@ fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Siz
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     match value {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
-        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Object"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Array(_) if field == "constructor" => smelt_builtin_namespace("Array"),
+        SmeltUnknown::Number(_) if field == "constructor" => smelt_builtin_namespace("Number"),
+        SmeltUnknown::Bool(_) if field == "constructor" => smelt_builtin_namespace("Boolean"),
+        
+        SmeltUnknown::Symbol(_) if field == "constructor" => smelt_builtin_namespace("Symbol"),
+        SmeltUnknown::String(text) if field == "constructor" && !text.starts_with("__smelt_proto:") => smelt_builtin_namespace("String"),
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
@@ -3105,7 +3126,16 @@ impl IntoSmeltUnknown for () {
     }
 }
 
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown {
+    thread_local! { static SMELT_LISTS_BEING_ERASED: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltArray>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+    let id = self.id();
+    if let Some(array) = SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow().get(&id).cloned()) { return SmeltUnknown::Array(array); }
+    let array = SmeltArray::with_id(id, Vec::new());
+    SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow_mut().insert(id, array.clone()));
+    for item in self.into_vec() { let value = item.into_smelt_unknown(); array.push(value); }
+    SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow_mut().remove(&id));
+    SmeltUnknown::Array(array)
+} }
 
 pub trait SmeltFromUnknown {
     const HOLDS_RECORD: bool = false;
@@ -3708,12 +3738,15 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
+        if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
+        let __smelt_view = SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new()).smelt_with_origin(self.clone().clone());
+        smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+        smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
 /// Recover this reference record from an erased value: the live instance
@@ -3773,12 +3806,15 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
+        if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
+        let __smelt_view = SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new()).smelt_with_origin(self.clone().clone());
+        smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Array(smelt_value.into_iter().map(|smelt_value| (smelt_value).into_smelt_unknown()).collect())).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+        smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
 /// Recover this reference record from an erased value: the live instance
@@ -3825,12 +3861,15 @@ impl IntoSmeltUnknown for Leaf {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
+        if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
+        let __smelt_view = SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new()).smelt_with_origin(self.clone().clone());
+        smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Array(smelt_value.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+        smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
 /// Recover this reference record from an erased value: the live instance
@@ -3877,12 +3916,15 @@ impl IntoSmeltUnknown for Nums {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
+        if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
+        let __smelt_view = SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new()).smelt_with_origin(self.clone().clone());
+        smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect())),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+        smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
 /// Recover this reference record from an erased value: the live instance
@@ -3942,12 +3984,15 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
+        if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
+        let __smelt_view = SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new()).smelt_with_origin(self.clone().clone());
+        smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("parse".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+        smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
 /// Recover this reference record from an erased value: the live instance
@@ -4004,12 +4049,15 @@ impl IntoSmeltUnknown for YearParser {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
+        if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
+        let __smelt_view = SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new()).smelt_with_origin(self.clone().clone());
+        smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("parse".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
-        SmeltUnknown::Object(SmeltObject::with_id(__smelt_id, __smelt_entries).smelt_with_origin(self.clone()))
+        smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
 /// Recover this reference record from an erased value: the live instance

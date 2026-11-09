@@ -151,7 +151,23 @@ impl ModuleBuilder<'_> {
             argument,
             Argument::ConditionalExpression(_) | Argument::LogicalExpression(_)
         ) {
-            return Ok(self.opaque_member_callback(expected_param_tys));
+            // Evaluated once, in the enclosing body, like any argument: the
+            // selection happens before the iteration starts.
+            let span = self.span(argument.span().start, argument.span().end);
+            let selected = self.argument(argument, body)?;
+            let selected_ty = Self::expr_ty(body, selected);
+            let symbol = self.ctx.krate.symbols.intern("__selected_callback");
+            let local = self.capture_bind_value(selected, selected_ty, symbol, span, body);
+            let return_ty = match self.ctx.krate.types.get(selected_ty) {
+                Some(Type::Function(function)) => function.return_ty,
+                // not a new erasure: the selected value is already erased
+                _ => self.unknown_type(NotNewErasure::ErasedUpstream),
+            };
+            return Ok(ForwardingCallback {
+                target: ForwardTarget::Local { local, ty: selected_ty },
+                arity: expected_param_tys.len(),
+                ty: return_ty,
+            });
         }
         if let Argument::ArrayExpression(array) = argument
             && let Some(callback) =
