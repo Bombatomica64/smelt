@@ -649,6 +649,18 @@ fn self_recursive_generic_function_keeps_its_type_parameter() {
 export function repeat<T>(x: T, n: number): T { return n > 0 ? repeat(x, n - 1) : x; }
 ",
     );
-    assert!(source.contains("fn repeat<T: "), "{source}");
-    assert!(!source.contains("into_smelt_unknown(), _smelt_tmp"), "{source}");
+
+    assert_eq!(rust_items(&source, &["fn repeat"]), r"fn repeat<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T, n: f64) -> T {
+let mut _smelt_tmp_3: T;
+let _smelt_tmp_4: f64;
+let _smelt_tmp_2: bool = n > 0.0;
+if _smelt_tmp_2 {
+_smelt_tmp_4 = n - 1.0;
+let _smelt_tmp_5: T = repeat(x.clone(), _smelt_tmp_4);
+_smelt_tmp_3 = _smelt_tmp_5;
+} else {
+_smelt_tmp_3 = x.clone();
+}
+return _smelt_tmp_3;
+}");
 }

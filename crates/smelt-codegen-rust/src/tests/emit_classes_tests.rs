@@ -899,9 +899,6 @@ export function numberCount(): number {
 ",
     );
 
-    let program = program_body(&source);
-    assert!(program.contains(".chain("), "the inlined concat emits list concatenation:\n{program}");
-    assert!(program.contains(".skip("), "the inlined slice emits a skip-based slice:\n{program}");
     assert_eq!(rust_items(&source, &["fn number_count"]), r"fn number_count() -> f64 {
 let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SMALL_NUMBERS_0.with(|smelt_value| smelt_value.borrow().clone()));
 let _smelt_tmp_2: f64 = values.len() as f64;
@@ -932,15 +929,19 @@ const child = new Child('hello');
 ",
     );
 
-    assert!(
-        source.contains("Self::__smelt_init_Base(this, message"),
-        "{source}"
-    );
-    assert!(
-        source.contains("fn __smelt_init_Base(smelt_receiver: Self, message: JsString) -> Self"),
-        "{source}"
-    );
-    assert!(!source.contains("__smelt_super"), "no base value is built: {source}");
+    assert_eq!(rust_items(&source, &["impl Child {"]), r"impl Child {
+fn new(message: JsString) -> Self {
+let mut this: Self = Child { message: JsString::new() };
+let _smelt_tmp_2: Self = Self::__smelt_init_Base(this, message.clone());
+this = _smelt_tmp_2;
+return this;
+}
+fn __smelt_init_Base(smelt_receiver: Self, message: JsString) -> Self {
+let mut this: Self = smelt_receiver;
+this.message = message.clone();
+return this;
+}
+}");
 }
 
 /// `super(...)` chains through every inheritance level.
@@ -976,26 +977,34 @@ const value = new C();
 ",
     );
 
-    let impl_c = source
-        .split("impl C {")
-        .nth(1)
-        .and_then(|rest| rest.split("\nimpl ").next())
-        .unwrap_or_default();
-    assert!(impl_c.contains("fn __smelt_init_B(smelt_receiver: Self) -> Self"), "{source}");
-    assert!(impl_c.contains("fn __smelt_init_A(smelt_receiver: Self) -> Self"), "{source}");
-    // B's initializer, re-emitted over `C`, runs A's over the same receiver.
-    assert!(impl_c.contains("Self::__smelt_init_A(this)"), "{source}");
-    assert!(!source.contains("__smelt_super"), "{source}");
+    assert_eq!(rust_items(&source, &["impl C {"]), r"impl C {
+fn new() -> Self {
+let mut this: Self = C { a: 0.0, b: 0.0, c: 0.0 };
+let _smelt_tmp_1: Self = Self::__smelt_init_B(this);
+this = _smelt_tmp_1;
+this.c = 3.0;
+return this;
+}
+fn __smelt_init_B(smelt_receiver: Self) -> Self {
+let mut this: Self = smelt_receiver;
+let _smelt_tmp_1: Self = Self::__smelt_init_A(this);
+this = _smelt_tmp_1;
+this.b = 2.0;
+return this;
+}
+fn __smelt_init_A(smelt_receiver: Self) -> Self {
+let mut this: Self = smelt_receiver;
+this.a = 1.0;
+return this;
+}
+}");
 }
 
 /// A closure the base constructor stores captures the DERIVED instance.
 ///
 /// The base is a reference class (its constructor lets `this` escape), so the
-/// derived class is too, and the receiver handed through the initializer is
-/// the derived handle itself: the derived constructor's later write is visible
-/// to the closure. The old lowering built a separate base object, so the
-/// closure read the base object's `name` (Node prints `base:smart:hi`, Smelt
-/// printed `base::x`).
+/// derived class is too; `class_inheritance_behaviour` observes that the derived
+/// constructor's later write is visible to the closure.
 #[test]
 fn base_constructor_closures_capture_the_derived_instance() {
     let source = source_for(
@@ -1019,24 +1028,7 @@ console.log(new Smart().greet());
 ",
     );
 
-    assert!(
-        source.contains("struct Smart(::std::rc::Rc<::std::cell::RefCell<SmartInner>>)"),
-        "{source}"
-    );
-    let impl_smart = source
-        .split("impl Smart {")
-        .nth(1)
-        .and_then(|rest| rest.split("\nimpl ").next())
-        .unwrap_or_default();
-    let init_call = impl_smart.find("Self::__smelt_init_Base(this)");
-    let own_field = impl_smart.find("this.0.borrow_mut().msg = JsString::from(\"hi\")");
-    // The derived field initializer runs AFTER the base initialization, so the
-    // redeclared `msg` is not overwritten by the base's `'x'`.
-    assert!(
-        init_call.is_some() && own_field.is_some() && init_call < own_field,
-        "{source}"
-    );
-    assert!(impl_smart.contains("let mut this: Self = smelt_receiver;"), "{source}");
+    assert_eq!(rust_items(&source, &["struct Smart("]), r"struct Smart(::std::rc::Rc<::std::cell::RefCell<SmartInner>>);");
 }
 
 /// An argument read through a reference class's cell is bound before a call
@@ -1060,10 +1052,10 @@ console.log(new Tally().twice());
 ",
     );
 
-    assert!(
-        source.contains("let smelt_call_arg_0 = self.0.borrow().total.clone(); self.bump(smelt_call_arg_0)"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn twice"]), r"fn twice(&self) -> f64 {
+let _ = { let smelt_call_arg_0 = self.0.borrow().total.clone(); self.bump(smelt_call_arg_0) };
+return self.0.borrow().total.clone();
+}");
 }
 
 /// A base of a reference class is a reference class too.
@@ -1092,14 +1084,9 @@ console.log(m.x);
 ",
     );
 
-    assert!(
-        source.contains("struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>)"),
-        "{source}"
-    );
-    assert!(
-        source.contains("struct Mutated(::std::rc::Rc<::std::cell::RefCell<MutatedInner>>)"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["struct Plain(", "struct Mutated("]), r"struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>);
+
+struct Mutated(::std::rc::Rc<::std::cell::RefCell<MutatedInner>>);");
 }
 
 /// A class extending a host `Error` constructor gets the base constructor's
@@ -1121,20 +1108,24 @@ const failure = new ParseFailure('bad input');
 ",
     );
 
-    assert!(
-        source.contains(r#"this.name = JsString::from("TypeError")"#),
-        "{source}"
-    );
-    assert!(source.contains("this.message = message"), "{source}");
+    assert_eq!(rust_items(&source, &["impl ParseFailure {"]), r#"impl ParseFailure {
+fn new(message: JsString) -> Self {
+let mut this: Self = ParseFailure { name: JsString::new(), message: JsString::new(), stack: None::<JsString>, cause: SmeltUnknown::Null };
+this.name = JsString::from("TypeError");
+this.message = message.clone();
+this.stack = Some(JsString::new());
+return this;
+}
+}"#);
 }
 
 /// The inherited `Error` slots keep concrete types; only `cause` erases.
 ///
 /// TypeScript's lib types are `name: string`, `message: string`,
 /// `stack?: string`, `cause?: unknown`, and `tsc` rejects source that violates
-/// them before Smelt runs, so three of the four slots are ordinary strings
-/// rather than dynamic boundaries. This guards against a future change
-/// "consistently" re-erasing them to `SmeltUnknown`.
+/// them before Smelt runs, so three of the four slots are ordinary strings.
+/// `cause` is the one genuine dynamic boundary: ES2022 types it `unknown`
+/// because it carries an arbitrary thrown value.
 #[test]
 fn error_subclass_inherited_slots_stay_concretely_typed() {
     let source = source_for(
@@ -1148,31 +1139,19 @@ const failure = new ParseFailure('bad input');
 ",
     );
 
-    assert!(source.contains("name: JsString,"), "{source}");
-    assert!(source.contains("message: JsString,"), "{source}");
-    assert!(source.contains("stack: Option<JsString>,"), "{source}");
-    // `cause` is the one genuine dynamic boundary: ES2022 types it `unknown`
-    // because it carries an arbitrary thrown value.
-    assert!(source.contains("cause: SmeltUnknown,"), "{source}");
-    assert!(
-        !source.contains("message: SmeltUnknown,") && !source.contains("name: SmeltUnknown,"),
-        "{source}"
-    );
-    // A concrete `String` slot must still erase to `SmeltUnknown::String` when the
-    // instance is erased, because the throw path reads `message` off the erased
-    // object and expects that variant.
-    assert!(
-        source.contains(r#"("message".to_owned(), SmeltUnknown::String(self.message.into()))"#),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["struct ParseFailure"]), r"struct ParseFailure {
+name: JsString,
+message: JsString,
+stack: Option<JsString>,
+cause: SmeltUnknown,
+}");
 }
 
 /// Constructor parameter defaults are applied in the constructor body, exactly
 /// like plain function parameter defaults.
 ///
 /// The ABI parameter widens to `Option<T>` and the body applies the declared
-/// initializer, so an omitted argument evaluates the source default instead of
-/// the Rust type's zero value (`String::new()` before the fix).
+/// initializer, so an omitted argument evaluates the source default.
 #[test]
 fn constructor_parameter_default_is_applied_in_the_body() {
     let source = source_for(
@@ -1187,68 +1166,62 @@ const greeting = new Greeting();
 ",
     );
 
-    assert!(source.contains("fn new(text: Option<JsString>)"), "{source}");
-    assert!(source.contains(r#"unwrap_or(JsString::from("hi there"))"#), "{source}");
-    assert!(source.contains("Greeting::new(None"), "{source}");
+    assert_eq!(rust_items(&source, &["impl Greeting {"]), r#"impl Greeting {
+fn new(text: Option<JsString>) -> Self {
+let mut this: Self = Greeting { text: JsString::new() };
+let text_1: JsString = text.clone().unwrap_or(JsString::from("hi there"));
+this.text = text_1;
+return this;
+}
+}"#);
 }
 
+/// `(globalThis as any)[name]` is the erased read of a dynamic global: the key is
+/// only known at runtime and the parameter is source `any`. What it resolves to is
+/// observed in `class_inheritance_behaviour`.
 #[test]
 fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
-    // `globalThis.Error` normalizes to the modeled constructor at lowering time,
-    // but the SAME read spelled with a runtime key used to fold to a constant
-    // `undefined`, so `new (globalThis[type])(msg)` fabricated a null-returning
-    // closure call and every error it "constructed" compared equal to every
-    // other. Both spellings now resolve against one registry: the read reaches
-    // the global-object marker record, and the record answers a modeled
-    // constructor name with the interned builtin namespace value.
     let source = source_for(
         "export function f(name: any): any { return (globalThis as any)[name]; }",
     );
-    assert!(
-        source.contains("__smelt_global_object"),
-        "a dynamic global read must reach the global-object value:\n{source}"
-    );
-    assert!(
-        source.contains(
-            "if map.contains_key(\"__smelt_global_object\") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some()"
-        ),
-        "the global object must resolve a modeled builtin constructor by name:\n{source}"
-    );
-    // A name this profile models no constructor for stays genuinely absent
-    // rather than becoming a fabricated empty namespace record.
-    assert!(
-        source.contains("smelt_builtin_namespace(field)"),
-        "the resolved value must be the interned namespace value:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn f"]), r"fn f(name: SmeltUnknown) -> SmeltUnknown {
+let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
+return match _smelt_tmp_1.clone() {
+SmeltUnknown::String(smelt_value) => {
+let smelt_len = smelt_value.len() as i64;
+let smelt_index = match name.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } as i64;
+let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index };
+usize::try_from(smelt_normalized).ok().and_then(|smelt_position| smelt_value.char_at(smelt_position).map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)
+}
+SmeltUnknown::Array(smelt_values) => {
+let smelt_len = smelt_values.len() as i64;
+let smelt_index = match name.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } as i64;
+let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index };
+usize::try_from(smelt_normalized).ok().and_then(|smelt_position| smelt_values.get(smelt_position).cloned()).unwrap_or(SmeltUnknown::Undefined)
+}
+SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsString::from(smelt_property_key(name.clone()))),
+_ => SmeltUnknown::Undefined,
+};
+}");
 }
 
+/// JavaScript exposes one object per global builtin name, so a bare host
+/// constructor reference evaluates to the interned namespace value; the identity
+/// itself is observed in `class_inheritance_behaviour`.
 #[test]
 fn a_bare_host_constructor_reference_is_interned() {
-    // JavaScript exposes one object per global builtin name, so `Blob === Blob` and
-    // `blob.constructor === Blob` both hold. A record literal mints a fresh identity
-    // on construction, so building a `__smelt_builtin_namespace` record per
-    // reference made both comparisons false. The interning helper is also what a
-    // host record's `.constructor` resolves through, so the two spellings meet.
-    let generated = source_for("export function f(): any { return Blob; }");
-    assert!(
-        generated.contains("smelt_builtin_namespace(\"Blob\")"),
-        "a bare host-constructor reference must intern:\n{generated}"
-    );
-    let field = source_for("export function f(value: any): any { return value.constructor; }");
-    assert!(
-        field.contains("smelt_marker_constructor_class(map)"),
-        "an erased `.constructor` read must resolve a marker record's own global:\n{field}"
-    );
+    let source = source_for("export function f(): any { return Blob; }");
+    assert_eq!(rust_items(&source, &["fn f"]), r#"fn f() -> SmeltUnknown {
+let _smelt_tmp_0: SmeltUnknown = smelt_builtin_namespace("Blob");
+return _smelt_tmp_0;
+}"#);
 }
 
 /// A subclass's `impl` block carries the methods it inherits.
 ///
-/// Smelt flattens inheritance — a subclass struct stores its base's fields
-/// inline — but Rust has no method inheritance, so a base method is only
-/// callable on a subclass receiver if it is emitted into the subclass's own
-/// `impl`. Without that, a body calling an inherited method lowered fine in the
-/// frontend and then failed to compile with `no method named 'fetch' found for
-/// reference '&B'`.
+/// Smelt flattens inheritance: a subclass struct stores its base's fields inline,
+/// and because Rust has no method inheritance a base method is only callable on a
+/// subclass receiver if it is emitted into the subclass's own `impl`.
 #[test]
 fn subclass_impl_block_carries_inherited_methods() {
     let source = source_for_py(
@@ -1268,15 +1241,26 @@ class B(A):
 ",
     );
 
-    let impl_b = source
-        .split("impl B {")
-        .nth(1)
-        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
-    assert!(
-        impl_b.contains("fn fetch(&self)"),
-        "`B` must carry the inherited `fetch`, or `self.fetch()` cannot \
-         compile:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["impl B {"]), r"impl B {
+fn new(x: i64, y: i64) -> Self {
+let mut self_: B = B { x: 0, y: 0 };
+self_.x = x;
+self_.y = y;
+return self_;
+}
+fn fetch(&self) -> i64 {
+return self.x;
+}
+fn __smelt_super_fetch(&self) -> i64 {
+return self.x;
+}
+fn total(&self) -> i64 {
+let _smelt_tmp_2: i64;
+let _smelt_tmp_1: i64 = self.fetch();
+_smelt_tmp_2 = _smelt_tmp_1 + self.y;
+return _smelt_tmp_2;
+}
+}");
 }
 
 /// An override replaces the inherited slot instead of emitting a second method
@@ -1297,19 +1281,22 @@ class B(A):
 ",
     );
 
-    let impl_b = source
-        .split("impl B {")
-        .nth(1)
-        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
-    assert_eq!(
-        impl_b.matches("fn fetch(&self)").count(),
-        1,
-        "the override must replace the inherited slot, not duplicate it:\n{source}"
-    );
-    assert!(
-        impl_b.contains("return 99"),
-        "the surviving `fetch` must be the override:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["impl B {"]), r"impl B {
+fn new(x: i64) -> Self {
+let __smelt_super: A;
+let mut self_: B = B { x: 0 };
+let _smelt_tmp_3: A = A::new(x);
+__smelt_super = _smelt_tmp_3;
+self_.x = __smelt_super.x;
+return self_;
+}
+fn fetch(&self) -> i64 {
+return 99;
+}
+fn __smelt_super_fetch(&self) -> i64 {
+return self.x;
+}
+}");
 }
 
 /// Python `super().method()` calls the immediate base implementation without
@@ -1328,18 +1315,22 @@ class B(A):
 ",
     );
 
-    let impl_b = source
-        .split("impl B {")
-        .nth(1)
-        .unwrap_or_else(|| panic!("expected an `impl B` block:\n{source}"));
-    assert!(
-        impl_b.contains("fn __smelt_super_greet(&self, value: i64) -> i64"),
-        "the base implementation must be available under a typed alias:\n{source}"
-    );
-    assert!(
-        impl_b.contains("self.__smelt_super_greet(value)"),
-        "super().greet(value) must call the base alias, not the override:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["impl B {"]), r"impl B {
+fn new() -> Self {
+let self_: B = B {  };
+return self_;
+}
+fn greet(&self, value: i64) -> i64 {
+let _smelt_tmp_3: i64;
+let _smelt_tmp_2: i64 = self.__smelt_super_greet(value);
+_smelt_tmp_3 = _smelt_tmp_2 + 10;
+return _smelt_tmp_3;
+}
+fn __smelt_super_greet(&self, value: i64) -> i64 {
+let _smelt_tmp_2: i64 = value + 1;
+return _smelt_tmp_2;
+}
+}");
 }
 
 /// A Python `super().__init__(..)` runs the base constructor and copies the
@@ -1364,16 +1355,18 @@ class C(B):
 ",
     );
 
-    assert!(
-        source.contains("let __smelt_super: B"),
-        "`C` must construct its immediate base `B`:\n{source}"
-    );
-    // `C::new` copies BOTH inherited slots out of the constructed `B`, so the
-    // base-most field reaches the leaf instance.
-    assert!(
-        source.contains("self_.x = __smelt_super.x") && source.contains("self_.y = __smelt_super.y"),
-        "both inherited slots must reach the leaf instance:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["impl C {"]), r"impl C {
+fn new() -> Self {
+let __smelt_super: B;
+let mut self_: C = C { x: 0, y: 0, z: 0 };
+let _smelt_tmp_2: B = B::new(1, 2);
+__smelt_super = _smelt_tmp_2;
+self_.x = __smelt_super.x;
+self_.y = __smelt_super.y;
+self_.z = 3;
+return self_;
+}
+}");
 }
 
 /// A Python `@property` getter emits a Rust method, and a read through the
@@ -1399,34 +1392,22 @@ def read(o: Ok) -> int:
 ",
     );
 
-    assert!(
-        source.contains("fn ok_value(&self) -> i64"),
-        "the property getter must emit as a method:\n{source}"
-    );
-    assert!(
-        source.contains("o.ok_value()"),
-        "a property read must emit the getter call, not a field access:\n{source}"
-    );
-    let struct_body = source
-        // `Ok` is renamed `Ok_` so it does not shadow Rust's `Ok`.
-        .split("struct Ok_ {")
-        .nth(1)
-        .and_then(|rest| rest.split('}').next())
-        .unwrap_or_else(|| panic!("expected a generated `struct Ok_`:\n{source}"));
-    assert!(
-        !struct_body.contains("ok_value"),
-        "a property is computed, so it must not also become a struct field:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["struct Ok_", "fn ok_value", "fn read"]), r"struct Ok_ {
+_value: i64,
 }
 
-/// A callback stored into an INHERITED field of a returned subclass must enter
-/// its function owned.
-///
-/// Regression (haiku audit F0185): the escape analysis follows a class into its
-/// fields, but read the class's own `fields` rather than its effective layout,
-/// so `Sub extends Handler {}` was storage with no function in it. `cb` stayed
-/// `&dyn Fn` and the `Rc` capture failed borrowck ("`'1` must outlive
-/// `'static`"). The base-class return beside it was already owned.
+fn ok_value(&self) -> i64 {
+return self._value;
+}
+
+fn read(o: Ok_) -> i64 {
+return o.ok_value();
+}");
+}
+
+/// A callback stored into an INHERITED field of a returned subclass enters its
+/// function owned, exactly like one stored into the class's own field: the escape
+/// analysis follows a class into its effective layout, not only its own `fields`.
 #[test]
 fn typescript_callback_stored_into_an_inherited_field_is_owned() {
     let source = source_for(
@@ -1449,27 +1430,16 @@ export function makeSub(cb: (x: number) => number): Sub {
 ",
     );
 
-    for name in ["make_base", "make_sub"] {
-        let signature = source
-            .split(&format!("fn {name}("))
-            .nth(1)
-            .and_then(|rest| rest.split(')').next())
-            .unwrap_or_else(|| panic!("expected a generated `{name}`:\n{source}"));
-        assert!(
-            !signature.contains("&dyn Fn"),
-            "`{name}`: a callback retained by the returned class must not stay borrowed:\n{source}"
-        );
-    }
+    assert_eq!(rust_items(&source, &["sig make_base", "sig make_sub"]), r"fn make_base(cb: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Handler
+
+fn make_sub(cb: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Sub");
 }
 
-/// A method body predeclares its function-scope locals (H22).
+/// A method body predeclares its function-scope locals.
 ///
-/// MIR locals are function-scoped; generated Rust branch bodies are lexically
-/// scoped. A free function body has always predeclared the locals first assigned
-/// outside its entry block, but a METHOD body did not, so a temporary first
-/// assigned inside one `if` arm was declared *inside* that arm and the sibling
-/// arm's assignment named something out of scope — E0425 in the generated crate,
-/// 19053 of them in Hono's routers, with no diagnostic before rustc.
+/// MIR locals are function-scoped and generated Rust branch bodies are lexically
+/// scoped, so a temporary first assigned inside one `if` arm is declared before
+/// the branch for the sibling arm's assignment to name it.
 #[test]
 fn a_method_body_predeclares_locals_assigned_in_more_than_one_branch() {
     let source = source_for(
@@ -1493,33 +1463,25 @@ console.log(counter.step(true, 2));
 ",
     );
 
-    let body = emitted_function_body(&source, "fn step(");
-    let branch_start = body
-        .find("if flag {")
-        .expect("the branch is emitted: {body}");
-    let (prelude, branches) = body.split_at(branch_start);
-    assert!(
-        prelude.contains("let _smelt_tmp_4: f64;"),
-        "the branch temporary is declared before the branch: {body}"
-    );
-    assert!(
-        !branches
-            .lines()
-            .any(|line| line.trim_start().starts_with("let _smelt_tmp_")),
-        "no temporary is introduced inside a branch arm: {body}"
-    );
-    assert!(
-        branches.contains("_smelt_tmp_4 =") && branches.contains("_smelt_tmp_5 ="),
-        "both arms assign their predeclared temporary: {body}"
-    );
+    assert_eq!(rust_items(&source, &["fn step"]), r"fn step(&self, flag: bool, amount: f64) -> f64 {
+let _smelt_tmp_4: f64;
+let _smelt_tmp_5: f64;
+let mut next: f64 = 0.0;
+if flag {
+_smelt_tmp_4 = self.0.borrow().total.clone() + amount;
+next = _smelt_tmp_4;
+} else {
+_smelt_tmp_5 = self.0.borrow().total.clone() - amount;
+next = _smelt_tmp_5;
+}
+self.0.borrow_mut().total = next;
+return next;
+}");
 }
 
-/// A value asked for at `bool` is a truthiness test, not a cast (H24).
-///
-/// Wherever JavaScript expects a boolean it applies truthiness, and for a class
-/// instance the answer is "present". The coercion used to hand the value back
-/// unchanged, so an `Option<Node>` in a boolean position emitted
-/// `.map_or(false, |value| value)` — E0308, 48 sites in Hono's trie router.
+/// A value asked for at `bool` is a truthiness test, not a cast: wherever
+/// JavaScript expects a boolean it applies truthiness, and for a class instance
+/// the answer is "present".
 #[test]
 fn a_class_valued_optional_in_a_boolean_position_tests_presence() {
     let source = source_for(
@@ -1536,26 +1498,20 @@ console.log(has({}, 'a'));
 ",
     );
 
-    let body = emitted_function_body(&source, "fn has(");
-    assert!(
-        !body.contains("|value| value)"),
-        "the class value is not handed back where a bool is expected: {body}"
-    );
-    assert!(
-        body.contains("is_some()"),
-        "presence is the truthiness of a class-valued optional: {body}"
-    );
+    assert_eq!(rust_items(&source, &["fn has"]), r"fn has(nodes: SmeltRecord<JsString, Node>, key: JsString) -> bool {
+let found: Option<Node> = nodes.clone().get(&key.clone());
+let _smelt_tmp_5: bool = !(found.is_some());
+let present: bool = !(_smelt_tmp_5);
+return present;
+}");
 }
 
-/// H30a: a subclass of a reference class is itself a reference class.
+/// A subclass of a reference class is itself a reference class.
 ///
 /// A classification trigger fires on the class that DECLARES the mutated field,
-/// so a subclass that only inherits mutated state is never named by one. It is
-/// still the same kind of object, and Smelt re-emits every inherited method body
-/// into the subclass's own `impl` -- bodies written against the base's handle
-/// representation. Hono's `class<T> extends RegExpRouter<T>` was emitted as a
-/// value struct carrying inherited bodies that read `self.0.borrow()._tries`:
-/// `no field 0 on __smelt_anon_class_3050<T>` (E0609 x9 on the router slice).
+/// so a subclass that only inherits mutated state is never named by one; it is
+/// still the same kind of object, and inherited method bodies are written against
+/// the base's handle representation.
 #[test]
 fn a_subclass_of_a_reference_class_is_a_reference_class() {
     let source = source_for(
@@ -1586,36 +1542,36 @@ console.log(store.total());
 ",
     );
 
-    // The base really is lifted, so the subclass assertion is about propagation
-    // and not about a shape that was never a handle.
-    assert!(
-        source.contains("struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>)"),
-        "the base class is not a reference class here, so nothing propagates:\n{source}"
-    );
-    assert!(
-        source.contains(
-            "struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>)"
-        ),
-        "a subclass of a reference class was emitted by value:\n{source}"
-    );
-    // And the inherited state is reached through the handle in the subclass's
-    // own methods, which is what failed to compile before.
-    assert!(
-        source.contains("self.0.borrow().entries"),
-        "the inherited field is not read through the subclass's handle:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["struct Store(", "struct CountingStore(", "fn total"]), r#"struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>);
+
+struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>);
+
+fn total(&self) -> f64 {
+let mut key: JsString;
+let mut _smelt_tmp_5: usize;
+let mut _smelt_tmp_6: bool;
+let mut _smelt_tmp_7: SmeltRecord<JsString, f64>;
+let mut _smelt_tmp_8: f64;
+let mut sum: f64 = 0.0;
+let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().entries.clone().keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&self.0.borrow().entries.clone(), smelt_key)).collect::<Vec<_>>());
+let mut _smelt_tmp_4: usize = 0;
+loop {
+_smelt_tmp_5 = _smelt_tmp_3.len();
+_smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
+if !(_smelt_tmp_6) { break; }
+key = _smelt_tmp_3.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| JsString::new());
+_smelt_tmp_7 = self.0.borrow().entries.clone();
+_smelt_tmp_8 = sum + _smelt_tmp_7.get(&key.clone()).unwrap_or(0.0);
+sum = _smelt_tmp_8;
+_smelt_tmp_4 = _smelt_tmp_4 + 1;
+}
+return sum;
+}"#);
 }
 
-/// H30b: a method VALUE read off a reference class captures the handle.
-///
-/// Reading a method as a value (`this.match`, passed on as a callback) captures
-/// a receiver. For a value class that capture re-instantiates the struct field
-/// by field; a reference class has exactly one field -- the `Rc<RefCell<..>>` --
-/// so the rebuild could not be spelled at all (`struct PatternRouter<SmeltUnknown>
-/// has no field named _routes`, E0560/E0609). Cloning the handle is also the only
-/// capture with the right meaning: a method read off an object is bound to THAT
-/// object, and a rebuild would hand the closure a copy whose mutations no one
-/// ever sees.
+/// A method VALUE read off a reference class captures the handle: the class has
+/// exactly one field, the `Rc<RefCell<..>>`, so cloning it is the only capture
+/// that can be spelled and the only one whose mutations are seen.
 #[test]
 fn a_method_value_of_a_reference_class_captures_the_handle() {
     let source = source_for(
@@ -1641,42 +1597,22 @@ console.log(bump('a'));
 ",
     );
 
-    assert!(
-        source.contains("struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>)"),
-        "the class under test is not a reference class:\n{source}"
-    );
-    assert!(
-        source.contains("let smelt_receiver = self.clone();"),
-        "the method value did not capture the handle:\n{source}"
-    );
-    assert!(
-        !source.contains("let smelt_receiver = Counter {"),
-        "the method value still rebuilds the struct field by field:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["struct Counter(", "fn handler"]), r#"struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
+
+fn handler(&self) -> ::std::rc::Rc<dyn Fn(JsString) -> f64> {
+return { let smelt_source_value = (({ let smelt_receiver = self.clone(); let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number(smelt_receiver.bump(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) as f64))); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::bump")); SmeltUnknown::Function(smelt_method) }).clone()); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> f64>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_arg0: JsString| (smelt_original)(smelt_arg0)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::String(smelt_arg0.into())); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); match smelt_result.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { smelt_value_not_callable() }); smelt_default_callback } } };
+}"#);
 }
 
 /// A getter that can throw is emitted returning `Result`, so reading the
-/// property is a fallible operation and never hands its consumer the `Result`
-/// itself. The first thing done to a read value is usually `.clone()`, and
-/// `Box<dyn Error>` is not `Clone`, so that surfaced as `E0599` on the `Result`
-/// rather than as a type mismatch naming the property.
+/// property is a fallible operation and never hands its consumer the `Result`.
 ///
 /// WHICH fallible form is emitted depends on the enclosing item, because `?`
-/// only travels where the enclosing function returns `Result`:
-///
-/// * a reader that is itself fallible propagates with `?`;
-/// * a reader that is NOT — a plain method, or a closure whose contextual
-///   callback type is a plain `Fn(..) -> T` — takes the panic path, the same
-///   floor every other non-fallible callback seam uses
-///   (`blocker-logs/hono-fallible-ops.md`). Emitting `?` there was `E0277`
-///   ("the `?` operator can only be used in a closure that returns `Result`"),
-///   which is what three of Hono's closures hit.
-///
-/// The throw is not dropped in the second case: the program stops at it rather
-/// than continuing with a fabricated value. Making the READER fallible instead,
-/// so the `?` form applies more often, is a MIR throwing-propagation change —
-/// that pass keys off calls, and a property read is not one — and is recorded
-/// in `blocker-logs/hono-round30-emitter.md`.
+/// only travels where the enclosing function returns `Result`: a reader that is
+/// itself fallible propagates with `?`, and one that is not takes the panic
+/// path, the floor every non-fallible callback seam uses
+/// (`blocker-logs/hono-fallible-ops.md`). The program stops at the throw rather
+/// than continuing with a fabricated value.
 #[test]
 fn a_throwing_getter_read_is_fallible_in_both_enclosures() {
     let source = source_for(
@@ -1703,44 +1639,38 @@ export class Holder {
 ",
     );
 
-    // The enabling condition: the getter really is emitted as fallible. If this
-    // stops holding the assertions below would pass for the wrong reason.
-    assert!(
-        source
-            .contains("fn __smelt_get_active(&self) -> Result<JsString, Box<dyn std::error::Error>>"),
-        "a throwing getter must be emitted returning Result: {source}"
-    );
-    // A fallible reader propagates.
-    assert!(
-        source.contains("self.__smelt_get_active()?"),
-        "a fallible reader must propagate with `?`: {source}"
-    );
-    // A non-fallible reader takes the panic path instead of an invalid `?`.
-    assert!(
-        source.contains(
-            "self.__smelt_get_active().unwrap_or_else(|error| smelt_panic_throw(error))"
-        ),
-        "a non-fallible reader must take the panic path: {source}"
-    );
-    assert!(
-        !source.contains("self.__smelt_get_active().clone()"),
-        "a throwing getter read must not clone the Result: {source}"
-    );
+    assert_eq!(rust_items(&source, &["fn __smelt_get_active", "fn spread", "fn rethrow"]), r#"fn __smelt_get_active(&self) -> Result<JsString, Box<dyn std::error::Error>> {
+let _smelt_tmp_1: bool = self.inner == "";
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("empty".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
+} else {
+return Ok(self.inner.clone());
+}
+}
+
+fn spread(&self) -> SmeltUnknown {
+let _smelt_tmp_1: SmeltRecord<JsString, SmeltUnknown> = SmeltRecord::from([]);
+let _smelt_tmp_2: SmeltRecord<JsString, SmeltUnknown> = { _smelt_tmp_1.extend(match IntoSmeltUnknown::into_smelt_unknown(self.__smelt_get_active().unwrap_or_else(|error| smelt_panic_throw(error)).clone().clone()) { SmeltUnknown::Object(smelt_map) => SmeltRecord::with_id_from_entries(smelt_map.id, smelt_map.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, smelt_value))), _ => SmeltRecord::new() }.iter().map(|(smelt_key, smelt_value)| (smelt_key.clone(), smelt_value.clone()))); _smelt_tmp_1.clone() };
+return SmeltUnknown::Object(SmeltObject::from_unknown_record(_smelt_tmp_2.clone()));
+}
+
+fn rethrow(&self) -> Result<JsString, Box<dyn std::error::Error>> {
+let _smelt_tmp_1: bool = self.inner == "x";
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("x".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
+} else {
+return Ok((self.__smelt_get_active()?).clone());
+}
+}"#);
 }
 
 /// A method the class reassigns through `this` becomes a function-typed field;
 /// a sibling method that is never assigned stays an inherent method.
 ///
-/// JavaScript lets an instance replace its own method, and Hono's
-/// `SmartRouter` does it to skip its router-selection loop after the first
-/// request (`smart-router/router.ts`). A Rust inherent method cannot be
-/// assigned, so the write emitted `self.match_ = ...` against a method and
-/// failed with `E0615`.
-///
-/// The scoping half of the rule is the point of the sibling assertion: this
-/// must not turn every method into an `Rc<dyn Fn>` field, because that would
-/// trade a static call for a dynamic one everywhere and is the opposite of
-/// carrying a concrete type down to runtime.
+/// A Rust inherent method cannot be assigned, so the reassigned one is a field
+/// of the method's own signature initialised to the method's body. The scoping
+/// half of the rule is the point of pinning the sibling: turning every method
+/// into an `Rc<dyn Fn>` field would trade a static call for a dynamic one.
 #[test]
 fn a_method_reassigned_through_this_becomes_a_callable_field() {
     let source = source_for(
@@ -1757,52 +1687,53 @@ export class Picker {
 ",
     );
 
-    // The reassigned method is a field of the method's own signature ...
-    assert!(
-        source.contains("pick: ::std::rc::Rc<dyn Fn(JsString) -> JsString>"),
-        "a reassigned method must become a function-typed field: {source}"
-    );
-    // ... initialised to the method's own body, so a class that never assigns
-    // still behaves as declared ...
-    assert!(
-        source.contains("this.0.borrow_mut().pick = "),
-        "the field must be initialised in the constructor: {source}"
-    );
-    // ... and the assignment writes that field rather than a method.
-    assert!(
-        source.contains("self.0.borrow_mut().pick = "),
-        "the reassignment must write the field: {source}"
-    );
+    assert_eq!(rust_items(&source, &["struct PickerInner", "impl Picker {"]), r#"struct PickerInner {
+tag: SmeltUnknown,
+pick: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
+}
 
-    // The untouched sibling keeps its inherent method and its STATIC call.
-    assert!(
-        source.contains("fn other(&self, value: JsString) -> JsString"),
-        "an unassigned sibling must stay an inherent method: {source}"
-    );
-    assert!(
-        source.contains("self.other(value.clone())"),
-        "an unassigned sibling must keep a static call: {source}"
-    );
-    assert!(
-        !source.contains("other: ::std::rc::Rc<dyn Fn"),
-        "an unassigned sibling must NOT become a field: {source}"
-    );
+impl Picker {
+fn new() -> Self {
+let mut this: Self = Picker(::std::rc::Rc::new(::std::cell::RefCell::new(PickerInner { tag: SmeltUnknown::Null, pick: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback } })));
+this.0.borrow_mut().tag = SmeltUnknown::Number(0.0 as f64);
+let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+closure_arg_0.clone()
+});
+this.0.borrow_mut().pick = _smelt_tmp_1.clone();
+return this;
+}
+fn other(&self, value: JsString) -> JsString {
+let _smelt_tmp_2: JsString = value.clone() + &JsString::from("?");
+return _smelt_tmp_2;
+}
+fn run(&self, value: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+let _smelt_tmp_5: JsString;
+let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
+let _smelt_tmp_1: JsString = closure_arg_0.clone() + &JsString::from("!");
+_smelt_tmp_1.clone()
+});
+self.0.borrow_mut().pick = _smelt_tmp_2.clone();
+let _smelt_tmp_3: JsString = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().pick.clone()); (smelt_callable)(value.clone()) };
+let _smelt_tmp_4: JsString = self.other(value.clone());
+_smelt_tmp_5 = _smelt_tmp_3 + &_smelt_tmp_4;
+return Ok(_smelt_tmp_5);
+}
+/// Prototype-carried members of this class, as receiver-bound erased functions.
+#[allow(dead_code)]
+fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {
+let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();
+smelt_proto_entries.push(("__smelt_method:other".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.other(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Picker::other")); SmeltUnknown::Function(smelt_method) }));
+smelt_proto_entries.push(("__smelt_method:run".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.run(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))?; Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Picker::run")); SmeltUnknown::Function(smelt_method) }));
+smelt_proto_entries
+}
+}"#);
 }
 
 /// `ConstructorParameters<C>` is the constructor position of `Parameters<F>`.
 ///
 /// Both name the tuple of parameter types a callable is invoked with, and
-/// `typeof C` for a class already resolves to that class's CONSTRUCTOR function
-/// type, so the two spellings read the same field off the same
-/// `Type::Function`. Before this was modeled the name fell through to the
-/// ordinary type-reference path and produced a type that is neither a list, a
-/// tuple, nor erased — so a REST PARAMETER annotated with it blocked the whole
-/// build with `rest parameter type must resolve to an array type`, and the
-/// crate was never emitted. Hono's `src/client/types.ts` is exactly that shape.
-///
-/// A host constructor with no modeled signature keeps the honest "some
-/// arguments, shape unknown" answer of an erased array, which is what makes the
-/// annotation lower rather than block.
+/// `typeof C` for a class resolves to that class's constructor function type, so
+/// the two spellings read the same field off the same `Type::Function`.
 #[test]
 fn constructor_parameters_lowers_like_parameters() {
     let source = source_for(
@@ -1824,10 +1755,9 @@ console.log(make(1, 2).x, make(3, 4).y);
     assert!(source.contains("Point::new("), "{source}");
 }
 
-/// The same annotation over a HOST constructor with no modeled signature must
-/// still lower, because that is the shape that actually blocked a real crate:
-/// the answer degrades to an erased array rather than to a type a rest
-/// parameter cannot be spelled with.
+/// The same annotation over a HOST constructor with no modeled signature lowers
+/// to an erased array, the honest "some arguments, shape unknown" answer: it is
+/// a parameter type of a host constructor Smelt has no signature for.
 #[test]
 fn constructor_parameters_of_an_unmodeled_host_constructor_lowers() {
     let source = source_for(
@@ -1841,15 +1771,16 @@ console.log(options.webSocket === undefined);
 ",
     );
 
-    assert!(source.contains("fn main"), "{source}");
+    assert_eq!(rust_items(&source, &["struct ClientRequestOptions"]), r"struct ClientRequestOptions {
+web_socket: Option<SmeltErasedFunction>,
+}");
 }
 
-#[test]
 /// A directly constructed subclass binds its virtual method slots to its own
-/// most-derived methods: `Square::new` binds `name` and `sides` through a
-/// `Weak` handle on the new instance, so `Shape::describe`'s `this.name()`
-/// (inherited into `Square`) reaches `Square::name`. Before, the slots kept
-/// their default closures and `new Square().describe()` read `""`/`0`.
+/// most-derived methods through a `Weak` handle on the new instance, so
+/// `Shape::describe`'s `this.name()` (inherited into `Square`) reaches
+/// `Square::name`.
+#[test]
 fn constructed_instance_binds_its_virtual_slots_to_its_own_methods() {
     let source = source_for(
         r"
@@ -1865,15 +1796,34 @@ class Square extends Shape {
 export function show(): string { return new Square().describe(); }
 ",
     );
-    let square_new = source
-        .split("impl Square {")
-        .nth(1)
-        .and_then(|rest| rest.split("fn new(").nth(1))
-        .unwrap_or_default();
-    assert!(
-        square_new.contains("::std::rc::Rc::downgrade(&smelt_instance.0)")
-            && square_new.contains("smelt_instance.0.borrow_mut().name =")
-            && square_new.contains("smelt_instance.0.borrow_mut().sides ="),
-        "{source}"
-    );
+
+    assert_eq!(rust_items(&source, &["impl Square {"]), r#"impl Square {
+fn new() -> Self {
+let mut this: Self = { let smelt_instance = Square(::std::rc::Rc::new(::std::cell::RefCell::new(SquareInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
+let _smelt_tmp_1: Self = Self::__smelt_init_Shape(this);
+this = _smelt_tmp_1;
+return this;
+}
+fn __smelt_init_Shape(smelt_receiver: Self) -> Self {
+let this: Self = smelt_receiver;
+return this;
+}
+fn describe(&self) -> JsString {
+let _smelt_tmp_2: JsString;
+let _smelt_tmp_3: JsString;
+let _smelt_tmp_5: JsString;
+let _smelt_tmp_1: JsString = { let smelt_callable = self.clone().0.borrow().name.clone(); (smelt_callable)() };
+_smelt_tmp_2 = JsString::new() + &_smelt_tmp_1;
+_smelt_tmp_3 = _smelt_tmp_2 + &JsString::from(" ");
+let _smelt_tmp_4: f64 = { let smelt_callable = self.clone().0.borrow().sides.clone(); (smelt_callable)() };
+_smelt_tmp_5 = _smelt_tmp_3 + &JsString::from(smelt_number_to_string(_smelt_tmp_4));
+return _smelt_tmp_5;
+}
+fn name(&self) -> JsString {
+return JsString::from("square");
+}
+fn sides(&self) -> f64 {
+return 4.0;
+}
+}"#);
 }

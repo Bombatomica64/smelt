@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-11-08 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-11-09 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -12,17 +12,17 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Library | Lang | Transpile | Tests (pass/fail) | First abort | Blocker classes | Dominant |
 | --- | --- | --- | --- | --- | ---: | --- |
-| [remeda](https://github.com/remeda/remeda) | TS | **yes** | 1789 / 0 | — | — | — |
-| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | 1048 / 11 | — | — | — |
-| [hono](https://github.com/honojs/hono) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [radash](https://github.com/sodiray/radash) | TS | **yes** | 383 / 4 | — | — | — |
+| [remeda](https://github.com/remeda/remeda) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
+| [es-toolkit](https://github.com/toss/es-toolkit) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
+| [hono](https://github.com/honojs/hono) | TS | **yes** | 444 / 10 | — | — | — |
+| [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 4 | non-working Rust (4r/0s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 1 | missing-stdlib (0r/1s) |
-| [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 2 | non-working Rust (2r/0s) |
-| [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/observable/src/observable.ts` | 11 | non-working Rust (11r/0s) |
+| [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 1 | non-working Rust (1r/0s) |
+| [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/observable/src/observable.ts` | 12 | non-working Rust (12r/0s) |
 | [date-fns](https://github.com/date-fns/date-fns) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 28 | non-working Rust (28r/0s) |
+| [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 29 | non-working Rust (29r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 22 | non-working Rust (22r/0s) |
 | [funcy](https://github.com/Suor/funcy) | PY | **no** | n/a | `(unknown)` | 11 | non-working Rust (11r/0s) |
@@ -33,25 +33,25 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 - Source: `remeda/remeda` @ `3c80f28bb394`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **1789 passed / 0 failed**
+- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
 
 ## es-toolkit
 
 - Source: `toss/es-toolkit` @ `e008a2818cd8`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **1048 passed / 11 failed**
+- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
 
 ## hono
 
 - Source: `honojs/hono` @ `0f5ad7b6bf0c`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
+- Generated `cargo test`: **444 passed / 10 failed**
 
 ## radash
 
 - Source: `sodiray/radash` @ `4cab1900d08e`
 - Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: **383 passed / 4 failed**
+- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
 
 ## ts-pattern
 
@@ -94,7 +94,6 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 48 | 16 | non-working Rust | rest parameter type must resolve to an array type |
-| 28 | 2 | non-working Rust | exported variable declarations must use const |
 
 ## rxjs
 
@@ -110,6 +109,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 314 | 314 | non-working Rust | dynamic computed and this-parameter interface methods are not lowered yet |
 | 314 | 314 | non-working Rust | base class `X` is not declared |
 | 314 | 314 | non-working Rust | property names must be static identifiers or string literals |
+| 314 | 314 | non-working Rust | condition expression must be boolean or optional (got Some(Symbol)) |
 | 314 | 314 | non-working Rust | statement kind is not lowered yet: TSGlobalDeclaration(TSGlobalDeclaration { span: Span {  |
 | 19 | 19 | non-working Rust | unresolved package `X`: not a source file and not a modeled host module |
 | 8 | 8 | non-working Rust | statement kind is not lowered yet: TSGlobalDeclaration(TSGlobalDeclaration { span: Span {  |
@@ -133,7 +133,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
 | 138 | 54 | non-working Rust | only calls to top-level functions, class constructors, and print() are supported |
-| 66 | 66 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
+| 67 | 67 | non-working Rust | definition-time metaprogramming for 'X' requires host-runtime specialization |
 | 43 | 35 | non-working Rust | unknown class field `X` |
 | 25 | 7 | non-working Rust | subscript access requires a list, set, dict, tuple, or string |
 | 14 | 8 | non-working Rust | nested closure bodies need a single return expression |
@@ -145,7 +145,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | 4 | 4 | non-working Rust | pytest.mark.parametrize names must be a string literal |
 | 4 | 1 | non-working Rust | pytest.mark.parametrize rows must be a list or tuple literal |
 | 3 | 1 | non-working Rust | closure keyword arguments require a **kwargs parameter |
-| 1 | 1 | non-working Rust | await expressions require an Awaitable[T] operand |
+| 2 | 2 | non-working Rust | attribute access is only supported on class instances |
 
 ## result
 
@@ -257,7 +257,7 @@ Lowering gaps blocking more than one probed library; fixing these unlocks the mo
 | 6 (cachetools, funcy, more-itertools, result, returns, toolz) | 410 | only calls to top-level functions, class constructors, and print() are supported |
 | 6 (cachetools, funcy, more-itertools, result, returns, toolz) | 225 | function 'X' must have an explicit return type annotation |
 | 5 (cachetools, funcy, more-itertools, returns, toolz) | 78 | parameter 'X' must have an explicit type annotation |
-| 5 (cachetools, more-itertools, result, returns, toolz) | 76 | definition-time metaprogramming for 'X' requires host-runtime specialization |
+| 5 (cachetools, more-itertools, result, returns, toolz) | 77 | definition-time metaprogramming for 'X' requires host-runtime specialization |
 | 5 (funcy, more-itertools, result, returns, toolz) | 23 | nested closure bodies need a single return expression |
 | 4 (cachetools, more-itertools, returns, toolz) | 99 | unknown class field `X` |
 | 4 (funcy, more-itertools, returns, toolz) | 56 | nested closure parameters must have explicit type annotations |

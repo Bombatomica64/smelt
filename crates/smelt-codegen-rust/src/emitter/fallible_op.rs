@@ -244,6 +244,14 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::DictPop { dict, key, default: None } => self.python_dict_pop_call(dict, key)?,
             Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
+            Rvalue::ListIndex { list, item } => (
+                RenderedCall::propagating(self.list_index_expr(list, item)?),
+                self.type_id(Type::Int)?,
+            ),
+            Rvalue::ListRemove { list, item } => (
+                RenderedCall::propagating(self.list_remove_expr(list, item)?),
+                self.type_id(Type::None)?,
+            ),
             Rvalue::PythonSequenceRead { sequence, index } => self.python_sequence_read_call(sequence, index)?,
             Rvalue::PythonStepSlice { sequence, start, end, step } => {
                 self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?

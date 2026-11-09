@@ -1,37 +1,16 @@
 //! Runtime execution tests for MODELED MEMBERS read off an ERASED host record.
 //!
 //! A modeled host value that crosses the dynamic boundary — `as any`, an
-//! `any`-typed field, a JSON-shaped bag — becomes a marker-bearing record. Its
-//! data properties were readable from the record, but its METHODS were not:
-//! the member read answered `undefined`, the optional-call adapter substituted
-//! a no-op default callback, and the call produced `null`. Seven of eight probes
-//! were wrong against Node 22 before this tier existed:
+//! `any`-typed field, a JSON-shaped bag — becomes a marker-bearing record, and its
+//! METHODS stay callable on it. The mutation case proves both requirements:
 //!
-//! | read | Node | Smelt (before) |
-//! | --- | --- | --- |
-//! | `(headers as any).get("a")` | `b` | `null` |
-//! | `(headers as any).set(..)` then `get` | `d` | `null` |
-//! | `(headers as any).has("a")` | `true` | `null` |
-//! | `(params as any).get("y")` | `2` | `null` |
-//! | `String(params as any)` | `x=1&y=2` | `[object Object]` |
-//! | `(form as any).get("k")` | `v` | `null` |
-//! | `(encoder as any).encode("ab").length` | `2` | `null` |
-//! | `(blob as any).size` | `2` | `2` (a data property, already right) |
-//!
-//! Two things had to be true for the fix, and the mutation case is what proves
-//! both:
-//!
-//! 1. **The member has to resolve.** `smelt_host_method` knew only the abort
-//!    surface; each modeled class with an erasure adapter now contributes its
-//!    own resolver, and the erased-read helper asks before falling back to the
-//!    record's own keys (an own key still wins, as JavaScript's own-property
-//!    lookup does).
-//! 2. **The value has to be the SAME one.** A resolver that rebuilt the value
-//!    from the record would make `set` write to a copy, so the next `get` would
-//!    answer the stale record. `Headers`, `URLSearchParams` and `FormData` now
+//! 1. **The member resolves.** Each modeled class with an erasure adapter
+//!    contributes its own resolver to `smelt_host_method`, and the erased-read
+//!    helper asks before falling back to the record's own keys (an own key still
+//!    wins, as JavaScript's own-property lookup does).
+//! 2. **The value is the SAME one.** `Headers`, `URLSearchParams` and `FormData`
 //!    retain their live value in the origin registry on erasure and restore it
-//!    on recovery — the shape the shared adapter emitter already used for the
-//!    codecs and the `node:http` types.
+//!    on recovery, so `set` followed by `get` sees the write.
 //!
 //! Only the SYNCHRONOUS members are resolved. The async body readers
 //! (`response.text()`, `blob.arrayBuffer()`) are not, and keep the erased

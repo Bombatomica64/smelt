@@ -286,19 +286,16 @@ impl FunctionEmitter<'_> {
         // caller's list out of its binding.
         let list_text = self.operand_borrow_expr(list)?;
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_choice_items = &{list_text}; if smelt_choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} smelt_choice_items[rand::random_range(0..smelt_choice_items.len())].clone() }}", list_text = list_text.tight()
+            "{{ let smelt_choice_items = &{list_text}; if smelt_choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} smelt_choice_items.borrow()[rand::random_range(0..smelt_choice_items.len())].clone() }}", list_text = list_text.tight()
         )))
     }
 
-    /// Converts a list index operation to Rust text.
-    /// Converts a list index operation to Rust text.
-    /// Converts a list index operation to Rust text.
+    /// Renders `list.index(item)` as a `Result`: a missing item is `ValueError`.
     /// Converts a list index operation to Rust text.
     pub(super) fn list_index_expr(
         &self,
         list: &Operand,
         item: &Operand,
-        dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
@@ -309,9 +306,6 @@ impl FunctionEmitter<'_> {
                 "list index item must match the list element type",
             ));
         }
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
-            return Err(EmitError::new("list index destination must be int"));
-        }
         // Read by borrow: every use below is an `.iter()` receiver, reading the
         // list's shared backing buffer.
         let list_text = list_read_expr(&self.operand_borrow_expr(list)?);
@@ -319,15 +313,15 @@ impl FunctionEmitter<'_> {
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
                 return Ok(RustExpr::atom(format!(
-                    "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).expect(\"list index missing item\") as i64 }}", item_text = item_text.delimited(), list_text = list_text.tight()
+                    "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\")) }}", item_text = item_text.delimited(), list_text = list_text.tight()
                 )));
             }
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|smelt_item| smelt_item.same_js_key(&smelt_needle)).expect(\"list index missing item\") as i64 }}", item_text = item_text.delimited(), list_text = list_text.tight()
+                "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|smelt_item| smelt_item.same_js_key(&smelt_needle)).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\")) }}", item_text = item_text.delimited(), list_text = list_text.tight()
             ))));
         }
         Ok(RustExpr::opaque(format!(
-            "{list_text}.iter().position(|smelt_item| smelt_item == &{item_text}).expect(\"list index missing item\") as i64", list_text = list_text.tight(), item_text = item_text.tight()
+            "{list_text}.iter().position(|smelt_item| smelt_item == &{item_text}).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\"))", list_text = list_text.tight(), item_text = item_text.tight()
         )))
     }
 

@@ -1,36 +1,20 @@
 //! Runtime execution tests for a CONDITIONAL throw and for a throw that leaves
-//! through an `await` — H70 and the defect found under it.
+//! through an `await`.
 //!
 //! The subject is radash's `guard` verbatim, driven the way `async.test.ts`
-//! drives it. Before this round the program printed nothing and exited 101, and
-//! two independent defects were in the way. Both are silently-wrong-value
-//! defects of the kind only a RUNNING program exposes, which is why they live in
-//! a runtime tier rather than in an emitter golden.
+//! drives it. Two rules are in play, and only a RUNNING program exposes them:
 //!
-//! 1. **The guard's condition vanished.** `(err) => { if (c) { throw err }
-//!    return undefined }` lowered through the compact callback IR, where
-//!    `CallbackExprKind::Throw` emits a `Stmt::Throw` STATEMENT rather than a
-//!    value. Inside a ternary arm the statement hoists out of the guard, so the
-//!    whole closure became an unconditional `throw err` — the condition, the
-//!    branch and the tail return all gone — and `guard` rethrew every error it
-//!    was written to swallow. A conditionally-evaluated throw now surfaces the
-//!    same fallback-eligible error a conditionally-evaluated capture assignment
-//!    does, and the arrow retries through full closure-body lowering, which
-//!    emits a real branch.
+//! 1. **A conditionally-evaluated throw keeps its condition.** The statement form of
+//!    `CallbackExprKind::Throw` cannot sit in a ternary arm, so such a throw surfaces
+//!    the fallback-eligible error a conditionally-evaluated capture assignment does,
+//!    and the arrow retries through full closure-body lowering, which emits a real
+//!    branch.
+//! 2. **A rethrow reaches the `await`'s `catch`.** The binding `const _guard =
+//!    (err) => ...` carries the lowered closure's own `may_throw`, so the error rides
+//!    the ordinary `Result` channel the `await` already propagates rather than a
+//!    panic route with no `catch_unwind` in scope.
 //!
-//! 2. **The rethrow escaped through the `await`.** The binding `const _guard =
-//!    (err) => ...` was typed `may_throw: false` before its body was lowered, so
-//!    every call that passed it on saw a non-throwing callback. Handed to the
-//!    erased promise's `.catch(..)`, the throwing closure was adapted DOWN to
-//!    that ABI through the panic route — and a panic route only reaches a source
-//!    `catch` when the `catch_unwind` is around the INVOCATION. A promise
-//!    continuation is invoked later, during the `await`, where no `catch_unwind`
-//!    is in scope, so the throw left the program. The binding now carries the
-//!    lowered closure's own `may_throw`, and the error rides the ordinary
-//!    `Result` channel the `await` already propagates.
-//!
-//! Both halves are load-bearing and the fixtures separate them: the swallow case
-//! fails without (1) and the rethrow case fails without (2).
+//! The fixtures separate them: the swallow case needs (1) and the rethrow case (2).
 //!
 //! This shape is deliberately NOT an `examples/typescript/end-to-end` fixture:
 //! `guard`'s signature is `TFunction extends () => any` over an `err: any`

@@ -877,3 +877,9 @@ fn closure_values_behaviour() -> TestResult {
 fn promise_calls_behaviour() -> TestResult {
     verify_node_parity("promise_calls_behaviour")
 }
+
+/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
+#[test]
+fn class_inheritance_behaviour() -> TestResult {
+    verify_node_parity("class_inheritance_behaviour")
+}
