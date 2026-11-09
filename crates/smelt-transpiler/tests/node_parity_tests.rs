@@ -84,6 +84,12 @@ fn closure_over_defaulted_callback() -> TestResult {
     verify_node_parity("closure_over_defaulted_callback")
 }
 
+/// The expression of an `export default` runs, in source order.
+#[test]
+fn export_default_effects() -> TestResult {
+    verify_node_parity("export_default_effects")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
