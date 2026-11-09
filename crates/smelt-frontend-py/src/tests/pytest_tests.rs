@@ -31,6 +31,7 @@ def process(items: list[str], counts: dict[str, int]) -> bool:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_signature(&ctx, "process", "process(items: List<PyStr>, counts: Dict<PyStr, Int>) -> Bool")?;
     Ok(())
 }
 
@@ -38,10 +39,13 @@ def process(items: list[str], counts: dict[str, int]) -> bool:
 fn optional_annotation_lowered() -> TestResult {
     let source = py!(r"
 def find(x: int) -> str | None:
+    if x > 0:
+        return 'found'
     return None
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_signature(&ctx, "find", "find(x: Int) -> Optional<PyStr>")?;
     Ok(())
 }
 
@@ -92,6 +96,8 @@ fn pytest_suffix_test_function_without_return_annotation_lowers_to_none() -> Tes
     let source = py!("def test_smoke():\n    pass\n");
     let mut ctx = HirCtx::new();
     lower_path_module(source, "tests/smoke_test.py", &mut ctx)?;
+    ensure_signature(&ctx, "test_smoke", "test_smoke() -> None")?;
+    ensure(function_named(&ctx, "test_smoke")?.is_test, "the `_test.py` suffix marks a pytest module")?;
     Ok(())
 }
 

@@ -52,6 +52,113 @@ fn ensure_signature(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
     }
 }
 
+/// Fails unless class `name` has exactly the shape `expected`, written
+/// `Name<T>: Base { field: Type, .. }` with fields in declaration order.
+fn ensure_class_shape(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
+    let class = class_named(ctx, name)?;
+    let render = |sym| symbol(ctx, sym).map(str::to_owned);
+    let params = class
+        .type_params
+        .iter()
+        .map(|param| render(param.name))
+        .collect::<Result<Vec<_>, _>>()?;
+    let generics = if params.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", params.join(", "))
+    };
+    let base = class
+        .base
+        .map(|base| render(base).map(|base| format!(": {base}")))
+        .transpose()?
+        .unwrap_or_default();
+    let fields = class
+        .fields
+        .iter()
+        .map(|field| {
+            render(field.name).map(|field_name| {
+                format!("{field_name}: {}", smelt_hir::type_display(&ctx.krate, field.ty))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let actual = format!("{name}{generics}{base} {{ {} }}", fields.join(", "));
+    ensure_eq(&actual.as_str(), &expected, "class shape")
+}
+
+/// The class item named `name`.
+fn class_named<'a>(ctx: &'a HirCtx, name: &str) -> Result<&'a smelt_hir::Class, String> {
+    ctx.krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) if ctx.krate.symbols.get(class.name) == Some(name) => Some(class),
+            _ => None,
+        })
+        .ok_or_else(|| format!("missing class `{name}`"))
+}
+
+/// The function item named `name`.
+fn function_named<'a>(ctx: &'a HirCtx, name: &str) -> Result<&'a smelt_hir::Function, String> {
+    ctx.krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some(name) => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("missing function `{name}`"))
+}
+
+/// Fails unless the abstract methods of class `name` are exactly `expected`.
+fn ensure_abstract_methods(ctx: &HirCtx, name: &str, expected: &[&str]) -> TestResult {
+    let actual = class_named(ctx, name)?
+        .abstract_methods
+        .iter()
+        .map(|method| symbol(ctx, method.name))
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure_eq(&actual.as_slice(), &expected, "abstract methods")
+}
+
+/// Fails unless function `name` is owned by a class as a static method.
+fn ensure_owner_is_static(ctx: &HirCtx, name: &str) -> TestResult {
+    ensure(
+        matches!(
+            function_named(ctx, name)?.owner,
+            smelt_hir::FunctionOwner::ClassStaticMethod { .. }
+        ),
+        format!("`{name}` is not a static method"),
+    )
+}
+
+/// Whether some module has a global binding called `name`.
+fn has_module_binding(ctx: &HirCtx, name: &str) -> bool {
+    ctx.krate.items.iter().any(|item| match item {
+        Item::MutableGlobal(global) => ctx.krate.symbols.get(global.name) == Some(name),
+        _ => false,
+    })
+}
+
+/// The rendered receiver types of the method calls in function `name`, in
+/// expression order.
+fn method_receiver_types(ctx: &HirCtx, name: &str) -> Result<Vec<String>, String> {
+    let function = function_named(ctx, name)?;
+    let body = body(ctx, function.body.ok_or("expected a body")?)?;
+    body.exprs
+        .iter()
+        .filter_map(|expr| match expr.kind {
+            ExprKind::Method { receiver, .. } => Some(receiver),
+            _ => None,
+        })
+        .map(|receiver| {
+            let index = usize::try_from(receiver.0).map_err(|error| error.to_string())?;
+            let receiver = body.exprs.get(index).ok_or("missing receiver expression")?;
+            Ok(smelt_hir::type_display(&ctx.krate, receiver.ty))
+        })
+        .collect()
+}
+
 /// Returns the first diagnostic from `errors`.
 fn first_error(errors: &[SmeltError]) -> Result<&SmeltError, String> {
     errors

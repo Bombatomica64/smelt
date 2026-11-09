@@ -1,4 +1,4 @@
-//! Regression tests for issue #95 Python language-feature lowering:
+//! Python language-feature lowering:
 //! `try`/`except`/`finally`, `lambda` expressions, and additional class-body
 //! statements.
 
@@ -275,16 +275,14 @@ class Doc:
 }
 
 // ---------------------------------------------------------------------------
-// Nested closure return-type inference (issue #93 / #94 blocker family
-// `nested closure return type must be explicit`).
+// Nested closure return-type inference.
 // ---------------------------------------------------------------------------
 
 /// A nested `def` without a `-> T` annotation lowers, taking its return type
 /// from the type its single `return` expression actually lowers to.
 ///
-/// This is the shape idiomatic Python writes (`funcy`, `toolz`, and
-/// `more-itertools` between them hit the old hard error 72 times), and the
-/// closure's return type is knowable without any annotation: the body *is* one
+/// This is the shape idiomatic Python writes, and the closure's return type
+/// is knowable without any annotation: the body *is* one
 /// expression, so its lowered HIR type is the accurate answer.
 #[test]
 fn nested_closure_without_return_annotation_lowers() -> TestResult {

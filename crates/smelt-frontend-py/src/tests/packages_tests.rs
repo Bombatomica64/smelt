@@ -76,6 +76,8 @@ d: Dog = Dog("Rex")
 "#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_class_shape(&ctx, "Dog", "Dog { name: PyStr }")?;
+    ensure(has_module_binding(&ctx, "d"), "`d` is a module global")?;
     Ok(())
 }
 
@@ -92,11 +94,8 @@ class MyModel(models.Model):
     Ok(())
 }
 
-// The source used to omit `from abc import ABCMeta`. CPython rejects that
-// module with `NameError: name 'ABCMeta' is not defined`, and the frontend now
-// resolves a metaclass through the module's imports, so an unbound `ABCMeta`
-// no longer counts as `abc.ABCMeta`. The test now also checks the abstract
-// metadata its name promises, which it never asserted before.
+// A metaclass resolves through the module's imports; the source imports
+// `ABCMeta` because an unbound name is not `abc.ABCMeta`.
 #[test]
 fn abcmeta_metaclass_lowers_as_abstract_metadata() -> TestResult {
     let source = py!(r"
@@ -234,11 +233,9 @@ NULL_FILE = NullFile()
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
-    // Requirement change (2026-11-04): this used to require an `Item::Const`
-    // whose construction every use site inlined, which rebuilt the object per
-    // read (Python runs a module assignment once; mutations through the name
-    // were lost). The binding is now a module global initialized once by a
-    // synthesized initializer, still exported through the module namespace.
+    // Python runs a module assignment once, so the binding is a module global
+    // initialized once by a synthesized initializer and exported through the
+    // module namespace.
     ensure(
         module.items.iter().any(|item_id| {
             matches!(
