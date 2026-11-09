@@ -96,6 +96,105 @@ fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknow
     match result { SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => result, _ => instance }
 }
 
+//~ `new Proxy(target, handler)`. The proxy is an erased object naming its target
+//~ and handler; every erased property path consults them. It also holds a copy
+//~ of the target's entries, so paths that only enumerate see the target's keys.
+//~ A function target stays a function: calling it runs the `apply` trap.
+fn smelt_new_proxy(target: SmeltUnknown, handler: SmeltUnknown) -> SmeltUnknown {
+    if let SmeltUnknown::Function(callee) = &target {
+        let (callee, inner_target, inner_handler) = (callee.clone(), target.clone(), handler.clone());
+        let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args| match smelt_get_unknown_field(&inner_handler, "apply") {
+            SmeltUnknown::Function(trap) => trap(vec![inner_target.clone(), SmeltUnknown::Undefined, SmeltUnknown::Array(args.into())]),
+            _ => callee(args),
+        });
+        smelt_set_function_property(&function, "__smelt_method:__smelt_proxy_target", target);
+        smelt_set_function_property(&function, "__smelt_method:__smelt_proxy_handler", handler);
+        return SmeltUnknown::Function(function);
+    }
+    let callee = smelt_callable_of(&target);
+    let inner_target = target.clone();
+    let inner_handler = handler.clone();
+    let proxy = SmeltObject::new(Vec::from([("__smelt_method:__smelt_proxy_target".to_owned(), target), ("__smelt_method:__smelt_proxy_handler".to_owned(), handler)]));
+    smelt_proxy_sync(&proxy);
+    //~ A callable object target (`Object.assign(fn, props)`) stays callable.
+    if let Some(callee) = callee {
+        let call: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args| match smelt_get_unknown_field(&inner_handler, "apply") {
+            SmeltUnknown::Function(trap) => trap(vec![inner_target.clone(), SmeltUnknown::Undefined, SmeltUnknown::Array(args.into())]),
+            _ => callee(args),
+        });
+        proxy.insert("__smelt_method:__smelt_proxy_call", SmeltUnknown::Function(call.clone()));
+        proxy.insert("__smelt_call", SmeltUnknown::Function(call));
+    }
+    SmeltUnknown::Object(proxy)
+}
+
+//~ Copy the target's own entries onto the proxy, for paths that only enumerate.
+fn smelt_proxy_sync(proxy: &SmeltObject) {
+    let Some(SmeltUnknown::Object(target)) = proxy.get("__smelt_method:__smelt_proxy_target") else { return };
+    let stale: Vec<_> = proxy.keys().into_iter().filter(|key| !key.eq_str_prefix("__smelt_method:__smelt_proxy_")).collect();
+    for key in stale { proxy.remove(&key); }
+    for (key, value) in target.iter() { proxy.insert(key, value); }
+    if let Some(call) = proxy.get("__smelt_method:__smelt_proxy_call") { proxy.insert("__smelt_call", call); }
+}
+
+//~ The `(target, handler)` of a proxy value.
+fn smelt_proxy_parts(value: &SmeltUnknown) -> Option<(SmeltUnknown, SmeltUnknown)> {
+    match value {
+        SmeltUnknown::Object(object) => Some((object.get("__smelt_method:__smelt_proxy_target")?, object.get("__smelt_method:__smelt_proxy_handler")?)),
+        SmeltUnknown::Function(function) => match (smelt_function_value_property(function, "__smelt_method:__smelt_proxy_target"), smelt_function_value_property(function, "__smelt_method:__smelt_proxy_handler")) {
+            (SmeltUnknown::Undefined, _) | (_, SmeltUnknown::Undefined) => None,
+            parts => Some(parts),
+        },
+        _ => None,
+    }
+}
+
+//~ Run handler trap `name`, or `None` when the handler has no such trap. A throw
+//~ from the trap propagates like any JavaScript throw from a property access.
+fn smelt_proxy_trap(handler: &SmeltUnknown, name: &str, args: Vec<SmeltUnknown>) -> Option<SmeltUnknown> {
+    let SmeltUnknown::Function(trap) = smelt_get_unknown_field(handler, name) else { return None };
+    Some(trap(args).unwrap_or_else(|error| smelt_panic_throw(error)))
+}
+
+//~ The property key a trap receives: a symbol is a symbol, anything else a string.
+fn smelt_proxy_key(key: &str) -> SmeltUnknown {
+    /*@if symbol*/if let Some(symbol) = smelt_own_symbol_key_value(key) { return symbol; }/*@end*/
+    SmeltUnknown::String(key.into())
+}
+
+//~ `proxy.key`: the `get` trap, else the target's property.
+fn smelt_proxy_get(proxy: &SmeltUnknown, key: &str) -> Option<SmeltUnknown> {
+    let (target, handler) = smelt_proxy_parts(proxy)?;
+    if key.starts_with("__smelt") && !key.starts_with("__smelt_symbol") { return Some(smelt_get_unknown_field(&target, key)); }
+    Some(smelt_proxy_trap(&handler, "get", vec![target.clone(), smelt_proxy_key(key), proxy.clone()]).unwrap_or_else(|| smelt_get_unknown_field(&target, key)))
+}
+
+//~ `proxy.key = value`: the `set` trap, else a write on the target. `false` when
+//~ `proxy` is not a proxy.
+fn smelt_proxy_set(proxy: &SmeltUnknown, key: &str, value: &SmeltUnknown) -> bool {
+    let Some((mut target, handler)) = smelt_proxy_parts(proxy) else { return false };
+    if smelt_proxy_trap(&handler, "set", vec![target.clone(), smelt_proxy_key(key), value.clone(), proxy.clone()]).is_none() {
+        smelt_index_assign(&mut target, key, value.clone());
+    }
+    if let SmeltUnknown::Object(object) = proxy { smelt_proxy_sync(object); }
+    true
+}
+
+//~ `key in proxy`: the `has` trap, else the target's answer.
+fn smelt_proxy_has(proxy: &SmeltUnknown, key: &str) -> Option<bool> {
+    let (target, handler) = smelt_proxy_parts(proxy)?;
+    Some(match smelt_proxy_trap(&handler, "has", vec![target.clone(), smelt_proxy_key(key)]) {
+        Some(answer) => !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)) && !matches!(&answer, SmeltUnknown::Number(number) if *number == 0.0 || number.is_nan()) && !matches!(&answer, SmeltUnknown::String(text) if text.is_empty()),
+        None => smelt_has_property(&target, key),
+    })
+}
+
+//~ The `ownKeys` trap's answer, when the proxy has one.
+fn smelt_proxy_own_keys(proxy: &SmeltObject) -> Option<Vec<SmeltUnknown>> {
+    let (target, handler) = (proxy.get("__smelt_method:__smelt_proxy_target")?, proxy.get("__smelt_method:__smelt_proxy_handler")?);
+    match smelt_proxy_trap(&handler, "ownKeys", vec![target])? { SmeltUnknown::Array(keys) => Some(keys.into_vec()), _ => Some(Vec::new()) }
+}
+
 /// JavaScript `new value.constructor(args)`.
 //~
 //~ A class instance constructs through its erased `constructor` entry, a host
@@ -103,6 +202,10 @@ fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknow
 //~ An array is a new array and a plain object a new plain object: their
 //~ constructors are `Array` and `Object`, which no read answers as a value.
 fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+    if let SmeltUnknown::Object(object) = &value && object.contains_key("__smelt_builtin_namespace") && matches!(object.get("name"), Some(SmeltUnknown::String(name)) if name == "Proxy") {
+        let mut args = args.into_iter();
+        return smelt_new_proxy(args.next().unwrap_or(SmeltUnknown::Undefined), args.next().unwrap_or(SmeltUnknown::Undefined));
+    }
     //~ A class instance carries its real constructor as a prototype entry when
     //~ the program needs it, so field initialisers and the constructor body run.
     if let SmeltUnknown::Object(object) = &value && let Some(SmeltUnknown::Function(build)) = object.get("__smelt_method:constructor") {

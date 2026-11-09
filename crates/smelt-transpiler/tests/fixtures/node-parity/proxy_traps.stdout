@@ -1,0 +1,9 @@
+42 1 undefined
+6 8 true false true
+[ 'a', 'b' ]
+[ 'get:x', 'get:a', 'get:missing', 'set:b', 'set:c' ]
+1 2 [ 'v', 'w' ]
+20 tagged
+6
+trap true
+5

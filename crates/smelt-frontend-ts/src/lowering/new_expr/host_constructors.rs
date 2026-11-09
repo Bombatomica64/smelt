@@ -647,16 +647,14 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new Proxy(target, handler)` to its target value.
+    /// Lower `new Proxy(target, handler)`.
     ///
-    /// JavaScript `Proxy` is transparent: `x instanceof Proxy` is a `TypeError`
-    /// and a proxy reports the identity (`typeof`, `instanceof`, plain-object
-    /// shape) of its target. es-toolkit only constructs `new Proxy(target, {})`
-    /// in tests of `isPlainObject`, where the proxy must behave exactly like the
-    /// wrapped target. There is no faithful distinct identity to invent, so the
-    /// closest correct model is to lower the construct to its `target` operand
-    /// (the handler is lowered for its effects/types, then discarded). This
-    /// keeps the transparent semantics rather than erasing to a wrong marker.
+    /// A proxy with an empty handler behaves exactly as its target, so it lowers
+    /// to the target and keeps the target's static type. Any other handler can
+    /// answer a property with a value the target does not hold, which no static
+    /// shape of the target describes: that is a real dynamic boundary, so the
+    /// proxy is an erased object consulted by the erased property paths
+    /// (`smelt_new_proxy` in the runtime).
     pub(in crate::lowering) fn proxy_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -670,18 +668,23 @@ impl ModuleBuilder<'_> {
         };
         let target = self.argument(target_argument, body)?;
         if let Some(handler_argument) = new_expr.arguments.get(1) {
-            let _ = self.argument(handler_argument, body)?;
-            // A handler with traps is what the proxy answers, and traps have no model.
             let trapless = matches!(
                 handler_argument.as_expression(),
                 Some(Expression::ObjectExpression(handler)) if handler.properties.is_empty()
             );
+            let handler = self.argument(handler_argument, body)?;
             if !trapless {
+                let span = self.span(new_expr.span.start, new_expr.span.end);
                 let ty = self.erase_with(ErasureReason::ByName, "proxy with traps");
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::UnmodeledImport,
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::BuiltinNamespace { name: "Proxy".to_owned() },
                     ty,
-                    span: self.span(new_expr.span.start, new_expr.span.end),
+                    span,
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ConstructLike { value, args: vec![target, handler] },
+                    ty,
+                    span,
                 }));
             }
         }
