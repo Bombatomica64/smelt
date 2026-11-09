@@ -184,6 +184,8 @@ class Container {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "new", "new() -> Container")?;
+    ensure_exprs!(&ctx, DictContainsKey, DictGet, DictSet);
     Ok(())
 }
 
