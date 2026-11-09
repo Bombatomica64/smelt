@@ -684,8 +684,16 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
 struct SmeltPanic { class: String, message: String }
 impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
 static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
-/// Silence the panic report for Smelt-thrown payloads only.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+thread_local! { static SMELT_PANIC_CATCH_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) }; }
+/// Arm a Smelt `catch` around the call about to unwind into it.
+#[allow(dead_code)]
+fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() + 1)); }
+/// Disarm the `catch` armed by [`smelt_panic_catch_enter`].
+#[allow(dead_code)]
+fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
+/// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
+/// must say what was thrown, as Node does, instead of exiting silently.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -4208,13 +4216,13 @@ impl Router {
     let _smelt_tmp_1: bool = closure_arg_0 != "";
     _smelt_tmp_1
     });
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let _smelt_tmp_1: bool = closure_arg_0 != "";
     _smelt_tmp_1
-    }); let smelt_array = _smelt_tmp_8; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value }))) {
+    }); let smelt_array = _smelt_tmp_8; let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value }))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_10: SmeltList<JsString> = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| _smelt_tmp_7.insert(_smelt_tmp_10))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| _smelt_tmp_7.insert(_smelt_tmp_10))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_11: () = __smelt_value;
     _smelt_tmp_6 = None;
@@ -4381,10 +4389,10 @@ pub(crate) fn try_add(router: Router, method: JsString, path: JsString) -> () {
     let _smelt_tmp_10: JsString;
     let _smelt_tmp_11: JsString;
     _smelt_tmp_4 = JsString::from("h:") + &path.clone();
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| router.add(method.clone(), path.clone(), _smelt_tmp_4))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| router.add(method.clone(), path.clone(), _smelt_tmp_4))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_5: () = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {} {}", JsString::from("added"), method.clone(), path.clone()); })) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| { println!("{} {} {}", JsString::from("added"), method.clone(), path.clone()); })); smelt_panic_catch_leave(); smelt_caught } {
         Ok(__smelt_value) => {
             let _smelt_tmp_6: () = __smelt_value;
         }

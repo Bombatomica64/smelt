@@ -113,6 +113,12 @@ fn erased_set_view() -> TestResult {
     verify_node_parity("erased_set_view")
 }
 
+/// A nested `async function` without a return annotation still returns a Promise.
+#[test]
+fn nested_async_declaration_return() -> TestResult {
+    verify_node_parity("nested_async_declaration_return")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]

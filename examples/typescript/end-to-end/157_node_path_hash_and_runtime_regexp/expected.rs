@@ -684,8 +684,16 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
 struct SmeltPanic { class: String, message: String }
 impl ::std::fmt::Display for SmeltPanic { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { write!(formatter, "{}: {}", self.class, self.message) } }
 static SMELT_PANIC_HOOK: ::std::sync::Once = ::std::sync::Once::new();
-/// Silence the panic report for Smelt-thrown payloads only.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if info.payload().downcast_ref::<SmeltPanic>().is_some() { return; } previous(info); })); }); }
+thread_local! { static SMELT_PANIC_CATCH_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) }; }
+/// Arm a Smelt `catch` around the call about to unwind into it.
+#[allow(dead_code)]
+fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() + 1)); }
+/// Disarm the `catch` armed by [`smelt_panic_catch_enter`].
+#[allow(dead_code)]
+fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
+/// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
+/// must say what was thrown, as Node does, instead of exiting silently.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -4674,13 +4682,13 @@ pub(crate) fn own_join(first: JsString, second: JsString) -> JsString {
 }
 
 pub(crate) fn hex_of(algorithm: JsString, data: JsString) -> JsString {
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_create(&algorithm.clone()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_create(&algorithm.clone()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: SmeltHash = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_update_text(&_smelt_tmp_3, &data.clone(), &"utf8".to_owned()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_update_text(&_smelt_tmp_3, &data.clone(), &"utf8".to_owned()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_4: SmeltHash = __smelt_value;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&_smelt_tmp_4, &JsString::from("hex")).map(JsString::from))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&_smelt_tmp_4, &JsString::from("hex")).map(JsString::from))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_5: JsString = __smelt_value;
     return _smelt_tmp_5;
@@ -4730,7 +4738,7 @@ pub(crate) fn digest_twice() -> Result<JsString, Box<dyn std::error::Error>> {
     let _smelt_tmp_4: SmeltHash = smelt_hash_update_text(&hash.clone(), &JsString::from("once"), &"utf8".to_owned())?;
     let _smelt_tmp_5: JsString = smelt_hash_digest_text(&hash.clone(), &JsString::from("hex")).map(JsString::from)?;
     first = _smelt_tmp_5;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&hash, &JsString::from("hex")).map(JsString::from))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_hash_digest_text(&hash, &JsString::from("hex")).map(JsString::from))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_6: JsString = __smelt_value;
     return Ok(JsString::from("no throw"));
@@ -4758,7 +4766,7 @@ pub(crate) fn compile_route(route: JsString) -> Result<SmeltRegExp, Box<dyn std:
     let _smelt_tmp_2: JsString;
     _smelt_tmp_1 = JsString::from("^") + &route.clone();
     _smelt_tmp_2 = _smelt_tmp_1 + &JsString::from("$");
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(_smelt_tmp_2, JsString::new()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(_smelt_tmp_2, JsString::new()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: SmeltRegExp = __smelt_value;
     return Ok(_smelt_tmp_3);
@@ -4783,7 +4791,7 @@ pub(crate) fn describe_compile(route: JsString) -> JsString {
     let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: bool;
     let _smelt_tmp_9: JsString;
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| compile_route(route.clone()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| compile_route(route.clone()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_3: SmeltRegExp = __smelt_value;
     compiled = _smelt_tmp_3;
@@ -4810,7 +4818,7 @@ pub(crate) fn describe_compile(route: JsString) -> JsString {
 }
 
 pub(crate) fn try_flags(flags: JsString) -> JsString {
-    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(JsString::from("a"), flags.clone()))) {
+    match { smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| smelt_regexp_compile(JsString::from("a"), flags.clone()))); smelt_panic_catch_leave(); smelt_caught } {
         Ok(Ok(__smelt_value)) => {
             let _smelt_tmp_1: SmeltRegExp = __smelt_value;
     return JsString::from(&*_smelt_tmp_1.flags).clone();
