@@ -459,7 +459,7 @@ impl FunctionEmitter<'_> {
         let item_text = self.operand_expr(item)?;
         let list_mut = list_write_expr(&list_text);
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_insert_index = usize::try_from({index_text}).expect(\"list insert negative index\"); let smelt_insert_item = {item_text}; {list_mut}.insert(smelt_insert_index, smelt_insert_item); () }}", index_text = index_text.delimited(), item_text = item_text.delimited(), list_mut = list_mut.tight()
+            "{{ let smelt_len = {list_text}.len() as i64; let smelt_requested = {index_text} as i64; let smelt_insert_index = (if smelt_requested < 0 {{ (smelt_len + smelt_requested).max(0) }} else {{ smelt_requested.min(smelt_len) }}) as usize; let smelt_insert_item = {item_text}; {list_mut}.insert(smelt_insert_index, smelt_insert_item); () }}", list_text = list_text.tight(), index_text = index_text.delimited(), item_text = item_text.delimited(), list_mut = list_mut.tight()
         )))
     }
 
@@ -665,16 +665,17 @@ impl FunctionEmitter<'_> {
                 "{collection_name} clear receiver must be a place operand"
             )));
         };
-        let collection_text = self.assignment_place_expr(collection_place)?;
-        Ok(RustExpr::atom(format!("{{ {collection_text}.clear(); () }}", collection_text = collection_text.tight())))
+        let place = self.assignment_place_expr(collection_place)?;
+        // A list is a shared handle: its buffer is cleared through the write borrow.
+        let cleared = if collection_name == "list" { list_write_expr(&place) } else { place };
+        Ok(RustExpr::atom(format!("{{ {collection_text}.clear(); () }}", collection_text = cleared.tight())))
     }
 
-    /// Converts a list remove operation to Rust text.
+    /// Renders `list.remove(item)` as a `Result`: a missing item is `ValueError`.
     pub(super) fn list_remove_expr(
         &self,
         list: &Operand,
         item: &Operand,
-        dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
@@ -684,9 +685,6 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new(
                 "list remove item must match the list element type",
             ));
-        }
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-            return Err(EmitError::new("list remove destination must be None"));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
@@ -702,15 +700,15 @@ impl FunctionEmitter<'_> {
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
                 return Ok(RustExpr::atom(format!(
-                    "{{ let smelt_needle = {item_text}; let smelt_remove_index = {list_read}.iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_mut}.remove(smelt_remove_index); () }}", item_text = item_text.delimited(), list_read = list_read.tight(), list_mut = list_mut.tight()
+                    "{{ let smelt_needle = {item_text}; let smelt_remove_index = {list_read}.iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())); match smelt_remove_index {{ Some(smelt_found) => {{ {list_mut}.remove(smelt_found); Ok(()) }} None => Err(smelt_py_value_error(\"list.remove(x): x not in list\")) }} }}", item_text = item_text.delimited(), list_read = list_read.tight(), list_mut = list_mut.tight()
                 )));
             }
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "{{ let smelt_needle = {item_text}; let smelt_remove_index = {list_read}.iter().position(|smelt_item| smelt_item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_mut}.remove(smelt_remove_index); () }}", item_text = item_text.delimited(), list_read = list_read.tight(), list_mut = list_mut.tight()
+                "{{ let smelt_needle = {item_text}; let smelt_remove_index = {list_read}.iter().position(|smelt_item| smelt_item.same_js_key(&smelt_needle)); match smelt_remove_index {{ Some(smelt_found) => {{ {list_mut}.remove(smelt_found); Ok(()) }} None => Err(smelt_py_value_error(\"list.remove(x): x not in list\")) }} }}", item_text = item_text.delimited(), list_read = list_read.tight(), list_mut = list_mut.tight()
             ))));
         }
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_needle = {item_text}; let smelt_remove_index = {list_read}.iter().position(|smelt_item| smelt_item == &smelt_needle).expect(\"list remove missing item\"); {list_mut}.remove(smelt_remove_index); () }}", item_text = item_text.delimited(), list_read = list_read.tight(), list_mut = list_mut.tight()
+            "{{ let smelt_needle = {item_text}; let smelt_remove_index = {list_read}.iter().position(|smelt_item| smelt_item == &smelt_needle); match smelt_remove_index {{ Some(smelt_found) => {{ {list_mut}.remove(smelt_found); Ok(()) }} None => Err(smelt_py_value_error(\"list.remove(x): x not in list\")) }} }}", item_text = item_text.delimited(), list_read = list_read.tight(), list_mut = list_mut.tight()
         )))
     }
 

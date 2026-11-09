@@ -158,6 +158,7 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
+    fn clear(&self) { *self.store.borrow_mut() = SmeltFieldStore::default(); }
 // @smelt:if js_key_order
 // @smelt:else
     //~ Remove and return the last entry (Python `dict.popitem()`); only a

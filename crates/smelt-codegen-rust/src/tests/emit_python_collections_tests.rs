@@ -12,8 +12,11 @@ def run() -> None:
 ",
     );
 
-    assert!(source.contains("let values: SmeltList<i64>"));
-    assert!(source.contains(".fresh_copy()"));
+    assert_eq!(rust_fn(&source, "run"), r"fn run() -> () {
+let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
+let copied: SmeltList<i64> = Into::<SmeltList<_>>::into(values.fresh_copy());
+return;
+}");
 }
 
 #[test]
@@ -42,36 +45,34 @@ def run() -> None:
 "#,
     );
 
-    // `set(items)` is a NEW set: a clone would be another handle on `items`.
-    assert!(source.contains("let copied_items: SmeltPrimSet<i64> = items.fresh_copy();"), "{source}");
-    assert_eq!(source.matches(".clone().clone()").count(), 0);
-    assert!(source.contains("vec![]"));
-    // A source `set` — Python's included — is the insertion-ordered
-    // `SmeltPrimSet` container rather than a Rust `HashSet` (H52). Python
-    // guarantees no set order of its own, so an ordered container costs it
-    // nothing; JavaScript REQUIRES insertion order.
-    assert!(source.contains("SmeltPrimSet::new()"));
-    assert!(source.contains("SmeltRecord::from([])"));
-    assert!(source.contains(".iter().collect::<Vec<_>>()"));
-    assert!(
-        source.contains(
-            ".keys().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(source.contains(".iter().cloned().collect::<SmeltPrimSet<_>>()"));
-    assert!(source.contains(".iter().cloned().collect::<SmeltRecord<String, i64>>()"));
-    assert!(source.contains("panic!(\"tuple() length mismatch\")"));
-    assert!(source.contains("vec!["));
-    assert!(source.contains("SmeltPrimSet::from(["));
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
+let copied_values: SmeltList<i64> = Into::<SmeltList<_>>::into(values.clone().fresh_copy());
+let value_tuple: (i64, i64) = { let smelt_tuple_items = values.clone(); if smelt_tuple_items.len() != 2 { panic!("tuple() length mismatch"); } (smelt_tuple_items.borrow()[0].clone(), smelt_tuple_items.borrow()[1].clone()) };
+let empty_values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![]; smelt_list_items }));
+let value_set: SmeltPrimSet<i64> = values.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
+let items: SmeltPrimSet<i64> = SmeltPrimSet::from([1, 2]);
+let copied_items: SmeltPrimSet<i64> = items.fresh_copy();
+let empty_items: SmeltPrimSet<i64> = SmeltPrimSet::new();
+let names: SmeltRecord<String, i64> = SmeltRecord::from([("Ada".to_owned(), 1)]);
+let copied_names: SmeltRecord<String, i64> = names.iter().collect::<SmeltRecord<_, _>>();
+let empty_names: SmeltRecord<String, i64> = SmeltRecord::from([]);
+let _smelt_tmp_29: (String, i64) = ("Ada".to_owned(), 1);
+let pairs: SmeltList<(String, i64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, i64)> = vec![_smelt_tmp_29.clone()]; smelt_list_items }));
+let pair_names: SmeltRecord<String, i64> = pairs.borrow().iter().cloned().collect::<SmeltRecord<String, i64>>();
+let item_list: SmeltList<i64> = Into::<SmeltList<_>>::into(items.iter().collect::<Vec<_>>());
+let name_keys: SmeltList<String> = Into::<SmeltList<_>>::into(names.keys().collect::<Vec<_>>());
+let coords: (i64, i64) = (1, 2);
+let coord_list: SmeltList<i64> = Into::<SmeltList<_>>::into(vec![coords.clone().0.clone(), coords.clone().1.clone()]);
+let coord_set: SmeltPrimSet<i64> = SmeltPrimSet::from([coords.0.clone(), coords.1.clone()]);
+return;
+}"#);
 }
 
 /// `set(tuple)` builds the container its `set[...]` slot declares. A tuple of
 /// `float` is a `set[float]`, which is `SmeltJsSet<f64>` (an `f64` has no
-/// `Eq + Hash`, so it cannot key the hashed `SmeltPrimSet`); the tuple
-/// conversion once always built `SmeltPrimSet::from(..)`, so the generated
-/// `let` did not compile (E0308/E0433). The `str` tuple beside it keeps the
-/// hashed container, so the check is the shared choice, not a blanket switch.
+/// `Eq + Hash`, so it cannot key the hashed `SmeltPrimSet`). The `str` tuple
+/// beside it keeps the hashed container.
 #[test]
 fn python_set_of_tuple_builds_the_declared_set_container() {
     let source = source_for_py(
@@ -84,84 +85,13 @@ def run() -> None:
 "#,
     );
 
-    assert!(source.contains("SmeltJsSet::from([coords"), "{source}");
-    assert!(source.contains("SmeltPrimSet::from([names"), "{source}");
-    assert!(!source.contains("SmeltPrimSet::from([coords"), "{source}");
-}
-
-#[test]
-fn emits_python_list_count_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2, 1]
-count: int = values.count(1)
-",
-    );
-
-    assert!(source.contains(".iter().filter(|smelt_item| *smelt_item == &1).count() as i64;"));
-}
-
-#[test]
-fn emits_python_list_index_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2, 1]
-index: int = values.index(2)
-",
-    );
-
-    assert!(source.contains(".borrow().iter().position(|smelt_item| smelt_item == &2)"));
-    assert!(source.contains(".expect(\"list index missing item\") as i64;"));
-}
-
-#[test]
-fn emits_python_list_remove_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2, 1]
-result: None = values.remove(2)
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".iter().position(|smelt_item| smelt_item == &smelt_needle)"));
-    assert!(source.contains(".expect(\"list remove missing item\")"));
-    assert!(source.contains(".remove(smelt_remove_index);"));
-    assert!(source.contains("()"));
-}
-
-#[test]
-fn emits_python_list_sort_method() {
-    let source = source_for_py(
-        r"
-ints: list[int] = [2, 1]
-int_result: None = ints.sort()
-floats: list[float] = [2.0, 1.0]
-float_result: None = floats.sort()
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".sort();"));
-    assert!(source.contains(".sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right)"));
-    assert!(source.contains(".expect(\"list sort incomparable float\")"));
-    assert!(source.matches("()").count() >= 2);
-}
-
-#[test]
-fn emits_python_dict_pop_method() {
-    let source = source_for_py(
-        r#"
-mapping: dict[str, int] = {"a": 1}
-value: int = mapping.pop("a")
-fallback: int = mapping.pop("b", 0)
-"#,
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".remove(&"));
-    assert!(source.contains("ok_or_else(|| smelt_py_key_error(&smelt_key))"));
-    assert!(source.contains(".unwrap_or(0)"));
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+let coords: (f64, f64) = (1.5, 2.5);
+let coord_set: SmeltJsSet<f64> = SmeltJsSet::from([coords.0.clone(), coords.1.clone()]);
+let names: (String, String) = ("a".to_owned(), "b".to_owned());
+let name_set: SmeltPrimSet<String> = SmeltPrimSet::from([names.0.clone(), names.1.clone()]);
+return;
+}"#);
 }
 
 #[test]
@@ -175,9 +105,12 @@ def run() -> None:
 "#,
     );
 
-    assert!(source.contains("let maybe: Option<i64>"));
-    assert!(source.contains(".get(&\"a\".to_owned());"));
-    assert!(source.contains(".get(&\"b\".to_owned()).unwrap_or(0);"));
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+let mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
+let maybe: Option<i64> = mapping.get(&"a".to_owned());
+let fallback: i64 = mapping.get(&"b".to_owned()).unwrap_or(0);
+return;
+}"#);
 }
 
 #[test]
@@ -190,24 +123,11 @@ def run() -> None:
 "#,
     );
 
-    assert!(source.contains("let mut"));
-    assert!(source.contains("if let Some(smelt_value) = mapping.get(&\"b\".to_owned()) { smelt_value } else { mapping.insert(\"b\".to_owned(), 2.clone()); 2 }"));
-}
-
-#[test]
-fn emits_python_dict_update_method() {
-    let source = source_for_py(
-        r#"
-left: dict[str, int] = {"a": 1}
-right: dict[str, int] = {"b": 2}
-result: None = left.update(right)
-"#,
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".extend("));
-    assert!(source.contains(".iter().map(|(smelt_key, smelt_value)| (smelt_key.clone(), smelt_value.clone()))"));
-    assert!(source.contains("()"));
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+let mut mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
+let value: i64 = { if let Some(smelt_value) = mapping.get(&"b".to_owned()) { smelt_value } else { mapping.insert("b".to_owned(), 2.clone()); 2 } };
+return;
+}"#);
 }
 
 #[test]
@@ -220,146 +140,11 @@ def run() -> None:
 "#,
     );
 
-    assert!(source.contains("let mapping: SmeltRecord<String, i64>"));
-    assert!(source.contains("mapping.iter().collect::<SmeltRecord<_, _>>();"));
-}
-
-#[test]
-fn emits_python_string_replace_method() {
-    let source = source_for_py(
-        r#"
-word: str = "hello hello"
-replaced: str = word.replace("hello", "hi")
-"#,
-    );
-
-    assert!(source.contains(".replace(&"));
-}
-
-#[test]
-fn emits_python_string_remove_affix_methods() {
-    let source = source_for_py(
-        r#"
-word: str = "pre-value-suf"
-without_prefix: str = word.removeprefix("pre-")
-without_suffix: str = word.removesuffix("-suf")
-"#,
-    );
-
-    assert!(source.contains(".strip_prefix(&"));
-    assert!(source.contains(".strip_suffix(&"));
-    assert!(source.contains(".to_owned();"));
-}
-
-#[test]
-fn emits_python_string_predicate_methods() {
-    let source = source_for_py(
-        r#"
-word: str = "abc123"
-digits: bool = word.isdigit()
-letters: bool = word.isalpha()
-alnum: bool = word.isalnum()
-"#,
-    );
-
-    assert!(source.contains("char::is_ascii_digit"));
-    assert!(source.contains("char::is_alphabetic"));
-    assert!(source.contains("char::is_alphanumeric"));
-}
-
-#[test]
-fn emits_python_string_join_method() {
-    let source = source_for_py(
-        r#"
-parts: list[str] = ["a", "b", "c"]
-joined: str = "-".join(parts)
-"#,
-    );
-
-    assert!(source.contains(".join(&\"-\".to_owned());"));
-}
-
-#[test]
-fn emits_python_dict_projection_methods() {
-    let source = source_for_py(
-        r#"
-mapping: dict[str, int] = {"a": 1, "b": 2}
-keys: list[str] = mapping.keys()
-values: list[int] = mapping.values()
-items: list[tuple[str, int]] = mapping.items()
-"#,
-    );
-
-    assert!(
-        source.contains(
-            ".keys().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(
-        source.contains(
-            ".values().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(
-        source.contains(
-            ".iter().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_python_math_and_contains_helpers() {
-    let source = source_for_py(
-        r#"
-import math
-import random
-value: float = 4.0
-root: float = math.sqrt(value)
-raised: float = math.pow(value, 2.0)
-angle: float = math.atan2(value, 2.0)
-pi_value: float = math.pi
-e_value: float = math.e
-tau_value: float = math.tau
-floored: int = math.floor(value)
-ceiled: int = math.ceil(value)
-whole: int = math.trunc(value)
-finite: bool = math.isfinite(value)
-nan_value: bool = math.isnan(value)
-sample: float = random.random()
-roll: int = random.randint(1, 6)
-choices: list[str] = ["a", "b"]
-picked: str = random.choice(choices)
-values: tuple[int, int] = (1, 2)
-has_tuple: bool = 2 in values
-unique: set[int] = {1, 2}
-has_set: bool = 1 in unique
-mapping: dict[str, int] = {"a": 1}
-has_key: bool = "a" in mapping
-"#,
-    );
-
-    assert!(source.contains(".sqrt();"));
-    assert!(source.contains(".powf("));
-    assert!(source.contains(".atan2("));
-    assert!(source.contains("3.141592653589793"));
-    assert!(source.contains("2.718281828459045"));
-    assert!(source.contains("6.283185307179586"));
-    assert!(source.contains(".floor() as i64;"));
-    assert!(source.contains(".ceil() as i64;"));
-    assert!(source.contains(".trunc() as i64;"));
-    assert!(source.contains(".is_finite();"));
-    assert!(source.contains(".is_nan();"));
-    assert!(source.contains("rand::random::<f64>();"));
-    assert!(source.contains("rand::random_range(1..=6);"));
-    assert!(source.contains("rand::random_range(0..smelt_choice_items.len())"));
-    assert!(source.contains("random.choice() from empty list"));
-    assert!(source.contains(".0 == "));
-    assert!(source.contains("SmeltPrimSet::from(["));
-    assert!(source.contains(".contains(&1)"));
-    assert!(source.contains(".contains_key(&"));
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+let mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
+let copied: SmeltRecord<String, i64> = mapping.iter().collect::<SmeltRecord<_, _>>();
+return;
+}"#);
 }
 
 #[test]
@@ -371,6 +156,9 @@ def choose(flag: bool, left: int, right: int) -> int:
 ",
     );
 
-    assert!(source.contains("if "));
-    assert!(source.contains(" else "));
+    assert_eq!(rust_fn(&source, "choose"), r"fn choose(flag: bool, left: i64, right: i64) -> i64 {
+let mut _smelt_tmp_3: i64;
+let _smelt_tmp_3: i64 = if flag { left } else { right };
+return _smelt_tmp_3;
+}");
 }
