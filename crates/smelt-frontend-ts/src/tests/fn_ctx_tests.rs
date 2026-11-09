@@ -71,7 +71,7 @@ console.log(outer(3));
 
 #[test]
 fn constructor_parameter_default_update_stays_in_the_constructor_body() -> Result<(), String> {
-    lower_valid(ts!(r"
+    let ctx = lower_valid(ts!(r"
 function outer(n: number): number {
   if (n > 0) {
     class Pair {
@@ -84,12 +84,16 @@ function outer(n: number): number {
 }
 console.log(outer(2));
 "))?;
+    ensure!(
+        some_body_assigns_local_named(&ctx, "a"),
+        "the default's `a++` store must be emitted into the constructor body"
+    );
     Ok(())
 }
 
 #[test]
 fn field_initializer_update_stays_in_the_synthesized_constructor() -> Result<(), String> {
-    lower_valid(ts!(r"
+    let ctx = lower_valid(ts!(r"
 function outer(n: number): number {
   if (n > 0) {
     class Counter {
@@ -103,12 +107,16 @@ function outer(n: number): number {
 }
 console.log(outer(1));
 "))?;
+    ensure!(
+        crate_has_field(&ctx, "a") && crate_has_new(&ctx, "Counter"),
+        "the initializer reads `this.a` inside the synthesized constructor"
+    );
     Ok(())
 }
 
 #[test]
 fn method_default_inside_a_loop_body_block() -> Result<(), String> {
-    lower_valid(ts!(r"
+    let ctx = lower_valid(ts!(r"
 function outer(n: number): number {
   let total = 0;
   for (let r = 0; r < n; r++) {
@@ -121,6 +129,10 @@ function outer(n: number): number {
 }
 console.log(outer(3));
 "))?;
+    ensure!(
+        some_body_assigns_local_named(&ctx, "a"),
+        "the default's `a++` store must be emitted into the method body"
+    );
     Ok(())
 }
 
