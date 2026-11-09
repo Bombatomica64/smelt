@@ -79,6 +79,41 @@ in the change table, as information.
   the share additionally blocked was only the removal of typed entries, which is
   not a typing regression.
 
+### Corrected expectation: dynamic `+` (2026-11-09)
+
+`--update-baseline` never takes a record whose erased count rose, so this
+correction was applied to exactly seven es-toolkit records and the total by
+hand, in the commit that changed the lowering, under the verification-contract
+rule for a wrong expectation.
+
+- **Old requirement**: `x + y` with an `any` operand and no definite string
+  side was typed `number` (the erased-numeric rule), so those values counted as
+  concrete.
+- **Source evidence**: JavaScript `+` applies `ApplyStringOrNumericBinaryOperator`
+  to the run-time values: `(u as any) + 5` is `"t5"` for `u = "t"` and `7` for
+  `u = 2`. The `number` typing printed `NaN` for the first. No concrete type,
+  union or generic can hold the result, which is a string or a number depending
+  on the value, so it is the erased carrier
+  (`crates/smelt-transpiler/tests/dynamic_semantics_cli_tests.rs`,
+  `dynamic_addition_follows_javascript`).
+- **New requirement**: only a genuinely dynamic `+` is erased. A definite
+  string side keeps the typed concatenation, two numeric sides the typed
+  addition, and a sum the TS7 checker types as `number`, `bigint` or `string` keeps
+  that type even when Smelt erased an operand (es-toolkit's
+  `end = array.length` parameter).
+- **Accepted records** (values erased, before -> after): `combinations.ts`
+  10 -> 11 (`indices[j - 1] + 1` over `Array(r)`, an `any[]`), `compat/array/find.ts`
+  24 -> 25 (`source.length + fromIndex` with `source: Record<any, any>`),
+  `memoize.spec.ts` 55 -> 57 (`a + this.b + this.c` on an untyped `this`),
+  `partial.spec.ts` and `partialRight.spec.ts` 115 -> 117 (`a + b + c` with
+  `any` parameters), `cloneDeepWith.spec.ts` 95 -> 97 (`v + 1` over an `any`
+  array), `mergeWith.spec.ts` 83 -> 84 (`objValue.x + srcValue.x` on `any`);
+  total 7964 -> 7975. Every one has an `any` operand whose value decides the
+  operation. The examples corpus is unchanged.
+- **Why the guarantee is preserved**: these values were not losing a type they
+  had: the `number` was wrong for the values the source admits. Any other rise
+  still blocks.
+
 | Baseline | Corpus | CI |
 | --- | --- | --- |
 | `typedness-baseline.json` | `examples/typescript/end-to-end/*/input.ts` | blocking |

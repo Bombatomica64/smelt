@@ -7,6 +7,7 @@
 //! somewhere activate this machinery; every other name keeps today's byte
 //! -identical folding and native construction (pay-for-use).
 
+use crate::lowering::resolve::HostGlobal;
 use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
@@ -57,10 +58,9 @@ impl ModuleBuilder<'_> {
         operand: &'a Expression<'a>,
     ) -> Option<&'a str> {
         match operand {
-            Expression::Identifier(identifier) => {
-                self.is_written_host_global(identifier.name.as_str())
-                    .then_some(identifier.name.as_str())
-            }
+            Expression::Identifier(identifier) => self
+                .written_host_global(identifier.name.as_str())
+                .map(|host| host.name()),
             Expression::StaticMemberExpression(member) if !member.optional => {
                 let name = member.property.name.as_str();
                 (self.expr_is_global_alias(&member.object) && self.is_written_host_global(name))
@@ -295,11 +295,12 @@ impl ModuleBuilder<'_> {
     /// lowering to handle it).
     pub(in crate::lowering) fn native_host_constructor_expression(
         &mut self,
-        name: &str,
+        host: HostGlobal<'_>,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some(kind) = self.host_constructor_of(name).and_then(|kind| kind.overridable(name)) else {
+        let name = host.name();
+        let Some(kind) = self.host_constructor_of(host).and_then(|kind| kind.overridable(name)) else {
             return Ok(None);
         };
         self.construct_host(kind, name, new_expr, body, None).map(Some)

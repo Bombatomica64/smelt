@@ -441,7 +441,7 @@ impl ModuleBuilder<'_> {
                 if !self.supports_stdlib_len(operand_ty) {
                     return Err(SmeltError::unsupported(
                         span,
-                        "len() is only supported for list, dict, tuple, and str values",
+                        "len() is only supported for list, dict, set, tuple, and str values",
                     ));
                 }
                 let ty = self.intern_type(Type::Int);

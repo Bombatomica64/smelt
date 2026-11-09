@@ -3,6 +3,7 @@
 //! Lowers standard-library `Map` and `Set` receiver methods into typed HIR
 //! dict/set operations. The impl block below documents the concern in detail.
 
+use crate::lowering::resolve::HostGlobal;
 use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
@@ -74,6 +75,18 @@ impl ModuleBuilder<'_> {
                 None
             };
         let effective_ty = optional_inner.unwrap_or(receiver_ty);
+        // A `Dict` is also how a string-keyed OBJECT type with uniform members
+        // lowers (`{ has: (a: number) => string }`, `Record<string, Fn>`). A
+        // call of a member whose value is callable (or `any`) on such a
+        // receiver is a call of that PROPERTY, as in JavaScript; the checked
+        // source cannot mean `Map.prototype.has` there, since a `Map` lowers
+        // to `JsMap` and a non-callable record member cannot be called.
+        if let Some(Type::Dict(_, value_ty)) = self.ctx.krate.types.get(effective_ty).cloned()
+            && (self.ctx.krate.types.get(value_ty) == Some(&Type::Unknown)
+                || self.function_member_type(value_ty).is_some())
+        {
+            return Ok(None);
+        }
         let receiver_kind = match self.ctx.krate.types.get(effective_ty) {
             Some(Type::Dict(_, _) | Type::JsMap(_, _)) => {
                 smelt_stdlib::TypeScriptReceiverKind::Map
@@ -840,14 +853,12 @@ impl ModuleBuilder<'_> {
     /// Lower `new Set(...)` from an array literal or annotated empty constructor.
     pub(in crate::lowering) fn set_constructor_expression(
         &mut self,
+        host: HostGlobal<'_>,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &new_expr.callee else {
-            return Ok(None);
-        };
-        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Set) {
+        if !Self::is_ts_stdlib_class_name(host.name(), smelt_stdlib::StdlibClass::Set) {
             return Ok(None);
         }
         let (items, ty) = match new_expr.arguments.as_slice() {
@@ -1074,14 +1085,12 @@ impl ModuleBuilder<'_> {
     /// Lower `new Map(...)` to a dictionary literal.
     pub(in crate::lowering) fn map_constructor_expression(
         &mut self,
+        host: HostGlobal<'_>,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &new_expr.callee else {
-            return Ok(None);
-        };
-        if !Self::is_ts_stdlib_class_name(callee.name.as_str(), smelt_stdlib::StdlibClass::Map) {
+        if !Self::is_ts_stdlib_class_name(host.name(), smelt_stdlib::StdlibClass::Map) {
             return Ok(None);
         }
         let (entries, ty) = match new_expr.arguments.as_slice() {

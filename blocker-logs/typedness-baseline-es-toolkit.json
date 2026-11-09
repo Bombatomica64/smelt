@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14079,
+      "concrete": 14070,
       "generic": 228,
-      "erased": 7964
+      "erased": 7975
     },
     "reads": {
       "concrete": 341,
@@ -275,9 +275,9 @@
     },
     "src/array/combinations.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 27,
         "generic": 0,
-        "erased": 10
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
@@ -3745,7 +3745,7 @@
       "values": {
         "concrete": 17,
         "generic": 0,
-        "erased": 24
+        "erased": 25
       },
       "reads": {
         "concrete": 1,
@@ -8979,9 +8979,9 @@
     },
     "src/function/memoize.spec.ts": {
       "values": {
-        "concrete": 97,
+        "concrete": 96,
         "generic": 13,
-        "erased": 55
+        "erased": 57
       },
       "reads": {
         "concrete": 4,
@@ -9115,9 +9115,9 @@
     },
     "src/function/partial.spec.ts": {
       "values": {
-        "concrete": 91,
+        "concrete": 89,
         "generic": 4,
-        "erased": 115
+        "erased": 117
       },
       "reads": {
         "concrete": 0,
@@ -9149,9 +9149,9 @@
     },
     "src/function/partialRight.spec.ts": {
       "values": {
-        "concrete": 55,
+        "concrete": 53,
         "generic": 4,
-        "erased": 115
+        "erased": 117
       },
       "reads": {
         "concrete": 0,
@@ -9931,9 +9931,9 @@
     },
     "src/object/cloneDeepWith.spec.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 69,
         "generic": 0,
-        "erased": 95
+        "erased": 97
       },
       "reads": {
         "concrete": 3,
@@ -10186,9 +10186,9 @@
     },
     "src/object/mergeWith.spec.ts": {
       "values": {
-        "concrete": 88,
+        "concrete": 87,
         "generic": 0,
-        "erased": 83
+        "erased": 84
       },
       "reads": {
         "concrete": 0,

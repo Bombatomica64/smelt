@@ -83,7 +83,8 @@ impl ModuleBuilder<'_> {
                 "sum() currently supports exactly one list argument",
             ));
         }
-        let list = self.expression(&call.arguments.args[0], body)?;
+        let iterable = self.expression(&call.arguments.args[0], body)?;
+        let list = self.order_free_iterable_as_list(iterable, self.span(call.arguments.args[0].range()), body);
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Err(SmeltError::unsupported(
@@ -127,7 +128,8 @@ impl ModuleBuilder<'_> {
                 "all() and any() currently support exactly one bool list argument",
             ));
         }
-        let list = self.expression(&call.arguments.args[0], body)?;
+        let iterable = self.expression(&call.arguments.args[0], body)?;
+        let list = self.order_free_iterable_as_list(iterable, self.span(call.arguments.args[0].range()), body);
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Err(SmeltError::unsupported(
@@ -172,7 +174,8 @@ impl ModuleBuilder<'_> {
                 "sorted() currently supports exactly one list argument",
             ));
         }
-        let list = self.expression(&call.arguments.args[0], body)?;
+        let iterable = self.expression(&call.arguments.args[0], body)?;
+        let list = self.order_free_iterable_as_list(iterable, self.span(call.arguments.args[0].range()), body);
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Err(SmeltError::unsupported(

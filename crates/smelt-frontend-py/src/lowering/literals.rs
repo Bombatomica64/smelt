@@ -614,12 +614,86 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(b.range);
+        let lhs = self.expression(&b.left, body)?;
+        let rhs = self.expression(&b.right, body)?;
+        if let Some(expr) = self.set_operator_expression(b.op, lhs, rhs, span, body)? {
+            return Ok(expr);
+        }
         let op = Self::python_arithmetic_op(b.op).ok_or_else(|| {
             SmeltError::unsupported(span, format!("binary operator '{}' is not supported", b.op))
         })?;
-        let lhs = self.expression(&b.left, body)?;
-        let rhs = self.expression(&b.right, body)?;
         self.python_arithmetic(op, lhs, rhs, span, body)
+    }
+
+    /// Python's in-place set operators: `s |= t`, `s &= t`, `s -= t` and
+    /// `s ^= t` on a set `s` MUTATE it (`set.__ior__` and friends), so every
+    /// alias sees the new members; rebinding `s` to `s | t` would leave the
+    /// aliases behind. `None` when `target` is not a set.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    pub(super) fn set_in_place_update(
+        &mut self,
+        op: Operator,
+        target: smelt_hir::ExprId,
+        other: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let target_ty = Self::expr_ty(body, target);
+        if !matches!(self.ctx.krate.types.get(target_ty), Some(Type::Set(_))) {
+            return Ok(None);
+        }
+        let set_op = match op {
+            Operator::BitOr => smelt_hir::SetBinaryOp::Union,
+            Operator::BitAnd => smelt_hir::SetBinaryOp::Intersection,
+            Operator::Sub => smelt_hir::SetBinaryOp::Difference,
+            Operator::BitXor => smelt_hir::SetBinaryOp::SymmetricDifference,
+            _ => return Err(SmeltError::unsupported(span, format!("augmented operator '{op}=' is not defined for sets"))),
+        };
+        if Self::expr_ty(body, other) != target_ty {
+            return Err(SmeltError::unsupported(span, "in-place set operators require two sets of the same element type"));
+        }
+        let ty = self.intern_type(Type::None);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::SetUpdate { op: set_op, set: target, other },
+            ty,
+            span,
+        })))
+    }
+
+    /// Python's set operators on two sets: `|` union, `&` intersection, `-`
+    /// difference and `^` symmetric difference, each a NEW set (the operands
+    /// are not mutated). `None` when either operand is not a set.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn set_operator_expression(
+        &self,
+        op: Operator,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let left_ty = Self::expr_ty(body, lhs);
+        let right_ty = Self::expr_ty(body, rhs);
+        if !matches!(self.ctx.krate.types.get(left_ty), Some(Type::Set(_)))
+            || !matches!(self.ctx.krate.types.get(right_ty), Some(Type::Set(_)))
+        {
+            return Ok(None);
+        }
+        let set_op = match op {
+            Operator::BitOr => smelt_hir::SetBinaryOp::Union,
+            Operator::BitAnd => smelt_hir::SetBinaryOp::Intersection,
+            Operator::Sub => smelt_hir::SetBinaryOp::Difference,
+            Operator::BitXor => smelt_hir::SetBinaryOp::SymmetricDifference,
+            _ => return Err(SmeltError::unsupported(span, format!("binary operator '{op}' is not defined for sets"))),
+        };
+        if left_ty != right_ty {
+            return Err(SmeltError::unsupported(span, "set operators require two sets of the same element type"));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::SetBinary { op: set_op, left: lhs, right: rhs },
+            ty: left_ty,
+            span,
+        })))
     }
 
     /// The arithmetic a Python operator stands for, when Smelt models it.
@@ -998,6 +1072,29 @@ impl ModuleBuilder<'_> {
             ));
         };
         let rhs = self.expression(rhs_expr, body)?;
+        // Ordering two sets is Python's subset order: `a <= b` is
+        // `a.issubset(b)`, `a < b` a proper subset, and `>=`/`>` the
+        // superset forms.
+        if let (Some(Type::Set(_)), Some(Type::Set(_))) = (
+            self.ctx.krate.types.get(Self::expr_ty(body, lhs)),
+            self.ctx.krate.types.get(Self::expr_ty(body, rhs)),
+        ) && let Some(relation) = match op {
+            CmpOp::LtE => Some(smelt_hir::SetRelationOp::IsSubset),
+            CmpOp::GtE => Some(smelt_hir::SetRelationOp::IsSuperset),
+            CmpOp::Lt => Some(smelt_hir::SetRelationOp::IsProperSubset),
+            CmpOp::Gt => Some(smelt_hir::SetRelationOp::IsProperSuperset),
+            _ => None,
+        } {
+            if Self::expr_ty(body, lhs) != Self::expr_ty(body, rhs) {
+                return Err(SmeltError::unsupported(span, "set comparisons require two sets of the same element type"));
+            }
+            let ty = self.intern_type(Type::Bool);
+            return Ok(body.push_expr(HirExpr {
+                kind: ExprKind::SetRelation { op: relation, left: lhs, right: rhs },
+                ty,
+                span,
+            }));
+        }
         // `is` asks for identity. For a list, dict or set — mutable objects
         // with an identity of their own — that is the object-identity
         // comparison (`JsStrictEq`, which reads each container's id), not

@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
         if self.builtin_call_identifier_is_shadowed(callee.name.as_str()) {
             return Ok(None);
         }
-        if callee.name == "parseInt" {
+        if self.names_host(callee.name.as_str(), "parseInt") {
             let (operand, radix) = self.parse_int_operand("parseInt", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
@@ -35,10 +35,10 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        if callee.name == "BigInt" {
+        if self.names_host(callee.name.as_str(), "BigInt") {
             return self.bigint_conversion_call(call, body).map(Some);
         }
-        if callee.name == "parseFloat" {
+        if self.names_host(callee.name.as_str(), "parseFloat") {
             let operand = self.parse_float_operand("parseFloat", call, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
@@ -101,7 +101,7 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
-        if callee.name == "String" && matches!(operand_type, Some(Type::Bool)) {
+        if self.names_host(callee.name.as_str(), "String") && matches!(operand_type, Some(Type::Bool)) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "String currently supports number and string arguments",

@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
             let omittable_default = contextual_function
                 .and_then(|function| function.params.get(index))
                 .is_none()
-                && Self::closure_param_default(param).is_some();
+                && self.closure_param_default(param).is_some();
             let ty = if (param.optional || omittable_default)
                 && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
             {
@@ -469,6 +469,7 @@ impl ModuleBuilder<'_> {
     /// A default equal to the type's zero value needs none: an omitted argument
     /// already arrives as that value (see `initializer_is_type_zero_default`).
     fn closure_param_default<'src>(
+        &self,
         param: &'src oxc::ast::ast::FormalParameter<'src>,
     ) -> Option<&'src Expression<'src>> {
         if !matches!(param.pattern, BindingPattern::BindingIdentifier(_)) {
@@ -477,7 +478,7 @@ impl ModuleBuilder<'_> {
         param
             .initializer
             .as_deref()
-            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer))
+            .filter(|initializer| !self.initializer_is_type_zero_default(initializer))
     }
 
     /// The type a closure body's `return` statements join to, if any.
@@ -578,7 +579,7 @@ impl ModuleBuilder<'_> {
                         self.scope.bind(binding.name.as_str().to_owned(), local),
                     ));
                     if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-                        && let Some(initializer) = Self::closure_param_default(param)
+                        && let Some(initializer) = self.closure_param_default(param)
                     {
                         defaulted_params.push((
                             local,

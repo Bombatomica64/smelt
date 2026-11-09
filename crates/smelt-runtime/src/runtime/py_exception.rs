@@ -112,6 +112,12 @@ fn smelt_py_index_error(message: &str) -> Box<dyn ::std::error::Error> {
     SmeltPyException::new(&["IndexError", "LookupError", "Exception", "BaseException"], vec![SmeltPyException::arg(&message.to_owned())]).into_error()
 }
 
+/// A `ValueError` with one message argument (`min()` of an empty iterable).
+#[allow(dead_code)]
+fn smelt_py_value_error(message: &str) -> Box<dyn ::std::error::Error> {
+    SmeltPyException::new(&["ValueError", "Exception", "BaseException"], vec![SmeltPyException::arg(&message.to_owned())]).into_error()
+}
+
 /// The positions `xs[start:end:step]` reads from a sequence of `len`
 /// elements: `CPython`'s `slice.indices` clamping, then its `range`. A zero
 /// step raises `ValueError`.

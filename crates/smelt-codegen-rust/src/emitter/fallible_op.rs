@@ -138,6 +138,34 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Renders Python's `min(xs)` / `max(xs)` over a list: a left fold that
+    /// replaces the running extremum only when an item compares strictly
+    /// less (greater), so the first of equal items wins and a NaN compares as
+    /// `CPython` compares it; an empty list raises `ValueError` with
+    /// `CPython`'s message.
+    fn python_list_extrema_call(
+        &self,
+        op: smelt_hir::NumericExtremaOp,
+        list: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("a Python min()/max() needs a list"));
+        };
+        let (comparison, name) = match op {
+            smelt_hir::NumericExtremaOp::Min => ("<", "min"),
+            smelt_hir::NumericExtremaOp::Max => (">", "max"),
+        };
+        let list_text = self.operand_borrow_expr(list)?;
+        Ok((
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{{ let smelt_list = &{list_text}; let smelt_items = smelt_list.borrow(); smelt_items.iter().cloned().reduce(|smelt_best, smelt_item| if smelt_item {comparison} smelt_best {{ smelt_item }} else {{ smelt_best }}).ok_or_else(|| smelt_py_value_error(\"{name}() iterable argument is empty\")) }}",
+                list_text = list_text.tight()
+            ))),
+            *item_ty,
+        ))
+    }
+
     /// Renders Python's `xs[start:end:step]` on a list or a string: the
     /// elements (code points) at the positions `smelt_py_slice_positions`
     /// picks.
@@ -220,6 +248,7 @@ impl FunctionEmitter<'_> {
             Rvalue::PythonStepSlice { sequence, start, end, step } => {
                 self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?
             }
+            Rvalue::PythonListExtrema { op: extremum, list } => self.python_list_extrema_call(*extremum, list)?,
             Rvalue::Base64Transcode { op, .. } => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a base64 transcoder takes one string argument")

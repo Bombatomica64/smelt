@@ -17,6 +17,13 @@
 //! read after resolution are gated by type: enum members are read through an
 //! [`EnumBinding`], which only [`ModuleBuilder::resolve_value`] can make, so a
 //! fold that skipped the scope does not compile.
+//!
+//! Host globals are gated the same way: a [`HostGlobal`] is the proof that a
+//! bare name is the host's (`new Map()`, `Promise.resolve`, `console.log`),
+//! and the host dispatchers (`new` of a host constructor, a builtin namespace
+//! call) take one instead of reading the identifier's spelling, so a
+//! parameter named `Map` or `RegExp` reaches them only by first being asked
+//! of the scope (audit A4).
 
 use smelt_hir::{LocalId, TypeId};
 
@@ -40,12 +47,34 @@ impl EnumBinding<'_> {
     }
 }
 
+/// Proof that a bare name resolved to the HOST's global of that spelling:
+/// nothing in the source binds it, a host-module import does (`import {
+/// DatabaseSync } from 'node:sqlite'`), or an ambient declaration describes
+/// it (`declare let window: ...`).
+///
+/// The field is private to this module: the only ways to obtain one are
+/// [`ModuleBuilder::resolve_value`] and [`ModuleBuilder::host_global`], which
+/// ask the lexical scope and the module first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::lowering) struct HostGlobal<'name> {
+    /// The global's spelling where it is read.
+    name: &'name str,
+}
+
+impl<'name> HostGlobal<'name> {
+    /// The host global's spelling (`Map`, `Promise`, `console`).
+    pub(in crate::lowering) const fn name(&self) -> &'name str {
+        self.name
+    }
+
+    /// Whether this is the host global `name`.
+    pub(in crate::lowering) fn is(&self, name: &str) -> bool {
+        self.name == name
+    }
+}
+
 /// What an unqualified VALUE name refers to where it is read.
 #[derive(Debug, Clone, Copy)]
-#[expect(
-    variant_size_differences,
-    reason = "a short-lived answer of 24 bytes; boxing the borrowed name would cost an allocation per identifier"
-)]
 pub(in crate::lowering) enum ValueBinding<'name> {
     /// A lexical binding: a parameter, local, loop or `catch` variable, or a
     /// nested function. It shadows everything below.
@@ -57,9 +86,10 @@ pub(in crate::lowering) enum ValueBinding<'name> {
     /// Some other module-scope binding: a constant, function, module
     /// variable or import.
     Module,
-    /// Nothing in the source binds the name: it is the host's global
-    /// (`Date`, `RegExp`, `NaN`, a typed array constructor) or unresolved.
-    Host,
+    /// Nothing in the source binds the name, or a host-module import does:
+    /// it is the host's global (`Date`, `RegExp`, `NaN`, a typed array
+    /// constructor) or unresolved.
+    Host(HostGlobal<'name>),
 }
 
 /// What an unqualified TYPE name refers to where it is written.
@@ -87,6 +117,14 @@ impl ModuleBuilder<'_> {
         if self.classes.contains(name) {
             return ValueBinding::Class;
         }
+        if self.imports.is_imported_binding(name) && !self.import_shadows_lib(name) {
+            return ValueBinding::Host(HostGlobal { name });
+        }
+        // An ambient declaration (`declare let window: ...`) is a claim about
+        // the binding the HOST provides, not a binding of its own.
+        if self.ambient_value_declarations.contains(name) {
+            return ValueBinding::Host(HostGlobal { name });
+        }
         if self.source_facts.declares_module_value(name)
             || self.imports.is_imported_binding(name)
             || self.module_globals.contains_key(name)
@@ -96,7 +134,47 @@ impl ModuleBuilder<'_> {
         {
             return ValueBinding::Module;
         }
-        ValueBinding::Host
+        ValueBinding::Host(HostGlobal { name })
+    }
+
+    /// The host global `name` is where it is read, or `None` when a source
+    /// binding of that spelling shadows it; see [`Self::resolve_value`].
+    pub(in crate::lowering) fn host_global_named<'name>(&self, name: &'name str) -> Option<HostGlobal<'name>> {
+        match self.resolve_value(name) {
+            ValueBinding::Host(host) => Some(host),
+            ValueBinding::Local(_) | ValueBinding::Enum(_) | ValueBinding::Class | ValueBinding::Module => None,
+        }
+    }
+
+    /// The host constructor `name` when the crate reassigns it through
+    /// `globalThis.<name> = ...` and no LEXICAL binding shadows it.
+    ///
+    /// Unlike [`Self::host_global_named`], a module class of the same spelling
+    /// does not shadow it: the override is written as a class EXPRESSION
+    /// (`globalThis.File = class File extends Blob {}`), whose name binds only
+    /// inside its own body, yet the lowering registers it as a module class.
+    pub(in crate::lowering) fn written_host_global<'name>(&self, name: &'name str) -> Option<HostGlobal<'name>> {
+        (self.scope.lookup(name).is_none() && self.is_written_host_global(name)).then_some(HostGlobal { name })
+    }
+
+    /// Whether the bare name `name`, read here, is the host global `global`:
+    /// spelled `global` and not shadowed by any source binding.
+    pub(in crate::lowering) fn names_host(&self, name: &str, global: &str) -> bool {
+        name == global && self.host_global_named(name).is_some()
+    }
+
+    /// The host global `expression` names: a bare identifier that resolves to
+    /// the host, seen through parentheses. `None` for any other expression,
+    /// and for an identifier a source binding shadows.
+    pub(in crate::lowering) fn host_global<'expr>(
+        &self,
+        expression: &'expr oxc::ast::ast::Expression<'_>,
+    ) -> Option<HostGlobal<'expr>> {
+        match expression {
+            oxc::ast::ast::Expression::Identifier(ident) => self.host_global_named(ident.name.as_str()),
+            oxc::ast::ast::Expression::ParenthesizedExpression(inner) => self.host_global(&inner.expression),
+            _ => None,
+        }
     }
 
     /// Resolve the unqualified type name `name`; see the module docs. A type

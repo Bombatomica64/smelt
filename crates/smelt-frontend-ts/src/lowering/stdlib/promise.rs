@@ -1,5 +1,6 @@
 //! `Promise`: its statics, its constructor and executor, and `then`/`catch`/`finally`.
 
+use crate::lowering::resolve::HostGlobal;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
@@ -22,7 +23,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Promise" {
+        if !self.names_host(object.name.as_str(), "Promise") {
             return Ok(None);
         }
         if member.property.name == "resolve" {
@@ -247,14 +248,12 @@ impl ModuleBuilder<'_> {
     /// batching helpers can keep their type surface.
     pub(in crate::lowering) fn promise_constructor_expression(
         &mut self,
+        host: HostGlobal<'_>,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &new_expr.callee else {
-            return Ok(None);
-        };
-        if callee.name != "Promise" {
+        if !host.is("Promise") {
             return Ok(None);
         }
         let [executor_arg] = new_expr.arguments.as_slice() else {
@@ -265,7 +264,7 @@ impl ModuleBuilder<'_> {
         };
         let bare_delay_timer = match executor_arg {
             Argument::ArrowFunctionExpression(executor) => {
-                Self::promise_executor_timer_call(executor).filter(|timer_call| {
+                self.promise_executor_timer_call(executor).filter(|timer_call| {
                     Self::promise_executor_is_bare_delay(executor, timer_call)
                 })
             }
@@ -498,6 +497,7 @@ impl ModuleBuilder<'_> {
 
     /// Return the `setTimeout` call inside a supported Promise executor.
     pub(in crate::lowering) fn promise_executor_timer_call<'a>(
+        &self,
         executor: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
         // The executor is written either concisely (`resolve => setTimeout(..)`)
@@ -519,7 +519,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return None;
         };
-        (callee.name == "setTimeout" && call.arguments.len() == 2).then_some(call)
+        (self.names_host(callee.name.as_str(), "setTimeout") && call.arguments.len() == 2).then_some(call)
     }
 
     /// Return whether a `setTimeout`-bodied Promise executor is a pure delay.

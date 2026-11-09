@@ -321,7 +321,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<ErrorConstructorParts, SmeltError> {
         let is_aggregate = matches!(
             &new_expr.callee,
-            Expression::Identifier(callee) if callee.name == "AggregateError"
+            Expression::Identifier(callee) if self.names_host(callee.name.as_str(), "AggregateError")
         );
         let mut arguments = new_expr.arguments.iter();
         let errors = if is_aggregate {

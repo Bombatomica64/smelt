@@ -99,7 +99,7 @@ impl ModuleBuilder<'_> {
     fn supports_stdlib_len(&self, ty: TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(ty),
-            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::PyStr)
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_) | Type::PyStr)
         )
     }
 

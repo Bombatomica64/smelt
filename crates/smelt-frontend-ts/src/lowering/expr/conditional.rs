@@ -23,7 +23,7 @@ impl ModuleBuilder<'_> {
     /// value) keeps the increment inside the arm, where MIR lowers it within the
     /// matching switch branch. Arms with no side effects return their expression
     /// unwrapped so simple ternaries are unchanged.
-    fn lower_conditional_arm(
+    pub(in crate::lowering) fn lower_conditional_arm(
         &mut self,
         body: &mut Body,
         span: Span,
@@ -440,11 +440,10 @@ impl ModuleBuilder<'_> {
     /// A local binding or user class of the same name shadows the global, so it
     /// is excluded — the guard then lowers normally.
     fn identifier_is_always_present_global_constructor(&self, name: &str) -> bool {
-        if self.scope.is_bound(name) || self.classes.contains(name) {
+        let Some(host) = self.host_global_named(name) else {
             return false;
-        }
-        smelt_stdlib::is_typed_array_class_name(name)
-            || Self::is_known_defined_global_constructor(name)
+        };
+        smelt_stdlib::is_typed_array_class_name(name) || Self::is_known_defined_global_constructor(host)
     }
 
     /// Compute the result type for a conditional expression's branches.

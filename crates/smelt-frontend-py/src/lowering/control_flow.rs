@@ -349,6 +349,12 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let span = self.span(aug.range);
+        let target = self.expression(&aug.target, body)?;
+        let rhs = self.expression(&aug.value, body)?;
+        if let Some(update) = self.set_in_place_update(aug.op, target, rhs, span, body)? {
+            body.push_stmt_to_block(block, HirStmt::Expr(update));
+            return Ok(());
+        }
         let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
             let op = aug.op;
             SmeltError::unsupported(
@@ -356,8 +362,6 @@ impl ModuleBuilder<'_> {
                 format!("augmented assignment operator '{op:?}' is not supported"),
             )
         })?;
-        let target = self.expression(&aug.target, body)?;
-        let rhs = self.expression(&aug.value, body)?;
         let target_ty = Self::expr_ty(body, target);
         let compound = self.python_arithmetic(op, target, rhs, span, body)?;
         let compound_ty = Self::expr_ty(body, compound);

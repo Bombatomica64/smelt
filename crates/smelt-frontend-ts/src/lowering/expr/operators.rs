@@ -92,6 +92,8 @@ impl ModuleBuilder<'_> {
         // Erased operands say nothing about `+`; the checker may know it concatenates.
         let ty = if op == BinOp::Add && self.checker_types_as_string(binary.span.start, binary.span.end) {
             self.ctx.krate.types.intern(Type::String)
+        } else if let Some(dynamic) = self.dynamic_addition_type(op, lhs_ty, rhs_ty, binary.span.start, binary.span.end) {
+            dynamic
         } else {
             self.binary_result_type(op, lhs_ty, rhs_ty)
         };
@@ -699,11 +701,14 @@ impl ModuleBuilder<'_> {
         // registry namespace now (`smelt_stdlib::GLOBAL_NAMESPACES`), so the
         // operand lowers to a present object and `typeof` reports `"object"`
         // through the ordinary rule below, like `Math` and `JSON`.
-        // A bare `typeof Blob` references the modeled host constructor, which is
-        // a function value in JavaScript. (The `typeof Blob === 'undefined'`
-        // support-guard comparison is folded earlier in `unknown_typeof_comparison`.)
-        if let Expression::Identifier(identifier) = &unary.argument
-            && Self::is_known_defined_global_constructor(identifier.name.as_str())
+        // A bare `typeof Blob` (or `Date`, `Uint8Array`, `parseInt`) references
+        // a host constructor or global function, which is a function value in
+        // JavaScript. Only a name that RESOLVES to the host qualifies: a
+        // parameter named `Date` is the parameter (audit A4). (The `typeof
+        // Blob === 'undefined'` support-guard comparison is folded earlier in
+        // `unknown_typeof_comparison`.)
+        if let Some(host) = self.host_global(&unary.argument)
+            && smelt_stdlib::is_global_function_value(host.name())
         {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(body.push_expr(Expr {

@@ -51,7 +51,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "createServer" || self.builtin_call_identifier_is_shadowed("createServer") {
+        if !self.names_host(callee.name.as_str(), "createServer") || self.builtin_call_identifier_is_shadowed("createServer") {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);

@@ -61,6 +61,18 @@ impl ModuleBuilder<'_> {
         facts.type_id_at(&self.path, start, end).is_some_and(|id| !ts_type_may_be_string(facts, id, 0))
     }
 
+    /// Whether the TS7 checker types the expression at `start..end` as a
+    /// number or a bigint (a literal of either included). `false` without
+    /// facts.
+    pub(in crate::lowering) fn checker_types_as_numeric(&self, start: u32, end: u32) -> bool {
+        self.ts_facts.and_then(|facts| facts.type_at(&self.path, start, end)).is_some_and(|ty| {
+            matches!(
+                ty.kind,
+                TsTypeKind::Number | TsTypeKind::NumberLiteral(_) | TsTypeKind::BigInt | TsTypeKind::BigIntLiteral(_)
+            )
+        })
+    }
+
     /// Whether the TS7 checker types the expression at `start..end` as a string.
     /// `false` without facts.
     pub(in crate::lowering) fn checker_types_as_string(&self, start: u32, end: u32) -> bool {

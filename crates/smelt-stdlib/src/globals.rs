@@ -149,6 +149,21 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
     )
 }
 
+/// Whether the JavaScript global `name` is a FUNCTION value in the target
+/// profile (a constructor such as `Date`, `Uint8Array` or `Promise`, or a
+/// global function such as `parseInt`), so `typeof name` is `"function"`.
+///
+/// The namespace objects (`Math`, `JSON`, `Reflect`, `Intl`, `crypto`,
+/// `console`, `process`), the global-object aliases and the globals the
+/// non-DOM profile does not define (`window`, `Generator`) are not.
+#[must_use]
+pub fn is_global_function_value(name: &str) -> bool {
+    is_javascript_global_builtin(name)
+        && global_namespace(name).is_none()
+        && !GLOBAL_OBJECT_ALIASES.contains(&name)
+        && !matches!(name, "Math" | "JSON" | "Reflect" | "Intl" | "crypto" | "console" | "process" | "window" | "Generator")
+}
+
 /// Compile-time availability of a global object member in the active target profile.
 ///
 /// The current target is a deterministic non-DOM, Node-compatible environment

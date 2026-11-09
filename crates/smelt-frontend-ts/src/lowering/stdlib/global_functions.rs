@@ -50,7 +50,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "structuredClone" {
+        if !self.names_host(callee.name.as_str(), "structuredClone") {
             return Ok(None);
         }
         let [value] = call.arguments.as_slice() else {
@@ -118,7 +118,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         // A local binding or user class named `Object` shadows the builtin.
-        if object.name != "Object"
+        if !self.names_host(object.name.as_str(), "Object")
             || self.scope.is_bound("Object")
             || self.classes.contains("Object")
         {

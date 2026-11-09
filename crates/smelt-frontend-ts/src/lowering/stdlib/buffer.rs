@@ -77,7 +77,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Buffer"
+        if !self.names_host(object.name.as_str(), "Buffer")
             || member.property.name != member_name
             || self.classes.contains("Buffer")
         {

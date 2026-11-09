@@ -97,7 +97,7 @@ impl ModuleBuilder<'_> {
                 items.push(item);
                 continue;
             }
-            if Self::is_module_global_array_initializer(init)
+            if self.is_module_global_array_initializer(init)
                 && self.literal_const_expression(init).is_err()
             {
                 let item = self.push_expression_const_item(binding, init)?;
@@ -174,7 +174,7 @@ impl ModuleBuilder<'_> {
             }
             let value = match self.literal_const_expression(init) {
                 Ok(value) => value,
-                Err(error) if Self::is_known_non_importable_exported_const(init) => {
+                Err(error) if self.is_known_non_importable_exported_const(init) => {
                     drop(error);
                     continue;
                 }

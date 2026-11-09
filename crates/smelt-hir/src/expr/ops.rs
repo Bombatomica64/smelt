@@ -240,6 +240,12 @@ pub enum SetRelationOp {
     IsSubset,
     /// Test whether the left set is a superset of the right set.
     IsSuperset,
+    /// Test whether the left set is a PROPER subset of the right set: a
+    /// subset with fewer items (Python's `a < b`).
+    IsProperSubset,
+    /// Test whether the left set is a PROPER superset of the right set: a
+    /// superset with more items (Python's `a > b`).
+    IsProperSuperset,
 }
 
 /// A directly lowered set projection operation.

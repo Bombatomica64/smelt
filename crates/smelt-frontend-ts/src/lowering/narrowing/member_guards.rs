@@ -23,7 +23,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Array" || member.property.name != "isArray" {
+        if !self.names_host(object.name.as_str(), "Array") || member.property.name != "isArray" {
             return None;
         }
         let [Argument::Identifier(identifier)] = call.arguments.as_slice() else {

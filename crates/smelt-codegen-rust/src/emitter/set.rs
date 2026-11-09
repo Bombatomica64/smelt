@@ -83,11 +83,26 @@ impl FunctionEmitter<'_> {
         right: &Operand,
     ) -> Result<RustExpr, EmitError> {
         self.validate_set_pair_operands(left, right, "set relation")?;
-        let method = match op {
-            smelt_hir::SetRelationOp::IsSubset => "is_subset",
-            smelt_hir::SetRelationOp::IsSuperset => "is_superset",
+        let left_text = self.operand_expr(left)?;
+        let right_text = self.operand_expr(right)?;
+        // MIR operands are places and constants, so reading each twice for a
+        // proper relation evaluates nothing twice.
+        let (method, proper) = match op {
+            smelt_hir::SetRelationOp::IsSubset => ("is_subset", None),
+            smelt_hir::SetRelationOp::IsSuperset => ("is_superset", None),
+            smelt_hir::SetRelationOp::IsProperSubset => ("is_subset", Some("<")),
+            smelt_hir::SetRelationOp::IsProperSuperset => ("is_superset", Some(">")),
         };
-        Ok({ let receiver = self.operand_expr(left)?; receiver.postfix(format!(".{method}(&{})", self.operand_expr(right)?.tight())) })
+        let relation = left_text.postfix(format!(".{method}(&{})", right_text.tight()));
+        Ok(match proper {
+            None => relation,
+            Some(size_order) => RustExpr::loose(format!(
+                "{left_len} {size_order} {right_len} && {relation}",
+                left_len = left_text.postfix(".len()").tight(),
+                right_len = right_text.postfix(".len()").tight(),
+                relation = relation.tight(),
+            )),
+        })
     }
 
     /// Converts a set insertion operation to Rust text.
@@ -224,6 +239,48 @@ impl FunctionEmitter<'_> {
         // read by snapshot), and collecting them mints the NEW set JS returns.
         Ok({ let receiver = self.operand_expr(left)?; receiver.postfix(format!(".{}(&{}).collect()", method,
             self.operand_expr(right)?.tight())) })
+    }
+
+    /// Converts an in-place set update (`s |= t`) to Rust text.
+    ///
+    /// The new members are computed into an owned snapshot first, so an
+    /// operand that is the set itself (`s |= s`) reads its members before
+    /// they change, then the shared store is cleared and refilled: every
+    /// handle of the set (its aliases) sees the result, and its identity is
+    /// kept.
+    pub(super) fn set_update_expr(
+        &self,
+        op: smelt_hir::SetBinaryOp,
+        set: &Operand,
+        other: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let set_ty = self.operand_ty(set)?;
+        if self.operand_ty(other)? != set_ty || !matches!(self.mir.types.get(set_ty), Some(Type::Set(_))) {
+            return Err(EmitError::new("an in-place set update needs two sets of one type"));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("an in-place set update answers None"));
+        }
+        let (Operand::Copy(place) | Operand::Move(place)) = set else {
+            return Err(EmitError::new("an in-place set update needs a place receiver"));
+        };
+        let method = match op {
+            smelt_hir::SetBinaryOp::Union => "union",
+            smelt_hir::SetBinaryOp::Intersection => "intersection",
+            smelt_hir::SetBinaryOp::Difference => "difference",
+            smelt_hir::SetBinaryOp::SymmetricDifference => "symmetric_difference",
+        };
+        let members = self.operand_expr(set)?.postfix(format!(
+            ".{method}(&{}).collect::<::std::vec::Vec<_>>()",
+            self.operand_expr(other)?.tight()
+        ));
+        let place_text = self.assignment_place_expr(place)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_members = {members}; {place}.clear(); {place}.extend(smelt_members); () }}",
+            members = members.delimited(),
+            place = place_text.tight(),
+        )))
     }
 
     /// Converts a set projection operation to Rust text.

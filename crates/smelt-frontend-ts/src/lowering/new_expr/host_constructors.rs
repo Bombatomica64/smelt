@@ -4,6 +4,7 @@
 //! `host_constructor_expression`.
 
 use crate::SmeltError;
+use crate::lowering::resolve::HostGlobal;
 use crate::lowering::body_arena::BodyArena;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
@@ -811,7 +812,8 @@ impl ModuleBuilder<'_> {
     /// The host constructor `name` denotes in this module: [`HostConstructor::of`],
     /// except that a typed-array family name the program declares itself is
     /// the byte-backed host, or nothing.
-    pub(in crate::lowering) fn host_constructor_of(&self, name: &str) -> Option<HostConstructor> {
+    pub(in crate::lowering) fn host_constructor_of(&self, host: HostGlobal<'_>) -> Option<HostConstructor> {
+        let name = host.name();
         match HostConstructor::of(name)? {
             HostConstructor::TypedArrayFamily if self.classes.contains(name) => {
                 smelt_stdlib::byte_buffer_role(name).map(|_| HostConstructor::ByteBuffer)
@@ -828,7 +830,7 @@ impl ModuleBuilder<'_> {
     /// spells.
     pub(super) fn host_constructor_expression(
         &mut self,
-        callee: &oxc::ast::ast::IdentifierReference<'_>,
+        host: HostGlobal<'_>,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
@@ -836,8 +838,8 @@ impl ModuleBuilder<'_> {
         if let Some(database) = self.sqlite_database_constructor_expression(new_expr, body)? {
             return Ok(Some(database));
         }
-        let name = callee.name.as_str();
-        let Some(kind) = self.host_constructor_of(name) else {
+        let name = host.name();
+        let Some(kind) = self.host_constructor_of(host) else {
             return Ok(None);
         };
         self.construct_host(kind, name, new_expr, body, type_hint).map(Some)

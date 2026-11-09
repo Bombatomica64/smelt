@@ -156,7 +156,7 @@ impl ModuleBuilder<'_> {
                         BindingPattern::BindingIdentifier(_) => param
                             .initializer
                             .as_deref()
-                            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer)),
+                            .filter(|initializer| !this.initializer_is_type_zero_default(initializer)),
                         _ => None,
                     };
                     if default_initializer.is_some()
@@ -796,9 +796,9 @@ return_ty,
     ///   always models the constructor (`new DOMException`, `instanceof
     ///   DOMException`), so the alias const is dropped and the identifier resolves
     ///   through the builtin path instead.
-    pub(in crate::lowering) fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_known_non_importable_exported_const(&self, expression: &Expression<'_>) -> bool {
         if let Expression::CallExpression(call) = expression
-            && Self::is_symbol_for_call(call)
+            && self.is_symbol_for_call(call)
         {
             return true;
         }
@@ -810,14 +810,14 @@ return_ty,
     /// Recognizes the global registry constructor by its `Symbol.for` callee
     /// shape, independent of the argument, so both the const-folding path and the
     /// non-importable-const check agree on what a registry symbol looks like.
-    fn is_symbol_for_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    fn is_symbol_for_call(&self, call: &oxc::ast::ast::CallExpression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return false;
         };
         let Expression::Identifier(object) = &member.object else {
             return false;
         };
-        object.name == "Symbol" && member.property.name == "for"
+        self.names_host(object.name.as_str(), "Symbol") && member.property.name == "for"
     }
 
     /// Return the string-literal description of a `Symbol.for("desc")` call.
@@ -827,9 +827,10 @@ return_ty,
     /// compile-time spelling and returns `None`, leaving the const on the runtime
     /// value path.
     pub(in crate::lowering) fn symbol_for_call_description<'a>(
+        &self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
     ) -> Option<Cow<'a, str>> {
-        if !Self::is_symbol_for_call(call) {
+        if !self.is_symbol_for_call(call) {
             return None;
         }
         let [Argument::StringLiteral(description)] = call.arguments.as_slice() else {
@@ -927,7 +928,7 @@ return_ty,
             return Ok(value);
         }
         if let Expression::Identifier(object) = &member.object
-            && matches!(self.resolve_value(object.name.as_str()), crate::lowering::resolve::ValueBinding::Host)
+            && self.host_global_named(object.name.as_str()).is_some()
         {
             let property = member.property.name.as_str();
             let value = match object.name.as_str() {
@@ -1054,13 +1055,13 @@ return_ty,
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
-        if let Some(description) = Self::symbol_for_call_description(call) {
+        if let Some(description) = self.symbol_for_call_description(call) {
             return Ok(ConstLiteral {
                 literal: Literal::Symbol(symbols::registry_symbol_spelling(&description)),
                 ty: self.ctx.krate.types.intern(Type::Symbol),
             });
         }
-        if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol") {
+        if matches!(&call.callee, Expression::Identifier(callee) if self.names_host(callee.name.as_str(), "Symbol")) {
             if call.arguments.len() > 1 {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -1082,7 +1083,7 @@ return_ty,
                 ty: self.ctx.krate.types.intern(Type::Symbol),
             });
         }
-        let Some(op) = stdlib_dispatch::pure_math_call(call) else {
+        let Some(op) = stdlib_dispatch::pure_math_call(call, &|name, global| self.names_host(name, global)) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "exported const call expressions currently support only Symbol and selected Math calls",

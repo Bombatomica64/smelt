@@ -390,7 +390,7 @@ impl RuntimeDemand {
             Rvalue::PythonSequenceRead { .. } => {
                 self.add(Need::PyException);
             }
-            Rvalue::PythonStepSlice { .. } => {
+            Rvalue::PythonStepSlice { .. } | Rvalue::PythonListExtrema { .. } => {
                 self.add(Need::PyException);
             }
             Rvalue::Base64Transcode { .. } => {
@@ -463,6 +463,7 @@ impl RuntimeDemand {
             | Rvalue::SetAdd { .. }
             | Rvalue::SetRemove { .. }
             | Rvalue::SetClear { .. }
+            | Rvalue::SetUpdate { .. }
             | Rvalue::SetCopy { .. }
             | Rvalue::SetBinary { .. }
             | Rvalue::SetProjection { .. }

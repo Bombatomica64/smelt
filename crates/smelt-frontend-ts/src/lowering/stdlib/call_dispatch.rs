@@ -212,7 +212,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(None);
         }
         let Expression::Identifier(object) = &member.object else {
-            return Ok(None);
+            return self.optional_builtin_receiver_value_call(call, member, body);
         };
         let name = object.name.as_str();
         let Some(local) = self.scope.lookup(name) else {
@@ -227,10 +227,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return Ok(None);
         };
-        if !matches!(
-            self.ctx.krate.types.get(inner),
-            Some(Type::String | Type::List(_) | Type::Tuple(_))
-        ) {
+        if !self.builtin_keyed_receiver_type(inner) {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
@@ -238,6 +235,97 @@ impl<'builder> ModuleBuilder<'builder> {
         let lowered = self.with_narrowing(Some(fact), |this| this.call_expression(call, body));
         let op = lowered?;
         Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
+    }
+
+    /// Whether the builtin method handlers are keyed on a receiver of type
+    /// `ty`: a string, an array or tuple, or a regex match value (an array
+    /// with extra properties, viewed as one by [`Self::match_array_view`]).
+    fn builtin_keyed_receiver_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::String | Type::List(_) | Type::Tuple(_)) => true,
+            Some(Type::Class { name, .. }) => {
+                self.match_stdlib_class(*name) == Some(smelt_stdlib::StdlibClass::Match)
+            }
+            _ => false,
+        }
+    }
+
+    /// Lower `receiver?.method(..)` for a receiver that is not a bare local
+    /// (`s.match(re)?.join(",")`, `lookup(k)?.at(-1)`) whose type is
+    /// `T | undefined` (or `| null`) for a builtin-keyed `T`; see
+    /// [`Self::builtin_keyed_receiver_type`].
+    ///
+    /// JavaScript evaluates the receiver ONCE, and evaluates the call (its
+    /// arguments included) only when the receiver is present. The lowering is
+    /// exactly that: the receiver is stored in a temporary, and the call is
+    /// lowered as the present arm of `temp present ? call : undefined` with
+    /// the receiver node answering a read of the temporary narrowed to `T`
+    /// (`narrowed_receiver_nodes`), so every builtin rule sees an ordinary
+    /// `T` receiver. Its result is `R | undefined` for the call's `R`. Any
+    /// other receiver type is declined with nothing lowered.
+    fn optional_builtin_receiver_value_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        let node = std::ptr::from_ref(&member.object).addr();
+        if self.narrowed_receiver_nodes.iter().any(|(entry, _, _)| *entry == node) {
+            return Ok(None);
+        }
+        self.speculate(body, |this, body| {
+            let block = body.push_block(span);
+            let lowered = this.with_stmt_block(block, |this| -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+                let receiver = this.expression(&member.object, body)?;
+                let receiver_ty = Self::expr_ty(body, receiver);
+                let Some(present_ty) = this.optional_present_type(receiver_ty) else {
+                    return Ok(None);
+                };
+                if !this.builtin_keyed_receiver_type(present_ty) {
+                    return Ok(None);
+                }
+                let temp = body.push_local(smelt_hir::LocalDecl {
+                    name: Some(this.intern_synthesized_name("smelt_optional_receiver")),
+                    ty: receiver_ty,
+                    mutable: false,
+                    span,
+                });
+                let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
+                this.push_stmt_to_sink(body, smelt_hir::Stmt::Let { pat, ty: receiver_ty, value: Some(receiver) });
+                this.narrowed_receiver_nodes.push((node, temp, present_ty));
+                let op = this.lower_conditional_arm(body, span, |this, body| this.call_expression(call, body));
+                this.narrowed_receiver_nodes.pop();
+                let op = op?;
+                let temp_read = body.push_expr(Expr { kind: ExprKind::Local(temp), ty: receiver_ty, span });
+                Ok(Some(this.wrap_optional_receiver_method(temp_read, op, call.span, body)))
+            })?;
+            let Some(conditional) = lowered else {
+                return Ok(None);
+            };
+            if let Some(entry) = body.block_at_mut(block) {
+                entry.tail = Some(conditional);
+            }
+            let ty = Self::expr_ty(body, conditional);
+            Ok(Some(body.push_expr(Expr { kind: ExprKind::Block(block), ty, span })))
+        })
+    }
+
+    /// The present type of a `T | undefined` / `T | null` receiver type: the
+    /// inner `T` of an `Optional`, or the one non-nullish arm of a union.
+    fn optional_present_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty)? {
+            Type::Optional(inner) => Some(*inner),
+            Type::Union(items) => {
+                let mut present = items
+                    .iter()
+                    .copied()
+                    .filter(|item| !matches!(self.ctx.krate.types.get(*item), Some(Type::None)));
+                let only = present.next()?;
+                (present.next().is_none() && items.len() > 1).then_some(only)
+            }
+            _ => None,
+        }
     }
 
     /// Lower a call expression.
@@ -491,7 +579,7 @@ impl<'builder> ModuleBuilder<'builder> {
         }
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
-            && object.name == "console"
+            && self.names_host(object.name.as_str(), "console")
             && matches!(member.property.name.as_str(), "log" | "warn" | "error")
         {
             return self.console_output_call(call, member, body);
@@ -998,7 +1086,7 @@ impl<'builder> ModuleBuilder<'builder> {
         if prototype_member.optional || prototype_member.property.name != "prototype" {
             return Ok(None);
         }
-        if !matches!(&prototype_member.object, Expression::Identifier(array) if array.name == "Array")
+        if !matches!(&prototype_member.object, Expression::Identifier(array) if self.names_host(array.name.as_str(), "Array"))
             || self.classes.contains("Array")
         {
             return Ok(None);
@@ -1209,7 +1297,7 @@ impl<'builder> ModuleBuilder<'builder> {
         &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<RuleId> {
-        let rule = stdlib_dispatch::call_rule(call)?;
+        let rule = stdlib_dispatch::call_rule(call, &|name, global| self.names_host(name, global))?;
         let shadowed = stdlib_dispatch::callee_root(&call.callee)
             .is_some_and(|root| self.builtin_call_identifier_is_shadowed(root));
         (!shadowed).then_some(rule)

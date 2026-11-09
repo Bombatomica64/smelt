@@ -28,12 +28,13 @@ fn regexp_construction<'e, 'a>(
     }
 }
 
-/// Whether a callee is the bare global `RegExp`.
-fn callee_is_regexp(callee: &Expression<'_>) -> bool {
-    matches!(callee, Expression::Identifier(callee) if callee.name == "RegExp")
-}
-
 impl ModuleBuilder<'_> {
+    /// Whether a callee is the bare global `RegExp`, not a binding that
+    /// shadows it.
+    fn callee_is_regexp(&self, callee: &Expression<'_>) -> bool {
+        self.host_global(callee).is_some_and(|host| host.is("RegExp"))
+    }
+
     /// Resolve which ECMA-262 replacer arguments a `.replace(re, fn)` callback
     /// declared.
     ///
@@ -317,7 +318,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if let Some((callee, arguments, span)) = regexp_construction(expression) {
-            if !callee_is_regexp(callee) {
+            if !self.callee_is_regexp(callee) {
                 return Ok(None);
             }
             let [regex_pattern_arg] = arguments else {
@@ -377,7 +378,7 @@ impl ModuleBuilder<'_> {
     /// variable: its flags belong to the VALUE, not to this expression, and
     /// guessing "probably not global" would silently drop the state a `/g`
     /// regex's caller is relying on.
-    fn regexp_test_is_stateless(receiver: &Expression<'_>) -> bool {
+    fn regexp_test_is_stateless(&self, receiver: &Expression<'_>) -> bool {
         /// The flags that give a regex `lastIndex` state.
         fn has_stateful_flag(flags: &str) -> bool {
             flags.contains('g') || flags.contains('y')
@@ -391,7 +392,7 @@ impl ModuleBuilder<'_> {
                 !has_stateful_flag(&literal.regex.flags.to_string())
             }
             _ => regexp_construction(receiver).is_some_and(|(callee, arguments, _)| {
-                callee_is_regexp(callee) && is_flagless_construction(arguments)
+                self.callee_is_regexp(callee) && is_flagless_construction(arguments)
             }),
         }
     }
@@ -438,7 +439,7 @@ impl ModuleBuilder<'_> {
         // A `RegExp` receiver reached through a variable takes `RegexTest`,
         // because its flags are a runtime property of the value and a `/g`
         // regex must stay stateful.
-        if Self::regexp_test_is_stateless(&member.object) {
+        if self.regexp_test_is_stateless(&member.object) {
             let Some(pattern) = self.regexp_pattern_expression(&member.object, body, true)? else {
                 return Ok(None);
             };
@@ -522,7 +523,7 @@ impl ModuleBuilder<'_> {
     fn could_be_regexp_test_receiver(&mut self, expression: &Expression<'_>, body: &Body) -> bool {
         let syntactic = match expression {
             Expression::NewExpression(_) | Expression::CallExpression(_) => {
-                regexp_construction(expression).is_some_and(|(callee, _, _)| callee_is_regexp(callee))
+                regexp_construction(expression).is_some_and(|(callee, _, _)| self.callee_is_regexp(callee))
             }
             Expression::RegExpLiteral(_) => true,
             Expression::Identifier(identifier) => self
@@ -840,7 +841,7 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if !callee_is_regexp(&call.callee)
+        if !self.callee_is_regexp(&call.callee)
             || self.scope.is_bound("RegExp")
             || self.classes.contains("RegExp")
             || self.is_written_host_global("RegExp")
@@ -933,7 +934,7 @@ impl ModuleBuilder<'_> {
         require_regexp_receiver: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if let Some((callee, arguments, span)) = regexp_construction(expression) {
-            if !callee_is_regexp(callee) {
+            if !self.callee_is_regexp(callee) {
                 if !require_regexp_receiver {
                     return Ok(None);
                 }

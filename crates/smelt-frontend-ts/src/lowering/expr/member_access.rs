@@ -799,7 +799,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Array"
+        if !self.names_host(object.name.as_str(), "Array")
             || member.property.name != "isArray"
             || self.builtin_call_identifier_is_shadowed("Array")
         {
@@ -915,7 +915,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Symbol" {
+        if !self.names_host(object.name.as_str(), "Symbol") {
             return None;
         }
         let spelling =
@@ -945,7 +945,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Object" {
+        if !self.names_host(object.name.as_str(), "Object") {
             return None;
         }
         let (arity, return_ty) = match member.property.name.as_str() {
@@ -1145,7 +1145,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Object" || member.property.name != "prototype" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "prototype" {
             return None;
         }
         let ty = self.erase_with(ErasureReason::ByName, "Object.prototype");
@@ -1172,7 +1172,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Number" {
+        if !self.names_host(object.name.as_str(), "Number") {
             return None;
         }
         let value = smelt_stdlib::number_constant(member.property.name.as_str())?;
@@ -1200,7 +1200,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Number" {
+        if !self.names_host(object.name.as_str(), "Number") {
             return None;
         }
         let op = match member.property.name.as_str() {
@@ -1282,7 +1282,7 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        if Self::is_process_version_member(&member.object) {
+        if self.is_process_version_member(&member.object) {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(
@@ -1293,7 +1293,7 @@ impl ModuleBuilder<'_> {
             }));
         }
         if member.property.name == "argv"
-            && matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "process")
+            && matches!(&member.object, Expression::Identifier(identifier) if self.names_host(identifier.name.as_str(), "process"))
             && !self.scope.is_bound("process")
         {
             // `process.argv` is `string[]` (`@types/node`): the run's real
@@ -1307,7 +1307,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        if Self::is_process_env_member(member) {
+        if self.is_process_env_member(member) {
             // `process.env.X` is `string | undefined` in TypeScript, typed here
             // as `Optional(String)` so `process.env.PORT ?? 3000` keeps both
             // arms. A variable is read from the real environment: a program
@@ -1321,7 +1321,7 @@ impl ModuleBuilder<'_> {
             let optional_ty =
                 smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
             // Environment names are case-sensitive: only `TZ` is the zone.
-            let kind = if Self::is_process_env_field(member, "TZ") {
+            let kind = if self.is_process_env_field(member, "TZ") {
                 ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned()))
             } else {
                 ExprKind::ProcessEnvRead {
@@ -1338,31 +1338,33 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for the specific `process.version` member expression.
-    pub(in crate::lowering) fn is_process_version_member(object: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_process_version_member(&self, object: &Expression<'_>) -> bool {
         let Expression::StaticMemberExpression(member) = object else {
             return false;
         };
-        matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "process")
+        matches!(&member.object, Expression::Identifier(identifier) if self.names_host(identifier.name.as_str(), "process"))
             && member.property.name == "version"
     }
 
     /// Return true for any static `process.env.<field>` member expression.
     pub(in crate::lowering) fn is_process_env_member(
+        &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> bool {
         let Expression::StaticMemberExpression(env_member) = &member.object else {
             return false;
         };
-        matches!(&env_member.object, Expression::Identifier(identifier) if identifier.name == "process")
+        matches!(&env_member.object, Expression::Identifier(identifier) if self.names_host(identifier.name.as_str(), "process"))
             && env_member.property.name == "env"
     }
 
     /// Return true for a specific static `process.env.<field>` member expression.
     pub(in crate::lowering) fn is_process_env_field(
+        &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         field: &str,
     ) -> bool {
-        member.property.name == field && Self::is_process_env_member(member)
+        member.property.name == field && self.is_process_env_member(member)
     }
 
     /// Lower a computed member access expression.

@@ -21,7 +21,7 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if !matches!(&member.object, Expression::Identifier(object) if object.name == "Array")
+        if !matches!(&member.object, Expression::Identifier(object) if self.names_host(object.name.as_str(), "Array"))
             || member.property.name != "from"
         {
             return Ok(None);
@@ -269,7 +269,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "Array" {
+        if !self.names_host(callee.name.as_str(), "Array") {
             return Ok(None);
         }
         self.lower_array_construction(

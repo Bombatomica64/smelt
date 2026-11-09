@@ -20,7 +20,7 @@ impl ModuleBuilder<'_> {
                 let Expression::Identifier(object) = &member.object else {
                     return Ok(None);
                 };
-                if object.name != "Number" {
+                if !self.names_host(object.name.as_str(), "Number") {
                     return Ok(None);
                 }
                 let op = match member.property.name.as_str() {
@@ -32,7 +32,7 @@ impl ModuleBuilder<'_> {
                 };
                 (op, format!("Number.{}", member.property.name), false)
             }
-            Expression::Identifier(identifier) if identifier.name == "isNaN" => {
+            Expression::Identifier(identifier) if self.names_host(identifier.name.as_str(), "isNaN") => {
                 // A value import, module item, or local binding of `isNaN`
                 // shadows the global predicate (es-toolkit's own
                 // `import { isNaN } from './isNaN'` accepts `any`). Defer to the
@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Number" || member.property.name != "parseFloat" {
+        if !self.names_host(object.name.as_str(), "Number") || member.property.name != "parseFloat" {
             return Ok(None);
         }
         let operand = self.parse_float_operand("Number.parseFloat", call, body)?;
@@ -213,7 +213,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if object.name != "Number" || member.property.name != "parseInt" {
+        if !self.names_host(object.name.as_str(), "Number") || member.property.name != "parseInt" {
             return Ok(None);
         }
         let (operand, radix) = self.parse_int_operand("Number.parseInt", call, body)?;

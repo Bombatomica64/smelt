@@ -591,7 +591,7 @@ impl ModuleBuilder<'_> {
     /// already synthesize exactly the defaulted value, so the parameter keeps
     /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
     /// threading for parameters that accumulate state across recursive calls.
-    pub(in crate::lowering) fn initializer_is_type_zero_default(initializer: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn initializer_is_type_zero_default(&self, initializer: &Expression<'_>) -> bool {
         match initializer {
             Expression::NumericLiteral(literal) => literal.value == 0.0,
             Expression::StringLiteral(literal) => literal.value.is_empty(),
@@ -605,7 +605,7 @@ impl ModuleBuilder<'_> {
                     && matches!(
                         &new_expr.callee,
                         Expression::Identifier(callee)
-                            if callee.name == "Map" || callee.name == "Set"
+                            if self.names_host(callee.name.as_str(), "Map") || self.names_host(callee.name.as_str(), "Set")
                     )
             }
             _ => false,
@@ -702,7 +702,7 @@ impl ModuleBuilder<'_> {
         let default_initializer = matches!(param.pattern, BindingPattern::BindingIdentifier(_))
             .then_some(param.initializer.as_deref())
             .flatten()
-            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+            .filter(|initializer| !self.initializer_is_type_zero_default(initializer));
         let ty = if default_initializer.is_some()
             && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
         {

@@ -785,6 +785,21 @@ macro_rules! op_group_transcribed {
             }
                 mutates(Some(set))
                 => (format!("set_clear {set}"));
+            /// Replace the members of `set` IN PLACE with `set <op> other`:
+            /// Python's `s |= t`, `s &= t`, `s -= t`, `s ^= t` and the
+            /// `update` / `intersection_update` / `difference_update` /
+            /// `symmetric_difference_update` methods. Every alias of the set
+            /// sees the new members; the result is `None`.
+            SetUpdate {
+                /// Set algebra the new members come from.
+                op: [$crate::SetBinaryOp],
+                /// Set value to mutate.
+                set: one,
+                /// The other operand.
+                other: one,
+            }
+                mutates(Some(set))
+                => (format!("set_{op}_update {set}, {other}"));
             /// Return a shallow copy of a set.
             SetCopy {
                 /// Set value to copy.
@@ -2379,6 +2394,19 @@ macro_rules! op_group_transcribed {
                 fallible(true)
                 call("@python_sequence_read".to_owned())
                 => (format!("python_sequence_read {sequence}, {index}"));
+            /// Python's `min(iterable)` / `max(iterable)` over a list (a set or
+            /// other iterable is projected to one first): the FIRST item no
+            /// other item is less (greater) than by `<` (`>`), exactly the
+            /// comparisons `CPython` makes, and `ValueError` on an empty list.
+            PythonListExtrema {
+                /// Which extremum.
+                op: [$crate::NumericExtremaOp],
+                /// The list of comparable items.
+                list: one,
+            }
+                fallible(true)
+                call("@python_list_extrema".to_owned())
+                => (format!("python_list_{op} {list}"));
             /// Python's `xs[start:end:step]` on a `list` or `str` with an explicit
             /// step: the positions `slice.indices` picks, in step order. A zero
             /// step raises `ValueError`.

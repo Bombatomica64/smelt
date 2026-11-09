@@ -46,8 +46,8 @@ interned types
   t8 = Float
   t9 = Future<Float>
   t10 = async fn(Request, Bool) -> Future<Float>
-  t11 = Unknown
-  t12 = async fn(Request) -> Future<Float>
+  t11 = async fn(Request) -> Future<Float>
+  t12 = Unknown
   t13 = List<String>
   t14 = async fn(Request) -> Future<Float>
   t15 = Future<None>

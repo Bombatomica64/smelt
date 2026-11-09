@@ -439,11 +439,15 @@ impl ModuleBuilder<'_> {
         let ty = global.ty;
         let span = self.span(aug.range);
         let result = (|| {
+            let current = body.push_expr(HirExpr { kind: ExprKind::GlobalGet { item }, ty, span });
+            let rhs = self.expression(&aug.value, body)?;
+            if let Some(update) = self.set_in_place_update(aug.op, current, rhs, span, body)? {
+                body.push_stmt_to_block(block, HirStmt::Expr(update));
+                return Ok(());
+            }
             let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
                 SmeltError::unsupported(span, format!("augmented assignment operator '{:?}' is not supported", aug.op))
             })?;
-            let current = body.push_expr(HirExpr { kind: ExprKind::GlobalGet { item }, ty, span });
-            let rhs = self.expression(&aug.value, body)?;
             let compound = self.python_arithmetic(op, current, rhs, span, body)?;
             if Self::expr_ty(body, compound) != ty {
                 return Err(SmeltError::unsupported(

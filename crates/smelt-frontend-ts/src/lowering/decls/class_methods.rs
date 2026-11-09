@@ -433,7 +433,7 @@ impl ModuleBuilder<'_> {
                             .is_some()
                             .then_some(param.initializer.as_ref())
                             .flatten()
-                            .filter(|initializer| !Self::initializer_is_type_zero_default(initializer));
+                            .filter(|initializer| !this.initializer_is_type_zero_default(initializer));
                         let abi_ty = if default_initializer.is_some()
                             && !matches!(
                                 this.ctx.krate.types.get(declared_ty),

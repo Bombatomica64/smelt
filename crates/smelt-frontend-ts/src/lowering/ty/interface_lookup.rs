@@ -118,7 +118,7 @@ impl ModuleBuilder<'_> {
             }
             // An inline `[Symbol.for("k")]` call key folds to its registry key.
             PropertyKey::CallExpression(call) => {
-                Self::symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
+                self.symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
             }
             // A bare identifier reference folds to its const value when known;
             // a `Symbol.for(...)`-aliased const yields a synthetic symbol key.
@@ -159,7 +159,7 @@ impl ModuleBuilder<'_> {
                 literal.computed_member_name().map(|name| (name, false))
             }
             Expression::CallExpression(call) => {
-                Self::symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
+                self.symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
             }
             Expression::Identifier(identifier) => {
                 self.identifier_computed_key_name(identifier.name.as_str())
@@ -202,7 +202,7 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Option<String> {
         if let Expression::Identifier(object) = &member.object
-            && object.name == "Symbol"
+            && self.names_host(object.name.as_str(), "Symbol")
         {
             return crate::lowering::ty::computed_key_symbols::well_known_symbol_key(
                 member.property.name.as_str(),
@@ -230,8 +230,8 @@ impl ModuleBuilder<'_> {
     /// the registry form with a string-literal description folds; a unique
     /// `Symbol(...)` call or a non-literal description has no stable static
     /// spelling and returns `None`.
-    fn symbol_for_call_key(call: &oxc::ast::ast::CallExpression<'_>) -> Option<String> {
-        Self::symbol_for_call_description(call).map(|description| {
+    fn symbol_for_call_key(&self, call: &oxc::ast::ast::CallExpression<'_>) -> Option<String> {
+        self.symbol_for_call_description(call).map(|description| {
             crate::lowering::ty::computed_key_symbols::registry_symbol_key(&description)
         })
     }

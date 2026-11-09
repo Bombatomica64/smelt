@@ -75,8 +75,8 @@ fn new (FuncId(4)) -> Request
     %2 param context: Optional<String>
   bb0:
     %0 = struct0 {}
-    %0.field33 = copy %1
-    %0.field34 = copy %2
+    %0.field21 = copy %1
+    %0.field22 = copy %2
     return move %0
 
 fn __smelt_get___smelt_symbol_unique__at_663 (FuncId(5)) -> (List<(String, String)>)
@@ -84,7 +84,7 @@ fn __smelt_get___smelt_symbol_unique__at_663 (FuncId(5)) -> (List<(String, Strin
     %0 param this: Request
     %1 temp: (List<(String, String)>)
   bb0:
-    %1 = (copy %0.field33)
+    %1 = (copy %0.field21)
     return move %1
 
 fn __smelt_get_context (FuncId(6)) -> String throws
@@ -94,13 +94,13 @@ fn __smelt_get_context (FuncId(6)) -> String throws
     %2 temp: Dict<String, Unknown>
     %3 temp: Unknown
   bb0:
-    %1 = primitive_cast_bool copy %0.field34
+    %1 = primitive_cast_bool copy %0.field22
     switch move %1 ? bb1 : bb2
   bb1:
-    return copy %0.field34
+    return copy %0.field22
   bb2:
     %2 = {"__smelt_error": "Error", "message": "no context", "stack": undefined, "cause": undefined}
-    %3 = unknown_cast move %2 as t13
+    %3 = unknown_cast move %2 as t21
     throw move %3
 
 fn main (FuncId(7)) -> None

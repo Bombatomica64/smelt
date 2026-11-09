@@ -18,6 +18,17 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(&(_, temp, present_ty)) = self
+            .narrowed_receiver_nodes
+            .iter()
+            .rev()
+            .find(|(node, _, _)| *node == std::ptr::from_ref(expression).addr())
+        {
+            let span = self.expression_span(expression);
+            let stored_ty = Self::local_ty(body, temp);
+            let read = body.push_expr(Expr { kind: ExprKind::Local(temp), ty: stored_ty, span });
+            return Ok(body.push_expr(Expr { kind: ExprKind::TypeAssert { value: read }, ty: present_ty, span }));
+        }
         let anchor = self.expression_span(expression);
         let lowered = self.with_erasure_anchor(anchor, |this| {
             this.expression_shape_with_hint(expression, body, type_hint)
@@ -230,6 +241,10 @@ impl ModuleBuilder<'_> {
                         || self.type_contains_unknown(rhs_ty))
                 {
                     self.ctx.krate.types.intern(Type::String)
+                } else if let Some(dynamic) =
+                    self.dynamic_addition_type(op, lhs_ty, rhs_ty, binary.span.start, binary.span.end)
+                {
+                    dynamic
                 } else {
                     self.binary_result_type(op, lhs_ty, rhs_ty)
                 };

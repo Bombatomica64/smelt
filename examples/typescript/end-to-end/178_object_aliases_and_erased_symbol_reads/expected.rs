@@ -3896,7 +3896,8 @@ fn smelt_unknown_to_number(value: &SmeltUnknown) -> f64 {
         SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
         SmeltUnknown::String(value) => smelt_js_string_to_number(value),
         SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 },
-        SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
+        SmeltUnknown::Null => 0.0,
+        SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN,
     }
 }
 

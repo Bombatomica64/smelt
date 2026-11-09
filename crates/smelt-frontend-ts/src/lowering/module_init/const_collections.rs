@@ -22,10 +22,7 @@ impl ModuleBuilder<'_> {
                 is_set: false,
             }),
             Expression::NewExpression(new_expr)
-                if matches!(
-                    &new_expr.callee,
-                    Expression::Identifier(callee) if callee.name.as_str() == "Set"
-                ) =>
+                if self.host_global(&new_expr.callee).is_some_and(|host| host.is("Set")) =>
             {
                 let [Argument::ArrayExpression(array)] = new_expr.arguments.as_slice() else {
                     return None;
@@ -37,7 +34,7 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::CallExpression(call) => {
-                let name = Self::object_values_identifier_argument(call)?;
+                let name = self.object_values_identifier_argument(call)?;
                 self.consts.object_value_collection(name.as_str()).cloned()
             }
             // `export const ALIAS = otherConst;` shares the referenced
@@ -116,6 +113,7 @@ impl ModuleBuilder<'_> {
 
     /// Return the identifier passed to a direct `Object.values(identifier)` call.
     pub(in crate::lowering) fn object_values_identifier_argument(
+        &self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Option<String> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
@@ -124,7 +122,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if object.name != "Object" || member.property.name != "values" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "values" {
             return None;
         }
         let [Argument::Identifier(identifier)] = call.arguments.as_slice() else {

@@ -224,6 +224,7 @@ fn assert_category(
 }
 
 mod category_tests;
+mod host_resolution_guard_tests;
 mod int32_tests;
 mod bigint_tests;
 mod part01_tests;
