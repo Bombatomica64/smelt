@@ -732,6 +732,16 @@ impl ModuleBuilder<'_> {
                 }
                 Some(Type::List(entry_ty)) => {
                     if let Some((_key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
+                        // A `(string | number)[]` entry holds its key and value at
+                        // one union type, and only the position says which is
+                        // which: the entry's value has no narrower static type.
+                        let value_ty = if matches!(self.ctx.krate.types.get(entry_ty), Some(Type::List(_)))
+                            && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Union(_)))
+                        {
+                            self.erase_with(ErasureReason::OpenLayout, "array-spelled entry value")
+                        } else {
+                            value_ty
+                        };
                         let string_ty = self.ctx.krate.types.intern(Type::String);
                         let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
                         // not a new erasure: the entries list is only re-viewed as the
@@ -825,6 +835,8 @@ impl ModuleBuilder<'_> {
     ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {
         match self.ctx.krate.types.get(entry_ty) {
             Some(Type::Tuple(items)) if items.len() == 2 => Some((*items.first()?, *items.get(1)?)),
+            // `[k, v]` without an `as const`: an entry spelled as a plain array.
+            Some(Type::List(item)) => Some((*item, *item)),
             Some(Type::Union(items)) => items
                 .iter()
                 .find_map(|item| self.entries_tuple_item_types(*item)),
