@@ -190,6 +190,8 @@ export const hasMap: boolean = "Map" in globalThis;
 "#),
         &mut ctx,
     )?;
+    ensure!(crate_has_item(&ctx, "supported"), "no item named `supported`");
+    ensure!(crate_has_item(&ctx, "has_map"), "no item named `has_map`");
     Ok(())
 }
 
@@ -253,6 +255,8 @@ function run(size: number, length: number): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(size: Float, length: Float) -> List<Float>")?;
+    ensure_exprs!(&ctx, Index, BinOp);
     Ok(())
 }
 
@@ -367,6 +371,7 @@ function classify(tag: string): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "classify", "classify(tag: String) -> Float")?;
     Ok(())
 }
 
@@ -476,6 +481,8 @@ export function run(values: string[]): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(values: List<String>) -> List<Float>")?;
+    ensure_exprs!(&ctx, StringJoin, ListCallback, GlobalGet);
     Ok(())
 }
 
@@ -497,6 +504,9 @@ export function run(values: number[]): boolean[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "stub_true", "stub_true() -> Bool")?;
+    ensure_signature(&ctx, "run", "run(values: List<Float>) -> List<Bool>")?;
+    ensure_exprs!(&ctx, Call, ListCallback);
     Ok(())
 }
 
@@ -517,6 +527,9 @@ export function run(values: number[]): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "stub_false", "stub_false() -> Bool")?;
+    ensure_signature(&ctx, "run", "run(values: List<Float>) -> List<Float>")?;
+    ensure_exprs!(&ctx, Call, ListCallback);
     Ok(())
 }
 
@@ -535,6 +548,8 @@ export function run(values: string[]): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(values: List<String>) -> List<Float>")?;
+    ensure_exprs!(&ctx, ListCallback, Closure);
     Ok(())
 }
 
@@ -557,6 +572,9 @@ export function run(values: number[]): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "with_tail", "with_tail(value: Float, index: Optional<Float>, list: Optional<List<Float>>, guard: Optional<Float>) -> Float")?;
+    ensure_signature(&ctx, "run", "run(values: List<Float>) -> List<Float>")?;
+    ensure_exprs!(&ctx, ListCallback, OptionalCoalesce, Call);
     Ok(())
 }
 
@@ -790,6 +808,9 @@ export function probe(): unknown {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "outer", "outer(n: Float) -> Float")?;
+    ensure_signature(&ctx, "probe", "probe() -> Unknown")?;
+    ensure!(crate_has_field(&ctx, "prototype"), "no read of field `prototype`");
     Ok(())
 }
 
@@ -1086,6 +1107,7 @@ function collect(values: unknown[]): string[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ListCallback, Closure, ClosureCall);
     Ok(())
 }
 
@@ -1109,6 +1131,7 @@ function collect(value: object): string[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ListCallback, ListConcat, StringJoin);
     Ok(())
 }
 
@@ -1129,6 +1152,7 @@ function invoke(func: Debounced<any>): void {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ClosureCall);
     Ok(())
 }
 
@@ -1182,6 +1206,9 @@ export function series(items: number[]) {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "list", "list(start: Float, end: Float) -> List<Float>")?;
+    ensure_signature(&ctx, "series", "series(items: List<Float>) -> fn(Float, Float) -> Float")?;
+    ensure_exprs!(&ctx, ListReduce, ClosureCall, Index);
     Ok(())
 }
 
@@ -1217,6 +1244,10 @@ export function run(): number { return api.total(1, 2, 3); }
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "total", "total(...values: List<Float>) -> Float")?;
+    ensure_signature(&ctx, "run", "run() -> Float")?;
+    ensure_exprs!(&ctx, ClosureCall);
+    ensure!(crate_has_field(&ctx, "total"), "no read of field `total`");
     Ok(())
 }
 

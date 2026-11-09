@@ -139,6 +139,11 @@ describe('ctor', () => {
         &mut ctx,
     )?;
     class_by_name(&ctx, "Foo").ok_or("expected synthesized class `Foo` from describe scope")?;
+    ensure_signature(&ctx, "new", "new() -> Foo")?;
+    ensure_signature(&ctx, "b", "b(this: Foo) -> Float")?;
+    ensure_signature(&ctx, "test_ctor_constructs_in_a_nested_callback", "test_ctor_constructs_in_a_nested_callback() -> None")?;
+    ensure!(crate_has_new(&ctx, "Foo"), "no construction of `Foo`");
+    ensure!(crate_has_field(&ctx, "a"), "no read of field `a`");
     Ok(())
 }
 
@@ -179,6 +184,7 @@ export function fillRange<T>(array: T[], value: T, start = 0, end = array.length
 "),
         &mut ctx,
     )?;
+    ensure_exprs!(&ctx, Index, Len, OptionalCoalesce);
     Ok(())
 }
 
@@ -269,6 +275,11 @@ describe('scoping', () => {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "new", "new() -> Foo")?;
+    ensure_signature(&ctx, "test_scoping_inherited_constructor", "test_scoping_inherited_constructor() -> None")?;
+    ensure_signature(&ctx, "test_scoping_non_plain_constructor", "test_scoping_non_plain_constructor() -> None")?;
+    ensure!(crate_has_new(&ctx, "Foo"), "no construction of `Foo`");
+    ensure!(crate_has_new(&ctx, "FooR1"), "no construction of `FooR1`");
     Ok(())
 }
 

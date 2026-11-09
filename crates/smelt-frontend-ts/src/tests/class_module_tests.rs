@@ -25,6 +25,9 @@ class Counter {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "new", "new(start: Float) -> Counter")?;
+    ensure_signature(&ctx, "next", "next(this: Counter) -> Float")?;
+    ensure!(crate_has_field(&ctx, "#count"), "no read of field `#count`");
     Ok(())
 }
 
@@ -55,6 +58,12 @@ export const run = (): number => new Counter().add(3);
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "#bump", "#bump(this: Counter, by: Float) -> Float")?;
+    ensure_signature(&ctx, "add", "add(this: Counter, by: Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> Counter")?;
+    ensure_signature(&ctx, "run", "run() -> Float")?;
+    ensure!(crate_has_method(&ctx, "#bump"), "no call of method `#bump`");
+    ensure!(crate_has_new(&ctx, "Counter"), "no construction of `Counter`");
     Ok(())
 }
 
@@ -90,6 +99,14 @@ export const run = (): number => new Node().compare(new Node());
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "#deeper", "#deeper(this: Node) -> Float")?;
+    ensure_signature(&ctx, "compare", "compare(this: Node, other: Node) -> Float")?;
+    ensure_signature(&ctx, "#at_least", "#at_least(this: Node, value: Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> Node")?;
+    ensure_signature(&ctx, "run", "run() -> Float")?;
+    ensure!(crate_has_method(&ctx, "#deeper"), "no call of method `#deeper`");
+    ensure!(crate_has_method(&ctx, "#at_least"), "no call of method `#at_least`");
+    ensure!(crate_has_field(&ctx, "#depth"), "no read of field `#depth`");
     Ok(())
 }
 
@@ -108,6 +125,8 @@ function run(handler: Handler, value: number): number {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(handler: fn(Float) -> Float, value: Float) -> Float")?;
+    ensure_exprs!(&ctx, ClosureCall);
     Ok(())
 }
 
@@ -127,6 +146,8 @@ export function invariant(condition: unknown, message: string): asserts conditio
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "invariant", "invariant(condition: Unknown, message: String) -> None")?;
+    ensure_exprs!(&ctx, DictLit, PrimitiveCast);
     Ok(())
 }
 
@@ -143,6 +164,7 @@ export interface RecursiveArray<T> extends Array<T | RecursiveArray<T>> {}
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_item(&ctx, "RecursiveArray"), "no item named `RecursiveArray`");
     Ok(())
 }
 
@@ -246,6 +268,7 @@ export interface ByIndex {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_item(&ctx, "ByIndex"), "no item named `ByIndex`");
     Ok(())
 }
 
@@ -756,6 +779,10 @@ export function readDynamic(derived: Derived): string {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "read_dynamic", "read_dynamic(derived: Derived) -> String")?;
+    ensure_signature(&ctx, "new", "new() -> Bag")?;
+    ensure_exprs!(&ctx, BaseConstructorInit);
+    ensure!(crate_has_field(&ctx, "dynamic"), "no read of field `dynamic`");
     Ok(())
 }
 
@@ -1088,6 +1115,11 @@ export function build(): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "build", "build() -> Float")?;
+    ensure_signature(&ctx, "new", "new(v: Float) -> Node")?;
+    ensure!(crate_has_method(&ctx, "self"), "no call of method `self`");
+    ensure!(crate_has_method(&ctx, "rebuild"), "no call of method `rebuild`");
+    ensure!(crate_has_new(&ctx, "Node"), "no construction of `Node`");
     Ok(())
 }
 
@@ -1325,6 +1357,11 @@ export function run(box: ResultBox): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(box: ResultBox) -> Float")?;
+    ensure_signature(&ctx, "match", "match(this: ResultBox, ok: fn(Float) -> Float, err: fn(String) -> Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> ResultBox")?;
+    ensure_no_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
     Ok(())
 }
 
@@ -1354,6 +1391,11 @@ export function run(box: OkBox | ErrBox): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(box: OkBox | ErrBox) -> Float")?;
+    ensure_signature(&ctx, "match", "match(this: OkBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> OkBox")?;
+    ensure_no_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
     Ok(())
 }
 
@@ -1406,6 +1448,14 @@ export function run(holder: Holder): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "make_result", "make_result() -> ResultBox")?;
+    ensure_signature(&ctx, "run", "run(holder: Holder) -> Float")?;
+    ensure_signature(&ctx, "match", "match(this: ResultBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> ResultBox")?;
+    ensure_signature(&ctx, "get_result", "get_result(this: Holder) -> ResultBox")?;
+    ensure_no_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
+    ensure!(crate_has_method(&ctx, "get_result"), "no call of method `get_result`");
     Ok(())
 }
 

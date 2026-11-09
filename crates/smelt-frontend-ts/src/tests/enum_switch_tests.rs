@@ -227,5 +227,6 @@ export function isUp(d: Direction): boolean {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "is_up", "is_up(d: Float) -> Bool")?;
     Ok(())
 }

@@ -1037,6 +1037,8 @@ export function serialize(headers: Headers): string {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "serialize", "serialize(headers: Headers) -> String")?;
+    ensure_exprs!(&ctx, JsonStringify);
     Ok(())
 }
 
@@ -1134,6 +1136,10 @@ export function required(init: Required<Base>): string {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "omitted", "omitted(init: OmitBase) -> String")?;
+    ensure_signature(&ctx, "required", "required(init: RequiredBase) -> String")?;
+    ensure_exprs!(&ctx, OptionalCoalesce);
+    ensure!(crate_has_field(&ctx, "a"), "no read of field `a`");
     Ok(())
 }
 
@@ -1794,6 +1800,8 @@ export function signalOf(init: Init): AbortSignal | undefined {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "signal_of", "signal_of(init: Init) -> Optional<AbortSignal>")?;
+    ensure!(crate_has_field(&ctx, "signal"), "no read of field `signal`");
     Ok(())
 }
 
