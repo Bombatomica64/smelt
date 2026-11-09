@@ -99,52 +99,248 @@ pub enum BackendDependency {
     IndexMap,
 }
 
-impl BackendDependency {
-    /// Return the generated Cargo.toml dependency line for this backend crate.
+/// One crate a generated manifest depends on, as the runtime text that uses it
+/// requires it.
+///
+/// The single source both for the generated `Cargo.toml` and for
+/// `smelt-runtime`'s own manifest, which a test holds equal to it: the
+/// runtime's items compile against exactly the crates, versions and features a
+/// generated crate links.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct CrateRequirement {
+    /// The crate's name on crates.io.
+    pub name: &'static str,
+    /// The version requirement.
+    pub version: &'static str,
+    /// Whether the crate's default features stay on.
+    pub default_features: bool,
+    /// The features the emitted text needs.
+    pub features: &'static [&'static str],
+}
+
+impl CrateRequirement {
+    /// A crate at `version`, its default features on or off, plus `features`.
     #[must_use]
-    pub const fn cargo_dependency(self) -> &'static str {
+    pub const fn new(
+        name: &'static str,
+        version: &'static str,
+        default_features: bool,
+        features: &'static [&'static str],
+    ) -> Self {
+        Self { name, version, default_features, features }
+    }
+
+    /// A crate at `version` with its default features and nothing more.
+    const fn plain(name: &'static str, version: &'static str) -> Self {
+        Self { name, version, default_features: true, features: &[] }
+    }
+
+    /// A crate at `version` with its default features plus `features`.
+    const fn with(name: &'static str, version: &'static str, features: &'static [&'static str]) -> Self {
+        Self { name, version, default_features: true, features }
+    }
+
+    /// The `name = ...` line a generated `Cargo.toml` carries for this crate.
+    #[must_use]
+    pub fn manifest_line(&self) -> String {
+        if self.default_features && self.features.is_empty() {
+            return format!("{} = \"{}\"\n", self.name, self.version);
+        }
+        let mut entries = vec![format!("version = \"{}\"", self.version)];
+        if !self.default_features {
+            entries.push("default-features = false".to_owned());
+        }
+        if !self.features.is_empty() {
+            let listed = self.features.iter().map(|feature| format!("\"{feature}\"")).collect::<Vec<_>>();
+            entries.push(format!("features = [{}]", listed.join(", ")));
+        }
+        format!("{} = {{ {} }}\n", self.name, entries.join(", "))
+    }
+}
+
+/// `tokio` for generated async entry points and timers.
+///
+/// `rt`, not `rt-multi-thread`: a generated async `main` builds a
+/// CURRENT-THREAD runtime under a `LocalSet`, because every value Smelt
+/// generates is `Rc`-based and so cannot cross a work-stealing runtime's
+/// threads. `net` and `sync` come with it rather than with `hyper` because the
+/// accept loop's listener and its shutdown channel are tokio's.
+pub const TOKIO: CrateRequirement = CrateRequirement::with("tokio", "1", &["macros", "rt", "time", "net", "sync"]);
+
+/// `genawaiter` for resumable synchronous generator state machines.
+pub const GENAWAITER: CrateRequirement = CrateRequirement::plain("genawaiter", "0.99.1");
+
+impl BackendDependency {
+    /// Every backend dependency, in the order a generated manifest lists them.
+    pub const ALL: [Self; 19] = [
+        Self::Reqwest,
+        Self::SerdeJson,
+        Self::Regex,
+        Self::Regress,
+        Self::Rand,
+        Self::Chrono,
+        Self::ChronoTz,
+        Self::Url,
+        Self::UnicodeNormalization,
+        Self::Hyper,
+        Self::Uuid,
+        Self::GetRandom,
+        Self::Sha,
+        Self::Hmac,
+        Self::Base64,
+        Self::Md5,
+        Self::Rusqlite,
+        Self::BigInt,
+        Self::IndexMap,
+    ];
+
+    /// The crates this dependency brings into a generated manifest.
+    #[must_use]
+    #[expect(clippy::too_many_lines, reason = "one table entry per dependency, each with its reason")]
+    pub const fn crates(self) -> &'static [CrateRequirement] {
         match self {
             Self::Reqwest => {
-                "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n"
+                const CRATES: &[CrateRequirement] = &[CrateRequirement {
+                name: "reqwest",
+                version: "0.12",
+                default_features: false,
+                features: &["blocking", "rustls-tls"],
+            }];
+                CRATES
             }
             // `preserve_order`: a parsed JSON object keeps its source key
             // order, as a JavaScript object does. Without it `serde_json::Map`
             // is a `BTreeMap` and `JSON.stringify(JSON.parse(s))` came back
             // with its keys sorted.
             Self::SerdeJson => {
-                "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = { version = \"1\", features = [\"preserve_order\"] }\n"
+                const CRATES: &[CrateRequirement] = &[
+                CrateRequirement::with("serde", "1", &["derive"]),
+                CrateRequirement::with("serde_json", "1", &["preserve_order"]),
+            ];
+                CRATES
             }
-            Self::Regex => "regex = \"1\"\nfancy-regex = \"0.14\"\n",
-            Self::Regress => "regress = { version = \"0.10\", features = [\"utf16\"] }\n",
-            Self::Rand => "rand = \"0.9\"\n",
-            Self::Chrono => "chrono = \"0.4\"\n",
-            Self::ChronoTz => "chrono-tz = \"0.10\"\n",
-            Self::Url => "url = \"2\"\n",
-            Self::UnicodeNormalization => "unicode-normalization = \"0.1\"\n",
+            Self::Regex => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("regex", "1"), CrateRequirement::plain("fancy-regex", "0.14")];
+                CRATES
+            }
+            Self::Regress => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::with("regress", "0.10", &["utf16"])];
+                CRATES
+            }
+            Self::Rand => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("rand", "0.9")];
+                CRATES
+            }
+            Self::Chrono => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("chrono", "0.4")];
+                CRATES
+            }
+            Self::ChronoTz => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("chrono-tz", "0.10")];
+                CRATES
+            }
+            Self::Url => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("url", "2")];
+                CRATES
+            }
+            Self::UnicodeNormalization => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("unicode-normalization", "0.1")];
+                CRATES
+            }
             // `server` and `http1` are the whole of what a `createServer`
             // program uses: `http1` is the wire protocol Node's own `http`
             // module speaks, and the client half of hyper is never emitted
             // (`fetch` is reqwest). `hyper-util` is taken at its `tokio` +
             // `server` features for the same reason.
             Self::Hyper => {
-                "hyper = { version = \"1\", features = [\"server\", \"http1\"] }\nhyper-util = { version = \"0.1\", features = [\"tokio\", \"server\"] }\nhttp-body-util = \"0.1\"\nhttp = \"1\"\nbytes = \"1\"\n"
+                const CRATES: &[CrateRequirement] = &[
+                CrateRequirement::with("hyper", "1", &["server", "http1"]),
+                CrateRequirement::with("hyper-util", "0.1", &["tokio", "server"]),
+                CrateRequirement::plain("http-body-util", "0.1"),
+                CrateRequirement::plain("http", "1"),
+                CrateRequirement::plain("bytes", "1"),
+            ];
+                CRATES
             }
             // `v4` is the only generator `randomUUID` names, and it is the only
             // feature taken: `uuid`'s default features add serde and formatting
             // surfaces a generated crate never spells.
-            Self::Uuid => "uuid = { version = \"1\", features = [\"v4\"] }\n",
-            Self::GetRandom => "getrandom = \"0.3\"\n",
-            Self::Sha => "sha1 = \"0.10\"\nsha2 = \"0.10\"\n",
+            Self::Uuid => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::with("uuid", "1", &["v4"])];
+                CRATES
+            }
+            Self::GetRandom => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("getrandom", "0.3")];
+                CRATES
+            }
+            Self::Sha => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("sha1", "0.10"), CrateRequirement::plain("sha2", "0.10")];
+                CRATES
+            }
             // The MAC over the same `digest`-trait hashers `Sha` brings; a
             // program needing it is given `Sha` as well.
-            Self::Hmac => "hmac = \"0.12\"\n",
-            Self::Base64 => "base64 = \"0.22\"\n",
-            Self::Md5 => "md-5 = \"0.10\"\n",
-            Self::Rusqlite => "rusqlite = { version = \"0.32\", features = [\"bundled\"] }\n",
-            Self::BigInt => {
-                "num-bigint = \"0.4\"\nnum-traits = \"0.2\"\nnum-integer = \"0.1\"\n"
+            Self::Hmac => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("hmac", "0.12")];
+                CRATES
             }
-            Self::IndexMap => "indexmap = \"2\"\n",
+            Self::Base64 => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("base64", "0.22")];
+                CRATES
+            }
+            Self::Md5 => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("md-5", "0.10")];
+                CRATES
+            }
+            Self::Rusqlite => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::with("rusqlite", "0.32", &["bundled"])];
+                CRATES
+            }
+            Self::BigInt => {
+                const CRATES: &[CrateRequirement] = &[
+                CrateRequirement::plain("num-bigint", "0.4"),
+                CrateRequirement::plain("num-traits", "0.2"),
+                CrateRequirement::plain("num-integer", "0.1"),
+            ];
+                CRATES
+            }
+            Self::IndexMap => {
+                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("indexmap", "2")];
+                CRATES
+            }
         }
+    }
+
+    /// The generated `Cargo.toml` dependency lines for this backend crate.
+    #[must_use]
+    pub fn cargo_dependency(self) -> String {
+        self.crates().iter().map(CrateRequirement::manifest_line).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BackendDependency;
+
+    /// `ALL` lists each dependency once.
+    #[test]
+    fn every_dependency_is_listed_once() {
+        for (index, dependency) in BackendDependency::ALL.iter().enumerate() {
+            assert!(
+                !BackendDependency::ALL.iter().take(index).any(|earlier| earlier == dependency),
+                "{dependency:?} is listed twice"
+            );
+        }
+    }
+
+    /// The manifest lines keep the spellings generated crates have always had.
+    #[test]
+    fn manifest_lines_spell_each_shape() {
+        assert_eq!(
+            BackendDependency::Reqwest.cargo_dependency(),
+            "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n"
+        );
+        assert_eq!(BackendDependency::Regex.cargo_dependency(), "regex = \"1\"\nfancy-regex = \"0.14\"\n");
+        assert_eq!(BackendDependency::Uuid.cargo_dependency(), "uuid = { version = \"1\", features = [\"v4\"] }\n");
     }
 }

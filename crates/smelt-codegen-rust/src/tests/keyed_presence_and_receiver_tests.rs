@@ -147,7 +147,7 @@ console.log(kind(new PathError('x')));
 ",
     );
     assert!(
-        source.contains("matches!(value.get(\"__smelt_class\")"),
+        source.contains("matches!(smelt_value.get(\"__smelt_class\")"),
         "{source}"
     );
     assert!(source.contains("\"BaseError\") || smelt_class_name.eq_str(\"PathError\""), "{source}");
@@ -261,7 +261,7 @@ console.log(box.label);
     );
     assert!(source.contains("smelt_push_this_lazy("), "{source}");
     assert!(source.contains("fn __smelt_set_field(&self, key: &str, value: SmeltUnknown)"), "{source}");
-    assert!(source.contains("smelt_object_write_through(map, \"label\""), "{source}");
+    assert!(source.contains("smelt_object_write_through(smelt_map, \"label\""), "{source}");
 }
 
 /// A method call keeps calling the Rust method: only a DATA field holding a
@@ -461,7 +461,7 @@ export function hex(bytes: Uint8Array): string {
     let program = program_part(&source);
     assert!(!program.contains("\"prototype\""), "{program}");
     assert!(program.contains("to_elements()"), "{program}");
-    assert!(program.contains("let radix ="), "the callback keeps its radix:\n{program}");
+    assert!(program.contains("let smelt_radix ="), "the callback keeps its radix:\n{program}");
 }
 
 /// `x.toString(16)` inside a callback body keeps its radix.

@@ -15,9 +15,15 @@ pub(super) enum PreludeBoundary {
         /// Index of the marker line.
         line: usize,
     },
-    /// No marker (a module file of a multi-file crate, or output that predates
-    /// the sentinel): the coarse `smelt_*` helper tracking of
-    /// [`update_prelude_helper_state`] decides line by line.
+    /// A module file: it opens with
+    /// [`smelt_codegen_rust::MODULE_SOURCE_HEADER`], so it is the lowering of
+    /// one source file and holds no runtime prelude. Every line is program,
+    /// a program item with an emitter-minted name (`smelt_global_init__x__0`)
+    /// included. Authoritative; no per-line heuristic runs.
+    Module,
+    /// Neither marker (output that predates both sentinels): the coarse
+    /// `smelt_*` helper tracking of [`update_prelude_helper_state`] decides
+    /// line by line.
     Heuristic {
         /// Whether the scan is inside a prelude helper definition.
         in_prelude_helper: bool,
@@ -35,21 +41,32 @@ pub(super) enum LineSite {
         /// Whether the heuristic places the line inside a prelude helper.
         in_prelude_helper: bool,
     },
+    /// Program text by provenance: after the prelude marker, or anywhere in a
+    /// module file. No name heuristic applies, so a program item whose name
+    /// the emitter minted (`fn smelt_global_init__x__0`) is program code from
+    /// its signature on.
+    ProgramByProvenance,
 }
 
 impl PreludeBoundary {
     /// The boundary of a whole file's text.
     pub(super) fn of(text: &str) -> Self {
-        text.lines()
-            .position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER)
-            .map_or(Self::Heuristic { in_prelude_helper: false }, |line| Self::Marker { line })
+        if let Some(line) = text.lines().position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER) {
+            return Self::Marker { line };
+        }
+        // The header sits in the file's opening comment block, before any item.
+        let names_its_source = text
+            .lines()
+            .take_while(|line| line.starts_with("//"))
+            .any(|line| line.starts_with(smelt_codegen_rust::MODULE_SOURCE_HEADER));
+        if names_its_source { Self::Module } else { Self::Heuristic { in_prelude_helper: false } }
     }
 
     /// Place line `index` (whose text is `line`), advancing the heuristic.
     pub(super) fn advance(&mut self, index: usize, line: &str) -> LineSite {
         match self {
             Self::Marker { line: marker } if index <= *marker => LineSite::Prelude,
-            Self::Marker { .. } => LineSite::Program { in_prelude_helper: false },
+            Self::Marker { .. } | Self::Module => LineSite::ProgramByProvenance,
             Self::Heuristic { in_prelude_helper } => {
                 update_prelude_helper_state(line, in_prelude_helper);
                 LineSite::Program { in_prelude_helper: *in_prelude_helper }
@@ -185,6 +202,12 @@ pub(super) fn classify_line(line: &str, in_prelude_helper: bool) -> Category {
     if in_prelude_helper || is_prelude_definition_start(line.trim_start()) {
         return Category::RuntimePrelude;
     }
+    classify_program_line(line)
+}
+
+/// Classify a line known to be program code by where it sits (see
+/// [`LineSite::ProgramByProvenance`]): boundary or avoidable, never prelude.
+pub(super) fn classify_program_line(line: &str) -> Category {
     if is_legitimate_boundary_line(line) {
         return Category::LegitimateBoundary;
     }
@@ -511,7 +534,8 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // `SmeltUnknown::Object(value)` and the `Option` receiver's
     // `Some(SmeltUnknown::Object(value))`, and nothing else: the prelude's
     // own brand probes bind `map`, `object`, `entries` or `record`, never
-    // `value`, and they are classified as prelude regardless. An erased
+    // the guard's reserved `smelt_value`, and they are classified as prelude
+    // regardless. An erased
     // local, an erased parameter, or a `Vec<SmeltUnknown>` beside the guard
     // stays avoidable, and an `instanceof` over a CONCRETE operand does not
     // reach here at all: it folds to a `true`/`false` literal naming no
@@ -552,8 +576,8 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // on the exception channel, and narrowed by nothing but this runtime
     // test — no concrete type, union arm, or scoped generic can carry a
     // thrown value of a class the catch site does not name. Narrow like its
-    // siblings: the marker is the probe inside the guard's own `value`
-    // binding. Proven by `user_class_instanceof_guard_is_a_boundary`.
+    // siblings: the marker is the probe inside the guard's own
+    // `smelt_value` binding. Proven by `user_class_instanceof_guard_is_a_boundary`.
     boundary::CLASS_BRAND_TEST,
     // The write-through setter of a reference class's erased view
     // (`crates/smelt-codegen-rust/src/emitter/view_write_through.rs`). Its

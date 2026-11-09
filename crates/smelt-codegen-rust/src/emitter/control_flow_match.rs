@@ -33,7 +33,7 @@ impl FunctionEmitter<'_> {
         let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;
         let hoisted_join = self.match_join(arms, default)?;
-        out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        out.push_str(&format!("    match {scrutinee_text} {{\n", scrutinee_text = scrutinee_text.delimited()));
         let match_declared = self.declared_scope();
         // On the no-hoisted-join path each arm renders its own tail, so the
         // match diverges only when every arm *and* the catch-all diverge. Track
@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
         let scrutinee_ty = self.operand_ty(scrutinee)?;
-        out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        out.push_str(&format!("    match {scrutinee_text} {{\n", scrutinee_text = scrutinee_text.delimited()));
         let match_declared = self.declared_scope();
         for arm in arms {
             out.push_str(&format!(
@@ -229,10 +229,10 @@ impl FunctionEmitter<'_> {
                 // A JavaScript string is matched by its text against the
                 // `&str` case labels.
                 Operand::Copy(place) | Operand::Move(place) if self.mir.types.get(operand_ty) == Some(&Type::String) => {
-                    Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.to_string_lossy().as_str()")) })
+                    Ok(self.place_expr(place)?.postfix(".to_string_lossy().as_str()"))
                 }
                 Operand::Copy(place) | Operand::Move(place) => {
-                    Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.as_str()")) })
+                    Ok(self.place_expr(place)?.postfix(".as_str()"))
                 }
                 Operand::Const(Constant::String(value)) => Ok(RustExpr::chain(format!("{value:?}"))),
                 Operand::Const(_) => self.operand_expr(operand),
@@ -243,9 +243,9 @@ impl FunctionEmitter<'_> {
         ) {
             let receiver = self.operand_expr(operand)?;
             if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)) {
-                return Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.map(|smelt_text| smelt_text.to_string_lossy()).as_deref()")));
+                return Ok(receiver.postfix(".map(|smelt_text| smelt_text.to_string_lossy()).as_deref()"));
             }
-            Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.as_deref()")))
+            Ok(receiver.postfix(".as_deref()"))
         } else {
             self.operand_expr(operand)
         }

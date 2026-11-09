@@ -99,7 +99,83 @@ pub(crate) struct MintedItems {
     pub(crate) backend_erasures: RefCell<Vec<smelt_hir::ErasureRecord>>,
 }
 
+/// What [`MintedItems`] held at one point, cheaply: the keys of each table,
+/// the length of each log, the value of each flag. See
+/// [`MintedItems::rollback_to`].
+pub(super) struct MintedMark {
+    /// Keys of `function_item_accessors`.
+    function_item_accessors: Vec<usize>,
+    /// Keys of `function_item_erased_fn_accessors`.
+    function_item_erased_fn_accessors: Vec<usize>,
+    /// Keys of `function_item_typed_accessors`.
+    function_item_typed_accessors: Vec<(usize, String)>,
+    /// Keys of `record_conversion_helpers`.
+    record_conversion_helpers: Vec<String>,
+    /// Keys of `record_adapter_helpers`.
+    record_adapter_helpers: Vec<(String, String)>,
+    /// `console_inspect_used`.
+    console_inspect_used: bool,
+    /// Length of `backend_erasures`.
+    backend_erasures: usize,
+}
+
+/// Removes every entry of `table` whose key `kept` does not hold.
+fn retain_keys<K: Ord, V>(table: &RefCell<std::collections::BTreeMap<K, V>>, kept: &[K]) {
+    table.borrow_mut().retain(|key, _| kept.binary_search(key).is_ok());
+}
+
 impl MintedItems {
+    /// Marks what is minted now, for [`Self::rollback_to`].
+    ///
+    /// Destructures `self` with no `..`, so a new field fails to compile until
+    /// it is marked here.
+    pub(super) fn mark(&self) -> MintedMark {
+        let Self {
+            function_item_accessors,
+            function_item_erased_fn_accessors,
+            function_item_typed_accessors,
+            record_conversion_helpers,
+            record_adapter_helpers,
+            console_inspect_used,
+            backend_erasures,
+        } = self;
+        MintedMark {
+            function_item_accessors: function_item_accessors.borrow().keys().copied().collect(),
+            function_item_erased_fn_accessors: function_item_erased_fn_accessors.borrow().keys().copied().collect(),
+            function_item_typed_accessors: function_item_typed_accessors.borrow().keys().cloned().collect(),
+            record_conversion_helpers: record_conversion_helpers.borrow().keys().cloned().collect(),
+            record_adapter_helpers: record_adapter_helpers.borrow().keys().cloned().collect(),
+            console_inspect_used: console_inspect_used.get(),
+            backend_erasures: backend_erasures.borrow().len(),
+        }
+    }
+
+    /// Forgets everything minted since `mark`: entries added to a table, log
+    /// records appended, flags raised.
+    ///
+    /// Entries present at the mark keep their current value. Items are only
+    /// ever added while a body renders (a helper's body is stored into the
+    /// entry its reservation added), so this is exactly the state at the mark
+    /// for every entry a render created after it.
+    pub(super) fn rollback_to(&self, mark: &MintedMark) {
+        let Self {
+            function_item_accessors,
+            function_item_erased_fn_accessors,
+            function_item_typed_accessors,
+            record_conversion_helpers,
+            record_adapter_helpers,
+            console_inspect_used,
+            backend_erasures,
+        } = self;
+        retain_keys(function_item_accessors, &mark.function_item_accessors);
+        retain_keys(function_item_erased_fn_accessors, &mark.function_item_erased_fn_accessors);
+        retain_keys(function_item_typed_accessors, &mark.function_item_typed_accessors);
+        retain_keys(record_conversion_helpers, &mark.record_conversion_helpers);
+        retain_keys(record_adapter_helpers, &mark.record_adapter_helpers);
+        console_inspect_used.set(mark.console_inspect_used);
+        backend_erasures.borrow_mut().truncate(mark.backend_erasures);
+    }
+
     /// Put back the state in `saved`.
     ///
     /// Destructures `saved` with no `..`, so a new field fails to compile until

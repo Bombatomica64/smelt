@@ -28,7 +28,7 @@ impl FunctionEmitter<'_> {
     /// Each entry is the marker key plus the Rust text of its VALUE: an identity
     /// marker is a bare `true`, while the error marker records which builtin
     /// error class the chain reached.
-    pub(in crate::emitter) fn host_base_markers(&self, class_name: Symbol) -> Vec<(&'static str, String)> {
+    pub(in crate::emitter) fn host_base_markers(&self, class_name: Symbol) -> Result<Vec<(&'static str, String)>, EmitError> {
         let mut markers: Vec<(&'static str, String)> = Vec::new();
         let mut current = Some(class_name);
         for _ in 0u32..64 {
@@ -41,7 +41,7 @@ impl FunctionEmitter<'_> {
             if smelt_stdlib::host_object_by_class(base_name).is_some() {
                 let mut host = Some(base_name);
                 while let Some(entry) = host.and_then(smelt_stdlib::host_object_by_class) {
-                    markers.push((entry.marker, self.carrier_expr(&RustExpr::atom("SmeltUnknown::Bool(true)")).into_string()));
+                    markers.push((entry.marker, self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Bool(true)")).into_string()));
                     host = entry.base;
                 }
                 break;
@@ -49,13 +49,13 @@ impl FunctionEmitter<'_> {
             if smelt_stdlib::is_error_class_name(base_name) {
                 markers.push((
                     SMELT_ERROR,
-                    self.carrier_format(format_args!("SmeltUnknown::String({base_name:?}.into())")),
+                    self.carrier_format(self.carrier()?, format_args!("SmeltUnknown::String({base_name:?}.into())")),
                 ));
                 break;
             }
             current = Some(base);
         }
-        markers
+        Ok(markers)
     }
 
     /// Emits a runtime tag check for `SmeltUnknown`.
@@ -85,10 +85,10 @@ impl FunctionEmitter<'_> {
         }
         if let Some(&Type::Optional(inner)) = self.mir.types.get(value_ty) {
             if kind == smelt_hir::UnknownKind::Null {
-                return Ok(format!("{text}.is_none()"));
+                return Ok(format!("{text}.is_none()", text = text.tight()));
             }
             if kind == smelt_hir::UnknownKind::Undefined {
-                return Ok(format!("{text}.is_none()"));
+                return Ok(format!("{text}.is_none()", text = text.tight()));
             }
             // The payload's own type may already decide the test, in which case
             // only PRESENCE is left to check at run time: `Array.isArray(xs)`
@@ -98,7 +98,7 @@ impl FunctionEmitter<'_> {
             // take the erased path below.
             if let Some(decided) = self.static_tag_check(inner, kind) {
                 return Ok(if decided {
-                    format!("{text}.is_some()")
+                    format!("{text}.is_some()", text = text.tight())
                 } else {
                     "false".to_owned()
                 });
@@ -111,7 +111,7 @@ impl FunctionEmitter<'_> {
                 None => self.tag_check_raw(&RustExpr::path("smelt_value"), kind)?,
             };
             return Ok(format!(
-                "{text}.as_ref().is_some_and(|smelt_value| {check})"
+                "{text}.as_ref().is_some_and(|smelt_value| {check})", text = text.tight()
             ));
         }
         // Same rule without the `Option` wrapper: a value whose static type
@@ -131,9 +131,9 @@ impl FunctionEmitter<'_> {
     pub(in crate::emitter) fn typeof_value(&self, value: &Operand) -> Result<RustExpr, EmitError> {
         let receiver = self.typeof_str_expr(value)?;
         if self.indexes_utf16() {
-            return Ok(RustExpr::chain(format!("JsString::from({receiver})")));
+            return Ok(RustExpr::chain(format!("JsString::from({receiver})", receiver = receiver.delimited())));
         }
-        Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.to_owned()")))
+        Ok(receiver.postfix(".to_owned()"))
     }
 
     /// Emits the JavaScript `typeof` spelling for a value as a `&'static str`.
@@ -169,13 +169,13 @@ impl FunctionEmitter<'_> {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Ok(RustExpr::atom(format!("match {reference} {{ {arms} }}")));
+            return Ok(RustExpr::atom(format!("match {reference} {{ {arms} }}", reference = reference.delimited())));
         }
         if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
             let erased = self.erase(value)?;
-            return Ok(RustExpr::chain(format!("smelt_typeof(&{erased})")));
+            return Ok(RustExpr::chain(format!("smelt_typeof(&{erased})", erased = erased.tight())));
         }
-        Ok(RustExpr::chain(format!("smelt_typeof({reference})")))
+        Ok(RustExpr::chain(format!("smelt_typeof({reference})", reference = reference.delimited())))
     }
 
     /// Return the JavaScript `typeof` spelling for one concrete union member.
@@ -219,7 +219,7 @@ impl FunctionEmitter<'_> {
         } else {
             "smelt_prototype_sentinel"
         };
-        Ok(RustExpr::chain(format!("{helper}(&({text}))")))
+        Ok(RustExpr::chain(format!("{helper}(&({text}))", text = text.delimited())))
     }
 
     /// Emits `Object(value)` as a boxed primitive.
@@ -232,7 +232,7 @@ impl FunctionEmitter<'_> {
     pub(in crate::emitter) fn box_primitive_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(value, unknown_ty)?;
-        Ok(RustExpr::chain(format!("smelt_box_value({text})")))
+        Ok(RustExpr::chain(format!("smelt_box_value({text})", text = text.delimited())))
     }
 
     /// Emits `Object.create(proto)` as a fresh erased object.
@@ -248,7 +248,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(prototype, unknown_ty)?;
-        Ok(RustExpr::chain(format!("smelt_object_from_prototype({text})")))
+        Ok(RustExpr::chain(format!("smelt_object_from_prototype({text})", text = text.delimited())))
     }
 
     /// Emits `Object.defineProperty` / `Object.defineProperties` as a property
@@ -268,7 +268,7 @@ impl FunctionEmitter<'_> {
         let target_text = self.value_at_type(target, unknown_ty)?;
         let descriptors_text = self.value_at_type(descriptors, unknown_ty)?;
         Ok(RustExpr::chain(format!(
-            "smelt_define_properties({target_text}, {descriptors_text})"
+            "smelt_define_properties({target_text}, {descriptors_text})", target_text = target_text.delimited(), descriptors_text = descriptors_text.delimited()
         )))
     }
 
@@ -281,7 +281,7 @@ impl FunctionEmitter<'_> {
     pub(in crate::emitter) fn object_to_string_tag_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(value, unknown_ty)?;
-        Ok(RustExpr::chain(format!("smelt_object_to_string_tag(&({text}))")))
+        Ok(RustExpr::chain(format!("smelt_object_to_string_tag(&({text}))", text = text.delimited())))
     }
 
     /// Emits `structuredClone(x)` as a fresh-identity deep copy.
@@ -293,7 +293,7 @@ impl FunctionEmitter<'_> {
     pub(in crate::emitter) fn structured_clone_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let text = self.value_at_type(value, unknown_ty)?;
-        Ok(RustExpr::chain(format!("smelt_structured_clone({text})")))
+        Ok(RustExpr::chain(format!("smelt_structured_clone({text})", text = text.delimited())))
     }
 
     /// Decide a JavaScript tag test at COMPILE time when the value's static
@@ -353,21 +353,21 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
             smelt_hir::UnknownKind::Symbol => "SmeltUnknown::Symbol(_)",
             smelt_hir::UnknownKind::Function => {
-                return Ok(self.carrier_format(format_args!("matches!({text}, SmeltUnknown::Function(_))")));
+                return Ok(self.carrier_format(self.carrier()?, format_args!("matches!({text}, SmeltUnknown::Function(_))", text = text.delimited())));
             }
             smelt_hir::UnknownKind::Array => "SmeltUnknown::Array(_)",
             smelt_hir::UnknownKind::Object => {
                 // `typeof x === "object"` is true for plain objects, arrays,
                 // `null`, and built-in object wrappers such as promises (whose
                 // own representation is the dedicated `Promise` variant).
-                return Ok(self.carrier_format(format_args!(
-                    "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_))"
+                return Ok(self.carrier_format(self.carrier()?, format_args!(
+                    "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_))", text = text.delimited()
                 )));
             }
             smelt_hir::UnknownKind::Promise => {
-                return Ok(self.carrier_format(format_args!("matches!({text}, SmeltUnknown::Promise(_))")));
+                return Ok(self.carrier_format(self.carrier()?, format_args!("matches!({text}, SmeltUnknown::Promise(_))", text = text.delimited())));
             }
         };
-        Ok(format!("matches!({text}, {pattern})"))
+        Ok(format!("matches!({text}, {pattern})", text = text.delimited()))
     }
 }

@@ -52,7 +52,7 @@ impl RenderedCall {
     /// The call as an expression of its value.
     pub(super) fn into_expression(self) -> RustExpr {
         if self.propagates {
-            RustExpr::atom(format!("{}?", self.call))
+            RustExpr::atom(format!("{}?", self.call.tight()))
         } else {
             self.call
         }
@@ -261,18 +261,18 @@ impl FunctionEmitter<'_> {
         let raw_call = if self.function_value_call_is_fallible(function) {
             if unwrap_errors {
                 RustExpr::atom(format!(
-                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| smelt_panic_throw(error))"
+                    "(smelt_function)({rendered_args}).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))", rendered_args = rendered_args.delimited()
                 ))
             } else {
-                RustExpr::loose(format!("(smelt_function)({rendered_args})?"))
+                RustExpr::loose(format!("(smelt_function)({rendered_args})?", rendered_args = rendered_args.delimited()))
             }
         } else {
-            RustExpr::atom(format!("(smelt_function)({rendered_args})"))
+            RustExpr::atom(format!("(smelt_function)({rendered_args})", rendered_args = rendered_args.delimited()))
         };
         let coerced_call =
             self.rendered_at_type(&raw_call, function.return_ty, *inner_dest_ty, &self.render_scope())?;
-        Ok(Some(RustExpr::postfix_on(&callee_text, format!(
-            "{callee_text}.clone().map(|smelt_function| {coerced_call})"
+        Ok(Some(callee_text.postfix(format!(
+            ".clone().map(|smelt_function| {coerced_call})", coerced_call = coerced_call.delimited()
         ))))
     }
 
@@ -409,7 +409,7 @@ impl FunctionEmitter<'_> {
         // an error (a non-throwing body, or a generator whose `?` would target
         // the step output) collapses the error into a `panic!`.
         let mut call_text = if rendered.propagates() && !self.body_can_propagate_error() {
-            { let receiver = rendered.into_call(); RustExpr::postfix_on(&receiver, format!("{receiver}.unwrap_or_else(|error| smelt_panic_throw(error))")) }
+            rendered.into_call().postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             rendered.into_expression()
         };
@@ -458,7 +458,7 @@ impl FunctionEmitter<'_> {
                 continue;
             }
             let name = RustExpr::opaque(format!("smelt_call_arg_{index}"));
-            bindings.push(format!("let {name} = {rendered};"));
+            bindings.push(format!("let {name} = {rendered};", name = name.delimited(), rendered = rendered.delimited()));
             *rendered = name;
         }
         Ok(bindings)
@@ -785,11 +785,11 @@ impl FunctionEmitter<'_> {
                 Vec::new()
             };
             let arg_values = rendered_args.join(", ");
-            let call = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{method_name}({arg_values})"));
+            let call = receiver_text.postfix(format!(".{method_name}({arg_values})"));
             let call = if prebound.is_empty() {
                 call
             } else {
-                RustExpr::atom(format!("{{ {} {call} }}", prebound.join(" ")))
+                RustExpr::atom(format!("{{ {} {call} }}", prebound.join(" "), call = call.delimited()))
             };
             return Ok(RenderedCall::propagating_if(call, self.call_is_throwing(function)));
         }
@@ -1038,7 +1038,7 @@ impl FunctionEmitter<'_> {
                 .map(|arg| self.erase(arg))
                 .collect::<Result<Vec<_>, EmitError>>()?;
             let args_expr = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
-            return Ok(self.dynamic_callable_dispatch_expr(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref()).into());
+            return Ok(self.dynamic_callable_dispatch_expr(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref())?.into());
         }
         let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
             // The statement form of `closure_call_rvalue_expr`'s fallback.
@@ -1057,7 +1057,7 @@ impl FunctionEmitter<'_> {
         if self.callee_uses_erased_call_method(indirect_callee)? {
             return Ok(RustExpr::atom(format!(
                 "({callee_text}).call({})",
-                self.erased_call_argument_vector_expr(indirect_callee, args)?
+                self.erased_call_argument_vector_expr(indirect_callee, args)?.delimited(), callee_text = callee_text.delimited()
             )).into());
         }
         let declared_abi = self
@@ -1094,11 +1094,11 @@ impl FunctionEmitter<'_> {
             // function-typed field, `recv.0.borrow().f.clone()`) only
             // pays one more refcount.
             return Ok(RustExpr::atom(format!(
-                "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}"
+                "{{ let smelt_callable = ::std::clone::Clone::clone(&{callee_text}); (smelt_callable)({rendered_args}){suffix} }}", callee_text = callee_text.tight()
             )).into());
         }
         Ok(RenderedCall::propagating_if(
-            RustExpr::atom(format!("({callee_text})({rendered_args})")),
+            RustExpr::atom(format!("({callee_text})({rendered_args})", callee_text = callee_text.delimited())),
             self.function_value_call_is_fallible(function),
         ))
     }

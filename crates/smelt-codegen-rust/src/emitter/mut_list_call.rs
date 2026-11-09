@@ -158,7 +158,7 @@ impl FunctionEmitter<'_> {
                         // caller's; naming it keeps that deliberate.
                         let temp_ty =
                             self.rust_type(target_ty, false, &TypeSubstitution::erased())?;
-                        prelude.push_str(&self.carrier_format(format_args!(
+                        prelude.push_str(&self.carrier_format(self.carrier()?, format_args!(
                             "let mut {temp}: {temp_ty} = {}.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<{temp_ty}>(); ",
                             access.read
                         )));
@@ -167,7 +167,7 @@ impl FunctionEmitter<'_> {
                         // writes come back through the caller's own buffer:
                         // every alias of this JS array must observe them, which
                         // rebinding the place to a new list would not do.
-                        writebacks.push_str(&self.carrier_format(format_args!(
+                        writebacks.push_str(&self.carrier_format(self.carrier()?, format_args!(
                             "{}.replace_all({temp}.into_iter().map(|smelt_element| <{caller_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<Vec<_>>()); ",
                             access.read
                         )));
@@ -192,12 +192,12 @@ impl FunctionEmitter<'_> {
                         )?;
                         prelude.push_str(&format!(
                             "let mut {temp}: {temp_ty} = {}.into_iter().map(|smelt_element| {inject}).collect::<{temp_ty}>(); ",
-                            access.read
+                            access.read, inject = inject.delimited()
                         ));
                         rendered_args.push(format!("&mut {temp}"));
                         writebacks.push_str(&format!(
                             "{}.replace_all({temp}.into_iter().map(|smelt_element| {project}).collect::<Vec<_>>()); ",
-                            access.read
+                            access.read, project = project.delimited()
                         ));
                     }
                 }
@@ -257,7 +257,7 @@ impl FunctionEmitter<'_> {
             )?,
         };
         Ok(Some(RustExpr::atom(format!(
-            "{{ {prelude}let smelt_mut_call_result = {rust_function_name}({arg_values}); {writebacks}{result_expr} }}"
+            "{{ {prelude}let smelt_mut_call_result = {rust_function_name}({arg_values}); {writebacks}{result_expr} }}", result_expr = result_expr.delimited()
         ))))
     }
 
@@ -294,8 +294,8 @@ impl FunctionEmitter<'_> {
         }
         let dest_elem =
             self.rust_type(*dest_item, false, &TypeSubstitution::lexical(caller_scope))?;
-        Ok(RustExpr::atom_on(&value_text, self.carrier_format(format_args!(
-            "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()"
+        Ok(RustExpr::atom_on(&value_text, self.carrier_format(self.carrier()?, format_args!(
+            "{value_text}.into_iter().map(|smelt_element| <{dest_elem} as SmeltFromUnknown>::smelt_from_unknown(smelt_element)).collect::<SmeltList<_>>()", value_text = value_text.tight()
         ))))
     }
 
@@ -445,9 +445,9 @@ impl FunctionEmitter<'_> {
         let text = self.place_expr(place)?;
         match self.mut_list_place_storage(*local)? {
             MutListPlaceStorage::Reference => Ok(MutListPlaceAccess {
-                read: format!("(*{text}).clone()"),
-                assign_target: format!("*{text}"),
-                mut_borrow: Some(format!("*{text}")),
+                read: format!("(*{text}).clone()", text = text.tight()),
+                assign_target: format!("*{text}", text = text.tight()),
+                mut_borrow: Some(format!("*{text}", text = text.tight())),
             }),
             MutListPlaceStorage::SharedCapture => {
                 let cell = self
@@ -458,13 +458,13 @@ impl FunctionEmitter<'_> {
                     // `text` is already `(*smelt_capture_x.borrow())`, so the read
                     // clones through the shared borrow; the write needs its own
                     // short-lived `borrow_mut()` of the same cell.
-                    read: format!("{text}.clone()"),
+                    read: format!("{text}.clone()", text = text.tight()),
                     assign_target: format!("*{cell}.borrow_mut()"),
                     mut_borrow: None,
                 })
             }
             MutListPlaceStorage::Owned => Ok(MutListPlaceAccess {
-                read: format!("{text}.clone()"),
+                read: format!("{text}.clone()", text = text.tight()),
                 assign_target: text.clone().into_string(),
                 mut_borrow: Some(text.into_string()),
             }),

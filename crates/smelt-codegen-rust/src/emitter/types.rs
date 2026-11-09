@@ -150,16 +150,31 @@ impl FunctionEmitter<'_> {
     /// Renders a template that spells the erased carrier, recording that it did.
     ///
     /// Every such template goes through here, so the generic trial learns what a
-    /// body touches at the point the text is made.
-    pub(super) fn carrier_format(&self, template: std::fmt::Arguments<'_>) -> String {
+    /// body touches at the point the text is made. It takes the
+    /// [`CarrierUse`] proof ([`Self::carrier`]): a carrier template cannot be
+    /// written without asking the runtime demand, and asking fails loudly at
+    /// the site when the demand scan did not predict the carrier.
+    ///
+    /// [`CarrierUse`]: crate::runtime_demand::CarrierUse
+    pub(super) fn carrier_format(
+        &self,
+        _carrier: crate::runtime_demand::CarrierUse,
+        template: std::fmt::Arguments<'_>,
+    ) -> String {
         self.context.note_carrier_use();
         template.to_string()
     }
 
     /// [`Self::carrier_format`] for a template with no parameters.
-    pub(super) fn carrier_expr(&self, text: &RustExpr) -> RustExpr {
+    pub(super) fn carrier_expr(&self, _carrier: crate::runtime_demand::CarrierUse, text: &RustExpr) -> RustExpr {
         self.context.note_carrier_use();
         text.clone()
+    }
+
+    /// The proof that this program carries the erased runtime, for a carrier
+    /// template. See [`crate::runtime_demand::RuntimeDemand::carrier`].
+    pub(super) fn carrier(&self) -> Result<crate::runtime_demand::CarrierUse, EmitError> {
+        self.context.demand().carrier()
     }
 
     /// What `ty` renders to in the scope of the current function.
@@ -334,12 +349,12 @@ impl FunctionEmitter<'_> {
             // results; its runtime type seals the key (see `prop_key.rs`).
             Type::Dict(key, value) if self.is_prop_key_record_key(*key) => {
                 let value_ty = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(format_args!("SmeltPropKeyRecord<{value_ty}>")), [&value_ty]).on_carrier())
+                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltPropKeyRecord<{value_ty}>")), [&value_ty]).on_carrier())
             }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
+                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
             }
             // Insertion-ordered, as a Python dict and a JavaScript object are;
             // see `dict_renders_as_index_map`.
@@ -359,7 +374,7 @@ impl FunctionEmitter<'_> {
             Type::JsMap(key, value) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
+                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
             }
             Type::Tuple(items) => {
                 let items = items

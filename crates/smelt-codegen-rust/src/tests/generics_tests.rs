@@ -547,8 +547,8 @@ export function useBoth(): number[] {
 
     // Neither argument passes through: both are erased, as before.
     assert!(!source.contains("both(xs, ys)"));
-    assert!(source.contains("SmeltUnknown::Number(value as f64)"));
-    assert!(source.contains("SmeltUnknown::String(value)"));
+    assert!(source.contains("SmeltUnknown::Number(smelt_value as f64)"));
+    assert!(source.contains("SmeltUnknown::String(smelt_value)"));
 }
 
 #[test]
@@ -985,7 +985,7 @@ export function pinned(xs: number[], ys: number[]): number[] {
 ",
     );
 
-    assert!(source.contains("move |arg0: &f64| -> JsString {"));
+    assert!(source.contains("move |smelt_arg0: &f64| -> JsString {"));
 }
 
 #[test]
@@ -1023,7 +1023,7 @@ export function outer<T>(items: T[]): number {
     // declaration's identity, so `sink`'s `T` is simply erased here and the
     // default is the erased value itself — still never annotated with
     // `outer`'s `T`, which is the property this test guards.
-    assert!(source.contains("&|arg0: f64| SmeltUnknown::Null"), "{source}");
+    assert!(source.contains("&|smelt_arg0: f64| SmeltUnknown::Null"), "{source}");
     assert!(!source.contains("-> T {"), "{source}");
 }
 

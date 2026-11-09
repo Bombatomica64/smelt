@@ -5,16 +5,18 @@
 )]
 
 use crate::EmitError;
-#[cfg(debug_assertions)]
 use crate::runtime_symbols_check;
 
-/// Fails the build, in debug builds only, when a crate's sources name a runtime
-/// symbol nothing defines.
+/// Fails the build when a crate's sources name a runtime symbol nothing
+/// defines.
 ///
 /// That is a missing edge in the `requires` graph of [`runtime_demand`], and
 /// failing here names it where it was made rather than as an E0425 in the
-/// generated crate.
-#[cfg(debug_assertions)]
+/// generated crate. It runs in every build profile: the published binary and
+/// the runtime-tier suite are release builds, and the check is one lexical
+/// scan of text the emitter has just produced.
+///
+/// [`runtime_demand`]: crate::runtime_demand
 pub(crate) fn assert_runtime_symbols_defined<'a>(sources: impl IntoIterator<Item = &'a str>) -> Result<(), EmitError> {
     let undefined = runtime_symbols_check::undefined_runtime_symbols(sources);
     if undefined.is_empty() {
@@ -24,14 +26,4 @@ pub(crate) fn assert_runtime_symbols_defined<'a>(sources: impl IntoIterator<Item
         "generated crate names runtime symbols with no definition: {}",
         undefined.join(", ")
     )))
-}
-
-/// Release builds trust the `requires` graph.
-#[cfg(not(debug_assertions))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "shares its signature with the debug build's check"
-)]
-pub(crate) fn assert_runtime_symbols_defined<'a>(_sources: impl IntoIterator<Item = &'a str>) -> Result<(), EmitError> {
-    Ok(())
 }

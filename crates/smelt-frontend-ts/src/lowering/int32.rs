@@ -952,7 +952,11 @@ impl ModuleBuilder<'_> {
                 | Stmt::Expr(_)
                 | Stmt::Throw(_)
                 | Stmt::Break
-                | Stmt::Continue => {}
+                | Stmt::Continue
+                | Stmt::LabelStart { .. }
+                | Stmt::LabelEnd(_)
+                | Stmt::BreakLabel(_)
+                | Stmt::ContinueLabel(_) => {}
             }
         }
         Ok(())
@@ -1251,7 +1255,11 @@ impl ModuleBuilder<'_> {
                     | Stmt::Return(_)
                     | Stmt::Throw(_)
                     | Stmt::Break
-                    | Stmt::Continue => {}
+                    | Stmt::Continue
+                | Stmt::LabelStart { .. }
+                | Stmt::LabelEnd(_)
+                | Stmt::BreakLabel(_)
+                | Stmt::ContinueLabel(_) => {}
                 }
             }
         }

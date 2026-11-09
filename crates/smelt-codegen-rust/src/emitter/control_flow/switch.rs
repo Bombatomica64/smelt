@@ -27,7 +27,7 @@ impl FunctionEmitter<'_> {
             let loop_declared = self.declared_scope();
             out.push_str(&format!(
                 "    while {} {{\n",
-                self.truthy_operand_expr(cond)?
+                self.truthy_operand_expr(cond)?.delimited()
             ));
             self.emit_block_until_goto(
                 then,
@@ -44,7 +44,7 @@ impl FunctionEmitter<'_> {
 
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == else_block) {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
             out.push_str("    }\n");
             branch_declared.close();
@@ -92,7 +92,7 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
                     self.rendered_type(local.ty)?,
-                    self.truthy_operand_expr(cond)?
+                    self.truthy_operand_expr(cond)?.delimited(), then_text = then_text.delimited(), else_text = else_text.delimited()
                 ));
                 self.mark_local_declared(*then_dest);
                 return self.emit_block(self.block(*then_target)?, out);
@@ -110,29 +110,29 @@ impl FunctionEmitter<'_> {
                 let default_text = self.default_value(local.ty)?;
                 out.push_str(&format!(
                     "    let mut {name}: {} = {default_text};\n",
-                    self.rendered_type(local.ty)?
+                    self.rendered_type(local.ty)?, default_text = default_text.delimited()
                 ));
                 self.mark_local_declared(then_dest);
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 for statement in then_prefix {
                     self.emit_statement(statement, out)?;
                 }
                 let then_text = self.rvalue_expr_for_dest(then_value, local.ty)?;
-                out.push_str(&format!("    {name} = {then_text};\n"));
+                out.push_str(&format!("    {name} = {then_text};\n", then_text = then_text.delimited()));
                 out.push_str("    } else {\n");
                 branch_declared.reset();
                 for statement in else_prefix {
                     self.emit_statement(statement, out)?;
                 }
                 let else_text = self.rvalue_expr_for_dest(else_value, local.ty)?;
-                out.push_str(&format!("    {name} = {else_text};\n"));
+                out.push_str(&format!("    {name} = {else_text};\n", else_text = else_text.delimited()));
                 out.push_str("    }\n");
                 branch_declared.close();
                 return self.emit_block(self.block(*then_target)?, out);
             }
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, *then_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -170,7 +170,7 @@ impl FunctionEmitter<'_> {
             );
             let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, *else_target, RegionExit::Join, out)?;
             out.push_str(&format!("    break {branch_label};\n"));
             out.push_str("    }\n");
@@ -188,7 +188,7 @@ impl FunctionEmitter<'_> {
             && self.branch_join_target(else_.id, &mut BlockIdSet::default())? == Some(then_target)
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, then_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -202,7 +202,7 @@ impl FunctionEmitter<'_> {
             && self.branch_join_target(then.id, &mut BlockIdSet::default())? == Some(else_target)
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, else_target, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -256,7 +256,7 @@ impl FunctionEmitter<'_> {
             )
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, else_block, RegionExit::Join, out)?;
             out.push_str("    }\n");
             branch_declared.close();
@@ -272,7 +272,7 @@ impl FunctionEmitter<'_> {
                     .is_some())
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -313,7 +313,7 @@ impl FunctionEmitter<'_> {
             && self.block_can_reach(else_.id, then_target, &mut BlockIdSet::default())
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -335,7 +335,7 @@ impl FunctionEmitter<'_> {
             );
             let branch_declared = self.declared_scope();
             out.push_str(&format!("    {branch_label}: {{\n"));
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
@@ -402,7 +402,7 @@ impl FunctionEmitter<'_> {
             && self.block_eventually_terminates(else_.id, &mut BlockIdSet::default())?
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -414,7 +414,7 @@ impl FunctionEmitter<'_> {
 
         if self.block_eventually_terminates(then.id, &mut BlockIdSet::default())? {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block(then, out)?;
             out.push_str("    }\n");
             branch_declared.close();
@@ -429,7 +429,7 @@ impl FunctionEmitter<'_> {
             let branch_declared = self.declared_scope();
             out.push_str(&format!(
                 "    if !({}) {{\n",
-                self.truthy_operand_expr(cond)?
+                self.truthy_operand_expr(cond)?.delimited()
             ));
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
@@ -447,7 +447,7 @@ impl FunctionEmitter<'_> {
         ) && then_join == else_join
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block_until_goto(then, then_join, RegionExit::Join, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -487,7 +487,7 @@ impl FunctionEmitter<'_> {
             && self.block_never_falls_through(else_.id, &mut BlockIdSet::default())?
         {
             let branch_declared = self.declared_scope();
-            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
             branch_declared.reset();
@@ -498,7 +498,7 @@ impl FunctionEmitter<'_> {
         }
 
         let branch_declared = self.declared_scope();
-        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
         for statement in &then.statements {
             self.emit_statement(statement, out)?;
         }

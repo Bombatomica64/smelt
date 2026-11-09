@@ -600,23 +600,38 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::BreakStatement(break_stmt) => {
-                if break_stmt.label.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(break_stmt.span.start, break_stmt.span.end),
-                        "labeled break is not lowered yet",
-                    ));
-                }
-                body.push_stmt_to_block(block, Stmt::Break);
+                let stmt = match &break_stmt.label {
+                    Some(label) => Stmt::BreakLabel(self.ctx.krate.symbols.intern(label.name.as_str())),
+                    None => Stmt::Break,
+                };
+                body.push_stmt_to_block(block, stmt);
                 Ok(())
             }
             Statement::ContinueStatement(continue_stmt) => {
-                if continue_stmt.label.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(continue_stmt.span.start, continue_stmt.span.end),
-                        "labeled continue is not lowered yet",
-                    ));
-                }
-                body.push_stmt_to_block(block, Stmt::Continue);
+                let stmt = match &continue_stmt.label {
+                    Some(label) => Stmt::ContinueLabel(self.ctx.krate.symbols.intern(label.name.as_str())),
+                    None => Stmt::Continue,
+                };
+                body.push_stmt_to_block(block, stmt);
+                Ok(())
+            }
+            // `label: statement`. The labelled statement lowers into this same
+            // block between two markers, so it is lowered exactly as it would
+            // be without its label; MIR resolves `break label` to the end
+            // marker and `continue label` to the loop the region opens.
+            Statement::LabeledStatement(labeled) => {
+                let label = self.ctx.krate.symbols.intern(labeled.label.name.as_str());
+                let loops = matches!(
+                    labeled.body,
+                    Statement::ForStatement(_)
+                        | Statement::ForInStatement(_)
+                        | Statement::ForOfStatement(_)
+                        | Statement::WhileStatement(_)
+                        | Statement::DoWhileStatement(_)
+                );
+                body.push_stmt_to_block(block, Stmt::LabelStart { label, loops });
+                self.statement_in_block(&labeled.body, body, block)?;
+                body.push_stmt_to_block(block, Stmt::LabelEnd(label));
                 Ok(())
             }
             Statement::ThrowStatement(throw_stmt) => {

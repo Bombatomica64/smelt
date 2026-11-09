@@ -1425,8 +1425,13 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// Compiler temporaries folded into the `throw` expression that consumes
     /// them, so neither their declaration nor their assignment is emitted.
     folded_throw_payloads: HashSet<LocalId>,
-    /// Captured callback names that are emitted as borrowed `Fn` values.
-    borrowed_callback_names: HashSet<String>,
+    /// Closure-body locals bound to a captured callback parameter that the
+    /// emitted Rust keeps as a borrowed `Fn` value.
+    borrowed_callback_locals: HashSet<LocalId>,
+    /// The `loop`s the closure-body emitter has open on the current path, by
+    /// header block, each with whether a labelled `continue` named it. See
+    /// [`FunctionEmitter::emit_closure_block_inner`].
+    closure_loops: RefCell<Vec<(smelt_mir::BlockId, bool)>>,
     /// Parameter locals whose emitted Rust binding is already a shared
     /// reference (`name: &T`) rather than an owned `T`.
     ///
@@ -1485,7 +1490,7 @@ pub(crate) struct FunctionEmitter<'mir> {
 /// and two shared borrows are allowed where a second mutable one panics with
 /// "already borrowed".
 pub(super) fn list_read_expr(list_text: &RustExpr) -> RustExpr {
-    RustExpr::postfix_on(&list_text, format!("{list_text}.borrow()"))
+    list_text.postfix(".borrow()")
 }
 
 /// Wraps a list-valued expression so it reads as its backing `Vec`, mutably.
@@ -1499,7 +1504,7 @@ pub(super) fn list_read_expr(list_text: &RustExpr) -> RustExpr {
 /// Never combine this with [`list_read_expr`] on the same list inside one
 /// expression: the two guards would coexist and panic "already borrowed".
 pub(super) fn list_write_expr(list_text: &RustExpr) -> RustExpr {
-    RustExpr::postfix_on(&list_text, format!("{list_text}.borrow_mut()"))
+    list_text.postfix(".borrow_mut()")
 }
 
 /// Which ABI the callee behind an erased `smelt_args` adapter was rendered with.

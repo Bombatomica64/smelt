@@ -63,6 +63,10 @@ Smelt lowers source through four stages, each behind a small interface:
   truth; generated crates inline the text and do not depend on it.
 - **Runtime demand** — what a program needs of the runtime: root needs from one
   scan of the MIR, closed over the declared `requires` graph (`runtime_demand.rs`).
+  Every need's closure on its own renders a self-contained runtime (checked per
+  need), and the emitter writes a family's runtime text only with the proof the
+  demand hands out (`RuntimeDemand::require`, `carrier()` for the erased
+  carrier), so a use the scan did not predict fails at its emit site.
 
 ## SmeltUnknown
 
@@ -76,7 +80,17 @@ useful static shape — prefer concrete Rust types, then scoped generics, then
 
 - **RustExpr** — a rendered expression: its text, how it binds (`Precedence`) and
   what its producer knows about it. The emitter asks the value; it never reads
-  the text. A `RustExpr` with `Precedence::Unstated` is treated as loose.
+  the text. A `RustExpr` with `Precedence::Unstated` is treated as loose. It has
+  no `Display` and no `Deref<str>`: a splice states its position —
+  `delimited()` (argument, initializer, tail), `tight()` (receiver, callee,
+  operand of a unary operator), `as_binary_operand()`, `as_cast_operand()` — or
+  goes through `postfix`, so a splice without a precedence decision does not
+  compile. A fact that names part of the text carries that part (a string
+  constant's literal token, the place a `.clone()` copies).
+- **Template temporary** — a name an emitter template binds around code it
+  splices (`|smelt_item| {body}`). Always spelled with an emitter prefix, which
+  no program local can render to (the name scope moves source names out of
+  it), so spliced code never reads a template binder by accident.
 - **RenderedValue** — a `RustExpr` with the MIR type it evaluates to.
 - **RustType** — a rendered type and what it spells (`shape`, carrier, generics).
 - **RustName** — a Rust identifier claimed from a **NameScope** (one Rust

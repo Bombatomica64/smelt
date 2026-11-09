@@ -66,6 +66,9 @@ pub(super) struct LoweringCtx<'hir> {
     /// cursor, innermost last. Pushed only through
     /// [`LoweringCtx::with_scope`]; see [`super::scope`].
     pub(super) scopes: Vec<ControlScope>,
+    /// The label of the labelled loop whose region is being lowered and whose
+    /// loop scope has not been opened yet; the next `lower_loop_body` takes it.
+    pub(super) pending_loop_label: Option<Symbol>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -343,6 +346,7 @@ impl<'hir> LoweringCtx<'hir> {
             locals,
             exprs: HashMap::new(),
             scopes: Vec::new(),
+            pending_loop_label: None,
             loop_index_ty: shared.loop_index_ty,
             loop_bool_ty: shared.loop_bool_ty,
             thrown_ty: shared.thrown_ty,

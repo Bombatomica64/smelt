@@ -95,7 +95,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     let field_source = if accessor_owner
                         .is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name))
                     {
-                        RustExpr::atom(format!("({})", accessor_prelude::read_expr(&RustExpr::from(format!("self.{field_name}")))))
+                        RustExpr::atom(format!("({})", accessor_prelude::read_expr(&RustExpr::from(format!("self.{field_name}"))).delimited()))
                     } else {
                         RustExpr::path(format!("self.{field_name}"))
                     };
@@ -103,7 +103,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                         Some(Type::Optional(inner)) if absent_is_null => {
                             record_field_unknown_expr(mir, &RustExpr::path("smelt_present"), *inner).map(|present| {
                                 format!(
-                                    "{field_source}.map_or(SmeltUnknown::Null, |smelt_present| {present})"
+                                    "{field_source}.map_or(SmeltUnknown::Null, |smelt_present| {present})", field_source = field_source.tight(), present = present.delimited()
                                 )
                             })
                         }
@@ -259,10 +259,10 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
                             // write the sanitized Rust field. See the outbound
                             // impl above.
                             body.block(
-                                format!("if let Some(field) = object.get({key:?})"),
+                                format!("if let Some(smelt_field) = object.get({key:?})"),
                                 |assign| {
                                     assign.line(format!(
-                                        "result.{field_name} = SmeltFromUnknown::smelt_from_unknown(field);"
+                                        "result.{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field);"
                                     ));
                                 },
                             );
@@ -315,9 +315,9 @@ fn emit_function_field_origin_restore(
     if field_ty_rendered.shape() != rust::RustShape::Callable {
         return;
     }
-    body.block(format!("if let Some(field) = object.get({key:?})"), |assign| {
+    body.block(format!("if let Some(smelt_field) = object.get({key:?})"), |assign| {
         assign.line(
-            "let smelt_function = match field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };",
+            "let smelt_function = match smelt_field { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None };",
         );
         assign.line(format!(
             "if let Some(smelt_origin) = smelt_function.and_then(|smelt_function| smelt_restore_function_origin::<{field_ty_rendered}>(&smelt_function)) {{ result.{field_name} = smelt_origin; }}"
@@ -349,7 +349,7 @@ pub(crate) fn record_field_from_unknown_expr(
 ) -> Result<RustExpr, EmitError> {
     let Some(Type::Tuple(items)) = mir.types.get(ty) else {
         return Ok(RustExpr::atom(format!(
-            "SmeltFromUnknown::smelt_from_unknown({value_text})"
+            "SmeltFromUnknown::smelt_from_unknown({value_text})", value_text = value_text.delimited()
         )));
     };
     let elements = items
@@ -367,7 +367,7 @@ pub(crate) fn record_field_from_unknown_expr(
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     Ok(RustExpr::atom(format!(
-        "(if let SmeltUnknown::Array(smelt_tuple_values) = {value_text} {{ ({elements}) }} else {{ panic!(\"unknown is not tuple\") }})"
+        "(if let SmeltUnknown::Array(smelt_tuple_values) = {value_text} {{ ({elements}) }} else {{ panic!(\"unknown is not tuple\") }})", value_text = value_text.delimited()
     )))
 }
 
@@ -451,12 +451,12 @@ fn erased_function_field_expr(
         )
     };
     Some(if optional {
-        RustExpr::postfix_on(&value_text, format!(
-            "{value_text}.map_or(SmeltUnknown::Undefined, |smelt_present| {})",
+        value_text.postfix(format!(
+            ".map_or(SmeltUnknown::Undefined, |smelt_present| {})",
             adapter("smelt_present")
         ))
     } else {
-        RustExpr::from(adapter(&format!("{value_text}.clone()")))
+        RustExpr::from(adapter(&format!("{value_text}.clone()", value_text = value_text.tight())))
     })
 }
 
@@ -464,7 +464,7 @@ fn erased_function_field_expr(
 pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: TypeId) -> Result<RustExpr, EmitError> {
     Ok(match mir.types.get(ty) {
         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
-            RustExpr::atom(format!("({value_text}).into_smelt_unknown()"))
+            RustExpr::atom(format!("({value_text}).into_smelt_unknown()", value_text = value_text.delimited()))
         }
         Some(
             Type::None
@@ -476,26 +476,26 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
         | None => {
             RustExpr::atom("SmeltUnknown::Null")
         }
-        Some(Type::Bool) => RustExpr::atom(format!("SmeltUnknown::Bool({value_text})")),
-        Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!("SmeltUnknown::Number({value_text} as f64)")),
-        Some(Type::BigInt) => RustExpr::atom(format!("SmeltUnknown::BigInt(({value_text}).clone())")),
-        Some(Type::Symbol) => RustExpr::atom(format!("({value_text}).clone().into_smelt_unknown()")),
-        Some(Type::PropKey) => RustExpr::atom(format!("({value_text}).to_unknown()")),
+        Some(Type::Bool) => RustExpr::atom(format!("SmeltUnknown::Bool({value_text})", value_text = value_text.delimited())),
+        Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!("SmeltUnknown::Number({value_text} as f64)", value_text = value_text.as_cast_operand())),
+        Some(Type::BigInt) => RustExpr::atom(format!("SmeltUnknown::BigInt(({value_text}).clone())", value_text = value_text.delimited())),
+        Some(Type::Symbol) => RustExpr::atom(format!("({value_text}).clone().into_smelt_unknown()", value_text = value_text.delimited())),
+        Some(Type::PropKey) => RustExpr::atom(format!("({value_text}).to_unknown()", value_text = value_text.delimited())),
         Some(Type::String | Type::PyStr) => erased_string(value_text),
         Some(Type::Optional(inner)) => {
-            let inner_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *inner)?;
-            RustExpr::postfix_on(&value_text, format!("{value_text}.map_or(SmeltUnknown::Undefined, |value| {inner_text})"))
+            let inner_text = record_field_unknown_expr(mir, &RustExpr::path("smelt_value"), *inner)?;
+            value_text.postfix(format!(".map_or(SmeltUnknown::Undefined, |smelt_value| {inner_text})", inner_text = inner_text.delimited()))
         }
         Some(Type::List(item) | Type::Set(item)) => {
-            let item_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *item)?;
+            let item_text = record_field_unknown_expr(mir, &RustExpr::path("smelt_value"), *item)?;
             RustExpr::atom(format!(
-                "SmeltUnknown::Array({value_text}.into_iter().map(|value| {item_text}).collect())"
+                "SmeltUnknown::Array({value_text}.into_iter().map(|smelt_value| {item_text}).collect())", value_text = value_text.tight(), item_text = item_text.delimited()
             ))
         }
         Some(Type::Dict(key, item)) if matches!(mir.types.get(*key), Some(Type::String | Type::PyStr)) => {
-            let item_text = record_field_unknown_expr(mir, &RustExpr::path("value"), *item)?;
+            let item_text = record_field_unknown_expr(mir, &RustExpr::path("smelt_value"), *item)?;
             RustExpr::atom(format!(
-                "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| (key, {item_text})).collect()))"
+                "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {item_text})).collect()))", value_text = value_text.tight(), item_text = item_text.delimited()
             ))
         }
         // A tuple erases ELEMENT-WISE to a JS array, like every other structural
@@ -518,11 +518,11 @@ pub(crate) fn record_field_unknown_expr(mir: &Mir, value_text: &RustExpr, ty: Ty
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             RustExpr::atom(format!(
-                "{{ let smelt_tuple = {value_text}; SmeltUnknown::Array(vec![{elements}].into()) }}"
+                "{{ let smelt_tuple = {value_text}; SmeltUnknown::Array(vec![{elements}].into()) }}", value_text = value_text.delimited()
             ))
         }
         Some(Type::Dict(_, _) | Type::JsMap(_, _) | Type::Class { .. }) => {
-            RustExpr::atom(format!("({value_text}).into_smelt_unknown()"))
+            RustExpr::atom(format!("({value_text}).into_smelt_unknown()", value_text = value_text.delimited()))
         }
         Some(Type::Function(_)) => RustExpr::atom("SmeltUnknown::Null"),
     })

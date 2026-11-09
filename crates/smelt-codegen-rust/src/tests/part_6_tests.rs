@@ -64,8 +64,8 @@ export function cloneSlice(obj: unknown): unknown {
     // `smelt_slice_value` tag match). The tag-dispatch above proves that path
     // is gone.
     assert!(
-        source.contains("SmeltUnknown::String(value) => { let smelt_slice_len = value.len() as i64;")
-            && source.contains("SmeltUnknown::String(value.slice(smelt_start_index as usize, smelt_end_index as usize))"),
+        source.contains("SmeltUnknown::String(smelt_value) => { let smelt_slice_len = smelt_value.len() as i64;")
+            && source.contains("SmeltUnknown::String(smelt_value.slice(smelt_start_index as usize, smelt_end_index as usize))"),
         "erased slice must string-slice via the value-tag match, not a ToString coercion"
     );
 }
@@ -168,19 +168,19 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 
     assert!(
         source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&mapping.clone(), key)).collect::<Vec<_>>()"
+            ".keys().filter(|smelt_key| !smelt_key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&mapping.clone(), smelt_key)).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").map(|(_, value)| value).collect::<Vec<_>>()"
+            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").map(|(_, smelt_value)| smelt_value).collect::<Vec<_>>()"
         ),
         "{source}"
     );
     assert!(
         source.contains(
-            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol\") && !key.starts_with(\"__smelt_proto:\") && !key.starts_with(\"__smelt_method:\") && key != \"__smelt_class\").collect::<Vec<_>>()"
+            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").collect::<Vec<_>>()"
         ),
         "{source}"
     );
@@ -334,7 +334,7 @@ function makeValue(): Promise<number> {
 
     assert!(source.contains("smelt_promise_result"), "{source}");
     assert!(source.contains("smelt_resolve"), "{source}");
-    assert!(source.contains("break result;"), "{source}");
+    assert!(source.contains("break smelt_result;"), "{source}");
 }
 
 /// An async return supplies the resolved `T` as the contextual hint for an
@@ -1938,7 +1938,7 @@ export function run(): void {
         "explicit any local must keep its erased SmeltUnknown storage type: {source}"
     );
     assert!(
-        source.contains("match &mut o { SmeltUnknown::Object(map)"),
+        source.contains("match &mut o { SmeltUnknown::Object(smelt_map)"),
         "write through an explicit any local must go through the erased boundary: {source}"
     );
 }

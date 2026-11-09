@@ -153,7 +153,7 @@ impl FunctionEmitter<'_> {
                 (Some(Type::Class { name: src_name, .. }), Some(Type::Class { name: tgt_name, .. })) if src_name == tgt_name
             )
         {
-            return Ok(Some(RustExpr::postfix_on(&value_text, format!("{value_text}.clone()")).ending_in_clone()));
+            return Ok(Some(value_text.cloned_value()));
         }
         // A MODELED HOST class has no generated fields to pair up — its data
         // lives behind the prelude struct's accessors — but it still EXPOSES
@@ -223,7 +223,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::path("smelt_struct_value")
                 };
-                let source_value = RustExpr::postfix_on(&source_base, format!("{source_base}.{source_field_name}.clone()")).ending_in_clone();
+                let source_value = source_base.postfix(format!(".{source_field_name}")).cloned_value();
                 let adapted =
                     self.rendered_at_type(&source_value, source_field.ty, target_field.ty, scope)?;
                 value_at_slot_abi = adapted == source_value
@@ -258,7 +258,7 @@ impl FunctionEmitter<'_> {
             } else {
                 self.record_field_value_at_slot_abi(value.into_string(), target, &target_field)?
             };
-            field_text.push(format!("{field_name}: {value}"));
+            field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         self.push_phantom_field(&mut field_text, *name, args.len());
         // A reference-class target is a handle newtype over its `Inner` record,
@@ -271,12 +271,12 @@ impl FunctionEmitter<'_> {
         if self.is_reference_class_type(target) {
             return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
-                field_text.join(", ")
+                field_text.join(", "), value_text = value_text.tight()
             ))));
         }
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
-            field_text.join(", ")
+            field_text.join(", "), value_text = value_text.tight()
         ))))
     }
 
@@ -319,7 +319,7 @@ impl FunctionEmitter<'_> {
             // Reserved before the body renders (the cycle calls it); released
             // unless a body is committed (see `helper_reservation`).
             let reservation =
-                helper_reservation::reserve(&self.context.minted.record_adapter_helpers, module);
+                helper_reservation::reserve(&self.context.minted, &self.context.minted.record_adapter_helpers, module);
             let body = {
                 // The helper's body is a fresh module-level item: the
                 // expansions in progress at this call site are not its own.
@@ -335,7 +335,7 @@ impl FunctionEmitter<'_> {
         drop(hoisted);
         Ok(Some(format!(
             "{}{ordinal}({value_text})",
-            crate::RECORD_ADAPTER_HELPER_PREFIX
+            crate::RECORD_ADAPTER_HELPER_PREFIX, value_text = value_text.delimited()
         )))
     }
 
@@ -391,7 +391,7 @@ impl FunctionEmitter<'_> {
                 }
                 None => return Ok(None),
             };
-            field_text.push(format!("{field_name}: {value}"));
+            field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         let target_name = self.type_rust_name(*name)?;
         if !args.is_empty() {
@@ -402,7 +402,7 @@ impl FunctionEmitter<'_> {
         // its effects and move any by-value argument more than once.
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_host_value = {value_text}; {target_name} {{ {} }} }}",
-            field_text.join(", ")
+            field_text.join(", "), value_text = value_text.delimited()
         ))))
     }
 
@@ -465,7 +465,11 @@ impl FunctionEmitter<'_> {
         let source_is_erased = matches!(self.mir.types.get(source_value), Some(Type::Unknown));
         let mut field_text = Vec::new();
         for field in target_fields {
-            let field_key = self.symbol_name(field.name)?;
+            // The record's keys are the JavaScript property names, so the
+            // lookup spells the field as the source does: `isHTML`, `URL`,
+            // `snake_case`. The Rust field name is a rendering of that
+            // spelling and cannot be inverted back into it.
+            let field_key = self.symbol_source_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
             // A JavaScript member read falls through to the prototype when the
             // own property is absent, which is what `smelt_get_object_field`
@@ -487,25 +491,7 @@ impl FunctionEmitter<'_> {
             } else {
                 String::new()
             };
-            let lookup_text = if field_key.contains('_') {
-                let mut camel = String::new();
-                let mut upper_next = false;
-                for ch in field_key.chars() {
-                    if ch == '_' {
-                        upper_next = true;
-                    } else if upper_next {
-                        camel.push(ch.to_ascii_uppercase());
-                        upper_next = false;
-                    } else {
-                        camel.push(ch);
-                    }
-                }
-                format!(
-                    "smelt_record_map.get_text({field_key:?}).or_else(|| smelt_record_map.get_text({camel:?})){prototype_fallback}"
-                )
-            } else {
-                format!("smelt_record_map.get_text({field_key:?}){prototype_fallback}")
-            };
+            let lookup_text = format!("smelt_record_map.get_text({field_key:?}){prototype_fallback}");
             let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {
                 if self.dict_uses_smelt_record(*key) {
                     lookup_text
@@ -533,7 +519,7 @@ impl FunctionEmitter<'_> {
                 RustExpr::path("None")
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
-                    let mapped = self.rendered_at_type(&RustExpr::path("value"), source_value, *inner, scope)?;
+                    let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, *inner, scope)?;
                     if source_is_erased
                         && !matches!(self.mir.types.get(*inner), Some(Type::Unknown))
                     {
@@ -541,30 +527,30 @@ impl FunctionEmitter<'_> {
                         // arm, not a value to convert: `score: number | null`
                         // read off `{ score: null }` is `None`, where mapping
                         // it through the number conversion answered `NaN`.
-                        RustExpr::postfix_on(&lookup_value, format!(
-                            "{lookup_value}.and_then(|value| if smelt_unknown_is_nullish(&value) {{ None }} else {{ Some({mapped}) }})"
+                        RustExpr::atom(lookup_value).postfix(format!(
+                            ".and_then(|smelt_value| if smelt_unknown_is_nullish(&smelt_value) {{ None }} else {{ Some({mapped}) }})", mapped = mapped.delimited()
                         ))
                     } else {
-                        RustExpr::postfix_on(&lookup_value, format!("{lookup_value}.map(|value| {mapped})"))
+                        RustExpr::atom(lookup_value).postfix(format!(".map(|smelt_value| {mapped})", mapped = mapped.delimited()))
                     }
                 } else if self.can_render_dict_value_as(source_value, field.ty) {
                     // The dictionary value is already optional-shaped, so the
                     // `get` produced an `Option<Option<_>>`; flatten it instead of
                     // discarding the field. Without this arm the projection
                     // answered `None` for a value that was actually present.
-                    let mapped = self.rendered_at_type(&RustExpr::path("value"), source_value, field.ty, scope)?;
-                    RustExpr::postfix_on(&lookup_value, format!("{lookup_value}.map_or(None, |value| {mapped})"))
+                    let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, field.ty, scope)?;
+                    RustExpr::atom(lookup_value).postfix(format!(".map_or(None, |smelt_value| {mapped})", mapped = mapped.delimited()))
                 } else {
                     RustExpr::path("None")
                 }
             } else if self.can_render_dict_value_as(source_value, field.ty) {
-                let mapped = self.rendered_at_type(&RustExpr::path("value"), source_value, field.ty, scope)?;
-                RustExpr::postfix_on(&lookup_value, format!(
-                    "{lookup_value}.map_or({}, |value| {mapped})",
+                let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, field.ty, scope)?;
+                RustExpr::atom(lookup_value).postfix(format!(
+                    ".map_or({}, |smelt_value| {mapped})",
                     self.default_value_with_scoped_type_params(
                         field.ty,
                         &TypeSubstitution::lexical_subset(&scoped_type_params),
-                    )?
+                    )?.delimited(), mapped = mapped.delimited()
                 ))
             } else {
                 self.default_value_with_scoped_type_params(
@@ -575,7 +561,7 @@ impl FunctionEmitter<'_> {
             // A callable slot keeps the ABI its DECLARATION gave it, whatever
             // the record was instantiated at (`emitter::record_slot_abi`).
             let value = self.record_field_value_at_slot_abi(value.into_string(), target, &field)?;
-            field_text.push(format!("{field_name}: {value}"));
+            field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         self.push_phantom_field(&mut field_text, *name, args.len());
         // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field
@@ -588,24 +574,24 @@ impl FunctionEmitter<'_> {
         // object -- so the rebuild is only the answer for a view with no origin
         // (a literal, a JSON value, a spread copy). See `reference_origin`.
         if self.context.is_reference_class(*name) {
-            let rebuild = RustExpr::postfix_on(&target_name, format!(
-                "{target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }})))",
+            let rebuild = RustExpr::atom(target_name.clone()).postfix(format!(
+                "(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }})))",
                 field_text.join(", ")
             ));
             // Only an erased-valued `SmeltRecord` view can share an erased
             // object's store; a concretely typed dictionary never carries one.
             let body = if source_is_erased && self.dict_uses_smelt_record(source_key) {
-                crate::reference_origin::restore_or_rebuild_expr("smelt_record_map", &rebuild)
+                crate::reference_origin::restore_or_rebuild_expr(&RustExpr::path("smelt_record_map"), &rebuild)
             } else {
                 rebuild
             };
             return Ok(Some(RustExpr::atom(format!(
-                "{{ let smelt_record_map = {value_text}.clone(); {body} }}"
+                "{{ let smelt_record_map = {value_text}.clone(); {body} }}", value_text = value_text.tight(), body = body.delimited()
             ))));
         }
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_record_map = {value_text}.clone(); {target_name} {{ {} }} }}",
-            field_text.join(", ")
+            field_text.join(", "), value_text = value_text.tight()
         ))))
     }
 
@@ -641,15 +627,15 @@ impl FunctionEmitter<'_> {
             let key = self.symbol_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
             let source_value = if source_is_reference_class {
-                RustExpr::chain(format!("smelt_struct_value.0.borrow().{field_name}.clone()")).ending_in_clone()
+                RustExpr::chain(format!("smelt_struct_value.0.borrow().{field_name}")).cloned_value()
             } else {
-                RustExpr::chain(format!("smelt_struct_value.{field_name}.clone()")).ending_in_clone()
+                RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value()
             };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
-                let mapped = self.rendered_at_type(&RustExpr::path("value"), *inner, target_value, scope)?;
+                let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, target_value, scope)?;
                 format!(
-                    "{source_value}.map_or({}, |value| {mapped})",
-                    self.default_value(target_value)?
+                    "{source_value}.map_or({}, |smelt_value| {mapped})",
+                    self.default_value(target_value)?.delimited(), source_value = source_value.tight(), mapped = mapped.delimited()
                 )
             } else {
                 self.rendered_at_type(&source_value, field.ty, target_value, scope)?.into_string()
@@ -664,7 +650,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {constructor}([{}]) }}",
-            entries.join(", ")
+            entries.join(", "), value_text = value_text.tight()
         ))))
     }
 

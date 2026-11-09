@@ -73,15 +73,21 @@ impl<T: Formed + ?Sized> Formed for &T {
 }
 
 /// A fact a producer states about an expression, beyond how it binds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// A fact that describes part of the text carries that part itself (the
+/// literal token a string constant wraps), so reading it never slices the
+/// rendered text and cannot disagree with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ExprFact {
     /// Nothing more than its precedence.
     Plain,
-    /// `"literal".to_owned()`, the emitter's own spelling of a string constant.
-    OwnedLiteral,
+    /// `"literal".to_owned()`, the emitter's own spelling of a string
+    /// constant. Holds the quoted Rust literal token.
+    OwnedLiteral(Box<str>),
     /// `JsString::from("literal")`, the emitter's spelling of a JavaScript
-    /// string constant.
-    JsLiteral,
+    /// string constant. Holds the quoted Rust literal token (`""` for the
+    /// empty string, which is spelled `JsString::new()`).
+    JsLiteral(Box<str>),
     /// The unit value `()`.
     Unit,
     /// The `self` receiver.
@@ -90,9 +96,12 @@ enum ExprFact {
     Undefined,
     /// A tuple-indexed place, see [`RustExpr::indexed_place`].
     IndexedPlace,
+    /// A binding that holds a borrowed callback (`&dyn Fn(..)` or `&F`), see
+    /// [`RustExpr::borrowed_callback`].
+    BorrowedCallback,
 }
 
-/// The spelling of a method-call clone, as [`RustExpr::ending_in_clone`] records it.
+/// The spelling of a method-call clone, as [`RustExpr::cloned_value`] appends it.
 const CLONE_SUFFIX: &str = ".clone()";
 
 /// A Rust expression fragment that has been rendered as source text, with the
@@ -103,8 +112,10 @@ pub struct RustExpr {
     text: String,
     /// How tightly the rendered text binds.
     precedence: Precedence,
-    /// Whether the text ends in a `.clone()` call, so it is already owned.
-    clone_tail: bool,
+    /// When the text ends in a `.clone()` call that [`Self::cloned_value`]
+    /// appended, the length of the text before it: the place that call copies.
+    /// Only the constructor that appends the suffix records it.
+    clone_base: Option<usize>,
     /// What the producer knows this expression to be, beyond how it binds.
     fact: ExprFact,
     /// Whether this default value resolves through a type's `Default` impl, at
@@ -115,7 +126,7 @@ pub struct RustExpr {
 impl RustExpr {
     /// `text`, at `precedence`.
     fn with_precedence(text: impl Into<String>, precedence: Precedence) -> Self {
-        Self { text: text.into(), precedence, clone_tail: false, fact: ExprFact::Plain, delegates_default: false }
+        Self { text: text.into(), precedence, clone_base: None, fact: ExprFact::Plain, delegates_default: false }
     }
 
     /// An identifier or field path.
@@ -164,6 +175,23 @@ impl RustExpr {
         Self::with_precedence(text, precedence)
     }
 
+    /// `self` followed by the postfix `suffix` (`.field`, `.method(..)`, `[i]`,
+    /// `?`, `(args)`): `self` is parenthesized when it cannot take a postfix,
+    /// so the suffix always applies to the whole expression.
+    ///
+    /// This is the precedence-aware way to splice a receiver; a template that
+    /// writes `{receiver}.method()` itself has to state the same decision with
+    /// [`Self::parenthesized_if_needed`].
+    #[must_use]
+    pub fn postfix(&self, suffix: impl AsRef<str>) -> Self {
+        let tail = suffix.as_ref();
+        if self.precedence.binds_tightly() {
+            Self::postfix_on(self, format!("{}{tail}", self.text))
+        } else {
+            Self::atom(format!("({}){tail}", self.text))
+        }
+    }
+
     /// `text`, a field of `base`: a path stays a path, so `self.items` is
     /// spelled without the parentheses a method chain may need.
     #[must_use]
@@ -175,7 +203,7 @@ impl RustExpr {
     /// is one.
     #[must_use]
     pub fn tuple_field(base: &Self, index: usize) -> Self {
-        let element = Self::postfix_on(base, format!("{base}.{index}"));
+        let element = base.postfix(format!(".{index}"));
         if base.is_trivial_place() { element.indexed_place() } else { element }
     }
 
@@ -186,20 +214,14 @@ impl RustExpr {
         Self::with_precedence(text, receiver.precedence().max(Precedence::Atom))
     }
 
-    /// This expression, recorded as ending in a `.clone()` call.
-    #[must_use]
-    pub fn ending_in_clone(mut self) -> Self {
-        self.clone_tail = true;
-        self
-    }
-
     /// Creates an owned Rust `String` expression from arbitrary string data.
     ///
     /// The literal body is escaped with Rust's debug string formatter, then
     /// `.to_owned()` is appended to match Smelt's generated `String` convention.
     #[must_use]
     pub fn string_literal(value: &str) -> Self {
-        Self::chain(format!("{value:?}.to_owned()")).owned_literal()
+        let literal = format!("{value:?}");
+        Self { fact: ExprFact::OwnedLiteral(literal.as_str().into()), ..Self::chain(format!("{literal}{TO_OWNED_SUFFIX}")) }
     }
 
     /// A JavaScript string constant: `JsString::from("x")`.
@@ -209,8 +231,9 @@ impl RustExpr {
     /// and uses [`Self::string_literal`] instead.
     #[must_use]
     pub fn js_string_literal(value: &str) -> Self {
-        let text = if value.is_empty() { JS_STRING_EMPTY.to_owned() } else { format!("{JS_STRING_FROM}{value:?})") };
-        Self { fact: ExprFact::JsLiteral, ..Self::chain(text) }
+        let literal = format!("{value:?}");
+        let text = if value.is_empty() { JS_STRING_EMPTY.to_owned() } else { format!("{JS_STRING_FROM}{literal})") };
+        Self { fact: ExprFact::JsLiteral(literal.into()), ..Self::chain(text) }
     }
 
     /// A JavaScript string held as UTF-16 code units (one with a lone
@@ -219,13 +242,6 @@ impl RustExpr {
     pub fn js_string_units_literal(units: &[u16]) -> Self {
         let listed = units.iter().map(|unit| format!("0x{unit:04X}")).collect::<Vec<_>>().join(", ");
         Self::chain(format!("JsString::from_units(&[{listed}])"))
-    }
-
-    /// This expression, recorded as spelling `"literal".to_owned()`.
-    #[must_use]
-    pub fn owned_literal(mut self) -> Self {
-        self.fact = ExprFact::OwnedLiteral;
-        self
     }
 
     /// The unit value, which is also how an absent constant renders.
@@ -252,6 +268,23 @@ impl RustExpr {
     pub fn indexed_place(mut self) -> Self {
         self.fact = ExprFact::IndexedPlace;
         self
+    }
+
+    /// This binding, recorded as holding a borrowed callback: a function
+    /// parameter or a capture of one that the emitted Rust spells `&dyn Fn(..)`
+    /// (or `&F`) rather than an owned handle. The emitter calls it directly and
+    /// wraps it before storing it. Only a bare binding carries the fact; any
+    /// postfix builds a new expression without it.
+    #[must_use]
+    pub fn borrowed_callback(mut self) -> Self {
+        self.fact = ExprFact::BorrowedCallback;
+        self
+    }
+
+    /// Whether this expression is a binding holding a borrowed callback.
+    #[must_use]
+    pub fn is_borrowed_callback(&self) -> bool {
+        self.fact == ExprFact::BorrowedCallback
     }
 
     /// This default value, recorded as resolving through `Default`.
@@ -295,7 +328,7 @@ impl RustExpr {
     /// Whether this expression already ends in a `.clone()` call.
     #[must_use]
     pub fn has_clone_tail(&self) -> bool {
-        self.clone_tail
+        self.clone_base.is_some()
     }
 
     /// Whether duplicating this expression re-reads a binding without
@@ -319,12 +352,21 @@ impl RustExpr {
     /// other form is parenthesised so the result splices into a larger expression.
     #[must_use]
     pub fn cloned_value(&self) -> Self {
-        match (self.precedence.is_chain(), self.clone_tail) {
+        let owned = self.has_clone_tail();
+        match (self.precedence.is_chain(), owned) {
             (true, true) => self.clone(),
-            (true, false) => Self::chain(format!("{}{CLONE_SUFFIX}", self.text)).ending_in_clone(),
+            (true, false) => Self::chain(self.text.clone()).with_clone_suffix(),
             (false, true) => Self::atom(format!("({})", self.text)),
-            (false, false) => Self::atom(format!("({}){CLONE_SUFFIX}", self.text)).ending_in_clone(),
+            (false, false) => Self::atom(format!("({})", self.text)).with_clone_suffix(),
         }
+    }
+
+    /// This expression followed by `.clone()`, recording where the copied
+    /// place ends. The only producer of [`Self::clone_base`].
+    fn with_clone_suffix(mut self) -> Self {
+        self.clone_base = Some(self.text.len());
+        self.text.push_str(CLONE_SUFFIX);
+        self
     }
 
     /// A shared borrow of the value this expression evaluates to.
@@ -338,12 +380,37 @@ impl RustExpr {
         if !self.precedence.is_chain() {
             return Self::loose(format!("&({})", self.text));
         }
-        let place = if self.clone_tail {
-            &self.text[..self.text.len() - CLONE_SUFFIX.len()]
-        } else {
-            self.text.as_str()
+        let place = match self.clone_base {
+            Some(base) => &self.text[..base],
+            None => self.text.as_str(),
         };
         Self::loose(format!("&{place}"))
+    }
+
+    /// The text, spliced where the surrounding template delimits it: a call or
+    /// macro argument, a `let` initializer, a block's tail, a list or tuple
+    /// element, a match arm. Any expression stands there unchanged.
+    ///
+    /// `RustExpr` deliberately has no `Display`: every splice into a template
+    /// states its position through this or one of [`Self::tight`],
+    /// [`Self::as_binary_operand`] and [`Self::as_cast_operand`], so a splice
+    /// without a precedence decision does not compile.
+    #[must_use]
+    pub fn delimited(&self) -> &str {
+        &self.text
+    }
+
+    /// The text where it must bind as tightly as a postfix or unary operand
+    /// needs: the receiver of `.method()`, `[i]` or `?`, a callee, or the
+    /// operand of `&`, `*`, `!` or unary `-`. Parenthesized only when it does
+    /// not already bind that tightly.
+    #[must_use]
+    pub fn tight(&self) -> std::borrow::Cow<'_, str> {
+        if self.precedence.binds_tightly() {
+            std::borrow::Cow::Borrowed(&self.text)
+        } else {
+            std::borrow::Cow::Owned(format!("({})", self.text))
+        }
     }
 
     /// The text, parenthesized only when it cannot take a postfix.
@@ -354,6 +421,15 @@ impl RustExpr {
         } else {
             format!("({})", self.text)
         }
+    }
+
+    /// The text as an operand of a binary operator (`==`, `&&`, `+`, ...):
+    /// anything that binds at least as tightly as a cast stays bare, anything
+    /// looser is parenthesized, so the operator can never re-associate a part of
+    /// this expression with its neighbour.
+    #[must_use]
+    pub fn as_binary_operand(&self) -> String {
+        self.as_cast_operand()
     }
 
     /// The text as the operand of an `as` cast: a cast or a unary operator binds
@@ -419,14 +495,6 @@ impl AsRef<str> for RustExpr {
     }
 }
 
-impl std::ops::Deref for RustExpr {
-    type Target = str;
-
-    /// The text, for the positions that splice it into a larger template.
-    fn deref(&self) -> &str {
-        &self.text
-    }
-}
 
 /// The `.to_owned()` that follows the emitter's own spelling of a string constant.
 const TO_OWNED_SUFFIX: &str = ".to_owned()";
@@ -449,26 +517,15 @@ const JS_STRING_EMPTY: &str = "JsString::new()";
 /// buffer move-and-copy for a `String`.
 #[must_use]
 pub fn erased_string(value: &RustExpr) -> RustExpr {
-    if value.fact == ExprFact::OwnedLiteral {
-        let literal = &value.text[..value.text.len() - TO_OWNED_SUFFIX.len()];
-        return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
-    }
-    if value.fact == ExprFact::JsLiteral {
-        let literal = value.text.strip_prefix(JS_STRING_FROM).and_then(|rest| rest.strip_suffix(')')).unwrap_or("\"\"");
+    if let ExprFact::OwnedLiteral(literal) | ExprFact::JsLiteral(literal) = &value.fact {
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
     if value.precedence == Precedence::Path {
-        return RustExpr::atom(format!("SmeltUnknown::String({value}.into())"));
+        return RustExpr::atom(format!("SmeltUnknown::String({value}.into())", value = value.tight()));
     }
-    RustExpr::atom(format!("SmeltUnknown::String(({value}).into())"))
+    RustExpr::atom(format!("SmeltUnknown::String(({value}).into())", value = value.delimited()))
 }
 
-impl std::fmt::Display for RustExpr {
-    /// Writes the rendered expression text.
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
 
 /// A line-oriented writer for Rust source with indentation support.
 #[derive(Debug, Default, Clone)]
@@ -521,7 +578,7 @@ impl CodeWriter {
 
 #[cfg(test)]
 mod tests {
-    use super::{CodeWriter, RustExpr, erased_string};
+    use super::{CodeWriter, Precedence, RustExpr, erased_string};
 
     /// The emitter's own literal spelling erases straight from the `&'static str`,
     /// so a constant JavaScript string costs one allocation, not a `String` that is
@@ -576,22 +633,57 @@ mod tests {
     #[test]
     fn an_owned_copy_clones_only_what_is_not_owned() {
         assert_eq!(RustExpr::path("items").cloned_value().as_str(), "items.clone()");
-        let owned = RustExpr::chain("items.clone()").ending_in_clone();
+        let owned = RustExpr::path("items").cloned_value();
+        assert!(owned.has_clone_tail());
         assert_eq!(owned.cloned_value().as_str(), "items.clone()");
         assert_eq!(RustExpr::atom("Foo::new()").cloned_value().as_str(), "(Foo::new()).clone()");
         assert_eq!(RustExpr::loose("a + b").cloned_value().as_str(), "(a + b).clone()");
-        let owned_atom = RustExpr::atom("Foo::new().clone()").ending_in_clone();
-        assert_eq!(owned_atom.cloned_value().as_str(), "(Foo::new().clone())");
+        let owned_atom = RustExpr::atom("Foo::new()").cloned_value();
+        assert_eq!(owned_atom.cloned_value().as_str(), "((Foo::new()).clone())");
         assert_eq!(RustExpr::opaque("a").cloned_value().as_str(), "(a).clone()");
+        // Text that merely ends in `.clone()` states no clone: only the
+        // constructor that appends the suffix records it.
+        assert!(!RustExpr::chain("items.clone()").has_clone_tail());
     }
 
     /// A borrow drops a chain's trailing clone, and keeps `&` off a looser operator.
     #[test]
     fn a_borrow_reads_through_a_trailing_clone() {
         assert_eq!(RustExpr::path("items").borrowed_value().as_str(), "&items");
-        let owned = RustExpr::chain("items.clone()").ending_in_clone();
+        let owned = RustExpr::path("items").cloned_value();
         assert_eq!(owned.borrowed_value().as_str(), "&items");
+        let field = RustExpr::path("self.items").postfix(".first()").cloned_value();
+        assert_eq!(field.borrowed_value().as_str(), "&self.items.first()");
+        // A postfix applied after the clone ends the clone's reach.
+        assert_eq!(owned.postfix(".len()").borrowed_value().as_str(), "&items.clone().len()");
         assert_eq!(RustExpr::loose("a + b").borrowed_value().as_str(), "&(a + b)");
+    }
+
+    /// A postfix applies to the whole receiver: a loose or unstated receiver is
+    /// parenthesized, a path becomes a chain, a chain stays one.
+    #[test]
+    fn a_postfix_wraps_a_receiver_that_cannot_take_one() {
+        let negated = RustExpr::loose("-1.0");
+        assert_eq!(negated.postfix(".to_string()").as_str(), "(-1.0).to_string()");
+        assert_eq!(RustExpr::cast("x as f64").postfix(".abs()").as_str(), "(x as f64).abs()");
+        assert_eq!(RustExpr::opaque("a").postfix("?").as_str(), "(a)?");
+        let chained = RustExpr::path("xs").postfix(".len()");
+        assert_eq!(chained.as_str(), "xs.len()");
+        assert_eq!(chained.binding(), Precedence::Chain);
+        assert_eq!(RustExpr::atom("Foo::new()").postfix(".x").binding(), Precedence::Atom);
+        // `-x.abs()` would negate the absolute value; the operand is wrapped.
+        assert_eq!(negated.as_binary_operand(), "(-1.0)");
+    }
+
+    /// A string constant's literal token travels in its fact: the erasure reads
+    /// it from there, never by cutting the rendered text.
+    #[test]
+    fn a_literal_fact_carries_its_token() {
+        let owned = RustExpr::string_literal("a\"b");
+        assert_eq!(erased_string(&owned).as_str(), r#"SmeltUnknown::String("a\"b".into())"#);
+        // A postfix on the literal is no longer the literal.
+        let longer = owned.postfix(".to_uppercase()");
+        assert_eq!(erased_string(&longer).as_str(), r#"SmeltUnknown::String(("a\"b".to_owned().to_uppercase()).into())"#);
     }
 
     /// Each binding level answers the two inlining questions on its own terms.

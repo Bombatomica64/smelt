@@ -897,7 +897,7 @@ pub(crate) fn hoisted_call(n: f64) -> f64 {
 }
 
 pub(crate) fn recursive(n: f64) -> f64 {
-    let smelt_capture_count: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64> = ::std::rc::Rc::new(move |arg0: f64, arg1: Option<f64>| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_count: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64, smelt_arg1: Option<f64>| -> f64 { 0.0 }); smelt_default_callback }));
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_count = ::std::rc::Rc::downgrade(&smelt_capture_count);
     move |closure_arg_0: f64, closure_arg_1: Option<f64>| {

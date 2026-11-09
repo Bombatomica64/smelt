@@ -1620,9 +1620,24 @@ impl<K, V> SmeltJsMapStore<K, V> {
 }
 
 impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
-    /// Index every slot of `entries`, preserving their order and any duplicate
-    /// keys, so a bulk construction pays one hash per entry instead of a scan.
-    fn from_entries(entries: Vec<(K, V)>) -> Self { let mut index = SmeltJsSlotIndex::new(); for (slot, (key, _)) in entries.iter().enumerate() { index.remember(slot, key.js_key_hash()); } Self { entries, index } }
+    /// Build the store of `new Map(entries)`: the entries are `set` in order,
+    /// so a key seen again keeps its FIRST position and takes its LAST value,
+    /// as JavaScript's Map constructor does. Each entry costs one hash. It used
+    /// to keep duplicate keys as separate slots: `new Map([["p", 1], ["p", 3]])`
+    /// answered `size` 2 and `get("p")` 1.
+    fn from_entries(entries: Vec<(K, V)>) -> Self {
+        let mut store = Self { entries: Vec::with_capacity(entries.len()), index: SmeltJsSlotIndex::new() };
+        for (key, value) in entries {
+            let hash = key.js_key_hash();
+            if let Some(slot) = store.position(&key, hash) {
+                store.entries[slot].1 = value;
+            } else {
+                store.index.remember(store.entries.len(), hash);
+                store.entries.push((key, value));
+            }
+        }
+        store
+    }
     /// Slot of `key`, comparing only the slots that share `hash` — every
     /// `same_js_key`-equal key is guaranteed to be one of them.
     fn position(&self, key: &K, hash: Option<u64>) -> Option<usize> { self.index.slots(hash).iter().copied().find(|slot| self.entries[*slot].0.same_js_key(key)) }
@@ -1678,7 +1693,7 @@ impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown 
 
 pub struct SmeltJsSet<T> {
     id: usize,
-    store: ::std::rc::Rc<SmeltJsSetStore<T>>,
+    store: ::std::rc::Rc<::std::cell::RefCell<SmeltJsSetStore<T>>>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -1752,53 +1767,55 @@ impl<T> SmeltJsSetStore<T> {
 }
 
 impl<T> Clone for SmeltJsSet<T> { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
-impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsSet<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltJsSet").field("id", &self.id).field("entries", &self.store.entries).finish() } }
+impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsSet<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltJsSet").field("id", &self.id).field("entries", &self.store.borrow().entries).finish() } }
 
 impl<T> SmeltJsSet<T> {
     fn new() -> Self { Self::with_id(smelt_next_object_id()) }
     /// Build an empty set that keeps a caller-supplied JavaScript object identity.
-    fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltJsSetStore::new()) } }
-    /// Drop every member. Replaces the store instead of emptying it in place, so
-    /// this needs no `T: Clone` and never copies the members it is about to drop.
-    fn clear(&mut self) { self.store = ::std::rc::Rc::new(SmeltJsSetStore::new()); }
+    fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsSetStore::new())) } }
+    /// Drop every member, in the shared store: every handle sees the set empty.
+    /// Needs no `T: Clone` and never copies the members it is about to drop.
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsSetStore::new(); }
+    fn len(&self) -> usize { self.store.borrow().entries.len() }
+    fn is_empty(&self) -> bool { self.store.borrow().entries.is_empty() }
 }
 
 impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
     /// SameValueZero equality via each element's erased runtime value.
     fn same_member(left: &T, right: &T) -> bool { left.clone().into_smelt_unknown().same_js_key(&right.clone().into_smelt_unknown()) }
-    fn len(&self) -> usize { self.store.entries.len() }
-    fn is_empty(&self) -> bool { self.store.entries.is_empty() }
     /// The hash-index key of `value`, or `None` when it has no hashable identity.
     fn member_key(value: &T) -> Option<u64> { smelt_js_member_hash_key(&value.clone().into_smelt_unknown()) }
-    /// Copy-on-write access to the store for a mutation.
-    fn store_mut(&mut self) -> &mut SmeltJsSetStore<T> { ::std::rc::Rc::make_mut(&mut self.store) }
+    /// A NEW set with the same members in the same order: its own id and its
+    /// own store, so later writes to either set leave the other unchanged.
+    fn fresh_copy(&self) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())) } }
     /// Slot of `value` in the members, comparing only the ones that share `key`
     /// — every SameValueZero-equal member is guaranteed to be one of them.
-    fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = &*self.store; store.index.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
+    fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = self.store.borrow(); store.index.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
     fn position(&self, value: &T) -> Option<usize> { self.position_with_key(value, Self::member_key(value)) }
     fn contains(&self, value: &T) -> bool { self.position(value).is_some() }
-    fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let store = self.store_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
-    fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let store = self.store_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
-    fn iter(&self) -> ::std::slice::Iter<'_, T> { self.store.entries.iter() }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let mut store = self.store.borrow_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
+    #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let mut store = self.store.borrow_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
+    /// The members, in insertion order, as an owned snapshot.
+    fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
-    fn is_disjoint(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| !other.contains(value)) }
-    fn is_subset(&self, other: &Self) -> bool { self.store.entries.iter().all(|value| other.contains(value)) }
+    fn is_disjoint(&self, other: &Self) -> bool { self.iter().all(|value| !other.contains(&value)) }
+    fn is_subset(&self, other: &Self) -> bool { self.iter().all(|value| other.contains(&value)) }
     fn is_superset(&self, other: &Self) -> bool { other.is_subset(self) }
-    fn union<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.store.entries.iter().collect(); out.extend(other.store.entries.iter().filter(|value| !self.contains(value))); out.into_iter() }
-    fn intersection<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.store.entries.iter().filter(|value| other.contains(value)).collect::<Vec<_>>().into_iter() }
-    fn difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { self.store.entries.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>().into_iter() }
-    fn symmetric_difference<'smelt_set>(&'smelt_set self, other: &'smelt_set Self) -> ::std::vec::IntoIter<&'smelt_set T> { let mut out: Vec<&T> = self.store.entries.iter().filter(|value| !other.contains(value)).collect(); for value in other.store.entries.iter() { if !self.contains(value) { out.push(value); } } out.into_iter() }
+    fn union(&self, other: &Self) -> ::std::vec::IntoIter<T> { let mut out = self.iter().collect::<Vec<_>>(); out.extend(other.iter().filter(|value| !self.contains(value))); out.into_iter() }
+    fn intersection(&self, other: &Self) -> ::std::vec::IntoIter<T> { self.iter().filter(|value| other.contains(value)).collect::<Vec<_>>().into_iter() }
+    fn difference(&self, other: &Self) -> ::std::vec::IntoIter<T> { self.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>().into_iter() }
+    fn symmetric_difference(&self, other: &Self) -> ::std::vec::IntoIter<T> { let mut out = self.iter().filter(|value| !other.contains(value)).collect::<Vec<_>>(); out.extend(other.iter().filter(|value| !self.contains(value))); out.into_iter() }
 }
 
 impl<T> Default for SmeltJsSet<T> { fn default() -> Self { Self::new() } }
 impl<T: Clone + IntoSmeltUnknown, const N: usize> From<[T; N]> for SmeltJsSet<T> { fn from(values: [T; N]) -> Self { values.into_iter().collect() } }
 impl<T: Clone + IntoSmeltUnknown> ::std::iter::FromIterator<T> for SmeltJsSet<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { let mut set = Self::new(); set.extend(iter); set } }
 impl<T: Clone> IntoIterator for SmeltJsSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { smelt_js_set_into_members(self.store).into_iter() } }
-impl<'smelt_set, T> IntoIterator for &'smelt_set SmeltJsSet<T> { type Item = &'smelt_set T; type IntoIter = ::std::slice::Iter<'smelt_set, T>; fn into_iter(self) -> Self::IntoIter { self.store.entries.iter() } }
-impl<T: Clone + IntoSmeltUnknown> PartialEq for SmeltJsSet<T> { fn eq(&self, other: &Self) -> bool { self.store.entries.len() == other.store.entries.len() && self.store.entries.iter().all(|value| other.contains(value)) } }
+impl<T: Clone> IntoIterator for &SmeltJsSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.store.borrow().entries.clone().into_iter() } }
+impl<T: Clone + IntoSmeltUnknown> PartialEq for SmeltJsSet<T> { fn eq(&self, other: &Self) -> bool { self.len() == other.len() && self.iter().all(|value| other.contains(&value)) } }
 
 /// Take the members out of a set store, reusing them when this is the last handle.
-fn smelt_js_set_into_members<T: Clone>(store: ::std::rc::Rc<SmeltJsSetStore<T>>) -> Vec<T> { match ::std::rc::Rc::try_unwrap(store) { Ok(store) => store.entries, Err(shared) => shared.entries.clone() } }
+fn smelt_js_set_into_members<T: Clone>(store: ::std::rc::Rc<::std::cell::RefCell<SmeltJsSetStore<T>>>) -> Vec<T> { match ::std::rc::Rc::try_unwrap(store) { Ok(store) => store.into_inner().entries, Err(shared) => shared.borrow().entries.clone() } }
 impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
 
 fn smelt_js_hash_one<H: ::std::hash::Hash>(value: &H) -> u64 { let mut hasher = SmeltFieldHasher::default(); value.hash(&mut hasher); ::std::hash::Hasher::finish(&hasher) }
@@ -4858,7 +4875,8 @@ impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspe
 
 impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let entries = self.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+        let members = self.iter().collect::<Vec<_>>();
+        let entries = members.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
         smelt_inspect_collection(ctx, depth, "Set", &entries)
     }
 }
@@ -4921,8 +4939,8 @@ impl IntoSmeltUnknown for SmeltUnion14 {
 }
 impl SmeltUnion14 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
-        if matches!(value, SmeltUnknown::BigInt(_)) { return Self::M0(match value.clone() { SmeltUnknown::BigInt(value) => value, SmeltUnknown::Number(value) => smelt_bigint_from_number(value).unwrap_or_default(), SmeltUnknown::String(value) => smelt_bigint_from_string(&value).unwrap_or_default(), SmeltUnknown::Bool(value) => ::num_bigint::BigInt::from(i64::from(value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => ::num_bigint::BigInt::default() }); }
-        Self::M1(match value.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
+        if matches!(value, SmeltUnknown::BigInt(_)) { return Self::M0(match value.clone() { SmeltUnknown::BigInt(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_bigint_from_number(smelt_value).unwrap_or_default(), SmeltUnknown::String(smelt_value) => smelt_bigint_from_string(&smelt_value).unwrap_or_default(), SmeltUnknown::Bool(smelt_value) => ::num_bigint::BigInt::from(i64::from(smelt_value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => ::num_bigint::BigInt::default() }); }
+        Self::M1(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
     }
 }
 impl PartialEq for SmeltUnion14 {
@@ -5060,53 +5078,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![33.0, 225.0, 158.0, 12.0, 155.0, 171.0, 35.0, 255.0, 255.0, 240.0]; smelt_list_items }));
     let _smelt_tmp_22: ::num_bigint::BigInt = as_big_int(_smelt_tmp_21)?;
     let _ = { println!("{} {}n", JsString::from("ten bytes:"), _smelt_tmp_22); };
-    _smelt_tmp_24 = -&::num_bigint::BigInt::from(7_i64);
+    _smelt_tmp_24 = -(&::num_bigint::BigInt::from(7_i64));
     let _smelt_tmp_25: ::num_bigint::BigInt = smelt_bigint_div(&_smelt_tmp_24, &::num_bigint::BigInt::from(2_i64))?;
-    _smelt_tmp_26 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_26 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_27: ::num_bigint::BigInt = smelt_bigint_div(&::num_bigint::BigInt::from(7_i64), &_smelt_tmp_26)?;
-    _smelt_tmp_28 = -&::num_bigint::BigInt::from(7_i64);
-    _smelt_tmp_29 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_28 = -(&::num_bigint::BigInt::from(7_i64));
+    _smelt_tmp_29 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_30: ::num_bigint::BigInt = smelt_bigint_div(&_smelt_tmp_28, &_smelt_tmp_29)?;
     let _smelt_tmp_31: ::num_bigint::BigInt = smelt_bigint_div(&huge, &two_53)?;
     let _ = { println!("{} {}n {}n {}n {}n", JsString::from("division:"), _smelt_tmp_25, _smelt_tmp_27, _smelt_tmp_30, _smelt_tmp_31); };
-    _smelt_tmp_33 = -&::num_bigint::BigInt::from(7_i64);
+    _smelt_tmp_33 = -(&::num_bigint::BigInt::from(7_i64));
     let _smelt_tmp_34: ::num_bigint::BigInt = smelt_bigint_rem(&_smelt_tmp_33, &::num_bigint::BigInt::from(2_i64))?;
-    _smelt_tmp_35 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_35 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_36: ::num_bigint::BigInt = smelt_bigint_rem(&::num_bigint::BigInt::from(7_i64), &_smelt_tmp_35)?;
-    _smelt_tmp_37 = -&::num_bigint::BigInt::from(7_i64);
-    _smelt_tmp_38 = -&::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_37 = -(&::num_bigint::BigInt::from(7_i64));
+    _smelt_tmp_38 = -(&::num_bigint::BigInt::from(2_i64));
     let _smelt_tmp_39: ::num_bigint::BigInt = smelt_bigint_rem(&_smelt_tmp_37, &_smelt_tmp_38)?;
     let _smelt_tmp_40: ::num_bigint::BigInt = smelt_bigint_rem(&huge, &two_53)?;
     let _ = { println!("{} {}n {}n {}n {}n", JsString::from("remainder:"), _smelt_tmp_34, _smelt_tmp_36, _smelt_tmp_39, _smelt_tmp_40); };
     let _smelt_tmp_42: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(64_i64))?;
     let _smelt_tmp_43: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(1_i64), &::num_bigint::BigInt::from(73_i64))?;
-    _smelt_tmp_44 = -&::num_bigint::BigInt::from(3_i64);
+    _smelt_tmp_44 = -(&::num_bigint::BigInt::from(3_i64));
     let _smelt_tmp_45: ::num_bigint::BigInt = smelt_bigint_shl(&_smelt_tmp_44, &::num_bigint::BigInt::from(2_i64))?;
-    _smelt_tmp_46 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_46 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_47: ::num_bigint::BigInt = smelt_bigint_shl(&::num_bigint::BigInt::from(5_i64), &_smelt_tmp_46)?;
     let _ = { println!("{} {}n {}n {}n {}n", JsString::from("shift left:"), _smelt_tmp_42, _smelt_tmp_43, _smelt_tmp_45, _smelt_tmp_47); };
-    _smelt_tmp_49 = -&::num_bigint::BigInt::from(5_i64);
+    _smelt_tmp_49 = -(&::num_bigint::BigInt::from(5_i64));
     let _smelt_tmp_50: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_49, &::num_bigint::BigInt::from(1_i64))?;
     let _smelt_tmp_51: ::num_bigint::BigInt = smelt_bigint_shr(&::num_bigint::BigInt::from(5_i64), &::num_bigint::BigInt::from(1_i64))?;
-    _smelt_tmp_52 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_52 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_53: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_52, &::num_bigint::BigInt::from(100_i64))?;
     let _smelt_tmp_54: ::num_bigint::BigInt = smelt_bigint_shr(&huge, &::num_bigint::BigInt::from(13_i64))?;
-    _smelt_tmp_55 = -&huge;
+    _smelt_tmp_55 = -(&huge);
     let _smelt_tmp_56: ::num_bigint::BigInt = smelt_bigint_shr(&_smelt_tmp_55, &::num_bigint::BigInt::from(20_i64))?;
     let _ = { println!("{} {}n {}n {}n {}n {}n", JsString::from("shift right:"), _smelt_tmp_50, _smelt_tmp_51, _smelt_tmp_53, _smelt_tmp_54, _smelt_tmp_56); };
     _smelt_tmp_58 = &huge & &::num_bigint::BigInt::from(65535_i64);
-    _smelt_tmp_59 = -&huge;
+    _smelt_tmp_59 = -(&huge);
     _smelt_tmp_60 = &_smelt_tmp_59 & &::num_bigint::BigInt::from(255_i64);
-    _smelt_tmp_61 = -&::num_bigint::BigInt::from(6_i64);
+    _smelt_tmp_61 = -(&::num_bigint::BigInt::from(6_i64));
     _smelt_tmp_62 = &_smelt_tmp_61 | &::num_bigint::BigInt::from(3_i64);
-    _smelt_tmp_63 = -&::num_bigint::BigInt::from(6_i64);
+    _smelt_tmp_63 = -(&::num_bigint::BigInt::from(6_i64));
     _smelt_tmp_64 = &_smelt_tmp_63 ^ &::num_bigint::BigInt::from(3_i64);
     _smelt_tmp_65 = &::num_bigint::BigInt::from(5_i64) ^ &::num_bigint::BigInt::from(-1_i64);
-    _smelt_tmp_66 = -&huge;
+    _smelt_tmp_66 = -(&huge);
     _smelt_tmp_67 = &_smelt_tmp_66 ^ &::num_bigint::BigInt::from(-1_i64);
     let _ = { println!("{} {}n {}n {}n {}n {}n {}n", JsString::from("bitwise:"), _smelt_tmp_58, _smelt_tmp_60, _smelt_tmp_62, _smelt_tmp_64, _smelt_tmp_65, _smelt_tmp_67); };
     let _smelt_tmp_69: ::num_bigint::BigInt = power(::num_bigint::BigInt::from(2_i64), ::num_bigint::BigInt::from(100_i64))?;
-    _smelt_tmp_70 = -&::num_bigint::BigInt::from(3_i64);
+    _smelt_tmp_70 = -(&::num_bigint::BigInt::from(3_i64));
     let _smelt_tmp_71: ::num_bigint::BigInt = power(_smelt_tmp_70, ::num_bigint::BigInt::from(3_i64))?;
     let _smelt_tmp_72: ::num_bigint::BigInt = power(::num_bigint::BigInt::from(7_i64), ::num_bigint::BigInt::from(0_i64))?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("power:"), _smelt_tmp_69, _smelt_tmp_71, _smelt_tmp_72); };
@@ -5115,9 +5133,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_76: ::num_bigint::BigInt = smelt_bigint_as_int_n(8.0, &::num_bigint::BigInt::from(255_i64))?;
     let _smelt_tmp_77: ::num_bigint::BigInt = smelt_bigint_as_int_n(64.0, &huge)?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("asIntN:"), _smelt_tmp_75, _smelt_tmp_76, _smelt_tmp_77); };
-    _smelt_tmp_79 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_79 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_80: ::num_bigint::BigInt = smelt_bigint_as_uint_n(64.0, &_smelt_tmp_79)?;
-    _smelt_tmp_81 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_81 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_82: ::num_bigint::BigInt = smelt_bigint_as_uint_n(8.0, &_smelt_tmp_81)?;
     let _smelt_tmp_83: ::num_bigint::BigInt = smelt_bigint_as_uint_n(80.0, &huge)?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("asUintN:"), _smelt_tmp_80, _smelt_tmp_82, _smelt_tmp_83); };
@@ -5134,18 +5152,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_95 = SmeltUnion14::M1(f64::NAN);
     _smelt_tmp_96 = smelt_js_loose_eq(&SmeltUnknown::BigInt((::num_bigint::BigInt::from(1_i64)).clone()), &_smelt_tmp_95.clone().into_smelt_unknown());
     let _ = { println!("{} {} {} {}", JsString::from("compare NaN:"), _smelt_tmp_93, _smelt_tmp_94, _smelt_tmp_96); };
-    _smelt_tmp_98 = &::num_bigint::BigInt::from(2_i64) == &::num_bigint::BigInt::from(2_i64);
+    _smelt_tmp_98 = (&::num_bigint::BigInt::from(2_i64)) == (&::num_bigint::BigInt::from(2_i64));
     _smelt_tmp_99 = &two_53 + &::num_bigint::BigInt::from(1_i64);
     _smelt_tmp_100 = &two_53 + &::num_bigint::BigInt::from(1_i64);
-    _smelt_tmp_101 = &_smelt_tmp_99 == &_smelt_tmp_100;
+    _smelt_tmp_101 = (&_smelt_tmp_99) == (&_smelt_tmp_100);
     _smelt_tmp_102 = &huge + &::num_bigint::BigInt::from(1_i64);
-    _smelt_tmp_103 = &huge != &_smelt_tmp_102;
+    _smelt_tmp_103 = (&huge) != (&_smelt_tmp_102);
     let _ = { println!("{} {} {} {}", JsString::from("strict:"), _smelt_tmp_98, _smelt_tmp_101, _smelt_tmp_103); };
     _smelt_tmp_105 = JsString::from((&huge).to_string());
     let _smelt_tmp_106: JsString = smelt_bigint_to_string_radix(&huge, 16.0).map(JsString::from).map(JsString::from)?;
     let _smelt_tmp_107: JsString = smelt_bigint_to_string_radix(&huge, 2.0).map(JsString::from).map(JsString::from)?;
     _smelt_tmp_108 = _smelt_tmp_107.len() as f64;
-    _smelt_tmp_109 = -&::num_bigint::BigInt::from(255_i64);
+    _smelt_tmp_109 = -(&::num_bigint::BigInt::from(255_i64));
     let _smelt_tmp_110: JsString = smelt_bigint_to_string_radix(&_smelt_tmp_109, 16.0).map(JsString::from).map(JsString::from)?;
     let _ = { println!("{} {} {} {} {}", JsString::from("toString:"), _smelt_tmp_105, _smelt_tmp_106, smelt_console_number(_smelt_tmp_108), _smelt_tmp_110); };
     _smelt_tmp_112 = JsString::from((&two_64).to_string());
@@ -5155,7 +5173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_116 = &two_53 + &::num_bigint::BigInt::from(1_i64);
     _smelt_tmp_117 = smelt_bigint_to_number(&_smelt_tmp_116);
     _smelt_tmp_118 = smelt_bigint_to_number(&huge);
-    _smelt_tmp_119 = -&two_64;
+    _smelt_tmp_119 = -(&two_64);
     _smelt_tmp_120 = smelt_bigint_to_number(&_smelt_tmp_119);
     let _ = { println!("{} {} {} {}", JsString::from("Number:"), smelt_console_number(_smelt_tmp_117), smelt_console_number(_smelt_tmp_118), smelt_console_number(_smelt_tmp_120)); };
     let _smelt_tmp_122: ::num_bigint::BigInt = smelt_bigint_from_string(&JsString::from("123456789012345678901234567890"))?;
@@ -5163,11 +5181,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_124: ::num_bigint::BigInt = smelt_bigint_from_string(&JsString::from("0x1f"))?;
     _smelt_tmp_125 = (2.0 as f64).powf(60.0 as f64);
     let _smelt_tmp_126: ::num_bigint::BigInt = smelt_bigint_from_number(_smelt_tmp_125)?;
-    let _smelt_tmp_127: ::num_bigint::BigInt = Ok::<::num_bigint::BigInt, Box<dyn ::std::error::Error>>(::num_bigint::BigInt::from(i64::from(true)))?;
+    let _smelt_tmp_127: ::num_bigint::BigInt = (Ok::<::num_bigint::BigInt, Box<dyn ::std::error::Error>>(::num_bigint::BigInt::from(i64::from(true))))?;
     let _ = { println!("{} {}n {}n {}n {}n {}n", JsString::from("BigInt():"), _smelt_tmp_122, _smelt_tmp_123, _smelt_tmp_124, _smelt_tmp_126, _smelt_tmp_127); };
     let _ = { println!("{} {} {} {}", JsString::from("typeof:"), JsString::from("bigint"), JsString::from("bigint"), JsString::from("number")); };
     let _smelt_tmp_130: SmeltList<::num_bigint::BigInt> = both(two_53.clone(), huge.clone());
-    _smelt_tmp_131 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_131 = -(&::num_bigint::BigInt::from(1_i64));
     let _smelt_tmp_132: SmeltList<::num_bigint::BigInt> = both(::num_bigint::BigInt::from(1_i64), _smelt_tmp_131);
     _smelt_tmp_133 = _smelt_tmp_132.len() as f64;
     let _ = { println!("{} {} {}", JsString::from("generic:"), SmeltInspect::smelt_console_text(&_smelt_tmp_130), smelt_console_number(_smelt_tmp_133)); };
@@ -5199,8 +5217,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_150 = keyed.contains_key(&_smelt_tmp_149);
     _smelt_tmp_151 = unique.len() as f64;
     _smelt_tmp_152 = unique.contains(&two_64);
-    let _ = { println!("{} {} {} {} {}", JsString::from("collections:"), match &_smelt_tmp_148 { Some(value) => format!("{}", value), None => "undefined".to_owned() }, _smelt_tmp_150, smelt_console_number(_smelt_tmp_151), _smelt_tmp_152); };
-    _smelt_tmp_154 = -&::num_bigint::BigInt::from(1_i64);
+    let _ = { println!("{} {} {} {} {}", JsString::from("collections:"), match &_smelt_tmp_148 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, _smelt_tmp_150, smelt_console_number(_smelt_tmp_151), _smelt_tmp_152); };
+    _smelt_tmp_154 = -(&::num_bigint::BigInt::from(1_i64));
     _smelt_tmp_155 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::num_bigint::BigInt> = vec![huge.clone(), _smelt_tmp_154.clone(), two_53.clone(), ::num_bigint::BigInt::from(0_i64)]; smelt_list_items }));
     ordered = Into::<SmeltList<_>>::into({ let mut smelt_comparator = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt| {
     let mut _smelt_tmp_3: f64;
@@ -5221,19 +5239,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_3 = _smelt_tmp_6;
     }
     _smelt_tmp_3
-    }); _smelt_tmp_155.borrow_mut().sort_by(|left, right| { let ordering = (smelt_comparator)(left.clone(), right.clone()); if ordering < 0.0 { std::cmp::Ordering::Less } else if ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_155.clone() });
-    _smelt_tmp_159 = ordered.borrow().iter().enumerate().fold(::num_bigint::BigInt::from(0_i64), |acc, (index, item)| { let item = (*item).clone(); let index = index as f64; let array = &ordered; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt, _arg0: i64, _arg1: &SmeltList<::num_bigint::BigInt>| {
+    }); _smelt_tmp_155.borrow_mut().sort_by(|smelt_left, smelt_right| { let smelt_ordering = (smelt_comparator)(smelt_left.clone(), smelt_right.clone()); if smelt_ordering < 0.0 { std::cmp::Ordering::Less } else if smelt_ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_155.clone() });
+    _smelt_tmp_159 = ordered.borrow().iter().enumerate().fold(::num_bigint::BigInt::from(0_i64), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &ordered; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt, _arg0: i64, _arg1: &SmeltList<::num_bigint::BigInt>| {
     let _smelt_tmp_2: ::num_bigint::BigInt = &closure_arg_0 + &closure_arg_1;
     _smelt_tmp_2.clone()
-    }); (smelt_callback)(acc, item, ((index as f64).trunc() as i64), array) } });
+    }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } });
     let _ = { println!("{} {} {}n", JsString::from("sorted:"), SmeltInspect::smelt_console_text(&ordered), _smelt_tmp_159); };
     zero = ::num_bigint::BigInt::from(0_i64);
     _smelt_tmp_161 = !::num_traits::Zero::is_zero(&::num_bigint::BigInt::from(0_i64));
-    _smelt_tmp_162 = -&::num_bigint::BigInt::from(1_i64);
+    _smelt_tmp_162 = -(&::num_bigint::BigInt::from(1_i64));
     _smelt_tmp_163 = !::num_traits::Zero::is_zero(&_smelt_tmp_162);
-    _smelt_tmp_164 = &zero != &::num_bigint::BigInt::from(0_i64);
+    _smelt_tmp_164 = (&zero) != (&::num_bigint::BigInt::from(0_i64));
     let _smelt_tmp_165: JsString = if _smelt_tmp_164 { JsString::from("yes") } else { JsString::from("no") };
-    _smelt_tmp_166 = &huge != &::num_bigint::BigInt::from(0_i64);
+    _smelt_tmp_166 = (&huge) != (&::num_bigint::BigInt::from(0_i64));
     let _smelt_tmp_167: JsString = if _smelt_tmp_166 { JsString::from("yes") } else { JsString::from("no") };
     let _ = { println!("{} {} {} {} {}", JsString::from("truthy:"), _smelt_tmp_161, _smelt_tmp_163, _smelt_tmp_165, _smelt_tmp_167); };
     return Ok(());

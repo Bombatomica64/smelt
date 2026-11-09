@@ -951,6 +951,15 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Whether a value of type `ty` is a list, dict or set: a mutable object
+    /// whose `is` comparison reads its identity rather than its contents.
+    fn is_identity_container(&self, ty: TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_))
+        )
+    }
+
     /// Lower a comparison expression.  Only single-op, non-chained comparisons.
     fn compare_expression(
         &mut self,
@@ -989,10 +998,24 @@ impl ModuleBuilder<'_> {
             ));
         };
         let rhs = self.expression(rhs_expr, body)?;
+        // `is` asks for identity. For a list, dict or set — mutable objects
+        // with an identity of their own — that is the object-identity
+        // comparison (`JsStrictEq`, which reads each container's id), not
+        // value equality: `set(a) is a` is False although the two are equal.
+        // For `None` and the immutable scalars `==` gives the same answer.
+        let compared_op = match op {
+            CmpOp::Is | CmpOp::IsNot
+                if self.is_identity_container(Self::expr_ty(body, lhs))
+                    && self.is_identity_container(Self::expr_ty(body, rhs)) =>
+            {
+                if matches!(op, CmpOp::Is) { BinOp::JsStrictEq } else { BinOp::JsStrictNotEq }
+            }
+            _ => bin_op,
+        };
         let ty = self.intern_type(Type::Bool);
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::BinOp {
-                op: bin_op,
+                op: compared_op,
                 lhs,
                 rhs,
             },

@@ -86,14 +86,14 @@ pub(crate) fn program_writes_erased_fields(mir: &Mir) -> bool {
 /// views of one instance agree.
 pub(crate) fn erased_view_entry_expr(receiver: &RustExpr, entries: &str, live_reads: bool) -> RustExpr {
     let setter = RustExpr::loose(format!(
-        "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); "
+        "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); ", receiver = receiver.tight()
     ));
     if !live_reads {
         return setter;
     }
     // The live-read hook (see `LIVE_MEMBER_PRELUDE`).
     RustExpr::loose(format!(
-        "{setter}{entries}.push(({GET_CALLABLE_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ Ok(match smelt_args.first() {{ Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.{GET_CALLABLE_METHOD}(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }}) }} }})))); "
+        "{setter}{entries}.push(({GET_CALLABLE_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ Ok(match smelt_args.first() {{ Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.{GET_CALLABLE_METHOD}(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }}) }} }})))); ", setter = setter.delimited(), receiver = receiver.tight()
     ))
 }
 
@@ -134,14 +134,14 @@ impl FunctionEmitter<'_> {
             let field_name =
                 self.context.names().field(self.mir, field.name).into_string();
             let Ok(erased) =
-                self.erase_rendered(&RustExpr::chain(format!("self.0.borrow().{field_name}.clone()")).ending_in_clone(), field.ty)
+                self.erase_rendered(&RustExpr::chain(format!("self.0.borrow().{field_name}")).cloned_value(), field.ty)
             else {
                 continue;
             };
             // A closure capturing this instance weakly holds it strongly once
             // erased (see `emitter::weak_receiver`).
             let erased = if self.weak_receiver_field(field.name) {
-                format!("smelt_keep_receiver_alive({erased}, self)")
+                format!("smelt_keep_receiver_alive({erased}, self)", erased = erased.delimited())
             } else {
                 erased.into_string()
             };
@@ -151,7 +151,7 @@ impl FunctionEmitter<'_> {
         // adapter, and `smelt-unknown-report` classifies it by the
         // `fn __smelt_get_callable_field(` marker (see its
         // `live_callable_field_getter_is_a_boundary` test).
-        Ok(self.carrier_format(format_args!(
+        Ok(self.carrier_format(self.carrier()?, format_args!(
             "    /// The live value of a callable own field, for a read through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {GET_CALLABLE_METHOD}(&self, key: &str) -> SmeltUnknown {{ match key {{ {arms}_ => SmeltUnknown::Undefined }} }}\n"
         )))
     }
@@ -197,10 +197,10 @@ impl FunctionEmitter<'_> {
                     )
                 } else {
                     String::new()
-                }
+                }, converted = converted.delimited()
             ));
         }
-        Ok(self.carrier_format(format_args!(
+        Ok(self.carrier_format(self.carrier()?, format_args!(
             "    /// Assign an own-property field from a write through this instance's erased view.\n    #[allow(dead_code, unreachable_patterns)]\n    fn {SET_FIELD_METHOD}(&self, key: &str, value: SmeltUnknown) {{\n        match key {{\n{arms}            _ => {{ let _ = value; }}\n        }}\n    }}\n"
         )))
     }

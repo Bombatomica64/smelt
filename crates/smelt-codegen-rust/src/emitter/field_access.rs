@@ -126,10 +126,10 @@ impl FunctionEmitter<'_> {
             };
             if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
                 if self.dict_uses_smelt_record(*key) {
-                    return Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{lookup}.flatten()")));
+                    return Ok(receiver_text.postfix(format!(".{lookup}.flatten()")));
                 }
-                return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.{lookup}.cloned().flatten()"
+                return Ok(receiver_text.postfix(format!(
+                    ".{lookup}.cloned().flatten()"
                 )));
             }
             // Same rule as the plain place read (`emitter::place`): a record
@@ -139,18 +139,18 @@ impl FunctionEmitter<'_> {
             // key the source type explicitly allows.
             if self.renders_erased(*value)? {
                 let cloned = if self.dict_uses_smelt_record(*key) { "" } else { ".cloned()" };
-                return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.{lookup}{cloned}.unwrap_or({})",
-                    self.absent_value()
+                return Ok(receiver_text.postfix(format!(
+                    ".{lookup}{cloned}.unwrap_or({})",
+                    self.absent_value()?.delimited()
                 )));
             }
             if self.dict_uses_smelt_record(*key) {
-                return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                    "{receiver_text}.{lookup}.expect(\"missing field\")"
+                return Ok(receiver_text.postfix(format!(
+                    ".{lookup}.expect(\"missing field\")"
                 )));
             }
-            return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.{lookup}.cloned().expect(\"missing field\")"
+            return Ok(receiver_text.postfix(format!(
+                ".{lookup}.cloned().expect(\"missing field\")"
             )));
         }
         if let Some(text) = self.concrete_union_member_read_expr(receiver_text, receiver_ty, field)? {
@@ -169,7 +169,7 @@ impl FunctionEmitter<'_> {
             // before consuming. Genuine `Unknown` receivers already carry the
             // erased value and are matched directly.
             let scrutinee = if self.concrete_union_members(receiver_ty).is_some() {
-                self.carrier_format(format_args!("{receiver_text}.clone().into_smelt_unknown()"))
+                self.carrier_format(self.carrier()?, format_args!("{receiver_text}.clone().into_smelt_unknown()", receiver_text = receiver_text.tight()))
             } else {
                 receiver_text.to_owned().into_string()
             };
@@ -189,8 +189,8 @@ impl FunctionEmitter<'_> {
                     | "dispatchEvent"
                     | "throwIfAborted"
             ) {
-                return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) if smelt_host_method(&map, {field_name:?}).is_some() => smelt_host_method(&map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"{SMELT_GET}\") => match getter.remove(\"{SMELT_GET}\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "match {scrutinee} {{ SmeltUnknown::Object(smelt_map) if smelt_host_method(&smelt_map, {field_name:?}).is_some() => smelt_host_method(&smelt_map, {field_name:?}).unwrap_or(SmeltUnknown::Undefined), SmeltUnknown::Object(smelt_map) => match smelt_map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut smelt_getter) if smelt_getter.contains_key(\"{SMELT_GET}\") => match smelt_getter.remove(\"{SMELT_GET}\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                 ))));
             }
             // Every receiver shape through the ONE prelude read chain
@@ -238,10 +238,10 @@ impl FunctionEmitter<'_> {
             return self.match_field_expr(receiver_text, kind, field);
         }
         if self.storage_field_is_function(receiver_ty, field) {
-            return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.{}.clone()",
+            return Ok(receiver_text.postfix(format!(
+                ".{}",
                 self.context.names().field_text(self.mir, field)
-            )).ending_in_clone());
+            )).cloned_value());
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return Err(EmitError::new(format!(
@@ -264,15 +264,15 @@ impl FunctionEmitter<'_> {
         // optional-typed receiver stopped being rejected in MIR.
         if self.is_reference_class_type(receiver_ty) && self.class_has_named_field(receiver_ty, field)
         {
-            return Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.0.borrow().{}.clone()",
+            return Ok(receiver_text.postfix(format!(
+                ".0.borrow().{}",
                 self.context.names().field_text(self.mir, field)
-            )).ending_in_clone());
+            )).cloned_value());
         }
-        Ok(RustExpr::postfix_on(&receiver_text, format!(
-            "{receiver_text}.{}.clone()",
+        Ok(receiver_text.postfix(format!(
+            ".{}",
             self.context.names().field_text(self.mir, field)
-        )).ending_in_clone())
+        )).cloned_value())
     }
 
     /// Emits a bound closure for class method references such as `this.set`.
@@ -308,13 +308,13 @@ impl FunctionEmitter<'_> {
             .map(|(index, param)| {
                 let param_ty = self.function_local_decl(function, *param)?.ty;
                 let item =
-                    RustExpr::chain(self.carrier_format(format_args!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)")));
+                    RustExpr::chain(self.carrier_format(self.carrier()?, format_args!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)")));
                 self.rendered_at_type(&item, unknown_ty, param_ty, &self.render_scope())
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
         let call = RustExpr::chain(format!("smelt_receiver.{method_name}({})", args.join(", ")));
         let returned = if function.can_throw && !function.is_generator {
-            RustExpr::atom(format!("{call}?"))
+            RustExpr::atom(format!("{call}?", call = call.tight()))
         } else {
             call
         };
@@ -322,7 +322,7 @@ impl FunctionEmitter<'_> {
         let receiver_clone = if receiver_text.is_receiver() {
             self.self_struct_clone_expr(class)?
         } else {
-            RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.clone()")).ending_in_clone()
+            receiver_text.cloned_value()
         };
         // Two reads of one method are `===` in JavaScript, because the method
         // lives once on the prototype. The receiver capture makes each read a
@@ -330,12 +330,12 @@ impl FunctionEmitter<'_> {
         // `class_proto::method_identity_expr`) instead of leaving reference
         // equality to compare two unrelated addresses.
         let Some(identity) = crate::class_proto::method_identity_expr(self.mir, function)? else {
-            return Ok(Some(RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>({wrapped_returned}))) }}"
+            return Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>({wrapped_returned}))) }}", receiver_clone = receiver_clone.delimited(), wrapped_returned = wrapped_returned.delimited()
             )))));
         };
-        Ok(Some(RustExpr::atom(self.carrier_format(format_args!(
-            "{{ let smelt_receiver = {receiver_clone}; let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>({wrapped_returned})); smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}"
+        Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "{{ let smelt_receiver = {receiver_clone}; let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>({wrapped_returned})); smelt_link_function_identity_key(&smelt_method, {identity}); SmeltUnknown::Function(smelt_method) }}", receiver_clone = receiver_clone.delimited(), wrapped_returned = wrapped_returned.delimited(), identity = identity.delimited()
         )))))
     }
 
@@ -360,7 +360,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        Ok(Some(RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Null)))")))))
+        Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Null)))")))))
     }
 
     /// Emits a concrete clone of `self` without relying on generic `Clone` bounds.
@@ -375,10 +375,10 @@ impl FunctionEmitter<'_> {
         // This is the same receiver capture `class_proto` uses for the
         // prototype table.
         if self.context.is_reference_class(class) {
-            return Ok(RustExpr::chain("self.clone()").ending_in_clone());
+            return Ok(RustExpr::path("self").cloned_value());
         }
         let Some(class_item) = crate::classes::find_class(self.mir, class) else {
-            return Ok(RustExpr::atom("(*self).clone()").ending_in_clone());
+            return Ok(RustExpr::loose("*self").cloned_value());
         };
         let mut class_name = crate::classes::class_name_text(self.context, class_item)?;
         // Only the parameters the emitted struct declares are spelled: an
@@ -449,16 +449,16 @@ impl FunctionEmitter<'_> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         Ok(match self.symbol_name(field)? {
             "source" => (
-                RustExpr::postfix_on(receiver_text, format!("{receiver_text}.clone()")).ending_in_clone(),
+                receiver_text.cloned_value(),
                 self.type_id(Type::String)?,
             ),
             "global" | "ignoreCase" | "ignore_case" | "multiline" => {
                 match self.existing_type_id(Type::Bool) {
                     Some(bool_ty) => (RustExpr::path("false"), bool_ty),
-                    None => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Bool(false)")), unknown_ty),
+                    None => (self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Bool(false)")), unknown_ty),
                 }
             }
-            "constructor" => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Null")), unknown_ty),
+            "constructor" => (self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")), unknown_ty),
             "length" => {
                 let count = self.string_len_text(&receiver_text.parenthesized_if_needed());
                 if let Some(int_ty) = self.existing_type_id(Type::Int) {
@@ -466,11 +466,11 @@ impl FunctionEmitter<'_> {
                 } else if let Some(float_ty) = self.existing_type_id(Type::Float) {
                     (RustExpr::atom(format!("({count} as f64)")), float_ty)
                 } else {
-                    (RustExpr::atom(self.carrier_format(format_args!("SmeltUnknown::Number({count} as f64)"))), unknown_ty)
+                    (RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltUnknown::Number({count} as f64)"))), unknown_ty)
                 }
             }
             // A property a string does not have reads `undefined`.
-            _ => (self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")), unknown_ty),
+            _ => (self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Undefined")), unknown_ty),
         })
     }
 
@@ -481,27 +481,27 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
         Ok(match self.symbol_name(field)? {
-            "source" => RustExpr::chain(format!("JsString::from(&*{receiver_text}.source)")),
-            "flags" => RustExpr::chain(format!("JsString::from(&*{receiver_text}.flags)")),
-            "global" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('g')")),
-            "ignoreCase" | "ignore_case" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('i')")),
-            "multiline" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('m')")),
-            "sticky" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('y')")),
-            "unicode" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('u')")),
-            "dotAll" | "dot_all" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('s')")),
-            "hasIndices" | "has_indices" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('d')")),
-            "unicodeSets" | "unicode_sets" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.has_flag('v')")),
+            "source" => RustExpr::chain(format!("JsString::from(&*{receiver_text}.source)", receiver_text = receiver_text.tight())),
+            "flags" => RustExpr::chain(format!("JsString::from(&*{receiver_text}.flags)", receiver_text = receiver_text.tight())),
+            "global" => receiver_text.postfix(".has_flag('g')"),
+            "ignoreCase" | "ignore_case" => receiver_text.postfix(".has_flag('i')"),
+            "multiline" => receiver_text.postfix(".has_flag('m')"),
+            "sticky" => receiver_text.postfix(".has_flag('y')"),
+            "unicode" => receiver_text.postfix(".has_flag('u')"),
+            "dotAll" | "dot_all" => receiver_text.postfix(".has_flag('s')"),
+            "hasIndices" | "has_indices" => receiver_text.postfix(".has_flag('d')"),
+            "unicodeSets" | "unicode_sets" => receiver_text.postfix(".has_flag('v')"),
             "lastIndex" | "last_index" => {
                 // Parenthesize the cast: the read may be followed by a postfix
                 // `.clone()` (or a comparison), and a bare `... as f64.clone()`
                 // mis-parses the `.clone()` as part of the cast target type.
-                RustExpr::atom(format!("(*{receiver_text}.last_index.borrow() as f64)"))
+                RustExpr::atom(format!("(*{receiver_text}.last_index.borrow() as f64)", receiver_text = receiver_text.tight()))
             }
             "constructor" => {
                 RustExpr::atom("SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, _)>::new()))")
             }
             // A property a RegExp does not have reads `undefined`.
-            _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")),
+            _ => self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Undefined")),
         })
     }
 
@@ -527,20 +527,20 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let field_name = self.symbol_source_name(field)?;
         match kind {
-            smelt_stdlib::StdlibClass::MatchGroups => Ok(RustExpr::postfix_on(&receiver_text, format!(
-                "{receiver_text}.named_group_owned({field_name:?})"
+            smelt_stdlib::StdlibClass::MatchGroups => Ok(receiver_text.postfix(format!(
+                ".named_group_owned({field_name:?})"
             ))),
             _ => Ok(match field_name {
-                "index" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.index()")),
-                "length" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.length()")),
-                "input" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.input_owned()")),
+                "index" => receiver_text.postfix(".index()"),
+                "length" => receiver_text.postfix(".length()"),
+                "input" => receiver_text.postfix(".input_owned()"),
                 // `match.groups` is the same underlying `SmeltMatch` value; a
                 // subsequent named-group read resolves through the
                 // `MatchGroups` branch above.
-                "groups" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.clone()")).ending_in_clone(),
-                "indices" => RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.indices()")),
+                "groups" => receiver_text.cloned_value(),
+                "indices" => receiver_text.postfix(".indices()"),
                 // A property a match does not have reads `undefined`.
-                _ => self.carrier_expr(&RustExpr::atom("SmeltUnknown::Undefined")),
+                _ => self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Undefined")),
             }),
         }
     }
@@ -561,7 +561,7 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
-        Ok(RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.group_owned({index_text} as usize)")))
+        Ok(receiver_text.postfix(format!(".group_owned({index_text} as usize)", index_text = index_text.as_cast_operand())))
     }
 
     /// Emits an `Option<T>`-returning keyed read against a `Dict`-typed store.
@@ -606,9 +606,9 @@ impl FunctionEmitter<'_> {
             ""
         };
         if self.dict_uses_smelt_record(key_ty) || self.dict_uses_js_key_map(key_ty) {
-            Ok(RustExpr::opaque(format!("{store_text}.get(&{key_text}){flatten}")))
+            Ok(RustExpr::opaque(format!("{store_text}.get(&{key_text}){flatten}", store_text = store_text.tight(), key_text = key_text.tight())))
         } else {
-            Ok(RustExpr::opaque(format!("{store_text}.get(&{key_text}).cloned(){flatten}")))
+            Ok(RustExpr::opaque(format!("{store_text}.get(&{key_text}).cloned(){flatten}", store_text = store_text.tight(), key_text = key_text.tight())))
         }
     }
 }
@@ -617,7 +617,7 @@ impl FunctionEmitter<'_> {
 /// with a text property (a URL part, a status text, an encoding name), which
 /// the host type answers as a UTF-8 `String`, taken as a JavaScript string.
 pub(super) fn host_data_property_read(receiver_text: &RustExpr, property: &smelt_stdlib::HostDataProperty) -> RustExpr {
-    let call = format!("{receiver_text}.{}()", property.accessor);
+    let call = format!("{receiver_text}.{}()", property.accessor, receiver_text = receiver_text.tight());
     if property.ty == smelt_stdlib::HostPrimitive::String {
         return RustExpr::chain(format!("JsString::from({call})"));
     }

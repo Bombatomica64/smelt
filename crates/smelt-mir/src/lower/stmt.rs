@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::context::LoweringCtx;
-use super::scope::{ControlScope, FinallyClause, LoopExit, LoopTargets, Protected};
+use super::scope::{ControlScope, FinallyClause, LabelScope, LoopExit, LoopTargets, Protected};
 use super::{LoweredFunction, LowerError, lower_literal};
 
 impl LoweringCtx<'_> {
@@ -84,13 +84,78 @@ impl LoweringCtx<'_> {
     pub(super) fn lower_block_stmts(&mut self, block_id: smelt_hir::BlockId) -> Result<(), LowerError> {
         let block = self.hir_block(block_id)?;
         let stmt_ids = block.stmts.clone();
-        for stmt_id in stmt_ids {
+        self.lower_stmt_run(&stmt_ids)
+    }
+
+    /// Lowers a run of statements of one block, a labelled region
+    /// ([`HirStmt::LabelStart`] .. [`HirStmt::LabelEnd`]) as one unit.
+    fn lower_stmt_run(&mut self, stmt_ids: &[smelt_hir::StmtId]) -> Result<(), LowerError> {
+        let mut index = 0;
+        while let Some(stmt_id) = stmt_ids.get(index) {
             if self.is_terminated()? {
                 break;
             }
-            let stmt = self.hir_stmt(stmt_id)?.clone();
+            let stmt = self.hir_stmt(*stmt_id)?.clone();
+            index = index.saturating_add(1);
+            if let HirStmt::LabelStart { label, loops } = stmt {
+                let rest = stmt_ids.get(index..).unwrap_or_default();
+                let Some(length) = rest.iter().position(|id| {
+                    matches!(self.hir_stmt(*id), Ok(HirStmt::LabelEnd(end)) if *end == label)
+                }) else {
+                    return Err(self.error("a labelled statement has no end marker", None));
+                };
+                self.lower_labelled(label, loops, rest.get(..length).unwrap_or_default())?;
+                index = index.saturating_add(length).saturating_add(1);
+                continue;
+            }
             self.lower_stmt(&stmt)?;
         }
+        Ok(())
+    }
+
+    /// Lowers the statements of one labelled region with `break label` (and,
+    /// for a labelled loop, `continue label`) in scope, then resumes after it.
+    fn lower_labelled(
+        &mut self,
+        label: smelt_hir::Symbol,
+        loops: bool,
+        stmt_ids: &[smelt_hir::StmtId],
+    ) -> Result<(), LowerError> {
+        let span = self.block()?.span;
+        let break_target = self.function.push_block(span);
+        // The source loop is the LAST statement of the labelled run: whatever
+        // the frontend desugars ahead of it (an iterator binding, a copied
+        // receiver) precedes it, and a desugaring prelude may itself hold a
+        // loop. So the label is announced only right before that statement,
+        // and the first loop body it lowers takes it.
+        let (prelude, labelled) = if loops {
+            let last = stmt_ids
+                .iter()
+                .rposition(|id| self.hir_stmt(*id).is_ok_and(is_loop_stmt))
+                .or_else(|| stmt_ids.len().checked_sub(1))
+                .unwrap_or_default();
+            stmt_ids.split_at(last)
+        } else {
+            (stmt_ids, &[][..])
+        };
+        let enclosing = self.pending_loop_label.take();
+        let lowered = self.with_scope(ControlScope::Label(LabelScope { label, break_target }), |this| {
+            this.lower_stmt_run(prelude)?;
+            if !labelled.is_empty() {
+                this.pending_loop_label = Some(label);
+                this.lower_stmt_run(labelled)?;
+                // Unconsumed after a live run means the loop never opened a
+                // body, and a `continue label` inside would find no target.
+                // Dead code after a `return` lowers nothing and is fine.
+                if this.pending_loop_label.take().is_some() && !this.is_terminated()? {
+                    return Err(this.error("a labelled loop lowered without a loop body to carry its label", None));
+                }
+            }
+            this.terminate_if_open(Terminator::Goto(break_target))
+        });
+        self.pending_loop_label = enclosing;
+        lowered?;
+        self.switch_to(break_target);
         Ok(())
     }
 
@@ -211,6 +276,11 @@ impl LoweringCtx<'_> {
             } => self.lower_try_catch(*body, *catch_binding, *catch_body, *finally_body),
             HirStmt::Break => self.lower_loop_exit(LoopExit::Break),
             HirStmt::Continue => self.lower_loop_exit(LoopExit::Continue),
+            HirStmt::BreakLabel(label) => self.lower_label_exit(LoopExit::Break, *label),
+            HirStmt::ContinueLabel(label) => self.lower_label_exit(LoopExit::Continue, *label),
+            HirStmt::LabelStart { .. } | HirStmt::LabelEnd(_) => {
+                Err(self.error("a label marker outside its block's statement run", None))
+            }
         }
     }
 
@@ -393,9 +463,10 @@ impl LoweringCtx<'_> {
     fn lower_loop_body(
         &mut self,
         body_hir: smelt_hir::BlockId,
-        targets: LoopTargets,
+        mut targets: LoopTargets,
         fallthrough: BlockId,
     ) -> Result<(), LowerError> {
+        targets.label = self.pending_loop_label.take();
         self.with_scope(ControlScope::Loop(targets), |this| {
             this.lower_block_stmts(body_hir)?;
             this.terminate_if_open(Terminator::Goto(fallthrough))
@@ -428,6 +499,7 @@ impl LoweringCtx<'_> {
             LoopTargets {
                 break_target: after,
                 continue_target: header,
+                label: None,
             },
             header,
         )?;
@@ -464,6 +536,7 @@ impl LoweringCtx<'_> {
             LoopTargets {
                 break_target: after,
                 continue_target: latch,
+                label: None,
             },
             latch,
         )?;
@@ -516,6 +589,7 @@ impl LoweringCtx<'_> {
             LoopTargets {
                 break_target: after,
                 continue_target: latch,
+                label: None,
             },
             latch,
         )?;
@@ -628,6 +702,7 @@ impl LoweringCtx<'_> {
             LoopTargets {
                 break_target: after,
                 continue_target: update_block,
+                label: None,
             },
             update_block,
         )?;
@@ -932,4 +1007,16 @@ impl FinallyPlan {
         ctx.switch_to(rethrow_block);
         ctx.lower_throw(Operand::Copy(Place::Local(self.thrown)))
     }
+}
+
+/// Whether `stmt` is an iteration statement, the kind a `continue label` can
+/// target.
+const fn is_loop_stmt(stmt: &HirStmt) -> bool {
+    matches!(
+        stmt,
+        HirStmt::While { .. }
+            | HirStmt::WhileUpdate { .. }
+            | HirStmt::WhileUpdateBlock { .. }
+            | HirStmt::For { .. }
+    )
 }

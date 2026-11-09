@@ -165,7 +165,7 @@ impl FunctionEmitter<'_> {
             .enumerate()
             .map(|(index, param)| {
                 Ok(format!(
-                    "arg{index}: {}",
+                    "smelt_arg{index}: {}",
                     self.callback_param_type(function, index, *param, substitution, mutability)?
                 ))
             })

@@ -112,7 +112,7 @@ impl FunctionEmitter<'_> {
                 {
                     self.place_expr(place)
                 } else {
-                    Ok({ let receiver = self.place_expr(place)?; RustExpr::postfix_on(&receiver, format!("{receiver}.clone()")) }.ending_in_clone())
+                    Ok(self.place_expr(place)?.cloned_value())
                 }
             }
             Operand::Move(place) => {
@@ -186,13 +186,13 @@ impl FunctionEmitter<'_> {
         target_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         if self.operand_ty(arg)? != target_ty {
-            return Ok(RustExpr::loose(format!("&({})", self.value_at_type(arg, target_ty)?)));
+            return Ok(RustExpr::loose(format!("&({})", self.value_at_type(arg, target_ty)?.delimited())));
         }
         let borrowed = self.operand_borrow_expr(arg)?;
         if self.operand_renders_as_shared_reference(arg) {
             Ok(borrowed)
         } else {
-            Ok(RustExpr::loose(format!("&{borrowed}")))
+            Ok(RustExpr::loose(format!("&{borrowed}", borrowed = borrowed.tight())))
         }
     }
 
@@ -264,7 +264,7 @@ impl FunctionEmitter<'_> {
     /// with `data.toString() === other.toString()`, and when one side was narrowed
     /// from `unknown` while the other was cast, the two renderings disagreed.
     pub(super) fn regexp_literal_expr(receiver_text: &RustExpr) -> RustExpr {
-        RustExpr::atom(format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)"))
+        RustExpr::atom(format!("format!(\"/{{}}/{{}}\", {receiver_text}.source, {receiver_text}.flags)", receiver_text = receiver_text.tight()))
     }
 
     /// Render conversion from a JavaScript property-key value to an owned Rust string.
@@ -283,16 +283,16 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => Ok(value_text.cloned_value()),
             // A symbol, or a property key holding one, is stored on an erased
             // object under its reserved spelling; a string key is itself.
-            Some(Type::PropKey) => Ok(RustExpr::postfix_on(value_text, format!("{value_text}.storage_key()"))),
-            Some(Type::Symbol) => Ok(RustExpr::chain(format!("JsString::from({value_text}.storage_key())"))),
+            Some(Type::PropKey) => Ok(value_text.postfix(".storage_key()")),
+            Some(Type::Symbol) => Ok(RustExpr::chain(format!("JsString::from({value_text}.storage_key())", value_text = value_text.tight()))),
             Some(Type::Optional(inner)) => {
                 let owned_value_text = value_text.cloned_value();
-                let inner_text = self.property_key_to_string_expr(&RustExpr::path("value"), *inner)?;
-                Ok(RustExpr::postfix_on(&owned_value_text, format!(
-                    "{owned_value_text}.map_or(JsString::new(), |value| {inner_text})"
+                let inner_text = self.property_key_to_string_expr(&RustExpr::path("smelt_value"), *inner)?;
+                Ok(owned_value_text.postfix(format!(
+                    ".map_or(JsString::new(), |smelt_value| {inner_text})", inner_text = inner_text.delimited()
                 )))
             }
-            _ => Ok(RustExpr::chain(format!("JsString::from({})", self.property_key_rust_string(value_text, source_key)?))),
+            _ => Ok(RustExpr::chain(format!("JsString::from({})", self.property_key_rust_string(value_text, source_key)?.delimited()))),
         }
     }
 
@@ -310,36 +310,36 @@ impl FunctionEmitter<'_> {
         // `groupBy`/`countBy`/`keyBy` loop, and the second copy bought nothing.
         let owned_value_text = value_text.cloned_value();
         match self.mir.types.get(source_key) {
-            Some(Type::String) => Ok(RustExpr::postfix_on(&owned_value_text, format!("{owned_value_text}.to_string()"))),
+            Some(Type::String) => Ok(owned_value_text.postfix(".to_string()")),
             Some(Type::PyStr) => Ok(owned_value_text),
-            Some(Type::PropKey) => Ok(RustExpr::postfix_on(value_text, format!("{value_text}.storage_key().to_string()"))),
-            Some(Type::Symbol) => Ok(RustExpr::postfix_on(value_text, format!("{value_text}.storage_key()"))),
-            Some(Type::Bool) => Ok(RustExpr::postfix_on(&value_text, format!("{value_text}.to_string()"))),
+            Some(Type::PropKey) => Ok(value_text.postfix(".storage_key().to_string()")),
+            Some(Type::Symbol) => Ok(value_text.postfix(".storage_key()")),
+            Some(Type::Bool) => Ok(value_text.postfix(".to_string()")),
             // A property KEY is a stringified number, and JavaScript's rule is
             // the one that applies: `({ [1e21]: 1 })` has the key `"1e+21"`,
             // not twenty-two digits. `smelt_property_key` already takes it for
             // an erased key, so the two spellings agree.
             Some(Type::Int) => Ok(RustExpr::chain(format!(
                 "{fn_name}({value_text} as f64)",
-                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN, value_text = value_text.as_cast_operand(),
             ))),
             Some(Type::Float) => Ok(RustExpr::chain(format!(
                 "{fn_name}({value_text})",
-                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN, value_text = value_text.delimited(),
             ))),
             Some(Type::Optional(inner)) => {
-                let inner_text = self.property_key_rust_string(&RustExpr::path("value"), *inner)?;
-                Ok(RustExpr::postfix_on(&owned_value_text, format!(
-                    "{owned_value_text}.map_or(String::new(), |value| {inner_text})"
+                let inner_text = self.property_key_rust_string(&RustExpr::path("smelt_value"), *inner)?;
+                Ok(owned_value_text.postfix(format!(
+                    ".map_or(String::new(), |smelt_value| {inner_text})", inner_text = inner_text.delimited()
                 )))
             }
             Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => {
                 Ok(Self::regexp_literal_expr(value_text))
             }
             Some(Type::List(item_ty)) => {
-                let item_text = self.property_key_rust_string(&RustExpr::path("value"), *item_ty)?;
+                let item_text = self.property_key_rust_string(&RustExpr::path("smelt_value"), *item_ty)?;
                 Ok(RustExpr::atom_on(&owned_value_text, format!(
-                    "{owned_value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>().join(\",\")"
+                    "{owned_value_text}.into_iter().map(|smelt_value| {item_text}).collect::<Vec<_>>().join(\",\")", owned_value_text = owned_value_text.tight(), item_text = item_text.delimited()
                 )))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
@@ -350,7 +350,7 @@ impl FunctionEmitter<'_> {
                 // source already spelled as `Unknown` erases to itself.
                 let erased = self.erase_rendered(value_text, source_key)?;
                 Ok(RustExpr::chain(format!(
-                    "smelt_property_key({erased})"
+                    "smelt_property_key({erased})", erased = erased.delimited()
                 )))
             }
             _ => Ok(RustExpr::chain("\"[object Object]\".to_owned()")),

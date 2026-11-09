@@ -63,9 +63,9 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                 // during module evaluation is always uncaught in JavaScript.
                 if function.can_throw {
                     any_fallible_init = true;
-                    RustExpr::postfix_on(&function_name, format!("{function_name}().unwrap_or_else(|error| smelt_module_init_failed(error))"))
+                    RustExpr::atom(function_name).postfix("().unwrap_or_else(|error| smelt_module_init_failed(error))")
                 } else {
-                    RustExpr::postfix_on(&function_name, format!("{function_name}()"))
+                    RustExpr::atom(function_name).postfix("()")
                 }
             }
         };
@@ -82,7 +82,7 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                     _ => "bool",
                 };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<{rust_ty}> = const {{ ::std::cell::Cell::new({init}) }};"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = const {{ ::std::cell::Cell::new({init}) }};", init = init.delimited()
                 ));
             }
             Some(Type::Float | Type::Int | Type::Bool) => {
@@ -92,13 +92,13 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                     _ => "bool",
                 };
                 writer.line(format!(
-                    "    static {name}: ::std::cell::Cell<{rust_ty}> = ::std::cell::Cell::new({init});"
+                    "    static {name}: ::std::cell::Cell<{rust_ty}> = ::std::cell::Cell::new({init});", init = init.delimited()
                 ));
             }
             _ => {
                 let value_ty = FunctionEmitter::type_text_for_with_context(mir, context, global.ty)?;
                 writer.line(format!(
-                    "    static {name}: ::std::cell::RefCell<{value_ty}> = ::std::cell::RefCell::new({init});"
+                    "    static {name}: ::std::cell::RefCell<{value_ty}> = ::std::cell::RefCell::new({init});", init = init.delimited()
                 ));
             }
         }

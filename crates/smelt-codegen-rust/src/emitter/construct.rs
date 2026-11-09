@@ -38,7 +38,7 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call_text = RustExpr::chain(format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])"));
+        let call_text = RustExpr::chain(format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])", callee_text = callee_text.delimited()));
         self.extract_rendered(&call_text, dest_ty, &self.render_scope())
     }
 
@@ -55,7 +55,7 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call_text = RustExpr::chain(format!("smelt_construct_like({value_text}, ::std::vec![{arg_texts}])"));
+        let call_text = RustExpr::chain(format!("smelt_construct_like({value_text}, ::std::vec![{arg_texts}])", value_text = value_text.delimited()));
         self.extract_rendered(&call_text, dest_ty, &self.render_scope())
     }
 
@@ -85,7 +85,7 @@ impl FunctionEmitter<'_> {
         // (`class_proto::class_static_entries`).
         let statics = crate::class_proto::class_static_entries(self.mir, self.context, class)?
             .into_iter()
-            .map(|(key, adapter)| format!("({key:?}.to_owned(), {adapter})"))
+            .map(|(key, adapter)| format!("({key:?}.to_owned(), {adapter})", adapter = adapter.delimited()))
             .collect::<Vec<_>>();
         let statics_text = if statics.is_empty() {
             "Vec::new()".to_owned()
@@ -95,7 +95,7 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::chain(format!(
             "smelt_class_value({:?}, {:?}, {constructor_text}, {statics_text})",
             covered[0],
-            covered.join(",")
+            covered.join(","), constructor_text = constructor_text.delimited()
         )))
     }
 
@@ -113,7 +113,7 @@ impl FunctionEmitter<'_> {
         let value_text = self.erase(value)?;
         let target_text = self.erase(target)?;
         Ok(RustExpr::chain(format!(
-            "smelt_instance_of_value(&{value_text}, &{target_text})"
+            "smelt_instance_of_value(&{value_text}, &{target_text})", value_text = value_text.tight(), target_text = target_text.tight()
         )))
     }
 }

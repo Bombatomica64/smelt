@@ -1,5 +1,6 @@
 //! Closure rendering engine: emits Rust closure literals and their block/match bodies for MIR closures, including extra-parameter adapters, await detection, and closure operand text.
 
+use super::core::terminator_successors;
 use crate::rust::RustExpr;
 use super::*;
 
@@ -259,7 +260,7 @@ impl FunctionEmitter<'_> {
                 )?;
                 let call = if source_closure.can_throw {
                     RustExpr::atom(format!(
-                        "(smelt_callback)({args}).unwrap_or_else(|error| smelt_panic_throw(error))"
+                        "(smelt_callback)({args}).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))"
                     ))
                 } else {
                     RustExpr::atom(format!("(smelt_callback)({args})"))
@@ -271,14 +272,14 @@ impl FunctionEmitter<'_> {
                         // returns JavaScript `undefined`, not `null`. Yield
                         // `SmeltUnknown::Undefined` so `!== undefined` guards on
                         // the callback result behave as in JS.
-                        self.carrier_format(format_args!("{{ {call}; SmeltUnknown::Undefined }}"))
+                        self.carrier_format(self.carrier()?, format_args!("{{ {call}; SmeltUnknown::Undefined }}", call = call.delimited()))
                     } else {
                         self.rendered_at_type(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?.into_string()
                     };
                 let length = source_closure
                     .required_params
                     .unwrap_or_else(|| source_closure.rest.unwrap_or(source_closure.params.len()));
-                let erased_function = RustExpr::loose(self.carrier_format(format_args!(
+                let erased_function = RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
                     "SmeltErasedFunction {{ callback: {{ let smelt_callback = ::std::rc::Rc::new({adjusted_closure}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}) }}, length: {length}.0, object: None }}"
                 )));
                 // A bare function-item-as-value wrapper carries a stable item
@@ -490,7 +491,7 @@ impl FunctionEmitter<'_> {
                         })
                         .unwrap_or(local.ty);
                     Ok(format!(
-                        "arg{index}: {}{}",
+                        "smelt_arg{index}: {}{}",
                         by_ref_prefix(index, param_ty),
                         self.rendered_type(param_ty)?
                     ))
@@ -508,7 +509,7 @@ impl FunctionEmitter<'_> {
                     "|{}| -> {} {{ {} }}",
                     param_decls.join(", "),
                     self.rendered_type(return_ty)?,
-                    self.default_value(return_ty)?
+                    self.default_value(return_ty)?.delimited()
                 ),
                 binds_captures: false,
             });
@@ -595,18 +596,11 @@ impl FunctionEmitter<'_> {
             for capture in &closure.captures {
                 if let Some(target) = capture.target_local {
                     let source = self.local_decl(capture.source_local)?;
-                    let alias_name = capture_aliases
-                        .get(&capture.source_local)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            self.local_binding(capture.source_local)
-                                .map_or_else(|_| String::new(), |b| b.text().into_owned())
-                        });
                     if matches!(self.mir.types.get(source.ty), Some(Type::Function(_)))
                         && matches!(source.kind, LocalKind::Param { .. })
                         && !self.function_parameter_requires_owned(capture.source_local)?
                     {
-                        emitter.borrowed_callback_names.insert(alias_name.clone());
+                        emitter.borrowed_callback_locals.insert(target);
                     }
                     let capture_binding =
                         self.capture_body_binding(id, closure, capture, &capture_aliases)?;
@@ -669,9 +663,9 @@ impl FunctionEmitter<'_> {
                         let target_ty_text = emitter.rendered_type(target_ty)?;
                         let coerced = emitter.rendered_at_type(&name, target_ty, local.ty, &self.render_scope())?;
                         param_rebinds.push_str(&format!(
-                            "let {mutability}{name}: {local_ty_text} = {coerced};\n"
+                            "let {mutability}{name}: {local_ty_text} = {coerced};\n", name = name.delimited(), coerced = coerced.delimited()
                         ));
-                        return Ok(format!("{name}: {target_ty_text}"));
+                        return Ok(format!("{name}: {target_ty_text}", name = name.delimited()));
                     }
                     let by_ref = by_ref_prefix(index, local.ty);
                     if !by_ref.is_empty() && (needs_mut || body_moves_into_static_block) {
@@ -692,14 +686,14 @@ impl FunctionEmitter<'_> {
                         // the caller-visible case its own `&mut` ABI). The copy is per
                         // CALL and only in bodies that need it, never per element.
                         owned_param_prelude.push_str(&format!(
-                            "let {mutability}{name}: {local_ty_text} = {name}.clone(); "
+                            "let {mutability}{name}: {local_ty_text} = {name}.clone(); ", name = name.tight()
                         ));
-                        return Ok(format!("{name}: &{local_ty_text}"));
+                        return Ok(format!("{name}: &{local_ty_text}", name = name.delimited()));
                     }
                     if !by_ref.is_empty() {
                         by_reference_param_locals.push(*param);
                     }
-                    Ok(format!("{mutability}{name}: {by_ref}{local_ty_text}"))
+                    Ok(format!("{mutability}{name}: {by_ref}{local_ty_text}", name = name.delimited()))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
             // A parameter a nested closure writes lives in a cell from entry on,
@@ -801,16 +795,16 @@ impl FunctionEmitter<'_> {
                 };
                 if function.is_async {
                     format!(
-                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete(value?) }}) }})) }}){erase_suffix} }}"
+                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); let smelt_generator = ::std::rc::Rc::new(::std::cell::RefCell::new(smelt_generator)); SmeltAsyncGenerator{generator_turbofish}::new(move |smelt_value| {{ *smelt_generator_input.borrow_mut() = Some(smelt_value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete(smelt_value?) }}) }})) }}){erase_suffix} }}"
                     )
                 } else {
                     let completion = if closure.can_throw {
-                        "value.unwrap_or_else(|error| smelt_panic_throw(error))"
+                        "smelt_value.unwrap_or_else(|error| smelt_panic_throw(error))"
                     } else {
-                        "value"
+                        "smelt_value"
                     };
                     format!(
-                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let mut smelt_generator = genawaiter::rc::Gen::new(move |co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); SmeltGenerator{generator_turbofish}::new(move |value| {{ *smelt_generator_input.borrow_mut() = Some(value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(value) => SmeltGeneratorResult::Yielded(value), genawaiter::GeneratorState::Complete(value) => SmeltGeneratorResult::Complete({completion}) }} }}){erase_suffix} }}"
+                        "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let mut smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); SmeltGenerator{generator_turbofish}::new(move |smelt_value| {{ *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete({completion}) }} }}){erase_suffix} }}"
                     )
                 }
             } else if returns_future || awaits_inside_body {
@@ -841,7 +835,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        self.carrier_format(format_args!("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
+                        self.carrier_format(self.carrier()?, format_args!("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
                         format!(
                             "let smelt_async_output = smelt_async_value?.await?; Ok::<{output_text}, {ERROR_BOX}>(smelt_async_output)"
@@ -853,7 +847,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     ) || emitter.is_erased_class_type(output_ty)
                     {
-                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value?.into_smelt_unknown())"))
+                        self.carrier_format(self.carrier()?, format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value?.into_smelt_unknown())"))
                     } else {
                         format!(
                             "Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value?)"
@@ -865,9 +859,9 @@ impl FunctionEmitter<'_> {
                 ) || emitter.is_erased_class_type(output_ty)
                 {
                     if async_value_needs_await {
-                        self.carrier_format(format_args!("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
+                        self.carrier_format(self.carrier()?, format_args!("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
-                        self.carrier_format(format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value.into_smelt_unknown())"))
+                        self.carrier_format(self.carrier()?, format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value.into_smelt_unknown())"))
                     }
                 } else if async_value_needs_await {
                     format!(
@@ -1060,12 +1054,12 @@ impl FunctionEmitter<'_> {
                 }
                 cloned_captures.insert(name.clone().into_string()).then(|| {
                     if self.is_weak_emitter_capture(id, capture) {
-                        return weak_receiver::emitter_prelude_text(&name, &source_name);
+                        return weak_receiver::emitter_prelude_text(name.as_str(), &source_name);
                     }
                     if self.is_weak_receiver_capture(id, capture) {
                         let shared = self.closure_capture_needs_shared_access(closure, capture)
                             || self.local_uses_shared_capture_storage(capture.source_local);
-                        return weak_receiver::capture_prelude_text(&name, &source_name, shared);
+                        return weak_receiver::capture_prelude_text(name.as_str(), &source_name, shared);
                     }
                     if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)
@@ -1078,15 +1072,15 @@ impl FunctionEmitter<'_> {
                             self.closure_capture_is_non_escaping_self_reference(closure, capture);
                         if capture_aliases.contains_key(&capture.source_local) {
                             return format!(
-                                "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({source_name}.clone()));"
+                                "let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({source_name}.clone()));", name = name.delimited()
                             );
                         }
                         if self_reference {
                             return format!(
-                                "let smelt_capture_{name} = ::std::rc::Rc::downgrade(&smelt_capture_{name});"
+                                "let smelt_capture_{name} = ::std::rc::Rc::downgrade(&smelt_capture_{name});", name = name.delimited()
                             );
                         }
-                        return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
+                        return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();", name = name.as_str());
                     }
                     // `self` cannot be a `let` binding in Rust, so a captured
                     // receiver takes `SELF_CAPTURE_NAME`, as
@@ -1107,7 +1101,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         ""
                     };
-                    format!("let {mutability}{name} = {source_name}.clone();")
+                    format!("let {mutability}{name} = {source_name}.clone();", name = name.delimited())
                 })
             })
             .collect::<Vec<_>>();
@@ -1200,7 +1194,7 @@ impl FunctionEmitter<'_> {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
             {
-                out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
+                out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
@@ -1224,43 +1218,42 @@ impl FunctionEmitter<'_> {
             let return_ty_text = self.rendered_type(return_ty)?;
             self.binding_uses.record_early_return();
             out.push_str(&format!(
-                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
             ));
         } else {
-            out.push_str(&format!("    return {value};\n"));
+            out.push_str(&format!("    return {value};\n", value = value.delimited()));
         }
         Ok(())
     }
 
-    /// Returns whether a closure-body `Switch` block is a genuine loop header.
+    /// Returns whether the closure-body block `block_id` heads a loop: one of
+    /// its successors reaches it again.
     ///
     /// The closure emitter renders control flow as a tree: each branch is
     /// emitted recursively, so a block that is a join point gets duplicated once
-    /// per incoming path. A `Switch` block becomes a Rust `loop { ... }` only
-    /// when one of its branches *back-edges* to the block itself.
+    /// per incoming path, and a block becomes a Rust `loop { ... }` when a path
+    /// from it comes back to it.
     ///
     /// Plain reachability cannot answer that question once emission is already
     /// inside a loop. Every block in a loop body reaches every other block in
     /// that body by going around the enclosing back edge, so a nested `if` or a
-    /// short-circuit (`&&` / `||`) join block inside a `for` body looks
-    /// "self-reaching" and was wrapped in its own spurious `loop`. The real
-    /// latch then back-edged to the *enclosing* header, which no longer matched
-    /// the innermost `stop`, so emission walked into an already-active block and
-    /// emitted `panic!("recursive closure control flow is not structured yet")`
-    /// in place of the loop's continue edge — silently replacing the tail of
-    /// every such closure with a runtime abort.
-    ///
-    /// The test therefore has to ignore paths that leave through an enclosing
-    /// region: `then_block` must reach `block_id` *without* crossing any block
-    /// already on the emission stack (`active`, minus `block_id` itself, which is
-    /// pushed before this check runs). That is the standard back-edge test
-    /// restricted to the region currently being emitted, and it is what the
-    /// function-level emitter's `while_header` family already does through
+    /// short-circuit (`&&` / `||`) join block inside a `for` body would look
+    /// self-reaching and be wrapped in a spurious `loop`. The test therefore
+    /// ignores paths that leave through an enclosing region: a successor must
+    /// reach `block_id` *without* crossing any block already on the emission
+    /// stack (`active`, minus `block_id` itself, which is pushed before this
+    /// check runs). That is the standard back-edge test restricted to the
+    /// region currently being emitted, and it is what the function-level
+    /// emitter's `while_header` family already does through
     /// `block_reaches_target_avoiding`.
+    ///
+    /// Every successor is asked, not only a `Switch`'s then-arm: a loop whose
+    /// back edge is the else-arm, a `Goto`, a call's continuation or a `match`
+    /// arm is a loop all the same.
     fn closure_block_is_loop_header(
         &self,
         block_id: smelt_mir::BlockId,
-        then_block: smelt_mir::BlockId,
+        terminator: &Terminator,
         active: &[smelt_mir::BlockId],
     ) -> bool {
         let enclosing = active
@@ -1268,21 +1261,32 @@ impl FunctionEmitter<'_> {
             .copied()
             .filter(|candidate| *candidate != block_id)
             .collect::<Vec<_>>();
-        self.block_reaches_target_avoiding(
-            then_block,
-            block_id,
-            &enclosing,
-            &mut BlockIdSet::default(),
-        )
+        terminator_successors(terminator).into_iter().any(|successor| {
+            self.block_reaches_target_avoiding(successor, block_id, &enclosing, &mut BlockIdSet::default())
+        })
     }
 
-    /// Emits a closure block while guarding against unstructured CFG cycles.
+    /// Emits a closure block, structuring its loops.
     ///
-    /// `in_loop` is set while emitting the branches of a loop-shaped closure
-    /// body. In that context a MIR `Return` must be lowered to an explicit
-    /// `return` statement rather than a bare Rust tail expression, because a
-    /// value produced as the tail of a `loop { ... }` body block would mistype
-    /// the block as its value type instead of the required `()`.
+    /// `active` is the emission path: the blocks being emitted around this one.
+    /// [`ActivePath`] pushes `block` on entry and pops it on every exit, the
+    /// early returns of the throwing `Call`/`Await` arms and `?` included, so
+    /// a sibling branch never sees a block of a branch already finished.
+    ///
+    /// A block that heads a loop ([`Self::closure_block_is_loop_header`]) is
+    /// emitted as `loop { ... }` with itself as `stop`: a path that comes back
+    /// to it emits nothing and the loop continues. A path that reaches the
+    /// header of an *enclosing* open loop leaves through a labelled
+    /// `continue 'smelt_loop_N;`, the label written only when used. A path
+    /// that reaches a block on the emission path that heads no open loop is a
+    /// cycle this structuring cannot express, and is an [`EmitError`] rather
+    /// than code that aborts at run time.
+    ///
+    /// `in_loop` is set while emitting inside such a `loop`. In that context a
+    /// MIR `Return` must be lowered to an explicit `return` statement rather
+    /// than a bare Rust tail expression, because a value produced as the tail
+    /// of a `loop { ... }` body block would mistype the block as its value type
+    /// instead of the required `()`.
     pub(super) fn emit_closure_block_inner(
         &self,
         block: &BasicBlock,
@@ -1295,36 +1299,79 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         if active.contains(&block.id) {
-            out.push_str("    panic!(\"recursive closure control flow is not structured yet\")\n");
-            return Ok(());
+            return self.emit_closure_back_edge(block.id, out);
         }
-        active.push(block.id);
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("closure basic block has no terminator"));
         };
-        if let Terminator::Switch {
-            cond,
-            then_block,
-            else_block,
-        } = terminator
-            && self.closure_block_is_loop_header(block.id, *then_block, active)
-        {
-            out.push_str("    loop {\n");
-            for statement in &block.statements {
-                self.emit_statement(statement, out)?;
-            }
-            // Both branches run inside the generated `loop`, so any MIR `Return`
-            // they reach must become an explicit `return` (see `in_loop`). A
-            // branch that instead flows back to the header (`stop`) emits nothing
-            // and the loop naturally continues.
-            self.emit_closure_if(cond, *then_block, *else_block, out, active, Some(block.id), true)?;
-            out.push_str("    }\n");
-            active.pop();
-            return Ok(());
+        let mut path = ActivePath::enter(active, block.id);
+        if self.closure_block_is_loop_header(block.id, terminator, &path) {
+            return self.emit_closure_loop(block, terminator, out, &mut path);
         }
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
+        self.emit_closure_terminator(block, terminator, out, &mut path, stop, in_loop)
+    }
+
+    /// Emits the loop headed by `block`: `loop { <block> }`, every path that
+    /// returns to `block` continuing it and every other path leaving through a
+    /// `return`, a throw or a labelled `continue` of an enclosing loop.
+    fn emit_closure_loop(
+        &self,
+        block: &BasicBlock,
+        terminator: &Terminator,
+        out: &mut String,
+        active: &mut Vec<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        let mut body = String::new();
+        self.closure_loops.borrow_mut().push((block.id, false));
+        let emitted = (|| {
+            for statement in &block.statements {
+                self.emit_statement(statement, &mut body)?;
+            }
+            // Both arms of a header `Switch`, and the successor of any other
+            // header, run inside the generated `loop`, so a MIR `Return` they
+            // reach must become an explicit `return` (see `in_loop`).
+            self.emit_closure_terminator(block, terminator, &mut body, active, Some(block.id), true)
+        })();
+        let labelled = self.closure_loops.borrow_mut().pop().is_some_and(|(_, used)| used);
+        emitted?;
+        if labelled {
+            out.push_str(&format!("    '{}: loop {{\n", closure_loop_label(block.id)));
+        } else {
+            out.push_str("    loop {\n");
+        }
+        out.push_str(&body);
+        out.push_str("    }\n");
+        Ok(())
+    }
+
+    /// Emits the edge to `target`, a block already on the emission path: a
+    /// labelled `continue` when `target` heads an open loop, else an error.
+    fn emit_closure_back_edge(&self, target: smelt_mir::BlockId, out: &mut String) -> Result<(), EmitError> {
+        let mut loops = self.closure_loops.borrow_mut();
+        let Some(open) = loops.iter_mut().rev().find(|(header, _)| *header == target) else {
+            return Err(EmitError::new(format!(
+                "closure body has an unstructured cycle through block {}: it re-enters a block on the emission path that heads no loop",
+                target.0
+            )));
+        };
+        open.1 = true;
+        out.push_str(&format!("    continue '{};\n", closure_loop_label(target)));
+        Ok(())
+    }
+
+    /// Emits `block`'s terminator, its statements already written.
+    fn emit_closure_terminator(
+        &self,
+        block: &BasicBlock,
+        terminator: &Terminator,
+        out: &mut String,
+        active: &mut Vec<smelt_mir::BlockId>,
+        stop: Option<smelt_mir::BlockId>,
+        in_loop: bool,
+    ) -> Result<(), EmitError> {
         let switch_join = match terminator {
             Terminator::Switch {
                 then_block,
@@ -1333,7 +1380,7 @@ impl FunctionEmitter<'_> {
             } => self.closure_branch_join(block.id, *then_block, *else_block, active, stop),
             _ => None,
         };
-        let result = match terminator {
+        match terminator {
             Terminator::Return(operand) if in_loop => {
                 // A `Return` reached inside a loop-shaped closure body can only
                 // leave the closure through an explicit `return`; the enclosing
@@ -1346,7 +1393,7 @@ impl FunctionEmitter<'_> {
                     if !matches!(operand, Operand::Const(Constant::None))
                         && self.operand_ty(operand)? != self.none_ty
                     {
-                        out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
+                        out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
                     }
                     if self.function.can_throw {
                         out.push_str(&format!("    Ok::<(), {ERROR_BOX}>(())\n"));
@@ -1380,10 +1427,10 @@ impl FunctionEmitter<'_> {
                     if self.function.can_throw {
                         let return_ty_text = self.rendered_type(return_ty)?;
                         out.push_str(&format!(
-                            "    Ok::<{return_ty_text}, {ERROR_BOX}>({value})\n"
+                            "    Ok::<{return_ty_text}, {ERROR_BOX}>({value})\n", value = value.delimited()
                         ));
                     } else {
-                        out.push_str(&format!("    {value}\n"));
+                        out.push_str(&format!("    {value}\n", value = value.delimited()));
                     }
                 }
                 Ok(())
@@ -1462,7 +1509,7 @@ impl FunctionEmitter<'_> {
                 // return `Result`, so propagate the await error exactly as the
                 // ordinary control-flow emitter does instead of assigning the
                 // whole `Result` into the destination's `T` local.
-                let value = format!("{}.await?", self.await_operand_expr(future)?);
+                let value = self.await_operand_expr(future)?.postfix(".await?");
                 self.emit_closure_binding(*dest, local.ty, &value, out)?;
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop, in_loop)
             }
@@ -1497,9 +1544,7 @@ impl FunctionEmitter<'_> {
                 out.push_str(&self.throw_terminator_text(operand)?);
                 Ok(())
             }
-        };
-        active.pop();
-        result
+        }
     }
 
     /// Emits `if cond { then } else { else }` in a closure body, each arm up to `stop`.
@@ -1514,7 +1559,7 @@ impl FunctionEmitter<'_> {
         in_loop: bool,
     ) -> Result<(), EmitError> {
         let branch_declared = self.declared_scope();
-        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
         self.emit_closure_block_inner(self.block(then_block)?, out, active, stop, in_loop)?;
         out.push_str("    } else {\n");
         branch_declared.reset();
@@ -1529,11 +1574,11 @@ impl FunctionEmitter<'_> {
         &self,
         dest: LocalId,
         ty: TypeId,
-        value: &dyn std::fmt::Display,
+        value: &RustExpr,
         out: &mut String,
     ) -> Result<(), EmitError> {
         let name = self.local_name(dest)?;
-        out.push_str(&format!("    let {name}: {} = {value};\n", self.rendered_type(ty)?));
+        out.push_str(&format!("    let {name}: {} = {};\n", self.rendered_type(ty)?, value.delimited()));
         self.mark_local_declared(dest);
         Ok(())
     }
@@ -1594,12 +1639,12 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let join = self.match_join(arms, default)?;
         let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
-        out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        out.push_str(&format!("    match {scrutinee_text} {{\n", scrutinee_text = scrutinee_text.delimited()));
         let match_declared = self.declared_scope();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
-                self.match_label_expr(&arm.label)
+                self.match_label_expr(&arm.label).delimited()
             ));
             self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, in_loop)?;
             out.push_str("        }\n");
@@ -1721,5 +1766,52 @@ impl FunctionEmitter<'_> {
         Err(EmitError::new(
             "list callback closure construction was not found",
         ))
+    }
+}
+
+/// The label of the closure-body `loop` headed by `header`.
+fn closure_loop_label(header: smelt_mir::BlockId) -> String {
+    format!("smelt_loop_{}", header.0)
+}
+
+/// The closure emitter's emission path with one block pushed for as long as
+/// this guard lives.
+///
+/// The push and the pop are one value, so every exit of the frame that pushed
+/// (a `return`, a `?`) pops: the stack cannot leak a finished block into a
+/// sibling branch.
+struct ActivePath<'a> {
+    /// The path the block was pushed onto.
+    blocks: &'a mut Vec<smelt_mir::BlockId>,
+}
+
+impl<'a> ActivePath<'a> {
+    /// Pushes `block` onto `blocks` until the guard drops.
+    fn enter(blocks: &'a mut Vec<smelt_mir::BlockId>, block: smelt_mir::BlockId) -> Self {
+        blocks.push(block);
+        Self { blocks }
+    }
+}
+
+impl std::ops::Deref for ActivePath<'_> {
+    type Target = Vec<smelt_mir::BlockId>;
+
+    /// The path, this guard's block on top.
+    fn deref(&self) -> &Self::Target {
+        self.blocks
+    }
+}
+
+impl std::ops::DerefMut for ActivePath<'_> {
+    /// The path, for a nested frame to push onto.
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.blocks
+    }
+}
+
+impl Drop for ActivePath<'_> {
+    /// Pops the block this guard pushed.
+    fn drop(&mut self) {
+        self.blocks.pop();
     }
 }

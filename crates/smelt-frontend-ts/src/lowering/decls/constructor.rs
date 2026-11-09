@@ -88,11 +88,13 @@ impl ModuleBuilder<'_> {
         })
     }
 
+
     /// Collect `this.<name>` members assigned anywhere in a constructor body.
     ///
     /// These become the synthesized class's own fields. Both `this.x = …`
-    /// statement assignments and nested blocks/branches are traversed so that
-    /// conditionally assigned fields are still declared.
+    /// statement assignments and every nested statement ([`nested_statements`]:
+    /// blocks, branches, loops, labelled statements, `try`, `switch`) are
+    /// traversed so that conditionally assigned fields are still declared.
     fn collect_this_assigned_field_names(
         &mut self,
         statement: &Statement<'_>,
@@ -105,21 +107,11 @@ impl ModuleBuilder<'_> {
                     names,
                 );
             }
-            Statement::BlockStatement(block) => {
-                for inner in &block.body {
+            other => {
+                for inner in nested_statements(other) {
                     self.collect_this_assigned_field_names(inner, names);
                 }
             }
-            Statement::IfStatement(statement) => {
-                self.collect_this_assigned_field_names(&statement.consequent, names);
-                if let Some(alternate) = &statement.alternate {
-                    self.collect_this_assigned_field_names(alternate, names);
-                }
-            }
-            Statement::ForStatement(statement) => {
-                self.collect_this_assigned_field_names(&statement.body, names);
-            }
-            _ => {}
         }
     }
 
@@ -134,21 +126,11 @@ impl ModuleBuilder<'_> {
             Statement::ExpressionStatement(statement) => {
                 Self::collect_this_field_writes_from_expression(&statement.expression, writes);
             }
-            Statement::BlockStatement(block) => {
-                for inner in &block.body {
+            other => {
+                for inner in nested_statements(other) {
                     Self::collect_this_field_writes(inner, writes);
                 }
             }
-            Statement::IfStatement(statement) => {
-                Self::collect_this_field_writes(&statement.consequent, writes);
-                if let Some(alternate) = &statement.alternate {
-                    Self::collect_this_field_writes(alternate, writes);
-                }
-            }
-            Statement::ForStatement(statement) => {
-                Self::collect_this_field_writes(&statement.body, writes);
-            }
-            _ => {}
         }
     }
 
@@ -931,5 +913,39 @@ impl ModuleBuilder<'_> {
             span,
         };
         Ok((item, sig))
+    }
+}
+
+/// The statements `statement` directly nests, in source order: a block's body,
+/// both arms of an `if`, a loop's or a labelled statement's body, the blocks of
+/// a `try`, and every `switch` case's consequent. A walker that collects facts
+/// from nested statements uses this one list, so two walkers that must agree
+/// (the fields a constructor declares and the writes that type them) cannot
+/// descend into different statements.
+fn nested_statements<'b, 'c>(statement: &'b Statement<'c>) -> Vec<&'b Statement<'c>> {
+    match statement {
+        Statement::BlockStatement(block) => block.body.iter().collect(),
+        Statement::IfStatement(statement) => std::iter::once(&statement.consequent)
+            .chain(statement.alternate.as_ref())
+            .collect(),
+        Statement::ForStatement(statement) => vec![&statement.body],
+        Statement::ForInStatement(statement) => vec![&statement.body],
+        Statement::ForOfStatement(statement) => vec![&statement.body],
+        Statement::WhileStatement(statement) => vec![&statement.body],
+        Statement::DoWhileStatement(statement) => vec![&statement.body],
+        Statement::LabeledStatement(statement) => vec![&statement.body],
+        Statement::TryStatement(statement) => statement
+            .block
+            .body
+            .iter()
+            .chain(statement.handler.iter().flat_map(|handler| handler.body.body.iter()))
+            .chain(statement.finalizer.iter().flat_map(|finalizer| finalizer.body.iter()))
+            .collect(),
+        Statement::SwitchStatement(statement) => statement
+            .cases
+            .iter()
+            .flat_map(|case| case.consequent.iter())
+            .collect(),
+        _ => Vec::new(),
     }
 }

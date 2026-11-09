@@ -20,7 +20,7 @@ impl FunctionEmitter<'_> {
             return Ok(RustExpr::js_string_literal(field_name));
         }
         if self.mir.types.get(key).is_some_and(Type::is_text) {
-            return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal());
+            return Ok(RustExpr::string_literal(field_name));
         }
         // A dotted member of a property-key record is the string key it names.
         if self.mir.types.get(key) == Some(&Type::PropKey) {
@@ -30,7 +30,7 @@ impl FunctionEmitter<'_> {
         if self.has_dynamic_shape(key)
         {
             return self.erase_rendered(
-                &RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal(),
+                &RustExpr::string_literal(field_name),
                 self.type_id(Type::String)?,
             );
         }
@@ -124,12 +124,12 @@ impl FunctionEmitter<'_> {
                 return read;
             }
             if self.function.can_throw {
-                return RustExpr::atom(format!("{read}?"));
+                return RustExpr::atom(format!("{read}?", read = read.tight()));
             }
-            RustExpr::postfix_on(&read, format!("{read}.unwrap_or_else(|error| smelt_panic_throw(error))"))
+            read.postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
         };
         if getter_class == owner.name {
-            return Ok(Some(fallible_read(RustExpr::postfix_on(&base_text, format!("{base_text}.{method_name}()")))));
+            return Ok(Some(fallible_read(base_text.postfix(format!(".{method_name}()")))));
         }
         let descriptor_value = self.descriptor_value(getter_class, descriptor)?;
         let arguments = getter
@@ -146,8 +146,8 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(fallible_read(RustExpr::postfix_on(&descriptor_value, format!(
-            "{descriptor_value}.{method_name}({arguments})"
+        Ok(Some(fallible_read(descriptor_value.postfix(format!(
+            ".{method_name}({arguments})"
         )))))
     }
 
@@ -206,7 +206,7 @@ impl FunctionEmitter<'_> {
         let method_name = self.method_rust_name(method_symbol)?;
         let base_text = self.local_mut_value(base)?;
         if setter_class == owner.name {
-            return Ok(Some(format!("{base_text}.{method_name}({rendered});")));
+            return Ok(Some(format!("{base_text}.{method_name}({rendered});", base_text = base_text.tight(), rendered = rendered.delimited())));
         }
         let descriptor_value = self.descriptor_value(setter_class, descriptor)?;
         let mut arguments = setter
@@ -217,7 +217,7 @@ impl FunctionEmitter<'_> {
             .map(|(index, parameter)| {
                 if index == 0 {
                     if self.parameter_needs_mutable_reference_in(setter, *parameter) {
-                        format!("&mut {base_text}")
+                        format!("&mut {base_text}", base_text = base_text.tight())
                     } else {
                         base_text.cloned_value().into_string()
                     }
@@ -231,7 +231,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(Some(format!(
             "{descriptor_value}.{method_name}({});",
-            arguments.join(", ")
+            arguments.join(", "), descriptor_value = descriptor_value.tight()
         )))
     }
 
@@ -300,7 +300,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!(
                     "{}: {}",
                     self.context.names().field_text(self.mir, field.name),
-                    descriptor_literal_expr(&field.value)
+                    descriptor_literal_expr(&field.value).delimited()
                 ))
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
@@ -365,8 +365,8 @@ impl FunctionEmitter<'_> {
                         let base_mut = self.local_mut_value(*base)?;
                         let base_read = self.local_value(*base)?;
                         let index_text =
-                            self.normalized_index_expr(&RustExpr::postfix_on(&base_read, format!("{base_read}.len()")), index, *negative)?;
-                        self.place_target_through(*base, format!("{base_mut}[{index_text}]"))
+                            self.normalized_index_expr(&base_read.postfix(".len()"), index, *negative)?;
+                        self.place_target_through(*base, format!("{base_mut}[{index_text}]", base_mut = base_mut.tight(), index_text = index_text.delimited()))
                     }
                     Some(Type::Dict(key_ty, _)) => {
                         let key_text = if self.mir.types.get(*key_ty).is_some_and(Type::is_text) {
@@ -378,12 +378,12 @@ impl FunctionEmitter<'_> {
                         };
                         Ok(PlaceTarget::Direct(RustExpr::from(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
-                            self.local_mut_value(*base)?
+                            self.local_mut_value(*base)?.tight(), key_text = key_text.tight()
                         ))))
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
-                        let text = format!("{}.{tuple_index}", self.local_mut_value(*base)?);
+                        let text = format!("{}.{tuple_index}", self.local_mut_value(*base)?.tight());
                         self.place_target_through(*base, text)
                     }
                     _ => Err(EmitError::new(
@@ -406,11 +406,11 @@ impl FunctionEmitter<'_> {
                             *inner,
                             format!(
                                 "{}.as_ref().expect(\"optional value was absent after narrowing\")",
-                                self.local_value(*base)?
+                                self.local_value(*base)?.tight()
                             ),
                             format!(
                                 "{}.as_mut().expect(\"optional value was absent after narrowing\")",
-                                self.local_mut_value(*base)?
+                                self.local_mut_value(*base)?.tight()
                             ),
                         )
                     } else {
@@ -485,24 +485,24 @@ impl FunctionEmitter<'_> {
             // A keyed read is a property read like a dotted one: a stored
             // accessor (an object literal's `get`) is called, and a miss
             // consults the prototype entries before answering `undefined`.
-            Ok(RustExpr::chain(format!("smelt_record_property(&{base_text}, &{key_text})")))
+            Ok(RustExpr::chain(format!("smelt_record_property(&{base_text}, &{key_text})", base_text = base_text.tight(), key_text = key_text.tight())))
         } else if self.dict_uses_js_key_map(key_ty) && value_is_unknownish {
-            Ok(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
-                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            Ok(base_text.postfix(self.carrier_format(self.carrier()?, format_args!(
+                ".get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)", key_text = key_text.tight()
             ))))
         } else if self.dict_uses_smelt_record(key_ty)
             || self.dict_uses_js_key_map(key_ty)
         {
-            Ok(RustExpr::postfix_on(&base_text, format!(
-                "{base_text}.get(&{key_text}).unwrap_or({default_value})"
+            Ok(base_text.postfix(format!(
+                ".get(&{key_text}).unwrap_or({default_value})", key_text = key_text.tight(), default_value = default_value.delimited()
             )))
         } else if value_is_unknownish {
-            Ok(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
-                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+            Ok(base_text.postfix(self.carrier_format(self.carrier()?, format_args!(
+                ".get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Undefined)", key_text = key_text.tight()
             ))))
         } else {
-            Ok(RustExpr::postfix_on(&base_text, format!(
-                "{base_text}.get(&{key_text}).cloned().unwrap_or({default_value})"
+            Ok(base_text.postfix(format!(
+                ".get(&{key_text}).cloned().unwrap_or({default_value})", key_text = key_text.tight(), default_value = default_value.delimited()
             )))
         }
     }
@@ -568,7 +568,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.concrete_union_members(item_ty).is_none()
         {
-            return Ok(self.carrier_expr(&RustExpr::undefined()));
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
         }
         self.default_value(item_ty)
     }
@@ -646,13 +646,13 @@ impl FunctionEmitter<'_> {
         };
         let normalize = match negative {
             NegativeIndex::FromEnd => {
-                format!("let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};")
+                format!("let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};", len_expr = len_expr.as_cast_operand(), index_text = index_text.as_cast_operand())
             }
             // No `len` binding: nothing consults the length when a negative
             // index cannot reach a slot, and emitting it anyway would take a
             // second borrow of the receiver inside its own `get(..)` argument.
             NegativeIndex::OutOfRange => {
-                format!("let smelt_normalized = {index_text} as i64;")
+                format!("let smelt_normalized = {index_text} as i64;", index_text = index_text.as_cast_operand())
             }
         };
         Ok(RustExpr::atom(format!("{{ {normalize} {usize_conversion} }}")))
@@ -701,7 +701,7 @@ impl FunctionEmitter<'_> {
             let element_ty = if self.is_bigint_view_class_type(base_ty)? { Type::BigInt } else { Type::Float };
             if self.mir.types.get(inner) == Some(&element_ty) {
                 let method = if element_ty == Type::BigInt { "get_bigint" } else { "get" };
-                return Ok(Some(RustExpr::postfix_on(&base_text, format!("{base_text}.{method}({index_text})"))));
+                return Ok(Some(base_text.postfix(format!(".{method}({index_text})", index_text = index_text.delimited()))));
             }
             return Ok(None);
         }
@@ -709,10 +709,10 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item_ty)) => {
                 let base_text = self.local_value(*base)?;
                 let index_text =
-                    self.normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.len()")), index, *negative)?;
+                    self.normalized_read_index_expr(&base_text.postfix(".len()"), index, *negative)?;
                 // Read borrow, as in the total list index read above: the
                 // `.len()` in the index argument borrows the same shared cell.
-                let read = { let receiver = list_read_expr(&base_text); RustExpr::postfix_on(&receiver, format!("{receiver}.get({index_text}).cloned()")) };
+                let read = { let receiver = list_read_expr(&base_text); receiver.postfix(format!(".get({index_text}).cloned()", index_text = index_text.delimited())) };
                 if item_ty == inner {
                     return Ok(Some(read));
                 }
@@ -720,7 +720,7 @@ impl FunctionEmitter<'_> {
                 // two layers the same way JS does: a missing slot and a present
                 // `undefined` are both `undefined`.
                 if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
-                    return Ok(Some(RustExpr::postfix_on(&read, format!("{read}.flatten()"))));
+                    return Ok(Some(read.postfix(".flatten()")));
                 }
                 // A missing slot and a present erased `null`/`undefined` are
                 // both the absent case (`optional_value_map_expr`).
@@ -745,18 +745,18 @@ impl FunctionEmitter<'_> {
             Some(Type::Dict(key_ty, value_ty)) if self.dict_uses_smelt_record(key_ty) => {
                 let base_text = self.local_value(*base)?;
                 let key_text = self.dict_key_reference_expr(index, key_ty)?;
-                let read = RustExpr::postfix_on(&base_text, format!("{base_text}.get({key_text})"));
+                let read = base_text.postfix(format!(".get({key_text})", key_text = key_text.delimited()));
                 if value_ty == inner {
                     return Ok(Some(read));
                 }
                 if self.mir.types.get(value_ty) == Some(&Type::Optional(inner)) {
-                    return Ok(Some(RustExpr::postfix_on(&read, format!("{read}.flatten()"))));
+                    return Ok(Some(read.postfix(".flatten()")));
                 }
-                let Ok(mapped) = self.rendered_at_type(&RustExpr::path("value"), value_ty, inner, &self.render_scope())
+                let Ok(mapped) = self.rendered_at_type(&RustExpr::path("smelt_value"), value_ty, inner, &self.render_scope())
                 else {
                     return Ok(None);
                 };
-                Ok(Some(RustExpr::postfix_on(&read, format!("{read}.map(|value| {mapped})"))))
+                Ok(Some(read.postfix(format!(".map(|smelt_value| {mapped})", mapped = mapped.delimited()))))
             }
             _ => Ok(None),
         }
@@ -818,8 +818,8 @@ impl FunctionEmitter<'_> {
                 ("get", Type::Float)
             };
             let erased = self.erase_rendered(&RustExpr::path("smelt_element"), self.type_id(element)?)?;
-            return Ok(Some(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
-                "{base_text}.{method}({index_text}).map(|smelt_element| {erased}).unwrap_or(SmeltUnknown::Undefined)"
+            return Ok(Some(base_text.postfix(self.carrier_format(self.carrier()?, format_args!(
+                ".{method}({index_text}).map(|smelt_element| {erased}).unwrap_or(SmeltUnknown::Undefined)", index_text = index_text.delimited(), erased = erased.delimited()
             )))));
         }
         match self.mir.types.get(base_ty).cloned() {
@@ -833,11 +833,11 @@ impl FunctionEmitter<'_> {
                 }
                 let base_text = self.local_value(*base)?;
                 let index_text =
-                    self.normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.len()")), index, *negative)?;
-                let erased_value = self.erase_rendered(&RustExpr::path("value"), item_ty)?;
+                    self.normalized_read_index_expr(&base_text.postfix(".len()"), index, *negative)?;
+                let erased_value = self.erase_rendered(&RustExpr::path("smelt_value"), item_ty)?;
                 let read_expr = list_read_expr(&base_text);
-                Ok(Some(RustExpr::postfix_on(&read_expr, self.carrier_format(format_args!(
-                    "{read_expr}.get({index_text}).cloned().map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
+                Ok(Some(read_expr.postfix(self.carrier_format(self.carrier()?, format_args!(
+                    ".get({index_text}).cloned().map(|smelt_value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)", index_text = index_text.delimited(), erased_value = erased_value.delimited()
                 )))))
             }
             Some(Type::String | Type::PyStr) => {
@@ -845,8 +845,8 @@ impl FunctionEmitter<'_> {
                 let index_text = self
                     .normalized_read_index_expr(&self.string_len_expr(&base_text), index, *negative)?;
                 let char_at = self.string_char_at_text(&base_text.parenthesized_if_needed(), index_text.as_str());
-                Ok(Some(RustExpr::postfix_on(&RustExpr::chain(char_at.clone()), self.carrier_format(format_args!(
-                    "{char_at}.map(|ch| SmeltUnknown::String(ch.into())).unwrap_or(SmeltUnknown::Undefined)"
+                Ok(Some(RustExpr::postfix_on(&RustExpr::chain(char_at.clone()), self.carrier_format(self.carrier()?, format_args!(
+                    "{char_at}.map(|smelt_ch| SmeltUnknown::String(smelt_ch.into())).unwrap_or(SmeltUnknown::Undefined)"
                 )))))
             }
             // A keyed RECORD read misses like an element read (a missing key
@@ -862,9 +862,9 @@ impl FunctionEmitter<'_> {
                 }
                 let base_text = self.local_value(*base)?;
                 let key_text = self.dict_key_reference_expr(index, key_ty)?;
-                let erased_value = self.erase_rendered(&RustExpr::path("value"), value_ty)?;
-                Ok(Some(RustExpr::postfix_on(&base_text, self.carrier_format(format_args!(
-                    "{base_text}.get({key_text}).map(|value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)"
+                let erased_value = self.erase_rendered(&RustExpr::path("smelt_value"), value_ty)?;
+                Ok(Some(base_text.postfix(self.carrier_format(self.carrier()?, format_args!(
+                    ".get({key_text}).map(|smelt_value| {erased_value}).unwrap_or(SmeltUnknown::Undefined)", key_text = key_text.delimited(), erased_value = erased_value.delimited()
                 )))))
             }
             _ => Ok(None),
@@ -911,25 +911,25 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(index_ty), Some(Type::String | Type::PyStr | Type::Symbol | Type::PropKey)) {
             return Ok(RustExpr::atom(format!(
                 r#"match {base_text} {{
-                    SmeltUnknown::String(value) => {{
+                    SmeltUnknown::String(smelt_value) => {{
                         let smelt_key = {key_text};
                         if smelt_key == "length" {{
                             SmeltUnknown::Number({string_len} as f64)
                         }} else {{
-                            smelt_key.to_string().parse::<usize>().ok().and_then(|index| {char_at}.map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)
+                            smelt_key.to_string().parse::<usize>().ok().and_then(|smelt_position| {char_at}.map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)
                         }}
                     }}
-                    SmeltUnknown::Array(values) => smelt_get_array_field(&values, &{key_text}),
-                    SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
+                    SmeltUnknown::Array(smelt_values) => smelt_get_array_field(&smelt_values, &{key_text}),
+                    SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &{key_text}),
                     _ => SmeltUnknown::Undefined,
                 }}"#,
-                string_len = self.string_len_text("value"),
-                char_at = self.string_char_at_text("value", "index"),
+                string_len = self.string_len_text("smelt_value"),
+                char_at = self.string_char_at_text("smelt_value", "smelt_position"), base_text = base_text.delimited(), key_text = key_text.tight(),
             )));
         }
         let numeric_index_text = match self.mir.types.get(index_ty) {
             Some(Type::Int | Type::Float) => index_text,
-            Some(Type::Bool) => RustExpr::loose(format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}")),
+            Some(Type::Bool) => RustExpr::loose(format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}", index_text = index_text.delimited())),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             | Some(Type::Class { .. })
                 if self.is_erased_class_type(index_ty)
@@ -939,9 +939,9 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 let scrutinee =
-                    self.erase_concrete_union_expr(&index_text.cloned_value(), index_ty);
-                RustExpr::atom(self.carrier_format(format_args!(
-                    "match {scrutinee} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => smelt_js_string_to_number(&value), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                    self.erase_concrete_union_expr(&index_text.cloned_value(), index_ty)?;
+                RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "match {scrutinee} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), scrutinee = scrutinee.delimited()
                 )))
             }
             _ => RustExpr::atom("f64::NAN"),
@@ -949,23 +949,23 @@ impl FunctionEmitter<'_> {
 
         Ok(RustExpr::atom(format!(
             r"match {base_text} {{
-                    SmeltUnknown::String(value) => {{
+                    SmeltUnknown::String(smelt_value) => {{
                         let smelt_len = {string_len} as i64;
                         let smelt_index = {numeric_index_text} as i64;
                         let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
-                        usize::try_from(smelt_normalized).ok().and_then(|index| {char_at}.map(|ch| SmeltUnknown::String(ch.into()))).unwrap_or(SmeltUnknown::Undefined)
+                        usize::try_from(smelt_normalized).ok().and_then(|smelt_position| {char_at}.map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)
                     }}
-                    SmeltUnknown::Array(values) => {{
-                        let smelt_len = values.len() as i64;
+                    SmeltUnknown::Array(smelt_values) => {{
+                        let smelt_len = smelt_values.len() as i64;
                         let smelt_index = {numeric_index_text} as i64;
                         let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
-                        usize::try_from(smelt_normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Undefined)
+                        usize::try_from(smelt_normalized).ok().and_then(|smelt_position| smelt_values.get(smelt_position).cloned()).unwrap_or(SmeltUnknown::Undefined)
                     }}
-                SmeltUnknown::Object(values) => smelt_get_object_field(&values, &{key_text}),
+                SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &{key_text}),
                 _ => SmeltUnknown::Undefined,
             }}",
-            string_len = self.string_len_text("value"),
-            char_at = self.string_char_at_text("value", "index"),
+            string_len = self.string_len_text("smelt_value"),
+            char_at = self.string_char_at_text("smelt_value", "smelt_position"), base_text = base_text.delimited(), numeric_index_text = numeric_index_text.as_cast_operand(), key_text = key_text.tight(),
         )))
     }
 
@@ -988,7 +988,7 @@ fn descriptor_literal_expr(literal: &smelt_hir::Literal) -> RustExpr {
                 RustExpr::chain(format!("{number:?}"))
             }
         }
-        smelt_hir::Literal::String(text) => RustExpr::chain(format!("{text:?}.to_owned()")).owned_literal(),
+        smelt_hir::Literal::String(text) => RustExpr::string_literal(text),
         smelt_hir::Literal::StringUnits(units) => RustExpr::js_string_units_literal(units),
         smelt_hir::Literal::Symbol(_)
         | smelt_hir::Literal::Undefined
@@ -1005,9 +1005,9 @@ impl FunctionEmitter<'_> {
             let base_text = self.local_value(base)?;
             if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
                 if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
-                    return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).flatten()")));
+                    return Ok(base_text.postfix(format!(".get(&{key_text}).flatten()", key_text = key_text.tight())));
                 }
-                return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.get(&{key_text}).cloned().flatten()")));
+                return Ok(base_text.postfix(format!(".get(&{key_text}).cloned().flatten()", key_text = key_text.tight())));
             }
             if self.mir.types.get(*key).is_some_and(Type::is_text)
                 && self.renders_erased(*value)?
@@ -1023,16 +1023,16 @@ impl FunctionEmitter<'_> {
                 // err` narrowed an erased error to a record arm). A stored
                 // accessor (an object literal's `get`) is called.
                 return Ok(RustExpr::chain(format!(
-                    "smelt_record_property(&{base_text}, &{key_text})"
+                    "smelt_record_property(&{base_text}, &{key_text})", base_text = base_text.tight(), key_text = key_text.tight()
                 )));
             }
             if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
-                return Ok(RustExpr::postfix_on(&base_text, format!(
-                    "{base_text}.get(&{key_text}).expect(\"missing field\")"
+                return Ok(base_text.postfix(format!(
+                    ".get(&{key_text}).expect(\"missing field\")", key_text = key_text.tight()
                 )));
             }
-            return Ok(RustExpr::postfix_on(&base_text, format!(
-                "{base_text}.get(&{key_text}).cloned().expect(\"missing field\")"
+            return Ok(base_text.postfix(format!(
+                ".get(&{key_text}).cloned().expect(\"missing field\")", key_text = key_text.tight()
             )));
         }
         // A `.length` read on a CONCRETE collection (typed list or set)
@@ -1048,7 +1048,7 @@ impl FunctionEmitter<'_> {
         ) && smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
             == Some(smelt_stdlib::FieldRule::TsLength)
         {
-            return Ok(RustExpr::atom(format!("({}.len() as f64)", self.local_value(base)?)));
+            return Ok(RustExpr::atom(format!("({}.len() as f64)", self.local_value(base)?.tight())));
         }
         // A tuple's `.length` is its arity, fixed by its type. Rust
         // tuples have no `length` field, so the raw fallback below
@@ -1089,7 +1089,7 @@ impl FunctionEmitter<'_> {
             // A concrete-union receiver stores a tagged enum; project it
             // back to `SmeltUnknown` before the erased-object field match.
             let scrutinee =
-                self.erase_concrete_union_expr(&base_text.cloned_value(), base_ty);
+                self.erase_concrete_union_expr(&base_text.cloned_value(), base_ty)?;
             return self.erased_field_read_expr(&scrutinee, field_name);
         }
         self.optional_or_host_field_place_expr(base, field, base_ty)
@@ -1106,7 +1106,7 @@ impl FunctionEmitter<'_> {
     /// answer differently: the optional one once had its own `length` arm
     /// with no callable case, and a destructured `[when] = ..` element's
     /// `when.length` read `NaN` (remeda's `conditional`).
-    fn erased_field_read_expr(&self, scrutinee: &str, field_name: &str) -> Result<RustExpr, EmitError> {
+    fn erased_field_read_expr(&self, scrutinee: &RustExpr, field_name: &str) -> Result<RustExpr, EmitError> {
         let field_rule = smelt_stdlib::typescript_field_rule(field_name);
         if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
             // A callable's `.length` is its declared arity, which the
@@ -1115,11 +1115,12 @@ impl FunctionEmitter<'_> {
             // arm an erased callable answered `null`, and es-toolkit
             // `rest(func)` — whose default split point is
             // `func.length - 1` — reshaped every call wrongly.
-            return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "match {scrutinee} {{ SmeltUnknown::String(smelt_value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(smelt_value) => SmeltUnknown::Number(smelt_value.len() as f64), smelt_value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&smelt_value)), SmeltUnknown::Object(smelt_map) => match smelt_get_object_field(&smelt_map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if smelt_map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(smelt_map))), smelt_value => smelt_value }}, _ => SmeltUnknown::Null }}",
                 function_length =
                     smelt_stdlib::runtime_symbols::function_length::READ,
-                string_len = self.string_len_text("value"),
+                string_len = self.string_len_text("smelt_value"),
+                scrutinee = scrutinee.delimited(),
             ))));
         }
         // `AbortController`/`AbortSignal` methods are surfaced as
@@ -1136,8 +1137,9 @@ impl FunctionEmitter<'_> {
                 | "dispatchEvent"
                 | "throwIfAborted"
         ) {
-            return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "match {scrutinee} {{ SmeltUnknown::Object(smelt_map) => smelt_host_method(&smelt_map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&smelt_map, {field_name:?})), _ => SmeltUnknown::Undefined }}",
+                scrutinee = scrutinee.delimited()
             ))));
         }
         // `Function.prototype.apply`/`call` must resolve when the
@@ -1150,7 +1152,7 @@ impl FunctionEmitter<'_> {
         // the ordinary field read for object receivers.
         if matches!(field_name, "apply" | "call") {
             return Ok(RustExpr::chain(format!(
-                "smelt_function_method({scrutinee}, {field_name:?})"
+                "smelt_function_method({scrutinee}, {field_name:?})", scrutinee = scrutinee.delimited()
             )));
         }
         // `Object.prototype.valueOf` exists on EVERY value, so it can
@@ -1162,7 +1164,7 @@ impl FunctionEmitter<'_> {
         // helper unwraps the wrapper and still prefers a user-defined
         // own `valueOf` when the receiver has one.
         if field_name == "valueOf" {
-            return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})")));
+            return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})", scrutinee = scrutinee.delimited())));
         }
         // Every receiver shape through one prelude helper: an object
         // record, an erased ARRAY (whose `length`, indices and named
@@ -1171,7 +1173,7 @@ impl FunctionEmitter<'_> {
         // here answered `undefined` for `arr.x` and for
         // `Object.prototype.toString`.
         Ok(RustExpr::chain(format!(
-            "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
+            "smelt_get_unknown_field(&{scrutinee}, {field_name:?})", scrutinee = scrutinee.tight()
         )))
     }
 
@@ -1190,7 +1192,7 @@ impl FunctionEmitter<'_> {
         {
             let field_name = self.symbol_source_name(field)?;
             let base_text = self.local_value(base)?;
-            let scrutinee = self.carrier_format(format_args!("{base_text}.clone().unwrap_or(SmeltUnknown::Undefined)"));
+            let scrutinee = RustExpr::chain(self.carrier_format(self.carrier()?, format_args!("{base_text}.clone().unwrap_or(SmeltUnknown::Undefined)", base_text = base_text.tight())));
             return self.erased_field_read_expr(&scrutinee, field_name);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -1199,8 +1201,8 @@ impl FunctionEmitter<'_> {
         {
             let field_name = self.symbol_source_name(field)?;
             let base_text = self.local_value(base)?;
-            return Ok(RustExpr::postfix_on(&base_text, format!(
-                "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
+            return Ok(base_text.postfix(format!(
+                ".as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
             )));
         }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
@@ -1240,9 +1242,9 @@ impl FunctionEmitter<'_> {
             let field_name = self.context.names().field_text(self.mir, field);
             let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
             return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
-                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
+                Ok(base_text.postfix(format!(".as_ref().and_then(|_smelt_value| {read})")))
             } else {
-                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
+                Ok(base_text.postfix(format!(".as_ref().map(|_smelt_value| {read})")))
             };
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -1257,12 +1259,12 @@ impl FunctionEmitter<'_> {
             let read = if crate::accessor_prelude::is_accessor_field_of_type(self.mir, *inner, field) {
                 crate::accessor_prelude::read_expr(&RustExpr::path(format!("_smelt_value.{field_name}")))
             } else {
-                RustExpr::chain(format!("_smelt_value.{field_name}.clone()")).ending_in_clone()
+                RustExpr::path(format!("_smelt_value.{field_name}")).cloned_value()
             };
             return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
-                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().and_then(|_smelt_value| {read})")))
+                Ok(base_text.postfix(format!(".as_ref().and_then(|_smelt_value| {read})", read = read.delimited())))
             } else {
-                Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map(|_smelt_value| {read})")))
+                Ok(base_text.postfix(format!(".as_ref().map(|_smelt_value| {read})", read = read.delimited())))
             };
         }
         self.named_field_place_expr(base, field, base_ty)
@@ -1291,18 +1293,18 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
             let field_name = self.symbol_source_name(field)?;
             if matches!(field_name, "apply" | "call" | "bind" | "length" | "name") {
-                return Ok(self.null_value());
+                return Ok(self.null_value()?);
             }
             let base_text = self.local_value(base)?;
             let erased = self.erase_rendered(&base_text.cloned_value(), base_ty)?;
             return Ok(RustExpr::chain(format!(
-                "smelt_get_unknown_field(&{erased}, {field_name:?})"
+                "smelt_get_unknown_field(&{erased}, {field_name:?})", erased = erased.tight()
             )));
         }
         if smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
             == Some(smelt_stdlib::FieldRule::TsConstructor)
         {
-            return Ok(self.null_value());
+            return Ok(self.null_value()?);
         }
         // `.apply` / `.call` / `.bind` on a callable-interface value are
         // Function.prototype methods on the *underlying callable*, not
@@ -1318,7 +1320,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.symbol_source_name(field)?, "apply" | "call" | "bind")
             && let Some(call_ty) = self.callable_interface_call_field_ty(base_ty)
         {
-            let call_field = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{SMELT_CALL}.clone()")) }.ending_in_clone();
+            let call_field = self.local_value(base)?.postfix(format!(".{SMELT_CALL}")).cloned_value();
             return self.erase_rendered(&call_field, call_ty);
         }
         if matches!(self.mir.types.get(base_ty), Some(Type::String | Type::PyStr)) {
@@ -1337,9 +1339,9 @@ impl FunctionEmitter<'_> {
             if self.is_reference_class_type(base_ty)
                 && self.class_has_named_field(base_ty, field)
             {
-                return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", self.context.names().field_text(self.mir, field))) }.ending_in_clone());
+                return Ok(self.local_value(base)?.postfix(format!(".0.borrow().{}", self.context.names().field_text(self.mir, field))).cloned_value());
             }
-            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}.clone()", self.context.names().field_text(self.mir, field))) }.ending_in_clone());
+            return Ok(self.local_value(base)?.postfix(format!(".{}", self.context.names().field_text(self.mir, field))).cloned_value());
         }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
             && let Some(method_text) = self.class_method_reference_expr(
@@ -1353,7 +1355,7 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
             && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
         {
-            return Ok(self.null_value());
+            return Ok(self.null_value()?);
         }
         // A dotted read of an UNDECLARED member on an index-signature
         // class (`bag.name` where `name` is not a struct field) is a
@@ -1366,17 +1368,17 @@ impl FunctionEmitter<'_> {
             let base_text = self.local_value(base)?;
             let key = self.dict_field_key_expr(key_ty, field)?;
             let store_text =
-                RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
+                base_text.postfix(format!(".{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
             let default_value = self.default_value(value_ty)?;
             let string_key_ty = self.type_id(Type::String)?;
             let getter = if self.dict_uses_smelt_record(string_key_ty)
                 || self.dict_uses_js_key_map(string_key_ty)
             {
-                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key})"))
+                store_text.postfix(format!(".get(&{key})", key = key.tight()))
             } else {
-                RustExpr::postfix_on(&store_text, format!("{store_text}.get(&{key}).cloned()"))
+                store_text.postfix(format!(".get(&{key}).cloned()", key = key.tight()))
             };
-            return Ok(RustExpr::postfix_on(&getter, format!("{getter}.unwrap_or({default_value})")));
+            return Ok(getter.postfix(format!(".unwrap_or({default_value})", default_value = default_value.delimited())));
         }
         // A dotted read of a member a CALLABLE-OBJECT record does not
         // declare. JavaScript lets a function own arbitrary properties,
@@ -1394,7 +1396,7 @@ impl FunctionEmitter<'_> {
         {
             let base_text = self.local_value(base)?;
             let key = self.symbol_source_name(field)?;
-            return Ok(RustExpr::postfix_on(&base_text, format!("{base_text}.{SMELT_CALL}.smelt_property({key:?})")));
+            return Ok(base_text.postfix(format!(".{SMELT_CALL}.smelt_property({key:?})")));
         }
         // A declared field of a reference class lives inside the shared
         // cell. Read it through a narrow `borrow()` and clone the value
@@ -1403,9 +1405,9 @@ impl FunctionEmitter<'_> {
         if self.is_reference_class_type(base_ty)
             && self.class_has_named_field(base_ty, field)
         {
-            return Ok({ let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.0.borrow().{}.clone()", self.context.names().field_text(self.mir, field))) }.ending_in_clone());
+            return Ok(self.local_value(base)?.postfix(format!(".0.borrow().{}", self.context.names().field_text(self.mir, field))).cloned_value());
         }
-        let field_text = { let receiver = self.local_value(base)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{}", self.context.names().field_text(self.mir, field))) };
+        let field_text = { let receiver = self.local_value(base)?; receiver.postfix(format!(".{}", self.context.names().field_text(self.mir, field))) };
         // An accessor field runs its getter on every read; see
         // `crate::accessor_prelude`.
         if crate::accessor_prelude::is_accessor_field_of_type(self.mir, base_ty, field) {
@@ -1459,7 +1461,7 @@ impl FunctionEmitter<'_> {
                 // that cell while this one is live.
                 let base_text = self.local_value(base)?;
                 let index_text =
-                    self.normalized_read_index_expr(&RustExpr::postfix_on(&base_text, format!("{base_text}.len()")), index, negative)?;
+                    self.normalized_read_index_expr(&base_text.postfix(".len()"), index, negative)?;
                 let missing = self.element_missing_value(*item_ty)?;
                 let read_expr = list_read_expr(&base_text);
                 // `unwrap_or` takes its argument BY VALUE, so the
@@ -1472,31 +1474,26 @@ impl FunctionEmitter<'_> {
                 // costs nothing when the element is present.
                 // `element_missing_value` is a pure value expression,
                 // so moving it into a closure cannot change what it means.
-                Ok(RustExpr::postfix_on(&read_expr, format!(
-                    "{read_expr}.get({index_text}).cloned().unwrap_or_else(|| {missing})"
+                Ok(read_expr.postfix(format!(
+                    ".get({index_text}).cloned().unwrap_or_else(|| {missing})", index_text = index_text.delimited(), missing = missing.delimited()
                 )))
             }
             Some(Type::Optional(inner_ty))
                 if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
             {
                 let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
-                    return Ok(self.null_value());
+                    return Ok(self.null_value()?);
                 };
                 let base_text = self.local_value(base)?;
                 let index_text = self.normalized_read_index_expr(
-                    &RustExpr::postfix_on(&base_text, format!("{base_text}.as_ref().map_or(0, SmeltList::len)")),
+                    &base_text.postfix(".as_ref().map_or(0, SmeltList::len)"),
                     index,
                     negative,
                 )?;
-                let access =
-                    if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
-                        "values.borrow().get({index_text}).cloned().flatten()"
-                    } else {
-                        "values.borrow().get({index_text}).cloned()"
-                    };
-                Ok(RustExpr::postfix_on(&base_text, format!(
-                    "{base_text}.as_ref().and_then(|values| {})",
-                    access.replace("{index_text}", &index_text)
+                let flatten =
+                    if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) { ".flatten()" } else { "" };
+                Ok(base_text.postfix(format!(
+                    ".as_ref().and_then(|smelt_values| smelt_values.borrow().get({index_text}).cloned(){flatten})", index_text = index_text.delimited()
                 )))
             }
             Some(Type::Dict(key_ty, value_ty)) => {
@@ -1531,7 +1528,7 @@ impl FunctionEmitter<'_> {
                 let base_text = self.erase_concrete_union_expr(
                     &self.local_value(base)?,
                     base_ty,
-                );
+                )?;
                 self.unknown_index_expr(&base_text, index)
             }
             // A narrowed optional union or `unknown` holds the value
@@ -1556,7 +1553,7 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("class index store types missing"))?;
                 let base_text = self.local_value(base)?;
                 let store_text =
-                    RustExpr::postfix_on(&base_text, format!("{base_text}.{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
+                    base_text.postfix(format!(".{}", smelt_hir::CLASS_INDEX_STORE_FIELD));
                 let optional_read =
                     self.dict_index_optional_read_expr(&store_text, key_ty, value_ty, index)?;
                 // An optional store value has already been flattened by
@@ -1568,7 +1565,7 @@ impl FunctionEmitter<'_> {
                     return Ok(optional_read);
                 }
                 let default_value = self.default_value(value_ty)?;
-                Ok(RustExpr::postfix_on(&optional_read, format!("{optional_read}.unwrap_or({default_value})")))
+                Ok(optional_read.postfix(format!(".unwrap_or({default_value})", default_value = default_value.delimited())))
             }
             // A class receiver read with a RUN-TIME key. The key can
             // name any declared member (a field, a method, a host
@@ -1585,13 +1582,13 @@ impl FunctionEmitter<'_> {
                 let index_ty = self.operand_ty(index)?;
                 let key_text =
                     self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
-                Ok(RustExpr::chain(format!("smelt_get_unknown_field(&{base_text}, &{key_text})")))
+                Ok(RustExpr::chain(format!("smelt_get_unknown_field(&{base_text}, &{key_text})", base_text = base_text.tight(), key_text = key_text.tight())))
             }
             // No modelled keyed storage on this receiver, so the key
             // is not a property of it: JavaScript answers `undefined`
             // for a missing property, which is a DIFFERENT value from
             // `null` under `===` (see `absent_value`).
-            _ => Ok(self.absent_value()),
+            _ => Ok(self.absent_value()?),
         }
     }
 }

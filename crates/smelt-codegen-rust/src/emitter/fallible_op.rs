@@ -53,9 +53,9 @@ impl FunctionEmitter<'_> {
         let dict_text = self.operand_borrow_expr(dict)?;
         let cloned = if self.map_op_uses_smelt_record(dict_ty, *key_ty) { "" } else { ".cloned()" };
         Ok((
-            RenderedCall::propagating(format!(
-                "{dict_text}.get({key_text}){cloned}.ok_or_else(|| smelt_py_key_error({key_text}))"
-            )),
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{dict_text}.get({key_text}){cloned}.ok_or_else(|| smelt_py_key_error({key_text}))", dict_text = dict_text.tight(), key_text = key_text.delimited()
+            ))),
             *value_ty,
         ))
     }
@@ -85,9 +85,9 @@ impl FunctionEmitter<'_> {
         let key_text = self.operand_expr(key)?;
         let remove = self.dict_remove_method(dict_ty, *key_ty);
         Ok((
-            RenderedCall::propagating(format!(
-                "{{ let smelt_key = {key_text}; {dict_text}.{remove}(&smelt_key).ok_or_else(|| smelt_py_key_error(&smelt_key)) }}"
-            )),
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{{ let smelt_key = {key_text}; {dict_text}.{remove}(&smelt_key).ok_or_else(|| smelt_py_key_error(&smelt_key)) }}", key_text = key_text.delimited(), dict_text = dict_text.tight()
+            ))),
             *value_ty,
         ))
     }
@@ -102,9 +102,9 @@ impl FunctionEmitter<'_> {
         let pop = if self.dict_uses_smelt_record(*key_ty) { "pop_last" } else { "pop" };
         let dict_text = self.dict_receiver_text(dict)?;
         Ok((
-            RenderedCall::propagating(format!(
-                "{dict_text}.{pop}().ok_or_else(|| smelt_py_key_error(&\"popitem(): dictionary is empty\".to_owned()))"
-            )),
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{dict_text}.{pop}().ok_or_else(|| smelt_py_key_error(&\"popitem(): dictionary is empty\".to_owned()))", dict_text = dict_text.tight()
+            ))),
             self.type_id(Type::Tuple(vec![*key_ty, *value_ty]))?,
         ))
     }
@@ -123,15 +123,15 @@ impl FunctionEmitter<'_> {
         let position = "let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok()";
         match self.mir.types.get(sequence_ty) {
             Some(Type::List(item_ty)) => Ok((
-                RenderedCall::propagating(format!(
-                    "{{ let smelt_index: i64 = {index_text}; let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); let smelt_len = smelt_items.len() as i64; {position}.and_then(|smelt_at| smelt_items.get(smelt_at).cloned()).ok_or_else(|| smelt_py_index_error(\"list index out of range\")) }}"
-                )),
+                RenderedCall::propagating(RustExpr::atom(format!(
+                    "{{ let smelt_index: i64 = {index_text}; let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); let smelt_len = smelt_items.len() as i64; {position}.and_then(|smelt_at| smelt_items.get(smelt_at).cloned()).ok_or_else(|| smelt_py_index_error(\"list index out of range\")) }}", index_text = index_text.delimited(), sequence_text = sequence_text.tight()
+                ))),
                 *item_ty,
             )),
             Some(Type::PyStr) => Ok((
-                RenderedCall::propagating(format!(
-                    "{{ let smelt_index: i64 = {index_text}; let smelt_text = &{sequence_text}; let smelt_len = smelt_text.chars().count() as i64; {position}.and_then(|smelt_at| smelt_text.chars().nth(smelt_at)).map(String::from).ok_or_else(|| smelt_py_index_error(\"string index out of range\")) }}"
-                )),
+                RenderedCall::propagating(RustExpr::atom(format!(
+                    "{{ let smelt_index: i64 = {index_text}; let smelt_text = &{sequence_text}; let smelt_len = smelt_text.chars().count() as i64; {position}.and_then(|smelt_at| smelt_text.chars().nth(smelt_at)).map(String::from).ok_or_else(|| smelt_py_index_error(\"string index out of range\")) }}", index_text = index_text.delimited(), sequence_text = sequence_text.tight()
+                ))),
                 sequence_ty,
             )),
             _ => Err(EmitError::new("a Python sequence read needs a list or a string")),
@@ -151,7 +151,7 @@ impl FunctionEmitter<'_> {
         let sequence_ty = self.operand_ty(sequence)?;
         let bound = |operand: Option<&Operand>| -> Result<String, EmitError> {
             Ok(match operand {
-                Some(operand) => format!("Some({} as i64)", self.operand_expr(operand)?),
+                Some(operand) => format!("Some({} as i64)", self.operand_expr(operand)?.as_cast_operand()),
                 None => "None".to_owned(),
             })
         };
@@ -160,14 +160,14 @@ impl FunctionEmitter<'_> {
         let sequence_text = self.operand_borrow_expr(sequence)?;
         let text = match self.mir.types.get(sequence_ty) {
             Some(Type::List(_)) => format!(
-                "{{ let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); smelt_py_slice_positions(smelt_items.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| SmeltList::from(smelt_at.into_iter().filter_map(|index| smelt_items.get(index).cloned()).collect::<Vec<_>>())) }}"
+                "{{ let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); smelt_py_slice_positions(smelt_items.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| SmeltList::from(smelt_at.into_iter().filter_map(|smelt_index| smelt_items.get(smelt_index).cloned()).collect::<Vec<_>>())) }}", sequence_text = sequence_text.tight(), step_text = step_text.as_cast_operand()
             ),
             Some(Type::PyStr) => format!(
-                "{{ let smelt_chars = {sequence_text}.chars().collect::<Vec<char>>(); smelt_py_slice_positions(smelt_chars.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| smelt_at.into_iter().filter_map(|index| smelt_chars.get(index)).collect::<String>()) }}"
+                "{{ let smelt_chars = {sequence_text}.chars().collect::<Vec<char>>(); smelt_py_slice_positions(smelt_chars.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| smelt_at.into_iter().filter_map(|smelt_index| smelt_chars.get(smelt_index)).collect::<String>()) }}", sequence_text = sequence_text.tight(), step_text = step_text.as_cast_operand()
             ),
             _ => return Err(EmitError::new("a Python step slice needs a list or a string")),
         };
-        Ok((RenderedCall::propagating(text), sequence_ty))
+        Ok((RenderedCall::propagating(RustExpr::atom(text)), sequence_ty))
     }
 
     /// Renders a Python division whose divisor is a nonzero constant.
@@ -178,7 +178,7 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
     ) -> Result<RustExpr, EmitError> {
         let divide = self.python_division_fn(op, self.operand_ty(lhs)?)?;
-        Ok(RustExpr::postfix_on(&divide, format!("{divide}({}, {})", self.operand_expr(lhs)?, self.operand_expr(rhs)?)))
+        Ok(RustExpr::atom(divide).postfix(format!("({}, {})", self.operand_expr(lhs)?.delimited(), self.operand_expr(rhs)?.delimited())))
     }
 
     /// Renders the call of a fallible operation and states what it answers.
@@ -193,9 +193,9 @@ impl FunctionEmitter<'_> {
                 let lhs = self.operand_expr(lhs)?;
                 let rhs = self.operand_expr(rhs)?;
                 (
-                    RenderedCall::propagating(format!(
-                        "smelt_py_checked_division({lhs}, {rhs}, {divide})"
-                    )),
+                    RenderedCall::propagating(RustExpr::atom(format!(
+                        "smelt_py_checked_division({lhs}, {rhs}, {divide})", lhs = lhs.delimited(), rhs = rhs.delimited()
+                    ))),
                     source_ty,
                 )
             }
@@ -208,9 +208,9 @@ impl FunctionEmitter<'_> {
                 let list_text = self.operand_borrow_expr(list)?;
                 let index_text = self.operand_expr(index)?;
                 (
-                    RenderedCall::propagating(format!(
-                        "smelt_py_list_read(&{list_text}, {index_text})"
-                    )),
+                    RenderedCall::propagating(RustExpr::atom(format!(
+                        "smelt_py_list_read(&{list_text}, {index_text})", list_text = list_text.tight(), index_text = index_text.delimited()
+                    ))),
                     *item_ty,
                 )
             }
@@ -230,7 +230,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
+                    RenderedCall::propagating(RustExpr::atom(adapter).postfix(format!("(&{value_text})", value_text = value_text.tight()))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -275,9 +275,9 @@ impl FunctionEmitter<'_> {
                     EmitError::new("a RegExp compile call needs the RegExp class type interned")
                 })?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&crate::thrown::REGEXP_COMPILE_FN, format!(
+                    RenderedCall::propagating(RustExpr::atom(format!(
                         "{}({pattern}, {flags})",
-                        crate::thrown::REGEXP_COMPILE_FN
+                        crate::thrown::REGEXP_COMPILE_FN, pattern = pattern.delimited(), flags = flags.delimited()
                     ))),
                     source_ty,
                 )
@@ -294,7 +294,7 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "URI transcoder input")?;
                 (
-                    RenderedCall::propagating(RustExpr::postfix_on(&adapter, format!("{adapter}(&{value_text})"))),
+                    RenderedCall::propagating(RustExpr::atom(adapter).postfix(format!("(&{value_text})", value_text = value_text.tight()))),
                     self.type_id(Type::String)?,
                 )
             }
@@ -310,9 +310,9 @@ impl FunctionEmitter<'_> {
         // op that already answers `JsString` unchanged.
         let answered = if self.mir.types.get(source_ty) == Some(&Type::String) && !matches!(op, Rvalue::JsonParse { .. }) {
             if text.propagates() {
-                text.map_call(|call| format!("{call}.map(JsString::from)"))
+                text.map_call(|call| format!("{call}.map(JsString::from)", call = call.tight()))
             } else {
-                text.map_call(|call| format!("JsString::from({call})"))
+                text.map_call(|call| format!("JsString::from({call})", call = call.delimited()))
             }
         } else {
             text
@@ -340,11 +340,11 @@ impl FunctionEmitter<'_> {
             let call = format!(
                 "{}(&{})",
                 super::json_decode::json_decode_entry_name(decoded),
-                self.operand_expr(text)?
+                self.operand_expr(text)?.tight()
             );
-            return Ok((RenderedCall::propagating(call), decoded));
+            return Ok((RenderedCall::propagating(RustExpr::atom(call)), decoded));
         }
-        let call = format!("{}(&{})", crate::thrown::JSON_PARSE_FN, self.operand_expr(text)?);
-        Ok((RenderedCall::propagating(call), self.type_id(Type::Unknown)?))
+        let call = format!("{}(&{})", crate::thrown::JSON_PARSE_FN, self.operand_expr(text)?.tight());
+        Ok((RenderedCall::propagating(RustExpr::atom(call)), self.type_id(Type::Unknown)?))
     }
 }

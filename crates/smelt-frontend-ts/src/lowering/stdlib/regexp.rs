@@ -824,33 +824,67 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.regexp_construction_expression(&new_expr.arguments, new_expr.span, body)
+    }
+
+    /// Lower `RegExp(...)` called without `new`, when `RegExp` is the global.
+    ///
+    /// ECMA-262 makes the call form construct exactly like `new RegExp(...)`
+    /// (for a string pattern), so it takes the same lowering. It used to call
+    /// the erased `RegExp` namespace object instead: es-toolkit's
+    /// `IS_NATIVE_FUNCTION_REGEXP` and `words`' `rUnicodeWord` were an erased
+    /// value where a regular expression belongs. A local binding or a declared
+    /// class named `RegExp` is that binding, as for `new`.
+    pub(in crate::lowering) fn regexp_call_construction(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !callee_is_regexp(&call.callee)
+            || self.scope.is_bound("RegExp")
+            || self.classes.contains("RegExp")
+            || self.is_written_host_global("RegExp")
+        {
+            return Ok(None);
+        }
+        self.regexp_construction_expression(&call.arguments, call.span, body).map(Some)
+    }
+
+    /// The shared lowering of both `RegExp` construction spellings, from the
+    /// construction's arguments and span.
+    fn regexp_construction_expression(
+        &mut self,
+        arguments: &[Argument<'_>],
+        construction_span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         // `new RegExp()` (zero arguments) is legal JavaScript for the empty
         // pattern `/(?:)/`, which es-toolkit's `merge` spec constructs as a
         // representative non-plain-object source value. Model it as an empty
         // pattern string so it lowers exactly like `new RegExp('')`.
-        let pattern = match new_expr.arguments.as_slice() {
+        let pattern = match arguments {
             [] => body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(String::new())),
                 ty: self.ctx.krate.types.intern(Type::String),
-                span: self.span(new_expr.span.start, new_expr.span.end),
+                span: self.span(construction_span.start, construction_span.end),
             }),
             [pattern_argument] | [pattern_argument, _] => {
                 let pattern = self.argument(pattern_argument, body)?;
                 self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
                     SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
+                        self.span(construction_span.start, construction_span.end),
                         "RegExp construction requires a string pattern",
                     )
                 })?
             }
             _ => {
                 return Err(SmeltError::unsupported(
-                    self.span(new_expr.span.start, new_expr.span.end),
+                    self.span(construction_span.start, construction_span.end),
                     "RegExp construction requires a string pattern and optional flags",
                 ));
             }
         };
-        let flags = if let Some(flags_argument) = new_expr.arguments.get(1) {
+        let flags = if let Some(flags_argument) = arguments.get(1) {
             let flags = self.argument(flags_argument, body)?;
             self.regexp_text_operand(flags, body).ok_or_else(|| {
                 SmeltError::unsupported(
@@ -862,7 +896,7 @@ impl ModuleBuilder<'_> {
             body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(String::new())),
                 ty: self.ctx.krate.types.intern(Type::String),
-                span: self.span(new_expr.span.start, new_expr.span.end),
+                span: self.span(construction_span.start, construction_span.end),
             })
         };
         // A pattern and flags that are both source literals are known when the
@@ -878,7 +912,7 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::RegExpCompile { pattern, flags },
                 ty: self.regexp_type(),
-                span: self.span(new_expr.span.start, new_expr.span.end),
+                span: self.span(construction_span.start, construction_span.end),
             }));
         }
         Ok(body.push_expr(Expr {
@@ -887,7 +921,7 @@ impl ModuleBuilder<'_> {
                 args: vec![pattern, flags],
             },
             ty: self.regexp_type(),
-            span: self.span(new_expr.span.start, new_expr.span.end),
+            span: self.span(construction_span.start, construction_span.end),
         }))
     }
 

@@ -1,7 +1,7 @@
 //! The textual scan: walking generated `.rs` files, counting `SmeltUnknown`
 //! occurrences per category and grouping them by normalized line shape.
 
-use super::classify::{AdapterBody, LineSite, PreludeBoundary, classify_line};
+use super::classify::{AdapterBody, LineSite, PreludeBoundary, classify_line, classify_program_line};
 use super::{Category, ShapeGroup, UnknownReport, display_path};
 use crate::{CliResult, report::{SchemaVersion, bump}};
 use std::{collections::BTreeMap, path::PathBuf};
@@ -51,10 +51,11 @@ pub(super) fn scan_files(files: &[PathBuf]) -> CliResult<ScanResult> {
             }
             let category = match site {
                 LineSite::Prelude => Category::RuntimePrelude,
-                LineSite::Program { in_prelude_helper: false } if in_adapter => {
+                LineSite::Program { in_prelude_helper: false } | LineSite::ProgramByProvenance if in_adapter => {
                     Category::LegitimateBoundary
                 }
                 LineSite::Program { in_prelude_helper } => classify_line(line, in_prelude_helper),
+                LineSite::ProgramByProvenance => classify_program_line(line),
             };
             let shape = normalize_line(line);
             let key = (category, shape.clone());

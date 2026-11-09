@@ -3,7 +3,7 @@
 
 use crate::rust::RustExpr;
 use super::*;
-use super::flow_state::Flow;
+use super::flow_state::{Flow, LoopJump};
 
 mod assign;
 mod calls;
@@ -146,12 +146,15 @@ impl FunctionEmitter<'_> {
     /// performed more than 64 calls in a row lost its last statements). The
     /// stack grows on demand so a long body cannot overflow it instead.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
-        let limit = self.function.blocks.len().saturating_mul(2).max(16);
-        let Some(_depth) = self.flow.enter_block(limit) else {
-            out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
-            out.push_str(&self.default_return_statement()?);
-            self.flow.record(Flow::Diverges);
+        if self.emit_enclosing_loop_jump(block.id, out)? {
             return Ok(());
+        }
+        let limit = self.function.blocks.len().saturating_mul(2).max(16);
+        // Past this structural bound emission is re-entering a cycle it did
+        // not structure; it used to write a default `return` in place of the
+        // rest of the body, a silent miscompile, so it is an error.
+        let Some(_depth) = self.flow.enter_block(limit) else {
+            return Err(self.unstructured_control_flow(format!("block emission exceeds {limit} levels")));
         };
         stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
             self.emit_block_body(block, out)
@@ -190,6 +193,7 @@ impl FunctionEmitter<'_> {
         let latch = latch_block.map(|latch| self.block(latch)).transpose()?;
         let else_ = self.block(else_block)?;
         let loop_declared = self.declared_scope();
+        let open_loop = self.flow.open_loop(block.id, latch_block, Some(else_block), out.len());
         self.open_while_loop(block, cond, cond_statement_idx, out)?;
         self.emit_block_until_goto(
             then,
@@ -205,6 +209,7 @@ impl FunctionEmitter<'_> {
             }
         }
         out.push_str("    }\n");
+        open_loop.close(out);
         loop_declared.close();
         self.emit_block(else_, out)
     }
@@ -217,6 +222,7 @@ impl FunctionEmitter<'_> {
             let repeated = self.block(repeat_block)?;
             let exit = self.block(exit_block)?;
             let loop_declared = self.declared_scope();
+            let open_loop = self.flow.open_loop(block.id, None, Some(exit_block), out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -235,6 +241,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
+            open_loop.close(out);
             loop_declared.close();
             return self.emit_block(exit, out);
         }
@@ -359,7 +366,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::None)
                     )
                 {
-                    out.push_str(&format!("    {};\n", self.global_touch_expr(*global)));
+                    out.push_str(&format!("    {};\n", self.global_touch_expr(*global).delimited()));
                     self.mark_local_declared(*dest);
                     return Ok(());
                 }
@@ -404,7 +411,7 @@ impl FunctionEmitter<'_> {
                         || self.predeclared_locals.contains(dest))
                 {
                     let assignment = self.assignment_place_expr(&Place::Local(*dest))?;
-                    out.push_str(&format!("    {assignment} = {rendered_value};\n"));
+                    out.push_str(&format!("    {assignment} = {rendered_value};\n", assignment = assignment.delimited()));
                     return Ok(());
                 }
                 let mutability = if name != "_" && self.local_binding_needs_mut(*dest) {
@@ -479,13 +486,26 @@ impl FunctionEmitter<'_> {
                 // it, so the edge out of a `try` handler to the code after the
                 // `try` also points backwards by id. It is a back edge only
                 // when the target can come back to this block.
+                //
+                // An edge to an open generated loop's header, latch or exit is
+                // that loop's `continue`/`break` (labelled when it is not the
+                // innermost). Any other back edge is a cycle no loop was
+                // opened for: re-emitting a tail that terminates is fine, but a
+                // cycle that does not used to become a default `return`, which
+                // silently replaced the rest of the function. It is an error.
+                if let Some(jump) = self.flow.open_loop_jump(*target) {
+                    return self.emit_loop_jump(jump, out);
+                }
                 if target.0 <= current.0
                     && self.block_can_reach(*target, current, &mut BlockIdSet::default())
                 {
                     if self.block_eventually_terminates(*target, &mut BlockIdSet::default())? {
                         return self.emit_block(self.block(*target)?, out);
                     }
-                    return self.emit_fallthrough_return(out);
+                    return Err(self.unstructured_control_flow(format!(
+                        "the edge from block {} back to block {} closes a cycle no loop was opened for",
+                        current.0, target.0
+                    )));
                 }
                 self.emit_block(self.block(*target)?, out)
             }
@@ -632,18 +652,13 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Emits a type-correct conservative return for unsupported control-flow regions.
-    fn default_return_statement(&self) -> Result<String, EmitError> {
-        let value = self.default_value(self.function.return_ty)?;
-        if self.function.can_throw {
-            self.binding_uses.record_early_return();
-            Ok(format!(
-                "    return Ok::<_, {ERROR_BOX}>({value});\n"
-            ))
-        } else {
-            Ok(format!("    return {value};\n"))
-        }
+    /// The error for a function body whose control flow the structured
+    /// emitter cannot render faithfully, naming the function and `detail`.
+    pub(super) fn unstructured_control_flow(&self, detail: String) -> EmitError {
+        let name = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
+        EmitError::new(format!("control flow of `{name}` could not be structured: {detail}"))
     }
+
 }
 
 /// Returns successor blocks for MIR terminators that continue execution.
@@ -704,7 +719,7 @@ impl FunctionEmitter<'_> {
         {
             let future_text = self.operand_expr(operand)?;
             out.push_str(&format!(
-                "    let smelt_adopted = {future_text}.await?;\n"
+                "    let smelt_adopted = {future_text}.await?;\n", future_text = future_text.tight()
             ));
             if body_return_ty == self.none_ty {
                 out.push_str("    let _ = smelt_adopted;\n");
@@ -714,7 +729,7 @@ impl FunctionEmitter<'_> {
                 let value =
                     self.rendered_at_type(&RustExpr::path("smelt_adopted"), item_ty, body_return_ty, &self.render_scope())?;
                 self.binding_uses.record_early_return();
-                out.push_str(&format!("    return Ok({value});\n"));
+                out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
             }
             return Ok(());
         }
@@ -723,10 +738,10 @@ impl FunctionEmitter<'_> {
                 self.binding_uses.record_early_return();
                 out.push_str(&format!(
                     "    return Ok({});\n",
-                    self.operand_expr(operand)?
+                    self.operand_expr(operand)?.delimited()
                 ));
             } else {
-                out.push_str(&format!("    return {};\n", self.operand_expr(operand)?));
+                out.push_str(&format!("    return {};\n", self.operand_expr(operand)?.delimited()));
             }
         } else if body_return_ty == self.none_ty {
             // A `void`/`None` return still evaluates its operand for
@@ -737,7 +752,7 @@ impl FunctionEmitter<'_> {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
             {
-                out.push_str(&format!("    {};\n", self.operand_expr(operand)?));
+                out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
@@ -765,11 +780,11 @@ impl FunctionEmitter<'_> {
                         self.rendered_type(body_return_ty)?;
                     self.binding_uses.record_early_return();
                     out.push_str(&format!(
-                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
                     ));
                 } else {
                     self.binding_uses.record_early_return();
-                    out.push_str(&format!("    return Ok({value});\n"));
+                    out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
                 }
             } else {
                 let value = self.value_at_type(operand, body_return_ty)?;
@@ -778,11 +793,11 @@ impl FunctionEmitter<'_> {
                         self.rendered_type(body_return_ty)?;
                     self.binding_uses.record_early_return();
                     out.push_str(&format!(
-                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n"
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
                     ));
                 } else {
                     self.binding_uses.record_early_return();
-                    out.push_str(&format!("    return Ok({value});\n"));
+                    out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
                 }
             }
         } else if self.mir.types.get(body_return_ty) == Some(&Type::Unknown)
@@ -793,12 +808,12 @@ impl FunctionEmitter<'_> {
         {
             out.push_str(&format!(
                 "    return {};\n",
-                self.value_at_type(source, body_return_ty)?
+                self.value_at_type(source, body_return_ty)?.delimited()
             ));
         } else {
             out.push_str(&format!(
                 "    return {};\n",
-                self.value_at_type(operand, body_return_ty)?
+                self.value_at_type(operand, body_return_ty)?.delimited()
             ));
         }
         self.flow.record(Flow::Diverges);

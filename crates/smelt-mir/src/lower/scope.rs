@@ -9,6 +9,9 @@
 //! * [`ControlScope::Loop`] — the `break` / `continue` targets of a loop.
 //! * [`ControlScope::Protected`] — a `try` body or `catch` body: the handler a
 //!   throw inside it jumps to, and the `finally` clause that guards it.
+//! * [`ControlScope::Label`] — a labelled statement: where `break label`
+//!   resumes. A labelled LOOP also carries its label in its own
+//!   [`LoopTargets::label`], which `continue label` looks for.
 //!
 //! Scopes are pushed only through [`LoweringCtx::with_scope`], which pops on
 //! every exit of its closure (including an error), so push/pop pairing is
@@ -33,6 +36,17 @@ pub(super) enum ControlScope {
     Loop(LoopTargets),
     /// A `try` body or a `catch` body.
     Protected(Protected),
+    /// A labelled statement: where `break label` goes.
+    Label(LabelScope),
+}
+
+/// The target of `break label` for one labelled statement.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct LabelScope {
+    /// The label.
+    pub(super) label: smelt_hir::Symbol,
+    /// The block after the labelled statement.
+    pub(super) break_target: BlockId,
 }
 
 /// Target blocks for `break` and `continue` statements.
@@ -42,6 +56,9 @@ pub(super) struct LoopTargets {
     pub(super) break_target: BlockId,
     /// Target block for `continue` statements.
     pub(super) continue_target: BlockId,
+    /// The label of the labelled statement this loop is, if any; set by
+    /// `lower_loop_body` from the label the enclosing region announced.
+    pub(super) label: Option<smelt_hir::Symbol>,
 }
 
 /// A region guarded by a `catch` handler and/or a `finally` clause.
@@ -120,7 +137,7 @@ impl LoweringCtx<'_> {
     pub(super) fn current_exception_handler(&self) -> Option<ExceptionHandler> {
         self.scopes.iter().rev().find_map(|scope| match scope {
             ControlScope::Protected(protected) => protected.handler,
-            ControlScope::Loop(_) => None,
+            ControlScope::Loop(_) | ControlScope::Label(_) => None,
         })
     }
 
@@ -131,7 +148,7 @@ impl LoweringCtx<'_> {
                 finally: Some(clause),
                 ..
             }) => Some(clause.cleanup),
-            ControlScope::Protected(_) | ControlScope::Loop(_) => None,
+            ControlScope::Protected(_) | ControlScope::Loop(_) | ControlScope::Label(_) => None,
         })
     }
 
@@ -170,7 +187,7 @@ impl LoweringCtx<'_> {
                     finally: Some(clause),
                     ..
                 }) => Some((depth, clause.hir)),
-                ControlScope::Protected(_) | ControlScope::Loop(_) => None,
+                ControlScope::Protected(_) | ControlScope::Loop(_) | ControlScope::Label(_) => None,
             })
             .collect();
         for (depth, hir) in clauses.into_iter().rev() {
@@ -232,7 +249,7 @@ impl LoweringCtx<'_> {
             .rev()
             .find_map(|(depth, scope)| match scope {
                 ControlScope::Loop(targets) => Some((depth, *targets)),
-                ControlScope::Protected(_) => None,
+                ControlScope::Protected(_) | ControlScope::Label(_) => None,
             })
         else {
             return Err(self.error(
@@ -250,6 +267,32 @@ impl LoweringCtx<'_> {
             LoopExit::Break => targets.break_target,
             LoopExit::Continue => targets.continue_target,
         };
+        self.terminate(Terminator::Goto(target))
+    }
+
+    /// Lowers `break label` / `continue label`: every `finally` clause between
+    /// the cursor and the labelled statement runs, then control goes to the
+    /// statement's end (`break`) or its loop's next iteration (`continue`).
+    pub(super) fn lower_label_exit(&mut self, exit: LoopExit, label: smelt_hir::Symbol) -> Result<(), LowerError> {
+        let found = self.scopes.iter().enumerate().rev().find_map(|(depth, scope)| match (exit, scope) {
+            (LoopExit::Break, ControlScope::Label(labelled)) if labelled.label == label => Some((depth, labelled.break_target)),
+            (LoopExit::Continue, ControlScope::Loop(targets)) if targets.label == Some(label) => {
+                Some((depth, targets.continue_target))
+            }
+            _ => None,
+        });
+        let Some((depth, target)) = found else {
+            return Err(self.error(
+                match exit {
+                    LoopExit::Break => "break names a label no enclosing statement carries",
+                    LoopExit::Continue => "continue names a label no enclosing loop carries",
+                },
+                None,
+            ));
+        };
+        if self.run_pending_finalizers(depth.saturating_add(1))? {
+            return Ok(());
+        }
         self.terminate(Terminator::Goto(target))
     }
 

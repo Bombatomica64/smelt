@@ -348,7 +348,7 @@ fn erased_callable_adapter(
     };
     Ok(RustExpr::atom(format!(
         "{{ let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({body}); \
-         smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}"
+         smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}", identity_key = identity_key.delimited()
     )))
 }
 
@@ -423,7 +423,7 @@ fn constructor_adapter(
     let built = record_field_unknown_expr(mir, &RustExpr::path("smelt_built"), self_ty)?;
     Ok(Some(RustExpr::atom(format!(
         "SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; let smelt_built = Self::new({}){try_operator}; Ok({built}) }}))",
-        args.join(", ")
+        args.join(", "), built = built.delimited()
     ))))
 }
 
@@ -462,12 +462,12 @@ pub(crate) fn class_proto_entries_method(
         let adapter = method_adapter(mir, context, function, &rust_method)?;
         let key = format!("{METHOD_KEY_PREFIX}{source_name}");
         pushes.push(format!(
-            "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n"
+            "        smelt_proto_entries.push(({key:?}.to_owned(), {adapter}));\n", adapter = adapter.delimited()
         ));
     }
     if let Some(adapter) = constructor_adapter(mir, context, class)? {
         pushes.push(format!(
-            "        smelt_proto_entries.push(({CONSTRUCTOR_KEY:?}.to_owned(), {adapter}));\n"
+            "        smelt_proto_entries.push(({CONSTRUCTOR_KEY:?}.to_owned(), {adapter}));\n", adapter = adapter.delimited()
         ));
     }
     if pushes.is_empty() {

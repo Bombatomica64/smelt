@@ -937,8 +937,8 @@ impl ModuleBuilder<'_> {
                 let raw_ty = Self::expr_ty(body, list);
                 let list_ty = self.type_param_constraint_or_self(raw_ty);
                 // `new Set(iterable)` accepts arrays directly. Optional arrays are
-                // asserted to their inner list, an existing Set is already in set
-                // shape, and erased/union surfaces (e.g. a generic helper return
+                // asserted to their inner list, an existing Set is copied, and
+                // erased/union surfaces (e.g. a generic helper return
                 // typed `unknown`) are asserted to `List<Unknown>` so the
                 // list-to-set conversion can proceed instead of being rejected.
                 let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
@@ -959,19 +959,26 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                     }
-                    Some(Type::Set(item_ty)) => {
-                        // `new Set(otherSet)` copies an existing set: keep its
-                        // element type and short-circuit (no list conversion).
-                        let ty = if let Some(hint) = type_hint
-                            && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
-                        {
-                            hint
+                    // `new Set(otherSet)` builds a NEW set holding the other's
+                    // members in its insertion order: a distinct identity that
+                    // later `add`/`delete` on either set leave unchanged. It
+                    // used to be a type assertion on `otherSet` itself, so the
+                    // "copy" WAS the source: `b.add(3)` grew `a`, and `a === b`.
+                    Some(Type::Set(_)) => {
+                        // A type parameter bounded by a Set is viewed at its
+                        // bound first: the copy reads a set.
+                        let set = if raw_ty == list_ty {
+                            list
                         } else {
-                            self.ctx.krate.types.intern(Type::Set(item_ty))
+                            body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: list },
+                                ty: list_ty,
+                                span: self.span(argument.span().start, argument.span().end),
+                            })
                         };
                         return Ok(Some(body.push_expr(Expr {
-                            kind: ExprKind::TypeAssert { value: list },
-                            ty,
+                            kind: ExprKind::SetCopy { set },
+                            ty: list_ty,
                             span: self.span(new_expr.span.start, new_expr.span.end),
                         })));
                     }
@@ -1161,15 +1168,17 @@ impl ModuleBuilder<'_> {
                 };
                 (entries, ty)
             }
+            [argument] if !matches!(argument, Argument::SpreadElement(_)) => {
+                let value = self.argument(argument, body)?;
+                return self
+                    .map_from_iterable(value, new_expr.span, body)
+                    .map(Some);
+            }
             _ => {
-                for argument in &new_expr.arguments {
-                    let _ = self.argument(argument, body)?;
-                }
-                let unknown = self.erase_with(ErasureReason::UntypedBuiltin, "new Map(iterable)");
-                (
-                    Vec::new(),
-                    self.ctx.krate.types.intern(Type::JsMap(unknown, unknown)),
-                )
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Map takes at most one iterable argument",
+                ));
             }
         };
         Ok(Some(body.push_expr(Expr {
@@ -1177,6 +1186,89 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
+    }
+
+    /// `new Map(iterable)`: a NEW map holding the iterable's `[key, value]`
+    /// entries in iteration order (a later entry for the same key wins).
+    ///
+    /// The entries become a list of `[K, V]` tuples collected by
+    /// [`ExprKind::ListPairsToDict`] into a `Map<K, V>`:
+    ///
+    /// * a `Map`/record argument contributes its `entries()` projection, so the
+    ///   result is a copy with its own identity, never the argument itself;
+    /// * a list of `[K, V]` tuples is collected as is;
+    /// * an erased iterable (`unknown`, a type parameter, a union) is read as a
+    ///   list of erased `[key, value]` pairs: its entries carry no static key
+    ///   or value type, so the map's are the erased carrier.
+    ///
+    /// This used to evaluate the argument, DISCARD it and build an empty erased
+    /// map: `new Map(otherMap)` and `new Map(pairs)` were silently empty.
+    fn map_from_iterable(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let hir_span = self.span(span.start, span.end);
+        let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+        let (list, key_ty, value_item_ty) = match self.ctx.krate.types.get(value_ty).cloned() {
+            Some(Type::Dict(key_ty, item_ty) | Type::JsMap(key_ty, item_ty)) => {
+                let entry_ty = self.ctx.krate.types.intern(Type::Tuple(vec![key_ty, item_ty]));
+                let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
+                let entries = body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Entries,
+                        dict: value,
+                    },
+                    ty: entries_ty,
+                    span: hir_span,
+                });
+                (entries, key_ty, item_ty)
+            }
+            Some(Type::List(entry_ty)) => match self.ctx.krate.types.get(entry_ty).cloned() {
+                Some(Type::Tuple(items)) if items.len() == 2 => {
+                    let (Some(key_ty), Some(item_ty)) = (items.first(), items.get(1)) else {
+                        return Err(SmeltError::unsupported(hir_span, "new Map entries must be [key, value] pairs"));
+                    };
+                    (value, *key_ty, *item_ty)
+                }
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        hir_span,
+                        "new Map(iterable) needs an iterable of [key, value] tuples",
+                    ));
+                }
+            },
+            _ if self.erased_or_union_surface(value_ty) => {
+                // The iterable's own type is erased, so its entries are too:
+                // this is the dynamic boundary the argument already crossed,
+                // not a new erasure.
+                let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
+                let entry_ty = self.ctx.krate.types.intern(Type::Tuple(vec![unknown, unknown]));
+                let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
+                let entries = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value },
+                    ty: entries_ty,
+                    span: hir_span,
+                });
+                (entries, unknown, unknown)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    hir_span,
+                    "new Map(iterable) needs a Map, a record or an array of [key, value] tuples",
+                ));
+            }
+        };
+        let ty = self.ctx.krate.types.intern(Type::JsMap(key_ty, value_item_ty));
+        // A `Map<K, V>` annotation whose components differ (a wider value
+        // union) is reached the way any typed value reaches its declared type:
+        // the binding coerces it.
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ListPairsToDict { list },
+            ty,
+            span: hir_span,
+        }))
     }
 
     /// Lower `new Object()` / `Object(...)` to a concrete record value.

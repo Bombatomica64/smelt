@@ -22,7 +22,7 @@ fn main() {
     let last: f64 = word.last_index_of(&JsString::from("t"), usize::MAX).map_or(-1.0, |smelt_index| smelt_index as f64);
     let replaced: JsString = word.clone().replace_first(&JsString::from("Sm"), &JsString::from("sm"));
     let repeated: JsString = word.clone().repeat(3.0 as usize);
-    let padded_start: JsString = { let value = &word.clone(); let target_len = 8.0 as usize; let pad = &JsString::from("0"); let current_len = value.len(); if current_len >= target_len || pad.is_empty() { value.to_owned() } else { let needed = target_len - current_len; let padding: JsString = pad.repeat(needed.div_ceil(pad.len())).slice(0, needed); padding + value } };
+    let padded_start: JsString = { let smelt_value = &word.clone(); let smelt_target_len = 8.0 as usize; let smelt_pad = &JsString::from("0"); let smelt_current_len = smelt_value.len(); if smelt_current_len >= smelt_target_len || smelt_pad.is_empty() { smelt_value.to_owned() } else { let smelt_needed = smelt_target_len - smelt_current_len; let smelt_padding: JsString = smelt_pad.repeat(smelt_needed.div_ceil(smelt_pad.len())).slice(0, smelt_needed); smelt_padding + smelt_value } };
     let ch: JsString = { let smelt_index = 1.0 as f64; if smelt_index < 0.0 { None } else { word.char_at(smelt_index as usize) } }.unwrap_or_default();
     let code: f64 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&word, 2.0 as f64);
     return;

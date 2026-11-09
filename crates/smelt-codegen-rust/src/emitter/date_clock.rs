@@ -24,17 +24,17 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
-            "{{ SMELT_DATE_NOW.with(|value| value.set(Some(({}) as i64))); {} }}",
-            self.date_timestamp_expr(timestamp)?,
-            self.default_value(dest_ty)?
+            "{{ SMELT_DATE_NOW.with(|smelt_value| smelt_value.set(Some(({}) as i64))); {} }}",
+            self.date_timestamp_expr(timestamp)?.delimited(),
+            self.default_value(dest_ty)?.delimited()
         )))
     }
 
     /// Remove a pinned `Date.now()`.
     pub(super) fn date_reset_now_expr(&self, dest_ty: TypeId) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
-            "{{ SMELT_DATE_NOW.with(|value| value.set(None)); {} }}",
-            self.default_value(dest_ty)?
+            "{{ SMELT_DATE_NOW.with(|smelt_value| smelt_value.set(None)); {} }}",
+            self.default_value(dest_ty)?.delimited()
         )))
     }
 
@@ -45,9 +45,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
-            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|value| value.set({})); {} }}",
-            self.value_at_type(offset, self.type_id(Type::Float)?)?,
-            self.default_value(dest_ty)?
+            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set({})); {} }}",
+            self.value_at_type(offset, self.type_id(Type::Float)?)?.delimited(),
+            self.default_value(dest_ty)?.delimited()
         )))
     }
 
@@ -57,8 +57,8 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
-            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|value| value.set(0.0)); {} }}",
-            self.default_value(dest_ty)?
+            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set(0.0)); {} }}",
+            self.default_value(dest_ty)?.delimited()
         )))
     }
 }

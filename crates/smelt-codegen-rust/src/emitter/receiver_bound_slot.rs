@@ -79,9 +79,9 @@ impl FunctionEmitter<'_> {
         }
         let field_name = self.context.names().field_text(self.mir, source_field.name);
         let field_read = if self.is_reference_class_type(source) {
-            RustExpr::chain(format!("smelt_slot_receiver.0.borrow().{field_name}.clone()")).ending_in_clone()
+            RustExpr::chain(format!("smelt_slot_receiver.0.borrow().{field_name}")).cloned_value()
         } else {
-            RustExpr::chain(format!("smelt_slot_receiver.{field_name}.clone()")).ending_in_clone()
+            RustExpr::path(format!("smelt_slot_receiver.{field_name}")).cloned_value()
         };
         let callee = self.rendered_at_type(&field_read, source_field.ty, target_field.ty, scope)?;
         // Every generated class implements `IntoSmeltUnknown`, so the deferred
@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
              let _smelt_this_guard = smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_slot_receiver.clone(); ::std::rc::Rc::new(move || {erase}) }}); \
              let smelt_slot_callee = {callee}; \
              (smelt_slot_callee)({args}) }}); smelt_slot }}",
-            ty = self.rendered_type(target_field.ty)?,
+            ty = self.rendered_type(target_field.ty)?, callee = callee.delimited(),
         ))))
     }
 
@@ -149,13 +149,13 @@ impl FunctionEmitter<'_> {
             .map(|index| format!("smelt_slot_arg_{index}"))
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(RustExpr::atom(self.carrier_format(format_args!(
+        Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
             "{{ let smelt_slot_source: SmeltUnknown = {record_map}.clone().into_smelt_unknown(); \
              let smelt_slot: {ty} = ::std::rc::Rc::new(move |{args}| {{ \
              let smelt_slot_callee = {callee}; \
              let _smelt_this_guard = smelt_push_this(smelt_slot_source.clone()); \
              (smelt_slot_callee)({args}) }}); smelt_slot }}",
-            ty = self.rendered_type(field.ty)?,
+            ty = self.rendered_type(field.ty)?, callee = callee.delimited(),
         )))))
     }
 }

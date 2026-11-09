@@ -333,7 +333,7 @@ impl FunctionEmitter<'_> {
             }
             Operand::Const(_) => self.value_at_type(operand, target)?,
         };
-        Ok(RustExpr::loose(format!("&mut {text}")))
+        Ok(RustExpr::loose(format!("&mut {text}", text = text.tight())))
     }
 
     /// Whether a `&mut` list argument and the callee's list parameter are the
@@ -456,11 +456,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let place_expr = self.place_expr(place)?;
         if matches!(self.mir.types.get(place_ty), Some(Type::List(_))) {
-            return Ok(RustExpr::atom_on(&place_expr, self.carrier_format(format_args!(
-                "{place_expr}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()"
+            return Ok(RustExpr::atom_on(&place_expr, self.carrier_format(self.carrier()?, format_args!(
+                "{place_expr}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()", place_expr = place_expr.tight()
             ))));
         }
-        Ok(RustExpr::postfix_on(&place_expr, self.carrier_format(format_args!("{place_expr}.clone().into_smelt_unknown()"))))
+        Ok(place_expr.postfix(self.carrier_format(self.carrier()?, format_args!(".clone().into_smelt_unknown()"))))
     }
 
     /// Returns whether a non-escaping capture must share outer storage.

@@ -34,7 +34,7 @@ impl FunctionEmitter<'_> {
         } else {
             self.erase_rendered(value_text, source)?
         };
-        Ok(Some(RustExpr::chain(format!("SmeltToPropKey::smelt_to_prop_key(&({value}))"))))
+        Ok(Some(RustExpr::chain(format!("SmeltToPropKey::smelt_to_prop_key(&({value}))", value = value.delimited()))))
     }
 
     /// Whether `ty`'s Rust rendering implements `SmeltToPropKey` itself.
@@ -94,10 +94,10 @@ impl FunctionEmitter<'_> {
             .iter()
             .enumerate()
             .map(|(index, member)| {
-                let key = self.property_key_to_string_expr(&RustExpr::path("value"), *member)?;
-                Ok(format!("{union_name}::M{index}(value) => {key}"))
+                let key = self.property_key_to_string_expr(&RustExpr::path("smelt_value"), *member)?;
+                Ok(format!("{union_name}::M{index}(smelt_value) => {key}", key = key.delimited()))
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
-        Ok(Some(RustExpr::atom(format!("match {value_text} {{ {} }}", arms.join(", ")))))
+        Ok(Some(RustExpr::atom(format!("match {value_text} {{ {} }}", arms.join(", "), value_text = value_text.delimited()))))
     }
 }

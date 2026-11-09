@@ -209,7 +209,7 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let suffix = if *throws { "?" } else { "" };
-            let call = RustExpr::opaque(format!("{receiver_text}.{}({args_text}){suffix}", member.rust_name));
+            let call = RustExpr::opaque(format!("{receiver_text}.{}({args_text}){suffix}", member.rust_name, receiver_text = receiver_text.tight()));
             return self.rendered_at_type(&call, *ret, dest_ty, &self.render_scope());
         }
         // The parameter erased here: look the method up on the erased value,
@@ -225,8 +225,8 @@ impl FunctionEmitter<'_> {
         } else {
             ".unwrap_or_else(|error| smelt_panic_throw(error))"
         };
-        let call = RustExpr::atom(self.carrier_format(format_args!(
-            "match smelt_get_unknown_field(&{receiver_text}, {method_name:?}) {{ SmeltUnknown::Function(smelt_method) => (smelt_method)(vec![{erased_args}]){propagate}, _ => SmeltUnknown::Undefined }}"
+        let call = RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "match smelt_get_unknown_field(&{receiver_text}, {method_name:?}) {{ SmeltUnknown::Function(smelt_method) => (smelt_method)(vec![{erased_args}]){propagate}, _ => SmeltUnknown::Undefined }}", receiver_text = receiver_text.tight()
         )));
         // MIR interns `unknown` for every program with a bound member read
         // (`intern_bound_dispatch_carrier_type`).
@@ -248,11 +248,11 @@ impl FunctionEmitter<'_> {
         if let Some(member) = self.bound_trait_member(receiver_ty, bound, field)
             && let BoundMemberKind::Field { ty } = &member.kind
         {
-            let read = RustExpr::postfix_on(&receiver_text, format!("{receiver_text}.{}()", member.rust_name));
+            let read = receiver_text.postfix(format!(".{}()", member.rust_name));
             return self.rendered_at_type(&read, *ty, dest_ty, &self.render_scope());
         }
         let field_name = self.symbol_name(field)?;
-        let read = RustExpr::chain(format!("smelt_get_unknown_field(&{receiver_text}, {field_name:?})"));
+        let read = RustExpr::chain(format!("smelt_get_unknown_field(&{receiver_text}, {field_name:?})", receiver_text = receiver_text.tight()));
         let unknown_ty = self.type_id(Type::Unknown)?;
         self.rendered_at_type(&read, unknown_ty, dest_ty, &self.render_scope())
     }

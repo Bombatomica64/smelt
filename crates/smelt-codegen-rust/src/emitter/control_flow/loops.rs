@@ -4,6 +4,56 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Writes the labelled jump an edge to `target` needs when it ends an
+    /// iteration of, or leaves, a generated loop other than the innermost one
+    /// (a source `continue outer` / `break outer`), and answers whether it did.
+    ///
+    /// A `continue` to a loop that closes each iteration with a latch runs the
+    /// latch's statements first, as the MIR edge into the latch does. See
+    /// `ControlFlowState::enclosing_loop_jump` for which edges qualify.
+    pub(in crate::emitter) fn emit_enclosing_loop_jump(
+        &self,
+        target: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<bool, EmitError> {
+        let Some(jump) = self.flow.enclosing_loop_jump(target) else {
+            return Ok(false);
+        };
+        self.emit_loop_jump(jump, out)?;
+        Ok(true)
+    }
+
+    /// Writes `jump`: the latch statements a `continue` must run first, then
+    /// the jump statement itself.
+    pub(in crate::emitter) fn emit_loop_jump(&self, jump: LoopJump, out: &mut String) -> Result<(), EmitError> {
+        if let Some(latch) = jump.latch() {
+            for statement in &self.block(latch)?.statements {
+                self.emit_statement(statement, out)?;
+            }
+        }
+        out.push_str(&jump.statement());
+        self.flow.record(Flow::Diverges);
+        Ok(())
+    }
+
+    /// Closes a cycle a region walker found: `block` is already on the path
+    /// being emitted.
+    ///
+    /// The cycle is a `continue` only when `block` heads, or ends an iteration
+    /// of, the innermost generated loop, which is where a Rust `continue`
+    /// goes. Any other re-entered block is a loop the walker did not
+    /// recognise; a bare `continue` there restarts the wrong loop (it skipped
+    /// the outer update of a source `continue outer` and never terminated),
+    /// and ending the region drops the cycle. Both are silent miscompiles, so
+    /// it is an error.
+    fn emit_region_cycle(&self, block: smelt_mir::BlockId, out: &mut String) -> Result<(), EmitError> {
+        if self.flow.is_innermost_loop_continue(block) {
+            out.push_str("    continue;\n");
+            return Ok(());
+        }
+        Err(self.unstructured_control_flow(format!("block {} closes a cycle outside the loop being emitted", block.0)))
+    }
+
     /// Opens the loop of a `while` header: a plain `while cond` when the header
     /// block computes nothing but the condition, or a `loop` that re-runs its
     /// statements and breaks on the condition when it does.
@@ -29,7 +79,7 @@ impl FunctionEmitter<'_> {
         }
         out.push_str(&format!(
             "    if !({}) {{ break; }}\n",
-            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
+            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?.delimited()
         ));
         Ok(())
     }
@@ -650,7 +700,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 self.emit_condition_region(self.block(*then_block)?, decision, out, visited)?;
                 out.push_str("    } else {\n");
                 self.emit_condition_region(self.block(*else_block)?, decision, out, visited)?;
@@ -686,9 +736,10 @@ impl FunctionEmitter<'_> {
             self.truthy_operand_expr(cond)?
         };
         let loop_declared = self.declared_scope();
+        let open_loop = self.flow.open_loop(block.id, None, Some(exit_entry), out.len());
         out.push_str("    loop {\n");
         self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
-        out.push_str(&format!("    if {cond_text} {{\n"));
+        out.push_str(&format!("    if {cond_text} {{\n", cond_text = cond_text.delimited()));
         if body_is_then {
             self.emit_block_until_goto(
                 self.block(body_entry)?,
@@ -712,6 +763,7 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
         }
         out.push_str("    }\n");
+        open_loop.close(out);
         loop_declared.close();
         Ok(())
     }
@@ -725,16 +777,13 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let limit = self.function.blocks.len().saturating_mul(8).max(128);
+        // The bound is structural: a structured region is at most a few
+        // passes over the function's blocks. Past it the walker is cycling
+        // through a shape it cannot structure, and the only honest answer is
+        // an error. It used to surrender with `break`, which silently dropped
+        // the rest of the loop body from the generated program.
         let Some(_depth) = self.flow.enter_until(limit) else {
-            out.push_str("    // Smelt could not structurally emit this nested loop edge yet.\n");
-            // Surrendering with `break` is only legal inside the generated loop
-            // this region belongs to; a forward join region has no enclosing
-            // loop, so it surrenders by simply ending (the caller still emits
-            // the join after it).
-            if matches!(exit, RegionExit::LoopBody { .. }) {
-                out.push_str("    break;\n");
-            }
-            return Ok(());
+            return Err(self.unstructured_control_flow(format!("nested loop regions exceed {limit} levels")));
         };
         self.emit_block_until_goto_inner(block, stop, exit, out, &mut BlockIdSet::default())
     }
@@ -749,6 +798,9 @@ impl FunctionEmitter<'_> {
         visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         let break_target = exit.break_target();
+        if self.emit_enclosing_loop_jump(block.id, out)? {
+            return Ok(());
+        }
         // In a loop body the region's stop IS the loop header, which is the
         // loop context a pending join was registered under.
         let loop_context = matches!(exit, RegionExit::LoopBody { .. }).then_some(stop);
@@ -756,14 +808,7 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         if !visited.insert(block.id) {
-            // Re-entering a block already on this path is a cycle. Inside a
-            // generated loop that cycle is the loop's own back edge, so it
-            // renders as `continue`; a forward join region has no enclosing
-            // loop, so the only compilable rendering is to end the region.
-            if matches!(exit, RegionExit::LoopBody { .. }) {
-                out.push_str("    continue;\n");
-            }
-            return Ok(());
+            return self.emit_region_cycle(block.id, out);
         }
         if self.emit_nested_loop_until_goto(block, stop, exit, out, visited)? {
             return Ok(());
@@ -837,7 +882,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) if break_target.is_some() => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 self.emit_loop_branch(self.block(*then_block)?, stop, break_target, out)?;
                 out.push_str("    } else {\n");
                 self.emit_loop_branch(self.block(*else_block)?, stop, break_target, out)?;
@@ -875,11 +920,11 @@ impl FunctionEmitter<'_> {
                 if *then_block == join && *else_block == join {
                     // Both edges already are the join: no branch to emit.
                 } else if *then_block == join {
-                    out.push_str(&format!("    if !({cond_text}) {{\n"));
+                    out.push_str(&format!("    if !({cond_text}) {{\n", cond_text = cond_text.delimited()));
                     self.emit_join_region_arm(*else_block, join, stop, out)?;
                     out.push_str("    }\n");
                 } else {
-                    out.push_str(&format!("    if {cond_text} {{\n"));
+                    out.push_str(&format!("    if {cond_text} {{\n", cond_text = cond_text.delimited()));
                     self.emit_join_region_arm(*then_block, join, stop, out)?;
                     if *else_block != join {
                         out.push_str("    } else {\n");
@@ -938,12 +983,14 @@ impl FunctionEmitter<'_> {
         out: &mut String,
         visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
+        if self.emit_enclosing_loop_jump(block.id, out)? {
+            return Ok(());
+        }
         if self.loop_join_stop_hit(block.id, Some(continue_target)) {
             return Ok(());
         }
         if !visited.insert(block.id) {
-            out.push_str("    continue;\n");
-            return Ok(());
+            return self.emit_region_cycle(block.id, out);
         }
         if self.emit_nested_loop_until_goto(
             block,
@@ -1063,7 +1110,7 @@ impl FunctionEmitter<'_> {
                 // which must declare it again (E0425 `_smelt_tmp_N` when the
                 // else-arm assigned it bare).
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
                 // Each branch can legitimately converge on the same join block.
                 // Sharing the recursion guard across siblings makes the later
                 // branch look cyclic and incorrectly emits `continue`.
@@ -1253,7 +1300,7 @@ impl FunctionEmitter<'_> {
         let join_scope = self.flow.push_loop_join_stop(join, continue_target);
         let mut arms = String::new();
         let emitted = (|| -> Result<(), EmitError> {
-            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?));
+            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
             let mut then_visited = visited.clone();
             self.emit_loop_branch_inner(
                 self.block(then_block)?,
@@ -1337,12 +1384,13 @@ impl FunctionEmitter<'_> {
             self.while_header(block)?
         {
             let Some(break_block) =
-                self.nested_loop_break_block(then_block, else_block, stop, &[block.id, else_block])
+                self.nested_loop_break_block(then_block, else_block, stop, exit, &[block.id, else_block])
             else {
                 return Ok(false);
             };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
+            let open_loop = self.flow.open_loop(block.id, None, Some(break_block), out.len());
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
@@ -1353,6 +1401,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
+            open_loop.close(out);
             loop_declared.close();
             self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
             return Ok(true);
@@ -1360,12 +1409,13 @@ impl FunctionEmitter<'_> {
 
         if let Some((then_block, else_block)) = self.constant_true_loop_header(block)? {
             let Some(break_block) =
-                self.nested_loop_break_block(then_block, else_block, stop, &[block.id, else_block])
+                self.nested_loop_break_block(then_block, else_block, stop, exit, &[block.id, else_block])
             else {
                 return Ok(false);
             };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
+            let open_loop = self.flow.open_loop(block.id, None, Some(break_block), out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -1379,6 +1429,7 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
+            open_loop.close(out);
             loop_declared.close();
             self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
             return Ok(true);
@@ -1391,6 +1442,7 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
                 stop,
+                exit,
                 &[block.id, latch_block, else_block],
             ) else {
                 return Ok(false);
@@ -1398,6 +1450,12 @@ impl FunctionEmitter<'_> {
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let loop_declared = self.declared_scope();
+            let open_loop = self.flow.open_loop(
+                block.id,
+                Some(latch_block),
+                Some(break_block),
+                out.len(),
+            );
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
@@ -1411,6 +1469,7 @@ impl FunctionEmitter<'_> {
                 self.emit_statement(statement, out)?;
             }
             out.push_str("    }\n");
+            open_loop.close(out);
             loop_declared.close();
             self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
             return Ok(true);
@@ -1428,17 +1487,30 @@ impl FunctionEmitter<'_> {
     /// loop is refused, unless the exit itself only jumps on to `stop`: then
     /// arriving at `stop` from the body is exactly a `break`, and `stop` is
     /// what the body breaks to.
+    ///
+    /// When the region is itself a loop body, `stop` is the enclosing loop's
+    /// continue target, and a body path reaching it (a source `continue outer`,
+    /// possibly through the outer latch) is a labelled `continue` of that
+    /// loop, which `emit_enclosing_loop_jump` writes once the nested loop is
+    /// open. The nested loop then keeps its own exit. Refusing it instead
+    /// emitted the nested header as an `if` whose back edge became a bare
+    /// `continue` of the OUTER loop, re-running the nested loop's
+    /// initialisation forever.
     fn nested_loop_break_block(
         &self,
         then_block: smelt_mir::BlockId,
         else_block: smelt_mir::BlockId,
         stop: smelt_mir::BlockId,
+        exit: RegionExit,
         avoiding: &[smelt_mir::BlockId],
     ) -> Option<smelt_mir::BlockId> {
         if !self.block_reaches_target_avoiding(then_block, stop, avoiding, &mut BlockIdSet::default()) {
             return Some(else_block);
         }
-        self.empty_goto_chain_reaches(else_block, stop).then_some(stop)
+        if self.empty_goto_chain_reaches(else_block, stop) {
+            return Some(stop);
+        }
+        (matches!(exit, RegionExit::LoopBody { .. }) && self.flow.in_open_loop()).then_some(else_block)
     }
 
     /// Whether following blocks that hold no statement and only `goto` leads

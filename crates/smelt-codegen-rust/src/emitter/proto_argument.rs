@@ -37,13 +37,13 @@ impl FunctionEmitter<'_> {
         let scope = self.render_scope();
         let value = self.extract_rendered(&RustExpr::atom(erased), ty, &scope)?;
         Ok(if declared.starts_with("&mut ") {
-            format!("&mut ({value})")
+            format!("&mut ({value})", value = value.delimited())
         } else if declared.starts_with('&')
             && matches!(self.mir.types.get(ty), Some(smelt_hir::Type::Function(_)))
         {
-            format!("&*({value})")
+            format!("&*({value})", value = value.delimited())
         } else if declared.starts_with('&') {
-            format!("&({value})")
+            format!("&({value})", value = value.delimited())
         } else {
             value.into_string()
         })

@@ -34,7 +34,7 @@ export function tagArray(): unknown {
 
     let body = emitted_function_body(&source, "fn tag_array");
     assert!(
-        body.contains("SmeltUnknown::Array(values) => { values.set_named_property(\"tag\".to_owned()"),
+        body.contains("SmeltUnknown::Array(smelt_values) => { smelt_values.set_named_property(\"tag\".to_owned()"),
         "a named write on an array receiver must store into the array:\n{body}"
     );
     assert!(

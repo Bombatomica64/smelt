@@ -40,17 +40,17 @@ impl FunctionEmitter<'_> {
             }
             let field_name = self.context.names().field_text(self.mir, source_field.name);
             let value = self.erase_rendered(
-                &RustExpr::chain(format!("smelt_struct_value.{field_name}.clone()")).ending_in_clone(),
+                &RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value(),
                 source_field.ty,
             )?;
-            entries.push(format!("({name:?}.to_owned(), {value})"));
+            entries.push(format!("({name:?}.to_owned(), {value})", value = value.delimited()));
         }
         if entries.is_empty() {
             return Ok(call_field_text.to_owned());
         }
         Ok(RustExpr::atom(format!(
             "({call_field_text}).smelt_with_properties(vec![{}])",
-            entries.join(", ")
+            entries.join(", "), call_field_text = call_field_text.delimited()
         )))
     }
 
@@ -190,7 +190,7 @@ impl FunctionEmitter<'_> {
                 self.virtual_method_slot_closure(instance_ty, instance_ty, slot, &receiver)?
             {
                 let name = self.context.names().field_text(self.mir, slot);
-                bindings.push(format!("{instance}.0.borrow_mut().{name} = {closure};"));
+                bindings.push(format!("{instance}.0.borrow_mut().{name} = {closure};", closure = closure.delimited()));
             }
         }
         if bindings.is_empty() {
@@ -266,9 +266,9 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, param)| {
                     if function_ty.mutable_params.contains(&index) {
-                        Ok(RustExpr::path(format!("arg{index}")))
+                        Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
-                        self.rendered_at_type(&RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone(), *param, *param, &self.render_scope())
+                        self.rendered_at_type(&RustExpr::path(format!("smelt_arg{index}")).cloned_value(), *param, *param, &self.render_scope())
                     }
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -290,7 +290,7 @@ impl FunctionEmitter<'_> {
                 self.rendered_type(function_ty.return_ty)?.into_string()
             };
             let wrapped_body = if function_ty.may_throw {
-                format!("Ok::<_, {ERROR_BOX}>({body})")
+                format!("Ok::<_, {ERROR_BOX}>({body})", body = body.delimited())
             } else {
                 body.into_string()
             };
@@ -362,9 +362,9 @@ impl FunctionEmitter<'_> {
                         })
                 };
                 let arg_source_text = if function_ty.mutable_params.contains(&index) {
-                    RustExpr::atom(format!("(*arg{index}).clone()")).ending_in_clone()
+                    RustExpr::loose(format!("*smelt_arg{index}")).cloned_value()
                 } else {
-                    RustExpr::chain(format!("arg{index}.clone()")).ending_in_clone()
+                    RustExpr::path(format!("smelt_arg{index}")).cloned_value()
                 };
                 let arg_text =
                     self.rendered_at_type(&arg_source_text, *target_param, source_param, &self.render_scope())?;
@@ -374,10 +374,10 @@ impl FunctionEmitter<'_> {
                     && self.parameter_needs_mutable_reference_in(source_function, source_local)
                 {
                     if function_ty.mutable_params.contains(&index) {
-                        Ok(RustExpr::path(format!("arg{index}")))
+                        Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
                         let local_name = format!("smelt_arg_{index}");
-                        arg_preludes.push(format!("let mut {local_name} = {arg_text};"));
+                        arg_preludes.push(format!("let mut {local_name} = {arg_text};", arg_text = arg_text.delimited()));
                         Ok(RustExpr::loose(format!("&mut {local_name}")))
                     }
                 } else {
@@ -437,7 +437,7 @@ impl FunctionEmitter<'_> {
         let adjusted_call = if source_can_throw && function_ty.may_throw {
             call
         } else if source_can_throw {
-            RustExpr::postfix_on(&call, format!("{call}.unwrap_or_else(|_| Default::default())"))
+            call.postfix(".unwrap_or_else(|_| Default::default())")
         } else {
             call
         };
@@ -452,7 +452,7 @@ impl FunctionEmitter<'_> {
             self.rendered_type(function_ty.return_ty)?.into_string()
         };
         let wrapped_body = if function_ty.may_throw && !source_can_throw {
-            format!("Ok::<_, {ERROR_BOX}>({body})")
+            format!("Ok::<_, {ERROR_BOX}>({body})", body = body.delimited())
         } else {
             body.into_string()
         };

@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn throw_terminator_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let payload = self.thrown_payload_expr(operand)?;
         Ok(format!(
-            "    return Err::<_, {ERROR_BOX}>({payload});\n"
+            "    return Err::<_, {ERROR_BOX}>({payload});\n", payload = payload.delimited()
         ))
     }
 
@@ -56,13 +56,13 @@ impl FunctionEmitter<'_> {
         // A Python exception is its own error type, recovered by downcasting.
         if self.is_py_exception_type(self.operand_ty(operand)?) {
             let value = self.operand_expr(operand)?;
-            return Ok(RustExpr::postfix_on(&value, format!("{value}.into_error()")));
+            return Ok(value.postfix(".into_error()"));
         }
         let _boundary = self.context.carrier_boundary();
         if !self.context.demand().has(Need::Unknown) {
             return Ok(RustExpr::atom(format!(
                 "std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into()",
-                self.operand_expr(operand)?
+                self.operand_expr(operand)?.delimited()
             )));
         }
         let operand_ty = self.operand_ty(operand)?;
@@ -79,7 +79,7 @@ impl FunctionEmitter<'_> {
     /// which JavaScript settles with `undefined`.
     pub(super) fn undefined_thrown_payload_expr(&self) -> RustExpr {
         if self.context.demand().has(Need::Unknown) {
-            return thrown::throw_expr("SmeltUnknown::Undefined");
+            return thrown::throw_expr(&RustExpr::undefined());
         }
         RustExpr::atom("std::io::Error::new(std::io::ErrorKind::Other, \"undefined\").into()")
     }
@@ -96,11 +96,11 @@ impl FunctionEmitter<'_> {
         error_text: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
         if self.is_py_exception_type(exception_ty) {
-            return Ok(RustExpr::atom(format!("SmeltPyException::from_error(&*{error_text})")));
+            return Ok(RustExpr::atom(format!("SmeltPyException::from_error(&*{error_text})", error_text = error_text.tight())));
         }
         match self.mir.types.get(exception_ty) {
-            Some(Type::String) => Ok(RustExpr::chain(format!("JsString::from({error_text}.to_string())"))),
-            Some(Type::PyStr) => Ok(RustExpr::postfix_on(&error_text, format!("{error_text}.to_string()"))),
+            Some(Type::String) => Ok(RustExpr::chain(format!("JsString::from({error_text}.to_string())", error_text = error_text.tight()))),
+            Some(Type::PyStr) => Ok(error_text.postfix(".to_string()")),
             Some(Type::Unknown) => Ok(thrown::thrown_value_expr(error_text)),
             _ => self.default_value(exception_ty),
         }

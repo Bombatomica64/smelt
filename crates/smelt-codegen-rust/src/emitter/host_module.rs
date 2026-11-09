@@ -47,13 +47,13 @@ impl FunctionEmitter<'_> {
                     prelude::PATH_RESOLVE_FN
                 };
                 let list = self.operand_expr(arg(0)?)?;
-                RustExpr::chain(format!("{helper}(&{})", list_read_expr(&list)))
+                RustExpr::chain(format!("{helper}(&{})", list_read_expr(&list).tight()))
             }
-            PathOp::Normalize => RustExpr::postfix_on(&prelude::PATH_NORMALIZE_FN, format!("{}(&{})", prelude::PATH_NORMALIZE_FN, text(0)?)),
-            PathOp::Dirname => RustExpr::postfix_on(&prelude::PATH_DIRNAME_FN, format!("{}(&{})", prelude::PATH_DIRNAME_FN, text(0)?)),
-            PathOp::Extname => RustExpr::postfix_on(&prelude::PATH_EXTNAME_FN, format!("{}(&{})", prelude::PATH_EXTNAME_FN, text(0)?)),
-            PathOp::IsAbsolute => RustExpr::postfix_on(&prelude::PATH_IS_ABSOLUTE_FN, format!("{}(&{})", prelude::PATH_IS_ABSOLUTE_FN, text(0)?)),
-            PathOp::Relative => RustExpr::postfix_on(&prelude::PATH_RELATIVE_FN, format!(
+            PathOp::Normalize => RustExpr::atom(format!("{}(&{})", prelude::PATH_NORMALIZE_FN, text(0)?)),
+            PathOp::Dirname => RustExpr::atom(format!("{}(&{})", prelude::PATH_DIRNAME_FN, text(0)?)),
+            PathOp::Extname => RustExpr::atom(format!("{}(&{})", prelude::PATH_EXTNAME_FN, text(0)?)),
+            PathOp::IsAbsolute => RustExpr::atom(format!("{}(&{})", prelude::PATH_IS_ABSOLUTE_FN, text(0)?)),
+            PathOp::Relative => RustExpr::atom(format!(
                 "{}(&{}, &{})",
                 prelude::PATH_RELATIVE_FN,
                 text(0)?,
@@ -67,12 +67,12 @@ impl FunctionEmitter<'_> {
                     None => "None".to_owned(),
                     Some(suffix) => match self.mir.types.get(self.operand_ty(suffix)?) {
                         Some(Type::Optional(_)) => {
-                            format!("({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()", self.operand_expr(suffix)?)
+                            format!("({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()", self.operand_expr(suffix)?.delimited())
                         }
                         _ => format!("Some({}.to_string().as_str())", text(1)?),
                     },
                 };
-                RustExpr::postfix_on(&prelude::PATH_BASENAME_FN, format!("{}(&{}, {suffix})", prelude::PATH_BASENAME_FN, text(0)?))
+                RustExpr::atom(format!("{}(&{}, {suffix})", prelude::PATH_BASENAME_FN, text(0)?))
             }
         })
     }
@@ -100,7 +100,7 @@ impl FunctionEmitter<'_> {
         match op {
             HashOp::Create => {
                 let algorithm = self.string_like_operand_expr(arg(0)?, op.name())?;
-                Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_CREATE_FN, format!("{}(&{algorithm})", prelude::HASH_CREATE_FN))))
+                Ok(RenderedCall::propagating(RustExpr::atom(format!("{}(&{algorithm})", prelude::HASH_CREATE_FN, algorithm = algorithm.tight()))))
             }
             HashOp::Update => {
                 let hash = self.operand_expr(arg(0)?)?;
@@ -109,16 +109,16 @@ impl FunctionEmitter<'_> {
             HashOp::DigestText => {
                 let hash = self.operand_expr(arg(0)?)?;
                 let encoding = self.string_like_operand_expr(arg(1)?, op.name())?;
-                Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_DIGEST_TEXT_FN, format!(
+                Ok(RenderedCall::propagating(RustExpr::atom(format!(
                     "{}(&{hash}, &{encoding})",
-                    prelude::HASH_DIGEST_TEXT_FN
+                    prelude::HASH_DIGEST_TEXT_FN, hash = hash.tight(), encoding = encoding.tight()
                 ))))
             }
             HashOp::DigestBytes => {
                 let hash = self.operand_expr(arg(0)?)?;
-                Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_DIGEST_BYTES_FN, format!(
+                Ok(RenderedCall::propagating(RustExpr::atom(format!(
                     "{}(&{hash}).map(SmeltUint8Array::from_bytes)",
-                    prelude::HASH_DIGEST_BYTES_FN
+                    prelude::HASH_DIGEST_BYTES_FN, hash = hash.tight()
                 ))))
             }
         }
@@ -135,7 +135,7 @@ impl FunctionEmitter<'_> {
     /// (a `Buffer` included).
     fn hash_update(
         &self,
-        hash: &str,
+        hash: &RustExpr,
         data: &Operand,
         encoding_operand: Option<&Operand>,
     ) -> Result<RenderedCall, EmitError> {
@@ -146,33 +146,33 @@ impl FunctionEmitter<'_> {
         let data_ty = self.operand_ty(data)?;
         if matches!(self.mir.types.get(data_ty), Some(Type::String | Type::PyStr)) {
             let text = self.string_like_operand_expr(data, "hash.update data")?;
-            return Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_TEXT_FN, format!(
+            return Ok(RenderedCall::propagating(RustExpr::atom(format!(
                 "{}(&{hash}, &{text}, &{encoding})",
-                prelude::HASH_UPDATE_TEXT_FN
+                prelude::HASH_UPDATE_TEXT_FN, hash = hash.tight(), text = text.tight(), encoding = encoding.tight()
             ))));
         }
         if self.is_typed_array_view_class_type(data_ty)?
             || self.operand_is_array_buffer(data)?
             || self.is_data_view_class_type(data_ty)?
         {
-            return Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_BYTES_FN, format!(
+            return Ok(RenderedCall::propagating(RustExpr::atom(format!(
                 "{}(&{hash}, &({}).to_bytes())",
                 prelude::HASH_UPDATE_BYTES_FN,
-                self.operand_expr(data)?
+                self.operand_expr(data)?.delimited(), hash = hash.tight()
             ))));
         }
         if let Some(bytes) = self.byte_source_union_bytes_expr(&self.operand_expr(data)?, data_ty)?
         {
-            return Ok(RenderedCall::propagating(RustExpr::postfix_on(&prelude::HASH_UPDATE_BYTES_FN, format!(
+            return Ok(RenderedCall::propagating(RustExpr::atom(format!(
                 "{}(&{hash}, &{bytes})",
-                prelude::HASH_UPDATE_BYTES_FN
+                prelude::HASH_UPDATE_BYTES_FN, hash = hash.tight(), bytes = bytes.tight()
             ))));
         }
         let erased = self.erase(data)?;
-        Ok(RenderedCall::propagating(RustExpr::atom(self.carrier_format(format_args!(
-            "{{ let smelt_value = {erased}; match &smelt_value {{ SmeltUnknown::String(text) => {text_fn}(&{hash}, &text.to_string(), &{encoding}), _ => {bytes_fn}(&{hash}, &SmeltTypedArray::smelt_from_unknown(smelt_value.clone()).to_bytes()) }} }}",
+        Ok(RenderedCall::propagating(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "{{ let smelt_value = {erased}; match &smelt_value {{ SmeltUnknown::String(smelt_text) => {text_fn}(&{hash}, &smelt_text.to_string(), &{encoding}), _ => {bytes_fn}(&{hash}, &SmeltTypedArray::smelt_from_unknown(smelt_value.clone()).to_bytes()) }} }}",
             text_fn = prelude::HASH_UPDATE_TEXT_FN,
-            bytes_fn = prelude::HASH_UPDATE_BYTES_FN,
+            bytes_fn = prelude::HASH_UPDATE_BYTES_FN, erased = erased.delimited(), hash = hash.tight(), encoding = encoding.tight(),
         )))))
     }
 

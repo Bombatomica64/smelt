@@ -851,7 +851,7 @@ pub(crate) fn scaled(base: f64) -> f64 {
 }
 
 pub(crate) fn count_up(base: f64) -> f64 {
-    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
     let limit: f64 = 3.0;
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let limit = limit.clone();
@@ -875,7 +875,7 @@ pub(crate) fn count_up(base: f64) -> f64 {
 }
 
 pub(crate) fn count_up_hoisted(base: f64) -> f64 {
-    let smelt_capture_climb: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_climb: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
     let limit: f64 = 4.0;
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_climb = ::std::rc::Rc::downgrade(&smelt_capture_climb);

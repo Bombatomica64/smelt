@@ -369,25 +369,25 @@ impl FunctionEmitter<'_> {
     fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         let item = RustExpr::path("smelt_item");
         Some(match self.mir.types.get(ty)? {
-            Type::String | Type::PyStr => RustExpr::chain(format!("smelt_py_str_repr({reference})")),
-            Type::Int => RustExpr::chain(format!("({reference}).to_string()")),
+            Type::String | Type::PyStr => RustExpr::chain(format!("smelt_py_str_repr({reference})", reference = reference.delimited())),
+            Type::Int => RustExpr::chain(format!("({reference}).to_string()", reference = reference.delimited())),
             Type::Float => RustExpr::chain(format!(
                 "{}({reference})",
-                smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN
+                smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN, reference = reference.delimited()
             )),
             Type::Bool => RustExpr::atom(format!(
-                "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()"
+                "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()", reference = reference.tight()
             )),
             Type::Optional(inner) => {
                 let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::atom(format!(
-                    "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}"
+                    "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}", reference = reference.delimited(), inner_repr = inner_repr.delimited()
                 ))
             }
             Type::List(inner) => {
                 let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::chain(format!(
-                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner_repr}).collect::<Vec<String>>().join(\", \"))"
+                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner_repr}).collect::<Vec<String>>().join(\", \"))", reference = reference.delimited(), inner_repr = inner_repr.delimited()
                 ))
             }
             Type::Tuple(members) => {
@@ -395,7 +395,7 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, member)| {
-                        self.python_repr_expr(&RustExpr::atom(format!("&({reference}).{index}")), *member)
+                        self.python_repr_expr(&RustExpr::atom(format!("&({reference}).{index}", reference = reference.delimited())), *member)
                             .map(RustExpr::into_string)
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -429,7 +429,7 @@ impl FunctionEmitter<'_> {
                 "{}",
                 format!(
                     "if {} {{ \"True\" }} else {{ \"False\" }}",
-                    self.operand_expr(operand)?
+                    self.operand_expr(operand)?.delimited()
                 ),
             ))
         } else if self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty) {
@@ -447,7 +447,7 @@ impl FunctionEmitter<'_> {
             // `Debug` (`["a", true, ()]`).
             Ok((
                 "{}",
-                format!("SmeltPyRepr::py_repr(&{})", self.operand_expr(operand)?),
+                format!("SmeltPyRepr::py_repr(&{})", self.operand_expr(operand)?.tight()),
             ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's
@@ -460,7 +460,7 @@ impl FunctionEmitter<'_> {
                     "{}::{}(&{})",
                     console_inspect_prelude::INSPECT_TRAIT,
                     console_inspect_prelude::CONSOLE_TEXT_METHOD,
-                    self.operand_expr(operand)?
+                    self.operand_expr(operand)?.tight()
                 ),
             ))
         } else if absent == AbsentSpelling::Undefined
@@ -475,7 +475,7 @@ impl FunctionEmitter<'_> {
                     "{}::{}(&{})",
                     console_inspect_prelude::INSPECT_TRAIT,
                     console_inspect_prelude::CONSOLE_TEXT_METHOD,
-                    self.erase(operand)?
+                    self.erase(operand)?.tight()
                 ),
             ))
         } else if absent == AbsentSpelling::Undefined
@@ -498,12 +498,12 @@ impl FunctionEmitter<'_> {
                     "{}::{}(&{})",
                     console_inspect_prelude::INSPECT_TRAIT,
                     console_inspect_prelude::CONSOLE_TEXT_METHOD,
-                    self.erase(operand)?
+                    self.erase(operand)?.tight()
                 ),
             ))
         } else if absent == AbsentSpelling::None
             && matches!(self.mir.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
-            && let Some(repr) = self.python_repr_expr(&RustExpr::atom(format!("&{}", self.operand_expr(operand)?)), ty)
+            && let Some(repr) = self.python_repr_expr(&RustExpr::atom(format!("&{}", self.operand_expr(operand)?.tight())), ty)
         {
             Ok(("{}", repr.into_string()))
         } else if matches!(
@@ -533,7 +533,7 @@ impl FunctionEmitter<'_> {
                 "{}",
                 format!(
                     "{fn_name}({})",
-                    self.operand_expr(operand)?,
+                    self.operand_expr(operand)?.delimited(),
                     fn_name = smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN,
                 ),
             ))
@@ -552,7 +552,7 @@ impl FunctionEmitter<'_> {
                 "{}",
                 format!(
                     "{fn_name}({}{width})",
-                    self.operand_expr(operand)?,
+                    self.operand_expr(operand)?.delimited(),
                     fn_name = smelt_stdlib::runtime_symbols::number_text::CONSOLE_NUMBER_FN,
                 ),
             ))
@@ -625,11 +625,11 @@ impl FunctionEmitter<'_> {
                 "console optional rendering requires an optional operand",
             ));
         };
-        let present = self.console_value(&RustExpr::path("value"), inner, absent)?;
+        let present = self.console_value(&RustExpr::path("smelt_value"), inner, absent)?;
         Ok(RustExpr::atom(format!(
-            "match &{} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
-            self.operand_expr(operand)?,
-            absent.text()
+            "match &{} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
+            self.operand_expr(operand)?.tight(),
+            absent.text(), present = present.delimited()
         )))
     }
 
@@ -651,26 +651,26 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
         ) {
-            return Ok(RustExpr::atom(format!("format!(\"{{:?}}\", {value_text})")));
+            return Ok(RustExpr::atom(format!("format!(\"{{:?}}\", {value_text})", value_text = value_text.delimited())));
         }
         if matches!(
             self.mir.types.get(ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown)
         ) {
-            return Ok(RustExpr::atom(format!("format!(\"{{}}\", {value_text})")));
+            return Ok(RustExpr::atom(format!("format!(\"{{}}\", {value_text})", value_text = value_text.delimited())));
         }
         // A nested optional recurses, so `Array<string | undefined>`'s element
         // prints its own inner value rather than a wrapper.
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
             let present = self.console_value(value_text, inner, absent)?;
             return Ok(RustExpr::atom(format!(
-                "match {value_text} {{ Some(value) => {present}, None => {:?}.to_owned() }}",
-                absent.text()
+                "match {value_text} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
+                absent.text(), value_text = value_text.delimited(), present = present.delimited()
             )));
         }
         // Every remaining non-`Display` type takes the same erasure route the
         // top-level argument takes.
-        let erased = self.erase_rendered(&RustExpr::postfix_on(&value_text, format!("{value_text}.clone()")).ending_in_clone(), ty)?;
-        Ok(RustExpr::atom(format!("format!(\"{{}}\", {erased})")))
+        let erased = self.erase_rendered(&value_text.cloned_value(), ty)?;
+        Ok(RustExpr::atom(format!("format!(\"{{}}\", {erased})", erased = erased.delimited())))
     }
 }

@@ -92,7 +92,7 @@ impl FunctionEmitter<'_> {
                 };
                 let host_read = self.response_op_on_expr(op, base_text)?;
                 // The host answers text as UTF-8; the member is a JavaScript string.
-                let read = if op == ResponseOp::StatusText { RustExpr::chain(format!("JsString::from({host_read})")) } else { host_read };
+                let read = if op == ResponseOp::StatusText { RustExpr::chain(format!("JsString::from({host_read})", host_read = host_read.delimited())) } else { host_read };
                 Ok(Some((read, member_ty)))
             }
         }

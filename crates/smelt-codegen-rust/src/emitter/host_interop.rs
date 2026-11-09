@@ -52,7 +52,7 @@ impl FunctionEmitter<'_> {
         let name = self.symbol_name(class)?.to_owned();
         let unknown_ty = self.type_id(Type::Unknown)?;
         let call = RustExpr::chain(format!(
-            "{slot}.with(|slot| {read}(slot, {name:?}))",
+            "{slot}.with(|smelt_slot| {read}(smelt_slot, {name:?}))",
             read = smelt_stdlib::runtime_symbols::host_override::READ,
         ));
         self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
@@ -72,8 +72,8 @@ impl FunctionEmitter<'_> {
         let erased = self.erase(value)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
         let call = RustExpr::chain(format!(
-            "{slot}.with(|slot| {write}(slot, {erased}))",
-            write = smelt_stdlib::runtime_symbols::host_override::WRITE,
+            "{slot}.with(|smelt_slot| {write}(smelt_slot, {erased}))",
+            write = smelt_stdlib::runtime_symbols::host_override::WRITE, erased = erased.delimited(),
         ));
         self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn process_argv_expr(&self) -> RustExpr {
         let element = if self.indexes_utf16() { "JsString::from(smelt_arg.as_str())" } else { "smelt_arg" };
         RustExpr::from(format!(
-            "{{ let mut smelt_args = ::std::env::args(); let smelt_started = smelt_args.next().unwrap_or_default(); let smelt_exe = ::std::env::current_exe().map(|path| path.to_string_lossy().into_owned()).unwrap_or(smelt_started); ::std::iter::once(smelt_exe.clone()).chain(::std::iter::once(smelt_exe)).chain(smelt_args).map(|smelt_arg| {element}).collect::<Vec<_>>() }}"
+            "{{ let mut smelt_args = ::std::env::args(); let smelt_started = smelt_args.next().unwrap_or_default(); let smelt_exe = ::std::env::current_exe().map(|smelt_path| smelt_path.to_string_lossy().into_owned()).unwrap_or(smelt_started); ::std::iter::once(smelt_exe.clone()).chain(::std::iter::once(smelt_exe)).chain(smelt_args).map(|smelt_arg| {element}).collect::<Vec<_>>() }}"
         ))
     }
 
@@ -171,7 +171,7 @@ impl FunctionEmitter<'_> {
             .map(|value| self.erase(value))
             .collect::<Result<Vec<_>, _>>()?;
         let rest_text = match rest {
-            Some(operand) => format!("Some({})", self.erase(operand)?),
+            Some(operand) => format!("Some({})", self.erase(operand)?.delimited()),
             None => "None".to_owned(),
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
@@ -193,7 +193,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(RustExpr::atom(format!(
             "reqwest::blocking::get({}).expect(\"HTTP GET failed\").text().expect(\"HTTP response body read failed\")",
-            self.operand_expr(url)?
+            self.operand_expr(url)?.delimited()
         )))
     }
 
@@ -207,7 +207,7 @@ impl FunctionEmitter<'_> {
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(RustExpr::chain(format!("{name}.with(::std::cell::Cell::get)")))
         } else {
-            Ok(RustExpr::chain(format!("{name}.with(|value| value.borrow().clone())")))
+            Ok(RustExpr::chain(format!("{name}.with(|smelt_value| smelt_value.borrow().clone())")))
         }
     }
 
@@ -215,7 +215,7 @@ impl FunctionEmitter<'_> {
     /// its value: `NAME.with(|_| ())`. Used for a slot read whose result is
     /// never consumed.
     pub(super) fn global_touch_expr(&self, global: u32) -> RustExpr {
-        { let receiver = crate::globals::global_static_name(self.mir, global); RustExpr::postfix_on(&receiver, format!("{receiver}.with(|_| ())")) }
+        RustExpr::atom(crate::globals::global_static_name(self.mir, global)).postfix(".with(|_| ())")
     }
 
     /// Whether a mutable global of this type is backed by a `Cell` rather than
@@ -257,11 +257,11 @@ impl FunctionEmitter<'_> {
         let result_text = self.rendered_at_type(&RustExpr::path("smelt_global_value"), ty, dest_ty, &self.render_scope())?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| value.set(smelt_global_value)); {result_text} }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|smelt_value| smelt_value.set(smelt_global_value)); {result_text} }}", value_text = value_text.delimited(), result_text = result_text.delimited()
             )))
         } else {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|value| *value.borrow_mut() = smelt_global_value.clone()); {result_text} }}"
+                "{{ let smelt_global_value = {value_text}; {name}.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); {result_text} }}", value_text = value_text.delimited(), result_text = result_text.delimited()
             )))
         }
     }
@@ -324,7 +324,7 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(RustExpr::chain(format!(
-            "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})"
+            "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})", key_text = key_text.delimited(), rendered_value = rendered_value.delimited()
         )))
     }
 
@@ -361,7 +361,7 @@ impl FunctionEmitter<'_> {
                 || Ok(RustExpr::string_literal("")),
                 |arg| self.string_like_operand_expr(arg, "RegExp flags"),
             )?;
-            return Ok(RustExpr::atom(format!("SmeltRegExp::new({pattern}, {flags})")));
+            return Ok(RustExpr::atom(format!("SmeltRegExp::new({pattern}, {flags})", pattern = pattern.delimited(), flags = flags.delimited())));
         }
         let args_text = args
             .iter()
@@ -373,7 +373,7 @@ impl FunctionEmitter<'_> {
         } else {
             format!("({args_text},)")
         };
-        Ok(RustExpr::atom(self.carrier_format(format_args!(
+        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
             "{{ let _smelt_external_args = {args_tuple_text}; let _smelt_external = Vec::from([(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.into()))]); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
         ))))
     }

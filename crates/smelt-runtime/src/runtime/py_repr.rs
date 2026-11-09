@@ -96,7 +96,7 @@ impl<T: SmeltPyRepr> SmeltPyRepr for SmeltList<T> { fn py_repr(&self) -> String 
 // @smelt:if prim_set
 impl<T: SmeltPyRepr> SmeltPyRepr for SmeltPrimSet<T> {
     fn py_repr(&self) -> String {
-        let items = smelt_py_repr_items(self.iter());
+        let items = smelt_py_repr_items(self.store.borrow().entries.iter());
         if items.is_empty() { "set()".to_owned() } else { format!("{{{items}}}") }
     }
 }

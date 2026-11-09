@@ -74,8 +74,8 @@ impl FunctionEmitter<'_> {
                 field: field.name,
             })?;
             let converted =
-                self.rendered_at_type(&RustExpr::chain("smelt_keyed_value.clone()").ending_in_clone(), value_ty, field.ty, &scope)?;
-            arms.push(format!("{key:?} => {{ {lvalue} = {converted}; }}"));
+                self.rendered_at_type(&RustExpr::path("smelt_keyed_value").cloned_value(), value_ty, field.ty, &scope)?;
+            arms.push(format!("{key:?} => {{ {lvalue} = {converted}; }}", lvalue = lvalue.delimited(), converted = converted.delimited()));
         }
         if arms.is_empty() {
             return Ok(None);
@@ -84,8 +84,8 @@ impl FunctionEmitter<'_> {
         let key_text = self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_keyed_value = {}; let smelt_key = ({key_text}).to_string(); match smelt_key.as_str() {{ {} _ => {{}} }} }}",
-            self.operand_expr(value_operand)?,
-            arms.join(" ")
+            self.operand_expr(value_operand)?.delimited(),
+            arms.join(" "), key_text = key_text.delimited()
         ))))
     }
 

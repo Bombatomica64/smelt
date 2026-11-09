@@ -477,14 +477,14 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         .unwrap_or("field");
                     let value = record_field_unknown_expr(
                         mir,
-                        &RustExpr::chain(format!("__smelt_inner.{field_name}.clone()")).ending_in_clone(),
+                        &RustExpr::path(format!("__smelt_inner.{field_name}")).cloned_value(),
                         field.ty,
                     )
                     .unwrap_or_else(|_| RustExpr::atom("SmeltUnknown::Null"));
                     // A closure capturing this instance weakly must hold it
                     // strongly once it is reachable from an erased view.
                     let value = if weak_fields.contains(&field.name) {
-                        format!("smelt_keep_receiver_alive({value}, &self)")
+                        format!("smelt_keep_receiver_alive({value}, &self)", value = value.delimited())
                     } else {
                         value.into_string()
                     };
@@ -503,7 +503,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 // yields this instance (see `reference_origin`).
                 fn_writer.line(format!(
                     "SmeltUnknown::Object({})",
-                    reference_origin::with_origin_expr("SmeltObject::with_id(__smelt_id, __smelt_entries)", "self")
+                    reference_origin::with_origin_expr("SmeltObject::with_id(__smelt_id, __smelt_entries)", "self").delimited()
                 ));
             });
         },

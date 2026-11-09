@@ -27,7 +27,7 @@ impl FunctionEmitter<'_> {
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
-            return Ok(RustExpr::atom(format!("Into::<SmeltList<_>>::into({text})")));
+            return Ok(RustExpr::atom(format!("Into::<SmeltList<_>>::into({text})", text = text.delimited())));
         }
         Ok(text)
     }
@@ -52,10 +52,10 @@ impl FunctionEmitter<'_> {
                 Some(Type::Optional(inner)) if *inner == dest_ty
             )
         {
-            return Ok(RustExpr::postfix_on(&crate::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, format!(
+            return Ok(RustExpr::atom(format!(
                 "{}({}.clone())",
                 crate::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
-                self.operand_expr(operand)?
+                self.operand_expr(operand)?.tight()
             )));
         }
         if matches!(
@@ -69,7 +69,7 @@ impl FunctionEmitter<'_> {
             // whole optional twice (a regex match's captures, per request,
             // in Hono's router).
             let receiver = self.operand_borrow_expr(operand)?;
-            return Ok(RustExpr::postfix_on(&receiver, format!("{receiver}.clone().expect(\"optional value was absent after narrowing\")")));
+            return Ok(receiver.postfix(".clone().expect(\"optional value was absent after narrowing\")"));
         }
         self.value_at_type(operand, dest_ty)
     }
@@ -149,7 +149,7 @@ impl FunctionEmitter<'_> {
             Rvalue::HostModuleCall { op, args } => self.host_module_rvalue_expr(*op, args),
             // The ONE global object: every reference is a handle on the same
             // shared record (see `emit_global_object_support`).
-            Rvalue::GlobalObject => Ok(RustExpr::postfix_on(&crate::thrown::GLOBAL_OBJECT_FN, format!("{}()", crate::thrown::GLOBAL_OBJECT_FN))),
+            Rvalue::GlobalObject => Ok(RustExpr::atom(format!("{}()", crate::thrown::GLOBAL_OBJECT_FN))),
             Rvalue::FormDataNew => Ok(RustExpr::atom("SmeltFormData::new()")),
             Rvalue::FormDataOp { op, form, args } => {
                 self.form_data_op_expr(*op, form, args, dest_ty)
@@ -167,7 +167,7 @@ impl FunctionEmitter<'_> {
             Rvalue::PyRepr { value: text_of } => self.py_text_expr(text_of, "py_repr"),
             Rvalue::PyExceptionArgs { exception } => {
                 let exception_text = self.operand_expr(exception)?;
-                Ok(RustExpr::postfix_on(&exception_text, format!("{exception_text}.args()")))
+                Ok(exception_text.postfix(".args()"))
             }
             Rvalue::PyExceptionCaughtBy { exception, classes, catches_unclassified } => {
                 self.py_exception_caught_by_expr(exception, classes, *catches_unclassified)
@@ -351,11 +351,11 @@ impl FunctionEmitter<'_> {
             // optional string is.
             Rvalue::SymbolUnique { base } => {
                 let base_text = self.operand_expr(base)?;
-                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base_text})")))
+                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base_text})", base_text = base_text.delimited())))
             }
             Rvalue::SymbolDescription { operand } => {
                 let symbol = self.operand_expr(operand)?;
-                Ok(RustExpr::postfix_on(&symbol, format!("{symbol}.description()")))
+                Ok(symbol.postfix(".description()"))
             }
             Rvalue::StructuredClone { operand } => self.structured_clone_expr(operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_expr(*side, operand),
@@ -629,9 +629,9 @@ impl FunctionEmitter<'_> {
             Rvalue::VitestSpyOn { target, name } => self.vitest_spy_on_expr(target, name),
             Rvalue::VitestAsymmetricEqual { actual, expected } => self.vitest_asymmetric_equal_expr(actual, expected),
             Rvalue::VitestMockLastResolvedWith { mock, expected } => self.vitest_mock_last_resolved_with_expr(mock, expected),
-            Rvalue::DateTimezoneContext { timezone } => Ok(RustExpr::atom(self.carrier_format(format_args!(
-                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => {{ let value = value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"{SMELT_TIMEZONE}\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
-                self.host_utf8_text(self.operand_expr(timezone)?),
+            Rvalue::DateTimezoneContext { timezone } => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |smelt_value: SmeltUnknown| -> SmeltUnknown {{ let smelt_timestamp_ms = match smelt_value {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).map(|smelt_date| smelt_date.timestamp_millis() as f64).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let smelt_local_timestamp_ms = if smelt_timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(smelt_local_timestamp_ms)), (\"{SMELT_TIMEZONE}\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
+                self.host_utf8_text(self.operand_expr(timezone)?).delimited(),
                 self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )))),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_expr(timestamp_ms),
@@ -673,7 +673,7 @@ impl FunctionEmitter<'_> {
             Rvalue::BuiltinNamespace { name } => self.builtin_namespace_expr(name, dest_ty),
             Rvalue::UnmodeledImport => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                let stub = self.carrier_expr(&RustExpr::chain("smelt_unmodeled_import()"));
+                let stub = self.carrier_expr(self.carrier()?, &RustExpr::chain("smelt_unmodeled_import()"));
                 self.rendered_at_type(&stub, unknown_ty, dest_ty, &self.render_scope())
             }
             Rvalue::ArgumentsObject { fixed, rest } => {
@@ -734,9 +734,9 @@ impl FunctionEmitter<'_> {
     /// alone.
     fn host_text_at_type(&self, text: RustExpr, dest_ty: TypeId) -> RustExpr {
         match self.mir.types.get(dest_ty) {
-            Some(Type::String) => RustExpr::chain(format!("JsString::from({text})")),
+            Some(Type::String) => RustExpr::chain(format!("JsString::from({text})", text = text.delimited())),
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
-                RustExpr::atom(format!("({text}).map(JsString::from)"))
+                RustExpr::atom(format!("({text}).map(JsString::from)", text = text.delimited()))
             }
             _ => text,
         }

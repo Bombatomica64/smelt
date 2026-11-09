@@ -63,10 +63,31 @@ mod list_family {
         for value in ["b", "a", "b", "c"] {
             set.insert(value.to_owned());
         }
-        let members: Vec<_> = set.iter().cloned().collect();
+        let members: Vec<_> = set.iter().collect();
         assert_eq!(members, ["b", "a", "c"], "JS `Set` order is insertion order");
         assert!(set.remove(&"a".to_owned()), "a member can be removed");
         assert!(!set.contains(&"a".to_owned()), "and is gone");
+    }
+
+    /// A `Set` is a reference value: a handle's clone is the same set (same id,
+    /// writes seen through either), and only `fresh_copy`/`collect` make a new
+    /// one. The store used to be copy-on-write, so a write through a clone —
+    /// how a captured or module-level set is reached — was lost.
+    #[test]
+    fn a_primitive_set_is_shared_by_its_handles() {
+        let mut set: SmeltPrimSet<i64> = [1, 2].into_iter().collect();
+        let mut alias = set.clone();
+        alias.insert(3);
+        assert!(set.contains(&3), "a write through an alias reaches the set");
+        assert_eq!(alias.id, set.id, "an alias is the same object");
+        let mut copy = set.fresh_copy();
+        copy.insert(4);
+        set.remove(&1);
+        assert!(!set.contains(&4) && copy.contains(&1), "a copy is independent");
+        assert_ne!(copy.id, set.id, "a copy is a new object");
+        alias.clear();
+        assert!(set.is_empty(), "clear empties every handle");
+        assert_eq!(copy.iter().collect::<Vec<_>>(), [1, 2, 3, 4]);
     }
 }
 
@@ -197,6 +218,23 @@ mod map_and_set_family {
         assert_eq!(set.len(), 2, "a repeat is not a new member");
         let members: Vec<String> = set.iter().map(|member| member.to_string()).collect();
         assert_eq!(members, ["b", "a"], "members stay in insertion order");
+    }
+
+    /// A `SmeltJsSet` is shared by its handles and copied only by
+    /// `fresh_copy`, like `SmeltPrimSet` (see its test).
+    #[test]
+    fn a_js_set_is_shared_by_its_handles() {
+        let mut set: SmeltJsSet<SmeltUnknown> = SmeltJsSet::new();
+        set.insert(text("a"));
+        let mut alias = set.clone();
+        alias.insert(text("b"));
+        assert_eq!(set.len(), 2, "a write through an alias reaches the set");
+        let mut copy = set.fresh_copy();
+        copy.insert(text("c"));
+        assert_eq!((set.len(), copy.len()), (2, 3), "a copy is independent");
+        assert_ne!(copy.id, set.id, "a copy is a new object");
+        alias.clear();
+        assert!(set.is_empty(), "clear empties every handle");
     }
 }
 

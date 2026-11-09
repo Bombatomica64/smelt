@@ -36,7 +36,7 @@ impl FunctionEmitter<'_> {
     /// API that takes `&str`: a JavaScript string's lossy UTF-8
     /// (`to_string_lossy`), a Python `String` unchanged.
     pub(super) fn host_utf8_text(&self, text: RustExpr) -> RustExpr {
-        if self.indexes_utf16() { RustExpr::postfix_on(&text, format!("{text}.to_string_lossy()")) } else { text }
+        if self.indexes_utf16() { text.postfix(".to_string_lossy()") } else { text }
     }
 
     /// `payload`, the `JsString` an erased `SmeltUnknown::String` holds, as a
@@ -73,9 +73,9 @@ impl FunctionEmitter<'_> {
     /// [`Self::string_len_text`] as a rendered expression.
     pub(super) fn string_len_expr(&self, receiver: &RustExpr) -> RustExpr {
         if self.indexes_utf16() {
-            RustExpr::postfix_on(receiver, format!("{receiver}.len()"))
+            receiver.postfix(".len()")
         } else {
-            RustExpr::postfix_on(receiver, format!("{receiver}.chars().count()"))
+            receiver.postfix(".chars().count()")
         }
     }
 
@@ -85,7 +85,7 @@ impl FunctionEmitter<'_> {
         if self.indexes_utf16() {
             format!("{receiver}.char_at({index})")
         } else {
-            format!("{receiver}.chars().nth({index}).map(|ch| ch.to_string())")
+            format!("{receiver}.chars().nth({index}).map(|smelt_ch| smelt_ch.to_string())")
         }
     }
 
@@ -103,7 +103,7 @@ impl FunctionEmitter<'_> {
     /// `receiver`, clamped to its end. (A JavaScript string indexes its code
     /// units directly and never asks for a byte offset.)
     pub(super) fn string_byte_of_text(&self, receiver: &str, index: &str) -> String {
-        format!("{receiver}.char_indices().nth({index}).map_or({receiver}.len(), |(byte, _)| byte)")
+        format!("{receiver}.char_indices().nth({index}).map_or({receiver}.len(), |(smelt_byte, _)| smelt_byte)")
     }
 
     /// A `(byte, index)` pair for code point `index` (`usize`) of the Python
@@ -135,7 +135,7 @@ impl FunctionEmitter<'_> {
         if self.indexes_utf16() {
             format!("{receiver}.unit_at({index}).map_or(f64::NAN, f64::from)")
         } else {
-            format!("match {receiver}.as_bytes().get(..={index}) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[{index}]), _ => {receiver}.chars().nth({index}).map_or(f64::NAN, |ch| ch as u32 as f64) }}")
+            format!("match {receiver}.as_bytes().get(..={index}) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[{index}]), _ => {receiver}.chars().nth({index}).map_or(f64::NAN, |smelt_ch| smelt_ch as u32 as f64) }}")
         }
     }
 
@@ -154,7 +154,7 @@ impl FunctionEmitter<'_> {
         if self.indexes_utf16() {
             format!("{receiver}.split(&JsString::new(), usize::MAX)")
         } else {
-            format!("{receiver}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()")
+            format!("{receiver}.chars().map(|smelt_ch| smelt_ch.to_string()).collect::<Vec<_>>()")
         }
     }
 }

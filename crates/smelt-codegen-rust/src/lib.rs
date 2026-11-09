@@ -102,7 +102,6 @@ mod reference_storage;
 mod reflection_prelude;
 pub(crate) mod runtime_demand;
 pub(crate) mod runtime_prelude;
-#[cfg(any(debug_assertions, test))]
 mod runtime_symbols_check;
 pub mod rust;
 pub(crate) mod stdlib;
@@ -111,7 +110,7 @@ pub(crate) mod type_substitution;
 mod typed_array_prelude;
 
 pub use contract::{
-    OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, PRELUDE_END_MARKER, RECORD_ADAPTER_HELPER_PREFIX,
+    MODULE_SOURCE_HEADER, OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, PRELUDE_END_MARKER, RECORD_ADAPTER_HELPER_PREFIX,
     RECORD_CONVERSION_HELPER_PREFIX,
 };
 pub use crate_builder::{emit_source, emit_source_with_allocator};

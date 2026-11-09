@@ -5,33 +5,8 @@
     reason = "crate-visible helpers are shared with the parent module and tests"
 )]
 
-use smelt_stdlib::BackendDependency;
-
-/// Stable dependency rendering order for stdlib-backed generated crates.
-///
-/// Keeping the order centralized avoids Cargo.toml churn as new MIR rvalues
-/// start reporting existing backend dependencies.
-const STDLIB_DEPENDENCIES: [BackendDependency; 19] = [
-    BackendDependency::Reqwest,
-    BackendDependency::SerdeJson,
-    BackendDependency::Regex,
-    BackendDependency::Regress,
-    BackendDependency::Rand,
-    BackendDependency::Chrono,
-    BackendDependency::ChronoTz,
-    BackendDependency::Url,
-    BackendDependency::UnicodeNormalization,
-    BackendDependency::Hyper,
-    BackendDependency::Uuid,
-    BackendDependency::GetRandom,
-    BackendDependency::Sha,
-    BackendDependency::Hmac,
-    BackendDependency::Base64,
-    BackendDependency::Md5,
-    BackendDependency::Rusqlite,
-    BackendDependency::BigInt,
-    BackendDependency::IndexMap,
-];
+use smelt_stdlib::deps::{GENAWAITER, TOKIO};
+use smelt_stdlib::{BackendDependency, CrateRequirement};
 
 /// Dependency required by a generated Rust crate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,34 +28,7 @@ pub(crate) fn cargo_toml(
     options: &crate::EmitOptions,
 ) -> String {
     let release_profile = options.release_profile;
-    let mut deps = String::new();
-    // First, so the manifest reads the way the crate root does: the allocator is
-    // installed before anything else runs. `default-features = false` drops
-    // mimalloc's secure and stats builds, which this workload does not use.
-    if allocator == crate::GeneratedAllocator::Mimalloc {
-        deps.push_str("mimalloc = { version = \"0.1\", default-features = false }\n");
-    }
-    if deps_needed.contains(&GeneratedDep::Tokio) {
-        // `rt`, not `rt-multi-thread`: a generated async `main` builds a
-        // CURRENT-THREAD runtime under a `LocalSet` (see
-        // `FunctionEmitter::async_main_runtime_prologue`), because every value
-        // Smelt generates is `Rc`-based and so cannot cross a work-stealing
-        // runtime's threads. `net` and `sync` come with it rather than with
-        // `hyper` because the accept loop's listener and its shutdown channel
-        // are tokio's, and a feature a dependency needs belongs on the
-        // dependency that is actually being configured.
-        deps.push_str(
-            "tokio = { version = \"1\", features = [\"macros\", \"rt\", \"time\", \"net\", \"sync\"] }\n",
-        );
-    }
-    if deps_needed.contains(&GeneratedDep::Genawaiter) {
-        deps.push_str("genawaiter = \"0.99.1\"\n");
-    }
-    for dependency in STDLIB_DEPENDENCIES {
-        if deps_needed.contains(&GeneratedDep::Stdlib(dependency)) {
-            deps.push_str(dependency.cargo_dependency());
-        }
-    }
+    let required = required_crates(deps_needed, allocator);
     // The generated crate declares its own `[workspace]`, so it is a workspace
     // ROOT and its `[profile.release]` is the one Cargo honours. See
     // `crate::ReleaseProfile` for why the stock profile leaves throughput on the
@@ -107,25 +55,65 @@ pub(crate) fn cargo_toml(
     let description = description
         .as_deref()
         .map_or_else(String::new, |text| format!("description = {text}\n"));
-    let deps = with_declared_dependencies(&deps, &options.dependencies);
+    let deps = with_declared_dependencies(&required, &options.dependencies);
     format!(
         "[workspace]\n\n[package]\nname = \"{crate_name}\"\nversion = \"{version}\"\nedition = \"{edition_text}\"\n{description}\n[dependencies]\n{deps}{profile}"
     )
 }
 
-/// `detected`, one dependency per line, with the project's `declared` entries
-/// appended; a crate declared there loses its detected line, so a user-specified
-/// version is never overridden and no key appears twice.
-fn with_declared_dependencies(detected: &str, declared: &[(String, String)]) -> String {
-    let mut lines = detected
-        .lines()
-        .filter(|line| {
-            let name = line.split('=').next().unwrap_or("").trim();
-            !declared.iter().any(|(declared_name, _)| declared_name == name)
-        })
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    lines.extend(declared.iter().map(|(name, value)| format!("{name} = {value}")));
+/// `mimalloc` for a program that installs it as its global allocator.
+/// `default-features = false` drops mimalloc's secure and stats builds, which
+/// this workload does not use.
+const MIMALLOC: CrateRequirement = CrateRequirement::new("mimalloc", "0.1", false, &[]);
+
+/// The crates `deps_needed` requires, in manifest order.
+///
+/// The allocator first, so the manifest reads the way the crate root does: the
+/// allocator is installed before anything else runs. Then tokio, genawaiter
+/// and the backend crates in [`BackendDependency::ALL`] order, which keeps the
+/// manifest stable as new MIR rvalues start reporting existing dependencies.
+fn required_crates(deps_needed: &[GeneratedDep], allocator: crate::GeneratedAllocator) -> Vec<CrateRequirement> {
+    let mut crates = Vec::new();
+    if allocator == crate::GeneratedAllocator::Mimalloc {
+        crates.push(MIMALLOC);
+    }
+    if deps_needed.contains(&GeneratedDep::Tokio) {
+        crates.push(TOKIO);
+    }
+    if deps_needed.contains(&GeneratedDep::Genawaiter) {
+        crates.push(GENAWAITER);
+    }
+    for dependency in BackendDependency::ALL {
+        if deps_needed.contains(&GeneratedDep::Stdlib(dependency)) {
+            crates.extend_from_slice(dependency.crates());
+        }
+    }
+    crates
+}
+
+/// The `[dependencies]` table: every `required` crate, one per line, and the
+/// project's `declared` entries.
+///
+/// A declared crate the program does not require is appended as written. A
+/// declared crate it does require takes the place of the required line with
+/// the project's own version, source and keys, and with the required features
+/// added to the ones it lists: the emitted runtime text calls those features'
+/// APIs, so an override that dropped them (`tokio = "1.40"` loses `rt` and
+/// `macros`) would leave the crate unable to compile. No key appears twice.
+fn with_declared_dependencies(required: &[CrateRequirement], declared: &[(String, String)]) -> String {
+    let mut lines = Vec::new();
+    for requirement in required {
+        match declared.iter().find(|(name, _)| name == requirement.name) {
+            Some((name, value)) => lines.push(format!("{name} = {}", merged_override(requirement, value))),
+            None => lines.push(requirement.manifest_line().trim_end().to_owned()),
+        }
+    }
+    lines.extend(
+        declared
+            .iter()
+            .filter(|(name, _)| !required.iter().any(|requirement| requirement.name == name))
+            .map(|(name, value)| format!("{name} = {value}")),
+    );
     let mut text = lines.join("\n");
     if !text.is_empty() {
         text.push('\n');
@@ -133,24 +121,159 @@ fn with_declared_dependencies(detected: &str, declared: &[(String, String)]) -> 
     text
 }
 
+/// A project's override `value` (TOML value text) of a crate the program
+/// requires, with the requirement's features merged in.
+///
+/// The override keeps every key it states, its own order and its version; a
+/// required feature it does not list is appended to its `features`. An
+/// override already listing them all, or one that is not a version string or
+/// an inline table, is kept as written.
+fn merged_override(requirement: &CrateRequirement, value: &str) -> String {
+    let Ok(parsed) = format!("value = {value}").parse::<toml::Table>() else {
+        return value.to_owned();
+    };
+    let mut table = match parsed.get("value") {
+        Some(toml::Value::String(version)) => {
+            let mut table = toml::Table::new();
+            table.insert("version".to_owned(), toml::Value::String(version.clone()));
+            table
+        }
+        Some(toml::Value::Table(table)) => table.clone(),
+        _ => return value.to_owned(),
+    };
+    let mut features = match table.get("features") {
+        Some(toml::Value::Array(features)) => features.clone(),
+        _ => Vec::new(),
+    };
+    let missing = requirement
+        .features
+        .iter()
+        .filter(|feature| !features.iter().any(|listed| listed.as_str() == Some(feature)))
+        .map(|feature| toml::Value::String((*feature).to_owned()))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return value.to_owned();
+    }
+    features.extend(missing);
+    table.insert("features".to_owned(), toml::Value::Array(features));
+    // `version` leads, as Cargo's own examples spell a dependency table.
+    let mut ordered = table.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|(key, _)| key.as_str() != "version");
+    let rendered = ordered
+        .into_iter()
+        .map(|(key, entry)| format!("{} = {}", inline_key(key), inline_toml(entry)))
+        .collect::<Vec<_>>();
+    format!("{{ {} }}", rendered.join(", "))
+}
+
+/// `value` as one line of TOML: tables inline (`{ k = v }`), arrays inline.
+fn inline_toml(value: &toml::Value) -> String {
+    match value {
+        toml::Value::Table(table) => {
+            let entries = table
+                .iter()
+                .map(|(key, entry)| format!("{} = {}", inline_key(key), inline_toml(entry)))
+                .collect::<Vec<_>>();
+            format!("{{ {} }}", entries.join(", "))
+        }
+        toml::Value::Array(items) => {
+            format!("[{}]", items.iter().map(inline_toml).collect::<Vec<_>>().join(", "))
+        }
+        other => other.to_string(),
+    }
+}
+
+/// `key` as a TOML key: bare when it can be, quoted otherwise.
+fn inline_key(key: &str) -> String {
+    if !key.is_empty() && key.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+        key.to_owned()
+    } else {
+        toml::Value::String(key.to_owned()).to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Unit tests for the project's dependencies in the generated manifest.
 
-    use super::with_declared_dependencies;
+    use super::{GeneratedDep, required_crates, with_declared_dependencies};
+    use smelt_stdlib::BackendDependency;
+    use smelt_stdlib::deps::{GENAWAITER, TOKIO};
 
-    /// A declared crate replaces the detected line and keeps its place in the table.
+    /// A version-only override keeps its version and gains the features the
+    /// runtime text needs; its place in the table is the required crate's.
     #[test]
-    fn a_declared_crate_replaces_the_detected_one() {
-        let detected = "tokio = { version = \"1\", features = [\"rt\"] }\nregex = \"1\"\n";
+    fn a_version_override_keeps_the_required_features() {
+        let required = [TOKIO, smelt_stdlib::CrateRequirement::new("regex", "1", true, &[])];
         let declared = vec![("tokio".to_owned(), "\"1.40\"".to_owned())];
-        assert_eq!(with_declared_dependencies(detected, &declared), "regex = \"1\"\ntokio = \"1.40\"\n");
+        assert_eq!(
+            with_declared_dependencies(&required, &declared),
+            "tokio = { version = \"1.40\", features = [\"macros\", \"rt\", \"time\", \"net\", \"sync\"] }\nregex = \"1\"\n"
+        );
     }
 
-    /// With nothing declared the detected table is unchanged, byte for byte.
+    /// A table override keeps its own keys and features and gains only the
+    /// required features it lacks; one listing them all is kept as written.
     #[test]
-    fn nothing_declared_changes_nothing() {
-        assert_eq!(with_declared_dependencies("regex = \"1\"\n", &[]), "regex = \"1\"\n");
-        assert_eq!(with_declared_dependencies("", &[]), "");
+    fn a_table_override_gains_only_missing_features() {
+        let declared = vec![(
+            "tokio".to_owned(),
+            "{ version = \"1.40\", default-features = false, features = [\"fs\", \"rt\"] }".to_owned(),
+        )];
+        assert_eq!(
+            with_declared_dependencies(&[TOKIO], &declared),
+            "tokio = { version = \"1.40\", default-features = false, features = [\"fs\", \"rt\", \"macros\", \"time\", \"net\", \"sync\"] }\n"
+        );
+        let complete = vec![("genawaiter".to_owned(), "{ path = \"../genawaiter\" }".to_owned())];
+        assert_eq!(with_declared_dependencies(&[GENAWAITER], &complete), "genawaiter = { path = \"../genawaiter\" }\n");
+    }
+
+    /// A declared crate the program does not require is appended as written.
+    #[test]
+    fn an_unrequired_declaration_is_appended() {
+        let declared = vec![("anyhow".to_owned(), "\"1\"".to_owned())];
+        assert_eq!(with_declared_dependencies(&[], &declared), "anyhow = \"1\"\n");
+        assert_eq!(with_declared_dependencies(&[], &[]), "");
+    }
+
+    /// `smelt-runtime`'s manifest declares exactly the crates a generated
+    /// crate can link, at the same versions, default features and features:
+    /// the runtime items are compiled and tested against that manifest and
+    /// inlined into crates built from this one, so a drift between the two
+    /// ships text tested against crates the user never gets.
+    #[test]
+    fn the_runtime_manifest_matches_the_generated_dependencies() {
+        let manifest_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../smelt-runtime/Cargo.toml");
+        let Ok(text) = std::fs::read_to_string(manifest_path) else { panic!("smelt-runtime/Cargo.toml is readable") };
+        let Ok(manifest) = text.parse::<toml::Table>() else { panic!("smelt-runtime/Cargo.toml parses") };
+        let Some(runtime_deps) = manifest.get("dependencies").and_then(toml::Value::as_table) else {
+            panic!("smelt-runtime declares [dependencies]")
+        };
+        let all = BackendDependency::ALL.map(GeneratedDep::Stdlib);
+        let mut needed = vec![GeneratedDep::Tokio, GeneratedDep::Genawaiter];
+        needed.extend(all);
+        let generated = required_crates(&needed, crate::GeneratedAllocator::System);
+        for requirement in &generated {
+            let entry = runtime_deps
+                .get(requirement.name)
+                .unwrap_or_else(|| panic!("smelt-runtime does not declare `{}`", requirement.name));
+            let field = |key: &str| entry.as_table().and_then(|table| table.get(key));
+            let version = entry.as_str().or_else(|| field("version").and_then(toml::Value::as_str));
+            assert_eq!(version, Some(requirement.version), "`{}` version", requirement.name);
+            let default_features = field("default-features").and_then(toml::Value::as_bool).unwrap_or(true);
+            assert_eq!(default_features, requirement.default_features, "`{}` default features", requirement.name);
+            let features = field("features")
+                .and_then(toml::Value::as_array)
+                .map(|features| features.iter().filter_map(toml::Value::as_str).collect::<Vec<_>>())
+                .unwrap_or_default();
+            assert_eq!(features, requirement.features, "`{}` features", requirement.name);
+            assert_eq!(field("optional").and_then(toml::Value::as_bool), Some(true), "`{}` is optional", requirement.name);
+        }
+        for name in runtime_deps.keys() {
+            assert!(
+                generated.iter().any(|requirement| requirement.name == name),
+                "smelt-runtime declares `{name}`, which no generated crate links"
+            );
+        }
     }
 }

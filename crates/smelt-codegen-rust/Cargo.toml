@@ -42,6 +42,9 @@ serde = { workspace = true }
 # straight-line chain of blocks (every call terminator ends a block), so the
 # recursion guard can scale with the function instead of a fixed ceiling.
 stacker = "0.1.25"
+# Reads a project's `[rust.dependencies]` override so the features a generated
+# crate requires can be merged into it (`deps::with_declared_dependencies`).
+toml = { workspace = true }
 
 [dev-dependencies]
 insta = "1.49"

@@ -33,7 +33,7 @@ impl FunctionEmitter<'_> {
                 let tuple_text = self.operand_expr(tuple)?;
                 let comparisons = if element_types.contains(&inner) {
                     (0..items_len)
-                        .map(|idx| format!("{tuple_text}.{idx} == smelt_needle"))
+                        .map(|idx| format!("{tuple_text}.{idx} == smelt_needle", tuple_text = tuple_text.tight()))
                         .collect::<Vec<_>>()
                         .join(" || ")
                 } else if matches!(
@@ -46,7 +46,7 @@ impl FunctionEmitter<'_> {
                         .map(|(idx, field_ty)| {
                             let erased =
                                 self.erase_rendered(&RustExpr::tuple_field(&tuple_text, idx), *field_ty)?;
-                            Ok(self.carrier_format(format_args!("({erased}).same_js_key(&smelt_needle)")))
+                            Ok(self.carrier_format(self.carrier()?, format_args!("({erased}).same_js_key(&smelt_needle)", erased = erased.delimited())))
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(" || ")
@@ -57,7 +57,7 @@ impl FunctionEmitter<'_> {
                 };
                 let item_text = self.operand_expr(item)?;
                 return Ok(RustExpr::atom(format!(
-                    "{{ match {item_text} {{ Some(smelt_needle) => {comparisons}, None => false }} }}"
+                    "{{ match {item_text} {{ Some(smelt_needle) => {comparisons}, None => false }} }}", item_text = item_text.delimited()
                 )));
             }
             return Err(EmitError::new(
@@ -70,7 +70,7 @@ impl FunctionEmitter<'_> {
         let tuple_text = self.operand_expr(tuple)?;
         let item_text = self.operand_expr(item)?;
         Ok(RustExpr::from((0..items_len)
-            .map(|idx| format!("{tuple_text}.{idx} == {item_text}"))
+            .map(|idx| format!("{tuple_text}.{idx} == {item_text}", tuple_text = tuple_text.tight(), item_text = item_text.as_binary_operand()))
             .collect::<Vec<_>>()
             .join(" || ")))
     }
@@ -94,7 +94,7 @@ impl FunctionEmitter<'_> {
                 // concrete generated union reaches the runtime-narrowing match
                 // through `IntoSmeltUnknown`, never as itself.
                 let tuple_text =
-                    self.erase_concrete_union_expr(&self.operand_expr(tuple)?, tuple_ty);
+                    self.erase_concrete_union_expr(&self.operand_expr(tuple)?, tuple_ty)?;
                 let unknown_value = self.unknown_index_expr(&tuple_text, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 return self.rendered_at_type(&unknown_value, unknown_ty, dest_ty, &self.render_scope());
@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
                 "tuple index destination must match the tuple field type",
             ));
         }
-        Ok({ let receiver = self.operand_expr(tuple)?; RustExpr::postfix_on(&receiver, format!("{receiver}.{index}.clone()")) }.ending_in_clone())
+        Ok(self.operand_expr(tuple)?.postfix(format!(".{index}")).cloned_value())
     }
 
     /// Converts a statically-known tuple slice operation to Rust text.
@@ -152,7 +152,7 @@ impl FunctionEmitter<'_> {
         }
         let tuple_text = self.operand_expr(tuple)?;
         let items_text = (start..end)
-            .map(|idx| format!("{tuple_text}.{idx}.clone()"))
+            .map(|idx| format!("{tuple_text}.{idx}.clone()", tuple_text = tuple_text.tight()))
             .collect::<Vec<_>>()
             .join(", ");
         if end.checked_sub(start) == Some(1) {
@@ -171,7 +171,7 @@ impl FunctionEmitter<'_> {
         let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "list")?;
         let tuple_text = self.operand_expr(tuple)?;
         let items_text = (0..items.len())
-            .map(|idx| format!("{tuple_text}.{idx}.clone()"))
+            .map(|idx| format!("{tuple_text}.{idx}.clone()", tuple_text = tuple_text.tight()))
             .collect::<Vec<_>>()
             .join(", ");
         if !matches!(self.mir.types.get(dest_ty), Some(Type::List(dest_item)) if *dest_item == item_ty)
@@ -192,7 +192,7 @@ impl FunctionEmitter<'_> {
         let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "set")?;
         let tuple_text = self.operand_expr(tuple)?;
         let items_text = (0..items.len())
-            .map(|idx| format!("{tuple_text}.{idx}.clone()"))
+            .map(|idx| format!("{tuple_text}.{idx}.clone()", tuple_text = tuple_text.tight()))
             .collect::<Vec<_>>()
             .join(", ");
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Set(dest_item)) if *dest_item == item_ty)

@@ -155,7 +155,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
             impl_writer.block("fn default() -> Self", |fn_writer| {
                 fn_writer.block("Self", |self_writer| {
                     for (field_name, _, default_value, _) in &field_defaults {
-                        self_writer.line(format!("{field_name}: {default_value},"));
+                        self_writer.line(format!("{field_name}: {default_value},", default_value = default_value.delimited()));
                     }
                     if !phantom_args.is_empty() {
                         self_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
