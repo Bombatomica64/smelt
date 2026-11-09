@@ -95,23 +95,6 @@ impl FunctionEmitter<'_> {
         let has_captures = !self.mir_closure(id)?
             .captures
             .is_empty();
-        let captures_borrowed_callback = self.mir_closure(id)?
-            .captures
-            .iter()
-            .any(|capture| {
-                self.capture_is_borrowed_callback_param(capture.source_local)
-                    .unwrap_or(false)
-                    || self
-                        .capture_symbol_is_borrowed_callback_param(capture.symbol, capture.ty)
-                        .unwrap_or(false)
-            });
-        if captures_borrowed_callback
-            && self.mir_closure(id)?
-                .escapes
-            && matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
-        {
-            return self.default_value(dest_ty);
-        }
         let target_return_ty = match self.mir.types.get(dest_ty) {
             Some(Type::Function(function)) => Some(function.return_ty),
             _ => None,
@@ -457,61 +440,7 @@ impl FunctionEmitter<'_> {
             }
         };
         let closure = self.mir_closure(id)?;
-        if closure.escapes
-            && closure.captures.iter().any(|capture| {
-                self.capture_is_borrowed_callback_param(capture.source_local)
-                    .unwrap_or(false)
-                    || self
-                        .capture_symbol_is_borrowed_callback_param(capture.symbol, capture.ty)
-                        .unwrap_or(false)
-            })
-        {
-            let return_ty = return_override.unwrap_or(closure.return_ty);
-            let mut param_decls = closure
-                .params
-                .iter()
-                .enumerate()
-                .map(|(index, param)| {
-                    let local_index = id_index(param.0, "closure param index does not fit usize")?;
-                    let local = closure
-                        .locals
-                        .get(local_index)
-                        .ok_or_else(|| EmitError::new("closure param has no local declaration"))?;
-                    // The body ignores these params (it returns a default
-                    // value), so honour the contextual type when the
-                    // destination `dyn Fn` dropped an optional wrapper the
-                    // closure local kept flat (see the main path below).
-                    let param_ty = target_param_tys
-                        .get(index)
-                        .copied()
-                        .filter(|target_ty| {
-                            self.optional_target_matches_flat_local(*target_ty, local.ty)
-                        })
-                        .unwrap_or(local.ty);
-                    Ok(format!(
-                        "smelt_arg{index}: {}{}",
-                        by_ref_prefix(index, param_ty),
-                        self.rendered_type(param_ty)?
-                    ))
-                })
-                .collect::<Result<Vec<_>, EmitError>>()?;
-            for (index, extra_ty) in extra_param_tys.iter().enumerate() {
-                param_decls.push(format!(
-                    "_arg{index}: {}{}",
-                    by_ref_prefix(closure.params.len() + index, *extra_ty),
-                    self.rendered_type(*extra_ty)?
-                ));
-            }
-            return Ok(RenderedClosure {
-                text: format!(
-                    "|{}| -> {} {{ {} }}",
-                    param_decls.join(", "),
-                    self.rendered_type(return_ty)?,
-                    self.default_value(return_ty)?.delimited()
-                ),
-                binds_captures: false,
-            });
-        }
+        self.ensure_closure_owns_callbacks(closure, false)?;
         let closure_param_names = closure
             .params
             .iter()
@@ -998,9 +927,6 @@ impl FunctionEmitter<'_> {
                 capture.mode == smelt_hir::CaptureMode::ByValue
                     && !self
                         .capture_is_borrowed_callback_param(capture.source_local)
-                        .unwrap_or(false)
-                    && !self
-                        .capture_symbol_is_borrowed_callback_param(capture.symbol, capture.ty)
                         .unwrap_or(false)
             }) {
             "move "

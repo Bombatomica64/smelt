@@ -1073,7 +1073,50 @@ fn callback_param_escapes_locally(
     // temporary at the end of the call statement (E0716/E0515). Async
     // function-typed params must therefore enter as owned `Rc<dyn Fn…>` handles.
     let retained_by_async_body = function.is_async;
+    // A closure bound straight to an erased destination is an escape whatever
+    // `MirClosure::escapes` says: the erased form is a `'static` handle.
+    let captured_by_closure_bound_to_erased = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| {
+            let Statement::Assign {
+                dest,
+                value: Rvalue::Closure { id, .. },
+            } = statement
+            else {
+                return false;
+            };
+            let dest_is_function = id_index(dest.0, "local index does not fit usize")
+                .ok()
+                .and_then(|index| function.locals.get(index))
+                .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Function(_))));
+            !dest_is_function
+                && id_index(id.0, "closure index does not fit usize")
+                    .ok()
+                    .and_then(|index| mir.closures.get(index))
+                    .is_some_and(|closure| {
+                        closure.captures.iter().any(|capture| capture.source_local == local)
+                    })
+        })
+    });
+    // Storing into a field, element or entry outlives the frame: containers and
+    // objects hold `'static` handles, for the callback and for a closure over it.
+    let stored_through_place = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| {
+            let Statement::AssignPlace { place, value: Rvalue::Use(stored) } = statement else {
+                return false;
+            };
+            !matches!(place, Place::Local(_))
+                && operand_refs_callback_param_or_capturing_closure(
+                    mir,
+                    function,
+                    stored,
+                    local,
+                    Some(&closure_defs),
+                )
+        })
+    });
     Ok(directly_returned
+        || captured_by_closure_bound_to_erased
+        || stored_through_place
         || packed_into_container
         || bound_to_erased_handle
         || retained_by_async_body
