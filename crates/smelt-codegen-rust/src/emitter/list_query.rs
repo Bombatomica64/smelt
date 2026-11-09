@@ -339,7 +339,17 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let call_text = self.callback_invocation_expr(function_ty, &call_args.join(", "));
+        let callback_call = self.callback_invocation_expr(function_ty, &call_args.join(", "));
+        // A callback's throw must leave the loop; dropping the `Result` would
+        // carry on as if nothing had been thrown.
+        let call_text = if function_ty.may_throw {
+            RustExpr::atom(format!(
+                "({callback_call}).unwrap_or_else(|smelt_error: {ERROR_BOX}| smelt_panic_throw(smelt_error))",
+                callback_call = callback_call.delimited()
+            ))
+        } else {
+            callback_call
+        };
         Ok(RustExpr::atom(format!(
             "{{ let smelt_callback = {closure_expr}; {}{}.iter().enumerate().for_each(|(smelt_index, smelt_item)| {{ let _ = {call_text}; }}); () }}",
             list_iteration.prefix, list_iteration.iter_text, closure_expr = closure_expr.delimited(), call_text = call_text.delimited()

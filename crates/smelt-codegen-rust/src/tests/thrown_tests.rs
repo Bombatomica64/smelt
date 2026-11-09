@@ -13,111 +13,6 @@
 
 use super::*;
 
-/// Text of the old, payload-destroying throw form.
-const STRINGIFIED_THROW: &str = "std::io::Error::new(std::io::ErrorKind::Other, format!(";
-
-#[test]
-fn throw_of_an_error_object_carries_its_payload() {
-    let source = source_for(
-        r#"
-function boom(value: unknown): void {
-  throw value;
-}
-
-boom(new TypeError("bad"));
-"#,
-    );
-
-    assert!(
-        source.contains("smelt_throw("),
-        "throw should enter the payload-preserving error channel:\n{source}"
-    );
-    assert!(
-        !source.contains(STRINGIFIED_THROW),
-        "throw must not stringify its payload into a std::io::Error:\n{source}"
-    );
-}
-
-#[test]
-fn erased_catch_binding_recovers_the_thrown_payload() {
-    let source = source_for(
-        r#"
-function boom(): void {
-  throw new TypeError("bad");
-}
-
-function run(): unknown {
-  try {
-    boom();
-    return null;
-  } catch (error) {
-    return error;
-  }
-}
-
-const caught = run();
-"#,
-    );
-
-    // The pre-ABI form bound the catch parameter to a record rebuilt from the
-    // error's `Display` text. Recovering the payload replaces that whole
-    // expression, so the binding is now exactly the recovery call.
-    assert!(
-        source.contains("let error = smelt_thrown_value(&*__smelt_error);"),
-        "an erased catch binding should recover the payload:\n{source}"
-    );
-    assert!(
-        !source.contains("SmeltUnknown::String(__smelt_error.to_string())"),
-        "catch must not rebuild the error from Display text:\n{source}"
-    );
-}
-
-#[test]
-fn awaited_rejection_recovers_the_thrown_payload() {
-    let source = source_for(
-        r#"
-async function boom(): Promise<number> {
-  throw new TypeError("bad");
-}
-
-async function run(): Promise<unknown> {
-  try {
-    return await boom();
-  } catch (error) {
-    return error;
-  }
-}
-"#,
-    );
-
-    assert!(
-        source.contains("smelt_thrown_value(&*__smelt_error)"),
-        "a catch after `await` should recover the rejection payload:\n{source}"
-    );
-}
-
-#[test]
-fn promise_rejection_enters_the_payload_channel() {
-    let source = source_for(
-        r#"
-function boom(): Promise<number> {
-  return new Promise<number>((_resolve, reject) => {
-    reject(new TypeError("bad"));
-  });
-}
-"#,
-    );
-
-    assert!(
-        source.contains("Some(Err(smelt_throw(smelt_error.clone())))"),
-        "`reject(value)` should enter the payload channel:\n{source}"
-    );
-    assert!(
-        !source.contains("smelt_reject_message"),
-        "the reject bridge must not pre-flatten the reason to a message:\n{source}"
-    );
-}
-
 #[test]
 fn payload_channel_declares_its_recovery_adapters() {
     let source = source_for(
@@ -221,120 +116,6 @@ const caught = run();
     assert!(
         source.contains("let error = smelt_thrown_value(&*__smelt_error);"),
         "the shared catch should recover either payload:\n{source}"
-    );
-}
-
-#[test]
-fn throwing_an_error_constructor_emits_the_error_record() {
-    // The payload ABI was in place, but the *throw statement* never handed it an
-    // error: the frontend narrowed `new Error(m)` down to `m` before the operand
-    // ever reached MIR, so every throw in a generated crate entered the channel
-    // as `smelt_throw(SmeltUnknown::String(..))`. Downstream, `error instanceof
-    // Error` was false, `error.message` was `undefined`, and `error.name` was
-    // unreadable — even though the identical construction used as a *value* built
-    // the full record. This pins the throw site to the record.
-    let source = source_for(
-        r#"
-function boom(): void {
-  throw new RangeError("out of range");
-}
-
-boom();
-"#,
-    );
-
-    assert!(
-        source.contains("smelt_throw("),
-        "throw should enter the payload-preserving error channel:\n{source}"
-    );
-    assert!(
-        !source.contains(r#"smelt_throw(SmeltUnknown::String("out of range".into()))"#),
-        "throw must not collapse an Error to its message string:\n{source}"
-    );
-    assert!(
-        source.contains(r#"(JsString::from("__smelt_error"), SmeltUnknown::String("RangeError".into()))"#),
-        "the thrown record must carry the spelled error class:\n{source}"
-    );
-    assert!(
-        source.contains(r#"(JsString::from("message"), SmeltUnknown::String("out of range".into()))"#),
-        "the thrown record must carry the message:\n{source}"
-    );
-}
-
-#[test]
-fn throwing_an_error_from_a_callback_emits_the_error_record() {
-    // A `throw` inside an arrow lowers through the reduced callback expression
-    // language, which carried its own copy of the narrowing: `new Error(m)`
-    // became `m`, and any other construction became the empty string. Fixing the
-    // statement path alone would have left this shape — the one
-    // `attempt(() => { throw ... })` uses — still throwing a bare string.
-    let source = source_for(
-        r#"
-function apply(f: () => number): number {
-  return f();
-}
-
-function run(): number {
-  return apply(() => {
-    throw new Error("callback boom");
-  });
-}
-
-run();
-"#,
-    );
-
-    assert!(
-        !source.contains(r#"smelt_throw(SmeltUnknown::String("callback boom".into()))"#),
-        "a callback throw must not collapse an Error to its message string:\n{source}"
-    );
-    assert!(
-        source.contains(r#"(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into()))"#),
-        "a callback-thrown Error must carry the class marker:\n{source}"
-    );
-    assert!(
-        source.contains(r#"(JsString::from("message"), SmeltUnknown::String("callback boom".into()))"#),
-        "a callback-thrown Error must carry the message:\n{source}"
-    );
-}
-
-#[test]
-fn erased_error_stringifies_through_error_prototype_to_string() {
-    // Now that a thrown `Error` survives as an object, the JavaScript `ToString`
-    // of that object must be `Error.prototype.toString` (`"name: message"`), not
-    // the generic `[object Object]` placeholder. While the payload was a bare
-    // string, `String(err)` happened to read the message; without this rule,
-    // preserving the object would have replaced that with useless text.
-    //
-    // The rule keys off the `__smelt_error` marker, exactly as the sibling
-    // `__smelt_regexp` arm keys off its own, so it holds for every error value
-    // rather than for one spelling.
-    let source = source_for(
-        r#"
-function boom(): void {
-  throw new Error("kaboom");
-}
-
-function text(): string {
-  try {
-    boom();
-    return "no throw";
-  } catch (error) {
-    return String(error);
-  }
-}
-
-const rendered = text();
-"#,
-    );
-
-    assert!(
-        source.contains(r#"SmeltUnknown::Object(value) if value.contains_key("__smelt_error")"#),
-        "the erased ToString must have an Error.prototype.toString arm:\n{source}"
-    );
-    assert!(
-        source.contains(r#"format!("{smelt_error_name}: {smelt_error_message}")"#),
-        "the Error arm must render `name: message`:\n{source}"
     );
 }
 
@@ -531,15 +312,12 @@ fn a_catch_around_an_infallible_call_defines_the_panic_helpers_it_calls() {
         r#"
 from typing import Callable
 
-
 class Marker:
     """A placeholder class."""
     ...
 
-
 def apply(f: Callable[[int], int], value: int) -> int:
     return f(value)
-
 
 def guarded(value: int) -> int:
     try:

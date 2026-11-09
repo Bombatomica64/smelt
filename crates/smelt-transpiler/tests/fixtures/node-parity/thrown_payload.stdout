@@ -1,0 +1,14 @@
+TypeError:bad
+Error:plain
+Custom:mine:7
+value:text:string
+value:42:number
+value:null:object
+value:[object Object]:object
+TypeError:in callback
+Custom:inner:1
+finally,Error:x
+TypeError: shown
+Error: e
+Custom:async:3
+value:rejected text:string
