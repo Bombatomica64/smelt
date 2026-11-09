@@ -141,6 +141,12 @@ fn closure_over_defaulted_callback() -> TestResult {
     verify_node_parity("closure_over_defaulted_callback")
 }
 
+/// The expression of an `export default` runs, in source order.
+#[test]
+fn export_default_effects() -> TestResult {
+    verify_node_parity("export_default_effects")
+}
+
 /// `Object` and `Symbol` are values `.constructor` compares equal to, a module
 /// const aliasing a builtin is callable from any body, and a list callback picked
 /// by a conditional is not replaced by one of its arms.
