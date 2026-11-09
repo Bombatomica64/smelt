@@ -210,11 +210,17 @@ impl ModuleBuilder<'_> {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.erase_unless_unknown(dict_ty, ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-                dict = body.push_expr(Expr {
-                    kind: ExprKind::UnknownCast { value: dict, target },
-                    ty: target,
-                    span: self.span(call.span.start, call.span.end),
-                });
+                // `Reflect.ownKeys` reads an erased receiver directly: a record
+                // view of it could not ask a proxy's `ownKeys` trap.
+                if op != DictProjectionOp::OwnKeys
+                    || !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Unknown))
+                {
+                    dict = body.push_expr(Expr {
+                        kind: ExprKind::UnknownCast { value: dict, target },
+                        ty: target,
+                        span: self.span(call.span.start, call.span.end),
+                    });
+                }
                 (key_ty, value_ty)
             }
             Some(Type::Union(items)) if items.iter().all(|item| self.object_keys_compatible_type(*item)) => {

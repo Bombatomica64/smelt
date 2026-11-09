@@ -189,6 +189,13 @@ fn keyed_view_write_and_shape_overloads() -> TestResult {
     verify_node_parity("keyed_view_write_and_shape_overloads")
 }
 
+/// A Proxy answers through its handler's traps on object, function and callable
+/// object targets, and `f(x)(...args)` spreads into the returned function.
+#[test]
+fn proxy_traps() -> TestResult {
+    verify_node_parity("proxy_traps")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]

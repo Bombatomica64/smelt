@@ -906,6 +906,20 @@ impl FunctionEmitter<'_> {
         let index_ty = self.operand_ty(index)?;
         let index_text = self.operand_expr(index)?;
         let key_text = self.property_key_to_string_expr(&index_text, index_ty)?;
+        // A function holds properties too, and a proxy can be behind an object
+        // or function receiver, so those arms read through the one property
+        // chain, which runs the `get` trap.
+        let object_arm = if self.context.demand().has(Need::Construct) {
+            format!(
+                "smelt_receiver @ (SmeltUnknown::Object(_) | SmeltUnknown::Function(_)) => smelt_get_unknown_field(&smelt_receiver, &{key_text}),",
+                key_text = key_text.tight()
+            )
+        } else {
+            format!(
+                "SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &{key_text}),\n                    smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &{key_text}),",
+                key_text = key_text.tight()
+            )
+        };
         // A symbol (or a property key) names a property, never an element:
         // it reads through its storage key like a string key does.
         if matches!(self.mir.types.get(index_ty), Some(Type::String | Type::PyStr | Type::Symbol | Type::PropKey)) {
@@ -920,7 +934,7 @@ impl FunctionEmitter<'_> {
                         }}
                     }}
                     SmeltUnknown::Array(smelt_values) => smelt_get_array_field(&smelt_values, &{key_text}),
-                    SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &{key_text}),
+                    {object_arm}
                     _ => SmeltUnknown::Undefined,
                 }}"#,
                 string_len = self.string_len_text("smelt_value"),
@@ -961,11 +975,11 @@ impl FunctionEmitter<'_> {
                         let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }};
                         usize::try_from(smelt_normalized).ok().and_then(|smelt_position| smelt_values.get(smelt_position).cloned()).unwrap_or(SmeltUnknown::Undefined)
                     }}
-                SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &{key_text}),
+                {object_arm}
                 _ => SmeltUnknown::Undefined,
             }}",
             string_len = self.string_len_text("smelt_value"),
-            char_at = self.string_char_at_text("smelt_value", "smelt_position"), base_text = base_text.delimited(), numeric_index_text = numeric_index_text.as_cast_operand(), key_text = key_text.tight(),
+            char_at = self.string_char_at_text("smelt_value", "smelt_position"), base_text = base_text.delimited(), numeric_index_text = numeric_index_text.as_cast_operand(),
         )))
     }
 

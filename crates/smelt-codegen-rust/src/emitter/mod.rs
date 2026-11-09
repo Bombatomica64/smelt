@@ -1205,6 +1205,17 @@ fn statement_erases_callback_param(
                     )
                 })
         }
+        // `smelt_construct_like` retains its erased arguments: a Proxy keeps its
+        // target and traps, so what they capture must be owned.
+        Rvalue::ConstructLike { args, .. } => args.iter().any(|arg| {
+            operand_refs_callback_param_or_capturing_closure(
+                mir,
+                function,
+                arg,
+                local,
+                closure_defs.as_ref(),
+            )
+        }),
         Rvalue::ClosureCall { args, .. } => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
                 && args.iter().any(|arg| {

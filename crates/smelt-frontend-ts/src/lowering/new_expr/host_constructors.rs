@@ -8,10 +8,14 @@ use crate::lowering::resolve::HostGlobal;
 use crate::lowering::body_arena::BodyArena;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
+use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{
     Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Literal, Span, Stmt, Type,
 };
 use super::super::ModuleBuilder;
+
+/// The constructed value of a `new Proxy`, naming the runtime operation (`smelt_construct_like`).
+const PROXY_CONSTRUCT_SENTINEL: &str = smelt_stdlib::runtime_symbols::markers::SMELT_NEW_PROXY;
 
 impl ModuleBuilder<'_> {
     /// Lower `new URLSearchParams(init?)` into a concrete parameter list.
@@ -647,16 +651,14 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new Proxy(target, handler)` to its target value.
+    /// Lower `new Proxy(target, handler)`.
     ///
-    /// JavaScript `Proxy` is transparent: `x instanceof Proxy` is a `TypeError`
-    /// and a proxy reports the identity (`typeof`, `instanceof`, plain-object
-    /// shape) of its target. es-toolkit only constructs `new Proxy(target, {})`
-    /// in tests of `isPlainObject`, where the proxy must behave exactly like the
-    /// wrapped target. There is no faithful distinct identity to invent, so the
-    /// closest correct model is to lower the construct to its `target` operand
-    /// (the handler is lowered for its effects/types, then discarded). This
-    /// keeps the transparent semantics rather than erasing to a wrong marker.
+    /// A proxy with an empty handler behaves exactly as its target, so it lowers
+    /// to the target and keeps the target's static type. Any other handler can
+    /// answer a property with a value the target does not hold, which no static
+    /// shape of the target describes: that is a real dynamic boundary, so the
+    /// proxy is an erased object consulted by the erased property paths
+    /// (`smelt_new_proxy` in the runtime).
     pub(in crate::lowering) fn proxy_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -670,22 +672,152 @@ impl ModuleBuilder<'_> {
         };
         let target = self.argument(target_argument, body)?;
         if let Some(handler_argument) = new_expr.arguments.get(1) {
-            let _ = self.argument(handler_argument, body)?;
-            // A handler with traps is what the proxy answers, and traps have no model.
-            let trapless = matches!(
-                handler_argument.as_expression(),
-                Some(Expression::ObjectExpression(handler)) if handler.properties.is_empty()
-            );
-            if !trapless {
-                let ty = self.erase_with(ErasureReason::ByName, "proxy with traps");
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::UnmodeledImport,
-                    ty,
-                    span: self.span(new_expr.span.start, new_expr.span.end),
-                }));
+            let literal_handler = match handler_argument.as_expression() {
+                Some(Expression::ObjectExpression(handler)) => Some(handler),
+                _ => None,
+            };
+            if literal_handler.is_some_and(|handler| handler.properties.is_empty()) {
+                let _ = self.argument(handler_argument, body)?;
+                return Ok(target);
             }
+            let span = self.span(new_expr.span.start, new_expr.span.end);
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let sentinel = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(PROXY_CONSTRUCT_SENTINEL.to_owned())),
+                ty: string_ty,
+                span,
+            });
+            let target_ty = Self::expr_ty(body, target);
+            let mut args = vec![target];
+            match literal_handler.and_then(|handler| Self::static_trap_entries(handler)) {
+                // Each trap is passed by itself at its own type: the handler
+                // object has no static shape to keep, only its traps do.
+                Some(traps) => {
+                    for (name, trap) in traps {
+                        let hint = self.proxy_trap_hint(trap, target_ty);
+                        let key = body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::String(name.to_owned())),
+                            ty: string_ty,
+                            span,
+                        });
+                        args.push(key);
+                        args.push(self.expression_with_hint(trap, body, hint)?);
+                    }
+                }
+                None => args.push(self.argument(handler_argument, body)?),
+            }
+            // The proxy itself is the dynamic boundary: a trap can answer a
+            // property with a value no static shape of the target describes.
+            let ty = self.erase_with(ErasureReason::ByName, "proxy with traps");
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ConstructLike { value: sentinel, args },
+                ty,
+                span,
+            }));
         }
         Ok(target)
+    }
+
+    /// The `(name, trap)` pairs of a handler literal, when every key is static.
+    fn static_trap_entries<'h, 'a>(
+        handler: &'h oxc::ast::ast::ObjectExpression<'a>,
+    ) -> Option<Vec<(&'h str, &'h Expression<'a>)>> {
+        handler
+            .properties
+            .iter()
+            .map(|property| match property {
+                ObjectPropertyKind::ObjectProperty(property) if !property.computed => {
+                    match &property.key {
+                        PropertyKey::StaticIdentifier(key) => {
+                            Some((key.name.as_str(), &property.value))
+                        }
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The contextual type of a trap, or `None` for a value that is not a
+    /// function literal.
+    ///
+    /// The first parameter is the target. An erased target is a copy of a typed
+    /// one, so the parameter keeps the target's type only when the trap hands
+    /// the target back unchanged and cannot observe the difference; any other
+    /// use reads or writes it through the dynamic view. The remaining
+    /// parameters are `any` in TypeScript's own `ProxyHandler`.
+    fn proxy_trap_hint(
+        &mut self,
+        trap: &Expression<'_>,
+        target_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let (count, first, returned) = match trap {
+            Expression::ArrowFunctionExpression(arrow) => (
+                arrow.params.items.len(),
+                arrow.params.items.first(),
+                Self::arrow_returned_identifier(arrow),
+            ),
+            Expression::FunctionExpression(function) => (
+                function.params.items.len(),
+                function.params.items.first(),
+                function.body.as_ref().and_then(|body| Self::body_returned_identifier(&body.statements)),
+            ),
+            _ => return None,
+        };
+        let returns_target = matches!(
+            first.map(|param| &param.pattern),
+            Some(oxc::ast::ast::BindingPattern::BindingIdentifier(binding))
+                if returned == Some(binding.name.as_str())
+        );
+        let params = (0..count)
+            .map(|index| {
+                if index == 0 && returns_target {
+                    target_ty
+                } else {
+                    self.erase_with(ErasureReason::ExternalType, "proxy trap parameter")
+                }
+            })
+            .collect::<Vec<_>>();
+        // not a new erasure: only the contextual return hint; the real result
+        // is inferred from the trap's body.
+        let return_ty = if returns_target {
+            target_ty
+        } else {
+            self.unknown_type(NotNewErasure::NoHint)
+        };
+        Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            rest: None,
+            required_params: Some(count),
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        })))
+    }
+
+    /// The identifier an arrow's body is, or returns, alone.
+    fn arrow_returned_identifier<'h>(
+        arrow: &'h oxc::ast::ast::ArrowFunctionExpression<'_>,
+    ) -> Option<&'h str> {
+        if let Some(Expression::Identifier(identifier)) = arrow.body.as_expression() {
+            return Some(identifier.name.as_str());
+        }
+        Self::body_returned_identifier(crate::lowering::support::arrow_block_statements(arrow))
+    }
+
+    /// The identifier a body of exactly one `return` statement returns.
+    fn body_returned_identifier<'h>(
+        statements: &'h [oxc::ast::ast::Statement<'_>],
+    ) -> Option<&'h str> {
+        let [oxc::ast::ast::Statement::ReturnStatement(statement)] = statements else {
+            return None;
+        };
+        match statement.argument.as_ref()? {
+            Expression::Identifier(identifier) => Some(identifier.name.as_str()),
+            _ => None,
+        }
     }
 
     /// Lower `new AbortController()` to a concrete, marker-bearing record whose
