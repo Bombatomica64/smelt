@@ -48,6 +48,7 @@ export function describeHandle(handle: Session): string {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "describe_handle", "describe_handle(handle: Session) -> String")?;
     Ok(())
 }
 
@@ -66,6 +67,7 @@ export const zone = tz("America/Santiago");
 "#),
         &mut ctx,
     )?;
+    ensure_exprs!(&ctx, DateTimezoneContext);
     Ok(())
 }
 
@@ -87,6 +89,9 @@ export function values(): unknown[] {
 "#),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "values", "values() -> List<Unknown>")?;
+    ensure_exprs!(&ctx, BindThis);
+    ensure!(crate_has_field(&ctx, "concat"), "no read of field `concat`");
     Ok(())
 }
 
@@ -109,6 +114,9 @@ it("builds an extension date", () => {
 "#),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "test_builds_an_extension_date", "test_builds_an_extension_date() -> None")?;
+    ensure_exprs!(&ctx, InstanceOf);
+    ensure!(crate_has_new(&ctx, "UTCDate"), "no construction of `UTCDate`");
     Ok(())
 }
 
@@ -220,6 +228,7 @@ export function methodOf(request: Request): string {
 "#),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "method_of", "method_of(request: Request) -> String")?;
     Ok(())
 }
 
@@ -593,6 +602,8 @@ export function dir(process: { cwd(): string }): string {
 "),
         &mut ctx,
     )?;
+    ensure_exprs!(&ctx, BindThis);
+    ensure!(crate_has_field(&ctx, "cwd"), "no read of field `cwd`");
     Ok(())
 }
 

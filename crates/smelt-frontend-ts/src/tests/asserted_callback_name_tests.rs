@@ -94,6 +94,7 @@ fn every_assertion_spelling_selects_the_named_item() -> Result<(), String> {
             smelt_hir::validate(&ctx.krate).is_empty(),
             "`{callback}` produced an invalid crate"
         );
+        ensure_exprs!(&ctx, ListCallback, Call);
     }
     Ok(())
 }
