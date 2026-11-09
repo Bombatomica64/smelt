@@ -648,7 +648,11 @@ impl FunctionEmitter<'_> {
                 // an own-field-only `values.get` was blind to all of them.
                 // `Undefined` is the helper's "no such property" answer and maps
                 // back to `None`, which is what the optional-read shape means.
-                let object_field = format!("smelt_get_object_field(&smelt_values, &{key_text})", key_text = key_text.tight());
+                let object_field = if self.context.demand().has(Need::Construct) {
+                    format!("smelt_get_unknown_field(&SmeltUnknown::Object(smelt_values.clone()), &{key_text})", key_text = key_text.tight())
+                } else {
+                    format!("smelt_get_object_field(&smelt_values, &{key_text})", key_text = key_text.tight())
+                };
                 let object_some = if result_is_string {
                     self.carrier_format(self.carrier()?, format_args!(
                         "match {object_field} {{ SmeltUnknown::Undefined => None, SmeltUnknown::String(smelt_value) => Some({}), other => Some({}) }}",

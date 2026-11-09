@@ -439,7 +439,7 @@ impl SmeltInspect for SmeltUnknown {
                     let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
                     return smelt_inspect_collection(ctx, depth, "Map", &entries);
                 }
-                let pairs = object.iter().collect::<Vec<_>>();
+                let pairs = object.iter().filter(|(key, _)| !key.eq_str("__smelt_call")).collect::<Vec<_>>();
                 if pairs.iter().any(|(key, value)| key.eq_str_prefix("__smelt") || matches!(value, Self::Function(_))) {
                     return self.to_string();
                 }
