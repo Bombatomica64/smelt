@@ -1,4 +1,4 @@
-//! Split codegen tests chunk.
+//! Generated Rust for array and `Set` methods.
 
 use super::*;
 

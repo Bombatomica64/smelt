@@ -13,6 +13,79 @@ use crate::emitter::EmitContext;
 use crate::runtime_demand::{Need, RuntimeDemand};
 
 /// Converts TypeScript source to generated Rust source.
+/// Returns the generated program below the fixed runtime prelude.
+///
+/// The emitter writes a `// @smelt:prelude-end` sentinel between the shared
+/// runtime prelude (which contains its own `loop`s and helpers) and the lowered
+/// program, so structural assertions that count Rust constructs must look only
+/// at the program half.
+fn program_body(source: &str) -> &str {
+    source
+        .split_once("// @smelt:prelude-end")
+        .map_or(source, |(_, program)| program)
+}
+
+/// Shared TypeScript prelude for the callable-interface overload tests.
+///
+/// It mirrors the shape es-toolkit's `curry` declares: a callable interface with
+/// several overloads, an implementation whose declared return type is the
+/// intersection of a plain callable and its own properties (which is how the
+/// underlying function object is modeled), and an overload signature that
+/// narrows that value to the interface.
+const CALLABLE_OVERLOAD_PRELUDE: &str = r"
+const curryPlaceholder: unique symbol = Symbol('curry.placeholder');
+type __ = typeof curryPlaceholder;
+
+interface Curried1<T1, R> {
+  (): Curried1<T1, R>;
+  (t1: T1): R;
+}
+
+interface Curried2<T1, T2, R> {
+  (): Curried2<T1, T2, R>;
+  (t1: T1): Curried1<T2, R>;
+  (t1: __, t2: T2): Curried1<T1, R>;
+  (t1: T1, t2: T2): R;
+}
+
+export function curry2<T1, T2, R>(fn: (a: T1, b: T2) => R): Curried2<T1, T2, R>;
+export function curry2(fn: (...args: any[]) => any): ((...args: any[]) => any) & { placeholder: unknown } {
+  const wrapper = function (...args: any[]): any {
+    return fn(args[0], args[1]);
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+
+export interface ArityReporter {
+  (): string;
+  (t1: number): number;
+}
+
+export function arityReporter(): ArityReporter;
+export function arityReporter(): ((...args: any[]) => any) & { placeholder: unknown } {
+  const wrapper = function (...args: any[]): any {
+    return String(args.length);
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+
+export interface ByArgumentType {
+  (value: string): string;
+  (value: number): number;
+}
+
+export function byArgumentType(): ByArgumentType;
+export function byArgumentType(): ((...args: any[]) => any) & { placeholder: unknown } {
+  const wrapper = function (value: any): any {
+    return value;
+  };
+  wrapper.placeholder = curryPlaceholder;
+  return wrapper;
+}
+";
+
 fn source_for(ts: &str) -> String {
     let mut ctx = HirCtx::new();
     assert!(to_hir(ts, FileId(0), &mut ctx).is_ok(), "HIR");
@@ -85,20 +158,32 @@ mod edition_tests;
 mod reserved_name_tests;
 mod runtime_demand_tests;
 mod template_hygiene_tests;
-mod part_1_tests;
-mod part_2_tests;
-mod part_3_tests;
-mod part_4_tests;
-mod part_5_tests;
-mod part_6_tests;
-mod part_7_tests;
+mod emit_callback_options_tests;
+mod emit_python_strings_tests;
+mod emit_python_collections_tests;
+mod emit_python_json_tests;
+mod emit_array_methods_tests;
+mod emit_promise_calls_tests;
+mod emit_async_tests;
+mod emit_classes_tests;
+mod emit_closures_tests;
+mod emit_collections_tests;
+mod emit_dates_tests;
+mod emit_emission_tests;
+mod emit_erasure_tests;
+mod emit_errors_tests;
+mod emit_generics_tests;
+mod emit_regex_tests;
+mod emit_strings_tests;
+mod emit_unions_tests;
+mod emit_vitest_tests;
 mod keyed_presence_and_receiver_tests;
 mod generics_tests;
 mod static_call_arg_precedence_tests;
 mod reference_class_tests;
 mod module_globals_tests;
 mod snapshot_tests;
-mod snapshot_tests_part_2;
+mod snapshot_family_tests;
 mod fetch_types_tests;
 mod host_override_tests;
 mod thrown_tests;

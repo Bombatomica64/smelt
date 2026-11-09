@@ -1,4 +1,4 @@
-//! Split codegen tests chunk.
+//! Generated Rust for Python strings and typed values.
 
 use super::*;
 

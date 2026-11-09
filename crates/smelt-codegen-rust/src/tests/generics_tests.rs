@@ -716,7 +716,7 @@ fn callback_bound_renders_its_return_through_the_canonical_helper() {
     // The `may_throw` half (`Fn(T) -> Result<T, Box<dyn std::error::Error>>`)
     // shares the exact same code path but cannot be produced from TypeScript
     // today — a declared callback *parameter* type always lowers with
-    // `may_throw == false` (see `part_7_tests`'s borrowed-callback ABI cases),
+    // `may_throw == false` (see `emit_closures_tests`'s borrowed-callback ABI cases),
     // which is also why neither compat corpus contains a `&dyn Fn(..) -> Result`
     // parameter to regress.
     let source = source_for(

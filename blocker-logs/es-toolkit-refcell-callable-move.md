@@ -67,6 +67,6 @@ round, and they are now visible because the crate runs.
 
 ## Test
 
-`crates/smelt-codegen-rust/src/tests/part_7_tests.rs` —
+`crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files` —
 `a_recursive_capture_callee_is_cloned_out_of_its_borrow_guard`: a self-recursive
 arrow (the reduced `flatten` shape) must never emit `let smelt_callable = (*`.

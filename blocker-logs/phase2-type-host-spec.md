@@ -726,7 +726,7 @@ has not changed yet and the fallback adds an adapter call per erased use. **A
 regression here of more than ~50 means the fallback is not total and the stage is
 wrong.** Do not proceed to Stage 3 to "fix" a Stage-2 corpus regression.
 
-**Regression test** (`crates/smelt-codegen-rust/src/tests/part_7_tests.rs`, where
+**Regression test** (`crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files`, where
 the typed-array goldens already live): `host_typed_value_falls_back_by_erasing` —
 a golden asserting that an unmodelled member read on a host-typed receiver emits
 the aliasing erase followed by the *same* dynamic-field-read text an
@@ -755,7 +755,7 @@ some sites; find them with
 `smelt smelt-unknown-report … --baseline blocker-logs/smelt-unknown-baseline-es-toolkit.json`
 and read the surviving shapes before touching anything else.
 
-**Regression test** (`part_7_tests.rs`, string goldens, CI-run):
+**Regression test** (`the `emit_*_tests.rs` files`, string goldens, CI-run):
 `constructor_form_is_selected_from_argument_type` — four goldens over one class
 proving `new X()`, `new X(8)`, `new X([1,2,3])`, and `new X(buf, 1, 2)` each emit
 their own typed door and that **none** of the four emits

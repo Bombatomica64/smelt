@@ -31,7 +31,7 @@ Keep by-value struct. `debounced.cancel()` works because stored closures capture
 
 ## 6. Test plan
 - Frontend: (a) callable-interface return with prop writes lowers to typed CallableObjectAssign; (b) write-after-escape/conditional-write produce documented errors; (c) plain function local untouched.
-- Codegen (part_7_tests.rs, next to existing __smelt_call tests): struct literal with all fields, no `Default::default()`.
+- Codegen (the `emit_*_tests.rs` files, next to existing __smelt_call tests): struct literal with all fields, no `Default::default()`.
 - Runtime proof: `smelt rust-test-report` focused on debounce.spec/throttle.spec (throttle wraps debounce, same trio of writes). Report to blocker-logs/callable-object-construction.md.
 - smelt-unknown-report vs baseline: expected zero new avoidable-erasure.
 

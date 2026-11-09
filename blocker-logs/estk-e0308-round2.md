@@ -67,7 +67,7 @@ across many generated sites.
    Cleared the bulk of template.rs (34→11; the "expected `i64`, found
    `SmeltUnknown`" cluster, E0308 121→98).
 
-## Regression tests (`crates/smelt-codegen-rust/src/tests/part_1_tests.rs`)
+## Regression tests (`crates/smelt-codegen-rust/src/tests/emit_callback_options_tests.rs`)
 
 - `returns_from_loop_shaped_closure_body_use_explicit_return` (fix 1)
 - `erases_optional_union_inner_before_truthiness_match` (fix 2)

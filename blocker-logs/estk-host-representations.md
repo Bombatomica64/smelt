@@ -236,7 +236,7 @@ actual/expected values, so reading them is not enough.
 * `crates/smelt-stdlib/src/host_object.rs` — the byte-buffer role split and the
   single `to_string_tag` override are asserted, since a regression there silently
   changes `isTypedArray`.
-* `crates/smelt-codegen-rust/src/tests/part_7_tests.rs` — string goldens for the
+* `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files` — string goldens for the
   shared host constructor, the byte-buffer slice/element/write routing,
   `ArrayBuffer.isView`'s view set, the `Buffer` spec tag, namespace interning, and
   the `arguments` object. These run in CI.

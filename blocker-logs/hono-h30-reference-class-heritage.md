@@ -63,7 +63,7 @@ type conversion (it instantiates the erased `::<SmeltUnknown>` form), not a copy
 
 ## Tests
 
-`crates/smelt-codegen-rust/src/tests/part_7_tests.rs`
+`crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files`
 
 * `a_subclass_of_a_reference_class_is_a_reference_class` — a base lifted by a
   field write and a subclass that only inherits it. It asserts the BASE is a

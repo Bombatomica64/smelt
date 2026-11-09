@@ -63,7 +63,7 @@ and fixed generally in `crates/smelt-codegen-rust`.
    local rebind as a reason the parameter must enter the function as an owned
    handle.
 
-Each fix has a codegen regression test in `crates/smelt-codegen-rust/src/tests/part_1_tests.rs`:
+Each fix has a codegen regression test in `crates/smelt-codegen-rust/src/tests/emit_callback_options_tests.rs`:
 `erases_optional_list_source_before_iterable_extraction`,
 `unwraps_fallible_predicate_result_in_list_query`,
 `keeps_rebound_list_parameter_owned`,

@@ -145,7 +145,7 @@ this one.
 
 ## Regression tests
 
-* `smelt-codegen-rust::tests::part_7_tests::module_level_regex_const_compiles_its_pattern_once`
+* `smelt-codegen-rust::tests::emit_closures_tests::module_level_regex_const_compiles_its_pattern_once`
   — golden text. A module-level regex const referenced from two functions must yield
   **exactly one** `fancy_regex::Regex::new` call site in the whole emitted crate (the
   memo), while `SmeltRegExp::new` still appears at each use site.

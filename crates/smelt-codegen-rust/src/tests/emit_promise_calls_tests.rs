@@ -1,4 +1,4 @@
-//! Split codegen tests chunk.
+//! Generated Rust for promises and erased calls.
 
 use super::*;
 

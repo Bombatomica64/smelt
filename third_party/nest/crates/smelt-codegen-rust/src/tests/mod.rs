@@ -54,10 +54,10 @@ fn source_for_py_path(py: &str, path: &str) -> String {
     }
 }
 
-mod part_1_tests;
-mod part_2_tests;
-mod part_3_tests;
-mod part_4_tests;
-mod part_5_tests;
-mod part_6_tests;
-mod part_7_tests;
+mod emit_callback_options_tests;
+mod emit_python_strings_tests;
+mod emit_python_collections_tests;
+mod emit_python_json_tests;
+mod emit_array_methods_tests;
+mod emit_promise_calls_tests;
+mod emit_closures_tests;

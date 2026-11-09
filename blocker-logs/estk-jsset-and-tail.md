@@ -78,7 +78,7 @@ its traits. `needs_unknown_type` therefore returns true when such a set exists
 the carrier is always present when `SmeltJsSet` is used. Consequence: a small
 crate that mixes a non-primitive `Set` with a string-keyed `Map` now backs that
 `Map` with identity-preserving `SmeltRecord` (functionally a superset). Tests
-`part_5_tests::emits_map_and_set_projection_methods` and the
+`emit_array_methods_tests::emits_map_and_set_projection_methods` and the
 `set_collection_emission` snapshot were updated accordingly; the snapshot input
 switched to `Set<string>` (stays `HashSet`, small prelude) and dedicated
 `SmeltJsSet` coverage moved to `emits_smelt_js_set_container`.

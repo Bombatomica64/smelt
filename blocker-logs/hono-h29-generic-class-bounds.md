@@ -97,7 +97,7 @@ was given.
 ## Coverage
 
 `a_generic_class_spells_its_derived_impls_instead_of_deriving_them` in
-`part_7_tests.rs`: asserts the class really is generic (the enabling condition),
+`the `emit_*_tests.rs` files`: asserts the class really is generic (the enabling condition),
 that the derives are gone, that `Clone`/`PartialEq` are spelled out, and that
 `Default` keeps `impl<T: Default>`. Verified to FAIL with the emitter change
 reverted.

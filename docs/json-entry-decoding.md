@@ -128,7 +128,7 @@ nullish values.
   `smelt_decode_<T>` decoder per composite type, into the generated prelude.
 * Tests: `part04_tests.rs` (`json_parse_takes_its_declared_target_from_every_
   entry_position`, `json_body_read_takes_its_declared_target`,
-  `interface_records_json_decode_facts_per_property`), `part_4_tests.rs`
+  `interface_records_json_decode_facts_per_property`), `emit_python_json_tests.rs`
   (`emits_strict_json_decoders_for_declared_targets`,
   `keeps_dynamic_json_parse_for_undecodable_targets`), the runtime tier in
   `crates/smelt-codegen-rust/tests/stdlib_boundary_runtime.rs`, and the

@@ -404,7 +404,7 @@ adapter using `IntoSmeltUnknown` / `SmeltFromUnknown`, exactly the shape
   new `clippy::redundant_clone` on the generated crate — cosmetic, not a
   blocker.
 - **Goldens:** every fixture that passes a list to a mutating param with an
-  element-type mismatch changes. `crates/smelt-codegen-rust/src/tests/part_7_tests.rs:7673`
+  element-type mismatch changes. `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files:7673`
   already asserts on `smelt_mut_arg_0` and is the natural place to extend.
 
 ## 4. Effort

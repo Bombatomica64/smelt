@@ -83,7 +83,7 @@ selection.
 
 Fixtures: `examples/typescript/end-to-end/90_union_string_concat/` (verified against Node 22) and
 `union_operand_makes_addition_a_string_concatenation` /
-`erasing_a_union_local_does_not_move_it` in `crates/smelt-codegen-rust/src/tests/part_1_tests.rs`.
+`erasing_a_union_local_does_not_move_it` in `crates/smelt-codegen-rust/src/tests/emit_callback_options_tests.rs`.
 
 ## Item 2 — the stored `RequestInit` members on `SmeltRequest`
 

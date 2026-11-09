@@ -65,7 +65,7 @@ rather than assuming one hoistable join:
 This reuses the emitter's existing structured-control-flow machinery instead of
 adding a bespoke join solver, and needs no MIR changes.
 
-Regression tests (`crates/smelt-codegen-rust/src/tests/part_6_tests.rs`):
+Regression tests (`crates/smelt-codegen-rust/src/tests/emit_promise_calls_tests.rs`):
 `emits_switch_with_heterogeneous_arm_successors` and
 `emits_switch_arm_with_loop_and_conditional_throw` (the `trimEnd` shape). Both
 previously aborted emission. End-to-end: a clean string-scrutinee variant was
