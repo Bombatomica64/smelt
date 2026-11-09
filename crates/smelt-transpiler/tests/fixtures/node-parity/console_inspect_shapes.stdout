@@ -1,0 +1,8 @@
+[ 1, 2 ]
+42 label true
+{ x: 1 }
+{ x: 2, label: 'two' }
+Pair { left: 1, right: 'r' }
+[ { x: 1 }, { x: 2, label: 'two' } ]
+[ 'a', 'b' ] [ true ] [ [ 1 ], [ 2, 3 ] ]
+h 3

@@ -1,12 +1,12 @@
 //! Source semantics that depend on run-time values or on a value's real
 //! shape, end to end against Node and `CPython`.
 //!
-//! Each program is accepted source that used to miscompile or be refused, and
-//! must now print what the source language prints:
+//! Each program is accepted source and must print what the source language
+//! prints:
 //!
 //! - **Dynamic `+`**: JavaScript `+` with an `any` operand concatenates or
 //!   adds depending on the RUN-TIME values (`ApplyStringOrNumericBinaryOperator`).
-//!   `(u as any) + 5` is `"t5"` for `u = "t"`; it used to be `NaN`.
+//!   `(u as any) + 5` is `"t5"` for `u = "t"`.
 //! - **Optional builtin calls on any receiver**: `s.match(re)?.join(",")`
 //!   evaluates the receiver once and calls the array method only when the
 //!   match is present.
