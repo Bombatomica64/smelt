@@ -492,6 +492,9 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
+        if self.is_fast_check_value(&member.object) {
+            return Ok(None);
+        }
         let op = match member.property.name.as_str() {
             "map" => ListCallbackOp::Map,
             "filter" => ListCallbackOp::Filter,

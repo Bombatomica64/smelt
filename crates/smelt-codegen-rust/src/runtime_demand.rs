@@ -175,6 +175,8 @@ declare_needs! {
     RegExpCompile,
     /// Vitest mocks and asymmetric matchers.
     VitestMock,
+    /// The `fast-check` model.
+    FastCheck,
     /// `structuredClone`.
     StructuredClone,
     /// A `typeof` the backend lowers.
@@ -300,6 +302,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::InstanceOfValue, &[Need::Unknown]),
     (Need::ClassValue, &[Need::Unknown]),
     (Need::VitestMock, &[Need::Unknown]),
+    (Need::FastCheck, &[Need::Unknown, Need::VitestMock]),
     (Need::HostOverride, &[Need::Unknown]),
     (Need::ErasedFunction, &[Need::Unknown]),
     // A throw of a branded error record crosses the erased channel even where

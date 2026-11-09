@@ -759,7 +759,7 @@ impl ModuleBuilder<'_> {
     ///
     /// `expression_span` locates the statement (the whole expression statement
     /// at top level, the element inside a comma expression).
-    fn expression_statement(
+    pub(in crate::lowering) fn expression_statement(
         &mut self,
         expression: &Expression<'_>,
         expression_span: oxc::span::Span,
@@ -800,6 +800,9 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(());
             }
+        }
+        if self.assertion_library_statement(expression, body)? {
+            return Ok(());
         }
         if let Expression::AssignmentExpression(assign) = expression {
             // A write to a lifted mutable global desugars to a `GlobalSet`

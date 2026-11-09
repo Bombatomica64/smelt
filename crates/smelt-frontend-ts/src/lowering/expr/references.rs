@@ -214,6 +214,14 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if self.is_fast_check_namespace(name) {
+            let ty = self.erase_with(ErasureReason::TestHarness, "fast-check namespace");
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::FastCheckNamespace,
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         // One resolver decides what the name is, lexical scope first: a local
         // `const Item = xs[0]` beside a module `class Item`, or a local named
         // `Date`, is the local.

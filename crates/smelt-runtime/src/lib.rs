@@ -153,6 +153,8 @@ mod runtime {
     include!("runtime/value.rs");
     include!("runtime/view_write_through.rs");
     include!("runtime/vitest_mock.rs");
+    include!("runtime/test_checks.rs");
+    include!("runtime/fast_check.rs");
 
     /// Behaviour tests, inside the flat module so private items are in scope.
     #[cfg(test)]

@@ -319,6 +319,14 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/timers.rs"),
     },
     RuntimeModule {
+        name: "test_checks",
+        source: include_str!("runtime/test_checks.rs"),
+    },
+    RuntimeModule {
+        name: "fast_check",
+        source: include_str!("runtime/fast_check.rs"),
+    },
+    RuntimeModule {
         name: "to_string_tag",
         source: include_str!("runtime/to_string_tag.rs"),
     },

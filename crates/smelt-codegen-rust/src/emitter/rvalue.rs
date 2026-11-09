@@ -622,6 +622,15 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::DateSetTimezoneOffset { offset } => self.date_set_timezone_offset_expr(offset, dest_ty),
             Rvalue::DateResetTimezoneOffset => self.date_reset_timezone_offset_expr(dest_ty),
+            Rvalue::TestRuntimeCheck { check, args } => self.test_runtime_check_expr(check, args),
+            Rvalue::FastCheckNamespace => {
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                let namespace = RustExpr::chain("smelt_fast_check_namespace()");
+                self.rendered_at_type(&namespace, unknown_ty, dest_ty, &self.render_scope())
+            }
+            Rvalue::FastCheckRun { .. } => {
+                Err(EmitError::new("a property run is a fallible call terminator"))
+            }
             Rvalue::VitestMockFn { implementation } => self.vitest_mock_fn_expr(implementation.as_ref()),
             Rvalue::VitestMockCalledTimes { mock, count } => self.vitest_mock_called_times_expr(mock, count),
             Rvalue::VitestMockCalledWith { mock, args, last } => self.vitest_mock_called_with_expr(mock, args, *last),

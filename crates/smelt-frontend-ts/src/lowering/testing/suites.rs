@@ -192,6 +192,17 @@ impl ModuleBuilder<'_> {
             if self.skipped_test_case_call(&expr_stmt.expression) {
                 continue;
             }
+            if let Some(property_call) = self.property_test_call(&expr_stmt.expression) {
+                items.push(self.property_test_declaration(
+                    property_call,
+                    Some(group_name),
+                    &setup,
+                    &before_each,
+                    &after_each,
+                    table_bindings,
+                )?);
+                continue;
+            }
             if let Some(test_call) = self.test_case_call(&expr_stmt.expression) {
                 items.push(self.test_case_declaration(
                     test_call,
@@ -607,6 +618,93 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower one `test.prop(arbitraries)(name, predicate)` to a test function.
+    #[expect(clippy::too_many_arguments, reason = "mirrors test_case_declaration: each is one piece of the enclosing suite's state")]
+    pub(in crate::lowering) fn property_test_declaration(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        group_name: Option<&str>,
+        setup: &[&Statement<'_>],
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        table_bindings: &[(&str, TableBindingValue<'_>)],
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        let Expression::CallExpression(prop_call) = &call.callee else {
+            return Err(SmeltError::unsupported(span, "test.prop requires a property call"));
+        };
+        let [name_arg, predicate, ..] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(span, "test.prop(...) requires a name and a property"));
+        };
+        let test_name = self.test_case_name(name_arg, group_name, table_bindings, setup)?;
+        let class_scope = self.test_case_class_scope();
+        let ctx = self.nested_fn_ctx(BodyKind::Arrow, false, None);
+        let (mut body, errors) = self.with_nested_body(ctx, ScopeGroups::ALL, |this, _| {
+            let mut body = Body::new(None, span);
+            let mut errors = Vec::new();
+            this.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
+            for hook in before_each {
+                this.test_arrow_body(hook, &mut body, &mut errors);
+            }
+            if let Err(error) = this.property_test_statement(prop_call, predicate, &mut body) {
+                errors.push(error);
+            }
+            for hook in after_each {
+                this.test_arrow_body(hook, &mut body, &mut errors);
+            }
+            (body, errors)
+        });
+        self.restore_test_case_class_scope(&class_scope);
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+        let is_async = Self::body_contains_await(&body);
+        if is_async {
+            body.finish_async();
+        }
+        let name = self.intern_source_name(&test_name);
+        let body_id = self.ctx.krate.push_body(body);
+        let none = self.ctx.krate.types.intern(Type::None);
+        let item = self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span,
+            type_params: Vec::new(),
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            return_ty: none,
+            is_async,
+            is_test: true,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
+        self.items.insert(test_name, item);
+        Ok(item)
+    }
+
+    /// Lower the body of a test or hook callback, block or expression form.
+    ///
+    /// `() => expect(a).toBe(b)` has no statements, only the expression.
+    pub(in crate::lowering) fn test_arrow_body(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        if let Some(expression) = arrow.get_expression() {
+            let block = body.root;
+            if let Err(error) = self.expression_statement(expression, expression.span(), body, block) {
+                errors.push(error);
+            }
+            return;
+        }
+        for statement in arrow_block_statements(arrow) {
+            if let Err(error) = self.test_case_statement(statement, body) {
+                errors.push(error);
+            }
+        }
+    }
+
     /// Snapshot the class-registry names present before a test case is lowered.
     ///
     /// Constructor functions declared inside a test case (`function Foo(){}`
@@ -657,11 +755,7 @@ impl ModuleBuilder<'_> {
             }
             this.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
             for hook in before_each {
-                for statement in arrow_block_statements(hook) {
-                    if let Err(error) = this.test_case_statement(statement, &mut body) {
-                        errors.push(error);
-                    }
-                }
+                this.test_arrow_body(hook, &mut body, &mut errors);
             }
             if let Err(error) =
                 this.predeclare_local_function_declarations(arrow_block_statements(arrow), &mut body)
@@ -672,17 +766,9 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
-            for statement in arrow_block_statements(arrow) {
-                if let Err(error) = this.test_case_statement(statement, &mut body) {
-                    errors.push(error);
-                }
-            }
+            this.test_arrow_body(arrow, &mut body, &mut errors);
             for hook in after_each {
-                for statement in arrow_block_statements(hook) {
-                    if let Err(error) = this.test_case_statement(statement, &mut body) {
-                        errors.push(error);
-                    }
-                }
+                this.test_arrow_body(hook, &mut body, &mut errors);
             }
             (body, errors)
         });
@@ -772,11 +858,7 @@ impl ModuleBuilder<'_> {
             }
             this.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
             for hook in before_each {
-                for statement in arrow_block_statements(hook) {
-                    if let Err(error) = this.test_case_statement(statement, &mut body) {
-                        errors.push(error);
-                    }
-                }
+                this.test_arrow_body(hook, &mut body, &mut errors);
             }
             if let Err(error) =
                 this.predeclare_local_function_declarations(&function_body.statements, &mut body)
@@ -794,11 +876,7 @@ impl ModuleBuilder<'_> {
                 }
             }
             for hook in after_each {
-                for statement in arrow_block_statements(hook) {
-                    if let Err(error) = this.test_case_statement(statement, &mut body) {
-                        errors.push(error);
-                    }
-                }
+                this.test_arrow_body(hook, &mut body, &mut errors);
             }
             (body, errors)
         });

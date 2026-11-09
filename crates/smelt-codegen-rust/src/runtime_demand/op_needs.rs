@@ -300,6 +300,12 @@ impl RuntimeDemand {
             Rvalue::UnmodeledImport => {
                 self.add(Need::Unknown);
             }
+            Rvalue::TestRuntimeCheck { .. } => {
+                self.add(Need::VitestMock);
+            }
+            Rvalue::FastCheckNamespace | Rvalue::FastCheckRun { .. } => {
+                self.add(Need::FastCheck);
+            }
             Rvalue::HostGlobalRead { .. } => {
                 self.add(Need::HostOverride);
             }

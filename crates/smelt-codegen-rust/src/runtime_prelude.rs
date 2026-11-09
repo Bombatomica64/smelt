@@ -153,7 +153,7 @@ pub(crate) fn flag_for(demand: &crate::runtime_demand::RuntimeDemand, facts: Pro
                 || demand.has(Need::CryptoKey),
         ),
         // `[[Construct]]` and the `instanceof` walk share one callable lookup.
-        "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue)),
+        "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue) || demand.has(Need::VitestMock)),
         "write_through" => Some(facts.erased_view_write_through && facts.reference_classes),
         "reads_this" => Some(facts.reads_this),
         // A Python program's dicts keep insertion order; JavaScript's own-key
@@ -223,6 +223,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "unknown_assign" => Need::UnknownAssign,
         "reg_exp_compile" => Need::RegExpCompile,
         "vitest_mock" => Need::VitestMock,
+        "fast_check" => Need::FastCheck,
         "structured_clone" => Need::StructuredClone,
         "typeof" => Need::Typeof,
         "concat_spread" => Need::ConcatSpread,
