@@ -739,6 +739,14 @@ impl FunctionEmitter<'_> {
                 };
                 let output_text = emitter.rendered_type(output_ty)?;
                 let return_ty = format!("Result<{output_text}, {ERROR_BOX}>");
+                // The channel the block yields: an erased output carries `SmeltUnknown`,
+                // a generated union its own enum.
+                let output_is_erased = emitter.is_erased_class_type(output_ty)
+                    || match emitter.mir.types.get(output_ty) {
+                        Some(Type::Unknown | Type::TypeParam { .. }) => true,
+                        Some(Type::Union(_)) => output_text.as_str() == "SmeltUnknown",
+                        _ => false,
+                    };
                 // Whether `smelt_async_value` is itself a future to await is read
                 // from the MIR return operand types, not from the emitted text.
                 //
@@ -755,10 +763,7 @@ impl FunctionEmitter<'_> {
                 // discarding its operand.
                 let async_value_needs_await = emitter.closure_yields_future_value()?;
                 let return_value = if closure.can_throw && async_value_needs_await {
-                    if matches!(
-                        emitter.mir.types.get(output_ty),
-                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                    ) || emitter.is_erased_class_type(output_ty)
+                    if output_is_erased
                     {
                         self.carrier_format(self.carrier()?, format_args!("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
@@ -767,10 +772,7 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 } else if closure.can_throw {
-                    if matches!(
-                        emitter.mir.types.get(output_ty),
-                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                    ) || emitter.is_erased_class_type(output_ty)
+                    if output_is_erased
                     {
                         self.carrier_format(self.carrier()?, format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value?.into_smelt_unknown())"))
                     } else {
@@ -778,10 +780,7 @@ impl FunctionEmitter<'_> {
                             "Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value?)"
                         )
                     }
-                } else if matches!(
-                    emitter.mir.types.get(output_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                ) || emitter.is_erased_class_type(output_ty)
+                } else if output_is_erased
                 {
                     if async_value_needs_await {
                         self.carrier_format(self.carrier()?, format_args!("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
@@ -814,10 +813,7 @@ impl FunctionEmitter<'_> {
                         // `is_async` flag while retaining a future return.
                         Some(format!(": {output_text}"))
                     } else if closure.can_throw && !async_value_needs_await {
-                        let ok_ty_text = if matches!(
-                            emitter.mir.types.get(output_ty),
-                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                        ) || emitter.is_erased_class_type(output_ty)
+                        let ok_ty_text = if output_is_erased
                         {
                             "SmeltUnknown"
                         } else {

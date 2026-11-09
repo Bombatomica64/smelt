@@ -1,48 +1,11 @@
-//! Typed local bindings: each test states what a capture must render as, so a
-//! body that fell back to the source name or the wrong cell form fails here.
+//! Shapes of emitted local bindings that behaviour cannot see: what a capture
+//! renders as when the running program would print the same either way. The
+//! captures' meaning is exercised by the `function_value_semantics` Node-parity
+//! fixture.
 
 use super::*;
 
-#[test]
-fn a_captured_receiver_binds_under_its_own_name_in_the_body() {
-    let source = source_for(
-        r"
-class Counter {
-    value = 1;
-    read(): number {
-        const get = () => this.value;
-        return get();
-    }
-}
-console.log(new Counter().read());
-",
-    );
-    assert!(source.contains("let smelt_self = self.clone();"), "{source}");
-    assert!(source.contains("smelt_self.0.borrow().value"), "{source}");
-    assert!(!source.contains("let self ="), "{source}");
-}
-
-#[test]
-fn a_nested_closure_reaches_the_same_shared_cell() {
-    let source = source_for(
-        r"
-function run(): number {
-    let count = 0;
-    const outer = () => {
-        const inner = () => { count = count + 1; };
-        inner();
-    };
-    outer();
-    return count;
-}
-console.log(run());
-",
-    );
-    assert!(source.contains("let smelt_capture_count = smelt_capture_count.clone();"), "{source}");
-    assert!(source.contains("(*smelt_capture_count.borrow_mut()) ="), "{source}");
-    assert!(!source.contains("smelt_capture_(*"), "{source}");
-}
-
+/// A self-recursive closure holds itself weakly, so it does not keep itself alive.
 #[test]
 fn a_self_recursive_closure_upgrades_its_weak_cell_before_borrowing() {
     let source = source_for(
@@ -54,30 +17,34 @@ function run(): number {
 console.log(run());
 ",
     );
-    assert!(source.contains("::std::rc::Rc::downgrade(&smelt_capture_walk)"), "{source}");
-    assert!(source.contains("smelt_capture_walk.upgrade().expect("), "{source}");
+    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> f64 {
+let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+let _smelt_tmp_1 = ::std::rc::Rc::new({
+let smelt_capture_walk = ::std::rc::Rc::downgrade(&smelt_capture_walk);
+move |closure_arg_0: f64| {
+let mut _smelt_tmp_3: f64;
+let _smelt_tmp_4: f64;
+let _smelt_tmp_5: f64;
+let _smelt_tmp_6: f64;
+let _smelt_tmp_2: bool = closure_arg_0 <= 0.0;
+if _smelt_tmp_2 {
+_smelt_tmp_3 = 0.0;
+} else {
+_smelt_tmp_4 = closure_arg_0 - 1.0;
+_smelt_tmp_5 = ((*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_4);
+_smelt_tmp_6 = 1.0 + _smelt_tmp_5;
+_smelt_tmp_3 = _smelt_tmp_6;
+}
+_smelt_tmp_3
+}
+});
+(*smelt_capture_walk.borrow_mut()) = _smelt_tmp_1.clone();
+let _smelt_tmp_2: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_walk.borrow())); (smelt_callable)(3.0) };
+return _smelt_tmp_2;
+}"#);
 }
 
-#[test]
-fn an_async_closure_owns_a_clone_of_the_cell_handle() {
-    let source = source_for(
-        r"
-async function run(): Promise<number> {
-    let count = 0;
-    const bump = async () => {
-        const again = async () => { count = count + 1; };
-        await again();
-    };
-    await bump();
-    return count;
-}
-run();
-",
-    );
-    assert!(source.contains("let smelt_capture_count = smelt_capture_count.clone();"), "{source}");
-    assert!(!source.contains("let (*smelt_capture_count"), "{source}");
-}
-
+/// An async method's future owns its receiver only when the body reads it.
 #[test]
 fn an_async_method_clones_its_receiver_only_when_the_body_names_it() {
     let source = source_for(
@@ -91,5 +58,15 @@ new Box1().uses();
 new Box1().ignores();
 ",
     );
-    assert_eq!(source.matches("let self_owned = self.clone();").count(), 1, "{source}");
+    assert_eq!(rust_fn(&source, "uses"), r"fn uses(&self) -> SmeltFuture<f64> {
+let self_owned = self.clone();
+SmeltFuture::<f64>::from_future_primed(Box::pin(async move {
+return Ok(self_owned.value);
+}))
+}");
+    assert_eq!(rust_fn(&source, "ignores"), r"fn ignores(&self) -> SmeltFuture<f64> {
+SmeltFuture::<f64>::from_future_primed(Box::pin(async move {
+return Ok(2.0);
+}))
+}");
 }
