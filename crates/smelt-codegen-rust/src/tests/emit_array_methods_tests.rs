@@ -14,13 +14,19 @@ def test_raises():
 "#,
         "tests/test_raises.py",
     );
-
-    assert!(
-        source.contains("#[test]\nfn test_raises() -> Result<(), Box<dyn std::error::Error>> {")
-    );
-    assert!(source.contains("let mut __smelt_pytest_raised: bool = false;"));
-    assert!(source.contains("__smelt_pytest_raised = true;"));
-    assert!(source.contains("return Ok(());"));
+    assert_eq!(rust_items(&source, &["fn test_raises"]), r#"fn test_raises() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_1: SmeltPyException;
+let _smelt_tmp_2: bool;
+let mut __smelt_pytest_raised: bool = false;
+_smelt_tmp_1 = SmeltPyException::new(&["ValueError", "Exception", "BaseException"], vec![SmeltPyException::arg(&"boom".to_owned())]);
+__smelt_pytest_raised = true;
+_smelt_tmp_2 = !(__smelt_pytest_raised);
+if _smelt_tmp_2 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "pytest.raises(...) did not raise".to_owned())).into());
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -35,10 +41,29 @@ def test_raises_match():
 "#,
         "tests/test_raises_match.py",
     );
-
-    assert!(source.contains("regex::Regex::new(&"));
-    assert!(source.contains("pytest.raises(...) match failed"));
-    assert!(source.contains("__smelt_pytest_exception"));
+    assert_eq!(rust_items(&source, &["fn test_raises_match"]), r#"fn test_raises_match() -> Result<(), Box<dyn std::error::Error>> {
+let __smelt_pytest_exception: String;
+let _smelt_tmp_2: SmeltPyException;
+let _smelt_tmp_3: bool;
+let _smelt_tmp_4: bool;
+let _smelt_tmp_5: bool;
+let mut __smelt_pytest_raised: bool = false;
+_smelt_tmp_2 = SmeltPyException::new(&["ValueError", "Exception", "BaseException"], vec![SmeltPyException::arg(&"booom".to_owned())]);
+__smelt_pytest_exception = _smelt_tmp_2.to_string();
+__smelt_pytest_raised = true;
+_smelt_tmp_3 = fancy_regex::Regex::new(&"bo+m".to_owned()).expect("regex compile failed").is_match(&__smelt_pytest_exception).unwrap_or(false);
+_smelt_tmp_4 = !(_smelt_tmp_3);
+if _smelt_tmp_4 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "pytest.raises(...) match failed".to_owned())).into());
+} else {
+_smelt_tmp_5 = !(__smelt_pytest_raised);
+if _smelt_tmp_5 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "pytest.raises(...) did not raise".to_owned())).into());
+} else {
+return Ok(());
+}
+}
+}"#);
 }
 
 #[test]
@@ -52,15 +77,15 @@ test("adds numbers", () => {
 });
 "#,
     );
-
-    assert!(
-        source.contains(
-            "#[test]\nfn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
-        )
-    );
-    assert!(source.contains("1.0 + 1.0"));
-    assert!(source.contains("smelt_lhs.is_nan() && smelt_rhs.is_nan()"));
-    assert!(source.contains("return Ok(());"));
+    assert_eq!(rust_items(&source, &["fn test_adds_numbers"]), r#"fn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_0: f64 = 1.0 + 1.0;
+let _smelt_tmp_1: bool = !({ let smelt_lhs: f64 = _smelt_tmp_0; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBe(...) failed: expect(1 + 1).toBe(2) (<memory>:5:3)"))).into());
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -75,9 +100,20 @@ test("nullish", () => {
 });
 "#,
     );
-
-    assert!(source.contains("!(true)"), "{source}");
-    assert!(!source.contains("!(false)"), "{source}");
+    assert_eq!(rust_items(&source, &["fn test_nullish"]), r#"fn test_nullish() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_1: bool;
+let _smelt_tmp_0: bool = !(true);
+if _smelt_tmp_0 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBeUndefined() failed: expect(undefined).toBeUndefined() (<memory>:5:3)"))).into());
+} else {
+_smelt_tmp_1 = !(true);
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBeNull() failed: expect(null).toBeNull() (<memory>:6:3)"))).into());
+} else {
+return Ok(());
+}
+}
+}"#);
 }
 
 #[test]
@@ -98,15 +134,16 @@ test("optional unknown", () => {
 });
 "#,
     );
-
-    assert!(
-        source.contains(".as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Undefined))"),
-        "{source}"
-    );
-    assert!(
-        !source.contains("expect(\"optional value was absent after narrowing\")"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn test_optional_unknown"]), r#"fn test_optional_unknown() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_1: bool;
+let _smelt_tmp_0: Option<SmeltUnknown> = maybe_value(true);
+_smelt_tmp_1 = !(_smelt_tmp_0.as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Undefined)));
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBeUndefined() failed: expect(maybeValue(true)).toBeUndefined() (<memory>:12:3)".into())));
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -118,8 +155,9 @@ function value(): unknown {
 }
 ",
     );
-
-    assert!(source.contains("SmeltUnknown::Undefined"), "{source}");
+    assert_eq!(rust_items(&source, &["fn value"]), r"fn value() -> SmeltUnknown {
+return SmeltUnknown::Undefined;
+}");
 }
 
 #[test]
@@ -131,8 +169,9 @@ function value(): unknown {
 }
 ",
     );
-
-    assert!(source.contains("SmeltUnknown::Undefined"), "{source}");
+    assert_eq!(rust_items(&source, &["fn value"]), r"fn value() -> SmeltUnknown {
+return SmeltUnknown::Undefined;
+}");
 }
 
 #[test]
@@ -144,13 +183,9 @@ function value(): unknown {
 }
 ",
     );
-
-    assert!(source.contains("SmeltUnknown::Null"), "{source}");
-    assert!(source.contains("return SmeltUnknown::Null;"), "{source}");
-    assert!(
-        !source.contains("return SmeltUnknown::Undefined;"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn value"]), r"fn value() -> SmeltUnknown {
+return SmeltUnknown::Null;
+}");
 }
 
 #[test]
@@ -166,12 +201,15 @@ describe("math helpers", () => {
 });
 "#,
     );
-
-    assert!(source.contains(
-        "#[test]\nfn test_math_helpers_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
-    ));
-    assert!(source.contains("fn main()"));
-    assert!(source.contains("return Ok(());"));
+    assert_eq!(rust_items(&source, &["fn test_math_helpers_adds_numbers"]), r#"fn test_math_helpers_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_0: f64 = 1.0 + 1.0;
+let _smelt_tmp_1: bool = !({ let smelt_lhs: f64 = _smelt_tmp_0; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
+if _smelt_tmp_1 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBe(...) failed: expect(1 + 1).toBe(2) (<memory>:6:5)"))).into());
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -239,82 +277,83 @@ test("common matchers", () => {
 });
 "#,
     );
-
-    assert!(source.contains("expect(...).toEqual(...) failed"));
-    assert!(
-        source.contains("item.is_nan() && smelt_needle.is_nan()"),
-        "{source}"
-    );
-    assert!(source.contains("expect(...).toHaveLength(...) failed"));
-    assert!(source.contains("expect(...).toStrictEqual(...) failed"));
-    assert!(source.matches('!').count() >= 2);
-    assert!(source.contains(".contains_key(&"));
-    assert!(source.contains("deepStrictEqual(...) failed"));
+    assert_eq!(rust_items(&source, &["fn test_common_matchers"]), r#"fn test_common_matchers() -> Result<(), Box<dyn std::error::Error>> {
+let user: SmeltRecord<JsString, JsString>;
+let _smelt_tmp_3: SmeltList<f64>;
+let _smelt_tmp_4: bool;
+let _smelt_tmp_5: bool;
+let _smelt_tmp_6: SmeltList<f64>;
+let _smelt_tmp_7: i64;
+let _smelt_tmp_8: bool;
+let _smelt_tmp_9: SmeltList<JsString>;
+let _smelt_tmp_10: SmeltList<JsString>;
+let _smelt_tmp_11: bool;
+let _smelt_tmp_12: SmeltList<f64>;
+let _smelt_tmp_13: bool;
+let _smelt_tmp_14: bool;
+let _smelt_tmp_15: bool;
+let _smelt_tmp_16: bool;
+let _smelt_tmp_18: bool;
+let _smelt_tmp_19: bool;
+let _smelt_tmp_20: SmeltList<f64>;
+let _smelt_tmp_21: SmeltList<f64>;
+let _smelt_tmp_22: bool;
+let _smelt_tmp_1: f64 = 1.0 + 1.0;
+let _smelt_tmp_2: bool = !({ let smelt_lhs: f64 = _smelt_tmp_1; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
+if _smelt_tmp_2 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toEqual(...) failed: expect(1 + 1).toEqual(2) (<memory>:5:3)"))).into());
+} else {
+_smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+_smelt_tmp_4 = { let smelt_needle = 2.0; _smelt_tmp_3.borrow().iter().any(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())) };
+_smelt_tmp_5 = !(_smelt_tmp_4);
+if _smelt_tmp_5 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toContain(...) failed: expect([1, 2, 3]).toContain(2) (<memory>:6:3)"))).into());
+} else {
+_smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+_smelt_tmp_7 = _smelt_tmp_6.len() as i64;
+_smelt_tmp_8 = (_smelt_tmp_7 as f64) != 3.0;
+if _smelt_tmp_8 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toHaveLength(...) failed: expect([1, 2, 3]).toHaveLength(3) (<memory>:7:3)"))).into());
+} else {
+_smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
+_smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
+_smelt_tmp_11 = _smelt_tmp_9 != _smelt_tmp_10;
+if _smelt_tmp_11 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toStrictEqual(...) failed: expect([\"a\"]).toStrictEqual([\"a\"]) (<memory>:8:3)"))).into());
+} else {
+_smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+_smelt_tmp_13 = { let smelt_needle = 4.0; _smelt_tmp_12.borrow().iter().any(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())) };
+_smelt_tmp_14 = !(_smelt_tmp_13);
+_smelt_tmp_15 = !(_smelt_tmp_14);
+if _smelt_tmp_15 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toContain(...) failed: expect([1, 2, 3]).not.toContain(4) (<memory>:9:3)"))).into());
+} else {
+_smelt_tmp_16 = !(true);
+if _smelt_tmp_16 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBeInstanceOf(...) failed: expect(new Date()).toBeInstanceOf(Date) (<memory>:10:3)"))).into());
+} else {
+user = SmeltRecord::from([(JsString::from("name"), JsString::from("Ada"))]);
+_smelt_tmp_18 = user.contains_key(&JsString::from("name"));
+_smelt_tmp_19 = !(_smelt_tmp_18);
+if _smelt_tmp_19 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toHaveProperty(...) failed: expect(user).toHaveProperty(\"name\") (<memory>:12:3)"))).into());
+} else {
+_smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
+_smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
+_smelt_tmp_22 = !(_smelt_tmp_20.len() == _smelt_tmp_21.len() && _smelt_tmp_20.borrow().iter().zip(_smelt_tmp_21.borrow().iter()).all(|(smelt_left_item, smelt_right_item)| (smelt_left_item == smelt_right_item || (smelt_left_item.is_nan() && smelt_right_item.is_nan()))));
+if _smelt_tmp_22 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("deepStrictEqual(...) failed: U.deepStrictEqual([1, 2], [1, 2]) (<memory>:13:3)"))).into());
+} else {
+return Ok(());
 }
-
-/// A destructured callback parameter binds the FIELD's type, not the
-/// parameter's.
-///
-/// The compact callback IR resolved a destructured field's type for dicts,
-/// maps and classes, and fell back to the *parameter's own type* for
-/// everything else. Over `T[][]`, `arrays.map(({ length }) => length)`
-/// therefore typed `length` as `T[]`, so the callback claimed to return a
-/// list and the emitter coerced the number into a one-element list. That is
-/// how radash's `zip` stopped compiling: `Math.max(..)` over the mapped
-/// lengths got `expected f64, found SmeltList<SmeltUnknown>`. `length` is a
-/// number on every list and string.
-#[test]
-fn a_destructured_callback_parameter_binds_the_field_type() {
-    let source = source_for(
-        r"
-export function lengths<T>(arrays: T[][]): number[] {
-  return arrays.map(({ length }) => length);
 }
-",
-    );
-
-    assert!(
-        !source.contains("SmeltList::from(vec![SmeltUnknown::Number("),
-        "the callback must yield `length` itself, not a one-element list \
-         holding it:\n{source}"
-    );
-    // An ERASED receiver must keep reading the field at runtime. Its binding
-    // really is `unknown`, so the old parameter-type fallback happened to be
-    // right there -- and routing it to the closure-body fallback instead is
-    // worse, because that path binds the destructured name to
-    // `Default::default()` and never reads the field. remeda's
-    // `binarySearchCutoffIndex(["a", "ab", ..], ({ length }) => length < 3)`
-    // answered from a default and returned the wrong index.
-    let erased = source_for(
-        r"
-export function cutoff<T>(array: readonly T[], predicate: (value: T) => boolean): number {
-  return array.filter(predicate).length;
 }
-
-export function run(): number {
-  return cutoff(['a', 'ab', 'abc'], ({ length }) => length < 3);
 }
-",
-    );
-    assert!(
-        !erased.contains("let length: SmeltUnknown = "),
-        "a destructured field of an erased parameter must be read, not bound to \
-         a default:\n{erased}"
-    );
-
-    // The equivalent member access has always been right; the two spellings
-    // must agree.
-    let member = source_for(
-        r"
-export function lengths<T>(arrays: T[][]): number[] {
-  return arrays.map(a => a.length);
 }
-",
-    );
-    assert!(
-        !member.contains("SmeltList::from(vec![SmeltUnknown::Number("),
-        "control: the member-access spelling must not wrap either:\n{member}"
-    );
+}
+}
+}
+}"#);
 }
 
 /// Vitest compares primitive numbers with `Object.is` under every equality
@@ -342,14 +381,36 @@ test("nan", () => {
 });
 "#,
     );
-
-    let same_value = source.matches("is_nan() && ").count();
-    assert!(
-        same_value >= 2,
-        "toEqual/toStrictEqual on numbers must use the Object.is comparison: {source}"
-    );
-    // The list assertion stays structural rather than becoming a reference check.
-    assert!(source.contains("expect(...).toEqual(...) failed"), "{source}");
+    assert_eq!(rust_items(&source, &["fn test_nan"]), r#"fn test_nan() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_2: bool;
+let _smelt_tmp_3: SmeltList<f64>;
+let _smelt_tmp_5: bool;
+let _smelt_tmp_6: SmeltList<f64>;
+let _smelt_tmp_7: SmeltList<f64>;
+let _smelt_tmp_8: bool;
+let _smelt_tmp_0: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
+let _smelt_tmp_1: f64 = mean(_smelt_tmp_0);
+_smelt_tmp_2 = !({ let smelt_lhs: f64 = _smelt_tmp_1; let smelt_rhs: f64 = f64::NAN; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
+if _smelt_tmp_2 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toEqual(...) failed: expect(mean([])).toEqual(NaN) (<memory>:9:3)"))).into());
+} else {
+_smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
+let _smelt_tmp_4: f64 = mean(_smelt_tmp_3);
+_smelt_tmp_5 = !({ let smelt_lhs: f64 = _smelt_tmp_4; let smelt_rhs: f64 = f64::NAN; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
+if _smelt_tmp_5 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toStrictEqual(...) failed: expect(mean([])).toStrictEqual(NaN) (<memory>:10:3)"))).into());
+} else {
+_smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
+_smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
+_smelt_tmp_8 = !(_smelt_tmp_6.len() == _smelt_tmp_7.len() && _smelt_tmp_6.borrow().iter().zip(_smelt_tmp_7.borrow().iter()).all(|(smelt_left_item, smelt_right_item)| (smelt_left_item == smelt_right_item || (smelt_left_item.is_nan() && smelt_right_item.is_nan()))));
+if _smelt_tmp_8 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toEqual(...) failed: expect([1]).toEqual([1]) (<memory>:11:3)"))).into());
+} else {
+return Ok(());
+}
+}
+}
+}"#);
 }
 
 /// A failed assertion must name the source assertion and its location.
@@ -402,16 +463,29 @@ test("array reference identity", () => {
 });
 "#,
     );
-
-    assert!(source.contains("Array(SmeltArray)"), "{source}");
-    assert!(
-        source.contains(
-            "(SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id"
-        ),
-        "{source}"
-    );
-    assert!(source.contains("SmeltUnknown::Array(vec!["), "{source}");
-    assert!(source.contains(".same_js_key(&"), "{source}");
+    assert_eq!(rust_items(&source, &["fn test_array_reference_identity"]), r#"fn test_array_reference_identity() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_6: bool;
+let _smelt_tmp_7: bool;
+let original: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)].into());
+let alias: SmeltUnknown = original.clone();
+let copy: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)].into());
+let _smelt_tmp_5: bool = !(original.clone().same_js_key(&original));
+if _smelt_tmp_5 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(original) (<memory>:8:3)".into())));
+} else {
+_smelt_tmp_6 = copy.clone().same_js_key(&original);
+if _smelt_tmp_6 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(copy).not.toBe(original) (<memory>:9:3)".into())));
+} else {
+_smelt_tmp_7 = !(copy == original);
+if _smelt_tmp_7 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toStrictEqual(...) failed: expect(copy).toStrictEqual(original) (<memory>:10:3)".into())));
+} else {
+return Ok(());
+}
+}
+}
+}"#);
 }
 
 #[test]
@@ -423,12 +497,10 @@ export function same(data: unknown, other: unknown): boolean {
 }
 ",
     );
-
-    assert!(source.contains(".same_js_key(&"), "{source}");
-    assert!(
-        !source.contains("data.clone() == other.clone()"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn same"]), r"fn same(data: SmeltUnknown, other: SmeltUnknown) -> bool {
+let _smelt_tmp_2: bool = data.clone().same_js_key(&other);
+return _smelt_tmp_2;
+}");
 }
 
 #[test]
@@ -448,136 +520,20 @@ function compare(left?: { a: unknown }, right?: { a: unknown }): void {
 }
 "#,
     );
-
-    assert!(
-        source.contains("(Some(left), Some(right)) => left.id == right.id"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn compare"]), r#"fn compare(left: Option<SmeltRecord<JsString, SmeltUnknown>>, right: Option<SmeltRecord<JsString, SmeltUnknown>>) -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_3: bool;
+let _smelt_tmp_2: bool = !(match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false });
+if _smelt_tmp_2 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).toBe(right) (<memory>:5:3)".into())));
+} else {
+_smelt_tmp_3 = match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false };
+if _smelt_tmp_3 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).not.toBe(right) (<memory>:6:3)".into())));
+} else {
+return Ok(());
 }
-
-#[test]
-fn emits_set_mutation_methods() {
-    let ts_source = source_for(
-        r"
-let values: Set<number> = new Set([1, 2]);
-const same = values.add(3);
-const deleted = values.delete(2);
-values.clear();
-",
-    );
-    let py_source = source_for_py(
-        r"
-values: set[int] = {1, 2}
-values.add(3)
-values.discard(2)
-values.remove(1)
-copy: set[int] = values.copy()
-values.clear()
-",
-    );
-
-    assert!(ts_source.contains(".clone()"));
-    assert!(ts_source.contains(".remove(&2.0)"));
-    assert!(ts_source.contains(".clear(); ()"));
-    assert!(py_source.contains(".insert(3)"));
-    assert!(py_source.contains(".remove(&2); ()"));
-    assert!(py_source.contains("panic!(\"set remove missing item\")"));
-    assert!(py_source.contains(".clone()"));
 }
-
-#[test]
-fn emits_map_and_set_size_properties() {
-    let source = source_for(
-        r"
-const values: Set<number> = new Set([1, 2]);
-const mapping: Map<string, number> = new Map();
-const setSize = values.size;
-const mapSize = mapping.size;
-",
-    );
-
-    assert!(source.matches(".len() as f64").count() >= 2);
-}
-
-#[test]
-fn emits_map_and_set_projection_methods() {
-    let source = source_for(
-        r"
-const values: Set<number> = new Set([1, 2]);
-const valueKeys = values.keys();
-const valueList = values.values();
-const valueEntries = values.entries();
-const mapping: Map<string, number> = new Map();
-const mapKeys = mapping.keys();
-const mapValues = mapping.values();
-const mapEntries = mapping.entries();
-",
-    );
-
-    // A source `Map` backs onto `SmeltJsMap` regardless of key type, so its
-    // projections take the symbol-only filter (SmeltJsMap never carries the
-    // internal `__smelt_symbol:`/`__smelt_class` marker keys that only a
-    // `SmeltRecord` object accumulates, and `smelt_is_for_in_record_key` is not
-    // defined over `SmeltJsMap`). Keys therefore have no record-marker filter.
-    assert!(
-        source.contains(
-            ".keys().filter(|smelt_key| !smelt_key.starts_with(\"__smelt_symbol\")).collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    // The map keys projection must not apply the `SmeltRecord`-only marker
-    // filter (`smelt_is_for_in_record_key`, which is defined in the prelude but
-    // must not appear in a `SmeltJsMap` keys projection).
-    assert!(
-        !source.contains(
-            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol\") && smelt_is_for_in_record_key(&"
-        ),
-        "{source}"
-    );
-    assert!(
-        source.contains(
-            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").map(|(_, smelt_value)| smelt_value).collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(
-        source.contains(
-            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(source.contains(".iter().collect::<Vec<_>>()"));
-    assert!(
-        source.contains(".iter().map(|smelt_value| (smelt_value.clone(), smelt_value.clone())).collect::<Vec<_>>()")
-    );
-}
-
-#[test]
-fn emits_python_set_algebra_methods() {
-    let source = source_for_py(
-        r"
-left: set[int] = {1, 2}
-right: set[int] = {2, 3}
-merged: set[int] = left.union(right)
-common: set[int] = left.intersection(right)
-only_left: set[int] = left.difference(right)
-exclusive: set[int] = left.symmetric_difference(right)
-separate: bool = left.isdisjoint(right)
-subset: bool = left.issubset(right)
-superset: bool = left.issuperset(right)
-",
-    );
-
-    assert!(source.contains(".union(&"));
-    assert!(source.contains(".intersection(&"));
-    assert!(source.contains(".difference(&"));
-    assert!(source.contains(".symmetric_difference(&"));
-    assert!(source.contains(".is_disjoint(&"));
-    assert!(source.contains(".is_subset(&"));
-    assert!(source.contains(".is_superset(&"));
-    // Set algebra collects the owned members it answers into a NEW set.
-    assert!(source.contains(".union(&") && source.contains(").collect()"));
-    assert!(!source.contains(".cloned().collect()"), "{source}");
+}"#);
 }
 
 #[test]
@@ -590,533 +546,13 @@ const has = mapping.has("a");
 const value = mapping.get("a");
 "#,
     );
-
-    // A source `Map` backs onto `SmeltJsMap` (not `HashMap`) even when
-    // string-keyed, so erasure can stamp the `__smelt_map` marker. `SmeltJsMap`
-    // stores owned entries, so `get` returns `Option<V>` directly with no
-    // `.cloned()`.
-    assert!(source.contains("SmeltJsMap<JsString, f64>"));
-    assert!(source.contains("SmeltJsMap::from([]);"));
-    assert!(source.contains(
-        "SmeltJsMap::from([(JsString::from(\"a\"), 1.0), (JsString::from(\"b\"), 2.0)])"
-    ));
-    assert!(source.contains(".contains_key(&JsString::from(\"a\"));"));
-    assert!(source.contains(".get(&JsString::from(\"a\"));"));
-    assert!(!source.contains(".get(&JsString::from(\"a\")).cloned();"));
-}
-
-#[test]
-fn emits_map_mutation_methods() {
-    let source = source_for(
-        r#"
-let mapping: Map<string, number> = new Map();
-const same = mapping.set("a", 1);
-const deleted = mapping.delete("a");
-mapping.clear();
-"#,
-    );
-
-    assert!(source.contains(".insert(JsString::from(\"a\"), 1.0);"));
-    assert!(source.contains(".remove(&JsString::from(\"a\")).is_some();"));
-    assert!(source.contains(".clear(); ()"));
-    assert!(source.contains(".clone()"));
-}
-
-#[test]
-fn emits_statement_position_map_set_on_erased_value_slot() {
-    // Regression: a `Map<_, unknown>` (or inferred `Map<any, any>`) value slot is
-    // erased to `SmeltUnknown`. A statement-position `map.set(k, concreteValue)`
-    // whose result (the map) is unused must STILL emit the insert. The value-type
-    // guard in `dict_set_expr` previously required an exact operand/slot type
-    // match and, on the concrete-vs-erased mismatch, folded the whole call to a
-    // plain receiver read — silently dropping the insert. es-toolkit's
-    // `isEqualWith` map comparisons then saw two empty maps and mis-compared.
-    let source = source_for(
-        r#"
-const mapping: Map<string, unknown> = new Map();
-mapping.set("a", 1);
-mapping.set("b", 2);
-"#,
-    );
-
-    let inserts = source.matches(".insert(").count();
-    assert!(
-        inserts >= 2,
-        "both statement-position Map.set inserts on an erased value slot must be emitted (found {inserts})\n{source}"
-    );
-}
-
-#[test]
-fn emits_statement_position_set_add_on_erased_element_slot() {
-    // Sibling of `emits_statement_position_map_set_on_erased_value_slot`: a
-    // statement-position `set.add(concreteValue)` on an erased element slot must
-    // likewise emit the insert rather than drop the observable mutation.
-    let source = source_for(
-        r"
-const bag: Set<unknown> = new Set();
-bag.add(1);
-bag.add(2);
-",
-    );
-
-    let inserts = source.matches(".insert(").count();
-    assert!(
-        inserts >= 2,
-        "both statement-position Set.add inserts on an erased element slot must be emitted (found {inserts})\n{source}"
-    );
-}
-
-#[test]
-fn emits_optional_chained_map_methods_as_guarded_modeled_ops() {
-    // `recv?.has/get/set/delete(...)` on an optional Map receiver desugars to the
-    // same modeled dict operation the non-optional receiver produces, guarded by
-    // a presence test and narrowed via the `optional value was absent` unwrap.
-    // It must NOT fall through to a generic `.get("has")` field access.
-    let source = source_for(
-        r"
-export function probe(stack: Map<string, number> | undefined, key: string): boolean | undefined {
-  return stack?.has(key);
-}
-export function fetch(stack: Map<string, number> | undefined, key: string): number | undefined {
-  return stack?.get(key);
-}
-export function store(stack: Map<string, number> | undefined, key: string): void {
-  stack?.set(key, 1);
-}
-export function drop(stack: Map<string, number> | undefined, key: string): boolean | undefined {
-  return stack?.delete(key);
-}
-",
-    );
-
-    assert!(
-        source.contains(".is_none()"),
-        "optional receiver presence test should emit is_none\n{source}"
-    );
-    assert!(
-        source.contains(".expect(\"optional value was absent after narrowing\")"),
-        "narrowed receiver should unwrap the optional in the present branch\n{source}"
-    );
-    assert!(
-        source.contains(".contains_key(&"),
-        "optional Map.has should lower to a modeled contains_key\n{source}"
-    );
-    assert!(
-        source.contains(".insert("),
-        "optional Map.set should lower to a modeled insert\n{source}"
-    );
-    assert!(
-        source.contains(".remove(&"),
-        "optional Map.delete should lower to a modeled remove\n{source}"
-    );
-    assert!(
-        !source.contains(".get(\"has\")"),
-        "optional Map.has must not misroute to an erased field access\n{source}"
-    );
-}
-
-#[test]
-fn emits_optional_chained_set_has_as_guarded_modeled_op() {
-    // `recv?.has(value)` on an optional Set receiver desugars to a guarded
-    // modeled `contains` check rather than a generic erased field access.
-    let source = source_for(
-        r"
-export function probe(seen: Set<string> | undefined, value: string): boolean | undefined {
-  return seen?.has(value);
-}
-",
-    );
-
-    assert!(
-        source.contains(".is_none()"),
-        "optional receiver presence test should emit is_none\n{source}"
-    );
-    assert!(
-        source.contains(".contains(&"),
-        "optional Set.has should lower to a modeled contains check\n{source}"
-    );
-    assert!(
-        !source.contains(".get(\"has\")"),
-        "optional Set.has must not misroute to an erased field access\n{source}"
-    );
-}
-
-#[test]
-fn emits_string_split_method() {
-    let source = source_for(
-        r#"
-const word = "a,b,c";
-const parts = word.split(",");
-const limited = word.split(",", 2);
-"#,
-    );
-
-    assert!(
-        source.contains(
-            "smelt_haystack.split(&smelt_separator, usize::MAX)"
-        ),
-        "{source}"
-    );
-    assert!(source.contains("else if smelt_limit.is_sign_positive()"));
-}
-
-#[test]
-fn emits_string_split_with_erased_union_limit() {
-    let source = source_for(
-        r#"
-function splitWord(word: string, limit: number | undefined | string): string[] {
-  return word.split(",", limit);
-}
-"#,
-    );
-
-    assert!(
-        source.contains("SmeltUnknown::Number(smelt_value) => Some(smelt_value)"),
-        "{source}"
-    );
-    assert!(
-        source.contains("else if smelt_split_limit.is_sign_positive()"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_regexp_string_split_from_static_object_separator() {
-    let source = source_for(
-        r"
-function parts(value: string): string[] {
-  return value.split(patterns.separator);
-}
-const patterns = { separator: /[T ]/i };
-",
-    );
-
-    assert!(
-        source.contains("SmeltRegExp::new(JsString::from(\"[T ]\"), JsString::from(\"i\"))"),
-        "{source}"
-    );
-    assert!(source.contains(".split_string(&"), "{source}");
-}
-
-#[test]
-fn emits_array_join_method() {
-    let source = source_for(
-        r#"
-const words: string[] = ["a", "b", "c"];
-const joined = words.join("-");
-const comma = words.join();
-const numbers: number[] = [1, 2, 3];
-const numberJoined = numbers.join("-");
-"#,
-    );
-
-    assert!(source.contains("JsString::join(") && source.contains(", &JsString::from(\"-\"))"), "{source}");
-    assert!(source.contains(", &JsString::from(\",\"))"), "{source}");
-    // A numeric item stringifies the way `String(item)` does, which is
-    // JavaScript's rule and not Rust's `Display`.
-    assert!(source.contains(".iter().map(|smelt_item| JsString::from({ smelt_number_to_string(*smelt_item) }))"), "{source}");
-}
-
-#[test]
-fn emits_array_concat_method() {
-    let source = source_for(
-        r"
-const left: number[] = [1, 2];
-const right: number[] = [3, 4];
-const merged = left.concat(right);
-",
-    );
-
-    assert!(source.contains(".iter().cloned().chain("));
-    assert!(source.contains(".collect::<Vec<_>>()"));
-}
-
-#[test]
-fn emits_array_search_methods() {
-    let source = source_for(
-        r"
-const values: number[] = [1, 2, 3, 2];
-const first = values.indexOf(2);
-const last = values.lastIndexOf(2);
-",
-    );
-
-    assert!(
-        source.contains(".iter().position(|smelt_item| *smelt_item == smelt_needle"),
-        "{source}"
-    );
-    assert!(
-        source.contains(".iter().rposition(|smelt_item| *smelt_item == smelt_needle"),
-        "{source}"
-    );
-    assert!(
-        source.contains("item.is_nan() && smelt_needle.is_nan()"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_array_search_methods_with_from_index() {
-    let source = source_for(
-        r"
-export function findFrom(values: readonly number[], target: number, from: number): number {
-  return values.indexOf(target, from);
-}
-export function findLastFrom(values: readonly number[], target: number, from: number): number {
-  return values.lastIndexOf(target, from);
-}
-",
-    );
-
-    // `indexOf` translates a negative `fromIndex` into an offset from the end,
-    // clamps the start to zero, and scans forward from there.
-    assert!(
-        source.contains("if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize"),
-        "{source}"
-    );
-    assert!(source.contains(".enumerate().skip(smelt_start)"), "{source}");
-    // `lastIndexOf` clamps the inclusive end and searches backward, returning -1
-    // when the end falls fully before the start of the array.
-    assert!(
-        source.contains("if smelt_raw < 0 { smelt_len + smelt_raw } else { smelt_raw.min(smelt_len - 1) }"),
-        "{source}"
-    );
-    assert!(
-        source.contains("if smelt_end < 0 { -1.0 }"),
-        "{source}"
-    );
-    assert!(
-        source.contains(".enumerate().take(smelt_take).rev()"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_array_and_string_slice_methods() {
-    let source = source_for(
-        r#"
-const values: number[] = [1, 2, 3, 4];
-const allValues = values.slice();
-const tailValues = values.slice(1);
-const midValues = values.slice(1, 3);
-const lastValues = values.slice(-2);
-const word = "smelting";
-const allText = word.slice();
-const tailText = word.slice(1);
-const midText = word.slice(1, 4);
-const lastText = word.slice(-3);
-function sliceOptional(start?: number, end?: number): string {
-  return word.slice(start, end);
-}
-"#,
-    );
-
-    assert!(source.contains(".iter().skip(0usize).take("));
-    assert!(source.contains("let smelt_index = 1.0 as i64"));
-    assert!(source.contains("clamp(0, smelt_len) as usize"));
-    assert!(source.contains(".cloned().collect::<Vec<_>>()"));
-    assert!(source.contains("{ let smelt_len_units = word.len(); { let smelt_start = 0usize; word.slice(smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub(0usize))) } }"), "{source}");
-    assert!(source.matches("if smelt_index < 0").count() >= 2);
-    assert!(source.contains(".unwrap_or(0.0)"));
-    assert!(source.contains(".unwrap_or(smelt_len_units as f64)"), "{source}");
-}
-
-#[test]
-fn emits_array_push_method() {
-    let source = source_for(
-        r"
-let values: number[] = [1, 2];
-values.push(3);
-const length = values.push(4);
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains("Vec<f64>"));
-    // Each pushed item is materialized before the write borrow is taken, so
-    // the value appears in the `let` and the call reads `push(smelt_push_item)`;
-    // see `list_push_expr`.
-    assert!(source.contains("let smelt_push_item = 3.0;"));
-    assert!(source.contains("let smelt_push_item = 4.0;"));
-    assert!(source.contains(".push(smelt_push_item);"));
-    assert!(source.contains(".len() as f64"));
-}
-
-#[test]
-fn emits_array_unshift_method() {
-    let source = source_for(
-        r"
-let values: number[] = [2, 3];
-const sameLength = values.unshift();
-const oneMore = values.unshift(1);
-const threeMore = values.unshift(-1, 0);
-",
-    );
-
-    assert!(source.contains(".insert(0, smelt_unshift_item);"));
-    assert!(source.contains("let smelt_unshift_item = 0.0;"));
-    assert!(source.matches(".insert(0,").count() >= 3);
-    assert!(source.matches(".len() as f64").count() >= 3);
-}
-
-#[test]
-fn emits_array_reverse_method() {
-    let source = source_for(
-        r"
-let values: number[] = [1, 2];
-values.reverse();
-const reversed = values.reverse();
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".reverse();"));
-    assert!(source.contains(".clone()"));
-}
-
-#[test]
-fn emits_array_sort_method() {
-    let source = source_for(
-        r"
-let values: number[] = [10, 2];
-values.sort();
-const sorted = values.sort();
-const sortedByNumber = values.sort((left, right) => left - right);
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".sort_by(|left, right| left.to_string().cmp(&right.to_string()))"));
-    assert!(source.contains("if smelt_ordering < 0.0"));
-    assert!(source.contains(".clone()"));
-}
-
-#[test]
-fn emits_modern_array_methods() {
-    let source = source_for(
-        r#"
-let values: number[] = [1, 2, 3, 4];
-let nested: number[][] = [[1], [2, 3]];
-let tupleNested: [word: string][] = [["one"], ["two"]];
-let erasedNested: unknown[] = [[1], [[2]]];
-const spliced = values.splice(1, 2, 9);
-const copiedSplice = values.toSpliced(1, 1, 8);
-const spreadSplice = values.toSpliced(1, 1, ...[10, 11]);
-const filled = values.fill(0, 1, 3);
-const copiedWithin = values.copyWithin(0, 1, 3);
-const replaced = values.with(1, 7);
-const flat = nested.flat();
-const flatTuple = tupleNested.flat();
-const deepFlat = erasedNested.flat(2);
-const flatMapped = values.flatMap((value, index) => [value + index]);
-const sorted = values.toSorted((left, right) => right - left);
-const reversed = values.toReversed();
-const last = values.findLast((value, index) => value > index);
-const lastIndex = values.findLastIndex((value, index) => value > index);
-const keys = values.keys();
-const vals = values.values();
-const entries = values.entries();
-"#,
-    );
-
-    assert!(source.contains(".splice("));
-    assert!(source.contains("splice_replacements.extend"));
-    assert!(source.contains("copy_items"));
-    assert!(source.contains("fill_index"));
-    assert!(source.contains("with_items"));
-    assert!(source.contains(".flat_map(|smelt_items| smelt_items.borrow().clone().into_iter())"));
-    assert!(source.contains(".flat_map(|smelt_items| vec![smelt_items.0.clone()])"));
-    assert!(source.contains("fn smelt_flat_values"));
-    assert!(source.contains("smelt_flat_depth"));
-    assert!(source.contains(".iter().enumerate().flat_map("));
-    assert!(source.contains(".iter().enumerate().rev().find_map("));
-    assert!(source.contains("(0.."));
-    assert!(source.contains(".iter().cloned().enumerate().map(|(smelt_idx, smelt_item)|"));
-}
-
-/// A source `Map` and a plain object literal erase differently: only the `Map`
-/// carries the `__smelt_map` identity marker.
-///
-/// This is the both-directions guard for stage-2 Map identity. A `new Map(...)`
-/// backs onto `SmeltJsMap`, whose `IntoSmeltUnknown` stamps the `__smelt_map`
-/// marker so the erased value stays observable as a Map (`isMap`, `[object
-/// Map]`, structural `isEqual`). An object literal (a `Record` internally) backs
-/// onto `SmeltRecord`, whose erasure is an ordinary unmarked object — no
-/// `__smelt_map`. If Map stamping ever leaked onto object literals (or a Map
-/// lost its `SmeltJsMap` backing), one of these type bindings would flip.
-#[test]
-fn erases_map_with_marker_but_object_literal_unmarked() {
-    let source = source_for(
-        r#"
-const m = new Map<string, number>([["a", 1]]);
-const asMap: unknown = m;
-const obj = { a: 1 };
-const asRecord: unknown = obj;
-"#,
-    );
-
-    // Direction 1: the Map is backed by the marker-stamping `SmeltJsMap`.
-    assert!(
-        source.contains("let m: SmeltJsMap<JsString, f64> ="),
-        "{source}"
-    );
-    // Direction 2: the object literal stays an unmarked `SmeltRecord`, never a
-    // `SmeltJsMap`.
-    assert!(
-        source.contains("let obj: SmeltRecord<JsString, f64> ="),
-        "{source}"
-    );
-    assert!(
-        !source.contains("let obj: SmeltJsMap"),
-        "an object literal must not acquire the Map backing:\n{source}"
-    );
-    // The `__smelt_map` marker exists only inside `SmeltJsMap`'s erasure adapter
-    // (a legitimate dynamic boundary), never in `SmeltRecord`'s.
-    assert!(
-        source.contains(
-            "let object = Vec::from([(\"__smelt_map\".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))])"
-        ),
-        "{source}"
-    );
-}
-
-/// An array literal that writes both `null` and `undefined` must keep the two
-/// spellings apart.
-///
-/// They share one HIR type (`Type::None`), so the element-type join used to
-/// answer `Optional(bool)` -- a single empty state for two distinct values.
-/// Both then lowered to `None::<bool>` and the rows became byte-identical:
-/// es-toolkit's `isEqualWith` primitives table answered `true` for its
-/// `[null, undefined, false]` row because it generated the same Rust as
-/// `[null, null, true]`.
-///
-/// The element type is `unknown` here by necessity, not convenience -- see
-/// `array_literal_mixes_nullish_spellings` for why no concrete type, union, or
-/// scoped generic can hold `bool | null | undefined` under the canonical
-/// optional/union flattening.
-#[test]
-fn mixed_nullish_array_literal_keeps_both_spellings() {
-    let source = source_for(
-        r"
-export function pairs(): boolean[] {
-  const pairs = [
-    [null, undefined, false],
-    [undefined, null, false],
-  ];
-  return pairs.map(pair => pair[0] === pair[1]);
-}
-",
-    );
-    assert!(
-        !source.contains("vec![None::<bool>, None::<bool>"),
-        "`null` and `undefined` must not collapse into the same `Option` empty \
-         state:\n{source}"
-    );
-    assert!(
-        source.contains("SmeltUnknown::Null, SmeltUnknown::Undefined")
-            && source.contains("SmeltUnknown::Undefined, SmeltUnknown::Null"),
-        "each row must keep its own nullish tags in order:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn main"]), r#"fn main() {
+let mapping: SmeltJsMap<JsString, f64> = SmeltJsMap::from([]);
+let literal: SmeltJsMap<JsString, f64> = SmeltJsMap::from([(JsString::from("a"), 1.0), (JsString::from("b"), 2.0)]);
+let has: bool = mapping.contains_key(&JsString::from("a"));
+let value: Option<f64> = mapping.get(&JsString::from("a"));
+return;
+}"#);
 }
 
 /// A literal whose only nullish spelling is uniform still uses `Option`.
@@ -1134,56 +570,14 @@ export function rows(): number {
 }
 ",
     );
-    assert!(
-        source.contains("Vec<Option<f64>>"),
-        "a single nullish spelling must stay a concrete `Option`:\n{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn rows"]), r"fn rows() -> f64 {
+let row: SmeltList<Option<f64>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<f64>> = vec![Some(1.0), Some(2.0), None::<f64>]; smelt_list_items }));
+let _smelt_tmp_2: f64 = row.len() as f64;
+return _smelt_tmp_2;
+}");
 }
 
 
-
-/// `fn.call(thisArg, arg)` must not pass `thisArg` as a positional argument.
-///
-/// Smelt erases the JavaScript `this` binding for these callables -- a source
-/// `function (this: any, arg)` lowers to a one-parameter closure with no `this`
-/// slot in the ABI -- so the leading operand of `.call` is a receiver, not an
-/// argument. `Function.prototype.apply` already dropped it; `.call` passed it
-/// through, which bound the callee's FIRST parameter to the `this` object.
-///
-/// es-toolkit's `memoize` is the reproduction: it calls `fn.call(this, arg)`,
-/// so `memoize((x: number) => x + 10)(5)` added 10 to the `this` object instead
-/// of to 5. `flow`, `overArgs` and `result` call their callbacks the same way.
-///
-/// The receiver must be an erased generic callable for this to bite: a callee
-/// with a concrete function type expands to its own arity and drops the extra
-/// operand on its own.
-#[test]
-fn call_method_does_not_pass_this_as_an_argument() {
-    let source = source_for(
-        r"
-export function wrap<F extends (...args: any) => any>(fn: F): F {
-  const wrapped = function (this: unknown, arg: Parameters<F>[0]): ReturnType<F> {
-    return fn.call(this, arg);
-  };
-  return wrapped as F;
-}
-",
-    );
-    let packed = source
-        .lines()
-        .find_map(|line| {
-            let start = line.find("smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![")?;
-            let rest = &line[start..];
-            let end = rest.find(']')?;
-            Some(rest[..=end].to_owned())
-        })
-        .expect("the erased call must pack an argument list");
-    assert!(
-        !packed.contains(','),
-        "`fn.call(this, arg)` must pack ONE argument, not the `this` operand \
-         too, but packed `{packed}`:\n{source}"
-    );
-}
 
 #[test]
 fn emits_reference_identity_for_typed_map_strict_equality() {
@@ -1202,8 +596,16 @@ test("map identity", () => {
 });
 "#,
     );
-
-    assert!(source.contains("map.clone().id == map.clone().id"), "{source}");
+    assert_eq!(rust_items(&source, &["fn test_map_identity"]), r#"fn test_map_identity() -> Result<(), Box<dyn std::error::Error>> {
+let map: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"))]);
+let alias: SmeltJsMap<f64, JsString> = map.clone();
+let _smelt_tmp_3: bool = !(map.clone().id == map.clone().id);
+if _smelt_tmp_3 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(map) (<memory>:7:3)".into())));
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -1221,11 +623,16 @@ test("set identity", () => {
 });
 "#,
     );
-
-    assert!(
-        source.contains("values.clone().id == values.clone().id"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn test_set_identity"]), r#"fn test_set_identity() -> Result<(), Box<dyn std::error::Error>> {
+let values: SmeltJsSet<f64> = SmeltJsSet::from([1.0]);
+let alias: SmeltJsSet<f64> = values.clone();
+let _smelt_tmp_3: bool = !(values.clone().id == values.clone().id);
+if _smelt_tmp_3 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(values) (<memory>:7:3)".into())));
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -1246,9 +653,22 @@ test("map structural", () => {
 });
 "#,
     );
-
-    assert!(source.contains("copy.clone() != map.clone()"), "{source}");
-    assert!(!source.contains("copy.id == map.id"), "{source}");
+    assert_eq!(rust_items(&source, &["fn test_map_structural"]), r#"fn test_map_structural() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_5: bool;
+let map: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"))]);
+let copy: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"))]);
+let _smelt_tmp_4: bool = copy.clone() != map.clone();
+if _smelt_tmp_4 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toEqual(...) failed: expect(copy).toEqual(map) (<memory>:7:3)".into())));
+} else {
+_smelt_tmp_5 = copy != map;
+if _smelt_tmp_5 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toStrictEqual(...) failed: expect(copy).toStrictEqual(map) (<memory>:8:3)".into())));
+} else {
+return Ok(());
+}
+}
+}"#);
 }
 
 #[test]
@@ -1264,19 +684,21 @@ function compare(left?: Map<number, string>, right?: Map<number, string>): void 
 }
 "#,
     );
-
-    assert!(
-        source.contains("(Some(left), Some(right)) => left.id == right.id"),
-        "{source}"
-    );
-    assert!(source.contains("(None, None) => true"), "{source}");
+    assert_eq!(rust_items(&source, &["fn compare"]), r#"fn compare(left: Option<SmeltJsMap<f64, JsString>>, right: Option<SmeltJsMap<f64, JsString>>) -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_2: bool = !(match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false });
+if _smelt_tmp_2 {
+return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).toBe(right) (<memory>:5:3)".into())));
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
 fn emits_false_for_identityless_reference_strict_equality() {
     // A tuple lowers to a Rust tuple, which stores no object id. Rather than
     // inventing an identity, the comparison keeps reporting "not the same
-    // reference" — the same answer as before this rule existed.
+    // reference".
     let source = source_for(
         r#"
 import { test, expect } from "vitest";
@@ -1288,7 +710,14 @@ test("tuple identity", () => {
 });
 "#,
     );
-
-    assert!(!source.contains("pair.id"), "{source}");
-    assert!(!source.contains("other == pair"), "{source}");
+    assert_eq!(rust_items(&source, &["fn test_tuple_identity"]), r#"fn test_tuple_identity() -> Result<(), Box<dyn std::error::Error>> {
+let pair: (f64, f64) = (1.0, 2.0);
+let other: (f64, f64) = (1.0, 2.0);
+let _smelt_tmp_4: bool = false;
+if _smelt_tmp_4 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBe(...) failed: expect(other).not.toBe(pair) (<memory>:7:3)"))).into());
+} else {
+return Ok(());
+}
+}"#);
 }

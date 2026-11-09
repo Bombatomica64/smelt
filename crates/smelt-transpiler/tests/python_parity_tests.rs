@@ -191,6 +191,12 @@ fn writes_through_module_globals() -> TestResult {
     verify_python_parity("writes_through_module_globals")
 }
 
+/// `set` mutation (`add`, `discard`, `remove`, `copy`, `clear`) and algebra run as Python runs them.
+#[test]
+fn python_set_methods() -> TestResult {
+    verify_python_parity("python_set_methods")
+}
+
 /// Comprehensions, inheritance, abstract bases, generics, static forward
 /// references, constructor-declared fields and every type-alias spelling run
 /// as Python runs them.
