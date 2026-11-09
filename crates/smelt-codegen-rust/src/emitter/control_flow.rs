@@ -213,6 +213,11 @@ impl FunctionEmitter<'_> {
 
     /// Emits a basic block after recursion-depth accounting has been applied.
     fn emit_block_body(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
+        if let Some((_, exit_block)) = self.call_condition_loop(block, &[])? {
+            self.emit_call_condition_loop(block, exit_block, out)?;
+            return self.emit_block(self.block(exit_block)?, out);
+        }
+
         if let Some((cond, repeat_block, exit_block, repeat_when_true)) =
             self.do_while_body(block)?
         {

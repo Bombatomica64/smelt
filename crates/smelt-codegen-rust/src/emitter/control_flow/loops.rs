@@ -795,6 +795,18 @@ impl FunctionEmitter<'_> {
         visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
         let break_target = exit.break_target();
+        // Reaching the stop or the loop exit ends the region whichever edge got
+        // here. A `while` whose condition is a call has a header ending in a
+        // `Call`, so the edge back to the decision block is that call's normal
+        // successor, not a `Goto`; tested only on `Goto`, the walker ran through
+        // the stop into a second copy of the loop body.
+        if block.id == stop {
+            return Ok(());
+        }
+        if Some(block.id) == break_target {
+            out.push_str("    break;\n");
+            return Ok(());
+        }
         if self.emit_enclosing_loop_jump(block.id, out)? {
             return Ok(());
         }
@@ -814,11 +826,6 @@ impl FunctionEmitter<'_> {
             self.emit_statement(statement, out)?;
         }
         match &block.terminator {
-            Some(Terminator::Goto(target)) if *target == stop => Ok(()),
-            Some(Terminator::Goto(target)) if Some(*target) == break_target => {
-                out.push_str("    break;\n");
-                Ok(())
-            }
             Some(Terminator::Goto(target)) => {
                 let target_block = self.block(*target)?;
                 self.emit_block_until_goto_inner(target_block, stop, exit, out, visited)
@@ -980,6 +987,16 @@ impl FunctionEmitter<'_> {
         out: &mut String,
         visited: &mut BlockIdSet,
     ) -> Result<(), EmitError> {
+        // As in `emit_block_until_goto_inner`: the back edge and the exit are
+        // recognised on the block reached, not on the kind of edge reaching it.
+        if block.id == continue_target {
+            out.push_str("    continue;\n");
+            return Ok(());
+        }
+        if Some(block.id) == break_target {
+            out.push_str("    break;\n");
+            return Ok(());
+        }
         if self.emit_enclosing_loop_jump(block.id, out)? {
             return Ok(());
         }
@@ -1004,14 +1021,6 @@ impl FunctionEmitter<'_> {
             self.emit_statement(statement, out)?;
         }
         match &block.terminator {
-            Some(Terminator::Goto(target)) if *target == continue_target => {
-                out.push_str("    continue;\n");
-                Ok(())
-            }
-            Some(Terminator::Goto(target)) if Some(*target) == break_target => {
-                out.push_str("    break;\n");
-                Ok(())
-            }
             Some(Terminator::Goto(target)) => {
                 let target_block = self.block(*target)?;
                 self.emit_loop_branch_inner(
@@ -1470,7 +1479,120 @@ impl FunctionEmitter<'_> {
             return Ok(true);
         }
 
+        if let Some((repeat_block, exit_block)) = self.call_condition_loop(block, &boundary)? {
+            let Some(break_block) =
+                self.nested_loop_break_block(repeat_block, exit_block, stop, exit, &[block.id, exit_block])
+            else {
+                return Ok(false);
+            };
+            self.emit_call_condition_loop(block, break_block, out)?;
+            self.emit_after_nested_loop(exit_block, stop, exit, out, visited)?;
+            return Ok(true);
+        }
+
         Ok(false)
+    }
+
+    /// Recognizes `block` as the header of a loop whose condition is a call or
+    /// `await`, answering the body entry and the exit.
+    ///
+    /// A condition that calls splits the header: `block` ends in the `Call`
+    /// (or `Await`), possibly a chain of them for `await f()`, and the decision
+    /// is the `Switch` the chain runs into, so no single-block recogniser sees
+    /// it. The repeating arm must return to `block` without crossing
+    /// `boundary` or an open loop's header, continue target or exit: plain
+    /// reachability holds for every block inside an outer loop, by going round
+    /// that loop.
+    pub(super) fn call_condition_loop(
+        &self,
+        block: &BasicBlock,
+        boundary: &[smelt_mir::BlockId],
+    ) -> Result<Option<(smelt_mir::BlockId, smelt_mir::BlockId)>, EmitError> {
+        let mut avoid = boundary.to_vec();
+        avoid.extend(self.flow.open_loop_boundaries());
+        if avoid.contains(&block.id) {
+            return Ok(None);
+        }
+        let mut seen = BlockIdSet::default();
+        seen.insert(block.id);
+        let mut current = block;
+        let (then_block, else_block) = loop {
+            match &current.terminator {
+                Some(Terminator::Call { target, .. } | Terminator::Await { target, .. }) => {
+                    if !seen.insert(*target) {
+                        return Ok(None);
+                    }
+                    current = self.block(*target)?;
+                }
+                Some(Terminator::Switch { then_block, else_block, .. })
+                    if current.id != block.id =>
+                {
+                    break (*then_block, *else_block);
+                }
+                _ => return Ok(None),
+            }
+        };
+        avoid.push(current.id);
+        let repeats = |arm: smelt_mir::BlockId| {
+            self.block_reaches_target_avoiding(arm, block.id, &avoid, &mut BlockIdSet::default())
+        };
+        Ok(match (repeats(then_block), repeats(else_block)) {
+            (true, false) => Some((then_block, else_block)),
+            (false, true) => Some((else_block, then_block)),
+            _ => None,
+        })
+    }
+
+    /// Emits a loop recognized by [`Self::call_condition_loop`] as
+    /// `loop { <condition>; <decision and body> }`.
+    ///
+    /// The condition is evaluated once per iteration inside the loop, so its
+    /// temporaries belong to the iteration. From the header's terminator on the
+    /// ordinary loop-branch walker does the rest: an edge back to `block` is
+    /// `continue`, an edge to `break_block` is `break`, and a call inside a
+    /// `try` forks through its handler.
+    pub(super) fn emit_call_condition_loop(
+        &self,
+        block: &BasicBlock,
+        break_block: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let loop_declared = self.declared_scope();
+        let open_loop = self.flow.open_loop(block.id, None, Some(break_block), out.len());
+        out.push_str("    loop {\n");
+        for statement in &block.statements {
+            self.emit_statement_for_block(block, statement, out)?;
+        }
+        let mut visited = BlockIdSet::default();
+        visited.insert(block.id);
+        let in_loop = Continuation::InLoop {
+            continue_target: block.id,
+            break_target: Some(break_block),
+            visited: &visited,
+        };
+        match &block.terminator {
+            Some(Terminator::Call { callee, args, dest, target, unwind }) => {
+                if let Some(handler) = unwind {
+                    self.emit_throwing_call_terminator(callee, args, *dest, *target, *handler, &in_loop, out)?;
+                } else {
+                    self.emit_call_terminator_statement(callee, args, *dest, out)?;
+                    self.emit_continuation(*target, &in_loop, out)?;
+                }
+            }
+            Some(Terminator::Await { future, dest, target, unwind }) => {
+                if let Some(handler) = unwind {
+                    self.emit_throwing_await_terminator(future, *dest, *target, *handler, &in_loop, out)?;
+                } else {
+                    self.emit_await_terminator_statement(future, *dest, out)?;
+                    self.emit_continuation(*target, &in_loop, out)?;
+                }
+            }
+            _ => return Err(EmitError::new("call-condition loop header must end in a call or await")),
+        }
+        out.push_str("    }\n");
+        open_loop.close(out);
+        loop_declared.close();
+        Ok(())
     }
 
     /// The block a nested loop's body `break`s to, or `None` when the loop

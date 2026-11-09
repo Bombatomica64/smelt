@@ -445,6 +445,17 @@ impl ControlFlowState {
             .is_some_and(|open| block == open.header || block == open.continue_target)
     }
 
+    /// Every header, continue target and exit block of the open loops: the
+    /// blocks a cycle must not cross to count as a loop nested inside them.
+    pub(crate) fn open_loop_boundaries(&self) -> Vec<smelt_mir::BlockId> {
+        self.open_loops
+            .borrow()
+            .iter()
+            .flat_map(|open| [Some(open.header), Some(open.continue_target), open.break_block])
+            .flatten()
+            .collect()
+    }
+
     /// Whether a generated loop is open around the code being emitted.
     pub(crate) fn in_open_loop(&self) -> bool {
         !self.open_loops.borrow().is_empty()
