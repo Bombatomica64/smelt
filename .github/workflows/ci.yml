@@ -628,9 +628,9 @@ jobs:
           RUSTFLAGS=-Awarnings cargo test \
             --manifest-path target/compat-repos/radash/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee radash-tests.log || true
-          # Pinned-failure ratchet: blocker-logs/radash-real-assertion-failures.md
-          # lists the failures. The pin fails on any other failure or a changed total.
-          grep -F "test result: FAILED. 347 passed; 40 failed;" radash-tests.log
+          # Pinned-failure ratchet: rises as the failures real assertions exposed are
+          # fixed. The pin fails on any other failure or a changed total.
+          grep -F "test result: FAILED. 360 passed; 27 failed;" radash-tests.log
 
   # Regression gate for the Hono campaign (blocker-logs/hono-campaign-plan.md).
   #
