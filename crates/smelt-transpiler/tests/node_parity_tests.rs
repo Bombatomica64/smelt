@@ -79,6 +79,13 @@ fn builtin_constructor_values() -> TestResult {
     verify_node_parity("builtin_constructor_values")
 }
 
+/// A self-reaching class or list erases to one cycle, `c ? [] : {}` keeps the array,
+/// and a callback selected at run time is the one that runs.
+#[test]
+fn cyclic_erasure_and_selected_values() -> TestResult {
+    verify_node_parity("cyclic_erasure_and_selected_values")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]

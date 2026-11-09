@@ -138,6 +138,12 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Whether `ty` is an object map: `[]` cannot take its type from such an
+    /// arm, because the value stays an array at run time (`c ? [] : {}`).
+    fn is_dict_type(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(..)))
+    }
+
     /// `c ? null : undefined`: the one join of two `None` arms that must keep
     /// which of the two it holds.
     ///
@@ -274,9 +280,9 @@ impl ModuleBuilder<'_> {
             else_ty
         } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
             then_ty
-        } else if Self::is_empty_list_expr(body, then_expr) {
+        } else if Self::is_empty_list_expr(body, then_expr) && !self.is_dict_type(else_ty) {
             else_ty
-        } else if Self::is_empty_list_expr(body, else_expr) {
+        } else if Self::is_empty_list_expr(body, else_expr) && !self.is_dict_type(then_ty) {
             then_ty
         } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
             self.ctx.krate.types.intern(Type::Optional(else_ty))

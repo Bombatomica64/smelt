@@ -235,6 +235,25 @@ fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>)
     })
 }
 
+//~ The erased views of reference records still being built, by object id. A
+//~ record reachable from itself (`p.self = p`) answers a nested erasure with its
+//~ open view instead of recursing, which is also the cycle JavaScript holds.
+thread_local! { static SMELT_OPEN_REFERENCE_VIEWS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltObject>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+
+#[allow(dead_code)]
+fn smelt_open_reference_view(id: usize) -> Option<SmeltObject> { SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow().get(&id).cloned()) }
+
+#[allow(dead_code)]
+fn smelt_begin_reference_view(id: usize, view: &SmeltObject) { SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().insert(id, view.clone())); }
+
+//~ Publish the finished entries through every handle the cycle already holds.
+#[allow(dead_code)]
+fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(String, SmeltUnknown)>) -> SmeltUnknown {
+    SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().remove(&id));
+    for (key, value) in entries { view.insert(key, value); }
+    SmeltUnknown::Object(view)
+}
+
 // @smelt:item-end
 
 // @smelt:item SmeltFunctionIdentityState when unknown

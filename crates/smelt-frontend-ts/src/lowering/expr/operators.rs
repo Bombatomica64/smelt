@@ -69,8 +69,8 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        let mut lhs = self.expression(&binary.left, body)?;
-        let mut rhs = self.expression(&binary.right, body)?;
+        let mut lhs = self.equality_operand(op, &binary.left, body)?;
+        let mut rhs = self.equality_operand(op, &binary.right, body)?;
         // JavaScript `===`/`!==` on erased values compares the ORIGINAL erased
         // `SmeltUnknown` (reference identity for objects/arrays/functions, value
         // for primitives). A `typeof`-guard narrows an operand to a concrete
@@ -106,6 +106,32 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// Lower one operand of a binary expression.
+    ///
+    /// `Number`, `String` and `Boolean` lower to conversion closures so they can
+    /// be passed as callbacks, but a closure has no identity to compare. Compared
+    /// with `===`/`==` they read as the interned builtin value that
+    /// `value.constructor` also returns.
+    fn equality_operand(
+        &mut self,
+        op: BinOp,
+        operand: &oxc::ast::ast::Expression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let comparing =
+            matches!(op, BinOp::JsStrictEq | BinOp::JsStrictNotEq | BinOp::Eq | BinOp::NotEq);
+        if comparing
+            && let Some(host) = self.host_global(operand)
+            && matches!(host.name(), "Number" | "String" | "Boolean")
+        {
+            let name = host.name().to_owned();
+            let span = self.expression_span(operand);
+            let ty = self.erase_at(ErasureReason::ByName, span, "global namespace");
+            return Ok(body.push_expr(Expr { kind: ExprKind::BuiltinNamespace { name }, ty, span }));
+        }
+        self.expression(operand, body)
     }
 
     /// Peel a narrowing [`ExprKind::UnknownCast`] off a strict-equality operand.

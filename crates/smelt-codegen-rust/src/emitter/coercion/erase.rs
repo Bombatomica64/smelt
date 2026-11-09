@@ -760,8 +760,14 @@ impl FunctionEmitter<'_> {
         value_text: &RustExpr,
         target: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        // Re-entering the same record (`friends?: P[]`) cannot expand inline
+        // forever, and the value must not vanish: the struct's generated
+        // `IntoSmeltUnknown` impl erases the nested value.
         if self.conversions.record_conversion_stack.borrow().contains(&target) {
-            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                value_text.delimited()
+            )));
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
