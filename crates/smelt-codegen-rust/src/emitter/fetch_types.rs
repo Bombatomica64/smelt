@@ -131,10 +131,9 @@ impl FunctionEmitter<'_> {
                 )))
             }
             // The function this stopped in is attached by the emission entry
-            // points now (`EmitError::with_site`), so the message carries only
+            // points (`EmitError::with_site`), so the message carries only
             // what it knows: the type it could not model and the initializer
-            // text. It used to name the site itself, which is where that
-            // mechanism came from.
+            // text.
             _ => Err(EmitError::new(format!(
                 "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}`)",
                 self.rendered_type(init_ty)?, init_text = init_text.delimited(),
@@ -806,8 +805,7 @@ impl FunctionEmitter<'_> {
             }
             // An ERASED body. `BodyInit` is a union whose unmodeled arms are
             // host classes, so a `BodyInit | null | undefined` parameter erases
-            // and the whole call used to be refused at BUILD time — including
-            // for the string every real caller passes.
+            // and has to accept the string every real caller passes.
             //
             // **Dynamic boundary.** The arms the spec allows are distinguishable
             // at run time by tag, and only there: the static type says nothing

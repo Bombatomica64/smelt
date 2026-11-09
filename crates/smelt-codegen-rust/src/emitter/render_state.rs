@@ -64,12 +64,10 @@ pub(crate) struct MintedItems {
     ///
     /// The conversion rebuilds the class from the erased object's record,
     /// field by field and with each field's own conversion nested inside, so
-    /// spelled inline it is tens of kilobytes for a large class. It used to be
-    /// spelled at EVERY site that recovered the class: Hono's CORS test module
-    /// repeated `Hono`'s conversion about a thousand times and reached 28 MB,
-    /// past what one rustc can compile in a capped build. Only outermost
-    /// conversions are hoisted (see `extract_rendered`), so a helper's body
-    /// is exactly the text that was inlined before.
+    /// spelled inline it is tens of kilobytes for a large class: repeated at
+    /// every site that recovers the class, Hono's CORS test module would reach
+    /// 28 MB, past what one rustc can compile in a capped build. Only outermost
+    /// conversions are hoisted (see `extract_rendered`).
     ///
     /// Keyed by the module-level Rust spelling of the type; the value is
     /// `(ordinal, body)`.

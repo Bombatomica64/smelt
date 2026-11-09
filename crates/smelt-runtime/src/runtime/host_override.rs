@@ -7,9 +7,9 @@
 // global emit byte-identical output.
 // @smelt:item SmeltHostOverride when host_override
 /// Override state of a modeled host constructor's global slot.
-///
-/// `Native` is the unmodified builtin; `Absent` is an explicit
-/// `globalThis.X = undefined`; `Ctor` holds a reassigned constructor value.
+//~
+//~ `Native` is the unmodified builtin; `Absent` is an explicit
+//~ `globalThis.X = undefined`; `Ctor` holds a reassigned constructor value.
 #[derive(Clone)] enum SmeltHostOverride { Native, Absent, Ctor(SmeltUnknown) }
 
 thread_local! {
@@ -23,9 +23,9 @@ fn smelt_host_override_read(slot: &::std::cell::RefCell<SmeltHostOverride>, name
 }
 
 /// Classify and store a written host-global value; returns the stored value.
-///
-/// JS `undefined` -> `Absent`; a native-handle marker record -> `Native`
-/// (the save/restore round trip); any function/class value -> `Ctor`.
+//~
+//~ JS `undefined` -> `Absent`; a native-handle marker record -> `Native`
+//~ (the save/restore round trip); any function/class value -> `Ctor`.
 fn smelt_host_override_write(slot: &::std::cell::RefCell<SmeltHostOverride>, value: SmeltUnknown) -> SmeltUnknown {
     let state = match &value { SmeltUnknown::Undefined => SmeltHostOverride::Absent, SmeltUnknown::Object(entries) if entries.contains_key("__smelt_native_ctor") => SmeltHostOverride::Native, _ => SmeltHostOverride::Ctor(value.clone()) }; *slot.borrow_mut() = state; value
 }
@@ -45,15 +45,15 @@ fn smelt_register_function_classes<T: ?Sized + 'static>(function: &::std::rc::Rc
 fn smelt_function_classes(value: &SmeltUnknown) -> Option<Vec<&'static str>> { let SmeltUnknown::Function(function) = value else { return None; }; smelt_read_callable(function, |meta| meta.classes.clone()) }
 
 /// `value instanceof <HostName>` where the name lives in an override slot.
-///
-/// `instanceof` reads the binding, and an overridable host constructor's
-/// binding is its slot, so the answer follows the slot's state: the native
-/// builtin is recognized by its identity marker(s); a reassigned constructor
-/// is recognized by the class its instances record (which is why a native
-/// record is *not* an instance of a replacement class); and a deleted global
-/// has no instances at all. A stored constructor with no registered class
-/// (an ordinary function assigned into the slot) falls back to the marker
-/// probe rather than answering `false` for the native records still around.
+//~
+//~ `instanceof` reads the binding, and an overridable host constructor's
+//~ binding is its slot, so the answer follows the slot's state: the native
+//~ builtin is recognized by its identity marker(s); a reassigned constructor
+//~ is recognized by the class its instances record (which is why a native
+//~ record is *not* an instance of a replacement class); and a deleted global
+//~ has no instances at all. A stored constructor with no registered class
+//~ (an ordinary function assigned into the slot) falls back to the marker
+//~ probe rather than answering `false` for the native records still around.
 fn smelt_host_override_instance_of(slot: &::std::cell::RefCell<SmeltHostOverride>, value: &SmeltUnknown, markers: &[&str]) -> bool {
     let marker_probe = || matches!(value, SmeltUnknown::Object(map) if markers.iter().any(|marker| map.contains_key(*marker)));
     match &*slot.borrow() { SmeltHostOverride::Absent => false, SmeltHostOverride::Native => marker_probe(), SmeltHostOverride::Ctor(ctor) => match smelt_function_classes(ctor) { Some(classes) => matches!(value, SmeltUnknown::Object(map) if matches!(map.get("__smelt_class"), Some(SmeltUnknown::String(class)) if classes.iter().any(|entry| class.eq_str(entry)))), None => marker_probe() } }

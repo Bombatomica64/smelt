@@ -470,13 +470,9 @@ impl ModuleBuilder<'_> {
     /// body is lowered, returning the item and the `items` entry it displaced.
     ///
     /// `const fact = (n: number): number => n <= 1 ? 1 : n * fact(n - 1)` names
-    /// itself inside its own body. The item used to be pushed only after the
-    /// body was lowered, so the inner `fact(..)` found no item and bound
-    /// `module_global_function_expression`'s default-returning stub: the
-    /// recursion silently answered `0` one level down. A hand-written port is
-    /// a `fn` that calls itself, which is what a body-less item with the final
-    /// callable signature gives the body to call; the caller fills the same
-    /// slot once the body exists.
+    /// itself inside its own body. A hand-written port is a `fn` that calls itself,
+    /// which is what a body-less item with the final callable signature gives the
+    /// body to call; the caller fills the same slot once the body exists.
     ///
     /// Only an arrow whose return type is known before its body (an explicit
     /// annotation, or a contextual function type) is predeclared: the call's
@@ -1052,7 +1048,7 @@ return_ty,
     /// value path produces. Registry symbols are globally interned by
     /// description, so this shared spelling lets a `const K = Symbol.for("k")`
     /// alias fold to the same synthetic computed-key member as an inline
-    /// `[Symbol.for("k")]` key (issue #115). A unique `Symbol(...)` gets a fresh
+    /// `[Symbol.for("k")]` key. A unique `Symbol(...)` gets a fresh
     /// span-tagged spelling because it has fresh identity each evaluation.
     pub(in crate::lowering) fn call_literal_const_expression(
         &mut self,

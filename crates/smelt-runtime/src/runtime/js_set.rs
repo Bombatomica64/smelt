@@ -113,13 +113,13 @@ enum SmeltSlotList {
 }
 
 impl SmeltSlotList {
-    /// The slots in this bucket, in insertion order.
+    //~ The slots in this bucket, in insertion order.
     fn slots(&self) -> &[usize] { match self { Self::One(slot) => ::std::slice::from_ref(slot), Self::Many(slots) => slots.as_slice() } }
-    /// Append `slot`, promoting a one-slot bucket to an allocated one.
+    //~ Append `slot`, promoting a one-slot bucket to an allocated one.
     fn push(&mut self, slot: usize) { match self { Self::One(first) => *self = Self::Many(::std::vec![*first, slot]), Self::Many(slots) => slots.push(slot) } }
-    /// Drop `removed` and shift every later slot down by one, mirroring what
-    /// `entries.remove(removed)` did to the positions this bucket stores.
-    /// Returns whether the bucket is now empty and should be dropped.
+    //~ Drop `removed` and shift every later slot down by one, mirroring what
+    //~ `entries.remove(removed)` did to the positions this bucket stores.
+    //~ Returns whether the bucket is now empty and should be dropped.
     fn forget(&mut self, removed: usize) -> bool {
         match self {
             Self::One(slot) => { if *slot == removed { return true; } if *slot > removed { *slot -= 1; } false }
@@ -142,12 +142,12 @@ struct SmeltJsSlotIndex {
 
 impl SmeltJsSlotIndex {
     fn new() -> Self { Self { hashed: SmeltPreHashedMap::default(), unhashed: Vec::new() } }
-    /// Index the freshly pushed slot `slot` under its entry's hash key.
+    //~ Index the freshly pushed slot `slot` under its entry's hash key.
     fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => match self.hashed.entry(key) { ::std::collections::hash_map::Entry::Occupied(mut bucket) => bucket.get_mut().push(slot), ::std::collections::hash_map::Entry::Vacant(bucket) => { bucket.insert(SmeltSlotList::One(slot)); } }, None => self.unhashed.push(slot) } }
-    /// Drop `slot` from the index and shift every later slot down by one, which
-    /// is what `entries.remove(slot)` did to the positions the index stores.
+    //~ Drop `slot` from the index and shift every later slot down by one, which
+    //~ is what `entries.remove(slot)` did to the positions the index stores.
     fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| !slots.forget(slot)); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }
-    /// The slots that may hold an entry with hash key `key`.
+    //~ The slots that may hold an entry with hash key `key`.
     fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], SmeltSlotList::slots), None => self.unhashed.as_slice() } }
 }
 
@@ -162,8 +162,8 @@ impl<T> SmeltJsSetStore<T> {
     fn new() -> Self { Self { entries: Vec::new(), index: SmeltJsSlotIndex::new() } }
 }
 
-//~ Hand-written `Clone`: the derive would demand `T: Clone` (the old `Vec<T>`
-//~ field forced that) even though sharing the store needs nothing of `T`.
+//~ Hand-written `Clone`: the derive would demand `T: Clone` even though
+//~ sharing the store needs nothing of `T`.
 impl<T> Clone for SmeltJsSet<T> { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
 //~ Hand-written `Debug` so the store stays invisible and the rendering keeps
 //~ reading `SmeltJsSet { id: 1, entries: [..] }`, as it did when the members
@@ -172,31 +172,31 @@ impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsSet<T> { fn fmt(&self, f
 
 impl<T> SmeltJsSet<T> {
     fn new() -> Self { Self::with_id(smelt_next_object_id()) }
-    /// Build an empty set that keeps a caller-supplied JavaScript object identity.
+    //~ Build an empty set that keeps a caller-supplied JavaScript object identity.
     fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsSetStore::new())) } }
-    /// Drop every member, in the shared store: every handle sees the set empty.
-    /// Needs no `T: Clone` and never copies the members it is about to drop.
+    //~ Drop every member, in the shared store: every handle sees the set empty.
+    //~ Needs no `T: Clone` and never copies the members it is about to drop.
     #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsSetStore::new(); }
     fn len(&self) -> usize { self.store.borrow().entries.len() }
     fn is_empty(&self) -> bool { self.store.borrow().entries.is_empty() }
 }
 
 impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
-    /// SameValueZero equality via each element's erased runtime value.
+    //~ SameValueZero equality via each element's erased runtime value.
     fn same_member(left: &T, right: &T) -> bool { left.clone().into_smelt_unknown().same_js_key(&right.clone().into_smelt_unknown()) }
-    /// The hash-index key of `value`, or `None` when it has no hashable identity.
+    //~ The hash-index key of `value`, or `None` when it has no hashable identity.
     fn member_key(value: &T) -> Option<u64> { smelt_js_member_hash_key(&value.clone().into_smelt_unknown()) }
-    /// A NEW set with the same members in the same order: its own id and its
-    /// own store, so later writes to either set leave the other unchanged.
+    //~ A NEW set with the same members in the same order: its own id and its
+    //~ own store, so later writes to either set leave the other unchanged.
     fn fresh_copy(&self) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())) } }
-    /// Slot of `value` in the members, comparing only the ones that share `key`
-    /// — every SameValueZero-equal member is guaranteed to be one of them.
+    //~ Slot of `value` in the members, comparing only the ones that share `key`
+    //~ — every SameValueZero-equal member is guaranteed to be one of them.
     fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = self.store.borrow(); store.index.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
     fn position(&self, value: &T) -> Option<usize> { self.position_with_key(value, Self::member_key(value)) }
     fn contains(&self, value: &T) -> bool { self.position(value).is_some() }
     #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let mut store = self.store.borrow_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
     #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let mut store = self.store.borrow_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
-    /// The members, in insertion order, as an owned snapshot.
+    //~ The members, in insertion order, as an owned snapshot.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
     fn is_disjoint(&self, other: &Self) -> bool { self.iter().all(|value| !other.contains(&value)) }

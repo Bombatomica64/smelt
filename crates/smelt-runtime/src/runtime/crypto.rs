@@ -10,10 +10,10 @@
 // * `getRandomValues(view)` — `getrandom`. Needs a helper: the spec fills the
 //   argument IN PLACE and answers that same object, so the generated code has
 //   to reach the view's shared byte storage and then hand the SAME reference
-//   identity back. See [`emit_random_values`].
+//   identity back.
 // * `subtle.digest(algorithm, data)` — `sha1` and `sha2`. Needs a helper: the
 //   algorithm is a run-time string, so one call site has to be able to answer
-//   any of the four widths. See [`emit_digest`].
+//   any of the four widths.
 //
 // ## Why no `SmeltCrypto` type
 //
@@ -26,7 +26,7 @@
 //
 // * `subtle.importKey`/`sign`/`verify` — the key-taking half, for `raw` HMAC
 //   keys (what signed cookies and HMAC JWTs use), over `hmac`. A `CryptoKey`
-//   is the concrete `SmeltCryptoKey`. See [`emit_crypto_key`].
+//   is the concrete `SmeltCryptoKey`.
 //
 // ## What is not here
 //
@@ -180,13 +180,13 @@ pub struct SmeltCryptoKey {
 }
 #[allow(dead_code)]
 impl SmeltCryptoKey {
-    /// JS reference identity of this key.
+    //~ JS reference identity of this key.
     pub fn id(&self) -> usize { self.id }
-    /// `key.type`: a symmetric key is `"secret"`.
+    //~ `key.type`: a symmetric key is `"secret"`.
     pub fn key_type(&self) -> String { "secret".to_owned() }
-    /// `key.extractable`.
+    //~ `key.extractable`.
     pub fn extractable(&self) -> bool { self.extractable }
-    /// `key.usages`.
+    //~ `key.usages`.
     pub fn usages(&self) -> SmeltList<String> { SmeltList::new(self.usages.clone()) }
 }
 

@@ -5,8 +5,7 @@
 //! emission renders `if c { A..J } else { B..J }` and then `J` ONCE; an
 //! emitter that instead follows each arm to the end of the function renders
 //! `J` (and everything after it) once per path, which is exponential in the
-//! number of sequential branches. The closure emitter used to do exactly that
-//! (see `emit_closure_block_inner`).
+//! number of sequential branches.
 //!
 //! The analysis is the textbook dataflow over the reverse CFG with one
 //! virtual exit node that every `return`/`throw`/`unreachable` block (and any

@@ -475,10 +475,8 @@ impl ModuleBuilder<'_> {
             // which performs the same search `exec` does and updates
             // `lastIndex` with it.
             //
-            // This used to be `exec(..) != null`, which built a match object
-            // and erased it to `SmeltUnknown` just to compare against `null`:
-            // two avoidable erasures per call site for an answer the runtime
-            // already had as a `bool`.
+            // The runtime already has the answer as a `bool`; `exec(..) != null` would
+            // build a match object and erase it just to compare against `null`.
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::RegexTest {
@@ -516,10 +514,8 @@ impl ModuleBuilder<'_> {
     /// Any other receiver whose STATIC type is a `RegExp` qualifies too
     /// ([`Self::static_receiver_type`]): `build(path).test(text)`, where `build`
     /// is a module function declared to return `RegExp`, is the same runtime
-    /// `test` as `const re = build(path); re.test(text)`. It used to fall through
-    /// to a generic member call whose callee was the regex VALUE itself, so the
-    /// call answered `null` (Hono's `RegExpRouter` never matched a wildcard
-    /// middleware: `findMiddleware` asks `buildWildcardRegExp(k).test(path)`).
+    /// `test` as `const re = build(path); re.test(text)` (Hono's `findMiddleware`
+    /// asks `buildWildcardRegExp(k).test(path)`).
     fn could_be_regexp_test_receiver(&mut self, expression: &Expression<'_>, body: &Body) -> bool {
         let syntactic = match expression {
             Expression::NewExpression(_) | Expression::CallExpression(_) => {
@@ -831,11 +827,8 @@ impl ModuleBuilder<'_> {
     /// Lower `RegExp(...)` called without `new`, when `RegExp` is the global.
     ///
     /// ECMA-262 makes the call form construct exactly like `new RegExp(...)`
-    /// (for a string pattern), so it takes the same lowering. It used to call
-    /// the erased `RegExp` namespace object instead: es-toolkit's
-    /// `IS_NATIVE_FUNCTION_REGEXP` and `words`' `rUnicodeWord` were an erased
-    /// value where a regular expression belongs. A local binding or a declared
-    /// class named `RegExp` is that binding, as for `new`.
+    /// (for a string pattern), so it takes the same lowering. A local binding or a
+    /// declared class named `RegExp` is that binding, as for `new`.
     pub(in crate::lowering) fn regexp_call_construction(
         &mut self,
         call: &CallExpression<'_>,

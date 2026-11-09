@@ -16,9 +16,7 @@ impl FunctionEmitter<'_> {
     ///
     /// The thrown operand is erased to `SmeltUnknown` and handed to the
     /// payload-preserving `smelt_throw` adapter, so a `catch` can recover the
-    /// value's class, `name`, `message` and custom fields instead of the
-    /// `format!("{}", value)` text that previously replaced them (which rendered
-    /// every erased `Error` as the literal `[object Object]`).
+    /// value's class, `name`, `message` and custom fields.
     ///
     /// The `Err` variant is annotated with the channel's error type so Rust never
     /// has to infer `E`: a throwing closure whose result is only stored, never
@@ -197,6 +195,7 @@ fn local_read_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
 /// walk is bounded by the visited set, so a closure table that refers to itself
 /// cannot loop.
 fn closure_captured_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
+    /// Append the id of every closure constructed in `blocks`.
     fn collect_closure_ids(blocks: &[BasicBlock], into: &mut Vec<ClosureId>) {
         for block in blocks {
             for statement in &block.statements {

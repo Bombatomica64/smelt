@@ -64,7 +64,7 @@ struct LiftSource {
 ///
 /// Re-parsed text has its own span space, and a span the lowering looks
 /// checker facts up by, or reports a diagnostic at, must be the file's
-/// (audit finding A9). Padding keeps the spaces identical; a callable too
+///. Padding keeps the spaces identical; a callable too
 /// close to the start of the file for the prefix to fit is not aligned.
 fn file_aligned_lift_source(offset: usize, callable: &str) -> LiftSource {
     const PREFIX: &str = "const __smelt_lifted = ";
@@ -120,7 +120,7 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         // The span is read out of THIS file's text, so it must name this file
-        // (audit finding A9). The TypeScript guest's `code_hash` covers the
+        //. The TypeScript guest's `code_hash` covers the
         // emitted JavaScript, not these bytes, so the file is what can be
         // checked here (`CallableProvenance::span_matches`).
         if !paths_match(&self.path, &provenance.span.file) {
@@ -236,7 +236,7 @@ impl ModuleBuilder<'_> {
                     .unwrap_or(&capture.qualified_name);
                 // A capture is a callable of the file its own span names: a
                 // same-named function of another file is not it, however close
-                // its offset (audit finding A9).
+                // its offset.
                 let capture_file = self.ctx.krate.modules.iter().find_map(|module| {
                     paths_match(&module.source.path, &capture.span.file).then_some(module.source.file)
                 });

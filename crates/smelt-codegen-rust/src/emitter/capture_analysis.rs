@@ -33,10 +33,9 @@ impl FunctionEmitter<'_> {
     pub(super) fn parameter_type_has_shared_mutation_semantics(&self, ty: TypeId) -> bool {
         // A reference-class parameter is a handle: passing it by value shares the
         // underlying cell, so mutations already reach the caller's object and the
-        // `&mut` ABI is neither needed nor wanted (`&self` methods only). This is
-        // also what fixes the `Mutex`→`Semaphore` throwaway-clone miscompile:
-        // once `Semaphore` is a reference class, delegating to `self.semaphore`
-        // no longer demands a `&mut` the `&self` caller cannot supply.
+        // `&mut` ABI is neither needed nor wanted (`&self` methods only). Delegating
+        // to a reference-class field from a `&self` method therefore never demands
+        // a `&mut` the caller cannot supply.
         if self.is_reference_class_type(ty) {
             return false;
         }
@@ -655,11 +654,10 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether a closure body assigns to or mutates a captured local.
     ///
-    /// This is the sole gate for making a cloned collection capture `mut` now
-    /// that the capture prelude no longer forces `mut` on every list/set/dict.
-    /// It therefore has to recognize *every* way a closure body can write to the
-    /// capture, and it stays deliberately conservative: any path it cannot prove
-    /// to be read-only counts as a write. Covered write shapes:
+    /// This is the sole gate for making a cloned collection capture `mut`, so it
+    /// has to recognize *every* way a closure body can write to the capture, and it
+    /// stays deliberately conservative: any path it cannot prove to be read-only
+    /// counts as a write. Covered write shapes:
     ///
     /// * direct rebinds (`Statement::Assign { dest == target }`) and in-place
     ///   place assignments (`x.field = …`, `x[i] = …`, `x = …`),

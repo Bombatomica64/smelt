@@ -5,11 +5,9 @@
 //! copy re-emitted into a subclass's `impl`, as a BASE INITIALIZER copy of an
 //! ancestor constructor, or as an inline CLOSURE body inside another emitter.
 //! Each role changes which type parameters are in scope and how the receiver is
-//! typed. They used to be ten independent fields (`suppress_type_params`,
-//! `emitting_inherited_copy`, `inherited_impl_owner`, `base_initializer_owner`,
-//! …) that callers set by hand after construction, so nothing stopped an
-//! emitter from being an inherited copy AND a base initializer copy at once, or
-//! a closure from silently dropping one of its parent's settings.
+//! typed. One enum makes the roles exclusive: an emitter cannot be an
+//! inherited copy AND a base initializer copy at once, and a closure cannot
+//! silently drop one of its parent's settings.
 //!
 //! [`EmitRole`] makes the role a single value fixed by the constructor that
 //! creates the emitter ([`FunctionEmitter::new`], [`FunctionEmitter::inherited_copy`],

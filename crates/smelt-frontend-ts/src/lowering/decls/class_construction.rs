@@ -411,7 +411,7 @@ impl ModuleBuilder<'_> {
         // is not a source-declared class nor a `mir.classes` entry — it is a
         // const alias to a host constructor — so a subclass such as
         // `AbortError extends DOMException` inherits no fields unless we inject the
-        // Error marker slots here too (was E0609 on `.message`).
+        // Error marker slots here too.
         //
         // The base-name predicate and the injected slot layout are shared with
         // the `super(...)` lowering in `super_call`, so the fields a class gains

@@ -20,7 +20,7 @@
 enum SmeltThisBinding { Value(SmeltUnknown), Deferred(::std::rc::Rc<dyn Fn() -> SmeltUnknown>) }
 
 thread_local! {
-    /// Receiver installed by the innermost active call, `undefined` when none.
+    //~ Receiver installed by the innermost active call, `undefined` when none.
     static SMELT_THIS: ::std::cell::RefCell<SmeltThisBinding> = ::std::cell::RefCell::new(SmeltThisBinding::Value(SmeltUnknown::Undefined));
 }
 

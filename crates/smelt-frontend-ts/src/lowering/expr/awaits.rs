@@ -46,9 +46,8 @@ impl ModuleBuilder<'_> {
         let Some(ty) = self.future_inner_type(awaited_ty) else {
             // A union with a promise arm needs the await even when the union
             // itself is not an erased surface: `number | Promise<number>` is a
-            // concrete tagged enum, and the old shape dropped the `await`
-            // outright and handed the union straight on, so the next read of it
-            // matched only the value arm and `unreachable!`-ed the other.
+            // concrete tagged enum, and handing the union on unawaited would leave
+            // the next read matching only the value arm.
             let awaited_union_ty = self.awaited_union_type(awaited_ty);
             if self.erased_or_union_surface(awaited_ty) || awaited_union_ty.is_some() {
                 // A union operand awaits to the join of its arms: `await`
@@ -56,7 +55,7 @@ impl ModuleBuilder<'_> {
                 // operand is still asserted to be a future of that join, and the
                 // emitter's union-to-future projection turns each value arm into
                 // an already-resolved handle -- see
-                // `project_union_value_text`. Without the join the awaited value
+                // `project_union_value`. Without the join the awaited value
                 // erased to `SmeltUnknown`, so Hono's
                 // `new Response(null, await this.#dispatch(..))` reported an
                 // erased init for an operand whose awaited type is one class.

@@ -141,13 +141,12 @@ impl ModuleBuilder<'_> {
     ///
     /// **Dynamic boundary.** TypeScript types the call `any`, and the value is
     /// whatever the TEXT holds — `null`, a number, a string, an array or an
-    /// object — which only the run-time parse knows. It used to be a
-    /// string-keyed record, which coerced every non-object document into one:
-    /// `JSON.parse('null')` became `{}`, so `body === null` validation never
-    /// fired (Hono's `c.req.json()` is `JSON.parse` of the body text). No
-    /// concrete type, union or generic states "any JSON value" more precisely
-    /// than the erased carrier; a source that knows the shape spells it with
-    /// `JSON.parse<T>` or an `as T` assertion, which keep their typed targets.
+    /// object — which only the run-time parse knows: `JSON.parse('null')` is
+    /// `null`, so `body === null` validation must fire (Hono's `c.req.json()` is
+    /// `JSON.parse` of the body text). No concrete type, union or generic states
+    /// "any JSON value" more precisely than the erased carrier; a source that knows
+    /// the shape spells it with `JSON.parse<T>` or an `as T` assertion, which keep
+    /// their typed targets.
     fn json_parse_fallback_type(&mut self) -> smelt_hir::TypeId {
         self.erase_with(ErasureReason::ExternalType, "JSON.parse")
     }

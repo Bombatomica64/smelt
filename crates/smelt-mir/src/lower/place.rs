@@ -130,13 +130,12 @@ impl LoweringCtx<'_> {
             // accepted only because the assignment narrows `parts` to
             // `number[]`, and `parts![i] = v` says so outright. The frontend's
             // narrowing does not always reach the write target, so the target
-            // arrives as `OptionalField` / `OptionalIndex` and used to be
-            // rejected outright (`partOffsets[p] = offset` in Hono's trie
-            // router). A hand-written Rust team would bind the unwrapped
-            // receiver and assign through it, which is exactly what
-            // `narrowed_receiver_base` builds: a temporary of the INNER type,
-            // whose `Rvalue::Use` of an optional operand emits the narrowing
-            // unwrap, then an ordinary field or index projection on it.
+            // can arrive as `OptionalField` / `OptionalIndex`. A hand-written
+            // Rust team would bind the unwrapped receiver and assign through it,
+            // which is exactly what `narrowed_receiver_base` builds: a temporary
+            // of the INNER type, whose `Rvalue::Use` of an optional operand emits
+            // the narrowing unwrap, then an ordinary field or index projection on
+            // it.
             ExprKind::OptionalField { receiver, field } => {
                 let (base, writebacks) = self.narrowed_receiver_base(*receiver, expr.span)?;
                 Ok((

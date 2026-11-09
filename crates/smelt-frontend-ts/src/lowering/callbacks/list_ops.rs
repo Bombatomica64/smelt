@@ -982,9 +982,9 @@ impl ModuleBuilder<'_> {
                 // its return type, and the initial value. When a named/opaque
                 // callback's declared return type is not identical to the seed
                 // but the two statically reconcile (concrete unions, optionals,
-                // `unknown`/generic surfaces, numeric widening; see #71's shared
-                // reconciler), pick `U` and coerce the seed/callback result into
-                // it in the emitter, rather than rejecting the reduce.
+                // `unknown`/generic surfaces, numeric widening), pick `U` and coerce
+                // the seed/callback result into it in the emitter, rather than
+                // rejecting the reduce.
                 let declared_acc_ty = self.callback_declared_accumulator_ty(callback.expr, body);
                 let accumulator_ty = self.reduce_accumulator_ty(
                     seed_ty,
@@ -1061,10 +1061,9 @@ impl ModuleBuilder<'_> {
     ///   declared type is `U`. This matches how TypeScript resolves `reduce<U>`.
     /// - Failing a usable declared parameter, the seed and return type are
     ///   reconciled through the shared conditional-branch reconciler
-    ///   ([`Self::conditional_branch_type`]) used by #71 (numeric widening, list
-    ///   element unification, concrete unions). A genuinely irreconcilable pair
-    ///   surfaces the existing "array reduce callback returns an unsupported
-    ///   type" error.
+    ///   ([`Self::conditional_branch_type`]: numeric widening, list element
+    ///   unification, concrete unions). A genuinely irreconcilable pair surfaces
+    ///   the "array reduce callback returns an unsupported type" error.
     ///
     /// With no initial value the fold seeds from the first element, so the
     /// accumulator must stay the element type: a widening callback return is

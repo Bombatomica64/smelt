@@ -46,9 +46,8 @@ pub(crate) struct SmeltTyDb {
     /// Program-wide settings (Python version/platform and resolved search
     /// paths) this database's [`Program`] is derived from.
     ///
-    /// Since ty 0.0.10 the `Program` is no longer a database-global singleton
-    /// retrieved with `Program::get`; it is interned on demand from these
-    /// settings (see [`Self::program`]).
+    /// The `Program` is not a database-global singleton; it is interned on demand
+    /// from these settings (see [`Self::program`]).
     program_settings: ProgramSettings,
 }
 

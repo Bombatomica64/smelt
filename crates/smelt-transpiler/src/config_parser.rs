@@ -103,8 +103,8 @@ mod tests {
     }
 
     /// Only an edition generated code compiles under is accepted: 2024. An
-    /// older one is refused when the manifest is read (it used to be accepted
-    /// and produced crates rustc rejects), and so is a made-up one.
+    /// older one is refused when the manifest is read (rustc would reject the
+    /// generated crate), and so is a made-up one.
     #[test]
     fn only_a_compiling_rust_edition_is_accepted() {
         parse_with("[rust]\nedition = \"2024\"").expect("2024 parses");
@@ -173,8 +173,8 @@ mod tests {
         );
     }
 
-    /// Every malformed combination is a parse error naming the problem; a
-    /// `rev` on a `path` source used to be ignored silently.
+    /// Every malformed combination is a parse error naming the problem, including
+    /// a `rev` on a `path` source.
     #[test]
     fn malformed_package_declarations_are_rejected() {
         for (declaration, expected) in [

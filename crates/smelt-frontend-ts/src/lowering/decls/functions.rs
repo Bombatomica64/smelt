@@ -26,9 +26,8 @@ impl ModuleBuilder<'_> {
     /// annotation-or-`Unknown` rules as an abstract method signature.
     ///
     /// The method's own type parameters are in scope only while its signature
-    /// lowers; this used to push that scope and never pop it, so every later
-    /// item of the module resolved a same-named type to the method's
-    /// parameter.
+    /// lowers, so that a later item of the module does not resolve a same-named
+    /// type to the method's parameter.
     pub(super) fn method_signature_function_type(
         &mut self,
         method: &oxc::ast::ast::MethodDefinition<'_>,
@@ -78,9 +77,7 @@ impl ModuleBuilder<'_> {
             .position(|param| param.optional || Self::formal_parameter_has_default(param))
             .unwrap_or(method.value.params.items.len());
         // The rest parameter is the LAST entry of `params`, at index
-        // `items.len()`, as in every other function type. It used to be left
-        // out, with `rest` pointing at the last FIXED parameter, so a method
-        // `f(...args: T[])` had no slot for its list.
+        // `items.len()`, as in every other function type.
         let rest = match method.value.params.rest.as_ref() {
             Some(rest) => {
                 let declared = rest

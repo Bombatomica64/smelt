@@ -14,9 +14,8 @@
 //!   Rust generic in scope the access goes through the trait (`a.speak()`);
 //!   otherwise the parameter erased at this function — no trait, a call site
 //!   that passes an erased value, a demoted trial — and the access is the
-//!   dynamic member lookup on the erased carrier, the same lookup the frontend
-//!   produced before bounds were typed, now converted to the bound's declared
-//!   result type.
+//!   dynamic member lookup on the erased carrier, converted to the bound's
+//!   declared result type.
 
 use crate::rust::RustType;
 use crate::rust::RustExpr;
@@ -229,7 +228,7 @@ impl FunctionEmitter<'_> {
             "match smelt_get_unknown_field(&{receiver_text}, {method_name:?}) {{ SmeltUnknown::Function(smelt_method) => (smelt_method)(vec![{erased_args}]){propagate}, _ => SmeltUnknown::Undefined }}", receiver_text = receiver_text.tight()
         )));
         // MIR interns `unknown` for every program with a bound member read
-        // (`intern_bound_dispatch_carrier_type`).
+        //.
         let unknown_ty = self.type_id(Type::Unknown)?;
         self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }

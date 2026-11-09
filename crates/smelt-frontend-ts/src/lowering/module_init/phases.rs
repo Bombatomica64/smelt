@@ -5,10 +5,9 @@
 //! once every import is read and the module is known to be a test module or
 //! not; signatures can only be lowered once the module's own type names
 //! shadow the global ones and its class names are pending; a function body can
-//! only be lowered once every signature it may call is predeclared. That order
-//! used to be a comment-annotated sequence of a dozen calls in
-//! `ModuleBuilder::lower_program`, where moving one line compiled fine and
-//! broke resolution silently.
+//! only be lowered once every signature it may call is predeclared. Moving one
+//! of these steps would still compile and break resolution silently, which is
+//! why the order lives in one place.
 //!
 //! Each phase here consumes the token the previous one returned and returns
 //! the next. The tokens have a private field, so only the phase that precedes
@@ -213,8 +212,8 @@ impl ModuleBuilder<'_> {
         self.collect_type_predicate_signatures(program);
         // `collect_module_globals` ran before any function item existed, so an
         // unannotated `const x = makeX()` could not resolve its callee and was
-        // recorded `Unknown`. Now that every function signature is declared,
-        // those bindings are typed again from their initializers.
+        // recorded `Unknown`. With every function signature declared, those bindings
+        // are typed again from their initializers.
         self.refine_unknown_module_global_types(program, &item_reads);
         // Static properties on function declarations (`partial.placeholder = …`)
         // are collected as a PREPASS, right after the function items they hang off

@@ -38,7 +38,7 @@ impl ModuleBuilder<'_> {
     /// it yet, else a compiler-minted `{base_text}R{n}` for the first free `n`.
     ///
     /// MIR resolves a class by its name symbol and refuses two classes (or two
-    /// interfaces) of one name (audit finding C12), so a declaration whose
+    /// interfaces) of one name, so a declaration whose
     /// name is already held by a DIFFERENT declaration (a constructor function
     /// declared in two `it` callbacks of one file) takes its symbol from here.
     /// The caller interns `base` with the origin it has (a source spelling or

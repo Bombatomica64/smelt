@@ -128,8 +128,8 @@ pub(super) fn assigned_locals(
 /// whose receiver is an INDEX place (`base[key].push(x)`, produced by
 /// `smelt_mir::opt::DictEntryInPlaceMutation`) mutates the CONTAINER, because the
 /// stored entry is mutated in place through it. This keeps the container's Rust
-/// binding mutable now that the fused form no longer writes it back with an
-/// explicit `AssignPlace`, which is what used to mark it.
+/// binding mutable, since the fused form has no explicit `AssignPlace` to mark
+/// it.
 pub(super) fn operand_mutation_root(operand: &Operand) -> Option<LocalId> {
     match operand {
         Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),

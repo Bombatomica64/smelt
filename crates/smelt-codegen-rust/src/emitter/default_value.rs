@@ -383,8 +383,7 @@ impl FunctionEmitter<'_> {
         // scope, or a generic function containing a defaulted callback
         // emits `Rc<dyn Fn(T, ..)> = Rc::new(move |arg0: SmeltUnknown|
         // ..)` and fails to type-check (E0631/E0308) inside its own
-        // body. This is the same split `param_type` had, in a fifth
-        // renderer; both halves now agree.
+        // body.
         let scope = self.current_function_type_params();
         let substitution = TypeSubstitution::lexical(&scope);
         let params = function

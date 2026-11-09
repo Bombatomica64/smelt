@@ -221,7 +221,7 @@ impl ModuleBuilder<'_> {
     ///
     /// WHATWG spells the constructor's argument as a union and so does every
     /// init dictionary that carries headers, so the arms stay a union here. The
-    /// construction site dispatches on them (see `headers_conversion_text`);
+    /// construction site dispatches on them (see `headers_conversion_expr`);
     /// narrowing this to the `Headers` arm alone is what made a record literal
     /// recover as an empty header list.
     fn headers_init_type(&mut self) -> smelt_hir::TypeId {

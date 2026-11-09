@@ -416,7 +416,7 @@ impl ModuleBuilder<'_> {
         // branches stay colocated in generated Rust. The helper keeps the existing
         // sentinels (`"__smelt_proto:array"`, `null`, `"__smelt_proto:object"`) for
         // non-class values and returns `"__smelt_proto:class"` for class instances,
-        // which carry a hidden `__smelt_class` marker (see `class_unknown_object_text`).
+        // which carry a hidden `__smelt_class` marker (see `class_unknown_object_expr`).
         let value = self.argument(value, body)?;
         let span = self.span(call.span.start, call.span.end);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.getPrototypeOf");
@@ -504,15 +504,10 @@ impl ModuleBuilder<'_> {
     /// itself so `Object.getPrototypeOf` can answer with the very object that
     /// was passed in.
     ///
-    /// Two shortcuts used to bypass it and both lost the prototype CHAIN, which
-    /// is observable: an object-literal prototype was inlined as
-    /// `__smelt_proto:` entries with no record of the parent, and a `null`
-    /// prototype folded to an empty object literal whose `[[Prototype]]` then
-    /// read back as `Object.prototype`. `Object.getPrototypeOf` must answer the
-    /// literal for the first and `null` for the second — the distinction
-    /// `isPlainObject` is built on (`Object.create({})` is not a plain object,
-    /// `Object.create(null)` is). Dropping both also makes a spread or computed
-    /// key in the prototype literal work, which the inlining rejected.
+    /// The prototype CHAIN is observable: `Object.getPrototypeOf` must answer an
+    /// object-literal prototype as that literal, and `null` for a `null` prototype
+    /// — the distinction `isPlainObject` is built on (`Object.create({})` is not a
+    /// plain object, `Object.create(null)` is). So neither shape takes a shortcut.
     pub(in crate::lowering) fn object_create_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

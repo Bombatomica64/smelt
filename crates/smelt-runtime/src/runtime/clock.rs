@@ -41,10 +41,10 @@ thread_local! {
 
 // @smelt:item smelt_mono_ms when virtual_clock
 /// Monotonic virtual + wall clock (ms) shared by JS timers and `Date.now()`.
-///
-/// Returns real elapsed wall time since a fixed epoch plus the virtual
-/// fast-forward accumulated by `sleep`/timer draining, so `setTimeout`
-/// deadlines and `Date.now()` measurements share one timeline.
+//~
+//~ Returns real elapsed wall time since a fixed epoch plus the virtual
+//~ fast-forward accumulated by `sleep`/timer draining, so `setTimeout`
+//~ deadlines and `Date.now()` measurements share one timeline.
 fn smelt_mono_ms() -> u64 {
     let epoch = SMELT_TIMER_EPOCH.with(|epoch| match epoch.get() {
         Some(instant) => instant,

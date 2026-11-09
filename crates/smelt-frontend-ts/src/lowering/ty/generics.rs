@@ -116,14 +116,12 @@ impl ModuleBuilder<'_> {
     /// `Type::TypeParam` is identified by its symbol alone, and every
     /// substitution map in the pipeline is keyed by it. Interned by spelling,
     /// two unrelated parameters that share a name (`class Holder<Value>` and
-    /// `class Parser<Value>`) were one type, so a substitution meant for one
-    /// silently rewrote the other — the inherited-copy adapters of a generic
-    /// abstract base read `Holder`'s `Value` as the subclass's `number`
-    /// (bounded-generics plan, increment 5). The identity key therefore names
+    /// `class Parser<Value>`) would be one type, so a substitution meant for one
+    /// would silently rewrite the other. The identity key therefore names
     /// the file and the owning item's path (`type_param_owners`): the overload
     /// signatures of one function, or of one method, share their parameters as
     /// TypeScript does, and every other item's parameters are distinct. The
-    /// rendering stays the source spelling, so the emitted Rust is unchanged.
+    /// rendering stays the source spelling.
     pub(in crate::lowering) fn intern_declared_type_param(
         &mut self,
         param: &oxc::ast::ast::TSTypeParameter<'_>,
@@ -327,13 +325,12 @@ impl ModuleBuilder<'_> {
     /// can be generic over the method's own parameters, so Rust never lifts
     /// them (`HirCtx::erased_item_type_params`). A bounded one is therefore
     /// fixed at its bound, by the same erase-to-constraint rule as a generic
-    /// closure ([`Self::push_closure_type_parameter_scope`]) — the decision
-    /// the bounded-generics plan (increment 5) records for generic method
-    /// slots: every `D` a caller can pass IS a `Date`, so the method, its
-    /// slot and every override agree on `SmeltDate` and an override receives
-    /// the caller's own date handle instead of an erased copy. An unbounded
-    /// parameter has no single type to stand for it, stays a
-    /// [`Type::TypeParam`], and is returned so the caller can record it.
+    /// closure ([`Self::push_closure_type_parameter_scope`]): every `D` a caller
+    /// can pass IS a `Date`, so the method, its slot and every override agree on
+    /// `SmeltDate` and an override receives the caller's own date handle instead
+    /// of an erased copy. An unbounded parameter has no single type to stand for
+    /// it, stays a [`Type::TypeParam`], and is returned so the caller can record
+    /// it.
     pub(in crate::lowering) fn push_method_type_parameter_scope(
         &mut self,
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,

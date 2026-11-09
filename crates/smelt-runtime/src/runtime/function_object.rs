@@ -52,19 +52,19 @@ fn smelt_function_property_lookup(identity: &SmeltFunctionIdentity, name: &str) 
 fn smelt_set_function_property_key(identity: &SmeltFunctionIdentity, name: &str, value: SmeltUnknown) { identity.0.properties.borrow_mut().get_or_insert_with(|| SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())).insert(name.to_owned(), value); }
 
 /// Store one own property on a function value (JS `f.name = value`).
-///
-/// Accepts any callable handle, typed or erased, and resolves it to the one
-/// canonical identity every representation of that function shares.
+//~
+//~ Accepts any callable handle, typed or erased, and resolves it to the one
+//~ canonical identity every representation of that function shares.
 fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, name: &str, value: SmeltUnknown) { smelt_set_function_property_key(&smelt_canonical_function_identity(function), name, value); }
 
 /// The `prototype` object of a function value, created on first read.
-///
-/// JavaScript gives every non-arrow function a fresh `{ constructor: f }`
-/// object when the function is created. Creating it lazily is observationally
-/// the same and costs nothing for a function nothing constructs through.
-/// The object references the function (`constructor`), which is the same
-/// reference cycle JavaScript has: a function whose prototype was read is
-/// kept alive by it, as any `Rc` cycle in the generated runtime is.
+//~
+//~ JavaScript gives every non-arrow function a fresh `{ constructor: f }`
+//~ object when the function is created. Creating it lazily is observationally
+//~ the same and costs nothing for a function nothing constructs through.
+//~ The object references the function (`constructor`), which is the same
+//~ reference cycle JavaScript has: a function whose prototype was read is
+//~ kept alive by it, as any `Rc` cycle in the generated runtime is.
 fn smelt_function_prototype(identity: &SmeltFunctionIdentity, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, "prototype") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), constructor)]))); smelt_set_function_property_key(identity, "prototype", prototype.clone()); prototype }
 
 /// Read one own property of an erased function value (JS `f.prototype`).
@@ -75,19 +75,19 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 // Emit the JavaScript `[[Construct]]` helper.
 // @smelt:item smelt_construct when construct
 /// JavaScript `new callee(args)` through a function VALUE (`[[Construct]]`).
-///
-/// Allocates an object linked to the callee's `prototype`, runs the callee with
-/// that object installed as the receiver, and answers the callee's own result
-/// only when it is an object — a constructor that returns a primitive (or
-/// nothing) yields the allocated object, which is what makes
-/// `new f() instanceof g` answerable at all. A non-callable operand answers
-/// `undefined`: JavaScript throws a TypeError there, and Smelt models an
-/// unconstructible callee the same way an uncallable one is modeled.
-///
-/// The prototype link is established by `smelt_object_from_prototype`, which
-/// records it in `SMELT_OBJECT_PROTOTYPES` under the allocated object's
-/// identity — the same table `smelt_instance_of_value` walks below, so
-/// `new F() instanceof F` holds by construction.
+//~
+//~ Allocates an object linked to the callee's `prototype`, runs the callee with
+//~ that object installed as the receiver, and answers the callee's own result
+//~ only when it is an object — a constructor that returns a primitive (or
+//~ nothing) yields the allocated object, which is what makes
+//~ `new f() instanceof g` answerable at all. A non-callable operand answers
+//~ `undefined`: JavaScript throws a TypeError there, and Smelt models an
+//~ unconstructible callee the same way an uncallable one is modeled.
+//~
+//~ The prototype link is established by `smelt_object_from_prototype`, which
+//~ records it in `SMELT_OBJECT_PROTOTYPES` under the allocated object's
+//~ identity — the same table `smelt_instance_of_value` walks below, so
+//~ `new F() instanceof F` holds by construction.
 fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let Some(function) = smelt_callable_of(&callee) else { return SmeltUnknown::Undefined; };
     let prototype = smelt_function_value_property(&function, "prototype");
@@ -97,11 +97,11 @@ fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknow
 }
 
 /// JavaScript `new value.constructor(args)`.
-///
-/// A class instance constructs through its erased `constructor` entry, a host
-/// object through what `.constructor` reads.
-/// An array is a new array and a plain object a new plain object: their
-/// constructors are `Array` and `Object`, which no read answers as a value.
+//~
+//~ A class instance constructs through its erased `constructor` entry, a host
+//~ object through what `.constructor` reads.
+//~ An array is a new array and a plain object a new plain object: their
+//~ constructors are `Array` and `Object`, which no read answers as a value.
 fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     //~ A class instance carries its real constructor as a prototype entry when
     //~ the program needs it, so field initialisers and the constructor body run.
@@ -130,14 +130,14 @@ fn smelt_callable_of(value: &SmeltUnknown) -> Option<::std::rc::Rc<dyn Fn(Vec<Sm
 // Emit the `OrdinaryHasInstance` prototype-chain walk.
 // @smelt:item smelt_instance_of_value when instance_of_value
 /// JavaScript `value instanceof target` for a runtime constructor value.
-///
-/// Walks `value`'s prototype chain comparing each link by REFERENCE against
-/// the target's own `prototype` object, exactly as `OrdinaryHasInstance` does.
-/// A non-callable target, or one whose `prototype` is not an object, answers
-/// `false` (JavaScript throws for the former; Smelt reports the absence).
-///
-/// The walk stops when `smelt_proto_accessor` stops advancing, so it
-/// terminates on the opaque `__smelt_proto:*` sentinels too.
+//~
+//~ Walks `value`'s prototype chain comparing each link by REFERENCE against
+//~ the target's own `prototype` object, exactly as `OrdinaryHasInstance` does.
+//~ A non-callable target, or one whose `prototype` is not an object, answers
+//~ `false` (JavaScript throws for the former; Smelt reports the absence).
+//~
+//~ The walk stops when `smelt_proto_accessor` stops advancing, so it
+//~ terminates on the opaque `__smelt_proto:*` sentinels too.
 fn smelt_instance_of_value(value: &SmeltUnknown, target: &SmeltUnknown) -> bool {
     if let SmeltUnknown::Object(class) = target && let Some(SmeltUnknown::String(covered)) = class.get("__smelt_class_value") {
         let SmeltUnknown::Object(instance) = value else { return false; };
@@ -167,10 +167,10 @@ fn smelt_same_prototype_link(left: &SmeltUnknown, right: &SmeltUnknown) -> bool 
 // @smelt:item-end
 
 // @smelt:item smelt_class_value when class_value & unknown
-/// A class as a runtime value: callable through `__smelt_call` when its
-/// constructor is known, named, carrying the classes `instanceof` accepts
-/// (itself and its subclasses, comma separated), and holding its static
-/// methods as own properties, keyed as `smelt_property_key` keys them.
+//~ A class as a runtime value: callable through `__smelt_call` when its
+//~ constructor is known, named, carrying the classes `instanceof` accepts
+//~ (itself and its subclasses, comma separated), and holding its static
+//~ methods as own properties, keyed as `smelt_property_key` keys them.
 fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); entries.extend(statics); SmeltUnknown::Object(SmeltObject::new(entries)) }
 
 //~ A class's MUTABLE static fields are live storage the program reads and

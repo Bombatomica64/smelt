@@ -288,7 +288,7 @@ impl ModuleBuilder<'_> {
 
         // A `<key> in <global-alias>` membership test that the registry-derived
         // probe above could not fold (an unknown/undecided member, or a
-        // non-literal key) must stay an honest blocker. The global object now
+        // non-literal key) must stay an honest blocker. The global object
         // resolves to a marker host-object value (see
         // `global_object_value_expression`), so without this guard the test
         // would silently evaluate against the empty marker record and answer
@@ -375,7 +375,7 @@ impl ModuleBuilder<'_> {
         // `"field" in unionLocal` over a union of concrete member shapes can be
         // answered by a static discriminant test in codegen rather than erasing
         // the value into a runtime object map. Keeping the receiver at its union
-        // type lets `dict_contains_key_text` emit `matches!(x, Union::Mi(_) ..)`
+        // type lets `dict_contains_key_expr` emit `matches!(x, Union::Mi(_) ..)`
         // for the arms that carry `field`. This only fires for a string-literal
         // key; dynamic keys stay on the erased path below. Nullish/dynamic
         // boundaries are untouched because concrete-union eligibility (checked in
@@ -691,20 +691,13 @@ impl ModuleBuilder<'_> {
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        // `typeof crypto` used to fold to `"undefined"` here — a per-name
-        // special case that predated the WebCrypto surface, and one whose
-        // answer was the OPPOSITE of the profile's: the object is
-        // unconditionally present in the target profile (which is what
-        // `global_member_presence("crypto")` has said since that surface
-        // landed), so `typeof crypto === "undefined"` folded true and every
-        // program that guards on it took its no-crypto branch. `crypto` is a
-        // registry namespace now (`smelt_stdlib::GLOBAL_NAMESPACES`), so the
-        // operand lowers to a present object and `typeof` reports `"object"`
+        // `crypto` is a registry namespace (`smelt_stdlib::GLOBAL_NAMESPACES`), so
+        // the operand lowers to a present object and `typeof` reports `"object"`
         // through the ordinary rule below, like `Math` and `JSON`.
         // A bare `typeof Blob` (or `Date`, `Uint8Array`, `parseInt`) references
         // a host constructor or global function, which is a function value in
         // JavaScript. Only a name that RESOLVES to the host qualifies: a
-        // parameter named `Date` is the parameter (audit A4). (The `typeof
+        // parameter named `Date` is the parameter. (The `typeof
         // Blob === 'undefined'` support-guard comparison is folded earlier in
         // `unknown_typeof_comparison`.)
         if let Some(host) = self.host_global(&unary.argument)
@@ -743,10 +736,9 @@ impl ModuleBuilder<'_> {
         // `unknown`/`any`, unions, type params, futures — everything
         // `typeof_type_name` returns `None` for), the JavaScript `typeof` must be
         // computed at runtime by inspecting the value's tag. Folding to a literal
-        // here (the historical `.unwrap_or("object")`) mis-typed erased values as
-        // objects, which made `typeof a === typeof b` fold to `"object" ==
-        // "object"` and the primitive arms of `switch (typeof a)` dead (see
-        // es-toolkit `isEqualWith`). Only fold when the type pins a single spelling.
+        // here would make `typeof a === typeof b` fold to `"object" == "object"`
+        // and the primitive arms of `switch (typeof a)` dead (see es-toolkit
+        // `isEqualWith`). Only fold when the type pins a single spelling.
         if let Some(kind) = self.typeof_type_name(operand_ty) {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(kind.to_owned())),

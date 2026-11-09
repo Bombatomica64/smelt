@@ -1,37 +1,16 @@
 //! The concrete typed-array family: byte storage and element views.
 //!
-//! Increment 1 of `blocker-logs/standards-typed-array-views-plan.md`. Two
-//! runtime types, both with a JavaScript reference identity, plus the
+//! Two runtime types, both with a JavaScript reference identity, plus the
 //! `SmeltDataView` record, the `SmeltTypedArrayKind` enum and the `SmeltUint8Array`
 //! alias:
 //!
-//! * [`emit_array_buffer`] — `SmeltArrayBuffer`, byte storage that owns its
-//!   bytes and interprets none of them (`ArrayBuffer`);
-//! * [`emit_typed_array`] — `SmeltTypedArray`, an ELEMENT VIEW over storage: a
-//!   kind (element type), a byte offset into the buffer, and an element count.
+//! * `SmeltArrayBuffer`, byte storage that owns its bytes and interprets none
+//!   of them (`ArrayBuffer`);
+//! * `SmeltTypedArray`, an ELEMENT VIEW over storage: a kind (element type), a
+//!   byte offset into the buffer, and an element count.
 //!
-//! Making the offset and the buffer real is the whole point of the shape. A
-//! typed array is not a `Vec<u8>` with a name: `view.subarray(1)` is a second
-//! view over the SAME storage, so a write through one is visible through the
-//! other, and `view.byteOffset`/`view.buffer` are what the spec's own members
-//! answer. A design that copied bytes per view would pass every test that does
-//! not share a buffer and silently diverge on every test that does.
-//!
-//! The kind table is derived from the host-object registry
-//! (`smelt_stdlib::TYPED_ARRAY_CLASS_NAMES` plus `typed_array_element`), so the
-//! eleven views' names, element widths and `[object X]` tags cannot drift from
-//! the erased face's answers for the same eleven classes.
-//!
-//! ## What is reachable from source today
-//!
-//! Only the `Uint8` face, under its existing name: `SmeltUint8Array` is emitted
-//! as an alias of `SmeltTypedArray`, so `TextEncoder.encode`,
-//! `TextDecoder.decode` and `crypto.getRandomValues` keep the value they always
-//! had, with the same `length`/`byteLength`/`to_bytes`/`Debug`/`PartialEq`
-//! answers. The remaining members exist for increment 3, which is where a
-//! source `Uint8Array` annotation stops being erased; until then a
-//! `new Uint8Array(..)` is still the erased host record
-//! (`byte_buffer_prelude`), and both faces answer through the same registry.
+//! See `smelt-runtime`'s `typed_array` family for the runtime text and the shape's
+//! rationale.
 
 #![expect(
     clippy::redundant_pub_crate,

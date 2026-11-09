@@ -5,12 +5,10 @@
 //! ABI, which hands the adapter a `Vec<SmeltUnknown>`. A data parameter is
 //! rebuilt through `SmeltFromUnknown`; a CALLBACK parameter (`otherwise(handler:
 //! (value: unknown) => unknown)`) and a REST parameter (`with(...args)`) have no
-//! such impl, so the adapter used to leave the whole method off the prototype
-//! and the erased instance answered `undefined` (a default `null` once the
-//! value was rebuilt as a record). The method's own emitter knows how each such
-//! parameter is spelled in its signature (`parameter_decl_type`: a borrowed
-//! `&dyn Fn`, a generic `&F0`, an owned `Rc<dyn Fn>`, `&mut`), so it renders
-//! the argument at exactly that type.
+//! such impl. The method's own emitter knows how each such parameter is spelled
+//! in its signature (`parameter_decl_type`: a borrowed `&dyn Fn`, a generic
+//! `&F0`, an owned `Rc<dyn Fn>`, `&mut`), so it renders the argument at exactly
+//! that type.
 
 use super::FunctionEmitter;
 use crate::EmitError;

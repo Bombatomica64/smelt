@@ -30,11 +30,11 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
 // mirror: they must agree key for key, so both read this list.
 // @smelt:item smelt_is_own_structural_key when unknown
 /// Whether an erased object key is an OWN property for structural comparison.
-///
-/// `__smelt_proto:<name>` / `__smelt_method:<name>` carry inherited members and
-/// `__smelt_class` records which prototype an instance came from;
-/// JavaScript exposes none of the three as an own property, so deep equality
-/// and the matching hash both skip them.
+//~
+//~ `__smelt_proto:<name>` / `__smelt_method:<name>` carry inherited members and
+//~ `__smelt_class` records which prototype an instance came from;
+//~ JavaScript exposes none of the three as an own property, so deep equality
+//~ and the matching hash both skip them.
 fn smelt_is_own_structural_key(key: &JsStr) -> bool { !key.eq_str_prefix("__smelt_proto:") && !key.eq_str_prefix("__smelt_method:") && !key.eq_str("__smelt_class") }
 
 fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
@@ -44,7 +44,7 @@ fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mu
     if !seen.insert(key) { return true; }
     //~ Prototype-carried members (`__smelt_proto:<name>`) are NOT own
     //~ properties in JavaScript, so structural equality must not see them.
-    //~ Erasing a class instance now pushes one bound `SmeltUnknown::Function`
+    //~ Erasing a class instance pushes one bound `SmeltUnknown::Function`
     //~ per method under that prefix, and function values compare by `Rc`
     //~ pointer — without this filter two structurally equal instances of the
     //~ same class would each carry distinct closures and compare unequal.

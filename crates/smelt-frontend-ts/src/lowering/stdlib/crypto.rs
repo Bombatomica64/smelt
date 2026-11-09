@@ -120,7 +120,7 @@ impl ModuleBuilder<'_> {
                 let data = self.argument(data, body)?;
                 let data = self.byte_source_behind_assertion(data, body);
                 // `BufferSource` is the spec's input type: a VIEW or its
-                // STORAGE, both now concrete. A value whose type carries no
+                // STORAGE, both concrete. A value whose type carries no
                 // shape (an `unknown`, a generic, or a union with byte arms —
                 // Hono's `utils/crypto.ts` hands one of exactly that shape) is
                 // accepted too and reads its bytes through the view's boundary
@@ -139,9 +139,8 @@ impl ModuleBuilder<'_> {
                         "`crypto.subtle.digest` hashes a `BufferSource`: a typed-array view or an `ArrayBuffer`",
                     ));
                 }
-                // The spec answers an `ArrayBuffer`, which is now a modeled
-                // concrete type, so the promise is one of those rather than of
-                // a view.
+                // The spec answers an `ArrayBuffer`, a modeled concrete type, so the
+                // promise is one of those rather than of a view.
                 let buffer_ty = self.array_buffer_type();
                 let ty = self.ctx.krate.types.intern(Type::Future(buffer_ty));
                 Ok(Some(body.push_expr(Expr {

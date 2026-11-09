@@ -13,8 +13,7 @@
 //!
 //! Both map deterministically to a stable synthetic member spelling that member
 //! access and member declaration agree on, so they fold to named members exactly
-//! like a spelled-out string key instead of hitting the dynamic-key gate
-//! (issue #115, follow-up to #96).
+//! like a spelled-out string key instead of hitting the dynamic-key gate.
 //!
 //! A *unique* symbol (`Symbol("desc")` without `.for`, or an opaque runtime
 //! symbol value) is a fresh identity every time it is evaluated and has no

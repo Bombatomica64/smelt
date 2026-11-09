@@ -1363,7 +1363,7 @@ impl ModuleBuilder<'_> {
     ///
     /// A union of classes is a real tagged enum in the generated Rust, and the
     /// emitter already dispatches such a call by matching the tag and invoking
-    /// each arm's concrete method (`union_method_text`). What it needs from the
+    /// each arm's concrete method (`union_method_expr`). What it needs from the
     /// frontend is an ordinary [`ExprKind::Method`] whose receiver happens to be
     /// union-typed; MIR turns that into `Rvalue::UnionMethod`.
     ///

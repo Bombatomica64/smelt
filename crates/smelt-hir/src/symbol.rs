@@ -66,8 +66,7 @@ impl SynthesizedName {
 /// case fold applied on the way to a Rust identifier can never make two
 /// different source names one symbol. When the two halves are equal — every
 /// verbatim [`SymbolInterner::intern`] and every already-`snake_case` source
-/// name — the pair degenerates to the single string, which is exactly the
-/// historical keying.
+/// name — the pair degenerates to the single string.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SymbolInterner {
     /// Rust-facing renderings in insertion order.

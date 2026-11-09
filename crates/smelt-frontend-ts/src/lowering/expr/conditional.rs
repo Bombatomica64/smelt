@@ -69,9 +69,8 @@ impl ModuleBuilder<'_> {
         let arm_span = self.span(conditional.span.start, conditional.span.end);
         // Each arm sees the test's flow facts, exactly as the ternary arm of
         // `expression_with_hint` and an `if` statement do. This entry point
-        // (a ternary in ARGUMENT position, `console.log(first ? first.join(',')
-        // : ..)`) used to lower both arms unnarrowed, so the present arm saw
-        // `string[] | undefined` and its array method was refused.
+        // is a ternary in ARGUMENT position (`console.log(first ? first.join(',')
+        // : ..)`).
         let then_narrowing = self.guard_narrowing(&conditional.test, body);
         let then_expr = self.with_narrowing(then_narrowing, |this| {
             this.lower_conditional_arm(body, arm_span, |slf, body| {
@@ -289,14 +288,10 @@ impl ModuleBuilder<'_> {
             // One arm is `Optional<inner>` and the other unifies with
             // `inner`, so the TypeScript union `inner | undefined` IS
             // `Optional<inner>`, which is a closer answer than anything
-            // below. This arm used to sit AFTER the string-compatible
-            // test, and that test accepts any `Type::Class` — the
-            // variant also spells an opaque unresolved name — so a
-            // `Headers`/`Headers | undefined` join unified to `String`
-            // and a `SmeltHeaders` value was assigned into a `String`
-            // local. It answers the same question `Optional<Float>` vs
-            // `Float` asked (Hono's `utils/url.ts`), so the two are one
-            // arm, here, where the closer answer belongs.
+            // below. It must precede the string-compatible test, which
+            // accepts any `Type::Class` — the variant also spells an
+            // opaque unresolved name — and would unify a
+            // `Headers`/`Headers | undefined` join to `String`.
             unified
         } else if self.compatible_function_branch_types(then_ty, else_ty) {
             then_ty
@@ -342,11 +337,9 @@ impl ModuleBuilder<'_> {
             // `let mut _smelt_tmp: String;` and `_smelt_tmp = <Doc>`,
             // which does not compile.
             //
-            // This used to require BOTH arms to be declared classes,
-            // which fixed `Doc : Other` and left `Doc : "text"` — the
-            // commoner shape, since a union of a class and a primitive
-            // is how an optional-payload result is usually spelled —
-            // still unifying to `String`.
+            // Not only when both arms are declared classes: `Doc : "text"` is the
+            // commoner shape, since a union of a class and a primitive is how an
+            // optional-payload result is usually spelled.
             self.ctx
                 .krate
                 .types
@@ -408,7 +401,7 @@ impl ModuleBuilder<'_> {
             // Two concrete, unrelated arms. TypeScript types `c ? a : b`
             // as `typeof a | typeof b`, and that union is the join — the
             // same rule `??` applies (see
-            // `nullish_coalescing_expression`'s concrete-arms branch).
+            // the concrete-arms branch of `??` lowering).
             // Blocking here refused well-typed TypeScript; picking one
             // arm's type would emit that arm's type carrying the other
             // arm's value.

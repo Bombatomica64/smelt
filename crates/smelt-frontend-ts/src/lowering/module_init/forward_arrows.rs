@@ -464,11 +464,10 @@ impl ModuleBuilder<'_> {
     /// different value. `outer` was never lifted and captured `rem` correctly,
     /// which is the shape the refusal restores for `second` too.
     ///
-    /// Refusing the lift is the conservative half of the choice
-    /// `blocker-logs/module-arrow-lifted-capture.md` states: keep the capture,
+    /// Refusing the lift is the conservative half of the choice: keep the capture,
     /// or do not lift. A genuine forward reference that also captures such a
-    /// binding now fails to resolve instead of diverging silently, which is the
-    /// honest failure.
+    /// binding fails to resolve instead of diverging silently, which is the honest
+    /// failure.
     ///
     /// Over-refusing costs a closure, and a closure is always correct here.
     pub(super) fn retain_capturable_arrow_consts(

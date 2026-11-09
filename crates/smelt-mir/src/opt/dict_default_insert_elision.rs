@@ -80,7 +80,7 @@
 //!    and `key` operands. `%t` is a temp assigned once and read once.
 //! 7. The default aggregate is an EMPTY [`Rvalue::List`] and the dict's value
 //!    type is exactly `%t`'s list type. Only list values are accepted: the
-//!    backend's `entry_or_insert` spelling is reached solely from `list_push_text`,
+//!    backend's `entry_or_insert` spelling is reached solely from `list_push_expr`,
 //!    whose entry path requires the dict's value type to equal the pushed list's
 //!    type, so a dict- or set-valued entry can never reach the mutation shape
 //!    condition 8 demands. Restricting the pass to lists therefore costs nothing
@@ -293,7 +293,7 @@ fn then_block_only_seeds_default(
 
 /// Whether `base` is a dict whose value type is exactly the default local's list type.
 ///
-/// This mirrors the guard `list_push_text` puts on its `entry_or_insert` path,
+/// This mirrors the guard `list_push_expr` puts on its `entry_or_insert` path,
 /// so the default this pass deletes is the same one the backend synthesizes.
 fn dict_value_is_default_type(
     function: &MirFunction,

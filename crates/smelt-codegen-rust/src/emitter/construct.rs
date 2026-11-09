@@ -4,7 +4,7 @@
 //! answer — what the callee's `prototype` object is, and what a value's
 //! prototype chain reaches — so both lower to one prelude helper each
 //! (`smelt_construct`, `smelt_instance_of_value`; see
-//! `crate::function_object_prelude`). The emitter's whole job here is to erase
+//! `smelt-runtime`'s `function_object.rs`). The emitter's whole job here is to erase
 //! the operands to `SmeltUnknown`, which is the honest ABI: the constructor is
 //! reached through a value whose identity is only known at runtime, and the
 //! constructed object's shape is whatever the constructor decided.

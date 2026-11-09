@@ -6,11 +6,11 @@
 //! (`Date`, `RegExp`, `NaN`, the lib type `Map`). The lowering kept that order
 //! by convention, consulting its tables (classes, enums, lib spellings) at
 //! each use site, and every site that asked a table before the scope got it
-//! wrong: `const Item = xs[0]` beside `class Item` read the class (audit A4),
+//! wrong: `const Item = xs[0]` beside `class Item` read the class,
 //! `function f(Mode: { Fast: number })` folded `Mode.Fast` to an enum member
 //! (A3), and `import type { Map } from './game'` became the builtin `Map` (A5).
 //!
-//! The order now lives here, once. [`ModuleBuilder::resolve_value`] and
+//! The order lives here, once. [`ModuleBuilder::resolve_value`] and
 //! [`ModuleBuilder::resolve_type_name`] return an exhaustive answer whose
 //! FIRST question is the lexical scope, so a caller matches on what the name
 //! is instead of choosing which table to ask. The facts that must only be
@@ -23,7 +23,7 @@
 //! and the host dispatchers (`new` of a host constructor, a builtin namespace
 //! call) take one instead of reading the identifier's spelling, so a
 //! parameter named `Map` or `RegExp` reaches them only by first being asked
-//! of the scope (audit A4).
+//! of the scope.
 
 use smelt_hir::{LocalId, TypeId};
 

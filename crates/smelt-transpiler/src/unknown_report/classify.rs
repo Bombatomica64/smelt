@@ -21,9 +21,8 @@ pub(super) enum PreludeBoundary {
     /// a program item with an emitter-minted name (`smelt_global_init__x__0`)
     /// included. Authoritative; no per-line heuristic runs.
     Module,
-    /// Neither marker (output that predates both sentinels): the coarse
-    /// `smelt_*` helper tracking of [`update_prelude_helper_state`] decides
-    /// line by line.
+    /// Neither marker: the coarse `smelt_*` helper tracking of
+    /// [`update_prelude_helper_state`] decides line by line.
     Heuristic {
         /// Whether the scan is inside a prelude helper definition.
         in_prelude_helper: bool,
@@ -234,16 +233,13 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // `Object.getOwnPropertySymbols` and erased-Map enumeration hand a
     // stored key back to the program AS A SYMBOL through the emitted
     // prelude helper `smelt_own_symbol_key_value`, the inverse whose call
-    // sites appear in program code (round 10; see
-    // `blocker-logs/remeda-symbol-key-regression.md`). `Reflect.ownKeys`
-    // uses the wider prelude helper `smelt_key_symbol_value` instead, which
-    // also maps well-known keys and is called only inside the prelude.
-    // The value it produces is a `SmeltUnknown::Symbol` -- the marker
-    // directly above -- for exactly the reason given there: a fresh runtime
-    // identity has no static carrier. The tag now sits INSIDE the helper, so
-    // the call site needs its own marker to keep the classification it had
-    // when the same conversion was spelled inline. Proven in
-    // `symbol_key_inverse_is_a_boundary` below.
+    // sites appear in program code. `Reflect.ownKeys` uses the wider prelude
+    // helper `smelt_key_symbol_value` instead, which also maps well-known keys
+    // and is called only inside the prelude. The value it produces is a
+    // `SmeltUnknown::Symbol` -- the marker directly above -- for exactly the
+    // reason given there: a fresh runtime identity has no static carrier.
+    // The tag sits INSIDE the helper, so the call site needs its own marker.
+    // Proven in `symbol_key_inverse_is_a_boundary` below.
     boundary::OWN_SYMBOL_KEY_VALUE,
     // Aliasing an erased generic array into another erased slot
     // (`crates/smelt-codegen-rust/src/erased_list_alias.rs`). A `T[]` whose
@@ -253,23 +249,16 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // render that way and the SOURCE element is such an erased `T`: the
     // value is leaving the erased-generic ABI. The erasure happened before
     // the helper; the helper is the identity adapter between two erased
-    // spellings of one JavaScript array, sharing its buffer and id. Until
-    // #250 the same conversions rebuilt the array through
-    // `into_smelt_unknown` (the marker below), the outbound adapter for an
-    // erased `T`, which classified them here. #250 made them alias for
-    // speed and dropped the marker, so the same lines moved to avoidable
-    // (+521 on es-toolkit) with no erasure added. The helper names restore
-    // that classification and no more.
+    // spellings of one JavaScript array, sharing its buffer and id.
     //
     // Deliberately narrow: a source `unknown[]` (into `unknown`, or into an
-    // erased `T[]` slot) carried no marker before #250 either, spelled
-    // `SmeltUnknown::Array(x.into())` or an identity-map rebuild, and it
-    // keeps a plain spelling and its avoidable classification. The general
-    // list conversion `Into::<SmeltList<_>>::into(` is NOT a marker either:
-    // every list-typed rvalue goes through it, including ones that erase a
-    // concrete value. A concrete element list or an in-scope generic
-    // `SmeltList<T>` never reaches these helpers (their signatures pin
-    // `SmeltUnknown` elements, so the generated crate would not compile).
+    // erased `T[]` slot) keeps a plain spelling and its avoidable
+    // classification. The general list conversion
+    // `Into::<SmeltList<_>>::into(` is NOT a marker either: every list-typed
+    // rvalue goes through it, including ones that erase a concrete value. A
+    // concrete element list or an in-scope generic `SmeltList<T>` never
+    // reaches these helpers (their signatures pin `SmeltUnknown` elements, so
+    // the generated crate would not compile).
     // Proven in `erased_generic_list_alias_is_a_boundary` below and in
     // `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`
     // (`erased_generic_list_into_unknown_list_takes_the_alias_helper`,
@@ -282,10 +271,8 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // (`Option<SmeltUnknown>` to `SmeltUnknown`, absence becoming
     // `undefined`). Same reasoning as the two list-alias helpers above:
     // the value is a `SmeltUnknown` on both sides, and the helper adapts
-    // one erased spelling to the other. The site used to assert presence
-    // with `.expect(..)` -- which named no `SmeltUnknown` and so counted
-    // nowhere -- and panicked on an absent value (remeda `prop`). Proven
-    // in `optional_unknown_read_is_a_boundary` below.
+    // one erased spelling to the other. Proven in
+    // `optional_unknown_read_is_a_boundary` below.
     smelt_codegen_rust::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
     // The hoisted erased-record-to-class conversion
     // (`fn __smelt_from_unknown_record_<n>(smelt_value: SmeltUnknown) -> T`,
@@ -326,7 +313,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // `typeof` over an erased value reads that value's runtime tag: the same
     // runtime-narrowing boundary `js_typeof`/`tag_check` name, just factored
     // into one prelude helper instead of an inlined `match` per site (see
-    // `FunctionEmitter::typeof_str_text`). The nine-arm table it replaced was
+    // `FunctionEmitter::typeof_str_expr`). The nine-arm table it replaced was
     // classified here through its `SmeltUnknown::Function` arm; keeping the
     // call site classified the same way is what makes the two spellings
     // comparable across a baseline diff. `typeof` over a CONCRETE union does
@@ -361,7 +348,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     smelt_mir::PENDING_THROWN_LOCAL,
     // The panic-recovery exception payload
     // (`crates/smelt-codegen-rust/src/thrown.rs`,
-    // `panic_payload_record_expr`). When a call inside a `try` is not
+    // `runtime/thrown.rs`). When a call inside a `try` is not
     // statically known to throw, its handler is emitted as a
     // `catch_unwind`; the recovered panic message has no Smelt payload, so
     // the value the `catch` observes is rebuilt as the branded `Error`
@@ -438,8 +425,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // `crates/smelt-codegen-rust/tests/erased_class_method_runtime.rs`.
     boundary::PROTO_ENTRIES_LOCAL,
     boundary::PROTO_ENTRIES,
-    // The canonical erased property read
-    // (`crates/smelt-codegen-rust/src/lib.rs`, `smelt_get_unknown_field`):
+    // The canonical erased property read (`smelt_get_unknown_field`):
     // a member looked up by STRING NAME on a value whose static type is
     // `unknown` (or an optional / union receiver that erases to it), which
     // dispatches on the `SmeltUnknown` variant at runtime — an object's own
@@ -447,14 +433,11 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // bag, the `Object.prototype` fallback. That is the "values inspected
     // through runtime narrowing" case verbatim: the receiver's shape is
     // decided by the value, so no concrete struct field, generated union
-    // arm, or scoped generic can name the member ahead of time. Before every
-    // erased read went through this one helper, the same sites inlined a
-    // `match` whose `SmeltUnknown::Function(smelt_getter)` getter arm carried
-    // the classification; the helper call is the same boundary, now spelled
-    // once. Proven in `erased_property_read_is_a_boundary` below.
+    // arm, or scoped generic can name the member ahead of time. Proven in
+    // `erased_property_read_is_a_boundary` below.
     boundary::GET_UNKNOWN_FIELD_CALL,
     // The ambient global object (`crates/smelt-codegen-rust/src/thrown.rs`,
-    // `emit_global_object_support`). JavaScript's global object is an open
+    // `runtime/object_model.rs`). JavaScript's global object is an open
     // property bag that the program AND its host write to
     // (`Object.assign(globalThis, {..})`, a host-injected
     // `declare const X`), so which members it holds is a run-time fact of
@@ -571,7 +554,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // erasure), and `e instanceof UnsupportedPathError` is lowered to a
     // guard reading that marker back and comparing it against the class
     // and every generated class extending it
-    // (`erased_user_class_instance_of_text`). The canonical operand is
+    // (`erased_user_class_instance_of_expr`). The canonical operand is
     // again a `catch` binding: `unknown` by TypeScript's own rule, arriving
     // on the exception channel, and narrowed by nothing but this runtime
     // test — no concrete type, union arm, or scoped generic can carry a

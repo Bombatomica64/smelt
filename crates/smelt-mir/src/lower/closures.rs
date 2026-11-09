@@ -210,7 +210,7 @@ impl LoweringCtx<'_> {
 /// returned from a closure escapes the creating closure's frame exactly as one
 /// returned from a function does, and a closure created in a closure body and
 /// captured by an escaping closure is found through the creating closure's
-/// own definitions (audit finding C3).
+/// own definitions.
 pub(super) fn mark_escaping_closures(mir: &mut Mir) {
     let bodies = mir.bodies().collect::<Vec<_>>();
     let closure_defs_by_function = bodies

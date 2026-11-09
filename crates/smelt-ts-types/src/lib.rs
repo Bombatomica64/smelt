@@ -2,11 +2,9 @@
 //!
 //! # Why this crate exists
 //!
-//! Smelt's TypeScript frontend parses with oxc and historically reconstructed
-//! types itself from annotations (`lowering/ty`): generics, narrowing,
-//! overloads and guards were each re-derived by hand, and whatever that
-//! reconstruction could not evaluate (a conditional type whose arms differ, a
-//! mapped type, an inferred call-site instantiation) degraded to
+//! Smelt's TypeScript frontend parses with oxc. Reconstructing types from
+//! annotations alone degrades whatever it cannot evaluate (a conditional type
+//! whose arms differ, a mapped type, an inferred call-site instantiation) to
 //! `Type::Unknown`. TypeScript already computes all of those facts.
 //!
 //! tsrs (`oxc-project/tsrs`) is a function-by-function Rust port of the

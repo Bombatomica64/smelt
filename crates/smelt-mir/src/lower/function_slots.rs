@@ -5,7 +5,7 @@
 //! position in [`crate::Mir::functions`]. Assigning ids and pushing bodies in two
 //! separate loops made that an assumption: a loop that skipped a body after its
 //! id was assigned shifted every later function, and every `Callee::Static`
-//! after it called the wrong function (audit finding C5).
+//! after it called the wrong function.
 //!
 //! [`FunctionSlots`] makes it a construction property instead. An id is a
 //! reserved slot; a body can only be stored INTO its slot (which writes the id
@@ -117,7 +117,7 @@ mod tests {
     }
 
     /// A reserved id whose body is never stored is an error, not a shift
-    /// (the defect audit C5 describes).
+    /// (the defect describes).
     #[test]
     fn a_skipped_body_is_an_error() {
         let mut slots = FunctionSlots::default();

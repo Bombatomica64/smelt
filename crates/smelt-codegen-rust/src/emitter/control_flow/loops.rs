@@ -286,11 +286,9 @@ impl FunctionEmitter<'_> {
                 // real successors, so the block only exits to the loop when both
                 // do — the same rule the `Match` arm below applies.
                 //
-                // `Await` was previously absent from this match and fell into the
-                // `_ => Ok(false)` catch-all, so any loop body containing an
-                // `await` failed `while_header` recognition outright and was
-                // emitted as a straight-line region whose back edge re-inlined
-                // the loop header until the recursion cap tripped.
+                // An `await` in a loop body must not hit the `_ => Ok(false)` catch-all
+                // below: `while_header` recognition has to accept it, or the loop is
+                // emitted as a straight-line region whose back edge re-inlines the header.
                 if !self.block_exits_to_loop(
                     self.block(*target)?,
                     continue_target,
@@ -780,8 +778,7 @@ impl FunctionEmitter<'_> {
         // The bound is structural: a structured region is at most a few
         // passes over the function's blocks. Past it the walker is cycling
         // through a shape it cannot structure, and the only honest answer is
-        // an error. It used to surrender with `break`, which silently dropped
-        // the rest of the loop body from the generated program.
+        // an error rather than dropping the rest of the loop body.
         let Some(_depth) = self.flow.enter_until(limit) else {
             return Err(self.unstructured_control_flow(format!("nested loop regions exceed {limit} levels")));
         };
@@ -1348,13 +1345,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<bool, EmitError> {
         let break_target = exit.break_target();
         // No depth cut-off: a loop nested three deep (a `for..of` inside a
-        // `while` inside a `for`, Hono's trie-router `search`) is still a loop.
-        // Refusing to recognize it past depth 1 emitted its header as a plain
-        // `if` whose back edge became a `continue` of the ENCLOSING loop —
-        // skipping that loop's own update and hanging. `while_header` only
-        // claims a genuine back-edge target, so a nested region no longer
-        // misreads a branch as a header, which is what the cut-off guarded.
-        // `emit_block_until_goto` keeps its own recursion limit.
+        // `while` inside a `for`, Hono's trie-router `search`) is still a loop,
+        // and a header emitted as a plain `if` would turn its back edge into a
+        // `continue` of the ENCLOSING loop. `while_header` only claims a genuine
+        // back-edge target, so a nested region cannot misread a branch as a
+        // header. `emit_block_until_goto` keeps its own recursion limit.
         // A compound short-circuit `while` header (e.g. `while (a && b)`) is
         // checked before the single-block recognizers: `while_header` also
         // matches such a header (it computes its own first-operand switch local)

@@ -22,7 +22,7 @@ impl<K, V> Clone for SmeltRecord<K, V> {
 
 // @smelt:item impl_serde_Serialize_for_SmeltRecord_K_V when dep_serde_json & record
 impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + serde::Serialize, V: serde::Serialize {
-    /// Serialize record entries in JavaScript insertion order.
+    //~ Serialize record entries in JavaScript insertion order.
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let store = self.store.borrow();
         let mut map = serde::Serializer::serialize_map(serializer, Some(store.len()))?;
@@ -37,7 +37,7 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
 //~ so the record's key order is JavaScript's own-key order — the
 //~ order `JSON.parse` would give the object.
 impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
-    /// Deserialize a JSON object into a record, entry by entry.
+    //~ Deserialize a JSON object into a record, entry by entry.
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
         impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
@@ -57,7 +57,7 @@ impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::st
 
 // @smelt:item SmeltOwnedOptionCloned when record
 trait SmeltOwnedOptionCloned<T> {
-    /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
+    //~ Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
 }
 
@@ -73,9 +73,9 @@ impl<T> SmeltOwnedOptionCloned<T> for Option<T> {
 //~ ordered structure, so `keys()`/`iter()`/`serialize` can read the order
 //~ as a fact instead of re-deriving (or, as they once did, re-sorting) it.
 /// Return the canonical array index a JavaScript property key spells.
-///
-/// Only the canonical decimal spelling of a `u32` below `u32::MAX` is an
-/// array index, so `"01"`, `"+1"`, `"1.0"` and `"-1"` stay string keys.
+//~
+//~ Only the canonical decimal spelling of a `u32` below `u32::MAX` is an
+//~ array index, so `"01"`, `"+1"`, `"1.0"` and `"-1"` stay string keys.
 fn smelt_canonical_array_index(key: &str) -> Option<u32> {
     if key.is_empty() || key.len() > 10 { return None; }
     if key.len() > 1 && key.starts_with('0') { return None; }
@@ -84,20 +84,20 @@ fn smelt_canonical_array_index(key: &str) -> Option<u32> {
 }
 
 /// A key of an erased JavaScript object or record.
-///
-/// Generated code only ever instantiates records with `String` keys; the
-/// trait exists so the shared ordering logic can ask a generic `K` whether
-/// it spells an array index without the containers hard-coding `String`,
-/// and so a lookup can hash a borrowed `str` key the same way the stored
-/// `String` was hashed. Both impls must agree on `smelt_key_hash` and on
-/// `smelt_key_fingerprint`, which is why both delegate to the shared
-/// `smelt_field_hash_bytes`/`smelt_field_fingerprint` functions.
+//~
+//~ Generated code only ever instantiates records with `String` keys; the
+//~ trait exists so the shared ordering logic can ask a generic `K` whether
+//~ it spells an array index without the containers hard-coding `String`,
+//~ and so a lookup can hash a borrowed `str` key the same way the stored
+//~ `String` was hashed. Both impls must agree on `smelt_key_hash` and on
+//~ `smelt_key_fingerprint`, which is why both delegate to the shared
+//~ `smelt_field_hash_bytes`/`smelt_field_fingerprint` functions.
 pub trait SmeltPropertyKey {
     fn smelt_array_index(&self) -> Option<u32>;
     fn smelt_key_hash(&self) -> u64;
-    /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
+    //~ The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
     fn smelt_key_fingerprint(&self) -> u32;
-    /// Whether this key is in the runtime's internal `__smelt` namespace.
+    //~ Whether this key is in the runtime's internal `__smelt` namespace.
     fn smelt_is_internal_key(&self) -> bool;
 }
 
@@ -120,11 +120,11 @@ impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> 
 //~ In a Python program (`js_key_order` off) every key appends: a Python dict
 //~ keeps plain insertion order.
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
-///
-/// `entries` keeps its array-index keys as a sorted leading run, so the slot
-/// is found with two binary searches: one for the end of that run, one for
-/// the ascending slot inside it. A non-index key appends. Appending keys in
-/// ascending index order therefore stays linear overall, never quadratic.
+//~
+//~ `entries` keeps its array-index keys as a sorted leading run, so the slot
+//~ is found with two binary searches: one for the end of that run, one for
+//~ the ascending slot inside it. A non-index key appends. Appending keys in
+//~ ascending index order therefore stays linear overall, never quadratic.
 fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize {
 // @smelt:if js_key_order
     let Some(index) = key.smelt_array_index() else { return entries.len() };

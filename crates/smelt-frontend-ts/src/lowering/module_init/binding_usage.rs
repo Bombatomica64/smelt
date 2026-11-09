@@ -115,8 +115,8 @@ impl ModuleBuilder<'_> {
     /// ```
     ///
     /// `table` is read by `lookup`, so its initializer runs in an item context,
-    /// so `double` is read from one — and must be an item or a slot, never the
-    /// default-returning stub it used to read as.
+    /// so `double` is read from one — and must be an item or a slot, never a
+    /// default-returning stub.
     ///
     /// Over-approximation (an initializer whose binding ends up folded after
     /// all) only adds names that must then be folded or lifted themselves,
@@ -490,7 +490,7 @@ struct MutatedNameCollector {
     /// treatments for a mutable global: reassigning the binding replaces the
     /// cell's whole value (`GlobalSet`), while writing *through* it mutates the
     /// value the cell holds. `Place::Global` lowers exactly this one-deep shape
-    /// by naming the cell as the assignment root, so these no longer block.
+    /// by naming the cell as the assignment root.
     mutated_through: HashSet<String>,
     /// Names reached as the base of a NESTED assignment target — `name[a][b] =
     /// …`, `name.a.b = …`.

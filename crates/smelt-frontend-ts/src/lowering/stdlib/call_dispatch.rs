@@ -643,7 +643,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// exactly the interface's shape when the literal names no property the
     /// interface does not declare. Typing the literal as the interface is then
     /// the same value, and it binds `L` to a type that implements the bound's
-    /// generated trait (bounded-generics plan), where the untyped literal would
+    /// generated trait, where the untyped literal would
     /// lower to a string-keyed record that implements nothing. A literal with
     /// an extra property, a spread or a computed key keeps its own type: there
     /// `L` really is wider than the interface.
@@ -1044,9 +1044,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// and answers the same value, so the call is rewritten to
     /// `Array.from(receiver).<m>(...args)` and lowered through the ordinary
     /// array-method path. Hono's `utils/crypto.ts` hex-encodes a digest with
-    /// `Array.prototype.map.call(new Uint8Array(buffer), (x) => ..)`, which
-    /// used to go through an erased `prototype` read and a dynamic `call`
-    /// that answered an empty list.
+    /// `Array.prototype.map.call(new Uint8Array(buffer), (x) => ..)`.
     ///
     /// A mutating method is left alone: its writes would land on the copy.
     /// So is a spread first argument, and any receiver of `.call` other than

@@ -16,12 +16,9 @@ use super::super::ModuleBuilder;
 impl ModuleBuilder<'_> {
     /// Lower `new URLSearchParams(init?)` into a concrete parameter list.
     ///
-    /// This used to fabricate an erased record carrying only a `size` field, so
-    /// `params.get("a")` answered `undefined` and `toString()` was unavailable:
-    /// the value existed but held no parameters. It is now the modeled
-    /// `URLSearchParams` class, and the initializer's own lowered type selects
-    /// the conversion in codegen (a query string, a record, a pair list, or
-    /// another parameter list).
+    /// The modeled `URLSearchParams` class: the initializer's own lowered type
+    /// selects the conversion in codegen (a query string, a record, a pair list,
+    /// or another parameter list).
     pub(in crate::lowering) fn url_search_params_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -47,9 +44,7 @@ impl ModuleBuilder<'_> {
 
     /// `new FormData()`.
     ///
-    /// Was a marker-only host record: `form.append(..)` did nothing and
-    /// `form.get(..)` answered `undefined`, so the value existed and held no
-    /// entries. It is now the modeled `FormData` class.
+    /// The modeled `FormData` class.
     ///
     /// The constructor takes no arguments here on purpose. The spec's only
     /// parameter is an optional `HTMLFormElement` (plus a `submitter`), which
@@ -87,7 +82,7 @@ impl ModuleBuilder<'_> {
     /// shapeless `SmeltUnknown::Object` (which would make every `instanceof`
     /// false and collide each host type with the others), give each a dedicated
     /// `__smelt_<marker>` key so a later dynamic `instanceof` resolves through
-    /// the marker (see `instance_of_text`), mirroring the `ArrayBuffer`/`Blob`
+    /// the marker (see `instance_of_expr`), mirroring the `ArrayBuffer`/`Blob`
     /// models. Constructor arguments are lowered for their effects/types and
     /// then discarded, since none of the retained shape is observed.
     pub(in crate::lowering) fn marker_only_builtin_constructor_expression(
@@ -158,7 +153,7 @@ impl ModuleBuilder<'_> {
 
     /// Lower `new <ByteBufferHost>(...)` through the shared host constructor.
     ///
-    /// The registered byte hosts all have concrete family types now
+    /// The registered byte hosts all have concrete family types
     /// (`stdlib::typed_array`), so this path is reached for a host that is
     /// byte-backed WITHOUT being one of them — Node's `Buffer` keeps its own
     /// lowering — and for the reflected construction of an erased record.
@@ -260,7 +255,7 @@ impl ModuleBuilder<'_> {
     /// `__smelt_blob` marker plus its observable `type`, `size`, and `content`,
     /// built by the `smelt_blob_record_from_parts` runtime helper (see
     /// `ExprKind::BlobFromParts`) so a later dynamic `instanceof Blob` resolves
-    /// through the marker (see `instance_of_text`) and field reads observe real
+    /// through the marker (see `instance_of_expr`) and field reads observe real
     /// values.
     pub(in crate::lowering) fn blob_constructor_expression(
         &mut self,
@@ -716,7 +711,7 @@ impl ModuleBuilder<'_> {
     /// (`abort`, `addEventListener`, ...) are surfaced as runtime-helper-bound
     /// closures when those fields are read (see the erased-object field path in
     /// `place.rs` and `smelt_abort_method`); `instanceof AbortController` /
-    /// `instanceof AbortSignal` use the markers (see `instance_of_text`).
+    /// `instanceof AbortSignal` use the markers (see `instance_of_expr`).
     pub(in crate::lowering) fn abort_controller_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -954,7 +949,7 @@ pub(in crate::lowering) enum HostConstructor {
     /// `Response`.
     Response,
     /// `Request`, which is [`Self::MarkerOnly`] when a program overrides the
-    /// global ([`Self::overridable_marker`]).
+    /// global.
     Request,
     /// `EventEmitter`.
     EventEmitter,

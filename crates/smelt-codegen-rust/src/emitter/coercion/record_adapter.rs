@@ -201,9 +201,7 @@ impl FunctionEmitter<'_> {
         // callers that reach an adapter here have already committed to a
         // record-shaped destination, and handing them the *source* value back
         // would be ill-typed (`CurriedFunction2` where `CurriedFunction1` is
-        // expected). A default is the same information the pre-existing
-        // function-typed fallbacks produce for an unresolvable callable, and it
-        // keeps the generated crate compiling.
+        // expected).
         let Some(_guard) = self.enter_type_expansion(source, target) else {
             // A pair that reaches itself through a field whose value is built
             // LAZILY (a callable slot returning the record, `swap():
@@ -280,11 +278,11 @@ impl FunctionEmitter<'_> {
         self.push_phantom_field(&mut field_text, *name, args.len());
         // A reference-class target is a handle newtype over its `Inner` record,
         // so the field-wise value is built as the record and wrapped in a fresh
-        // shared cell (a struct literal against the tuple newtype was E0560).
-        // This is the structural conversion between two distinct classes TS
-        // accepts because they expose the same members (Hono's `basePath`
-        // returns the base class, handed to a parameter typed as the subclass
-        // that adds no members); it copies the members into a new instance.
+        // shared cell. This is the structural conversion between two distinct
+        // classes TS accepts because they expose the same members (Hono's
+        // `basePath` returns the base class, handed to a parameter typed as the
+        // subclass that adds no members); it copies the members into a new
+        // instance.
         if self.is_reference_class_type(target) {
             return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
@@ -461,7 +459,7 @@ impl FunctionEmitter<'_> {
         // enclosing signature declares them, so a field default may keep the
         // generic shape. At a non-generic call site (e.g. a spec function) the
         // same name is unresolvable and must erase to `SmeltUnknown` instead of
-        // printing a dangling `T1` (was E0425). Intersect the target's type-param
+        // printing a dangling `T1`. Intersect the target's type-param
         // args with the current function's in-scope type params so only genuinely
         // scoped names survive.
         let in_scope = self.current_function_type_params();
@@ -602,7 +600,7 @@ impl FunctionEmitter<'_> {
         // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field
         // struct. The record round-trip must mint a fresh shared cell around the
         // reconstructed inner record rather than emit a struct literal against a
-        // tuple struct (was E0560/E0609).
+        // tuple struct.
         //
         // A record view that came from an erasure of this reference record
         // carries the live handle, and JavaScript narrowing yields that SAME
@@ -655,7 +653,7 @@ impl FunctionEmitter<'_> {
 
         // A reference-class source keeps its fields inside the shared cell, so
         // the read must go through `.0.borrow()` rather than a direct named-field
-        // access against the newtype (was E0609).
+        // access against the newtype.
         let source_is_reference_class = self.is_reference_class_type(source);
         let mut entries = Vec::new();
         for field in source_fields {
@@ -790,9 +788,7 @@ impl FunctionEmitter<'_> {
     pub(in crate::emitter) fn class_type_param_count(&self, name: Symbol) -> usize {
         // The parameters the emitted struct DECLARES: a position
         // `generic_elision` dropped is spelled nowhere, so it must not be
-        // spelled here either (`Context_1::<SmeltUnknown, ..>::default()` for a
-        // `Context_1` whose three parameters were all elided was E0107 in the
-        // Hono crate). Same rule as the type renderer's `retain_carried`.
+        // spelled here either. Same rule as the type renderer's `retain_carried`.
         let declared = crate::classes::find_class(self.mir, name)
             .map_or(0, |class| class.type_params.len());
         self.context

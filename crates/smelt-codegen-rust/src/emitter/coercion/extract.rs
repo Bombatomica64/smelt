@@ -51,7 +51,7 @@ impl FunctionEmitter<'_> {
         // extraction cannot be fed straight to the `into_smelt_unknown()` arms:
         // the erased-function Rust type does not implement `IntoSmeltUnknown`.
         // Wrap it into a `SmeltUnknown::Function` at the boundary first, then
-        // extract from that erased value (was E0599 in `isMatchWith`/`toolkit`).
+        // extract from that erased value.
         if matches!(self.mir.types.get(source_ty), Some(Type::Function(_))) {
             let erased = self.erase(value)?;
             return self.extract_rendered(&erased, target, scope);
@@ -253,8 +253,8 @@ impl FunctionEmitter<'_> {
     /// `self.render_scope()`). The `Type::TypeParam` arm below recovers the
     /// value as the Rust generic exactly when `scope` spells that name, which is
     /// the same query the coercion path and the container annotation ask — so
-    /// the recovered entries can no longer carry a `T` the annotation erased,
-    /// or vice versa.
+    /// the recovered entries cannot carry a `T` the annotation erased, or vice
+    /// versa.
     pub(in crate::emitter) fn extract_rendered(
         &self,
         text: &RustExpr,
@@ -275,9 +275,9 @@ impl FunctionEmitter<'_> {
             }
             // Extracting an erased value into the unit type means the source
             // language discards it (a `=> void` callback ignores whatever it
-            // returns; JS does not assert the value is null). Drop it instead of
-            // panicking — the old assert turned e.g. `tap(identity)` and a
-            // `vi.fn<(x) => void>` transformer into runtime panics.
+            // returns; JS does not assert the value is null), so it is dropped, not
+            // checked: `tap(identity)` and a `vi.fn<(x) => void>` transformer return
+            // values here.
             Some(Type::None) => Ok(RustExpr::atom(format!("{{ let _ = {smelt_owned_text}; () }}", smelt_owned_text = smelt_owned_text.delimited()))),
             // A bigint is extracted the way its scalar siblings below are: an
             // exhaustive match over the tags, keeping the `BigInt` tag's exact

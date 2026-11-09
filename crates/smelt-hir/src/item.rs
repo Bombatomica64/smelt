@@ -346,7 +346,7 @@ pub struct StaticField {
     pub value: Option<Literal>,
     /// Whether the program may write the field: a source `static` field that
     /// is not `readonly`. A mutable static is LIVE storage, read with
-    /// `StaticFieldGet` and written with `StaticFieldSet` (directly or
+    /// a static field read and written with a static field write (directly or
     /// through the class used as a value); a `readonly` one is the constant
     /// `value`, since TypeScript rejects every write to it.
     #[serde(default)]

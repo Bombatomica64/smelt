@@ -692,8 +692,7 @@ impl FunctionEmitter<'_> {
             } else if let Some(converted) = self.dict_spread_value_conversion_expr(source, target_ty)? {
                 // A record whose VALUE type differs from the target's (a
                 // `{ weight: number }` spread into an erased merge) is still
-                // copied, each value converted to the target value type. It
-                // used to be skipped, silently losing every field it carried.
+                // copied, each value converted to the target value type.
                 steps.push(format!("{accumulator}.extend({converted});", converted = converted.delimited()));
                 continue;
             } else {
@@ -1001,9 +1000,8 @@ impl FunctionEmitter<'_> {
                     // `smelt_is_for_in_record_key`, which is defined over that
                     // backing; a `SmeltUnknown`-keyed `SmeltJsMap` gets the same
                     // rule from `smelt_own_js_map_entries` in the non-`String`
-                    // key branch below. A `SmeltJsMap` DOES carry the markers —
-                    // the erased-object coercion copies them in verbatim — so the
-                    // symbol-only filter used to leak an inherited key here.
+                    // key branch below. A `SmeltJsMap` DOES carry the markers: the
+                    // erased-object coercion copies them in verbatim.
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                         && !self.records_may_hold_markers()
                     {

@@ -14,7 +14,7 @@
 //! the `[object Uint8Array]` spec tag. The `__smelt_buffer`
 //! marker is the single source of truth for `Buffer` identity: it lives in the
 //! shared `smelt_stdlib::host_object` registry so `instanceof Buffer`
-//! (`instance_of_text`) and `Buffer.isBuffer` resolve through the same key, and
+//! (`instance_of_expr`) and `Buffer.isBuffer` resolve through the same key, and
 //! the runtime for-in filter hides the marker. The retained `bytes` list plus
 //! the mirrored `length`/`byteLength` fields give the observable byte-length
 //! reads (`buf.length`, `buf.byteLength`) a concrete backing through the erased

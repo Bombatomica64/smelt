@@ -387,9 +387,8 @@ impl ModuleBuilder<'_> {
     ///
     /// That pass runs before function items are predeclared (its types feed
     /// the signatures, `typeof x` among them), so an initializer that CALLS a
-    /// module function (`const job = makeJob(..)`) could not be typed there
-    /// and its binding was erased — a type a hand port would simply write
-    /// down. Run once the signatures exist, the same probe now types it.
+    /// module function (`const job = makeJob(..)`) cannot be typed there. Run
+    /// once the signatures exist, the same probe types it.
     ///
     /// Only a binding the earlier passes did not commit to an erased shape is
     /// refined: one that became a module slot (whose item type is updated with

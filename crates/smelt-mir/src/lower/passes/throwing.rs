@@ -118,7 +118,7 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
 /// Only a TYPED callee (a concrete `Type::Function`, the shape the frontend
 /// binds at a call through a function-valued class field) is collected. An
 /// erased callee's bind — an `unknown` read or the variadic erased-function
-/// spelling — predates this rule and keeps the answer its local's type gives.
+/// spelling — keeps the answer its local's type gives.
 fn projected_bind_locals(
     blocks: &[crate::BasicBlock],
     locals: &[LocalDecl],

@@ -13,8 +13,7 @@
 //! for-in / structural-equality helpers independently, this module is the single
 //! source of truth for that identity. All three consumers read from
 //! [`HOST_OBJECTS`] so the construct side, the `instanceof` side, and the runtime
-//! host-marker registry can never drift apart (a drift that previously left the
-//! boxed-`Boolean` marker out of the runtime for-in filter).
+//! host-marker registry can never drift apart.
 //!
 //! This is deliberately *not* a general dynamic boundary: each entry is a concrete
 //! host identity with a known constructor. Genuine `unknown`/interop values still
@@ -415,14 +414,11 @@ pub const UNMODELED_CALL_NAMESPACES: &[&str] = &["Intl", "process"];
 /// host identity here automatically wires it into the frontend construction
 /// helper, the `instanceof` lowering, and the runtime host-marker registry.
 pub const HOST_OBJECTS: &[HostObject] = &[
-    // `AbortController` and `AbortSignal`. Their markers used to be answered
-    // from a hand-written subsystem table inside the `instanceof` lowering,
-    // which meant the registry did not know these identities existed: the
-    // enumeration filters left `__smelt_abortcontroller` and
-    // `__smelt_abort_listeners` visible to `for...in`, where Node shows no own
-    // keys at all. They are registry entries now, and
-    // `helper_backed_methods` is what keeps reflective construction from
-    // building a signal with no listener list.
+    // `AbortController` and `AbortSignal`. As registry entries, their internal keys
+    // (`__smelt_abortcontroller`, `__smelt_abort_listeners`) stay hidden from
+    // `for...in`, where Node shows no own keys at all, and
+    // `helper_backed_methods` keeps reflective construction from building a signal
+    // with no listener list.
     helper_backed("AbortController", "__smelt_abortcontroller"),
     helper_backed("AbortSignal", "__smelt_abortsignal"),
     byte_buffer(
@@ -490,7 +486,7 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // (`Buffer.from`/`Buffer.alloc`/`Buffer.concat`) and inspects it via
     // `Buffer.isBuffer(x)` / `value instanceof Buffer`, both of which resolve
     // through this marker (see `buffer_constructor_expression` and
-    // `instance_of_text`). Modeled as a concrete byte-buffer record rather than
+    // `instance_of_expr`). Modeled as a concrete byte-buffer record rather than
     // a shapeless dynamic value. `Buffer` subclasses `Uint8Array`, so its spec
     // tag is `[object Uint8Array]`, not `[object Buffer]`.
     byte_buffer(
@@ -526,13 +522,12 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     host("URLSearchParams", "__smelt_urlsearchparams"),
     host("URL", "__smelt_url"),
     host("CryptoKey", "__smelt_crypto_key"),
-    // `Request` and `Response` moved up from the marker-only group when they
-    // gained real runtime types (`SmeltRequest`/`SmeltResponse`). The marker
-    // still does the same two jobs — `instanceof` resolves through it and
-    // `isPlainObject(new Request('...'))` is `false` because of it — but it is
-    // now stamped by the type's own erasure adapter rather than by a
-    // marker-record constructor, so the concrete value is what the program
-    // holds and the record exists only at the boundary.
+    // `Request` and `Response` have real runtime types
+    // (`SmeltRequest`/`SmeltResponse`). The marker still does two jobs —
+    // `instanceof` resolves through it and `isPlainObject(new Request('...'))` is
+    // `false` because of it — and it is stamped by the type's own erasure adapter
+    // rather than by a marker-record constructor, so the concrete value is what
+    // the program holds and the record exists only at the boundary.
     host("Request", "__smelt_request"),
     host("Response", "__smelt_response"),
     // The six modeled classes whose state is NOT a record: the text codecs, the
@@ -541,7 +536,7 @@ pub const HOST_OBJECTS: &[HostObject] = &[
     // erasing one went through the generic struct path — which stamps
     // `__smelt_class` and reads DECLARED FIELDS, of which a prelude type has
     // none — so the erased value carried no identity and `instanceof` on it
-    // could not be answered at all. `instance_of_text` folded it to `false` and
+    // could not be answered at all. `instance_of_expr` folded it to `false` and
     // silently deleted the branch until round 10 turned that into a blocker;
     // these entries are what retire it.
     //

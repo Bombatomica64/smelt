@@ -131,9 +131,9 @@ pub(super) fn count_occurrences(haystack: &str, needle: &str) -> usize {
 /// # Why annotation tokens are excluded
 ///
 /// The metric measures how many *values* fall back to the erased tagged union,
-/// not how many times the `SmeltUnknown` identifier is typed. When PR #156 made
-/// generated functions fallible, two purely syntactic changes inflated the raw
-/// token count without erasing a single additional value:
+/// not how many times the `SmeltUnknown` identifier is typed. Generated
+/// functions being fallible adds two purely syntactic spellings that would
+/// inflate the raw token count without erasing a single additional value:
 ///
 /// - Return sites gained a `Ok::<SmeltUnknown, Box<dyn std::error::Error>>(expr)`
 ///   turbofish where a bare `expr` stood before — one extra `SmeltUnknown` token

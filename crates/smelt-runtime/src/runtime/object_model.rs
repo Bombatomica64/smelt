@@ -82,7 +82,7 @@ fn smelt_typeof(value: &SmeltUnknown) -> &'static str { match value { SmeltUnkno
 
 // @smelt:item SMELT_OBJECT_PROTOTYPES when unknown
 thread_local! {
-    /// `[[Prototype]]` of objects built by `Object.create`, keyed by object identity.
+    //~ `[[Prototype]]` of objects built by `Object.create`, keyed by object identity.
     static SMELT_OBJECT_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -98,8 +98,7 @@ fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mu
 
 // `Object.defineProperty(o, k, d)` and `Object.defineProperties(o, ds)`
 // both install descriptors on an object, so the frontend normalizes the
-// singular form into the plural one and both land here. Previously both
-// lowered to an opaque `null` and the mutation was DROPPED outright.
+// singular form into the plural one and both land here.
 //
 // What is modeled is the descriptor's VALUE: a data descriptor's `value`,
 // or the one-shot result of an accessor descriptor's `get`. Object

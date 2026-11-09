@@ -29,8 +29,9 @@
 // Emit the `node:path` helpers.
 // @smelt:item smelt_path_normalize_string when node_path
 /// Node's `normalizeString` for POSIX separators: resolve `.` and `..`
-/// segments and collapse repeated slashes. `allow_above_root` keeps leading
-/// `..` segments (a relative path), where an absolute path drops them.
+/// segments and collapse repeated slashes.
+//~ `allow_above_root` keeps leading
+//~ `..` segments (a relative path), where an absolute path drops them.
 #[allow(dead_code)]
 fn smelt_path_normalize_string(path: &str, allow_above_root: bool) -> String {
     let bytes = path.as_bytes();
@@ -50,7 +51,7 @@ fn smelt_path_normalize_string(path: &str, allow_above_root: bool) -> String {
         }
         if code == b'/' {
             if last_slash == i as isize - 1 || dots == 1 {
-                // A repeated slash or a `.` segment: nothing to append.
+                //~ A repeated slash or a `.` segment: nothing to append.
             } else if dots == 2 {
                 let rb = res.as_bytes();
                 if res.len() < 2 || last_segment_length != 2 || rb[rb.len() - 1] != b'.' || rb[rb.len() - 2] != b'.' {
@@ -366,33 +367,33 @@ fn smelt_path_extname(path: &(impl SmeltHostText + ?Sized)) -> String { let path
 enum SmeltHashAlgorithm { Md5, Sha1, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256 }
 
 /// The mutable half of a `Hash`: accepting input until `digest` finalizes it.
-///
-/// A finalized hash has no algorithm or buffered bytes left to misuse, so
-/// every operation on it can only answer `Digest already called`.
+//~
+//~ A finalized hash has no algorithm or buffered bytes left to misuse, so
+//~ every operation on it can only answer `Digest already called`.
 #[derive(Debug)]
 enum SmeltHashState {
-    /// Accepting `update`s: the algorithm and the bytes fed so far.
+    //~ Accepting `update`s: the algorithm and the bytes fed so far.
     Open { algorithm: SmeltHashAlgorithm, data: Vec<u8> },
-    /// `digest` ran.
+    //~ `digest` ran.
     Finalized,
 }
 
 /// `node:crypto`'s `Hash`: a shared hasher state with a JS reference identity.
-///
-/// `Clone` shares the state, so `update` can answer the same hash for chaining
-/// and two handles observe one hasher, as two JavaScript references do.
+//~
+//~ `Clone` shares the state, so `update` can answer the same hash for chaining
+//~ and two handles observe one hasher, as two JavaScript references do.
 #[derive(Clone, Debug)]
 pub struct SmeltHash { id: usize, state: ::std::rc::Rc<::std::cell::RefCell<SmeltHashState>> }
 
 impl PartialEq for SmeltHash { fn eq(&self, other: &Self) -> bool { self.id == other.id } }
 
-/// A placeholder for a slot that is assigned before it is read: an already
-/// finalized hash, so a stray use throws `Digest already called` instead of
-/// hashing into a value the program never created.
+//~ A placeholder for a slot that is assigned before it is read: an already
+//~ finalized hash, so a stray use throws `Digest already called` instead of
+//~ hashing into a value the program never created.
 impl Default for SmeltHash { fn default() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltHashState::Finalized)) } } }
 
 impl SmeltHash {
-    /// JS reference identity of this hash.
+    //~ JS reference identity of this hash.
     #[allow(dead_code)]
     pub fn id(&self) -> usize { self.id }
 }
@@ -434,13 +435,13 @@ fn smelt_hash_update_bytes(hash: &SmeltHash, bytes: &[u8]) -> Result<SmeltHash, 
 }
 
 /// The bytes a string means under a Node `Buffer` encoding name.
-///
-/// `utf8` (and any name Node does not decode specially) is the string's UTF-8;
-/// `latin1`/`binary`/`ascii` keep the low byte of each UTF-16 code unit;
-/// `utf16le`/`ucs2` are the code units little-endian; `hex` reads byte pairs
-/// up to the first pair that is not hex; `base64`/`base64url` are Node's
-/// lenient decoder (either alphabet, other characters skipped, `=` ends it).
-/// `None` is an odd-length `hex` string, which Node rejects.
+//~
+//~ `utf8` (and any name Node does not decode specially) is the string's UTF-8;
+//~ `latin1`/`binary`/`ascii` keep the low byte of each UTF-16 code unit;
+//~ `utf16le`/`ucs2` are the code units little-endian; `hex` reads byte pairs
+//~ up to the first pair that is not hex; `base64`/`base64url` are Node's
+//~ lenient decoder (either alphabet, other characters skipped, `=` ends it).
+//~ `None` is an odd-length `hex` string, which Node rejects.
 fn smelt_hash_text_bytes(text: &str, encoding: &str) -> Option<Vec<u8>> {
     match encoding.to_ascii_lowercase().as_str() {
         "latin1" | "binary" | "ascii" => Some(text.encode_utf16().map(|unit| unit as u8).collect()),
@@ -495,9 +496,9 @@ fn smelt_hash_digest_bytes(hash: &SmeltHash) -> Result<Vec<u8>, Box<dyn ::std::e
     })
 }
 
-/// Render digest bytes under a Node `Buffer` encoding name (`hex`, `base64`,
-/// `base64url`, `latin1`/`binary`, `ascii`, `utf8`, `utf16le`); `None` for a
-/// name Node would answer with a `Buffer` rather than a string.
+//~ Render digest bytes under a Node `Buffer` encoding name (`hex`, `base64`,
+//~ `base64url`, `latin1`/`binary`, `ascii`, `utf8`, `utf16le`); `None` for a
+//~ name Node would answer with a `Buffer` rather than a string.
 fn smelt_hash_bytes_text(bytes: &[u8], encoding: &str) -> Option<String> {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let base64 = |url: bool| {

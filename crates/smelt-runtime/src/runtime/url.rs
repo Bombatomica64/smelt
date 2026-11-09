@@ -27,7 +27,7 @@
 // only a call carries an unwind edge (see
 // `blocker-logs/standards-throwing-rvalue.md`). Their adapters report through
 // the erased error channel, so they are emitted with the other throwing
-// adapters by [`emit_throwing_support`]. Every other setter ignores a value it
+// adapters by the throwing support. Every other setter ignores a value it
 // cannot apply, as the spec says.
 
 // Emit the throwing `URL` adapters into the erased-error block of the prelude.
@@ -47,9 +47,9 @@ fn smelt_url_set_href_throwing(url: &SmeltUrl, value: impl SmeltHostText) -> Res
 #[derive(Clone)]
 pub struct SmeltUrl {
     id: usize,
-    /// The parsed URL, shared by every alias of this value.
+    //~ The parsed URL, shared by every alias of this value.
     url: ::std::rc::Rc<::std::cell::RefCell<::url::Url>>,
-    /// The live `searchParams` list, owned by the same URL.
+    //~ The live `searchParams` list, owned by the same URL.
     params: SmeltUrlSearchParams,
 }
 
@@ -63,64 +63,64 @@ impl ::std::fmt::Display for SmeltUrl { fn fmt(&self, formatter: &mut ::std::fmt
 //~ Emit construction, the component accessors and `searchParams`.
 #[allow(dead_code)]
 impl SmeltUrl {
-    /// Parse `input` against an optional `base`, or `None` when the
-    /// result is not a URL (the constructor's `TypeError`).
+    //~ Parse `input` against an optional `base`, or `None` when the
+    //~ result is not a URL (the constructor's `TypeError`).
     pub fn parse(input: &(impl SmeltHostText + ?Sized), base: Option<&str>) -> Option<Self> { let input = input.host_text(); let input: &str = &input;
         let parsed = match base { Some(base) => ::url::Url::parse(base).ok()?.join(input).ok()?, None => ::url::Url::parse(input).ok()? };
         let url = ::std::rc::Rc::new(::std::cell::RefCell::new(parsed));
         let params = SmeltUrlSearchParams::owned_by(::std::rc::Rc::clone(&url));
         Some(Self { id: smelt_next_object_id(), url, params })
     }
-    /// JS reference identity of this URL.
+    //~ JS reference identity of this URL.
     pub fn id(&self) -> usize { self.id }
-    /// The `href` getter.
+    //~ The `href` getter.
     pub fn href(&self) -> String { ::url::quirks::href(&self.url.borrow()).to_owned() }
-    /// The `origin` getter.
+    //~ The `origin` getter.
     pub fn origin(&self) -> String { ::url::quirks::origin(&self.url.borrow()) }
-    /// The `protocol` getter.
+    //~ The `protocol` getter.
     pub fn protocol(&self) -> String { ::url::quirks::protocol(&self.url.borrow()).to_owned() }
-    /// The `protocol` setter; a value it cannot apply is ignored.
+    //~ The `protocol` setter; a value it cannot apply is ignored.
     pub fn set_protocol(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_protocol(&mut self.url.borrow_mut(), value); }
-    /// The `username` getter.
+    //~ The `username` getter.
     pub fn username(&self) -> String { ::url::quirks::username(&self.url.borrow()).to_owned() }
-    /// The `username` setter; a value it cannot apply is ignored.
+    //~ The `username` setter; a value it cannot apply is ignored.
     pub fn set_username(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_username(&mut self.url.borrow_mut(), value); }
-    /// The `password` getter.
+    //~ The `password` getter.
     pub fn password(&self) -> String { ::url::quirks::password(&self.url.borrow()).to_owned() }
-    /// The `password` setter; a value it cannot apply is ignored.
+    //~ The `password` setter; a value it cannot apply is ignored.
     pub fn set_password(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_password(&mut self.url.borrow_mut(), value); }
-    /// The `host` getter.
+    //~ The `host` getter.
     pub fn host(&self) -> String { ::url::quirks::host(&self.url.borrow()).to_owned() }
-    /// The `host` setter; a value it cannot apply is ignored.
+    //~ The `host` setter; a value it cannot apply is ignored.
     pub fn set_host(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_host(&mut self.url.borrow_mut(), value); }
-    /// The `hostname` getter.
+    //~ The `hostname` getter.
     pub fn hostname(&self) -> String { ::url::quirks::hostname(&self.url.borrow()).to_owned() }
-    /// The `hostname` setter; a value it cannot apply is ignored.
+    //~ The `hostname` setter; a value it cannot apply is ignored.
     pub fn set_hostname(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_hostname(&mut self.url.borrow_mut(), value); }
-    /// The `port` getter.
+    //~ The `port` getter.
     pub fn port(&self) -> String { ::url::quirks::port(&self.url.borrow()).to_owned() }
-    /// The `port` setter; a value it cannot apply is ignored.
+    //~ The `port` setter; a value it cannot apply is ignored.
     pub fn set_port(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_port(&mut self.url.borrow_mut(), value); }
-    /// The `pathname` getter.
+    //~ The `pathname` getter.
     pub fn pathname(&self) -> String { ::url::quirks::pathname(&self.url.borrow()).to_owned() }
-    /// The `pathname` setter; a value it cannot apply is ignored.
+    //~ The `pathname` setter; a value it cannot apply is ignored.
     pub fn set_pathname(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_pathname(&mut self.url.borrow_mut(), value); }
-    /// The `search` getter.
+    //~ The `search` getter.
     pub fn search(&self) -> String { ::url::quirks::search(&self.url.borrow()).to_owned() }
-    /// The `search` setter; a value it cannot apply is ignored.
+    //~ The `search` setter; a value it cannot apply is ignored.
     pub fn set_search(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_search(&mut self.url.borrow_mut(), value); self.params.refresh_from_owner(); }
-    /// The `hash` getter.
+    //~ The `hash` getter.
     pub fn hash(&self) -> String { ::url::quirks::hash(&self.url.borrow()).to_owned() }
-    /// The `hash` setter; a value it cannot apply is ignored.
+    //~ The `hash` setter; a value it cannot apply is ignored.
     pub fn set_hash(&self, value: &(impl SmeltHostText + ?Sized)) { let value = value.host_text(); let value: &str = &value; let _ = ::url::quirks::set_hash(&mut self.url.borrow_mut(), value); }
-    /// The `href` setter, or `false` when `value` is not a URL (the
-    /// setter's `TypeError`), in which case nothing changes.
+    //~ The `href` setter, or `false` when `value` is not a URL (the
+    //~ setter's `TypeError`), in which case nothing changes.
     pub fn set_href(&self, value: &(impl SmeltHostText + ?Sized)) -> bool { let value = value.host_text(); let value: &str = &value;
         let applied = ::url::quirks::set_href(&mut self.url.borrow_mut(), value).is_ok();
         if applied { self.params.refresh_from_owner(); }
         applied
     }
-    /// `searchParams`: the SAME live list on every read.
+    //~ `searchParams`: the SAME live list on every read.
     pub fn search_params(&self) -> SmeltUrlSearchParams { self.params.clone() }
 }
 

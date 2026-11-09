@@ -76,7 +76,7 @@ impl ModuleBuilder<'_> {
     /// the field is not a modeled `RegExp` data property.
     ///
     /// The concrete types mirror the generated `SmeltRegExp` runtime shape and
-    /// codegen's `regexp_field_text`/`field_access_type`: `source`/`flags` are
+    /// codegen's `regexp_field_expr`/`field_access_type`: `source`/`flags` are
     /// `String`, the boolean flag accessors are `bool`, and `lastIndex` is a
     /// `number`. Callable members (`test`, `exec`, …) return `None` so the
     /// general method-resolution paths keep handling them.

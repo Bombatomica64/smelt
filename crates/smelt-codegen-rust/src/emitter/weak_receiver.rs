@@ -30,8 +30,8 @@
 //!   argument, a callback registered elsewhere) and kept: when the LAST strong
 //!   handle on the instance is dropped, the handle's `Drop` checks whether any
 //!   such field's closure is still shared (`SmeltClosureShare`) and, if so,
-//!   pins the instance for the rest of the program (`smelt_pin_receiver`) —
-//!   exactly the old strong-capture lifetime. Reads that are only called
+//!   pins the instance for the rest of the program (`smelt_pin_receiver`),
+//!   the lifetime a strong capture would have. Reads that are only called
 //!   (`c.json(x)`, including through a temporary) are gone by then and pin
 //!   nothing, so no read site has to be classified;
 //! * the instance is erased (`IntoSmeltUnknown`, the live callable-field
@@ -402,59 +402,59 @@ fn only_use_is_field_store(
 }
 
 /// The runtime support every program with a weak-receiver field carries.
+///
+/// A class-field arrow lives in the instance it captures, so a strong capture
+/// is an `Rc` cycle keeping both alive forever. The closure is only reachable
+/// through its field, and every other path to it pins or keeps the instance
+/// alive, so whenever it runs the instance is alive and the upgrade succeeds.
+///
+/// `SmeltWeakReceiver::clone` is deliberately inherent rather than `Clone`: a
+/// nested closure's capture prelude is `let c = c.clone();` for every capture
+/// kind, and this is the one kind whose copy must change strength. The copy is
+/// strong because a closure created while this one runs (a promise
+/// continuation, a stored callback) can outlive every other handle on the
+/// receiver.
+///
+/// `SmeltReceiverRef` hands out the handle itself from `borrow`/`borrow_mut`,
+/// so `(*capture.smelt_receiver_cell().borrow_mut())` reads as it does for a
+/// strongly captured `this`, for one refcount and no allocation; the handle's
+/// own cell does the interior borrowing.
+///
+/// `SmeltClosureShare` is read by a weak-receiver class's `Drop` when its last
+/// strong handle goes: a closure someone else still holds can still run, so
+/// the instance is pinned. `smelt_pin_receiver` leaks one strong handle, which
+/// is exactly the lifetime a strong capture would have had, with no table to
+/// maintain.
+///
+/// These explanations live here rather than in the string below so that the
+/// text pasted into each generated crate stays short.
 const PRELUDE: &str = r#"/// A reference-class handle seen through its shared cell (see `SmeltWeakReceiver`).
 trait SmeltReferenceHandle: Clone + 'static {
-    /// The shared cell the handle wraps.
     type Cell;
-    /// The handle's shared cell.
     fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell>;
-    /// A handle on an existing shared cell (the SAME instance).
     fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self;
 }
 
 /// The instance a closure stored on it captures, held weakly.
-///
-/// A class-field arrow lives in the instance it captures; a strong capture is
-/// an `Rc` cycle that keeps both alive forever (`emitter::weak_receiver`). The
-/// closure is only reachable through its field — every other path to it pins
-/// or keeps the instance alive — so whenever it runs the instance is alive and
-/// the upgrade succeeds.
 enum SmeltWeakReceiver<H: SmeltReferenceHandle> {
-    /// The capture of a closure stored on its own receiver.
     Weak(::std::rc::Weak<H::Cell>),
-    /// The capture of a closure created inside one, which may outlive it.
     Strong(H),
 }
 
 impl<H: SmeltReferenceHandle> SmeltWeakReceiver<H> {
-    /// Capture `receiver` weakly.
     fn new(receiver: &H) -> Self { Self::Weak(::std::rc::Rc::downgrade(receiver.smelt_handle_cell())) }
-    /// The receiver itself.
     fn smelt_receiver(&self) -> H {
         match self {
             Self::Weak(cell) => H::smelt_from_handle_cell(cell.upgrade().expect("a closure stored on an instance ran after the instance was dropped")),
             Self::Strong(receiver) => receiver.clone(),
         }
     }
-    /// The receiver, in the shape shared captures read
-    /// (`(*capture.smelt_receiver_cell().borrow_mut())`): an upgraded handle,
-    /// not a new cell, so a use costs one refcount and no allocation.
     fn smelt_receiver_cell(&self) -> SmeltReceiverRef<H> { SmeltReceiverRef(self.smelt_receiver()) }
-    /// The capture a NESTED closure takes: STRONG, because a closure created
-    /// while this one runs (a promise continuation, a stored callback) can
-    /// outlive every other handle on the receiver.
-    ///
-    /// Deliberately an inherent `clone` rather than `Clone`: a nested closure's
-    /// capture prelude is `let c = c.clone();` for every capture kind, and this
-    /// is the one kind whose copy must change strength.
     #[allow(clippy::should_implement_trait)]
     fn clone(&self) -> Self { Self::Strong(self.smelt_receiver()) }
 }
 
 /// Whether the closure held in a weak-receiver field is shared beyond the field.
-///
-/// Read by a weak-receiver class's `Drop` when its LAST strong handle goes: a
-/// closure someone else still holds can still run, so its instance is pinned.
 trait SmeltClosureShare { fn smelt_closure_shared(&self) -> bool; }
 
 impl<F: ?Sized> SmeltClosureShare for ::std::rc::Rc<F> {
@@ -466,9 +466,6 @@ impl<T: SmeltClosureShare> SmeltClosureShare for Option<T> {
 }
 
 /// An upgraded weak receiver, read the way a shared capture cell is read.
-///
-/// `borrow`/`borrow_mut` hand out the handle itself; the handle's own cell
-/// does the interior borrowing, exactly as for a strongly captured `this`.
 struct SmeltReceiverRef<H>(H);
 
 impl<H> SmeltReceiverRef<H> {
@@ -479,17 +476,17 @@ impl<H> SmeltReceiverRef<H> {
 }
 
 /// Keep `receiver` alive for the rest of the program.
-///
-/// Called when a weak-receiver closure can outlive every handle on its
-/// instance (see `SmeltClosureShare`): a strong capture would have kept the
-/// instance alive for as long as the closure lives, and leaking one strong
-/// handle is exactly that lifetime with no table to maintain.
 #[allow(dead_code)]
 fn smelt_pin_receiver<H: SmeltReferenceHandle>(receiver: &H) {
     ::std::mem::forget(::std::rc::Rc::clone(receiver.smelt_handle_cell()));
 }"#;
 
 /// The erasure-side helper, emitted only with the erased runtime.
+///
+/// A callable read off an erased view can outlive the view and the instance's
+/// other handles, so its erased value carries a strong handle the way the
+/// arrow's own capture would. It is the same JavaScript function: it shares
+/// the field value's identity, and through it its `length` and properties.
 const UNKNOWN_PRELUDE: &str = r#"/// An erased field value is shared when its callable (or its object) is.
 impl SmeltClosureShare for SmeltUnknown {
     fn smelt_closure_shared(&self) -> bool {
@@ -502,11 +499,6 @@ impl SmeltClosureShare for SmeltUnknown {
 }
 
 /// The erased value of a weak-receiver field, holding its instance strongly.
-///
-/// A callable read off an erased view can outlive the view and the instance's
-/// other handles, so it carries a strong handle the way the arrow's own
-/// capture would. It is the same JavaScript function (it shares the field
-/// value's identity, and through it its `length` and properties).
 #[allow(dead_code)]
 fn smelt_keep_receiver_alive<H: SmeltReferenceHandle>(erased: SmeltUnknown, receiver: &H) -> SmeltUnknown {
     let wrap = |function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>| -> SmeltUnknown {

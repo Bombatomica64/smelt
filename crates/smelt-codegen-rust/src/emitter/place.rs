@@ -1050,9 +1050,8 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::atom(format!("({}.len() as f64)", self.local_value(base)?.tight())));
         }
-        // A tuple's `.length` is its arity, fixed by its type. Rust
-        // tuples have no `length` field, so the raw fallback below
-        // was E0609.
+        // A tuple's `.length` is its arity, fixed by its type: Rust
+        // tuples have no `length` field for the raw fallback below.
         if let Some(Type::Tuple(items)) = self.mir.types.get(base_ty)
             && smelt_stdlib::typescript_field_rule(self.symbol_source_name(field)?)
                 == Some(smelt_stdlib::FieldRule::TsLength)
@@ -1159,10 +1158,8 @@ impl FunctionEmitter<'_> {
         // never resolve through the own-field read: a boxed primitive
         // (`Object(1)`, `new Number(1)`) is a marker object with no own
         // `valueOf`, and an erased primitive is not an object at all.
-        // Both used to collapse to a null callback, which is what made
-        // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
-        // helper unwraps the wrapper and still prefers a user-defined
-        // own `valueOf` when the receiver has one.
+        // The runtime helper unwraps the wrapper and prefers a
+        // user-defined own `valueOf` when the receiver has one.
         if field_name == "valueOf" {
             return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})", scrutinee = scrutinee.delimited())));
         }
@@ -1359,7 +1356,7 @@ impl FunctionEmitter<'_> {
         }
         // A dotted read of an UNDECLARED member on an index-signature
         // class (`bag.name` where `name` is not a struct field) is a
-        // keyed lookup into the runtime store (issue #84). Declared
+        // keyed lookup into the runtime store. Declared
         // fields keep their concrete struct access via the fallback
         // below; only names with no matching field route to the store.
         if let Some((key_ty, value_ty)) = self.class_index_store_types(base_ty)
@@ -1542,7 +1539,7 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::tuple_field(&self.local_value(base)?, tuple_index))
             }
             // A class with an index signature backs keyed reads with a
-            // real store field (issue #84). A non-optional keyed read
+            // real store field. A non-optional keyed read
             // (declared value type has no `undefined`) reads the store by
             // key, defaulting a missing key to the value type's default.
             Some(Type::Class { .. })

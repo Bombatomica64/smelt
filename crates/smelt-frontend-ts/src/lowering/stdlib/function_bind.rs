@@ -46,12 +46,8 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         // `bind`'s LEADING operand is the receiver, not a bound argument (the
         // bound arguments start at index 1, which is why they are skipped above).
-        // It used to be read by nobody at all, so `fn.bind(context)` produced a
-        // callable that forwarded the bound arguments correctly and lost the
-        // context entirely -- es-toolkit's `spread` spec binds a greeting object
-        // and then reads `this.greeting` inside the callee. Bind it as the
-        // receiver installed for every call of the resulting callable, which is
-        // exactly what `Function.prototype.bind` specifies.
+        // Bind it as the receiver installed for every call of the resulting
+        // callable, which is exactly what `Function.prototype.bind` specifies.
         let receiver = match call.arguments.first() {
             Some(argument) => {
                 let this_arg = self.argument(argument, outer_body)?;

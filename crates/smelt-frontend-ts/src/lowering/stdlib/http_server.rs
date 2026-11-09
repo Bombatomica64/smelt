@@ -86,7 +86,7 @@ impl ModuleBuilder<'_> {
     /// The handler keeps its own type: a fetch entry point usually declares
     /// more than the request (Hono's `app.fetch(request, env?, executionCtx?)`)
     /// and answers a `Response` or a promise of one, and codegen calls it the
-    /// way the adapter does (see `http_create_fetch_server_text`).
+    /// way the adapter does .
     pub(in crate::lowering) fn hono_node_serve_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

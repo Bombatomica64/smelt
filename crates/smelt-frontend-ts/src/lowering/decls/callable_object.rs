@@ -10,13 +10,11 @@
 //! function make(): ((x: number) => string) & { tag: string } { … }  // inline, anonymous
 //! ```
 //!
-//! Only the first spelling used to reach the callable-interface class that
-//! carries the synthetic `__smelt_call` field, so property writes onto a
-//! callable local (`wrapper.tag = …`, see
-//! `stmt::assignments::try_collect_callable_local_prop`) were consumed into a
-//! typed [`smelt_hir::ExprKind::CallableObjectAssign`] for an `interface` and
-//! dropped for the others. Same shape, several spellings, one behaviour: this
-//! module routes them all through the interface synthesis.
+//! Property writes onto a callable local (`wrapper.tag = …`, see
+//! `stmt::assignments::try_collect_callable_local_prop`) are consumed into a
+//! typed [`smelt_hir::ExprKind::CallableObjectAssign`]. Same shape, several
+//! spellings, one behaviour: this module routes them all through the interface
+//! synthesis that carries the `__smelt_call` field.
 //!
 //! The rule, stated once:
 //!
@@ -53,12 +51,12 @@ impl ModuleBuilder<'_> {
     /// field or method): a bare function type stays a [`Type::Function`], and a
     /// plain object type stays a record. Any member the walk does not
     /// understand (a named reference inside an intersection, a mapped type, a
-    /// construct-only signature) makes the whole surface unrecognised, so the
-    /// pre-existing lowering keeps handling it.
+    /// construct-only signature) makes the whole surface unrecognised, and the
+    /// ordinary lowering handles it.
     ///
     /// Errors raised while lowering the members are treated as "not a
-    /// callable-object surface" by the callers, which then fall back to the
-    /// previous lowering rather than failing a file that used to build.
+    /// callable-object surface" by the callers, which fall back to the ordinary
+    /// lowering rather than failing the file.
     pub(in crate::lowering) fn callable_object_surface_members(
         &mut self,
         ty: &TSType<'_>,

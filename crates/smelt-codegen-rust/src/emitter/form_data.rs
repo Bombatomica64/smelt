@@ -1,7 +1,7 @@
 //! Rust emission for the WHATWG `FormData` value.
 //!
 //! Every member lands on a real method of the concrete `SmeltFormData` emitted
-//! by `crate::form_data_prelude`, so `form.get("name")` is
+//! by `smelt-runtime`'s `form_data.rs`, so `form.get("name")` is
 //! `form.get("name")` typed `Option<..>` and `form.getAll(..)` a real list —
 //! no tagged record and no runtime member lookup in between.
 //!

@@ -51,28 +51,21 @@ pub(crate) type ErasedArgumentMemo = RefCell<HashMap<FuncId, bool>>;
 ///   only in the return type (e.g. a type predicate `data is T`) or only inside
 ///   a callback parameter cannot be inferred and would produce `E0283`.
 ///
-/// A type parameter that appears inside a callback parameter is *no longer*
-/// rejected outright. That gate (Increment 1 of
-/// `blocker-logs/estk-callback-generics-plan.md`) existed because
-/// `param_type` rendered a callback's parameter halves in an empty
-/// type-parameter scope, so a callee whose signature said `Fn(T)` was handed
-/// closures declared `|arg: SmeltUnknown|`. The scope, not Rust inference, was
-/// the defect; both halves of a callback type now render in the callee's own
-/// lexical scope, and call-site adapters render the callee's declared callback
-/// under the bindings that call site pinned.
+/// A type parameter that appears inside a callback parameter can lift: both
+/// halves of a callback type render in the callee's own lexical scope, and
+/// call-site adapters render the callee's declared callback under the bindings
+/// that call site pinned.
 ///
-/// That relaxation is bounded by §4.4 of the plan: only a **direct, required,
-/// borrowed, non-rest** `Type::Function` parameter can carry a type parameter
-/// into the emitted signature and still have every call site render an argument
-/// that matches it. See [`callback_occurrences_are_liftable`] for the rule and
-/// for why each excluded shape is excluded.
+/// Only a **direct, required, borrowed, non-rest** `Type::Function` parameter
+/// can carry a type parameter into the emitted signature and still have every
+/// call site render an argument that matches it. See
+/// [`callback_occurrences_are_liftable`] for the rule and for why each excluded
+/// shape is excluded.
 ///
 /// `owned_callback_params` is the emitter's own ownership fixpoint
 /// (`emitter::compute_owned_callback_params`), threaded in rather than
 /// recomputed so the gate and the renderer cannot grow two different notions of
 /// "owned callback".
-///
-/// These are the deferred "bounded / higher-order / return-only" slices of #99.
 pub(crate) fn function_emits_rust_generics(
     mir: &Mir,
     function: &MirFunction,
@@ -318,20 +311,17 @@ fn rvalue_preserves_opacity(rvalue: &Rvalue) -> bool {
 /// The subset of a free function's source type parameters that can be emitted
 /// as real Rust generics, leaving the rest to erase.
 ///
-/// Increment 5. The decision used to be per *function*: one constrained
-/// parameter demoted every sibling, so `groupBy<T, K extends PropertyKey>`
-/// erased `T` as well and emitted
-/// `fn group_by(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(SmeltUnknown) -> SmeltUnknown)`
-/// even though `T` is directly inferable from `arr`. 215 of es-toolkit's 800
-/// generic exported functions carry a constrained parameter, so the all-or-
-/// nothing rule was erasing a large amount of shape that the signature itself
-/// could have carried.
+/// The decision is per *parameter*: `groupBy<T, K extends PropertyKey>` keeps
+/// `T`, which is directly inferable from `arr`, even when `K` erases. 215 of
+/// es-toolkit's 800 generic exported functions carry a constrained parameter,
+/// so an all-or-nothing rule would erase a large amount of shape the signature
+/// can carry.
 ///
-/// A constrained parameter is still not liftable — the emitter has no rendering
-/// for its bound — but it now excludes only itself. Every parameter absent from
-/// this set lowers through the emitter's existing erasure path, which is the
-/// same path a fully-erased function already takes, so a partially-lifted
-/// signature needs no new rendering.
+/// A constrained parameter is not liftable when the emitter has no rendering
+/// for its bound, and excludes only itself. Every parameter absent from this
+/// set lowers through the emitter's existing erasure path, which is the same
+/// path a fully-erased function takes, so a partially-lifted signature needs no
+/// new rendering.
 ///
 /// The two function-level safety gates are unchanged and still all-or-nothing:
 /// if a call site passes an erased argument, or a callback-only parameter is
@@ -372,11 +362,9 @@ pub(crate) fn liftable_type_params(
         .type_params
         .iter()
         .filter(|type_param| {
-            // A constrained parameter erases — but only it (before Increment 5
-            // this returned `false` for the whole function) — unless its bound
-            // is a class or interface with a generated trait that every use and
-            // every call site can go through (bounded-generics plan,
-            // increment 3; see `bounded_type_param_liftable`).
+            // A constrained parameter erases, but only it, unless its bound is a
+            // class or interface with a generated trait that every use and every
+            // call site can go through (see `bounded_type_param_liftable`).
             if type_param.constraint.is_some()
                 && !bounded_type_param_liftable(mir, function, type_param, bounds)
             {
@@ -388,12 +376,12 @@ pub(crate) fn liftable_type_params(
         let directly = param_types
             .iter()
             .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, name));
-        // ... or (Increment 3) a position of a callback that Increment 2 emits
-        // as `&F{n}` with an `F{n}: Fn(..) + ?Sized` bound, which rustc infers
-        // through from the closure's own type. The disjunct deliberately calls
-        // the renderer's own eligibility predicate rather than a second copy of
-        // it, so a parameter can only be declared inferable through a callback
-        // that really will carry an `Fn` bound.
+        // ... or a position of a callback emitted as `&F{n}` with an
+        // `F{n}: Fn(..) + ?Sized` bound, which rustc infers through from the
+        // closure's own type. The disjunct deliberately calls the renderer's own
+        // eligibility predicate rather than a second copy of it, so a parameter
+        // can only be declared inferable through a callback that really will
+        // carry an `Fn` bound.
             (directly
                 || type_param_inferable_through_callback(
                     mir,
@@ -455,13 +443,11 @@ fn type_param_used_as_map_key(mir: &Mir, function: &MirFunction, name: Symbol) -
 /// Return whether every type parameter that is reachable *only* through a
 /// callback is pinned at every static call site of `function`.
 ///
-/// Increment 3's safety valve, and deliberately **not** §4.3's widened
-/// `called_with_erased_type_param_argument`. §7 records that the literal
-/// widening — demote whenever any argument leaves any callee parameter unbound
-/// or bound to an erased type — was implemented during Increment 1 and cut the
-/// es-toolkit lift from 15 definitions to 2, because spec files hoist their
-/// arguments into `_smelt_tmp_N` locals typed `List<Unknown>` and one such call
-/// site demoted a definition crate-wide.
+/// The safety valve, and deliberately narrower than demoting whenever any
+/// argument leaves any callee parameter unbound or bound to an erased type:
+/// spec files hoist their arguments into `_smelt_tmp_N` locals typed
+/// `List<Unknown>`, so that wider rule lets one such call site demote a
+/// definition crate-wide.
 ///
 /// This valve avoids that collapse three independent ways:
 ///
@@ -560,7 +546,7 @@ fn callback_only_params_are_pinned_at_every_call_site(
 
 /// Whether the class- or interface-bounded type parameter `type_param` of
 /// `function` can be a real Rust generic carrying its bound's trait
-/// (`A: AnimalLike`, bounded-generics plan increment 3).
+/// (`A: AnimalLike`).
 ///
 /// Every condition is structural, and each one guards a way the lifted
 /// signature would fail to compile or change behaviour:
@@ -1086,11 +1072,9 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &Operand) ->
 ///   the shape, and a nested `&dyn Fn` / `Rc<dyn Fn>` argument position is
 ///   invariant.
 ///
-/// Known over-approximation, shared by both callers and deliberately left
-/// alone: a `Type::Class` whose name does not resolve renders `SmeltUnknown`
-/// and drops its arguments, yet this walk descends into them. Tightening it
-/// would move bytes that belong to Increment 1, so it belongs in its own
-/// change.
+/// Known over-approximation, shared by both callers: a `Type::Class` whose
+/// name does not resolve renders `SmeltUnknown` and drops its arguments, yet
+/// this walk descends into them.
 ///
 /// This is deliberately *narrower* than
 /// [`generic_bindings::match_types`](crate::generic_bindings), which does bind
@@ -1115,22 +1099,15 @@ fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> 
 /// then checks whether `name` occurs anywhere within that function type using
 /// the shared [`generic_bindings::type_param_occurs`] walk.
 ///
-/// This used to be the callback gate itself — any occurrence demoted the
-/// function. Increment 1 of the callback-generics plan deleted that
-/// all-or-nothing early return; the walk stayed, and is now the occurrence half
-/// of the §4.4 eligibility rule implemented by
+/// The occurrence half of the eligibility rule implemented by
 /// [`callback_occurrences_are_liftable`]: it answers "does `name` reach a
 /// function-typed sub-shape of `ty` at all", and the caller decides whether the
 /// position that occurrence sits in is one the renderer can express.
 ///
-/// Increment 3 additionally turns this into
-/// `type_param_inferable_through_callback` by restricting it to positions Rust
-/// can *infer* from — a callback parameter or return, but not a `T` buried in a
-/// union inside a callback parameter, since a union erases and never appears in
-/// the emitted `Fn` bound. That restriction is deferred: it only matters once a
-/// callback position becomes an inference source. Here the walk is used as a
-/// *demotion* trigger, so being deliberately wide (it descends unions, tuples,
-/// class arguments and generator shapes) is the conservative direction.
+/// [`type_param_inferable_through_callback`] is the narrower question of
+/// positions Rust can *infer* from. Here the walk is a *demotion* trigger, so
+/// being deliberately wide (it descends unions, tuples, class arguments and
+/// generator shapes) is the conservative direction.
 pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(function @ Type::Function(_)) => function
@@ -1144,16 +1121,14 @@ pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> boo
 /// Return the parameter index of the callback that lets Rust infer `name`, if
 /// any.
 ///
-/// Increment 3 of `blocker-logs/estk-callback-generics-plan.md`. A type
-/// parameter that reaches no direct value parameter can still be inferred when
-/// it occupies a position of a callback that Increment 2 emits as
-/// `&F{n}` with an `F{n}: Fn(..) + ?Sized` bound: rustc infers the parameter
-/// *through* that bound from the closure's own type. This is precisely why the
-/// increment waited for Option B. A `&dyn Fn(..)` argument position is an
+/// A type parameter that reaches no direct value parameter can still be
+/// inferred when it occupies a position of a callback emitted as `&F{n}` with
+/// an `F{n}: Fn(..) + ?Sized` bound: rustc infers the parameter *through* that
+/// bound from the closure's own type. A `&dyn Fn(..)` argument position is an
 /// unsize coercion, which is far weaker — rustc must know the target type
 /// before it can unsize, and `dyn Fn` is invariant in its argument types — so a
-/// callback-only parameter cannot be inferred through the old representation
-/// at all.
+/// callback-only parameter cannot be inferred through that representation at
+/// all.
 ///
 /// The two rules are therefore coupled, and the coupling is mechanical rather
 /// than restated: step 1 below is the *same call*
@@ -1195,8 +1170,7 @@ fn type_param_inferable_through_callback(
         // would not even satisfy the bound. This exclusion lives
         // in the *inference* predicate rather than in the shared shape
         // predicate because it is an inference question, not a representation
-        // one: moving it into `callback_param_shape_is_liftable` would
-        // retroactively change Increment 2's `F{n}` set.
+        // one: `callback_param_shape_is_liftable` also fixes the `F{n}` set.
         if crate::emitter::is_erased_unknown_rest_function_in(&mir.types, callback) {
             continue;
         }
@@ -1252,7 +1226,7 @@ fn type_param_inferable_through_callback(
 ///
 /// `owned` is the emitter's `compute_owned_callback_params` fixpoint, threaded
 /// in by the caller. It is deliberately *the same* set the renderer consults
-/// (`FunctionEmitter::is_owned_callback_param`) so the gate cannot disagree with
+/// (`FunctionEmitter::compute_owned_callback_params`) so the gate cannot disagree with
 /// the representation it is predicting.
 ///
 /// Only parameter positions are examined. A callback in the *return* type is
@@ -1305,8 +1279,8 @@ fn callback_occurrences_are_liftable(
 /// borrowed, non-rest** `Type::Function` parameter?
 ///
 /// Name-independent on purpose. [`callback_occurrences_are_liftable`] asks it
-/// about the parameters that mention a given type parameter, and Increment 2's
-/// `&F{n}` renderer ([`callback_generic_params`]) asks it about every parameter;
+/// about the parameters that mention a given type parameter, and the `&F{n}`
+/// renderer ([`callback_generic_params`]) asks it about every parameter;
 /// sharing one predicate is what keeps the gate and the representation from
 /// growing two different notions of "liftable callback shape".
 ///
@@ -1362,10 +1336,9 @@ pub(crate) fn callback_param_shape_is_liftable(
 /// The generated `F{n}` type-parameter name for each callback parameter of a
 /// generic free function, in declaration order.
 ///
-/// Increment 2 of `blocker-logs/estk-callback-generics-plan.md` renders a
-/// direct required borrowed callback parameter as `&F{n}` with an
-/// `F{n}: Fn(..) + ?Sized` bound (Option B) instead of `&dyn Fn(..)`, so a
-/// hand-written Rust team's monomorphized dispatch replaces dynamic dispatch.
+/// A direct required borrowed callback parameter renders as `&F{n}` with an
+/// `F{n}: Fn(..) + ?Sized` bound instead of `&dyn Fn(..)`, the monomorphized
+/// dispatch a hand-written Rust team would use.
 ///
 /// Scoping: only a function that *already* declares its own `<..>` list gets
 /// `F{n}` parameters. This is a structural rule, not a per-function or
@@ -1428,12 +1401,10 @@ pub(crate) fn callback_generic_params(
 /// The bounded *source* type parameters of a generic free function, one entry
 /// per declared parameter (`T: Clone + Default + IntoSmeltUnknown + ..`).
 ///
-/// Split out of the former `function_impl_generics_text` so the free-function
-/// signature
-/// emitter can append Increment 2's generated `F{n}: Fn(..) + ?Sized` bounds —
-/// which need the emitter's substitution-aware type lowering and therefore
-/// cannot be rendered here — while keeping source generics first, in
-/// declaration order. Empty for a function that stays erased.
+/// Separate so the free-function signature emitter can append the generated
+/// `F{n}: Fn(..) + ?Sized` bounds — which need the emitter's substitution-aware
+/// type lowering and therefore cannot be rendered here — while keeping source
+/// generics first, in declaration order. Empty for a function that stays erased.
 pub(crate) fn function_impl_generics_list(
     mir: &Mir,
     function: &MirFunction,
@@ -1446,16 +1417,15 @@ pub(crate) fn function_impl_generics_list(
         return Ok(Vec::new());
     }
     // Every lifted parameter carries the full bound set. Dropping halves of the
-    // erasure round-trip was tried and reverted: the emitter inserts conversions
-    // in *both* directions at call boundaries, invisibly to any analysis of the
-    // MIR body. `flatMap` erases a `U` outbound to call `flatten`, and
-    // `pull`/`xor`/`isSubset` un-erase a `T` inbound the same way. The fix is to
-    // make the bounds satisfiable instead — generated records and unions now
-    // emit `SmeltFromUnknown` (and unions `SmeltJsKeyEq`) rather than the bounds
-    // being narrowed to suit them.
+    // erasure round-trip does not work: the emitter inserts conversions in *both*
+    // directions at call boundaries, invisibly to any analysis of the MIR body.
+    // `flatMap` erases a `U` outbound to call `flatten`, and `pull`/`xor`/
+    // `isSubset` un-erase a `T` inbound the same way. Generated records and unions
+    // emit `SmeltFromUnknown` (and unions `SmeltJsKeyEq`) so the bounds are
+    // satisfiable.
     //
     // Only the lifted parameters get a bound; a constrained sibling erases and
-    // must not appear in the emitted generic list (Increment 5).
+    // must not appear in the emitted generic list.
     function
         .type_params
         .iter()

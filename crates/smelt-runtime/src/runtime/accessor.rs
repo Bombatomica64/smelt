@@ -29,10 +29,10 @@
 
 // Emits the accessor storage type.
 //
-// With the erased runtime present (`with_unknown`), an accessor also
-// crosses the `SmeltUnknown` boundary: erasing it reads the getter now, and
-// recovering one from an erased value answers that value on every read (the
-// erased object no longer carries a live getter for a record field).
+// With the erased runtime present (the `unknown` gate), an accessor also
+// crosses the `SmeltUnknown` boundary: erasing it reads the getter at that
+// point, and recovering one from an erased value answers that value on every
+// read (the erased object carries no live getter for a record field).
 // @smelt:item impl_IntoSmeltUnknown_for_SmeltAccessor_T when accessors & unknown
 impl<T: IntoSmeltUnknown + 'static> IntoSmeltUnknown for SmeltAccessor<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.get().into_smelt_unknown() } }
 impl<T: SmeltFromUnknown + Clone + 'static> SmeltFromUnknown for SmeltAccessor<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::constant(T::smelt_from_unknown(value)) } }

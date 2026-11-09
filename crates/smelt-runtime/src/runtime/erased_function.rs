@@ -21,7 +21,7 @@ impl Default for SmeltErasedFunction {
 }
 
 impl SmeltErasedFunction {
-    /// Invoke an erased JavaScript callable through a reentrant handle.
+    //~ Invoke an erased JavaScript callable through a reentrant handle.
     fn call(&self, args: impl Into<Vec<SmeltUnknown>>) -> SmeltUnknown {
         (self.callback)(args.into())
     }
@@ -35,7 +35,7 @@ impl SmeltErasedFunction {
     //~ as an OBJECT carrying `__smelt_call`, and the value being narrowed
     //~ here is still a plain function everywhere else, so filling `object`
     //~ would double-wrap it at the next erasure.
-    /// Record a callable object's own JavaScript properties.
+    //~ Record a callable object's own JavaScript properties.
     fn smelt_with_properties(self, entries: Vec<(String, SmeltUnknown)>) -> Self {
         for (name, value) in entries { smelt_set_function_property(&self.callback, &name, value); }
         self
@@ -46,7 +46,7 @@ impl SmeltErasedFunction {
     //~ and the identity-keyed bag is that place -- writing into `object`
     //~ would turn a plain function into a callable OBJECT at its next
     //~ erasure, which is a different JavaScript value.
-    /// Store one own JavaScript property on this function value.
+    //~ Store one own JavaScript property on this function value.
     fn smelt_set_property(&self, name: &str, value: SmeltUnknown) { smelt_set_function_property(&self.callback, name, value); }
 // @smelt:if this_channel
     //~ Binding a receiver keeps the callable TYPED: a bound method is
@@ -54,7 +54,7 @@ impl SmeltErasedFunction {
     //~ to `SmeltUnknown` at the bind would erase a shape the source
     //~ states. `object` rides along so a bound callable object keeps its
     //~ own properties.
-    /// Bind a receiver to this callable, as `Function.prototype.bind` does.
+    //~ Bind a receiver to this callable, as `Function.prototype.bind` does.
     fn smelt_bind_this(&self, receiver: SmeltUnknown) -> SmeltErasedFunction {
         let callback = self.callback.clone();
         SmeltErasedFunction {
@@ -67,11 +67,11 @@ impl SmeltErasedFunction {
         }
     }
 // @smelt:end
-    /// Read one own property of a callable object, `undefined` when absent.
-    ///
-    /// `prototype` is materialised on first read exactly as it is for an
-    /// erased function value, so a still-typed callable answers the same
-    /// object the erased one does.
+    //~ Read one own property of a callable object, `undefined` when absent.
+    //~
+    //~ `prototype` is materialised on first read exactly as it is for an
+    //~ erased function value, so a still-typed callable answers the same
+    //~ object the erased one does.
     fn smelt_property(&self, name: &str) -> SmeltUnknown {
         if let Some(value) = self.object.as_ref().and_then(|object| object.get(name)) { return value; }
         let identity = smelt_canonical_function_identity(&self.callback);
@@ -79,19 +79,19 @@ impl SmeltErasedFunction {
         if name == "prototype" { return smelt_function_prototype(&identity, self.clone().into_smelt_unknown()); }
         SmeltUnknown::Undefined
     }
-    /// Restore an erased callable value without dropping callable-object fields.
+    //~ Restore an erased callable value without dropping callable-object fields.
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        // Erasing the SAME callback twice must yield `SmeltUnknown::Function`
-        // values that share one OUTER `Rc`, because reference identity
-        // (`Rc::ptr_eq` in `same_js_key`/`smelt_unknown_structural_eq`) compares
-        // that outer `Rc`. A nullary function-item constant (`doNothing()`)
-        // routes through one cached `SmeltErasedFunction`, so two calls share
-        // the inner callback `Rc`; keep a `Weak` to the outer value in its entry so
-        // both erasures resolve to one `SmeltUnknown::Function` while both are
-        // alive (e.g. inside one `toStrictEqual`). A `Weak` avoids pinning the
-        // callback alive; a successful upgrade proves the address is still the
-        // same callback, so it is a true hit. Callable objects
-        // (`object: Some(_)`) are per-instance and skip the cache.
+        //~ Erasing the SAME callback twice must yield `SmeltUnknown::Function`
+        //~ values that share one OUTER `Rc`, because reference identity
+        //~ (`Rc::ptr_eq` in `same_js_key`/`smelt_unknown_structural_eq`) compares
+        //~ that outer `Rc`. A nullary function-item constant (`doNothing()`)
+        //~ routes through one cached `SmeltErasedFunction`, so two calls share
+        //~ the inner callback `Rc`; keep a `Weak` to the outer value in its entry so
+        //~ both erasures resolve to one `SmeltUnknown::Function` while both are
+        //~ alive (e.g. inside one `toStrictEqual`). A `Weak` avoids pinning the
+        //~ callback alive; a successful upgrade proves the address is still the
+        //~ same callback, so it is a true hit. Callable objects
+        //~ (`object: Some(_)`) are per-instance and skip the cache.
         if self.object.is_none() {
             if let Some(callable) = smelt_read_callable(&self.callback, |meta| meta.erased_value.as_ref().and_then(::std::rc::Weak::upgrade)) {
                 return SmeltUnknown::Function(callable);

@@ -100,9 +100,9 @@ fn smelt_json_stringify(value: &SmeltUnknown) -> Result<String, &'static str> {
     Ok(out)
 }
 
-/// Appends `QuoteJSONString(text)`: `"` and `\` escaped, the short escapes
-/// for `\b \f \n \r \t`, other control characters and every lone surrogate as
-/// a lowercase `\uXXXX`, anything else as itself.
+//~ Appends `QuoteJSONString(text)`: `"` and `\` escaped, the short escapes
+//~ for `\b \f \n \r \t`, other control characters and every lone surrogate as
+//~ a lowercase `\uXXXX`, anything else as itself.
 fn smelt_json_quote(text: &JsStr, out: &mut String) {
     use ::std::fmt::Write as _;
     out.push('"');

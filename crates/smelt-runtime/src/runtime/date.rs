@@ -28,7 +28,8 @@
 // the crate carries the erased value.
 // @smelt:item SmeltDate when date
 /// A JavaScript `Date`: a shared, mutable time value (ms since the epoch, `NaN`
-/// for an Invalid Date). Cloning aliases the same date.
+/// for an Invalid Date).
+//~ Cloning aliases the same date.
 #[derive(Clone)]
 pub struct SmeltDate { id: usize, time: ::std::rc::Rc<::std::cell::Cell<f64>> }
 
@@ -44,24 +45,24 @@ impl Default for SmeltDate { fn default() -> Self { Self::new(f64::NAN) } }
 
 #[allow(dead_code)]
 impl SmeltDate {
-    /// A fresh date holding `time_ms` (any non-finite value is an Invalid Date).
+    //~ A fresh date holding `time_ms` (any non-finite value is an Invalid Date).
     pub fn new(time_ms: f64) -> Self { Self { id: smelt_next_object_id(), time: ::std::rc::Rc::new(::std::cell::Cell::new(Self::clip(time_ms))) } }
-    /// `TimeClip`: a non-finite or out-of-range time value is `NaN`.
+    //~ `TimeClip`: a non-finite or out-of-range time value is `NaN`.
     fn clip(time_ms: f64) -> f64 { if time_ms.is_finite() && time_ms.abs() <= 8.64e15 && time_ms != i64::MIN as f64 { time_ms.trunc() + 0.0 } else { f64::NAN } }
-    /// `getTime()` / `valueOf()`: the time value.
+    //~ `getTime()` / `valueOf()`: the time value.
     pub fn get_time(&self) -> f64 { self.time.get() }
-    /// Store a new time value in place, so every alias observes it; answers
-    /// the same date, as the setters' callers re-bind their receiver to it.
+    //~ Store a new time value in place, so every alias observes it; answers
+    //~ the same date, as the setters' callers re-bind their receiver to it.
     pub fn set_time(&self, time_ms: f64) -> Self { self.time.set(Self::clip(time_ms)); self.clone() }
-    /// JavaScript reference identity of this date, shared by every alias and
-    /// by every erased view of it.
+    //~ JavaScript reference identity of this date, shared by every alias and
+    //~ by every erased view of it.
     pub fn id(&self) -> usize { self.id }
-    /// `toISOString()`, `Invalid Date` for an invalid time value.
+    //~ `toISOString()`, `Invalid Date` for an invalid time value.
     pub fn to_iso_string(&self) -> String { let time_ms = self.get_time(); if time_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(time_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned()) } else { "Invalid Date".to_owned() } }
 }
 
 //~ Emit `DateLike`, the trait a `D extends Date` parameter lifts to
-//~ (`fn f<D: DateLike + ..>(d: D)`, bounded-generics plan increment 4).
+//~ (`fn f<D: DateLike + ..>(d: D)`).
 //~
 //~ The frontend dispatches every member of a `Date`-bounded receiver as the
 //~ `Date` operation it is (`d.getTime()`, `d.setDate(..)`), so the generic
@@ -71,9 +72,9 @@ impl SmeltDate {
 /// What generic code reads through a `Date` bound: the date itself.
 #[allow(dead_code)]
 pub trait DateLike {
-    /// The shared date handle behind this value (an alias, not a copy).
+    //~ The shared date handle behind this value (an alias, not a copy).
     fn smelt_date(&self) -> SmeltDate;
-    /// `getTime()`.
+    //~ `getTime()`.
     fn get_time(&self) -> f64 { self.smelt_date().get_time() }
 }
 impl DateLike for SmeltDate { fn smelt_date(&self) -> SmeltDate { self.clone() } }

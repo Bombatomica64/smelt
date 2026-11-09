@@ -88,7 +88,7 @@
 //!    `RefMut` guard into the container's `RefCell` store while it evaluates the
 //!    stored rvalue (see the `entry_or_insert` docstrings in
 //!    `smelt-codegen-rust/src/lib.rs`: the caller must not touch the same map
-//!    while holding the guard). `list_push_text` sidesteps this by
+//!    while holding the guard). `list_push_expr` sidesteps this by
 //!    materializing the pushed item BEFORE the accessor call; this pass cannot,
 //!    because the stored value depends on the entry. So instead the rvalue must
 //!    be provably unable to reach the container:

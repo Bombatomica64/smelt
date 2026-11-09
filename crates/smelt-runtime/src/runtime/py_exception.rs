@@ -10,15 +10,15 @@
 
 // @smelt:item SmeltPyException when py_exception
 /// A raised Python exception: its class chain and its constructor arguments.
-/// The default is a placeholder an unassigned binding starts as: no class and
-/// no arguments.
+//~ The default is a placeholder an unassigned binding starts as: no class and
+//~ no arguments.
 #[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 struct SmeltPyException {
-    /// The class's own name first, then each base up to `BaseException`. Empty
-    /// for an error the runtime raised without naming a Python class.
+    //~ The class's own name first, then each base up to `BaseException`. Empty
+    //~ for an error the runtime raised without naming a Python class.
     classes: &'static [&'static str],
-    /// `str` and `repr` of each constructor argument, in order.
+    //~ `str` and `repr` of each constructor argument, in order.
     args: ::std::rc::Rc<[SmeltPyExceptionArg]>,
 }
 
@@ -26,42 +26,42 @@ struct SmeltPyException {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 struct SmeltPyExceptionArg {
-    /// `str(arg)`.
+    //~ `str(arg)`.
     text: String,
-    /// `repr(arg)`.
+    //~ `repr(arg)`.
     repr: String,
 }
 
 #[allow(dead_code)]
 impl SmeltPyException {
-    /// An instance of the class whose chain is `classes`, built from `args`.
+    //~ An instance of the class whose chain is `classes`, built from `args`.
     fn new(classes: &'static [&'static str], args: Vec<SmeltPyExceptionArg>) -> Self {
         Self { classes, args: args.into() }
     }
 
-    /// One constructor argument, kept as its `str` and its `repr`.
+    //~ One constructor argument, kept as its `str` and its `repr`.
     fn arg<T: SmeltPyRepr + ?Sized>(value: &T) -> SmeltPyExceptionArg {
         SmeltPyExceptionArg { text: value.py_str(), repr: value.py_repr() }
     }
 
-    /// The exception a caught error carries. An error raised without a Python
-    /// class keeps its message as its one argument and has no class.
+    //~ The exception a caught error carries. An error raised without a Python
+    //~ class keeps its message as its one argument and has no class.
     fn from_error(error: &(dyn ::std::error::Error + 'static)) -> Self {
         error.downcast_ref::<Self>().cloned().unwrap_or_else(|| Self::from_message(error.to_string()))
     }
 
-    /// The exception a caught panic carries: an error the runtime raised
-    /// without a Python class, whose one argument is the panic's message.
+    //~ The exception a caught panic carries: an error the runtime raised
+    //~ without a Python class, whose one argument is the panic's message.
     fn from_message(text: String) -> Self {
         let repr = text.py_repr();
         Self { classes: &[], args: vec![SmeltPyExceptionArg { text, repr }].into() }
     }
 
-    /// Whether an `except` clause naming `classes` catches this exception.
-    ///
-    /// An error with no class is caught by a clause naming only builtin
-    /// classes exactly when `catches_unclassified` says so: it is some builtin
-    /// exception, but which one the runtime did not record.
+    //~ Whether an `except` clause naming `classes` catches this exception.
+    //~
+    //~ An error with no class is caught by a clause naming only builtin
+    //~ classes exactly when `catches_unclassified` says so: it is some builtin
+    //~ exception, but which one the runtime did not record.
     fn caught_by(&self, classes: &[&str], catches_unclassified: bool) -> bool {
         if self.classes.is_empty() {
             return catches_unclassified;
@@ -69,17 +69,17 @@ impl SmeltPyException {
         classes.iter().any(|class| self.classes.contains(class))
     }
 
-    /// This exception as the error a `raise` propagates.
+    //~ This exception as the error a `raise` propagates.
     fn into_error(self) -> Box<dyn ::std::error::Error> {
         Box::new(self)
     }
 
-    /// `e.args`.
+    //~ `e.args`.
     fn args(&self) -> SmeltPyExceptionArgs {
         SmeltPyExceptionArgs(self.args.clone())
     }
 
-    /// `repr(e.args)`: the tuple of the arguments' `repr`s.
+    //~ `repr(e.args)`: the tuple of the arguments' `repr`s.
     fn args_repr(&self) -> String {
         self.args().py_repr()
     }
@@ -119,8 +119,9 @@ fn smelt_py_value_error(message: &str) -> Box<dyn ::std::error::Error> {
 }
 
 /// The positions `xs[start:end:step]` reads from a sequence of `len`
-/// elements: `CPython`'s `slice.indices` clamping, then its `range`. A zero
-/// step raises `ValueError`.
+/// elements: `CPython`'s `slice.indices` clamping, then its `range`.
+//~ A zero
+//~ step raises `ValueError`.
 #[allow(dead_code)]
 fn smelt_py_slice_positions(len: usize, start: Option<i64>, end: Option<i64>, step: i64) -> Result<Vec<usize>, Box<dyn ::std::error::Error>> {
     if step == 0 {
@@ -140,9 +141,9 @@ fn smelt_py_slice_positions(len: usize, start: Option<i64>, end: Option<i64>, st
 }
 
 impl ::std::fmt::Display for SmeltPyException {
-    /// `str(e)`: nothing for no argument, the argument's `str` for one (its
-    /// `repr` for a `KeyError`, whose `__str__` says so), the arguments'
-    /// tuple otherwise.
+    //~ `str(e)`: nothing for no argument, the argument's `str` for one (its
+    //~ `repr` for a `KeyError`, whose `__str__` says so), the arguments'
+    //~ tuple otherwise.
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match &*self.args {
             [] => Ok(()),

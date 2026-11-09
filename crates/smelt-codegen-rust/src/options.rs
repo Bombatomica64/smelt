@@ -167,7 +167,7 @@ pub enum ReleaseProfile {
     /// optimizes across the dependency crates (hyper, tokio, serde_json) as one
     /// module. On the generated Hono server that was +3.4% requests/s on a
     /// router-and-handler-bound route, for about 25% more release build time
-    /// (`blocker-logs/hono-crud-perf-round2.md`). That trade belongs to the
+    ///. That trade belongs to the
     /// application: a long-running server pays the build once, a library or a
     /// test corpus mostly pays it on every build. So it is opt-in, like the
     /// allocator.

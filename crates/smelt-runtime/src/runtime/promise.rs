@@ -48,13 +48,10 @@ pub struct SmeltPromise {
     //~ The settled state's error slot is the *same* exception-payload ABI
     //~ `smelt_throw`/`smelt_thrown_value` define (see `thrown.rs`), not a new
     //~ erasure: a JavaScript rejection reason is any value at all, so it has
-    //~ no static type to preserve here. It previously held a `String`, which
-    //~ silently destroyed every rejection reason that was not exactly its own
-    //~ `message` — `Promise.reject({ status: 400 })` settled as the string
-    //~ "[object Object]" and was re-inflated on await as a synthetic
-    //~ `{ __smelt_error: "Error", message }` record with `status` gone. Since
-    //~ the payload arrives as a `SmeltUnknown` and leaves as one, storing it
-    //~ as a `SmeltUnknown` keeps it whole across the settle boundary.
+    //~ no static type to preserve here (`Promise.reject({ status: 400 })` must
+    //~ keep `status`). Since the payload arrives as a `SmeltUnknown` and leaves
+    //~ as one, storing it as a `SmeltUnknown` keeps it whole across the settle
+    //~ boundary.
     state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, SmeltUnknown>>>>,
     future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,
 }
@@ -64,30 +61,30 @@ pub struct SmeltPromise {
 // @smelt:item impl_SmeltPromise
 // @smelt:if unknown
 impl SmeltPromise {
-    /// Create a pending erased promise identity with shared settle state.
+    //~ Create a pending erased promise identity with shared settle state.
     fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Create a pending promise with a preassigned identity.
+    //~ Create a pending promise with a preassigned identity.
     fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Create an already-fulfilled erased promise value.
+    //~ Create an already-fulfilled erased promise value.
     fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
 // @smelt:end
 // @smelt:if vitest_mock
     //~ `SmeltPromise::rejected` is only referenced by the Vitest mock
     //~ runtime (`mockRejectedValue*`), so it is gated on the same flag to
     //~ keep every non-mock crate's prelude byte-identical.
-    /// Create an already-rejected erased promise value. The rejection
-    /// reason is kept whole in the shared settle state and re-enters the
-    /// error channel unchanged on await, so a non-`Error` reason keeps its
-    /// own properties (JavaScript rejects with any value, not a message).
+    //~ Create an already-rejected erased promise value. The rejection
+    //~ reason is kept whole in the shared settle state and re-enters the
+    //~ error channel unchanged on await, so a non-`Error` reason keeps its
+    //~ own properties (JavaScript rejects with any value, not a message).
     fn rejected(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Err(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
 // @smelt:end
 // @smelt:if unknown
-    /// Store a live future behind a cloneable erased promise handle. This
-    /// is the lazy constructor used by derived/adapter promises (await
-    /// flattening, `.then`/`.catch` chains, coercions): the future is not
-    /// driven until `smelt_await`, matching JS deferral of those.
+    //~ Store a live future behind a cloneable erased promise handle. This
+    //~ is the lazy constructor used by derived/adapter promises (await
+    //~ flattening, `.then`/`.catch` chains, coercions): the future is not
+    //~ driven until `smelt_await`, matching JS deferral of those.
     fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }
-    /// Await the stored future once and share its settled result with clones.
+    //~ Await the stored future once and share its settled result with clones.
     async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
         if self.state.borrow().is_none() {
             //~ Bind the taken future to a local before awaiting so no `RefMut` from
@@ -158,9 +155,9 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
 //~ does too. A handler's returned promise is flattened
 //~ (`smelt_await_flatten`), so `then` never answers `Promise<Promise<T>>`.
 /// Run one promise continuation handler over a settled value.
-///
-/// A missing or non-callable handler passes the value through, which is
-/// what `promise.then(undefined)` does in JavaScript.
+//~
+//~ A missing or non-callable handler passes the value through, which is
+//~ what `promise.then(undefined)` does in JavaScript.
 #[allow(dead_code)]
 async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
     match handler {
@@ -203,10 +200,8 @@ enum SmeltFutureState<T> {
     //~ from on every call — which is why it is a value and not the
     //~ `Box<dyn Error>` itself. It holds the thrown payload
     //~ `smelt_throw`/`smelt_thrown_value` already define (see `thrown.rs`),
-    //~ not a new erasure: this slot previously held a `String`, which reduced
-    //~ every rejection to its message text and re-inflated it as a synthetic
-    //~ `{ __smelt_error, message }` record, so `async () => { throw "oops"; }`
-    //~ handed its `catch` an object where JavaScript hands it the string.
+    //~ not a new erasure: `async () => { throw "oops"; }` hands its `catch` the
+    //~ string.
     Rejected(SmeltUnknown),
     Taken,
 }
@@ -221,8 +216,8 @@ enum SmeltFutureState<T> {
 //~ `Promise.race` driver, applied to the other place that polls a future
 //~ out of band.
 thread_local! {
-    /// Non-zero while `SmeltFuture::from_future_primed` is running its
-    /// eager prefix poll; see `smelt_sleep_ms`.
+    //~ Non-zero while `SmeltFuture::from_future_primed` is running its
+    //~ eager prefix poll; see `smelt_sleep_ms`.
     static SMELT_PRIME_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
 }
 pub struct SmeltFuture<T> {
@@ -233,26 +228,26 @@ impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resol
 impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
 #[allow(dead_code)]
 impl<T> SmeltFuture<T> {
-    /// Wrap a live future behind a cloneable promise-value handle, lazily:
-    /// the future is not driven until `smelt_await`. Used by derived and
-    /// adapter promises (await flattening, `.then`/`.catch` chains, callback
-    /// coercions, `Promise.all` collection) whose bodies JS also defers,
-    /// so priming them would run continuations/handlers out of microtask
-    /// order — see `from_future_primed` for the eager-prefix constructor.
+    //~ Wrap a live future behind a cloneable promise-value handle, lazily:
+    //~ the future is not driven until `smelt_await`. Used by derived and
+    //~ adapter promises (await flattening, `.then`/`.catch` chains, callback
+    //~ coercions, `Promise.all` collection) whose bodies JS also defers,
+    //~ so priming them would run continuations/handlers out of microtask
+    //~ order — see `from_future_primed` for the eager-prefix constructor.
     fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }
-    /// Wrap an ASYNC-FUNCTION-BODY future, priming it with a single no-op-
-    /// waker poll so its synchronous prefix runs at call time (JS
-    /// eager-async-prefix semantics; see `smelt_eager_poll_waker`). Only
-    /// genuine async function / async closure / async method bodies use this,
-    /// so a call like `api.call()` registers its request synchronously before
-    /// the event loop turns — the difference that keeps
-    /// `Promise.all([call(), call(), call()])` from splitting a funnel/batch.
-    /// A prefix that completes resolves now; one that throws is captured as a
-    /// rejection surfaced only via `smelt_await` (JS: a throw before the first
-    /// await becomes a rejected promise, observable only through the
-    /// await/handler path); one that suspends keeps the advanced future for
-    /// later resume. Derived/adapter promises deliberately do NOT use this,
-    /// preserving when their continuations and rejections become observable.
+    //~ Wrap an ASYNC-FUNCTION-BODY future, priming it with a single no-op-
+    //~ waker poll so its synchronous prefix runs at call time (JS
+    //~ eager-async-prefix semantics; see `smelt_eager_poll_waker`). Only
+    //~ genuine async function / async closure / async method bodies use this,
+    //~ so a call like `api.call()` registers its request synchronously before
+    //~ the event loop turns — the difference that keeps
+    //~ `Promise.all([call(), call(), call()])` from splitting a funnel/batch.
+    //~ A prefix that completes resolves now; one that throws is captured as a
+    //~ rejection surfaced only via `smelt_await` (JS: a throw before the first
+    //~ await becomes a rejected promise, observable only through the
+    //~ await/handler path); one that suspends keeps the advanced future for
+    //~ later resume. Derived/adapter promises deliberately do NOT use this,
+    //~ preserving when their continuations and rejections become observable.
     fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {
         struct SmeltPrimeGuard;
         impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
@@ -267,10 +262,10 @@ impl<T> SmeltFuture<T> {
         };
         Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }
     }
-    /// Build an already-resolved promise-value handle.
+    //~ Build an already-resolved promise-value handle.
     fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }
-    /// Drive the stored future once, cache its resolved value, and serve
-    /// later awaits from that cache (single-consumer of the future).
+    //~ Drive the stored future once, cache its resolved value, and serve
+    //~ later awaits from that cache (single-consumer of the future).
     async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone {
         let pending = {
             let mut guard = self.state.borrow_mut();

@@ -8,19 +8,19 @@
 /// `util.inspect` state for one `console.log` argument (Node's `ctx`).
 #[derive(Default)]
 struct SmeltInspectContext {
-    /// `ctx.indentationLvl`: the column the current entry starts at.
+    //~ `ctx.indentationLvl`: the column the current entry starts at.
     indentation: usize,
-    /// `ctx.currentDepth`: depth of the container most recently entered.
+    //~ `ctx.currentDepth`: depth of the container most recently entered.
     current_depth: usize,
 }
 
 /// Node's `util.inspect`, implemented once per Rust storage type.
 trait SmeltInspect {
-    /// Render this value as an inspected ENTRY at `depth` (`recurseTimes`).
+    //~ Render this value as an inspected ENTRY at `depth` (`recurseTimes`).
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String;
-    /// Whether this value is a JavaScript number (grouped arrays right-align them).
+    //~ Whether this value is a JavaScript number (grouped arrays right-align them).
     fn smelt_inspect_is_number(&self) -> bool { false }
-    /// Render this value as a top-level `console.log` argument.
+    //~ Render this value as a top-level `console.log` argument.
     fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
 }
 
@@ -28,9 +28,9 @@ trait SmeltInspect {
 fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
 
 /// `strEscape`: quote `value` the way `util.inspect` shows a string.
-///
-/// Single quotes unless the string contains one; then double quotes, then
-/// backticks, and single quotes with `\'` escapes when it contains all three.
+//~
+//~ Single quotes unless the string contains one; then double quotes, then
+//~ backticks, and single quotes with `\'` escapes when it contains all three.
 fn smelt_inspect_quote(value: &str) -> String {
     let quote = smelt_inspect_quote_char(value);
     let mut out = String::with_capacity(value.len() + 2);
@@ -115,9 +115,9 @@ fn smelt_inspect_pad(text: &str, width: usize, start: bool) -> String {
 }
 
 /// `groupArrayElements`: lay a long array of short entries out in columns.
-///
-/// `has_more` marks a trailing `... N more items` entry, which is kept out of
-/// the grid; `numbers` right-aligns the cells.
+//~
+//~ `has_more` marks a trailing `... N more items` entry, which is kept out of
+//~ the grid; `numbers` right-aligns the cells.
 fn smelt_inspect_group(ctx: &SmeltInspectContext, output: Vec<String>, numbers: bool, has_more: bool) -> Vec<String> {
     let separator_space = 2usize;
     let output_length = if has_more { output.len() - 1 } else { output.len() };
@@ -172,10 +172,10 @@ fn smelt_inspect_group(ctx: &SmeltInspectContext, output: Vec<String>, numbers: 
 }
 
 /// `reduceToSingleString`: join rendered entries on one line or one per line.
-///
-/// `array` is `Some(numbers)` for an array (which may be grouped first) and
-/// `None` for an object, map or set; `has_more` marks a trailing
-/// `... N more items` entry.
+//~
+//~ `array` is `Some(numbers)` for an array (which may be grouped first) and
+//~ `None` for an object, map or set; `has_more` marks a trailing
+//~ `... N more items` entry.
 fn smelt_inspect_reduce(ctx: &SmeltInspectContext, output: Vec<String>, open: &str, close: &str, depth: usize, array: Option<bool>, has_more: bool) -> String {
     let entries = output.len();
     let output = match array {
@@ -235,9 +235,9 @@ fn smelt_inspect_array(ctx: &mut SmeltInspectContext, depth: usize, entries: &[&
 }
 
 /// `formatRaw` over an object's own enumerable properties.
-///
-/// `constructor` is the class name Node prefixes (`Point { x: 1 }`), empty for
-/// a plain object.
+//~
+//~ `constructor` is the class name Node prefixes (`Point { x: 1 }`), empty for
+//~ a plain object.
 fn smelt_inspect_object(ctx: &mut SmeltInspectContext, depth: usize, constructor: &str, entries: &[(&str, &dyn SmeltInspect)]) -> String {
     let open = if constructor.is_empty() { "{".to_owned() } else { format!("{constructor} {{") };
     if entries.is_empty() {
@@ -259,8 +259,8 @@ fn smelt_inspect_object(ctx: &mut SmeltInspectContext, depth: usize, constructor
 }
 
 /// `formatSet`/`formatMap`: a keyed collection with its `Set(n)`/`Map(n)` prefix.
-///
-/// Each entry is a value (a set) or a `key => value` pair (a map).
+//~
+//~ Each entry is a value (a set) or a `key => value` pair (a map).
 fn smelt_inspect_collection(ctx: &mut SmeltInspectContext, depth: usize, kind: &str, entries: &[(&dyn SmeltInspect, Option<&dyn SmeltInspect>)]) -> String {
     let open = format!("{kind}({}) {{", entries.len());
     if entries.is_empty() {
@@ -330,7 +330,7 @@ impl<T: SmeltInspect> SmeltInspect for Option<T> {
     }
 }
 
-// A tuple is a JavaScript array.
+//~ A tuple is a JavaScript array.
 macro_rules! smelt_inspect_tuple {
     ($($name:ident $index:tt),+) => {
         impl<$($name: SmeltInspect),+> SmeltInspect for ($($name,)+) {

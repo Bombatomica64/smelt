@@ -141,7 +141,7 @@ impl ModuleBuilder<'_> {
     ///
     /// The tables are keyed by [`QualifiedExport`], so the facts are the
     /// exporting module's even when another module exports the same name
-    /// (audit finding A2).
+    ///.
     pub(in crate::lowering) fn adopt_exported_facts(&mut self, source: &str, imported: &str, local: &str) {
         let Some(module) = self.source_module_key(source) else {
             return;

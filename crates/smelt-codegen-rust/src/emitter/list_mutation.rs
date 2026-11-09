@@ -156,14 +156,11 @@ impl FunctionEmitter<'_> {
             // append is observable through every other name for the array, and
             // the array keeps its identity across the push.
             //
-            // This used to read `values.into_vec()` into a fresh `Vec`, push
-            // there, and store `SmeltUnknown::Array(smelt_list.into())`. That
-            // was wrong twice over. It copied the WHOLE array on every push, so
-            // a loop appending n items to one field cost O(n^2) memcpy plus n^2
-            // `SmeltUnknown` clones and drops; and `From<Vec<SmeltUnknown>>`
-            // mints a fresh `SmeltArray::new` identity, so the field silently
-            // became a DIFFERENT array after each push and any other live
-            // handle on the old one was orphaned.
+            // A push must land in the array's own buffer: pushing into a copy costs
+            // O(n) per push, and `From<Vec<SmeltUnknown>>` mints a fresh
+            // `SmeltArray::new` identity, so the field would become a DIFFERENT array
+            // after each push and any other live handle on the old one would be
+            // orphaned.
             //
             // The write-back below is kept: the `_ =>` arms mint an array that
             // was not stored anywhere yet (absent field, non-array field,
@@ -255,9 +252,9 @@ impl FunctionEmitter<'_> {
         //
         // This is unconditional. A `SmeltList` clone shares its buffer, so two
         // DIFFERENT locals can name one cell (`groups[k].push(groups[k][0])`
-        // reads through a second handle), and the syntactic "does the item
-        // mention this local" test that used to gate it cannot see that.
-        // Aliasing is a runtime property; one `let` removes the whole class.
+        // reads through a second handle), and no syntactic test on the item can
+        // see that. Aliasing is a runtime property; one `let` removes the whole
+        // class.
         let list_mut = list_write_expr(&list_text);
         let push_expr =
             format!("let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);", item_text = item_text.delimited(), list_mut = list_mut.tight());
@@ -555,11 +552,11 @@ impl FunctionEmitter<'_> {
             ));
         };
         let list_text = self.local_value(*local)?;
-        // `Array.prototype.pop` yields `item | undefined`. The two exact-match
-        // fast paths keep the historical output; any other destination (e.g. a
-        // widened/narrowed optional whose inner differs from the list item type,
-        // as when the item type is a union) coerces the popped value to the
-        // destination through the standard coercion seam instead of aborting.
+        // `Array.prototype.pop` yields `item | undefined`. Beyond the two exact-match
+        // fast paths, any other destination (e.g. a widened/narrowed optional whose
+        // inner differs from the list item type, as when the item type is a union)
+        // coerces the popped value to the destination through the standard coercion
+        // seam.
         let list_mut = list_write_expr(&list_text);
         match self.mir.types.get(dest_ty) {
             Some(Type::Optional(inner)) if *inner == item_ty => Ok(list_mut.postfix(".pop()")),

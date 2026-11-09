@@ -28,7 +28,7 @@
 // [`SmeltList::borrow_mut`], and the emitter renders a list receiver as
 // `list.borrow()` / `list.borrow_mut()`. Guards live to the end of the enclosing
 // statement, which is safe because emitted code is three-address: see the
-// invariant documented on `FunctionEmitter::local_value_text`. A read receiver
+// invariant documented on `FunctionEmitter::local_value`. A read receiver
 // must never be rendered with `borrow_mut`, because an index expression such as
 // `arr.get({ .. arr.len() .. })` takes two simultaneous borrows of one cell —
 // two shared borrows are fine, a second mutable one panics "already borrowed".
@@ -58,44 +58,44 @@ impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltList<T> { fn fmt(&self, fo
 impl<T> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: ::std::rc::Rc::clone(&self.values) } } }
 #[allow(dead_code)]
 impl<T> SmeltList<T> {
-    /// Create an identity-bearing typed list with a fresh JS reference identity.
+    //~ Create an identity-bearing typed list with a fresh JS reference identity.
     fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.
+    //~ Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.
     fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
+    //~ Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) -> Self { Self { id, values } }
-    /// Another handle on this array's shared buffer.
+    //~ Another handle on this array's shared buffer.
     fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<T>>> { ::std::rc::Rc::clone(&self.values) }
-    /// JS reference identity of this list.
+    //~ JS reference identity of this list.
     fn id(&self) -> usize { self.id }
-    /// Borrow the backing storage for reading. The guard lives to the end of the
-    /// enclosing statement; never pair it with `borrow_mut` in one expression.
+    //~ Borrow the backing storage for reading. The guard lives to the end of the
+    //~ enclosing statement; never pair it with `borrow_mut` in one expression.
     fn borrow(&self) -> ::std::cell::Ref<'_, Vec<T>> { self.values.borrow() }
-    /// Borrow the backing storage for writing, through the shared cell — so this
-    /// takes `&self`, and every other handle on the array observes the write.
+    //~ Borrow the backing storage for writing, through the shared cell — so this
+    //~ takes `&self`, and every other handle on the array observes the write.
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, Vec<T>> { self.values.borrow_mut() }
-    /// Element count, taking its own short-lived borrow.
+    //~ Element count, taking its own short-lived borrow.
     fn len(&self) -> usize { self.values.borrow().len() }
-    /// Whether the array holds no elements.
+    //~ Whether the array holds no elements.
     fn is_empty(&self) -> bool { self.values.borrow().is_empty() }
-    /// Replace every element in place, so aliases observe the new contents.
+    //~ Replace every element in place, so aliases observe the new contents.
     fn replace_all(&self, values: Vec<T>) { *self.values.borrow_mut() = values; }
 }
 #[allow(dead_code)]
 impl<T: Clone> SmeltList<T> {
-    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW identity AND a
-    /// new buffer. This is the operation that keeps sharing from over-sharing.
+    //~ A JS array copy (`[...a]`, `slice`): same contents, a NEW identity AND a
+    //~ new buffer. This is the operation that keeps sharing from over-sharing.
     fn fresh_copy(&self) -> Self { Self::new(self.values.borrow().clone()) }
-    /// Snapshot the elements. This COPIES unless this is the last handle, so
-    /// mutating the result does not write back.
+    //~ Snapshot the elements. This COPIES unless this is the last handle, so
+    //~ mutating the result does not write back.
     fn into_vec(self) -> Vec<T> { match ::std::rc::Rc::try_unwrap(self.values) { Ok(cell) => cell.into_inner(), Err(shared) => shared.borrow().clone() } }
-    /// Snapshot the elements without consuming the handle.
+    //~ Snapshot the elements without consuming the handle.
     fn to_vec(&self) -> Vec<T> { self.values.borrow().clone() }
-    /// Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
+    //~ Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
     fn get_index(&self, index: usize) -> Option<T> { self.values.borrow().get(index).cloned() }
-    /// Set the element at a numeric index, extending with `fill` holes to match JS `arr[i] = v`.
+    //~ Set the element at a numeric index, extending with `fill` holes to match JS `arr[i] = v`.
     fn set_index(&self, index: usize, value: T, fill: T) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; }
-    /// Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
+    //~ Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.values.borrow().clone().into_iter() }
 }
 impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }

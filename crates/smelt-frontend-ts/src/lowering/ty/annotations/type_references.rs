@@ -385,7 +385,7 @@ impl ModuleBuilder<'_> {
                     // `Type::Function` so a value of the interface type flows
                     // through the closure / `new value()` machinery and the
                     // construction keeps the concrete constructed type instead of
-                    // erasing to `unknown` (issue #54).
+                    // erasing to `unknown`.
                     if let Some(function_ty) =
                         self.interface_construct_slot_type(symbol, &substitutions)
                     {

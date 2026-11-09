@@ -303,11 +303,10 @@ impl FunctionEmitter<'_> {
         // structured `if/else` and emit the shared join `then_target` exactly
         // ONCE after it. Both arms resume at the join: the then-arm via its
         // implicit `Goto(then_target)` fallthrough, the else-arm via
-        // `emit_block_until_goto(else_, then_target)` stopping at the join. The
-        // label/break is unnecessary and, crucially, the join is no longer
-        // trapped inside a block the then-arm jumps over. Restricted to a
-        // forward `then_target` so backward (loop-latch) edges keep their
-        // existing handling.
+        // `emit_block_until_goto(else_, then_target)` stopping at the join, so
+        // the join cannot be trapped inside a block the then-arm jumps over.
+        // Restricted to a forward `then_target` so backward (loop-latch) edges
+        // keep their existing handling.
         if let Some(Terminator::Goto(then_target)) = then.terminator
             && then_target.0 > current.0
             && self.block_can_reach(else_.id, then_target, &mut BlockIdSet::default())
@@ -482,7 +481,7 @@ impl FunctionEmitter<'_> {
         // end.
         //
         // So this arm sits immediately before that fallback: it can only claim
-        // shapes whose code was previously discarded.
+        // shapes that nothing else structures.
         if self.block_never_falls_through(then.id, &mut BlockIdSet::default())?
             && self.block_never_falls_through(else_.id, &mut BlockIdSet::default())?
         {

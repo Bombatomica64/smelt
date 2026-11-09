@@ -12,10 +12,9 @@
 //! semantics: reads become `undefined` and writes become no-ops on the
 //! collection (their right-hand side is still evaluated for side effects).
 //!
-//! Only *statically* negative literal indexes are handled here — the same class
-//! the frontend previously rejected (`-1`, `-(2)`). A fully dynamic computed
-//! index whose sign is unknown at compile time is not in scope and keeps its
-//! existing runtime lowering.
+//! Only *statically* negative literal indexes are handled here (`-1`, `-(2)`).
+//! A fully dynamic computed index whose sign is unknown at compile time is not
+//! in scope and keeps its runtime lowering.
 
 use oxc::ast::ast::{AssignmentTarget, Expression};
 

@@ -584,7 +584,7 @@ pub(crate) fn constraint_bound(mir: &Mir, constraint: Option<TypeId>) -> Option<
 
 /// Whether `constraint` is the builtin `Date` class, the bound a `D extends
 /// Date` parameter lifts through the prelude's `DateLike` trait with
-/// (`date_prelude`) rather than through a planned trait.
+/// (`smelt-runtime`'s `date.rs`) rather than through a planned trait.
 pub(crate) fn constraint_is_date(mir: &Mir, constraint: Option<TypeId>) -> bool {
     matches!(constraint.and_then(|ty| mir.types.get(ty)), Some(Type::Class { name, args })
         if args.is_empty()

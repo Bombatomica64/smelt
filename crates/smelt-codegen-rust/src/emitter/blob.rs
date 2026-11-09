@@ -1,7 +1,7 @@
 //! Rust emission for the WHATWG `Blob`/`File` value.
 //!
 //! Every member lands on a real method of the concrete `SmeltBlob` emitted by
-//! `crate::blob_prelude`, so `blob.size` is `blob.size()` typed `f64` and
+//! `smelt-runtime`'s `blob.rs`, so `blob.size` is `blob.size()` typed `f64` and
 //! `await blob.text()` is a real future over the blob's bytes — no tagged
 //! record and no runtime member lookup in between.
 

@@ -564,7 +564,7 @@ async function run(): Promise<number> {
 
     #[test]
     fn propagates_generic_class_type_params_into_mir() {
-        // Issue #99: HIR generic class type parameters survive into `MirClass`
+        // HIR generic class type parameters survive into `MirClass`
         // so codegen can emit `struct Container<T>` and `impl<T> Container<T>`.
         let mut ctx = HirCtx::new();
         ok_or_panic(
@@ -597,7 +597,7 @@ async function run(): Promise<number> {
 
     #[test]
     fn propagates_generic_free_function_type_params_into_mir() {
-        // Issue #99: HIR generic free-function type parameters survive into
+        // HIR generic free-function type parameters survive into
         // `MirFunction` so codegen can emit `fn identity<T>(x: T) -> T`.
         let mut ctx = HirCtx::new();
         ok_or_panic(
@@ -668,7 +668,7 @@ export function groupBy<T, K extends PropertyKey>(
         assert!(!output.contains("dict_contains_key"), "{output}");
         assert!(!output.contains(" = !"), "{output}");
         // `key` is defined by the call directly: `LetTempElision` removed the
-        // `%9 = closure_call ..; %5 = move %9` temporary this used to pin.
+        // `%9 = closure_call ..; %5 = move %9` temporary.
         assert!(
             output.contains("%5 = closure_call copy %1(copy %4, move %16)\n    goto bb6\n"),
             "the guard block ends in a goto at the join: {output}"

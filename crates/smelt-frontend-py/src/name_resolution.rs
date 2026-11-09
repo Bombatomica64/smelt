@@ -664,14 +664,12 @@ impl ScopeWalker<'_> {
     /// Run a loop body zero or more times: join every iteration's result into
     /// `flow` until nothing changes.
     ///
-    /// This always reaches the fixpoint; there is no pass cap that could stop
-    /// it early and leave the snapshots taken inside the body describing a
-    /// flow that is not the loop's final one (the old 8-pass cap would have
-    /// done that silently). It terminates because `flow` only grows -- `join`
-    /// is a union -- and every target it can hold is drawn from finitely many
-    /// sources (this scope's binding statements, `Unbound`, and its star
-    /// imports), so each non-final pass adds at least one of finitely many
-    /// (name, target) pairs.
+    /// This always reaches the fixpoint: a pass cap could stop it early and leave
+    /// the snapshots taken inside the body describing a flow that is not the loop's
+    /// final one. It terminates because `flow` only grows -- `join` is a union --
+    /// and every target it can hold is drawn from finitely many sources (this
+    /// scope's binding statements, `Unbound`, and its star imports), so each
+    /// non-final pass adds at least one of finitely many (name, target) pairs.
     fn loop_body(&mut self, flow: &mut Flow, mut iterate: impl FnMut(&mut Self, &mut Flow)) {
         for pass in 1.. {
             let mut iteration = flow.clone();

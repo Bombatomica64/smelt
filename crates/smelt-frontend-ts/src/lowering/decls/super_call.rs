@@ -143,9 +143,8 @@ impl ModuleBuilder<'_> {
     ///
     /// Returns `Ok(())` without emitting anything when the base cannot be
     /// resolved to either supported base kind (an unmodeled host constructor, a
-    /// spread argument list, or a `super` shape that is not a plain call), which
-    /// preserves the pre-existing "drop the call" behaviour for those cases
-    /// rather than failing a whole build over them.
+    /// spread argument list, or a `super` shape that is not a plain call), rather
+    /// than failing a whole build over them.
     pub(in crate::lowering) fn lower_super_call_statement(
         &mut self,
         statement: &Statement<'_>,
@@ -186,12 +185,12 @@ impl ModuleBuilder<'_> {
             return Ok(());
         };
         // The base kind is decided before any argument is lowered: an unsupported
-        // argument expression must not turn a previously-dropped `super(...)` into
-        // a build failure.
+        // argument expression must not turn a dropped `super(...)` into a build
+        // failure.
         //
         // A base that is neither an `Error`-like host constructor nor a
-        // source-declared class (an unmodeled host constructor) keeps the
-        // historical drop: there is no body to run.
+        // source-declared class (an unmodeled host constructor) is dropped: there is
+        // no body to run.
         let error_base = is_error_like_base(&base_name);
         if !error_base && !self.class_is_initializable_base(base) {
             return Ok(());
@@ -460,8 +459,7 @@ impl ModuleBuilder<'_> {
     /// initializer over the derived receiver
     /// ([`Self::lower_base_constructor_init`]), so neither "MIR cannot construct
     /// an abstract class" nor "a constructed `Base<string>` does not fit the
-    /// derived layout" — the two reasons the old construct-and-copy lowering
-    /// excluded them — applies.
+    /// derived layout" applies.
     ///
     /// Keyed on the base's resolved SYMBOL rather than its source spelling: a
     /// class renamed for a cross-module collision (`Store_1`) is registered by

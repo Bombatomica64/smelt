@@ -11,8 +11,8 @@
 //! rest(fn)(1, 2, 3, 4);             // fn(1, 2, [3, 4])   -> [1, 2, [3, 4]]
 //! ```
 //!
-//! Smelt used to emit such a function at its *declared* arity, and the erased-call
-//! boundary padded a short call up to that arity:
+//! Emitting such a function at its *declared* arity would let the erased-call
+//! boundary pad a short call up to that arity:
 //!
 //! ```ignore
 //! Rc::new(move |smelt_args: Vec<SmeltUnknown>| callback(

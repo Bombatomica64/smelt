@@ -1,12 +1,8 @@
 //! The single place a spread argument is interpreted for a fixed-arity call.
 //!
-//! Spread arguments used to be interpreted independently by each of the five
-//! paths that collect a call's arguments, and they disagreed: one produced an
-//! EMPTY argument list, two treated the spread as a single argument bound to
-//! parameter 0, and the emitter then padded whatever was missing with
-//! `default_value(..)`. The result was a call with every argument defaulted
-//! that compiled cleanly. This module exists so that shape has one definition
-//! instead of five.
+//! Each path that collects a call's arguments interprets a spread through this
+//! module, so the shape has one definition: independent interpretations would
+//! produce a call with every argument defaulted that still compiles cleanly.
 
 use crate::SmeltError;
 use crate::lowering::{ModuleBuilder, RestParam};
@@ -15,8 +11,8 @@ use smelt_hir::{BinOp, Body, Expr, ExprKind, FunctionType, Literal, Span, Stmt, 
 
 /// One argument of a call, after spreads have been interpreted.
 ///
-/// A spread of a tuple contributes SEVERAL arguments, so an argument list can
-/// no longer be walked as one AST node per parameter. Every fixed-arity call
+/// A spread of a tuple contributes SEVERAL arguments, so an argument list
+/// cannot be walked as one AST node per parameter. Every fixed-arity call
 /// path therefore walks this instead: entries that are still source keep their
 /// contextual hint and their deferred-callback handling, and entries a spread
 /// produced are already lowered.
@@ -212,10 +208,10 @@ impl ModuleBuilder<'_> {
                 self.argument_with_hint(argument, body, hint)
             }
             CallArg::Lowered(expr) => Ok(expr),
-            // The pre-existing reading: lower the operand as ONE argument and
-            // let the caller's variadic handling take it from there. This is
-            // deliberately not the `Source` arm, so the assertion above still
-            // catches a path that never came through `expanded_call_arguments`.
+            // Lower the operand as ONE argument and let the caller's variadic handling
+            // take it from there. This is deliberately not the `Source` arm, so the
+            // assertion above still catches a path that never came through
+            // `expanded_call_arguments`.
             CallArg::UnexpandedSpread(spread) => self.expression(&spread.argument, body),
         }
     }

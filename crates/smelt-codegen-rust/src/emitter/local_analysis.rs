@@ -570,17 +570,15 @@ impl FunctionEmitter<'_> {
     /// Whether a predeclared shared-capture local can have its cell created at
     /// its one assignment instead of being seeded at function entry.
     ///
-    /// A captured local lives in an `Rc<RefCell<T>>` that closures clone. It
-    /// used to be created at entry around `T`'s default, which for a class is a
-    /// whole placeholder instance: Hono's `_dispatch` built (and dropped) a
-    /// throwaway `Context` per request only to overwrite it a few statements
-    /// later (`blocker-logs/hono-crud-perf-round2.md`). When the local has
-    /// exactly one write, a plain `Assign` in a block that cannot repeat (so it
-    /// runs at most once and the cell is never re-created under a closure that
-    /// already shares it), is not a parameter or an unwind target, and the
-    /// definite-assignment walk finds no read before it, the cell is declared
-    /// uninitialized and the assignment creates it. Rust's own
-    /// initialization check then guards the emitted code as well.
+    /// A captured local lives in an `Rc<RefCell<T>>` that closures clone. Creating
+    /// that cell at entry around `T`'s default would build (and drop) a whole
+    /// placeholder instance per call for a class, only to overwrite it a few
+    /// statements later. When the local has exactly one write, a plain `Assign` in
+    /// a block that cannot repeat (so it runs at most once and the cell is never
+    /// re-created under a closure that already shares it), is not a parameter or
+    /// an unwind target, and the definite-assignment walk finds no read before it,
+    /// the cell is declared uninitialized and the assignment creates it. Rust's
+    /// own initialization check then guards the emitted code as well.
     pub(super) fn capture_cell_created_at_assignment(
         &self,
         local: LocalId,
@@ -700,10 +698,9 @@ impl FunctionEmitter<'_> {
 
 /// Per-local write facts for one function, gathered in a single pass.
 ///
-/// The mutability queries used to rescan every block for every local they
-/// were asked about, which made emitting a body of `n` locals O(n²): a module
-/// of a few hundred nested calls spent most of its codegen time there. The
-/// index answers the same questions from one scan.
+/// Answers the mutability queries from one scan, so emitting a body of `n`
+/// locals is not O(n²): a module of a few hundred nested calls would otherwise
+/// spend most of its codegen time rescanning blocks.
 #[derive(Debug, Default)]
 pub(super) struct LocalWriteIndex {
     /// Writes per local: `Assign` destinations, whole-local

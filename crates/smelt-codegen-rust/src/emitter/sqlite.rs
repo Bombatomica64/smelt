@@ -1,7 +1,7 @@
 //! Rust emission for `node:sqlite`'s `DatabaseSync` and `StatementSync`.
 //!
 //! Every operation is a method call on the concrete structs emitted by
-//! `crate::sqlite_prelude`, and every one can fail at run time, so each call
+//! `smelt-runtime`'s `sqlite.rs`, and every one can fail at run time, so each call
 //! ends in `?` (the MIR throwing pass marks them throwing). The values that
 //! stay typed are typed: SQL text is a `&str`, a prepared statement is a
 //! `SmeltSqliteStatement`, and `run()`'s `{ changes, lastInsertRowid }` is a

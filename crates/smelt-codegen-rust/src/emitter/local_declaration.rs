@@ -61,15 +61,12 @@ impl FunctionEmitter<'_> {
         let decl = self.local_decl(local)?;
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
             || self.lexical_rust_type(decl.ty, false)?.holds_callable();
-        // A callable compiler temp used to be seeded unconditionally. That
-        // allocated a fresh default closure (`Rc::new(..)`) at every entry of
-        // the function even when the temp is only assigned in one branch and
-        // read there: ~10 dead allocations per request on Hono's dispatch path
-        // (`blocker-logs/hono-crud-perf-round2.md`). A temp now gets a seed
-        // only on the same evidence any other local does: it is never
-        // assigned, it is read first, or the definite-assignment walk
-        // (`local_may_be_used_before_assignment`, consulted by every caller)
-        // finds a path that reads it unassigned.
+        // A callable compiler temp gets a seed only on the same evidence any
+        // other local does: it is never assigned, it is read first, or the
+        // definite-assignment walk (`local_may_be_used_before_assignment`,
+        // consulted by every caller) finds a path that reads it unassigned. A
+        // seed allocates a fresh default closure at every entry of the function,
+        // even when the temp is only assigned in one branch and read there.
         Ok(is_callable
             && (self.local_assignment_count(local) == 0 || self.local_first_access_is_read(local)))
     }

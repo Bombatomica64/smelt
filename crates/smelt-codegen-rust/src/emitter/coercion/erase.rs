@@ -107,11 +107,8 @@ impl FunctionEmitter<'_> {
                 // compare by id). `HashSet` has no `as_ptr`, so key the stable id
                 // on the binding's own address (`&set`). Temps / fresh sets keep
                 // `SmeltArray::new`.
-                // The members erase in the set's own insertion order. They used
-                // to be sorted by hash key, which was a deterministic answer to
-                // a question the old unordered `HashSet` backing could not
-                // answer at all; `SmeltPrimSet` keeps the entries, so the
-                // erased array reads like the source set (H52).
+                // The members erase in the set's own insertion order, which
+                // `SmeltPrimSet` keeps, so the erased array reads like the source set.
                 if let Some(bare_local) = self.list_local_identity_key(operand)? {
                     return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                         "{{ let smelt_list_id = smelt_list_identity(&({bare_local}) as *const _ as *const () as usize); let smelt_values = {smelt_owned_text}.into_iter().map(|smelt_value| {value_wrap}).collect::<Vec<_>>(); SmeltUnknown::Array(SmeltArray::with_id(smelt_list_id, smelt_values)) }}", smelt_owned_text = smelt_owned_text.tight(), value_wrap = value_wrap.delimited()
@@ -286,10 +283,9 @@ impl FunctionEmitter<'_> {
     /// We recover the lost distinction by inspecting the operand's *defining*
     /// rvalue (mirroring [`Self::erased_call_assignment_expr`]): if every held
     /// value is the `undefined` constant, the whole container erases to
-    /// `Undefined`. Mixed or all-`null` literals keep the historical `Null`
-    /// erasure, so genuine `null` containers are untouched, as does any operand
-    /// with no single literal definition (the same conservatism the list path
-    /// has always had).
+    /// `Undefined`. Mixed or all-`null` literals erase to `Null`, as does any
+    /// operand with no single literal definition (the same conservatism as the
+    /// list path).
     ///
     /// One helper for all three container shapes on purpose: the list arm grew
     /// this recovery first, the dict arm reproduced the bug because it did not,
@@ -406,12 +402,11 @@ impl FunctionEmitter<'_> {
 
     /// Box a typed [`RenderedValue`] into the erased `SmeltUnknown` runtime form.
     ///
-    /// This is the real per-`Type` mechanics behind the `erase` verb. Unlike the
-    /// old text-only entry, the rendered value knows its own precedence, so erase
-    /// wraps the operand itself wherever it inlines the value as a cast operand
-    /// (`… as f64`) or a method receiver (`.into()`, `.into_iter()`, `.clone()`,
-    /// `.into_smelt_unknown()`). For an [`Precedence::Atom`] those wraps are
-    /// no-ops, so output stays byte-identical to the historical inlining.
+    /// This is the real per-`Type` mechanics behind the `erase` verb. The rendered
+    /// value knows its own precedence, so erase wraps the operand itself wherever
+    /// it inlines the value as a cast operand (`… as f64`) or a method receiver
+    /// (`.into()`, `.into_iter()`, `.clone()`, `.into_smelt_unknown()`). For an
+    /// [`Precedence::Atom`] those wraps are no-ops.
     pub(in crate::emitter) fn erase_value(&self, value: &RenderedValue) -> Result<RustExpr, EmitError> {
         let ty = value.ty();
         let value_text = value.expr();
@@ -633,11 +628,9 @@ impl FunctionEmitter<'_> {
     /// The erased tag for a property that is ABSENT.
     ///
     /// Reading a property an object does not have evaluates to `undefined` in
-    /// JavaScript, never to `null`. The two used to share
-    /// [`Self::null_value`], which made a miss on a class receiver
-    /// (`instance['nope']`) compare `=== null` and `!== undefined` — both
-    /// backwards. Absence and the `null` value are different values, so they
-    /// get different helpers and callers state which one they mean.
+    /// JavaScript, never to `null`: `instance['nope']` must compare `!== null`
+    /// and `=== undefined`. Absence and the `null` value are different values, so
+    /// they get different helpers and callers state which one they mean.
     pub(in crate::emitter) fn absent_value(&self) -> Result<RustExpr, EmitError> {
         Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()))
     }
@@ -802,7 +795,7 @@ impl FunctionEmitter<'_> {
         // A reference class stores its fields inside the shared `Rc<RefCell<Inner>>`
         // cell, so erasing one to a plain object must read each field through
         // `.0.borrow()` rather than a direct named-field access against the
-        // newtype (was E0609).
+        // newtype.
         let field_base = if self.is_reference_class_type(target) {
             RustExpr::chain("smelt_object_value.0.borrow()")
         } else {
@@ -841,7 +834,7 @@ impl FunctionEmitter<'_> {
                     self.erase_rendered(&value, field.ty)?
                 } else if self.is_reference_class_type(target) {
                     // Reading through `.0.borrow()` yields a `Ref` guard; the value
-                    // must be cloned out rather than moved (was E0507).
+                    // must be cloned out rather than moved.
                     self.erase_rendered(
                         &field_base.postfix(format!(".{field_name}")).cloned_value(),
                         field.ty,
@@ -868,8 +861,8 @@ impl FunctionEmitter<'_> {
         drop(conversion_entry);
         let entries = entries_result?.join(" ");
 
-        // Inject a hidden provenance marker so an erased class instance is no longer
-        // indistinguishable from a plain object of the same shape. The marker is
+        // Inject a hidden provenance marker so an erased class instance is
+        // distinguishable from a plain object of the same shape. The marker is
         // VISIBLE to structural equality (so a class instance is not `==` to an
         // equal-shape plain object) but INVISIBLE to key enumeration / JSON via the
         // `__smelt_class` filters, and drives the `"__smelt_proto:class"` sentinel in
@@ -1052,19 +1045,15 @@ impl FunctionEmitter<'_> {
             self.carrier_format(self.carrier()?, format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>({erased_return})", erased_return = erased_return.delimited()))
         // A returned value skips the erasure step only when its Rust
         // representation ALREADY IS `SmeltUnknown`. That is what
-        // `is_erased_class_type` answers. This used to ask
-        // `class_has_no_known_fields`, which answers a different
-        // question — "the class declares no fields I can build an
-        // object from" — and is true of every MODELED host class too,
-        // because a modeled class is not in `mir.classes`. So a
-        // callback returning a `Request` or an `ArrayBuffer` had its
-        // concrete `SmeltRequest` / `SmeltArrayBuffer` handed straight
-        // to `Ok::<SmeltUnknown, _>(..)` (E0308, two sites in Hono).
-        // The general arms below already know how each class erases —
-        // a fetch runtime class through `into_smelt_unknown`, a `Date`
-        // through its identity, any other through its fields — and an
-        // erased class's own arm returns the text unchanged, so this
-        // branch keeps doing exactly what it did for those.
+        // `is_erased_class_type` answers. `class_has_no_known_fields` is a
+        // different question: it is true of every MODELED host class too,
+        // because a modeled class is not in `mir.classes`, yet a `Request`
+        // or an `ArrayBuffer` is a concrete `SmeltRequest` /
+        // `SmeltArrayBuffer` that must not reach `Ok::<SmeltUnknown, _>(..)`.
+        // The general arms below know how each class erases — a fetch
+        // runtime class through `into_smelt_unknown`, a `Date` through its
+        // identity, any other through its fields — and an erased class's
+        // own arm returns the text unchanged.
         } else if self.is_erased_class_type(function.return_ty) {
             if function.may_throw {
                 call_text.into_string()

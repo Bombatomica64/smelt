@@ -232,9 +232,7 @@ impl FunctionEmitter<'_> {
             }
             // Every object is truthy, collections included: `!obj` on a
             // `Record<K, V>` (rendered as a map) is `false`, never `true`.
-            // These operands used to reach the `(_, Type::Bool, _)` default
-            // below and read as `false`, so `if (!obj) return {}` returned
-            // early for every map. Same rule as `value_truthy_expr`.
+            // Same rule as `value_truthy_expr`.
             (
                 smelt_hir::PrimitiveCastOp::ToBool,
                 Type::Bool,

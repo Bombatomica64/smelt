@@ -456,11 +456,10 @@ impl FunctionEmitter<'_> {
         // takes on the list's own cell DOES span the callback, because iterating
         // without it would mean copying the whole array once per call — the cost
         // this iteration shape exists to avoid. A callback that only reads the
-        // array it is iterating (every case in the remeda/es-toolkit corpora, and
-        // the only case that compiled at all when the elements were an inline
-        // `Vec`) is fine, because concurrent shared borrows are allowed. A
-        // callback that WRITES the array it is iterating — legal in JavaScript —
-        // panics "already borrowed" instead of the compile error it used to be.
+        // array it is iterating (every case in the remeda/es-toolkit corpora) is
+        // fine, because concurrent shared borrows are allowed. A callback that
+        // WRITES the array it is iterating — legal in JavaScript — panics "already
+        // borrowed".
         let borrowed_list_text = self.operand_borrow_expr(list)?;
         // A variadic erased callback (`(...args: any[]) => any`, a
         // `SmeltErasedFunction`) has ONE Rust parameter, its rest list, and
@@ -683,7 +682,7 @@ impl FunctionEmitter<'_> {
     /// accumulator type `dest_ty` through the shared coercion seam, so a callback
     /// whose declared return type merely reconciles with (rather than equals) the
     /// accumulator — a concrete-union member, an optional/`unknown` widening —
-    /// still folds into a value the next step accepts (issue #113). The frontend
+    /// still folds into a value the next step accepts. The frontend
     /// (`lower_list_reduce`) picks `dest_ty` so this reconciliation is statically
     /// valid; here we only render the arity- and type-matched call.
     ///

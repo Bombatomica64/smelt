@@ -1,6 +1,6 @@
 // Reference identity: the address tables that map storage to a stable erased identity.
 
-// `smelt_next_object_id` is emitted in the `needs_smelt_list` block above
+// `smelt_next_object_id` is emitted in the `list.rs`
 // (which `needs_unknown` always implies), so it is in scope here.
 // @smelt:item SMELT_PROMISE_IDENTITIES when unknown
 thread_local! {
@@ -22,20 +22,20 @@ fn smelt_promise_identity(source_key: usize) -> usize {
 }
 
 thread_local! {
-    /// Map a source list's storage address to a stable erased-array identity.
+    //~ Map a source list's storage address to a stable erased-array identity.
     static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
 /// Return a stable erased-array id for a source list keyed on its `Vec` address.
-///
-/// Erasing the SAME source list local twice must yield arrays that compare
-/// `===` equal (arrays compare by id). Keying on the live `Vec`'s storage
-/// address lets every erasure of one binding reuse a single id, while a
-/// fresh list (literal or transform result) still gets a fresh id from
-/// `SmeltArray::new`. KNOWN LIMITATION: `Vec::as_ptr` on an EMPTY `Vec`
-/// returns a shared dangling sentinel, so distinct empty list bindings can
-/// collide on one id; acceptable here because the targeted cases are
-/// non-empty.
+//~
+//~ Erasing the SAME source list local twice must yield arrays that compare
+//~ `===` equal (arrays compare by id). Keying on the live `Vec`'s storage
+//~ address lets every erasure of one binding reuse a single id, while a
+//~ fresh list (literal or transform result) still gets a fresh id from
+//~ `SmeltArray::new`. KNOWN LIMITATION: `Vec::as_ptr` on an EMPTY `Vec`
+//~ returns a shared dangling sentinel, so distinct empty list bindings can
+//~ collide on one id; acceptable here because the targeted cases are
+//~ non-empty.
 fn smelt_list_identity(source_key: usize) -> usize {
     SMELT_LIST_IDENTITIES.with(|identities| {
         let mut identities = identities.borrow_mut();
@@ -65,18 +65,16 @@ fn smelt_list_identity(source_key: usize) -> usize {
 // already use (`reference_origin`) — and `SmeltFromUnknown` hands that
 // value back.
 //
-// This used to be a thread-local map from object id to value that
-// never removed an entry (there is no drop hook on an id), so every
-// `Request`/`Response`/`Headers` that crossed the boundary stayed
-// alive for the life of the process: six per request in the Hono
-// showcase, and the values it retained held most of the request's
-// graph. In the slot the value lives exactly as long as some erased
-// view of it does, which is also the only time a recovery can ask.
+// In the slot the value lives exactly as long as some erased view of it does,
+// which is also the only time a recovery can ask. A map from object id to value
+// would need a drop hook an id does not have, and would retain every
+// `Request`/`Response`/`Headers` that crossed the boundary for the life of the
+// process.
 // @smelt:item smelt_with_host_origin when host_origins & unknown
 /// Stamp the live host value an erased record was made from into its origin slot.
-///
-/// Call this from the value's `IntoSmeltUnknown` on the record it builds,
-/// so narrowing the record back hands out the SAME object.
+//~
+//~ Call this from the value's `IntoSmeltUnknown` on the record it builds,
+//~ so narrowing the record back hands out the SAME object.
 #[allow(dead_code)]
 fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltUnknown {
     if let SmeltUnknown::Object(object) = &erased { *object.store.origin_mut() = Some(Box::new(origin)); }
@@ -84,11 +82,11 @@ fn smelt_with_host_origin<T: 'static>(erased: SmeltUnknown, origin: T) -> SmeltU
 }
 
 /// Recover the host value an erased record was made from.
-///
-/// `None` for a record that did not come from an erasure — a hand-built
-/// object carrying the marker, or one that crossed a process boundary. Each
-/// caller decides what that means for its own type rather than being given
-/// a fabricated value here.
+//~
+//~ `None` for a record that did not come from an erasure — a hand-built
+//~ object carrying the marker, or one that crossed a process boundary. Each
+//~ caller decides what that means for its own type rather than being given
+//~ a fabricated value here.
 #[allow(dead_code)]
 fn smelt_restore_host_origin<T: Clone + 'static>(value: &SmeltUnknown) -> Option<T> {
     let SmeltUnknown::Object(map) = value else { return None };

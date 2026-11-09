@@ -36,7 +36,7 @@
 /// A `node:sqlite` `DatabaseSync`: one connection shared by every handle.
 #[derive(Clone)]
 pub struct SmeltSqliteDatabase {
-    /// The JavaScript object identity every handle on this database shares.
+    //~ The JavaScript object identity every handle on this database shares.
     id: usize,
     connection: ::std::rc::Rc<::std::cell::RefCell<SmeltSqliteConnection>>,
 }
@@ -44,9 +44,9 @@ pub struct SmeltSqliteDatabase {
 /// A database's connection: open, or closed (by `close()`, or never opened).
 #[derive(Default)]
 enum SmeltSqliteConnection {
-    /// The live connection.
+    //~ The live connection.
     Open(rusqlite::Connection),
-    /// No connection: every operation answers "database is not open".
+    //~ No connection: every operation answers "database is not open".
     #[default]
     Closed,
 }
@@ -73,28 +73,28 @@ fn smelt_sqlite_error(message: impl ::std::fmt::Display) -> Box<dyn ::std::error
 
 #[allow(dead_code)]
 impl SmeltSqliteDatabase {
-    /// `new DatabaseSync(path)`; `":memory:"` is a private in-memory database.
+    //~ `new DatabaseSync(path)`; `":memory:"` is a private in-memory database.
     pub fn open(path: &(impl SmeltHostText + ?Sized)) -> Result<Self, Box<dyn ::std::error::Error>> { let path = path.host_text(); let path: &str = &path;
         let connection = if path == ":memory:" { rusqlite::Connection::open_in_memory() } else { rusqlite::Connection::open(path) };
         let connection = connection.map_err(smelt_sqlite_error)?;
         Ok(Self { id: smelt_next_object_id(), connection: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltSqliteConnection::Open(connection))) })
     }
-    /// Run `action` on the open connection.
+    //~ Run `action` on the open connection.
     fn with<R>(&self, action: impl FnOnce(&rusqlite::Connection) -> Result<R, Box<dyn ::std::error::Error>>) -> Result<R, Box<dyn ::std::error::Error>> {
         let connection = self.connection.borrow();
         let SmeltSqliteConnection::Open(connection) = &*connection else { return Err(smelt_sqlite_error("database is not open")) };
         action(connection)
     }
-    /// `db.exec(sql)`: run every statement in `sql`.
+    //~ `db.exec(sql)`: run every statement in `sql`.
     pub fn exec(&self, sql: &(impl SmeltHostText + ?Sized)) -> Result<(), Box<dyn ::std::error::Error>> { let sql = sql.host_text(); let sql: &str = &sql;
         self.with(|connection| connection.execute_batch(sql).map_err(smelt_sqlite_error))
     }
-    /// `db.prepare(sql)`: compile now, so a syntax error throws here.
+    //~ `db.prepare(sql)`: compile now, so a syntax error throws here.
     pub fn prepare(&self, sql: &(impl SmeltHostText + ?Sized)) -> Result<SmeltSqliteStatement, Box<dyn ::std::error::Error>> { let sql = sql.host_text(); let sql: &str = &sql;
         self.with(|connection| connection.prepare_cached(sql).map(|_| ()).map_err(smelt_sqlite_error))?;
         Ok(SmeltSqliteStatement { id: smelt_next_object_id(), database: self.clone(), sql: ::std::rc::Rc::from(sql) })
     }
-    /// `db.close()`: closes the connection for every handle on it.
+    //~ `db.close()`: closes the connection for every handle on it.
     pub fn close(&self) -> Result<(), Box<dyn ::std::error::Error>> {
         let previous = ::std::mem::replace(&mut *self.connection.borrow_mut(), SmeltSqliteConnection::Closed);
         let SmeltSqliteConnection::Open(connection) = previous else { return Err(smelt_sqlite_error("database is not open")) };
@@ -105,7 +105,7 @@ impl SmeltSqliteDatabase {
 /// A `node:sqlite` `StatementSync`: its database and its SQL text.
 #[derive(Clone)]
 pub struct SmeltSqliteStatement {
-    /// The JavaScript object identity of this statement.
+    //~ The JavaScript object identity of this statement.
     id: usize,
     database: SmeltSqliteDatabase,
     sql: ::std::rc::Rc<str>,
@@ -127,17 +127,17 @@ impl PartialEq for SmeltSqliteStatement {
 }
 
 /// A value a statement parameter can bind, at its own Rust type.
-///
-/// What `rusqlite::ToSql` is to a hand-written program: the generated call
-/// passes each argument at the type the source gave it (`&title`, `&done`), and
-/// only a value that is ALREADY erased binds through the `SmeltUnknown` impl.
+//~
+//~ What `rusqlite::ToSql` is to a hand-written program: the generated call
+//~ passes each argument at the type the source gave it (`&title`, `&done`), and
+//~ only a value that is ALREADY erased binds through the `SmeltUnknown` impl.
 pub trait SmeltSqliteBind {
-    /// The SQLite value this binds as at 1-based `position`, or Node's error.
+    //~ The SQLite value this binds as at 1-based `position`, or Node's error.
     fn smelt_sqlite_value(&self, position: usize) -> Result<rusqlite::types::Value, Box<dyn ::std::error::Error>>;
-    /// The value bound to the named parameter `name` (bare, no prefix), when
-    /// this argument is a named-parameter object; `None` for any other value.
+    //~ The value bound to the named parameter `name` (bare, no prefix), when
+    //~ this argument is a named-parameter object; `None` for any other value.
     fn smelt_sqlite_named(&self, _name: &str, _position: usize) -> Option<Result<rusqlite::types::Value, Box<dyn ::std::error::Error>>> { None }
-    /// Whether this argument is a named-parameter object.
+    //~ Whether this argument is a named-parameter object.
     fn smelt_sqlite_is_named(&self) -> bool { false }
 }
 
@@ -186,10 +186,10 @@ impl<V: SmeltSqliteBind + Clone> SmeltSqliteBind for SmeltRecord<JsString, V> {
 }
 
 /// An already-erased value binds by its run-time tag.
-///
-/// `undefined` binds NULL too: an absent `Option<T>` that was erased before it
-/// reached the call arrives as `undefined`, indistinguishable from a genuine
-/// one (Node throws for a genuine `undefined`; this is the one divergence).
+//~
+//~ `undefined` binds NULL too: an absent `Option<T>` that was erased before it
+//~ reached the call arrives as `undefined`, indistinguishable from a genuine
+//~ one (Node throws for a genuine `undefined`; this is the one divergence).
 impl SmeltSqliteBind for SmeltUnknown {
     fn smelt_sqlite_value(&self, position: usize) -> Result<rusqlite::types::Value, Box<dyn ::std::error::Error>> {
         match self {
@@ -222,7 +222,7 @@ fn smelt_sqlite_column(value: rusqlite::types::ValueRef<'_>) -> Result<SmeltUnkn
 
 #[allow(dead_code)]
 impl SmeltSqliteStatement {
-    /// Compile (through the cache), bind `parameters`, and hand the statement to `action`.
+    //~ Compile (through the cache), bind `parameters`, and hand the statement to `action`.
     fn with_bound<R>(&self, parameters: &[&dyn SmeltSqliteBind], action: impl FnOnce(&mut rusqlite::CachedStatement<'_>, &rusqlite::Connection) -> Result<R, Box<dyn ::std::error::Error>>) -> Result<R, Box<dyn ::std::error::Error>> {
         self.database.with(|connection| {
             let mut statement = connection.prepare_cached(&self.sql).map_err(smelt_sqlite_error)?;
@@ -253,12 +253,12 @@ impl SmeltSqliteStatement {
             result
         })
     }
-    /// Read every row of a bound statement as erased objects.
-    ///
-    /// The column names are read off the first STEPPED row, not the compiled
-    /// statement: a cached statement whose table was altered since is
-    /// re-prepared by SQLite on its first step, and only then reports the
-    /// new columns (`SELECT *` after `ALTER TABLE .. ADD COLUMN`).
+    //~ Read every row of a bound statement as erased objects.
+    //~
+    //~ The column names are read off the first STEPPED row, not the compiled
+    //~ statement: a cached statement whose table was altered since is
+    //~ re-prepared by SQLite on its first step, and only then reports the
+    //~ new columns (`SELECT *` after `ALTER TABLE .. ADD COLUMN`).
     fn rows(statement: &mut rusqlite::CachedStatement<'_>, limit: Option<usize>) -> Result<Vec<SmeltUnknown>, Box<dyn ::std::error::Error>> {
         let mut names: Option<Vec<String>> = None;
         let mut rows = statement.raw_query();
@@ -274,19 +274,19 @@ impl SmeltSqliteStatement {
         }
         Ok(out)
     }
-    /// `statement.all(...params)`: every row, each an erased object.
+    //~ `statement.all(...params)`: every row, each an erased object.
     pub fn smelt_sqlite_all(&self, parameters: &[&dyn SmeltSqliteBind]) -> Result<SmeltList<SmeltUnknown>, Box<dyn ::std::error::Error>> {
         self.with_bound(parameters, |statement, _| Self::rows(statement, None)).map(SmeltList::new)
     }
-    /// `statement.get(...params)`: the first row, or `undefined`.
+    //~ `statement.get(...params)`: the first row, or `undefined`.
     pub fn smelt_sqlite_get(&self, parameters: &[&dyn SmeltSqliteBind]) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
         self.with_bound(parameters, |statement, _| Self::rows(statement, Some(1)))
             .map(|rows| rows.into_iter().next().unwrap_or(SmeltUnknown::Undefined))
     }
-    /// `statement.run(...params)`: `(changes, lastInsertRowid)`.
+    //~ `statement.run(...params)`: `(changes, lastInsertRowid)`.
     pub fn run(&self, parameters: &[&dyn SmeltSqliteBind]) -> Result<(f64, f64), Box<dyn ::std::error::Error>> {
         self.with_bound(parameters, |statement, connection| {
-            // A statement that returns rows still runs to completion, as in Node.
+            //~ A statement that returns rows still runs to completion, as in Node.
             let mut rows = statement.raw_query();
             while rows.next().map_err(smelt_sqlite_error)?.is_some() {}
             Ok((connection.changes() as f64, connection.last_insert_rowid() as f64))

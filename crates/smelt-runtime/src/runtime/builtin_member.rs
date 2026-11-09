@@ -31,31 +31,31 @@ fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(
 
 //~ Emit the interned `<Builtin>.prototype` marker record.
 /// The interned value of `<Builtin>.prototype`.
-///
-/// JavaScript has exactly one prototype object per builtin, so the record is
-/// cached by class name: `Array.prototype === Array.prototype` holds, and a
-/// member read off it resolves through the modeled-member registry. The record
-/// carries only the marker, so it never enumerates as data.
+//~
+//~ JavaScript has exactly one prototype object per builtin, so the record is
+//~ cached by class name: `Array.prototype === Array.prototype` holds, and a
+//~ member read off it resolves through the modeled-member registry. The record
+//~ carries only the marker, so it never enumerates as data.
 thread_local! { static SMELT_BUILTIN_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_prototype_object(class: &str) -> SmeltUnknown { SMELT_BUILTIN_PROTOTYPES.with(|cache| cache.borrow_mut().entry(class.to_owned()).or_insert_with(|| SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_builtin_prototype".to_owned(), SmeltUnknown::String(class.into()))])))).clone()) }
 
 //~ Emit the interned per-member callable and the receiver-method side table.
 /// Callables that consume their receiver as the leading argument.
-///
-/// A prototype method's `this` is its receiver, and Smelt passes it as the
-/// first argument. `Function.prototype.call`/`.apply` drop the receiver for an
-/// ordinary erased callable (which has no `this` channel), so they must not do
-/// that for these: membership here is the difference.
-///
-/// The flag lives in the callable's entry of the bounded callable table.
+//~
+//~ A prototype method's `this` is its receiver, and Smelt passes it as the
+//~ first argument. `Function.prototype.call`/`.apply` drop the receiver for an
+//~ ordinary erased callable (which has no `this` channel), so they must not do
+//~ that for these: membership here is the difference.
+//~
+//~ The flag lives in the callable's entry of the bounded callable table.
 fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { smelt_update_callable(function, |meta| meta.receiver_method = true); }
 fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { smelt_read_callable(function, |meta| Some(meta.receiver_method)).unwrap_or(false) }
 
 /// Read a modeled member off a builtin, or `None` when it is not modeled.
-///
-/// The callable is interned per member so two reads are the same function
-/// value, carries the member's JavaScript `length`, and gets the member's key
-/// as its identity — the same treatment `Object.prototype`'s members get.
+//~
+//~ The callable is interned per member so two reads are the same function
+//~ value, carries the member's JavaScript `length`, and gets the member's key
+//~ as its identity — the same treatment `Object.prototype`'s members get.
 thread_local! { static SMELT_BUILTIN_MEMBER_VALUES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<SmeltUnknown> {
     let (length, key) = smelt_builtin_member_entry(class, kind, member)?;
@@ -65,25 +65,25 @@ fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<S
 
 //~ Emit the member dispatcher and its receiver-coercion helpers.
 /// The receiver of a `String.prototype` method as a Rust string.
-///
-/// A boxed `String` object unboxes first, so `new String('ab')` and `'ab'`
-/// behave the same through a prototype method, as they do in JavaScript.
+//~
+//~ A boxed `String` object unboxes first, so `new String('ab')` and `'ab'`
+//~ behave the same through a prototype method, as they do in JavaScript.
 fn smelt_builtin_receiver_text(value: &SmeltUnknown) -> String { match smelt_unbox_primitive(value.clone()) { SmeltUnknown::String(text) => text.to_string(), other => other.to_string() } }
 /// The receiver of an `Array.prototype` method as its element vector.
 fn smelt_builtin_receiver_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { match value { SmeltUnknown::Array(values) => Some(values.clone().into_vec()), _ => None } }
 /// Resolve a JavaScript relative index argument against a length.
-///
-/// `undefined` takes the caller's default, a negative counts from the end, and
-/// anything past either end clamps — the `slice` index rules, shared by the
-/// string and array arms so they cannot drift apart.
+//~
+//~ `undefined` takes the caller's default, a negative counts from the end, and
+//~ anything past either end clamps — the `slice` index rules, shared by the
+//~ string and array arms so they cannot drift apart.
 fn smelt_builtin_relative_index(value: &SmeltUnknown, len: usize, default: usize) -> usize { match value { SmeltUnknown::Undefined => default, other => { let raw = match other { SmeltUnknown::Number(value) => *value, _ => 0.0 }; if raw.is_nan() { 0 } else if raw < 0.0 { let from_end = len as f64 + raw; if from_end < 0.0 { 0 } else { from_end as usize } } else { (raw as usize).min(len) } } } }
 
 /// Apply one modeled builtin member to its arguments.
-///
-/// For a prototype method the leading argument is the receiver; for a static
-/// function there is no receiver and the arguments start at index zero. Every
-/// arm is keyed by the registry's dispatch key, so adding a member is a table
-/// entry plus its arm and nothing else.
+//~
+//~ For a prototype method the leading argument is the receiver; for a static
+//~ function there is no receiver and the arguments start at index zero. Every
+//~ arm is keyed by the registry's dispatch key, so adding a member is a table
+//~ entry plus its arm and nothing else.
 fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
     let first = args.get(1).map_or(SmeltUnknown::Undefined, Clone::clone);

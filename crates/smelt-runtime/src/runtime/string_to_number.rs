@@ -3,9 +3,8 @@
 // ECMA-262 `StringToNumber` is what `Number(s)`, unary `+s`, arithmetic and
 // relational coercion of a string, and every erased-value-to-number
 // conversion apply to a string. Rust's `str::parse::<f64>` is a different
-// grammar, and the generated code used to call it in about fifteen places
-// with three different wrappers, so the same source construct answered
-// differently depending on which path reached it:
+// grammar, so generated code goes through this one implementation rather
+// than answering differently depending on which path reached it:
 //
 // | input | Node | `parse::<f64>()` |
 // | --- | --- | --- |

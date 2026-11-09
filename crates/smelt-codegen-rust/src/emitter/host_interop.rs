@@ -6,10 +6,9 @@ use super::*;
 impl FunctionEmitter<'_> {
     /// Name the source site of the function currently being emitted.
     ///
-    /// An `EmitError` raised deep in emission used to identify itself only by
-    /// the enclosing function's NAME, which is `<unnamed>` for every closure.
-    /// A blocker inside a callback therefore said nothing about where it was,
-    /// and pinning one in a corpus the size of Hono meant bisecting the
+    /// An `EmitError` raised deep in emission would otherwise identify itself only
+    /// by the enclosing function's NAME, which is `<unnamed>` for every closure, and
+    /// pinning a blocker in a corpus the size of Hono would mean bisecting the
     /// manifest's `exclude` list one directory at a time.
     ///
     /// MIR is flattened and carries no per-statement spans, but the entry

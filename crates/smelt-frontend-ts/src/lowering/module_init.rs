@@ -370,10 +370,7 @@ impl ModuleBuilder<'_> {
                     | Statement::ClassDeclaration(_)
                     | Statement::TSInterfaceDeclaration(_)
                     | Statement::TSNamespaceDeclaration(_)
-                    // `declare module "x"` is its own node since oxc 0.147.
-                    // It was previously a `TSModuleDeclaration` with a string
-                    // name, which the namespace pass declined to lower and this
-                    // list then skipped; keep it skipped rather than falling
+                    // `declare module "x"` is its own node in oxc. Skip it rather than falling
                     // through to the unsupported-statement diagnostic.
                     | Statement::TSExternalModuleDeclaration(_)
                     | Statement::TSTypeAliasDeclaration(_)
@@ -477,13 +474,10 @@ impl ModuleBuilder<'_> {
     /// ordinary awaited op, so the throwing analysis treats it like any other
     /// and `main`'s signature stays consistent with its body.
     ///
-    /// It used to be `await sleep(0)`, which is only the first half. Node also
-    /// keeps the process alive while a handle is open — a listening
-    /// `http.Server` is one — and with the drain spelled as a sleep,
-    /// `createServer(..).listen(3000)` returned from `main` immediately instead
-    /// of serving. A mid-program `await sleep(0)` must NOT wait on handles, so
-    /// the exit drain needed an operation of its own rather than a flag on
-    /// `Sleep`.
+    /// Node keeps the process alive while a handle is open — a listening
+    /// `http.Server` is one — so `createServer(..).listen(3000)` must not return
+    /// from `main`. A mid-program `await sleep(0)` must NOT wait on handles, so
+    /// the exit drain is an operation of its own rather than a flag on `Sleep`.
     ///
     /// A module body has no early `return` to skip it — `return` at module
     /// scope is not legal TypeScript — so appending once at the end is enough.

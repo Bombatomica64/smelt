@@ -187,9 +187,8 @@ pub mod host {
     /// `Array.prototype.values` — so `Array.from(arguments)`, `[...arguments]`
     /// and `for (const a of arguments)` all walk its elements. Smelt models it as
     /// an array-like marker record with index keys and a hidden `length`, which
-    /// carries no `__smelt_symbol_iterator` slot, so the erased iterable-to-list
-    /// coercion used to reject it outright. This helper is what makes the marker
-    /// record iterable, reading `length` and the index keys rather than the
+    /// carries no `__smelt_symbol_iterator` slot. This helper is what makes the
+    /// marker record iterable, reading `length` and the index keys rather than the
     /// record's raw key order.
     ///
     /// Deliberately keyed on the marker rather than on "has a `length`": a bare

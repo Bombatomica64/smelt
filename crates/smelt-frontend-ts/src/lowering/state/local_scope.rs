@@ -545,7 +545,7 @@ impl LocalScope {
 impl crate::lowering::ModuleBuilder<'_> {
     /// Lower `lower` with `facts` (when `Some`) as the innermost narrowing
     /// scope, and close it again on EVERY exit of `lower`, an early `?` or a
-    /// swallowed `Err` included (audit finding A11).
+    /// swallowed `Err` included.
     ///
     /// The only way to open a scope on the stack of the body being lowered:
     /// the raw push and pop are private to this module, so a scope can no

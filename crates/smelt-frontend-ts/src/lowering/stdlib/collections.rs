@@ -972,9 +972,7 @@ impl ModuleBuilder<'_> {
                     }
                     // `new Set(otherSet)` builds a NEW set holding the other's
                     // members in its insertion order: a distinct identity that
-                    // later `add`/`delete` on either set leave unchanged. It
-                    // used to be a type assertion on `otherSet` itself, so the
-                    // "copy" WAS the source: `b.add(3)` grew `a`, and `a === b`.
+                    // later `add`/`delete` on either set leave unchanged.
                     Some(Type::Set(_)) => {
                         // A type parameter bounded by a Set is viewed at its
                         // bound first: the copy reads a set.
@@ -1210,8 +1208,7 @@ impl ModuleBuilder<'_> {
     ///   list of erased `[key, value]` pairs: its entries carry no static key
     ///   or value type, so the map's are the erased carrier.
     ///
-    /// This used to evaluate the argument, DISCARD it and build an empty erased
-    /// map: `new Map(otherMap)` and `new Map(pairs)` were silently empty.
+    /// `new Map(otherMap)` and `new Map(pairs)` copy their argument's entries.
     fn map_from_iterable(
         &mut self,
         value: smelt_hir::ExprId,

@@ -53,7 +53,7 @@ pub(super) fn validate_definite_assignment(
 /// meet (intersection) of every predecessor's out-set. Returns `None` only when
 /// the entry index cannot be seeded, in which case the caller skips reporting.
 ///
-/// # The two things this does NOT check, and why (audit finding C8)
+/// # The two things this does NOT check, and why
 ///
 /// Both are a contract with the Rust emitter rather than an oversight; the
 /// tests in `validate::tests` pin both halves of it.

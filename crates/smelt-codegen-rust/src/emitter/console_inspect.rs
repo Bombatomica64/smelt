@@ -409,6 +409,9 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// The format specifier and argument text that print `operand` as a
+    /// console call does, in the language selected by `absent` (`None` is
+    /// Python's `print`, whose `str(value)` spellings differ from JavaScript's).
     pub(super) fn console_arg(
         &self,
         operand: &Operand,

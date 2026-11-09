@@ -8,32 +8,32 @@
 // @smelt:item smelt_locale_compare when locale_compare
 /// JavaScript `String.prototype.localeCompare(other)` with no `locales` or
 /// `options` arguments, i.e. the host's default collation.
-///
-/// Returns a negative number when `left` sorts before `right`, a positive
-/// number when it sorts after, and `0` when they collate equal — the contract
-/// `Array.prototype.sort` comparators rely on. V8 answers `-1`/`0`/`1`, so this
-/// does too.
-///
-/// # What is modeled
-///
-/// The two levels of the Unicode root collation that observably differ from a
-/// raw scalar comparison:
-///
-/// * **primary** — case-folded scalars, so `"a".localeCompare("B")` is negative
-///   the way ICU orders it, where the scalar comparison `"a" < "B"` is not;
-/// * **tertiary** — strings equal at the primary level break the tie with
-///   lowercase before uppercase (the DUCET tertiary weights), so
-///   `"a".localeCompare("A")` is negative.
-///
-/// Strings that differ in neither fall back to scalar order.
-///
-/// # What is NOT modeled
-///
-/// Locale arguments, `Intl.Collator` options (`sensitivity`, `numeric`,
-/// `caseFirst`), the secondary (accent) level, and the full DUCET weighting of
-/// punctuation and symbols — ICU sorts those before digits and letters, while
-/// scalar order interleaves them. All of those need real CLDR collation tables;
-/// a program that depends on them needs an `Intl` implementation, not this.
+//~
+//~ Returns a negative number when `left` sorts before `right`, a positive
+//~ number when it sorts after, and `0` when they collate equal — the contract
+//~ `Array.prototype.sort` comparators rely on. V8 answers `-1`/`0`/`1`, so this
+//~ does too.
+//~
+//~ # What is modeled
+//~
+//~ The two levels of the Unicode root collation that observably differ from a
+//~ raw scalar comparison:
+//~
+//~ * **primary** — case-folded scalars, so `"a".localeCompare("B")` is negative
+//~   the way ICU orders it, where the scalar comparison `"a" < "B"` is not;
+//~ * **tertiary** — strings equal at the primary level break the tie with
+//~   lowercase before uppercase (the DUCET tertiary weights), so
+//~   `"a".localeCompare("A")` is negative.
+//~
+//~ Strings that differ in neither fall back to scalar order.
+//~
+//~ # What is NOT modeled
+//~
+//~ Locale arguments, `Intl.Collator` options (`sensitivity`, `numeric`,
+//~ `caseFirst`), the secondary (accent) level, and the full DUCET weighting of
+//~ punctuation and symbols — ICU sorts those before digits and letters, while
+//~ scalar order interleaves them. All of those need real CLDR collation tables;
+//~ a program that depends on them needs an `Intl` implementation, not this.
 fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64 { let left = left.host_text(); let left: &str = &left; let right = right.host_text(); let right: &str = &right;
     let primary = left
         .chars()

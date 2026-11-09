@@ -110,7 +110,7 @@ impl Default for SmeltUnknown {
 
 // @smelt:item impl_SmeltUnknown when unknown
 impl SmeltUnknown {
-    /// Returns the JavaScript-style length for unknown string, array, and object values.
+    //~ Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
         match self {
             Self::String(value) => value.len(),
@@ -119,13 +119,13 @@ impl SmeltUnknown {
             /*@if bigint*/Self::BigInt(_) => 0, /*@end*/Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,
         }
     }
-    /// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
+    //~ Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
     pub fn get_day(&self) -> f64 {
         let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };
         let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;
         ((days_since_epoch + 4).rem_euclid(7)) as f64
     }
-    /// Return JavaScript Date.toISOString output for erased Date-compatible values.
+    //~ Return JavaScript Date.toISOString output for erased Date-compatible values.
     pub fn to_iso_string(&self) -> String {
         if let Self::Object(value) = self {
             if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
@@ -149,7 +149,7 @@ impl SmeltUnknown {
         };
         chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned())
     }
-    /// Return JavaScript-like `includes` membership for erased strings and arrays.
+    //~ Return JavaScript-like `includes` membership for erased strings and arrays.
     pub fn includes<T: IntoSmeltUnknown>(&self, needle: T) -> bool {
         let needle = needle.into_smelt_unknown();
         match (self, needle) {
@@ -158,7 +158,7 @@ impl SmeltUnknown {
             _ => false,
         }
     }
-    /// Return JavaScript-like RegExp.test behavior for erased regex-like values.
+    //~ Return JavaScript-like RegExp.test behavior for erased regex-like values.
     pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
         match self {
@@ -171,7 +171,7 @@ impl SmeltUnknown {
             _ => false,
         }
     }
-    /// No-op compatibility hook for erased callable objects with a `flush` method.
+    //~ No-op compatibility hook for erased callable objects with a `flush` method.
     pub fn flush(&self) {
     }
 }

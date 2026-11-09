@@ -682,7 +682,7 @@ impl RequestInitMember {
     /// `new Request(src, {}).referrer` still copies. Node 24 (undici 7) treats
     /// EVERY init as non-empty (its dictionary defaults `priority`), so there
     /// the reset applies to `new Request(src)` and `new Request(src, {})` too;
-    /// the Rust backend follows the pinned Node 24 (see `request_new_text`).
+    /// the Rust backend follows the pinned Node 24 .
     #[must_use]
     pub const fn resets_on_non_empty_init(self) -> bool {
         matches!(self, Self::Referrer | Self::ReferrerPolicy)
@@ -736,10 +736,8 @@ pub enum ResponseOp {
     /// `arrayBuffer()`: the body's bytes as storage. Async, and consumes it.
     ///
     /// Its own variant rather than a flavour of [`Self::Bytes`] because the two
-    /// answer DIFFERENT types now that the byte family is concrete: storage
-    /// (`ArrayBuffer.isView` false) against an element view (true). While the
-    /// family was erased the distinction was unobservable and one reader would
-    /// have done for both.
+    /// answer DIFFERENT types: storage (`ArrayBuffer.isView` false) against an
+    /// element view (true).
     ArrayBuffer,
     /// `bytes()`: the body's bytes as a `Uint8Array`. Async, and consumes it.
     Bytes,

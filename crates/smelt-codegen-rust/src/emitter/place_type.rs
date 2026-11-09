@@ -119,7 +119,7 @@ impl FunctionEmitter<'_> {
         let base_ty = self.local_decl(base)?.ty;
         // A `.length` read on a CONCRETE collection (typed list or set)
         // renders as `({base}.len() as f64)` (see the matching arm in
-        // `place::field_read_text`), so its value type is `Float`, not the
+        // the field read), so its value type is `Float`, not the
         // erased `Unknown` the struct-field fallback would otherwise
         // report. Keeping the resolved type aligned with the rendered
         // expression lets callers coerce from the concrete `f64` instead
@@ -133,7 +133,7 @@ impl FunctionEmitter<'_> {
         {
             return self.type_id(Type::Float);
         }
-        // Likewise for a `String` base: `place::field_read_text` routes
+        // Likewise for a `String` base: the field read routes
         // it to `string_field_expr`, which renders `.length` as a
         // character count and `.source` as a `String`. Reporting
         // `Unknown` here made callers coerce an ALREADY concrete
@@ -277,7 +277,7 @@ impl FunctionEmitter<'_> {
                     Some(ty) => Ok(ty),
                     // An undeclared member on an index-signature class is
                     // a keyed store read; its type is the store's value
-                    // type `T` (issue #84), not an erased `Unknown`.
+                    // type `T`, not an erased `Unknown`.
                     None => match self.class_index_store_types(base_ty) {
                         Some((_key_ty, value_ty)) => Ok(value_ty),
                         None => self.erased_fallback_ty(|| {

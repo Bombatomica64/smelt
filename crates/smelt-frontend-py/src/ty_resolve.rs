@@ -1,10 +1,8 @@
 //! Optional `ty`-backed type resolution seam for the Python frontend.
 //!
-//! The Python frontend historically required explicit type annotations and
-//! emitted a hard error otherwise. Issue #93 replaces those errors, for
-//! resolvable cases, with types inferred by Astral's `ty` (see
-//! `smelt-py-types`). Because the `ty` dependency tree is heavy, that
-//! resolution lives behind the crate's optional `ty` feature.
+//! Python functions may omit type annotations; resolvable cases take the type
+//! inferred by Astral's `ty` (see `smelt-py-types`). Because the `ty` dependency
+//! tree is heavy, that resolution lives behind the crate's optional `ty` feature.
 //!
 //! This module is the single seam between the lowering walk and `ty`. It
 //! exposes one type, [`ResolvedTypes`], with the same public surface in both

@@ -102,8 +102,7 @@ impl FunctionEmitter<'_> {
     /// enum whose tag says which arm it holds) and `smelt_unknown_arithmetic`
     /// dispatches on the tags, throwing the JavaScript `TypeError` for a mixed
     /// pair; the result is recovered at the destination's own type. Narrowing
-    /// the union to its `number` member instead is what used to panic on a
-    /// bigint ("union guard selected an excluded member").
+    /// the union to its `number` member instead would panic on a bigint.
     fn bigint_dynamic_arithmetic_expr(
         &self,
         op: smelt_hir::BinOp,

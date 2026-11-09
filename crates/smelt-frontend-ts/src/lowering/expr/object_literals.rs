@@ -464,17 +464,11 @@ impl ModuleBuilder<'_> {
         let field = self.intern_source_name(&field_name);
         let field_ty = self.class_field_type(hint, field).ok()?;
         // A nested object literal gets the field's type as its own hint, class
-        // and optional-class fields included. This used to be refused, which
-        // left `{ inner: { count: 7 } }` against `interface Outer { inner?:
-        // Config }` lowering the inner literal with no hint: it became a
-        // `Dict`, the outer literal could then not be built as a struct either
-        // (its field was not assignable), and both ends went through the erased
-        // `SmeltRecord` reconstruction. The struct path can build the nested
-        // value directly -- `Outer { inner: Some(Config { count: Some(7.0) }) }`
-        // -- so the refusal cost avoidable erasure at every nesting level for
-        // nothing. `contextual_record_literal_type` already unwraps `Optional`
-        // and still declines any literal it cannot construct, so the decision
-        // stays where it belongs rather than being pre-empted here.
+        // and optional-class fields included, so
+        // `Outer { inner: Some(Config { count: Some(7.0) }) }` is built directly
+        // rather than through the erased `SmeltRecord` reconstruction.
+        // `contextual_record_literal_type` already unwraps `Optional` and declines
+        // any literal it cannot construct, so the decision stays where it belongs.
         self.unambiguous_property_hint(field_ty)
     }
 
@@ -1090,18 +1084,12 @@ impl ModuleBuilder<'_> {
         // Every entry is assignable, so the literal IS the struct and takes the
         // struct's type.
         //
-        // This used to be gated on at least one field needing the backend's
-        // structural adapter (`needs_structural_adapter.then_some(candidate)`),
-        // which had it backwards: a literal needing no adaptation is the easiest
-        // one to build directly, and declining it sent the literal down the
-        // erased path instead. `const c: Config = {}` for
-        // `interface Config { label?: string }` built a
-        // `SmeltRecord<String, SmeltUnknown>` and then reconstructed `Config`
-        // out of it — reading three keys per field and funnelling every
-        // `SmeltUnknown` tag through `to_string()`, which is harmless for
-        // `label?: string` and turns a `count?: number` into its decimal text.
-        // Pure avoidable erasure plus a latent wrong-value coercion, for the
-        // shape a hand-writing Rust team would spell `Config { label: None }`.
+        // Not gated on a field needing the backend's structural adapter: a literal
+        // needing no adaptation is the easiest one to build directly. `const c:
+        // Config = {}` for `interface Config { label?: string }` is
+        // `Config { label: None }`, what a hand-writing Rust team would spell, where
+        // the erased path reads three keys per field and funnels every `SmeltUnknown`
+        // tag through `to_string()`, turning a `count?: number` into its decimal text.
         Some(candidate)
     }
 

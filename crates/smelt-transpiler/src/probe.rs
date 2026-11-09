@@ -8,7 +8,7 @@
 //! - performs recoverable manifest-aware lowering and enumerates
 //!   the distinct blocker classes grouped by [`DiagnosticCategory`].
 //!
-//! Because each diagnostic now carries a category decided in the frontend, the
+//! Because each diagnostic carries a category decided in the frontend, the
 //! report groups by cause (missing stdlib vs unimplemented lowering vs
 //! typed-subset violation) without parsing human-readable message text.
 

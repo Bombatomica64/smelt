@@ -120,10 +120,7 @@ fn emit_interface_type(
     // An interface-backed record is a by-value struct, exactly like a value
     // class, so it supports structural equality (JS `==`/`===`/`toBe`, and
     // derived comparisons in generated specs) under the same rule: every
-    // stored field must itself be `PartialEq`. Before shape structs existed
-    // this rarely mattered, because a comparable record was usually spelled
-    // as a dict; a statically-shaped object literal now lands here instead,
-    // and comparing two of them must keep working.
+    // stored field must itself be `PartialEq`.
     let interface_supports_partial_eq = fields
         .iter()
         .all(|field| type_supports_partial_eq(mir, context, field.ty, &mut Vec::new()));

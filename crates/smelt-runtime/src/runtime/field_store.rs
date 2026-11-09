@@ -86,16 +86,16 @@ pub type SmeltFieldMap<K, V> = ::std::collections::HashMap<K, V, ::std::hash::Bu
 //~ Nothing here keys off a field name, a library, or a source spelling: it
 //~ is the representation every erased object and every record uses.
 /// Hash a property key's bytes into a property store's key space.
-///
-/// Only the dictionary-sized path uses this; a record-sized store scans.
-/// Deliberately not routed through `Hash`/`SmeltFieldHasher`: `<str as Hash>::hash`
-/// makes TWO `Hasher::write` calls -- the bytes, then a `0xff` terminator that
-/// disambiguates concatenations -- and each rebuilds an 8-byte staging buffer.
-/// Property names are short, so this folds the length in directly (which serves
-/// the same disambiguating purpose) and takes the <=8-byte case, nearly every
-/// property name, as a single load and mix. No avalanche finalizer: the value
-/// only ever enters the `index` map, which re-hashes it through
-/// `SmeltFieldHasher`, and that finalizes.
+//~
+//~ Only the dictionary-sized path uses this; a record-sized store scans.
+//~ Deliberately not routed through `Hash`/`SmeltFieldHasher`: `<str as Hash>::hash`
+//~ makes TWO `Hasher::write` calls -- the bytes, then a `0xff` terminator that
+//~ disambiguates concatenations -- and each rebuilds an 8-byte staging buffer.
+//~ Property names are short, so this folds the length in directly (which serves
+//~ the same disambiguating purpose) and takes the <=8-byte case, nearly every
+//~ property name, as a single load and mix. No avalanche finalizer: the value
+//~ only ever enters the `index` map, which re-hashes it through
+//~ `SmeltFieldHasher`, and that finalizes.
 #[inline]
 fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
     const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
@@ -134,12 +134,12 @@ fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
 //~ Length goes in the high half so it still subsumes the free
 //~ length-rejection the scan already had.
 /// A cheap same-length tie-break for a property key: length, first byte, last byte.
-///
-/// Equal keys MUST produce equal fingerprints, so every `SmeltPropertyKey`
-/// impl delegates here rather than computing its own -- a `String` entry and
-/// the `&str` a lookup borrows against it must agree or the lookup would
-/// report a present key absent. Unequal keys may collide; a fingerprint hit
-/// is always confirmed with full key equality.
+//~
+//~ Equal keys MUST produce equal fingerprints, so every `SmeltPropertyKey`
+//~ impl delegates here rather than computing its own -- a `String` entry and
+//~ the `&str` a lookup borrows against it must agree or the lookup would
+//~ report a present key absent. Unequal keys may collide; a fingerprint hit
+//~ is always confirmed with full key equality.
 #[inline]
 fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
     let first = bytes.first().copied().unwrap_or(0) as u32;
@@ -148,10 +148,10 @@ fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
 }
 
 /// One property of a store: its key, its value, and the key's fingerprint.
-///
-/// `fingerprint` is derived from `key` at insert time and is never updated
-/// independently -- the key of an existing entry is never rewritten, only its
-/// value is -- so the two cannot drift apart.
+//~
+//~ `fingerprint` is derived from `key` at insert time and is never updated
+//~ independently -- the key of an existing entry is never rewritten, only its
+//~ value is -- so the two cannot drift apart.
 #[derive(Debug)]
 pub struct SmeltFieldEntry<K, V> {
     fingerprint: u32,
@@ -160,46 +160,46 @@ pub struct SmeltFieldEntry<K, V> {
 }
 
 /// Entries a property store scans linearly before it builds a hash index.
-///
-/// Set where an object stops looking like a record and starts looking like a
-/// dictionary: below it a length-first key scan beats hashing plus a probe,
-/// above it dictionary-shaped objects need their O(1) lookup back.
+//~
+//~ Set where an object stops looking like a record and starts looking like a
+//~ dictionary: below it a length-first key scan beats hashing plus a probe,
+//~ above it dictionary-shaped objects need their O(1) lookup back.
 const SMELT_FIELD_SCAN_LIMIT: usize = 12;
 
 /// The ordered property store behind a JavaScript object or record.
-///
-/// `entries` is held in JavaScript own-key order (array-index keys first, in
-/// ascending numeric order, then the remaining string keys in insertion
-/// order), so `keys()`/`iter()` read the order as a fact rather than
-/// re-deriving it. `index` maps a key hash to the FIRST entry position
-/// carrying it and exists ONLY while the store is larger than
-/// `SMELT_FIELD_SCAN_LIMIT` — a small store never hashes a key at all.
+//~
+//~ `entries` is held in JavaScript own-key order (array-index keys first, in
+//~ ascending numeric order, then the remaining string keys in insertion
+//~ order), so `keys()`/`iter()` read the order as a fact rather than
+//~ re-deriving it. `index` maps a key hash to the FIRST entry position
+//~ carrying it and exists ONLY while the store is larger than
+//~ `SMELT_FIELD_SCAN_LIMIT` — a small store never hashes a key at all.
 #[derive(Debug)]
 pub struct SmeltFieldStore<K, V> {
     entries: Vec<SmeltFieldEntry<K, V>>,
     index: Option<SmeltFieldMap<u64, usize>>,
-    /// How many keys live in the runtime's internal `__smelt` namespace.
+    //~ How many keys live in the runtime's internal `__smelt` namespace.
     internal: u32,
 // @smelt:if reference_origins
-    /// The live typed value this store is an erased view of, if any (see `smelt_with_origin`).
+    //~ The live typed value this store is an erased view of, if any (see `smelt_with_origin`).
     origin: Option<Box<dyn ::std::any::Any>>,
 // @smelt:end
 }
 
 impl<K, V> SmeltFieldStore<K, V> {
-    /// Build an empty store sized for `capacity` entries.
+    //~ Build an empty store sized for `capacity` entries.
     fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None, internal: 0/*@if reference_origins*/, origin: None/*@end*/ } }
     #[inline]
     fn len(&self) -> usize { self.entries.len() }
-    /// Borrow the key/value pairs in JavaScript own-key order.
+    //~ Borrow the key/value pairs in JavaScript own-key order.
     #[inline]
     fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }
-    /// Whether any key is in the internal `__smelt` namespace (markers, slots).
-    ///
-    /// Every marker probe (`smelt_object_has_host_marker`, the byte-buffer
-    /// marker, `for...in`'s regexp/error/arguments checks) asks about keys in
-    /// that namespace, and almost every object has none: a store that says so
-    /// answers all of them without scanning its entries once per marker.
+    //~ Whether any key is in the internal `__smelt` namespace (markers, slots).
+    //~
+    //~ Every marker probe (`smelt_object_has_host_marker`, the byte-buffer
+    //~ marker, `for...in`'s regexp/error/arguments checks) asks about keys in
+    //~ that namespace, and almost every object has none: a store that says so
+    //~ answers all of them without scanning its entries once per marker.
     #[inline]
     fn has_internal_keys(&self) -> bool { self.internal != 0 }
 }
@@ -209,29 +209,29 @@ impl<K, V> Default for SmeltFieldStore<K, V> {
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
-    /// Rebuild the hash index, or drop it when the store is small enough to scan.
+    //~ Rebuild the hash index, or drop it when the store is small enough to scan.
     fn reindex(&mut self) {
         if self.entries.len() <= SMELT_FIELD_SCAN_LIMIT { self.index = None; return; }
         let mut index: SmeltFieldMap<u64, usize> = SmeltFieldMap::with_capacity_and_hasher(self.entries.len(), ::std::default::Default::default());
         for (position, entry) in self.entries.iter().enumerate() { index.entry(entry.key.smelt_key_hash()).or_insert(position); }
         self.index = Some(index);
     }
-    /// Return the entry position holding `key`, or `None`.
-    ///
-    /// A small store is SCANNED, comparing keys directly: `str` equality checks
-    /// the length first, so a handful of differently sized property names are
-    /// rejected without touching their bytes, and the key is never hashed. That
-    /// is the whole point — hashing a short key costs more than the scan it
-    /// would save. Two keys of the SAME length are the case that costs, so
-    /// each entry carries a `smelt_field_fingerprint` — length, first byte,
-    /// last byte — that is compared first and rejects such a key out of the
-    /// entries vector, without dereferencing its bytes. A fingerprint hit is
-    /// still confirmed with full key equality, so the answer is unchanged.
-    /// Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
-    /// dictionary rather than a record, and the hash index resolves the
-    /// position directly; a hash collision between two DISTINCT keys is
-    /// vanishingly unlikely but not impossible, so a failed key confirmation
-    /// falls back to the scan rather than reporting the key absent.
+    //~ Return the entry position holding `key`, or `None`.
+    //~
+    //~ A small store is SCANNED, comparing keys directly: `str` equality checks
+    //~ the length first, so a handful of differently sized property names are
+    //~ rejected without touching their bytes, and the key is never hashed. That
+    //~ is the whole point — hashing a short key costs more than the scan it
+    //~ would save. Two keys of the SAME length are the case that costs, so
+    //~ each entry carries a `smelt_field_fingerprint` — length, first byte,
+    //~ last byte — that is compared first and rejects such a key out of the
+    //~ entries vector, without dereferencing its bytes. A fingerprint hit is
+    //~ still confirmed with full key equality, so the answer is unchanged.
+    //~ Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
+    //~ dictionary rather than a record, and the hash index resolves the
+    //~ position directly; a hash collision between two DISTINCT keys is
+    //~ vanishingly unlikely but not impossible, so a failed key confirmation
+    //~ falls back to the scan rather than reporting the key absent.
     #[inline]
     fn position<Q>(&self, key: &Q) -> Option<usize> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let fingerprint = key.smelt_key_fingerprint();
@@ -254,7 +254,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         self.position(key).is_some()
     }
-    /// Remove `key`, returning its value; later positions shift, so reindex.
+    //~ Remove `key`, returning its value; later positions shift, so reindex.
     fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let position = self.position(key)?;
         let entry = self.entries.remove(position);
@@ -263,11 +263,11 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
         self.reindex();
         Some(value)
     }
-    /// Insert or overwrite `key`, keeping JavaScript own-key order.
-    ///
-    /// A new key almost always appends, which keeps the index valid with a
-    /// single added mapping; only an array-index key landing before an existing
-    /// entry shifts later positions and forces a rebuild.
+    //~ Insert or overwrite `key`, keeping JavaScript own-key order.
+    //~
+    //~ A new key almost always appends, which keeps the index valid with a
+    //~ single added mapping; only an array-index key landing before an existing
+    //~ entry shifts later positions and forces a rebuild.
     fn insert(&mut self, key: K, value: V) -> Option<V> {
         if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }
         if key.smelt_is_internal_key() { self.internal += 1; }
@@ -299,10 +299,10 @@ struct SmeltPendingFill<K, V> {
 }
 
 /// The `RefCell` around a field store, building a pending snapshot on first use.
-///
-/// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
-/// `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
-/// nothing but the `origin` slot.
+//~
+//~ See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
+//~ `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
+//~ nothing but the `origin` slot.
 pub struct SmeltStoreCell<K, V> {
     cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
     pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
@@ -310,14 +310,14 @@ pub struct SmeltStoreCell<K, V> {
 
 #[allow(dead_code)]
 impl<K, V> SmeltStoreCell<K, V> {
-    /// A cell over an already-populated store.
+    //~ A cell over an already-populated store.
     #[inline]
     fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None) } }
-    /// A cell whose entries `build` produces on the first read or write.
+    //~ A cell whose entries `build` produces on the first read or write.
     fn lazy(store: SmeltFieldStore<K, V>, build: Box<dyn FnOnce() -> Vec<(K, V)>>, insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>)) -> Self {
         Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert })) }
     }
-    /// Build the pending snapshot, if any, into the store.
+    //~ Build the pending snapshot, if any, into the store.
     #[inline]
     fn materialize(&self) {
         if let Some(fill) = self.pending.take() {
@@ -325,16 +325,16 @@ impl<K, V> SmeltStoreCell<K, V> {
             (fill.insert)(&mut self.cell.borrow_mut(), entries);
         }
     }
-    /// Borrow the store, building a pending snapshot first.
+    //~ Borrow the store, building a pending snapshot first.
     #[inline]
     fn borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow() }
-    /// Mutably borrow the store, building a pending snapshot first.
+    //~ Mutably borrow the store, building a pending snapshot first.
     #[inline]
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
-    /// The origin slot, pending snapshot left unbuilt.
+    //~ The origin slot, pending snapshot left unbuilt.
     #[inline]
     fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
-    /// The origin slot, mutably, pending snapshot left unbuilt.
+    //~ The origin slot, mutably, pending snapshot left unbuilt.
     #[inline]
     fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
 }

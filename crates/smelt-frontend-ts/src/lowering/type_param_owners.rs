@@ -6,13 +6,12 @@
 //! share a spelling (`class Holder<Value>` and `class Parser<Value>`) must be
 //! two types, or a substitution meant for one silently rewrites the other.
 //!
-//! The identity is the declaring item (user decision, bounded-generics plan
-//! increment 5): the function, class, interface, type alias or method that
-//! declares the parameter, plus the parameter's name. It is deliberately NOT
-//! the declaration site: the overload signatures of one function
-//! (`function pick<T, K>(..): ..; function pick<T, K>(..) {..}`) each spell
-//! their own `<T, K>` list, but TypeScript treats them as one item, and a body
-//! that reads `T` must see the same `T` its overloads describe. Likewise a
+//! The identity is the declaring item: the function, class, interface, type
+//! alias or method that declares the parameter, plus the parameter's name. It
+//! is deliberately NOT the declaration site: the overload signatures of one
+//! function (`function pick<T, K>(..): ..; function pick<T, K>(..) {..}`) each
+//! spell their own `<T, K>` list, but TypeScript treats them as one item, and a
+//! body that reads `T` must see the same `T` its overloads describe. Likewise a
 //! method's overloads and a merged `interface` share their parameters.
 //!
 //! The owner key is a path of item names from the module root (`Parser.set`,

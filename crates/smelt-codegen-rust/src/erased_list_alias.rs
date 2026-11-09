@@ -8,7 +8,7 @@
 //! `SmeltUnknown::Array`), the two sides already share one representation:
 //! `Rc<RefCell<Vec<SmeltUnknown>>>` plus the array's identity. JavaScript hands
 //! over the SAME array object there, so the conversion must alias the buffer
-//! and keep the id, not rebuild it element by element (#250).
+//! and keep the id, not rebuild it element by element.
 //!
 //! The two prelude helpers below are that conversion and nothing else. The
 //! emitter calls them only where `FunctionEmitter::list_items_render_as_unknown`
@@ -22,23 +22,15 @@
 //!
 //! The helpers create no erasure: the erased-generic ABI erased `T` before the
 //! helper is reached, because no Rust generic in scope can name it. The helper
-//! is where a value leaves that ABI. Before #250 those conversions rebuilt the
-//! array through `into_smelt_unknown()`, one call per element: the outbound
-//! adapter for an erased `T`. The SmeltUnknown report (`smelt-transpiler`'s
-//! `unknown_report::classify_line`) counted those lines as a legitimate
-//! boundary through its `into_smelt_unknown` marker. #250 made them alias for
-//! speed and the marker went with the rebuild, so the same lines moved to
-//! avoidable with no erasure added. The report now keys on
-//! [`ERASED_GENERIC_LIST_ALIAS_FN`] and [`ERASED_GENERIC_ARRAY_ALIAS_FN`]
-//! instead, which restores that classification and no more.
+//! is where a value leaves that ABI, aliasing the list rather than rebuilding
+//! it per element. The SmeltUnknown report (`smelt-transpiler`'s
+//! `unknown_report::classify_line`) keys its legitimate-boundary classification
+//! on [`ERASED_GENERIC_LIST_ALIAS_FN`] and [`ERASED_GENERIC_ARRAY_ALIAS_FN`].
 //!
-//! What is deliberately NOT routed through a helper, so the report keeps
-//! counting it as avoidable exactly as it did before #250:
+//! What is deliberately NOT routed through a helper, so the report counts it as
+//! avoidable:
 //!
-//! - a source `unknown[]`, into `unknown` or into an erased `T[]` slot. The
-//!   first aliased before #250 too, as `SmeltUnknown::Array(list.into())`; the
-//!   second rebuilt through an identity map with no adapter. Neither line
-//!   carried a boundary marker, and both keep their plain spelling, because
+//! - a source `unknown[]`, into `unknown` or into an erased `T[]` slot, because
 //!   the erasure is the source's own `unknown`, which the metric exists to see
 //!   reduced.
 //! - the general list conversion `Into::<SmeltList<_>>::into(..)`, which every

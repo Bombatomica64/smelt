@@ -611,9 +611,9 @@ impl ModuleBuilder<'_> {
     ///
     /// The closure's return type is *not* required to be annotated: the body is a
     /// single `return <expr>` and that expression's lowered type is the closure's
-    /// return (issue #93: idiomatic Python omits annotations). A declared `-> T`
-    /// still wins when present and is checked against the lowered body, so an
-    /// explicit source contract is never silently widened.
+    /// return (idiomatic Python omits annotations). A declared `-> T` still wins
+    /// when present and is checked against the lowered body, so an explicit source
+    /// contract is never silently widened.
     ///
     /// # Parameter types
     ///
@@ -645,7 +645,7 @@ impl ModuleBuilder<'_> {
             let param = &param_with_default.parameter;
             let param_ty = match param.annotation.as_deref() {
                 Some(annotation) => self.annotation_to_hir(annotation)?,
-                // No annotation: consult `ty` (issue #93) before erroring.
+                // No annotation: consult `ty` before erroring.
                 None => self.resolved_param_ty(param).ok_or_else(|| {
                     SmeltError::type_constraint(
                         self.span(param.range),

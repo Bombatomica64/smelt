@@ -104,7 +104,7 @@ impl ModuleBuilder<'_> {
             // reaches this arm, and, like every other bound-method value on a
             // builtin/erased receiver, it resolves to the erased dynamic boundary
             // (`Unknown`) rather than hard-erroring. Codegen already tolerates the
-            // read: `string_field_text` emits an erased value for an unmodeled
+            // read: `string_field_expr` emits an erased value for an unmodeled
             // string field. This keeps field resolution general for strings
             // instead of rejecting source that TypeScript accepts.
             Type::String => Ok(self.erase(ErasureReason::UntypedBuiltin)),
@@ -158,7 +158,7 @@ impl ModuleBuilder<'_> {
                 // statically known concrete field types. Resolve them here so
                 // reads such as `re.source`, `re.flags`, and `re.lastIndex`
                 // type as the concrete Rust fields codegen actually emits
-                // (`regexp_field_text`) instead of falling through to the
+                // (`regexp_field_expr`) instead of falling through to the
                 // erased `Unknown` boundary. Erasing them would make arg
                 // coercion into `RegExp::new`'s `String` params emit a
                 // stringify-of-`SmeltUnknown` match against an already-`String`
@@ -388,12 +388,7 @@ impl ModuleBuilder<'_> {
                 // *widening* of statically-typed access — every static resolver
                 // above is tried first, so declared members keep their concrete
                 // types and only genuinely-unresolvable dynamic access lands
-                // here. Issue #114 (follow-up to #83/#84): resolvable
-                // undeclared-field access now flows through the index signature
-                // (`class_index_field`/`interface_index_values`) above, and the
-                // residual unresolvable case falls through to the boundary
-                // instead of the old per-field (`id`) / interface-exists /
-                // has-base escape hatches.
+                // here.
                 Ok(self.erase(ErasureReason::ByName))
             }
             _ => Err(SmeltError::unsupported(
@@ -610,9 +605,9 @@ impl ModuleBuilder<'_> {
     /// (`<A extends Animal>`, `<L extends HasLen>`) is a NON-GENERIC class or
     /// interface declared in the program. A member read on such a receiver
     /// (`a.legs`, `a.speak()`) has exactly the type the bound declares for it,
-    /// so it is typed through the bound instead of erasing (bounded-generics
-    /// plan, increment 1); the receiver keeps its type `A`, and MIR dispatches
-    /// the member by the receiver's concrete type (`Rvalue::BoundMethod`).
+    /// so it is typed through the bound instead of erasing; the receiver keeps its
+    /// type `A`, and MIR dispatches the member by the receiver's concrete type
+    /// (`Rvalue::BoundMethod`).
     ///
     /// Every other constraint answers `None` and keeps the erased member read:
     /// a builtin bound (`extends Date`, which names no class item), a generic

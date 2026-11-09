@@ -29,16 +29,12 @@
 //!
 //! # Why the byte view is spelled `Uint8Array`
 //!
-//! `TextEncoder.encode` returns a `Uint8Array` in the source types, but the
-//! spelling `Uint8Array` still means the byte-backed HOST RECORD that the
-//! eleven typed-array views share (`smelt_stdlib::host_object`): a view's
+//! `TextEncoder.encode` returns a `Uint8Array` in the source types. A view's
 //! runtime identity carries an element type, a byte offset, and a shared
 //! `ArrayBuffer` that reflective construction
-//! (`new Object.getPrototypeOf(x).constructor(..)`) reads back. That is now
-//! modeled: increment 3 of the typed-array plan made the eleven view spellings
-//! the concrete `SmeltTypedArray` family, so `encode` answers a `Uint8Array`
-//! under its own name and the reserved synthetic spelling that stood in for it
-//! is gone.
+//! (`new Object.getPrototypeOf(x).constructor(..)`) reads back. That is modeled
+//! by the concrete `SmeltTypedArray` family, so `encode` answers a `Uint8Array`
+//! under its own name.
 
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
@@ -297,14 +293,9 @@ impl ModuleBuilder<'_> {
 
     /// Return the modeled concrete byte-view class type: a `Uint8Array`.
     ///
-    /// The SOURCE spelling, not a reserved synthetic name. It was synthetic
-    /// while the source spelling still meant the erased byte-backed record and
-    /// rebinding it would have changed the meaning of existing programs;
-    /// increment 3 of the typed-array plan made `Uint8Array` the concrete
-    /// family, so the two names denoted the same Rust type under two spellings
-    /// and the synthetic one only hid what `encode` answers. A program can now
-    /// write `const bytes: Uint8Array = new TextEncoder().encode(text)` and
-    /// have it mean what it says.
+    /// The SOURCE spelling, so a program can write
+    /// `const bytes: Uint8Array = new TextEncoder().encode(text)` and have it mean
+    /// what it says.
     pub(in crate::lowering) fn byte_array_type(&mut self) -> smelt_hir::TypeId {
         self.typed_array_class_type("Uint8Array")
     }

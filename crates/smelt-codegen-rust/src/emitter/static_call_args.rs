@@ -1,13 +1,9 @@
 //! The static-call argument ladder, as a total function.
 //!
 //! Emitting one argument of a direct (`Callee::Static`) call is a choice between
-//! eight mutually exclusive outcomes. That choice used to live as a chain of
-//! `if .. { push(..); continue; }` blocks inside the call emitter, where the
-//! precedence between the branches was encoded *only* by their source order and
-//! documented only by comments warning that the order was load-bearing. Two of
-//! the six defects shipped by the callback-generics campaign were ordering
-//! defects in exactly that chain: a later branch silently claimed an argument an
-//! earlier branch owned, and the generated Rust failed with `E0308`.
+//! eight mutually exclusive outcomes. Precedence between them must be explicit,
+//! not encoded by the source order of a chain of branches, where a later branch
+//! can silently claim an argument an earlier branch owns.
 //!
 //! This module makes the ladder total. [`StaticArgumentKind`] names every
 //! outcome, [`FunctionEmitter::classify_static_call_argument`] is the ONE place

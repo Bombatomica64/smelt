@@ -1307,10 +1307,8 @@ impl FunctionEmitter<'_> {
     ///
     /// A union whose arms are tuples and lists (Hono's router answers
     /// `[[T, ParamIndexMap][], ParamStash] | [[T, Params][]]`) is typed all the
-    /// way through HIR, yet every element read used to erase it
-    /// (`into_smelt_unknown`), index the erased array dynamically and narrow the
-    /// answer back with `from_smelt_unknown`. A hand port matches on the enum
-    /// and reads each arm at its own type, and so does this:
+    /// way through HIR. A hand port matches on the enum and reads each arm at its
+    /// own type, and so does this:
     ///
     /// * a tuple arm with a constant index reads that element, and reads
     ///   `undefined` past its end (`result[1]` on the one-element arm);
