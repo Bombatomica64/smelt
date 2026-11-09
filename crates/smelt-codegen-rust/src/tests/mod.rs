@@ -49,7 +49,7 @@ fn rust_fn(source: &str, name: &str) -> String {
     for line in &lines[start..] {
         item.push(*line);
         depth += brace_delta(line);
-        if depth == 0 && line.contains('}') {
+        if depth == 0_i32 && line.contains('}') {
             return item.join("\n");
         }
     }
@@ -58,7 +58,7 @@ fn rust_fn(source: &str, name: &str) -> String {
 
 /// Net `{`/`}` count of one line of Rust, ignoring braces in string literals.
 fn brace_delta(line: &str) -> i32 {
-    let mut delta = 0;
+    let mut delta = 0_i32;
     let mut in_string = false;
     let mut escaped = false;
     for character in line.chars() {
@@ -66,8 +66,8 @@ fn brace_delta(line: &str) -> i32 {
             (true, true, _) => escaped = false,
             (true, false, '\\') => escaped = true,
             (_, false, '"') => in_string = !in_string,
-            (false, _, '{') => delta += 1,
-            (false, _, '}') => delta -= 1,
+            (false, _, '{') => delta += 1_i32,
+            (false, _, '}') => delta -= 1_i32,
             _ => {}
         }
     }
