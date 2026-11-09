@@ -213,6 +213,26 @@ impl FunctionEmitter<'_> {
                 // nothing to substitute, and the caller's own lexical scope is
                 // the right (and unchanged) environment to render it in.
                 rendered_args.push(self.borrowed_function_argument_expr(arg, target_ty, None)?.into_string());
+            } else if matches!(self.mir.types.get(target_ty), Some(Type::TypeParam { .. }))
+                && self.type_mentions_any(target_ty, &callee_generics)
+            {
+                // A bare type parameter the callee emits as a real Rust generic
+                // takes the type the borrowed list beside it binds, so the value
+                // is rendered at that list's element type (an `unknown[]` list
+                // binds `T` to the erased value). With no such list, the
+                // argument's own type binds it.
+                let list_binding = args.iter().zip(target_tys.iter()).find_map(|(other, other_target)| {
+                    let item = self.list_element_ty(*other_target).ok()?;
+                    (item == target_ty)
+                        .then(|| self.operand_ty(other).ok())
+                        .flatten()
+                        .and_then(|ty| self.list_element_ty(ty).ok())
+                });
+                let bound_ty = match list_binding {
+                    Some(item) => item,
+                    None => self.operand_ty(arg)?,
+                };
+                rendered_args.push(self.value_at_type(arg, bound_ty)?.into_string());
             } else {
                 rendered_args.push(self.value_at_type(arg, target_ty)?.into_string());
             }

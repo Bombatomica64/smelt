@@ -569,6 +569,14 @@ impl ModuleBuilder<'_> {
                     .or_else(|| this.last_return_type(&closure_body))
                     .unwrap_or_else(|| this.ctx.krate.types.intern(Type::None))
             };
+            // As for a module function: an `async` body's inferred return is the
+            // awaited value, and the call yields a Promise of it.
+            if function.r#async
+                && !function.generator
+                && !matches!(this.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+            {
+                return_ty = this.ctx.krate.types.intern(Type::Future(return_ty));
+            }
             if function.generator && declared_return_ty.is_some() {
                 return_ty = this.generator_type_with_fallthrough(&closure_body, return_ty);
             }

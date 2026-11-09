@@ -2,17 +2,8 @@
 
 use super::*;
 
-/// A class EXPRESSION calling a method it INHERITS resolves that method, and
-/// the call stays a direct method call.
-///
-/// A class expression's members lower before its own item is registered, so the
-/// receiver's class is "in progress" and its own metadata lists only the
-/// methods it declares. An inherited name fell through to the dynamic path,
-/// which lowers a member READ and calls it — and the emitter renders that read
-/// as a struct field of a name the class has as a METHOD:
-/// `E0615: attempted to take value of method `build_all_matchers``, the last
-/// non-H42 error in the Hono router slice (H44). Hono's shape is
-/// `const X = class<T> extends RegExpRouter<T> { … this.buildAllMatchers() }`.
+/// A class expression calling a method it inherits resolves that method and stays a direct
+/// method call, even though its members lower before its own item is registered.
 #[test]
 fn class_expression_call_to_an_inherited_method_stays_a_method_call() {
     let source = source_for(
@@ -44,17 +35,10 @@ export const reported = new Reporting().report();
     assert!(!source.contains("self.tally.clone()"), "{source}");
 }
 
-/// Issue #84: a class string index signature `[key: string]: T` emits Rust that
-/// compiles and carries a real runtime keyed store. A pure-index class
-/// (`StringBag`) exposes keyed access whose value type drives an honest
-/// `Option<T>` read; a mixed class (`MixedBag`) keeps its declared named field
-/// concretely typed (`size: f64`) alongside the index signature. The index
-/// signature's value type stays concrete, never erased to `SmeltUnknown`.
-///
-/// The backing store is a synthesized private `__smelt_index_store` field: a
-/// keyed write inserts into it and a keyed read looks it up, so `x[k] = v; x[k]`
-/// round-trips at runtime (asserted end-to-end by the CLI integration test
-/// `build_round_trips_class_index_signature_keyed_store`).
+/// A class string index signature emits a real keyed store: a pure-index class exposes
+/// keyed access with an honest `Option<T>` read, and a mixed class keeps its named field
+/// concretely typed alongside it. The index value type stays concrete, never
+/// `SmeltUnknown`.
 #[test]
 fn emits_class_index_signature_named_fields_and_keyed_store() {
     let source = source_for(
@@ -82,37 +66,17 @@ export function mixedSize(bag: MixedBag): number {
 ",
     );
 
-    // Both classes emit concrete Rust structs.
-    assert!(source.contains("struct StringBag"), "{source}");
-    assert!(source.contains("struct MixedBag"), "{source}");
-    // The mixed class keeps its named field concretely typed.
+    assert_eq!(rust_items(&source, &["sig read_bag", "sig mixed_size"]), r"fn read_bag(bag: StringBag, key: JsString) -> Option<JsString>
+
+fn mixed_size(bag: MixedBag) -> f64");
     assert!(source.contains("size: f64"), "{source}");
-    // Each index-signature class carries the synthesized backing store field.
-    assert!(source.contains("__smelt_index_store"), "{source}");
-    // The keyed read is the honest `Option<String>`, not an erased value.
-    assert!(
-        source.contains("fn read_bag") && source.contains("-> Option<JsString>"),
-        "{source}"
-    );
-    // The keyed read routes to the store lookup.
-    assert!(
-        source.contains(".__smelt_index_store.get(&"),
-        "{source}"
-    );
-    // The keyed write routes to a store insert so it round-trips.
-    assert!(
-        source.contains(".__smelt_index_store.insert("),
-        "{source}"
-    );
-    // Named-field access on the mixed class stays a concrete `f64` field read.
-    assert!(
-        source.contains("fn mixed_size") && source.contains("-> f64"),
-        "{source}"
-    );
+    assert!(source.contains(".__smelt_index_store.get(&"), "the keyed read routes to the store:\n{source}");
+    assert!(source.contains(".__smelt_index_store.insert("), "the keyed write routes to the store:\n{source}");
 }
 
 #[test]
 fn omits_private_class_fields_from_erased_object_projection() {
+    // The observable `Object.keys` result is in the `classes_behaviour` node-parity fixture.
     let source = source_for(
         r#"
 class PrivateBox {
@@ -125,18 +89,14 @@ const count = keyCount(new PrivateBox());
 "#,
     );
 
-    assert!(
-        !source.contains("(\"value\".to_owned(), SmeltUnknown::String(self.value))"),
-        "private class fields must not become enumerable erased object keys: {source}"
-    );
-    assert!(
-        !source.contains("smelt_object_entries.insert(\"value\".to_owned()"),
-        "direct class-to-unknown erasure must also omit private fields: {source}"
-    );
+    assert!(!source.contains("(\"value\".to_owned(), SmeltUnknown::String(self.value))"), "private class fields must not become enumerable erased object keys: {source}");
+    assert!(!source.contains("smelt_object_entries.insert(\"value\".to_owned()"), "direct class-to-unknown erasure must also omit private fields: {source}");
+    assert_eq!(rust_items(&source, &["sig key_count"]), r"fn key_count(value: SmeltUnknown) -> f64");
 }
 
 #[test]
 fn omits_class_getters_from_erased_object_projection() {
+    // The observable `Object.keys` result is in the `classes_behaviour` node-parity fixture.
     let source = source_for(
         r#"
 class GetterBox {
@@ -151,10 +111,8 @@ const count = keyCount(new GetterBox());
 "#,
     );
 
-    assert!(
-        !source.contains("smelt_object_entries.insert(\"value\".to_owned()"),
-        "class accessors live on the prototype and must not erase as own enumerable fields: {source}"
-    );
+    assert!(!source.contains("smelt_object_entries.insert(\"value\".to_owned()"), "class accessors live on the prototype and must not erase as own enumerable fields: {source}");
+    assert_eq!(rust_items(&source, &["sig key_count"]), r"fn key_count(value: SmeltUnknown) -> f64");
 }
 
 #[test]
@@ -211,6 +169,8 @@ export function fromEntries(...args: readonly unknown[]): unknown {
 
 #[test]
 fn emits_error_constructor_values_with_runtime_error_identity() {
+    // The observable behaviour (identity, `Object.keys` hiding `stack`) is in the
+    // `classes_behaviour` node-parity fixture.
     let source = source_for(
         r#"
 function makeError(): unknown {
@@ -222,32 +182,14 @@ const yes = value instanceof Error;
 "#,
     );
 
-    assert!(source.contains("\"__smelt_error\".to_owned()"), "{source}");
-    assert!(source.contains("\"message\".to_owned()"), "{source}");
-    assert!(
-        source.contains("value.contains_key(\"__smelt_error\")"),
-        "{source}"
-    );
-    // `stack` joins the hidden error keys: `Object.keys(err)` must not list it,
-    // because it is a non-enumerable own property in JavaScript. es-toolkit
-    // `clone` assigns `newError.stack = obj.stack`, which otherwise gave the clone
-    // an own `stack` key the original lacked and broke `toEqual`.
-    assert!(
-        source.contains("object.contains_key(\"__smelt_error\")")
-            && source.contains(
-                "matches!(key, \"__smelt_error\" | \"message\" | \"cause\" | \"errors\" | \"stack\")"
-            ),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["sig make_error"]), r"fn make_error() -> SmeltUnknown");
 }
 
 #[test]
 fn emits_runtime_sized_numeric_typed_array_constructors() {
-    // `new Uint8Array(count)` allocates `count` *elements*, at a RUNTIME count
-    // and never as an unrolled literal. The view is a concrete
-    // `SmeltTypedArray` now (increment 3), so the allocation is the family's
-    // own `with_length` — which multiplies by the kind's `BYTES_PER_ELEMENT` —
-    // and the indexed write encodes one element at that width.
+    // `new Uint8Array(count)` allocates `count` elements at a runtime count, never an unrolled
+    // literal, and the indexed write encodes one element at that width. The element stride is in
+    // the `classes_behaviour` node-parity fixture.
     let source = source_for(
         r"
 export function make(count: number): number[] {
@@ -260,27 +202,28 @@ export function make(count: number): number[] {
 ",
     );
 
-    assert!(
-        source.contains("SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((count"),
-        "{source}"
-    );
-    assert!(!source.contains("vec![0.0, 0.0, 0.0, 0.0"), "{source}");
-    // The allocation is by element count times the element stride, so a wider
-    // view over the same count is wider in bytes.
-    assert!(
-        source.contains("vec![0_u8; length * kind.byte_width()]"),
-        "{source}"
-    );
-    assert!(source.contains(".set_index("), "{source}");
+    assert_eq!(rust_items(&source, &["fn make"]), r#"fn make(count: f64) -> SmeltList<f64> {
+let mut _smelt_tmp_4: bool;
+let mut _smelt_tmp_5: f64;
+let mut _smelt_tmp_6: f64;
+let mut output: SmeltTypedArray = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((count) as f64).max(0.0) as usize);
+let mut index: f64 = 0.0;
+loop {
+_smelt_tmp_4 = index < count;
+if !(_smelt_tmp_4) { break; }
+_smelt_tmp_5 = index + 1.0;
+output.set_index(index, _smelt_tmp_5);
+_smelt_tmp_6 = index + 1.0;
+index = _smelt_tmp_6;
+}
+return { let smelt_item = |smelt_value: SmeltUnknown| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; { let smelt_src = ((output.clone()).into_smelt_unknown()).clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_item(SmeltUnknown::String(smelt_ch))).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } } };
+}"#);
 }
 
 #[test]
 fn emits_bigint_typed_array_constructor_through_the_shared_host_constructor() {
-    // `BigInt64Array` / `BigUint64Array` were previously omitted from the
-    // typed-array recognizer, so `new BigUint64Array(...)` aborted the build as
-    // an "unresolved class". They share the concrete family with the other nine
-    // views — an eight-byte element type, so three elements are 24 bytes and
-    // `.length` still reads 3.
+    // `BigInt64Array`/`BigUint64Array` share the concrete family with the other views: an eight-
+    // byte element, so three elements are 24 bytes and `.length` reads 3.
     let source = source_for(
         r"
 export function make(): number {
@@ -290,22 +233,17 @@ export function make(): number {
 ",
     );
 
-    assert!(
-        source.contains("SmeltTypedArray::with_elements(SmeltTypedArrayKind::BigUint64"),
-        "{source}"
-    );
-    assert!(source.contains(".length()"), "{source}");
-    assert!(!source.contains("unresolved"), "{source}");
+    assert_eq!(rust_items(&source, &["fn make"]), r"fn make() -> f64 {
+let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+let values: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::BigUint64, &_smelt_tmp_1.to_vec());
+let _smelt_tmp_3: f64 = values.length();
+return _smelt_tmp_3;
+}");
 }
 
-/// H69: an implicit derived constructor declares the BASE constructor's
-/// parameters, not one erased forwarded argument.
-///
-/// TypeScript types `new Derived(..)` against the base constructor's signature,
-/// so `constructor(...args) { super(...args) }` has a known arity here. The
-/// previous single `Option<SmeltUnknown>` parameter both dropped every argument
-/// past the first (E0061 at a two-argument call site) and left the base's
-/// parameter properties unrun, so `p.x` read `0`.
+/// An implicit derived constructor declares the base constructor's parameters, not one
+/// erased forwarded argument: TypeScript types `new Derived(..)` against the base
+/// signature, so the arity is known and the base's parameter properties run.
 #[test]
 fn emits_default_derived_class_constructor_with_the_base_constructors_parameters() {
     let source = source_for(
@@ -376,10 +314,8 @@ const date = new UTCDate();
 
 #[test]
 fn lowers_a_unique_symbol_keyed_class_member_and_its_read() {
-    // A module-level `const` bound to a unique `Symbol()` is evaluated once, so
-    // it is a stable static key: the member is ordinary, and so is the read.
-    // Both halves were missing -- the declaration was rejected outright, and
-    // once it lowered the read still answered `undefined`.
+    // A module-level `const` bound to a unique `Symbol()` is evaluated once, so it is a stable
+    // static key: the member and its read are both ordinary.
     let source = source_for(
         r"
 const KEY = Symbol();
@@ -396,16 +332,15 @@ export function read(holder: Holder): number {
 ",
     );
 
-    assert!(source.contains("__smelt_symbol_unique_"), "{source}");
-    assert!(!source.contains("SmeltUnknown::Undefined;"), "{source}");
+    assert_eq!(rust_items(&source, &["fn read"]), r"fn read(holder: Holder) -> f64 {
+return holder.__smelt_get___smelt_symbol_unique__at_13();
+}");
 }
 
 #[test]
 fn lowers_a_computed_method_call_over_known_members() {
-    // `receiver[key]()` on a receiver whose member set is known is a choice
-    // among known methods and lowers as one. Before this, the computed read
-    // answered `unknown`, an `unknown` callee became `undefined`, and the whole
-    // body collapsed to a default value with no diagnostic.
+    // `receiver[key]()` on a receiver whose member set is known is a choice among known methods
+    // and lowers as one.
     let source = source_for(
         r"
 class Body {
@@ -423,23 +358,25 @@ export function read(body: Body, key: 'json' | 'text'): string {
 ",
     );
 
-    assert!(source.contains("body.json()"), "{source}");
-    assert!(source.contains("body.text()"), "{source}");
-    assert!(source.contains("JsString::from(\"json-body\")"), "{source}");
-    // The defect: the body must not be a default value.
-    assert!(
-        !source.contains("fn read(body: Body, key: JsString) -> JsString {\n    return String::new();"),
-        "{source}"
-    );
+    assert_eq!(rust_items(&source, &["fn read"]), r#"fn read(body: Body, key: JsString) -> JsString {
+let mut _smelt_tmp_3: JsString;
+let _smelt_tmp_2: bool = key == "json";
+if _smelt_tmp_2 {
+let _smelt_tmp_4: JsString = body.json();
+_smelt_tmp_3 = _smelt_tmp_4;
+return _smelt_tmp_3;
+} else {
+let _smelt_tmp_5: JsString = body.text();
+_smelt_tmp_3 = _smelt_tmp_5;
+return _smelt_tmp_3;
+}
+}"#);
 }
 
 #[test]
 fn leaves_a_computed_method_call_with_arguments_alone() {
-    // The negative half. Arguments are lowered once and would be referenced
-    // from every arm of the chain, so the desugar declines a call that has
-    // any -- binding them to temporaries first is a separate change, and
-    // silently evaluating an argument once per arm would be worse than the
-    // existing lowering.
+    // Arguments are lowered once and would be referenced from every arm, so the desugar declines a
+    // call that has any; the call stays on the dynamic path.
     let source = source_for(
         r"
 class Body {
@@ -457,7 +394,10 @@ export function read(body: Body, key: 'json' | 'text'): string {
 ",
     );
 
-    assert!(!source.contains("body.json("), "{source}");
+    assert_eq!(rust_items(&source, &["fn read"]), r#"fn read(body: Body, key: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+let _smelt_tmp_2: SmeltUnknown = { let smelt_function_value = smelt_get_unknown_field(&{ let smelt_object_value = body.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new();  smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Body".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }, &key.clone()).clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String("p".into())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)) } else { smelt_value_not_callable() } };
+return Ok(match _smelt_tmp_2.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) });
+}"#);
 }
 
 #[test]
@@ -551,6 +491,9 @@ const text = JSON.stringify(options);
 
 #[test]
 fn emits_virtual_method_slots_for_abstract_base_adapters() {
+    // `ParseResult<T>` is an object-shaped alias that lowers to a real generic struct. The base
+    // declares the slot at its own `T`; the subclass's flattened layout stores it at the argument
+    // it binds. Classes with virtual slots are reference classes, read through the shared cell.
     let source = source_for(
         r#"
 type ParseResult<T> = { value: T };
@@ -624,6 +567,8 @@ export function read(): number {
 
 #[test]
 fn calls_base_typed_virtual_methods_through_stored_function_fields() {
+    // Classes with virtual slots are reference classes; a base-typed virtual call dispatches
+    // through the stored field in the shared cell.
     let source = source_for(
         r"
 abstract class Setter {
@@ -760,9 +705,9 @@ const second = counter.value;
 
 #[test]
 fn lowers_string_methods_on_coercible_receivers() {
-    // String padding/charAt/repeat/trim and prefix/suffix-with-position accept
-    // string-compatible receivers (generic `T extends string`, erased returns),
-    // numeric-like length/index/count arguments, and an optional position.
+    // String padding/charAt/repeat and prefix-with-position accept string-compatible receivers (`T
+    // extends string`, erased returns) and numeric-like arguments. Behaviour is in the
+    // `classes_behaviour` node-parity fixture.
     let source = source_for(
         r"
 export function pad(s: string, n: number, c: string): string {
@@ -779,7 +724,14 @@ export function startsAt(s: string, t: string, p: number): boolean {
 }
 ",
     );
-    assert!(source.contains("starts_with") || source.contains("StringAffix") || source.contains("char"), "{source}");
+
+    assert_eq!(rust_items(&source, &["sig pad", "sig first_char", "sig repeated", "sig starts_at"]), r"fn pad(s: JsString, n: f64, c: JsString) -> JsString
+
+fn first_char(s: SmeltUnknown) -> JsString
+
+fn repeated(s: JsString, n: f64) -> JsString
+
+fn starts_at(s: JsString, t: JsString, p: f64) -> bool");
 }
 
 #[test]
@@ -878,8 +830,8 @@ def make() -> Optional[int]:
     assert!(source.contains("a.y.clone()"), "{source}");
 }
 
-/// Issue #98: a TypeScript `static` method lowers to a receiver-free associated
-/// function and a qualified static call resolves to `Class::method(..)`.
+/// A TypeScript `static` method lowers to a receiver-free associated function and a
+/// qualified static call resolves to `Class::method(..)`.
 #[test]
 fn emits_typescript_static_method_as_associated_function() {
     let source = source_for(
@@ -905,8 +857,8 @@ export function area(radius: number): number {
     assert!(source.contains("MathUtils::square("), "{source}");
 }
 
-/// Issue #98: a Python `@staticmethod` lowers to a receiver-free associated
-/// function and a class-level variable lowers to a static field read.
+/// A Python `@staticmethod` lowers to a receiver-free associated function and a class-level
+/// variable lowers to a static field read.
 #[test]
 fn emits_python_static_method_and_class_var() {
     let source = source_for_py(
@@ -924,14 +876,11 @@ def area(radius: float) -> float:
     );
 
     assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
-    assert!(
-        !source.contains("fn square(&self") && !source.contains("fn square(&mut self"),
-        "static method must not take a receiver: {source}"
-    );
+    assert!(!source.contains("fn square(&self") && !source.contains("fn square(&mut self"), "static method must not take a receiver: {source}");
     assert!(source.contains("MathUtils::square("), "{source}");
-    // The class variable `PI = 3` reads back as its concrete integer literal.
-    assert!(source.contains("fn __smelt_static_PI"), "{source}");
-    assert!(source.contains(" 3"), "{source}");
+    assert_eq!(rust_items(&source, &["fn __smelt_static_PI"]), r"fn __smelt_static_PI() -> i64 {
+3
+}");
 }
 
 /// A module const whose initializer is a concat/slice method chain
@@ -949,27 +898,21 @@ export function numberCount(): number {
 }
 ",
     );
-    assert!(source.contains("fn number_count()"), "{source}");
-    assert!(
-        source.contains(".chain("),
-        "expected the inlined concat chain to emit list concatenation: {source}"
-    );
-    assert!(
-        source.contains(".skip("),
-        "expected the inlined slice argument to emit a skip-based slice: {source}"
-    );
+
+    let program = program_body(&source);
+    assert!(program.contains(".chain("), "the inlined concat emits list concatenation:\n{program}");
+    assert!(program.contains(".skip("), "the inlined slice emits a skip-based slice:\n{program}");
+    assert_eq!(rust_items(&source, &["fn number_count"]), r"fn number_count() -> f64 {
+let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SMALL_NUMBERS_0.with(|smelt_value| smelt_value.borrow().clone()));
+let _smelt_tmp_2: f64 = values.len() as f64;
+return _smelt_tmp_2;
+}");
 }
 
-/// A derived constructor's `super(...)` must actually run the base constructor
-/// against the derived `this`.
-///
-/// Rust has no inheritance, so the base's fields are flattened into the derived
-/// struct; nothing initializes them unless `super(...)` runs the base's
-/// initialization. It runs as an INITIALIZER over the derived receiver: the base
-/// constructor body is re-emitted into the derived impl
-/// (`__smelt_init_Base(smelt_receiver: Self, ..) -> Self`), never as a separate
-/// `Base::new(..)` whose fields are copied over (round 8 of
-/// `blocker-logs/hono-phase3-round5.md`).
+/// A derived constructor's `super(...)` runs the base constructor against the derived
+/// `this`: base fields are flattened into the derived struct and the base body is re-
+/// emitted into the derived impl as `__smelt_init_Base`, never as a separate
+/// `Base::new(..)` copied over.
 #[test]
 fn derived_constructor_super_call_runs_the_base_constructor() {
     let source = source_for(

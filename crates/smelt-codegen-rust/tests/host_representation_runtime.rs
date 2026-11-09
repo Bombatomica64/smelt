@@ -242,8 +242,8 @@ fn host_constructor_values_are_interned_and_reachable_through_constructor() {
     // and `blob.constructor === Blob` both hold. A record literal mints a fresh
     // identity on construction, so building a namespace record per reference made
     // both comparisons false — and a host record answered `undefined` for
-    // `.constructor` besides. A plain object must still answer `undefined`, which
-    // is what makes two plain objects compare as equal instances.
+    // `.constructor` besides. A plain object answers the `Object` global, as in
+    // JavaScript, one interned value, so two plain objects compare as equal instances.
     let source = r#"
 import { test, expect } from "vitest";
 test("a bare host constructor reference is one object", () => {
@@ -256,9 +256,11 @@ test("a host record's constructor is its own global", () => {
   const buffer: any = new ArrayBuffer(4);
   expect(buffer.constructor === ArrayBuffer).toBe(true);
 });
-test("a plain object's constructor stays undefined", () => {
+test("a plain object's constructor is Object", () => {
   const plain: any = { a: 1 };
-  expect(plain.constructor).toBe(undefined);
+  const other: any = { b: 2 };
+  expect(plain.constructor === Object).toBe(true);
+  expect(plain.constructor === other.constructor).toBe(true);
 });
 test("a host record does not leak its marker keys", () => {
   const blob: any = new Blob(["hello"]);

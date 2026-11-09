@@ -116,6 +116,7 @@ impl ModuleBuilder<'_> {
                 || self.module_variables.contains_key(name)
                 || (name.starts_with("__") && name.ends_with("__"))
                 || is_module_all_assignment(stmt)
+                || Self::type_alias_parts(stmt).is_some()
                 || matches!(stmt, Stmt::Assign(assign) if Self::constructed_constant_shape(assign).is_some())
                 || Self::lambda_with_call_metadata(value)
             {

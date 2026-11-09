@@ -796,6 +796,7 @@ impl ModuleBuilder<'_> {
                     ty: class_ty,
                     span,
                 },
+                class,
                 manifest_class,
                 module,
             )?;
@@ -822,7 +823,8 @@ impl ModuleBuilder<'_> {
             // class layout rather than silently replacing it with `new()`.
             let init_id = if let Some(base_sym) = base.filter(|symbol| {
                 self.ctx.krate.items.iter().any(|item| {
-                    matches!(item, Item::Class(class) if class.name == *symbol && class.constructor.is_some())
+                    matches!(item, Item::Class(class) if class.name == *symbol
+                        && class.constructor.is_some_and(|ctor| !self.constructor_does_nothing(ctor)))
                 })
             }) {
                 self.synthesize_inherited_init(class_sym, class_ty, base_sym, span)?

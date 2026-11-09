@@ -1619,6 +1619,9 @@ impl FunctionEmitter<'_> {
     fn closure_source_local(&self, local: LocalId) -> LocalId {
         let mut current = local;
         for _ in 0_u8..8 {
+            if self.local_write_count(current) > 1 {
+                return current;
+            }
             let mut next = None;
             for block in &self.function.blocks {
                 for statement in &block.statements {
@@ -1647,6 +1650,21 @@ impl FunctionEmitter<'_> {
         current
     }
 
+    /// How many statements write `local`; a value it holds is only statically
+    /// known when this is at most one.
+    fn local_write_count(&self, local: LocalId) -> usize {
+        self.function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter(|statement| match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace { place: Place::Local(written), .. } => *written == local,
+                _ => false,
+            })
+            .count()
+    }
+
     /// Resolve a callback operand to a Rust closure shaped like its function type.
     ///
     /// JavaScript array callbacks may declare fewer formal parameters than the
@@ -1668,6 +1686,11 @@ impl FunctionEmitter<'_> {
         };
         let dest_ty = self.operand_ty(operand)?;
         let source_local = self.closure_source_local(local);
+        // A local written on several paths (`cond ? a : b`) has no single
+        // construction to inline: the caller renders the local's runtime value.
+        if self.local_write_count(source_local) > 1 {
+            return Err(EmitError::new("list callback is selected at runtime"));
+        }
         for block in &self.function.blocks {
             for statement in &block.statements {
                 if let Statement::Assign {

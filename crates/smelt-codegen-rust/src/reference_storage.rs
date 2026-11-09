@@ -462,6 +462,14 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         method = class_proto::PROTO_ENTRIES_METHOD,
                     ));
                 }
+                fn_writer.line(
+                    "if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }",
+                );
+                fn_writer.line(format!(
+                    "let __smelt_view = {};",
+                    reference_origin::with_origin_expr("SmeltObject::with_id(__smelt_id, Vec::<(String, SmeltUnknown)>::new())", "self.clone()").delimited()
+                ));
+                fn_writer.line("smelt_begin_reference_view(__smelt_id, &__smelt_view);");
                 fn_writer.line("let __smelt_inner = self.0.borrow();");
                 fn_writer.line(
                     "let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([",
@@ -522,10 +530,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
                 }
                 // The erased view holds the live handle, so narrowing it back
                 // yields this instance (see `reference_origin`).
-                fn_writer.line(format!(
-                    "SmeltUnknown::Object({})",
-                    reference_origin::with_origin_expr("SmeltObject::with_id(__smelt_id, __smelt_entries)", "self").delimited()
-                ));
+                fn_writer.line("smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)");
             });
         },
     );

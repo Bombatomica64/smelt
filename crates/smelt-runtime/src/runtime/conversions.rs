@@ -57,7 +57,19 @@ impl IntoSmeltUnknown for () {
 
 //~ Erasing a typed list yields an identity-bearing `SmeltUnknown::Array`,
 //~ carrying the list's reference id and erasing each element in turn.
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
+//~ A list reachable from itself (`p.friends = [p]`) erases to one cyclic array,
+//~ as JavaScript holds it: the list being erased is registered by id first, so a
+//~ nested visit answers with that array instead of expanding again.
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown {
+    thread_local! { static SMELT_LISTS_BEING_ERASED: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltArray>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+    let id = self.id();
+    if let Some(array) = SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow().get(&id).cloned()) { return SmeltUnknown::Array(array); }
+    let array = SmeltArray::with_id(id, Vec::new());
+    SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow_mut().insert(id, array.clone()));
+    for item in self.into_vec() { let value = item.into_smelt_unknown(); array.push(value); }
+    SMELT_LISTS_BEING_ERASED.with(|lists| lists.borrow_mut().remove(&id));
+    SmeltUnknown::Array(array)
+} }
 
 pub trait SmeltFromUnknown {
     //~ Whether converting a value of this type may convert a generated record,
