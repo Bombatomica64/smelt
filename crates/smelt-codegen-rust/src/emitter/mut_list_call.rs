@@ -213,6 +213,15 @@ impl FunctionEmitter<'_> {
                 // nothing to substitute, and the caller's own lexical scope is
                 // the right (and unchanged) environment to render it in.
                 rendered_args.push(self.borrowed_function_argument_expr(arg, target_ty, None)?.into_string());
+            } else if matches!(self.mir.types.get(target_ty), Some(Type::TypeParam { .. }))
+                && self.type_mentions_any(target_ty, &callee_generics)
+            {
+                // A bare type parameter the callee emits as a real Rust generic
+                // is bound by this argument's own type, exactly as the borrowed
+                // list beside it binds it: converting to the callee's declared
+                // spelling would erase a value Rust is about to infer `T` from.
+                let own_ty = self.operand_ty(arg)?;
+                rendered_args.push(self.value_at_type(arg, own_ty)?.into_string());
             } else {
                 rendered_args.push(self.value_at_type(arg, target_ty)?.into_string());
             }
