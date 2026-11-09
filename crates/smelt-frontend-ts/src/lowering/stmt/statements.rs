@@ -977,7 +977,6 @@ impl ModuleBuilder<'_> {
         matches!(&await_expr.argument, Expression::ImportExpression(_))
     }
 
-    /// Lower a statement in the current scope.
     /// Evaluate `export default <expression>` in the module body.
     ///
     /// A name, a function, a class or a literal runs no code when evaluated, so
@@ -1009,6 +1008,7 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Lower a statement in the current scope.
     pub(in crate::lowering) fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
     }
