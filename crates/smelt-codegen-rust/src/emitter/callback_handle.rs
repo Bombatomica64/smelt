@@ -355,15 +355,21 @@ impl FunctionEmitter<'_> {
             || self.is_function_parameter_place(&Place::Local(local))?)
     }
 
-    /// Return true when a captured local is a borrowed callback parameter.
+    /// Whether `capture` holds a callback the enclosing function only borrows.
     ///
-    /// Such captures must not force a `move` closure: moving the borrowed
-    /// callback prevents later direct uses in the same generated function.
+    /// The one answer every closure-emission path asks. It is decided by the
+    /// captured local's identity through [`Self::is_function_parameter_place`],
+    /// which is the predicate the signature renderer uses, never by spelling: a
+    /// local that merely shares a parameter's name (`toKey` after its default
+    /// is merged out of `Option<Rc<dyn Fn>>`) owns its callback.
     ///
     /// A closure body (emitted through the synthetic [`FuncId::SYNTHETIC`]
     /// function) has no borrowed parameters: its parameters are rendered as
     /// owned `Rc<dyn Fn>` handles (`closure_arg_N`), so a closure created in it
     /// may own a captured callback even when it escapes.
+    ///
+    /// Such captures must not force a `move` closure: moving the borrowed
+    /// callback prevents later direct uses in the same generated function.
     pub(super) fn capture_is_borrowed_callback_param(
         &self,
         local: LocalId,
@@ -371,42 +377,31 @@ impl FunctionEmitter<'_> {
         if self.function.id == FuncId::SYNTHETIC {
             return Ok(false);
         }
-        let decl = self.local_decl(local)?;
-        let local_name = self.local_binding(local)?.text();
-        Ok(
-            matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
-                && self.function.params.iter().any(|param| {
-                    self.local_binding(*param)
-                        .is_ok_and(|binding| binding.text() == local_name)
-                        && self
-                            .function_parameter_requires_owned(*param)
-                            .is_ok_and(|requires_owned| !requires_owned)
-                }),
-        )
+        self.is_function_parameter_place(&Place::Local(local))
     }
 
-    /// Return true when a closure capture symbol names a borrowed callback parameter.
+    /// Reject a closure that would outlive a callback it only borrows.
     ///
-    /// Never true in a closure body; see [`Self::capture_is_borrowed_callback_param`].
-    pub(super) fn capture_symbol_is_borrowed_callback_param(
+    /// `compute_owned_callback_params` makes every parameter captured by an
+    /// escaping or erased closure owned, so this state is an analysis bug. It
+    /// is an error rather than a stub: a default callback here compiles and
+    /// silently returns `null` at runtime.
+    pub(super) fn ensure_closure_owns_callbacks(
         &self,
-        symbol: Symbol,
-        ty: TypeId,
-    ) -> Result<bool, EmitError> {
-        if self.function.id == FuncId::SYNTHETIC {
-            return Ok(false);
+        closure: &MirClosure,
+        erased_destination: bool,
+    ) -> Result<(), EmitError> {
+        if (closure.escapes || erased_destination)
+            && closure.captures.iter().any(|capture| {
+                self.capture_is_borrowed_callback_param(capture.source_local)
+                    .unwrap_or(false)
+            })
+        {
+            return Err(EmitError::new(
+                "closure outlives a callback parameter the callback ABI analysis left borrowed",
+            ));
         }
-        if !matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
-            return Ok(false);
-        }
-        let capture_name = self.symbol_name(symbol)?;
-        Ok(self.function.params.iter().any(|param| {
-            self.local_binding(*param)
-                .is_ok_and(|binding| binding.text() == capture_name)
-                && self
-                    .function_parameter_requires_owned(*param)
-                    .is_ok_and(|requires_owned| !requires_owned)
-        }))
+        Ok(())
     }
 
     /// Render a callback argument for a borrowed function parameter.
