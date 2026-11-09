@@ -367,6 +367,8 @@ function values<Value extends string>(input: string[]): string[] {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "values", "values<Value>(input: List<String>) -> List<String>")?;
+    ensure_exprs!(&ctx, TypeAssert);
     Ok(())
 }
 
@@ -598,7 +600,7 @@ export const PI_VALUE = Math.PI;
     Ok(())
 }
 
-/// Issue #73: an exported const initialized from a member expression on a
+/// An exported const initialized from a member expression on a
 /// builtin/global root that is not a well-known Number/Math numeric constant
 /// (`Array.prototype`, `Array.prototype.slice`, `Object.prototype`, ...) is a
 /// genuine dynamic boundary. It must route through general expression lowering
@@ -629,7 +631,7 @@ export const numberProto = Number.prototype;
     Ok(())
 }
 
-/// Issue #73: a builtin `.prototype` member and a well-known numeric constant
+/// A builtin `.prototype` member and a well-known numeric constant
 /// can coexist in the same module — the numeric alias keeps folding to its
 /// literal const while the prototype member routes to the general path — so the
 /// numeric folder is not disturbed by the new member routing.
@@ -2410,6 +2412,9 @@ const clampImplementation = (value: number, { min, max }: Limits): number =>
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Closure, Conditional);
+    ensure!(crate_has_field(&ctx, "max"), "no read of field `max`");
+    ensure!(crate_has_field(&ctx, "min"), "no read of field `min`");
     Ok(())
 }
 
@@ -2426,6 +2431,8 @@ function cloneObject<T extends object>(value: T): T {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "clone_object", "clone_object<T>(value: T) -> T")?;
+    ensure_no_exprs!(&ctx, ClosureCall);
     Ok(())
 }
 
@@ -2442,6 +2449,7 @@ values.push(copied);
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ListPush);
     Ok(())
 }
 
@@ -2461,6 +2469,8 @@ function inspect<T extends object>(value: T): unknown {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "inspect", "inspect<T>(value: T) -> Unknown")?;
+    ensure_exprs!(&ctx, PrototypeSentinel, DictProjection);
     Ok(())
 }
 
@@ -2478,6 +2488,8 @@ function lookup<T>(value: T, refFrom: unknown[] = [], refTo: unknown[] = []): T 
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "lookup", "lookup<T>(value: T, ref_from: List<Unknown>, ref_to: List<Unknown>) -> T")?;
+    ensure_exprs!(&ctx, ListSearch, Index);
     Ok(())
 }
 
@@ -2496,6 +2508,8 @@ function copy(index: number, item: unknown): unknown[] {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "copy", "copy(index: Float, item: Unknown) -> List<Unknown>")?;
+    ensure_exprs!(&ctx, Index);
     Ok(())
 }
 
@@ -2516,6 +2530,8 @@ function copy(value: readonly unknown[]): unknown[] {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "copy", "copy(value: List<Unknown>) -> List<Unknown>")?;
+    ensure_exprs!(&ctx, ListProjection, TupleIndex);
     Ok(())
 }
 
@@ -2532,6 +2548,8 @@ const first = value.a[0].b;
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Index);
+    ensure!(crate_has_field(&ctx, "b"), "no read of field `b`");
     Ok(())
 }
 
@@ -2546,6 +2564,8 @@ const values = [{ a: (x: number): number => x + x }, /x/u];
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Closure, ListLit);
+    ensure!(crate_has_new(&ctx, "RegExp"), "no construction of `RegExp`");
     Ok(())
 }
 
@@ -2566,6 +2586,7 @@ test("nullish", () => {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "test_nullish", "test_nullish() -> None")?;
     Ok(())
 }
 
@@ -2585,6 +2606,8 @@ test("metadata", () => {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "test_metadata", "test_metadata() -> None")?;
+    ensure_exprs!(&ctx, Index, TypeAssert);
     Ok(())
 }
 
@@ -2598,6 +2621,7 @@ fn lowers_declaration_type_test_index_access_on_unknown_metadata() -> Result<(),
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Index);
     Ok(())
 }
 
@@ -2610,6 +2634,8 @@ fn lowers_runtime_index_access_on_unknown_metadata() -> Result<(), String> {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "read", "read(value: Unknown) -> Unknown")?;
+    ensure_exprs!(&ctx, Index);
     Ok(())
 }
 

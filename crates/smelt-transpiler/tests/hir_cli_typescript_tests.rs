@@ -1643,29 +1643,8 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
-#[test]
-fn build_predeclares_union_generator_methods_across_barrel_cycle() -> TestResult {
-    let project = TempProject::new()?;
-    let project_path = project.path();
-    fs::create_dir_all(project_path.join("src"))?;
-    fs::write(
-        project_path.join("Smelt.toml"),
-        r#"[project]
-name = "ts-barrel-cycle-generator-types"
-version = "0.1.0"
-
-[sources]
-entries = ["src/main.ts"]
-
-[output]
-target = "./dist"
-crate-name = "ts_barrel_cycle_generator_types"
-build = true
-
-[runtime]
-clone-strategy = "aggressive"
-"#,
-    )?;
+/// Writes a barrel-cycle TypeScript project: `index.ts` re-exports modules that import it back.
+fn write_barrel_cycle_sources(project_path: &std::path::Path) -> TestResult {
     fs::write(
         project_path.join("src/result.ts"),
         r#"import type { ResultAsync } from "./index";
@@ -1716,6 +1695,33 @@ new ResultAsync<number>(started).safeUnwrap().next().then((step) => {
 });
 "#,
     )?;
+    Ok(())
+}
+
+#[test]
+fn build_predeclares_union_generator_methods_across_barrel_cycle() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-barrel-cycle-generator-types"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_barrel_cycle_generator_types"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    write_barrel_cycle_sources(project_path)?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;

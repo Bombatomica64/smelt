@@ -372,6 +372,8 @@ export function stash(value: unknown): void {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "stash", "stash(value: Unknown) -> None")?;
+    ensure_exprs!(&ctx, GlobalGet, GlobalSet);
     Ok(())
 }
 
@@ -401,6 +403,9 @@ export function reset(): void {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "put", "put(key: String, value: String) -> None")?;
+    ensure_signature(&ctx, "reset", "reset() -> None")?;
+    ensure_exprs!(&ctx, GlobalSet, Index);
     Ok(())
 }
 
