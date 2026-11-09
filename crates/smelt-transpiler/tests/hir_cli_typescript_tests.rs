@@ -6,7 +6,7 @@ use std::fs;
 
 use common::{
     TempProject, TestResult, cargo_run_manifest, cargo_run_manifest_with_env, cargo_test_manifest,
-    ensure, ensure_eq, smelt,
+    ensure, ensure_eq, ensure_node_agrees, smelt,
     smelt_in, smelt_with_env, tool_missing,
     utf8_path,
 };
@@ -1471,11 +1471,18 @@ clone-strategy = "aggressive"
 export function read(options?: Options): number {
   return options?.value ?? 0;
 }
+
+console.log(read({ value: 3 }), read());
 "#,
     )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "check"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let main = fs::read_to_string(project_path.join("src/main.ts"))?;
+    let types = fs::read_to_string(project_path.join("src/types.ts"))?;
+    ensure_node_agrees(&[("main.ts", &main), ("types.ts", &types)], "main.ts", "3 0\n", "multiline_type_import")?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"3 0\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }
@@ -1582,9 +1589,14 @@ export function read(options?: StartOptions): number {
 }
 "#,
     )?;
-
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "check"])?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    // The inherited options resolve through the import cycle to the concrete
+    // generated shape, with no erasure in the signature.
+    let generated = generated_rust_text(project_path)?;
+    let signature = emitted_signature(&generated, "read")?;
+    ensure(signature == "pub(crate) fn read(options: Option<StartOptions>) -> f64 {", format!("read signature: {signature}"))?;
 
     Ok(())
 }
@@ -1643,7 +1655,7 @@ name = "ts-barrel-cycle-generator-types"
 version = "0.1.0"
 
 [sources]
-entries = ["src/index.ts"]
+entries = ["src/main.ts"]
 
 [output]
 target = "./dist"
@@ -1694,9 +1706,21 @@ export class ResultAsync<T> {
         project_path.join("src/index.ts"),
         "export { Ok, Err } from './result';\nexport type { Result } from './result';\nexport { ResultAsync } from './result-async';\n",
     )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"import { Ok, ResultAsync, type Result } from "./index";
+
+const started: Promise<Result<number>> = Promise.resolve(new Ok(5));
+new ResultAsync<number>(started).safeUnwrap().next().then((step) => {
+  console.log(step.done, step.value);
+});
+"#,
+    )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"true 5\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }
@@ -2028,6 +2052,12 @@ fn generated_rust_text(project: &std::path::Path) -> TestResult<String> {
     Ok(text)
 }
 
+/// Asserts the emitted signature line of free function `name` is exactly `expected`.
+fn ensure_emitted_signature(generated: &str, name: &str, expected: &str) -> TestResult {
+    let signature = emitted_signature(generated, name)?;
+    ensure(signature == expected, format!("`{name}`: expected `{expected}`, got `{signature}`"))
+}
+
 /// The emitted signature line of free function `name` (`fn name<..>(..) -> ..`).
 fn emitted_signature(generated: &str, name: &str) -> TestResult<String> {
     let needle = format!("fn {name}");
@@ -2108,13 +2138,16 @@ console.log(dog.age, puppy.age, tag(new Puppy(2, 0), 'p'), tag(new Animal(3, 9),
     let (project, manifest) = multi_module_project("class-bound-trait", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    for name in ["loud", "tag"] {
-        let signature = emitted_signature(&generated, name)?;
-        ensure(
-            signature.contains("<A: AnimalLike + ") && !signature.contains(": SmeltUnknown") && !signature.contains("-> SmeltUnknown"),
-            format!("`{name}` must lift with the bound's trait, got `{signature}`"),
-        )?;
-    }
+    ensure_emitted_signature(
+        &generated,
+        "loud",
+        "pub(crate) fn loud<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> A {",
+    )?;
+    ensure_emitted_signature(
+        &generated,
+        "tag",
+        "pub(crate) fn tag<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A, prefix: JsString) -> JsString {",
+    )?;
     for implementor in ["Animal", "Dog", "Puppy"] {
         ensure(
             generated.contains(&format!("impl AnimalLike for {implementor} {{")),
@@ -2167,13 +2200,16 @@ console.log(longest(new Rope(3), new Rope(9)).label())
     let (project, manifest) = multi_module_project("interface-bound-trait", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    for name in ["longest", "label_of"] {
-        let signature = emitted_signature(&generated, name)?;
-        ensure(
-            signature.contains("<L: HasLenLike + ") && !signature.contains(": SmeltUnknown") && !signature.contains("-> SmeltUnknown"),
-            format!("`{name}` must lift with the bound's trait, got `{signature}`"),
-        )?;
-    }
+    ensure_emitted_signature(
+        &generated,
+        "longest",
+        "pub(crate) fn longest<L: HasLenLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: L, b: L) -> L {",
+    )?;
+    ensure_emitted_signature(
+        &generated,
+        "label_of",
+        "pub(crate) fn label_of<L: HasLenLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(item: L) -> JsString {",
+    )?;
     ensure(
         generated.contains("impl HasLenLike for HasLen {")
             && generated.contains("impl HasLenLike for Rope {"),
@@ -2215,10 +2251,10 @@ console.log(winner.legs, winner.speak(), older(new Animal(1, 2), new Animal(2, 1
     let (project, manifest) = multi_module_project("bound-returns-param", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    let signature = emitted_signature(&generated, "older")?;
-    ensure(
-        signature.contains("<A: AnimalLike + ") && signature.contains("(a: A, b: A) -> A"),
-        format!("`older` must lift and return `A`, got `{signature}`"),
+    ensure_emitted_signature(
+        &generated,
+        "older",
+        "pub(crate) fn older<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A, b: A) -> A {",
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(&stdout, &"3 woof 1\n".to_owned(), "unexpected stdout")?;
@@ -2260,13 +2296,16 @@ console.log(twice(new Puppy(4)), twice(new Animal(2)))
     let (project, manifest) = multi_module_project("bound-forwarding", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    for name in ["loud", "twice"] {
-        let signature = emitted_signature(&generated, name)?;
-        ensure(
-            signature.contains("<A: AnimalLike + ") && !signature.contains(": SmeltUnknown") && !signature.contains("-> SmeltUnknown"),
-            format!("`{name}` must lift with the bound's trait, got `{signature}`"),
-        )?;
-    }
+    ensure_emitted_signature(
+        &generated,
+        "loud",
+        "pub(crate) fn loud<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> A {",
+    )?;
+    ensure_emitted_signature(
+        &generated,
+        "twice",
+        "pub(crate) fn twice<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> JsString {",
+    )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(
         &stdout,
@@ -2306,10 +2345,10 @@ console.log(grow(animal), animal.legs)
     let (project, manifest) = multi_module_project("bound-write-fallback", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    let signature = emitted_signature(&generated, "grow")?;
-    ensure(
-        signature.contains("SmeltUnknown") && !signature.contains("AnimalLike"),
-        format!("`grow` must keep the erased signature, got `{signature}`"),
+    ensure_emitted_signature(
+        &generated,
+        "grow",
+        "pub(crate) fn grow(mut a: SmeltUnknown) -> f64 {",
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(&stdout, &"5 5\n".to_owned(), "unexpected stdout")?;
@@ -2349,10 +2388,10 @@ console.log(isNaN(bad.getTime()), String(bad), bad === bad)
     let (project, manifest) = multi_module_project("date-shared-handle", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    let signature = emitted_signature(&generated, "bump")?;
-    ensure(
-        signature.contains("d: SmeltDate") && !signature.contains(": SmeltUnknown"),
-        format!("a `Date` parameter must be the concrete handle, got `{signature}`"),
+    ensure_emitted_signature(
+        &generated,
+        "bump",
+        "pub(crate) fn bump(mut d: SmeltDate) -> () {",
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(
@@ -2392,15 +2431,16 @@ console.log(isValid(start), isValid(invalid), isValid(addDays(invalid, 1)))
     let (project, manifest) = multi_module_project("date-bound-trait", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
-    for name in ["add_days", "is_valid"] {
-        let signature = emitted_signature(&generated, name)?;
-        ensure(
-            signature.contains("<D: DateLike + ")
-                && !signature.contains(": SmeltUnknown")
-                && !signature.contains("-> SmeltUnknown"),
-            format!("`{name}` must lift with `DateLike`, got `{signature}`"),
-        )?;
-    }
+    ensure_emitted_signature(
+        &generated,
+        "add_days",
+        "pub(crate) fn add_days<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut date: D, amount: f64) -> D {",
+    )?;
+    ensure_emitted_signature(
+        &generated,
+        "is_valid",
+        "pub(crate) fn is_valid<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(date: D) -> bool {",
+    )?;
     ensure(
         generated.contains(".smelt_date().get_time()"),
         "a `D: DateLike` value is read through its date handle",
