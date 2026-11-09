@@ -203,6 +203,52 @@ fn contextual_add_and_symbol_keys() -> TestResult {
     verify_node_parity("contextual_add_and_symbol_keys")
 }
 
+/// An uncaught throw exits as Node does: status 1, with the thrown class and
+/// message on stderr. Covers a throw returned out of `main` and one that crosses
+/// a callback through the panic route.
+#[test]
+fn uncaught_throw_exits_one_with_its_message() -> TestResult {
+    let programs = [
+        ("returned out of main", "throw new TypeError('top level');\n", "TypeError: top level"),
+        (
+            "through a callback",
+            "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
+            "RangeError: nope 1",
+        ),
+    ];
+    for (name, source, message) in programs {
+        let project = TempProject::new()?;
+        let root = project.path();
+        fs::create_dir_all(root.join("src"))?;
+        fs::write(root.join("src/main.ts"), source)?;
+        fs::write(
+            root.join("Smelt.toml"),
+            r#"[project]
+name = "node-parity"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "node_parity"
+build = false
+"#,
+        )?;
+        smelt_in(root, &["build"])?;
+        let output = std::process::Command::new("cargo")
+            .args(["run", "--quiet", "--manifest-path", "dist/Cargo.toml"])
+            .current_dir(root)
+            .env("RUSTFLAGS", "-Awarnings")
+            .output()?;
+        ensure_eq(&output.status.code(), &Some(1_i32), format!("{name}: exit status"))?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        ensure_eq(&stderr.contains(message), &true, format!("{name}: stderr was {stderr}"))?;
+    }
+    Ok(())
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
