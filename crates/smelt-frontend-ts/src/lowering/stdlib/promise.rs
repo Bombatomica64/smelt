@@ -641,7 +641,7 @@ impl ModuleBuilder<'_> {
                 may_throw: false,
             }));
             let rejected = self.argument_with_hint(rejected_arg, body, Some(rejected_ty))?;
-            let rejected_result_ty = body
+            let rejected_return = body
                 .expr_at(rejected)
                 .and_then(|expr| match &expr.kind {
                     ExprKind::Closure(closure) => Some(closure.return_ty),
@@ -650,12 +650,14 @@ impl ModuleBuilder<'_> {
                 .or_else(|| match self.ctx.krate.types.get(Self::expr_ty(body, rejected)) {
                     Some(Type::Function(function)) => Some(function.return_ty),
                     _ => None,
-                })
-                .map(|ty| match self.ctx.krate.types.get(ty) {
+                });
+            let rejected_result_ty = match rejected_return {
+                Some(ty) => match self.ctx.krate.types.get(ty) {
                     Some(Type::Future(item)) => *item,
                     _ => ty,
-                })
-                .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "promise callback result"));
+                },
+                None => self.erase_with(ErasureReason::MissingAnnotation, "promise callback result"),
+            };
             let joined = if rejected_result_ty == callback_result_ty {
                 callback_result_ty
             } else {
