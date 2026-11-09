@@ -31,7 +31,7 @@ export function keepFunction(b?: (count: number) => number): number {
 }
 ",
     );
-    assert_eq!([rust_fn(&source, "keep_number"), rust_fn(&source, "keep_function")].join("\n\n"), r#"fn keep_number(b: Option<f64>) -> f64 {
+    assert_eq!([rust_fn(&source, "keep_number"), rust_fn(&source, "keep_function")].join("\n\n"), r"fn keep_number(b: Option<f64>) -> f64 {
 let _smelt_tmp_4: f64;
 let _smelt_tmp_5: f64;
 let _smelt_tmp_6: f64;
@@ -61,7 +61,7 @@ return _smelt_tmp_5;
 _smelt_tmp_6 = -1.0;
 return _smelt_tmp_6;
 }
-}"#);
+}");
 }
 
 /// A concrete `Option<Rc<dyn Fn>>` narrowed to its function stays concrete.
@@ -76,7 +76,7 @@ export function callIt(b?: (count: number) => number): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "call_it"), r#"fn call_it(b: Option<::std::rc::Rc<dyn Fn(f64) -> f64>>) -> f64 {
+    assert_eq!(rust_fn(&source, "call_it"), r"fn call_it(b: Option<::std::rc::Rc<dyn Fn(f64) -> f64>>) -> f64 {
 let _smelt_tmp_4: ::std::rc::Rc<dyn Fn(f64) -> f64>;
 let _smelt_tmp_5: f64;
 let _smelt_tmp_6: f64;
@@ -90,7 +90,7 @@ return _smelt_tmp_5;
 _smelt_tmp_6 = -1.0;
 return _smelt_tmp_6;
 }
-}"#);
+}");
 }
 
 /// An optional read at a type parameter that renders erased maps absence onto
@@ -105,7 +105,7 @@ export function orDefault<TDefault = unknown>(value: any, defaultValue?: TDefaul
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "or_default"), r#"fn or_default(value: SmeltUnknown, default_value: Option<SmeltUnknown>) -> SmeltUnknown {
+    assert_eq!(rust_fn(&source, "or_default"), r"fn or_default(value: SmeltUnknown, default_value: Option<SmeltUnknown>) -> SmeltUnknown {
 let _smelt_tmp_3: SmeltUnknown;
 let _smelt_tmp_2: bool = matches!(value.clone(), SmeltUnknown::Null);
 if _smelt_tmp_2 {
@@ -114,7 +114,7 @@ return _smelt_tmp_3;
 } else {
 return value.clone();
 }
-}"#);
+}");
 }
 
 /// Tuples of any width passed to a list parameter become lists of their elements.

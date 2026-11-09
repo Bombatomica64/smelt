@@ -31,13 +31,13 @@ export function useDropFirst(): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "use_drop_first"), r#"fn use_drop_first() -> f64 {
+    assert_eq!(rust_fn(&source, "use_drop_first"), r"fn use_drop_first() -> f64 {
 let _smelt_tmp_3: f64;
 let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(1.0 as f64), SmeltUnknown::Number(2.0 as f64), SmeltUnknown::Number(3.0 as f64)]; smelt_list_items }));
 let _ = { let smelt_mut_call_result = drop_first(&mut values); smelt_mut_call_result };
 _smelt_tmp_3 = values.len() as f64;
 return _smelt_tmp_3;
-}"#);
+}");
 }
 
 /// `value as string` is a type assertion, so absence reaching a `String` slot

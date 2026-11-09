@@ -24,7 +24,7 @@ export function compact<T>(items: T[]): T[] {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "compact"), r#"fn compact(items: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
+    assert_eq!(rust_fn(&source, "compact"), r"fn compact(items: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
 let mut item: SmeltUnknown;
 let mut _smelt_tmp_5: usize;
 let mut _smelt_tmp_6: bool;
@@ -48,7 +48,7 @@ continue;
 }
 }
 return out;
-}"#);
+}");
 }
 
 /// A function value is always truthy, so its guard folds and the false arm goes.
@@ -106,10 +106,10 @@ export function isBool(value: unknown): boolean {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "is_bool"), r#"fn is_bool(value: SmeltUnknown) -> bool {
+    assert_eq!(rust_fn(&source, "is_bool"), r"fn is_bool(value: SmeltUnknown) -> bool {
 let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::Bool(_));
 return _smelt_tmp_1;
-}"#);
+}");
 }
 
 /// A `SmeltList` is an array on every path, so `Array.isArray` on an optional
@@ -123,7 +123,7 @@ export function count(values?: string[]): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "count"), r#"fn count(values: Option<SmeltList<JsString>>) -> f64 {
+    assert_eq!(rust_fn(&source, "count"), r"fn count(values: Option<SmeltList<JsString>>) -> f64 {
 let mut _smelt_tmp_2: f64;
 let _smelt_tmp_3: f64;
 let _smelt_tmp_1: bool = values.clone().is_some();
@@ -135,7 +135,7 @@ _smelt_tmp_2 = _smelt_tmp_3;
 _smelt_tmp_2 = 0.0;
 }
 return _smelt_tmp_2;
-}"#);
+}");
 }
 
 /// An `unknown` needs the runtime array-tag match.
@@ -148,10 +148,10 @@ export function isList(value: unknown): boolean {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "is_list"), r#"fn is_list(value: SmeltUnknown) -> bool {
+    assert_eq!(rust_fn(&source, "is_list"), r"fn is_list(value: SmeltUnknown) -> bool {
 let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::Array(_));
 return _smelt_tmp_1;
-}"#);
+}");
 }
 
 /// `maximum!` is type-level only: the callee's parameter is optional and
@@ -172,10 +172,10 @@ export function spanFrom(minimum: number, maximum?: number): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "span_from"), r#"fn span_from(minimum: f64, maximum: Option<f64>) -> f64 {
+    assert_eq!(rust_fn(&source, "span_from"), r"fn span_from(minimum: f64, maximum: Option<f64>) -> f64 {
 let _smelt_tmp_2: f64 = span(minimum, maximum.clone());
 return _smelt_tmp_2;
-}"#);
+}");
 }
 
 /// An erased tuple element may hold a promise at runtime, so `await` drives
@@ -194,7 +194,7 @@ export async function run(): Promise<unknown> {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "run"), r#"async fn run() -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
+    assert_eq!(rust_fn(&source, "run"), r"async fn run() -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
 let result: SmeltUnknown;
 let _smelt_tmp_5: SmeltUnknown;
 let _smelt_tmp_1 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {
@@ -208,5 +208,5 @@ result = _smelt_tmp_2.1.clone();
 let _smelt_tmp_4: SmeltFuture<SmeltUnknown> = { let smelt_erased_future = (result).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(smelt_awaited) })) };
 _smelt_tmp_5 = _smelt_tmp_4.await?;
 return Ok(_smelt_tmp_5);
-}"#);
+}");
 }

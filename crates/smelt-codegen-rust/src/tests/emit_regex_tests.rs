@@ -194,11 +194,11 @@ export function cloneRe(obj: unknown): RegExp {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "clone_re"), r#"fn clone_re(obj: SmeltUnknown) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
+    assert_eq!(rust_fn(&source, "clone_re"), r"fn clone_re(obj: SmeltUnknown) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
 let reg_exp: SmeltRegExp = <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(obj.clone());
 let _smelt_tmp_3: SmeltRegExp = smelt_regexp_compile(JsString::from(&*reg_exp.source).clone(), JsString::from(&*reg_exp.flags).clone())?;
 return Ok(_smelt_tmp_3);
-}"#);
+}");
 }
 
 /// A record of regex arrays keeps its entries at their concrete type.

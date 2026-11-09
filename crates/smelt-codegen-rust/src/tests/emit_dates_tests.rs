@@ -285,7 +285,7 @@ function apply(isTwoDigitYear: boolean, year: number, date: Date): Date {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "apply"), r#"fn apply(is_two_digit_year: bool, year: f64, mut date: SmeltDate) -> SmeltDate {
+    assert_eq!(rust_fn(&source, "apply"), r"fn apply(is_two_digit_year: bool, year: f64, mut date: SmeltDate) -> SmeltDate {
 let normalized_two_digit_year: f64;
 let _smelt_tmp_5: SmeltDate;
 if is_two_digit_year {
@@ -296,7 +296,7 @@ return date.clone();
 } else {
 return date.clone();
 }
-}"#);
+}");
 }
 
 /// A `Date` crossing into an erased callable goes through the date boundary adapter.

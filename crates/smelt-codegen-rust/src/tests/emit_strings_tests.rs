@@ -108,7 +108,7 @@ function label(values: string[]): string[] {
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "label"), r#"fn label(values: SmeltList<JsString>) -> SmeltList<JsString> {
+    assert_eq!(rust_fn(&source, "label"), r"fn label(values: SmeltList<JsString>) -> SmeltList<JsString> {
 let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, _arg0: &SmeltList<JsString>| {
 let mut _smelt_tmp_3: JsString;
 let _smelt_tmp_4: JsString;
@@ -138,7 +138,7 @@ _smelt_tmp_5 = JsString::new() + &_smelt_tmp_3.clone();
 _smelt_tmp_5.clone()
 }); let smelt_array = values.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
 return _smelt_tmp_2;
-}"#);
+}");
 }
 
 /// A character read off a bounded `T extends string` is erased text with the JavaScript case conversion.
@@ -170,7 +170,7 @@ const selected: unknown = value ? value : fallback;
 ",
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(rust_fn(&source, "main"), r"fn main() {
 let selected: SmeltUnknown;
 let mut _smelt_tmp_6: SmeltUnknown;
 let value: SmeltUnknown = SmeltUnknown::Number(1.0 as f64);
@@ -180,7 +180,7 @@ let _smelt_tmp_5: bool = match value.clone() { SmeltUnknown::Null | SmeltUnknown
 let _smelt_tmp_6: SmeltUnknown = if _smelt_tmp_5 { value } else { fallback.clone().into_smelt_unknown() };
 selected = _smelt_tmp_6;
 return;
-}"#);
+}");
 }
 
 /// A `number` shift is int32 (`ToInt32(a)` by `ToUint32(b) & 31`); a `bigint` shift is the unbounded, fallible runtime shift.
@@ -200,7 +200,7 @@ function shiftRaw(raw: bigint): bigint {
 ",
     );
 
-    assert_eq!([rust_fn(&source, "shift_raw"), rust_fn(&source, "main")].join("\n\n"), r#"fn shift_raw(raw: ::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn std::error::Error>> {
+    assert_eq!([rust_fn(&source, "shift_raw"), rust_fn(&source, "main")].join("\n\n"), r"fn shift_raw(raw: ::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn std::error::Error>> {
 let _smelt_tmp_1: ::num_bigint::BigInt = smelt_bigint_shr(&raw, &::num_bigint::BigInt::from(1_i64))?;
 return Ok(_smelt_tmp_1);
 }
@@ -226,7 +226,7 @@ number_left = ((({ let smelt_int32_v = (1.0 as f64).trunc(); if smelt_int32_v.is
 _smelt_tmp_12 = -8.0;
 number_right = ((({ let smelt_int32_v = (_smelt_tmp_12 as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shr({ let smelt_uint32_v = (1.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
 return Ok(());
-}"#);
+}");
 }
 
 /// Only a single regex or string argument on an erased receiver is `String.prototype.match`; two callbacks are a dynamic member call.
@@ -292,10 +292,10 @@ export function kindOf(value: unknown): string {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "kind_of"), r#"fn kind_of(value: SmeltUnknown) -> JsString {
+    assert_eq!(rust_fn(&source, "kind_of"), r"fn kind_of(value: SmeltUnknown) -> JsString {
 let _smelt_tmp_1: JsString = JsString::from(smelt_typeof(&value));
 return _smelt_tmp_1;
-}"#);
+}");
 }
 
 /// `.length` on an erased callback value dispatches on its runtime tag.

@@ -27,7 +27,7 @@ export function below(a: bigint, b: number): boolean {
 }
 ",
     );
-    assert_eq!([rust_fn(&source, "mix"), rust_fn(&source, "half"), rust_fn(&source, "below")].join("\n\n"), r#"fn mix(a: ::num_bigint::BigInt, b: ::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn std::error::Error>> {
+    assert_eq!([rust_fn(&source, "mix"), rust_fn(&source, "half"), rust_fn(&source, "below")].join("\n\n"), r"fn mix(a: ::num_bigint::BigInt, b: ::num_bigint::BigInt) -> Result<::num_bigint::BigInt, Box<dyn std::error::Error>> {
 let _smelt_tmp_4: ::num_bigint::BigInt;
 let _smelt_tmp_5: ::num_bigint::BigInt;
 let _smelt_tmp_2: ::num_bigint::BigInt = &a * &b;
@@ -45,7 +45,7 @@ return Ok(_smelt_tmp_1);
 fn below(a: ::num_bigint::BigInt, b: f64) -> bool {
 let _smelt_tmp_2: bool = matches!(smelt_bigint_compare_number(&a, b), Some(::std::cmp::Ordering::Less));
 return _smelt_tmp_2;
-}"#);
+}");
 }
 
 /// The genuine dynamic boundary behind `SmeltUnknown::BigInt`.
@@ -110,13 +110,13 @@ export function roundTrip(): bigint {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "round_trip"), r#"fn round_trip() -> ::num_bigint::BigInt {
+    assert_eq!(rust_fn(&source, "round_trip"), r"fn round_trip() -> ::num_bigint::BigInt {
 let _smelt_tmp_1: SmeltList<::num_bigint::BigInt> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::num_bigint::BigInt> = vec![::num_bigint::BigInt::from(1_i64), ::num_bigint::BigInt::from(2_i64)]; smelt_list_items }));
 let mut view: SmeltTypedArray = SmeltTypedArray::with_bigint_elements(SmeltTypedArrayKind::BigInt64, &_smelt_tmp_1.to_vec());
 view.set_bigint(1.0, &::num_bigint::BigInt::from(9223372036854775807_i64));
 let _smelt_tmp_3: ::num_bigint::BigInt = &view.get_bigint(0.0).unwrap_or_default() + &view.get_bigint(1.0).unwrap_or_default();
 return _smelt_tmp_3;
-}"#);
+}");
 }
 
 /// `JSON.stringify` over a bigint is a catchable `TypeError`. Only a value
