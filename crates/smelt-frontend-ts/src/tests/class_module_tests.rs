@@ -25,6 +25,9 @@ class Counter {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "new", "new(start: Float) -> Counter")?;
+    ensure_signature(&ctx, "next", "next(this: Counter) -> Float")?;
+    ensure!(crate_has_field(&ctx, "#count"), "no read of field `#count`");
     Ok(())
 }
 
@@ -55,6 +58,12 @@ export const run = (): number => new Counter().add(3);
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "#bump", "#bump(this: Counter, by: Float) -> Float")?;
+    ensure_signature(&ctx, "add", "add(this: Counter, by: Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> Counter")?;
+    ensure_signature(&ctx, "run", "run() -> Float")?;
+    ensure!(crate_has_method(&ctx, "#bump"), "no call of method `#bump`");
+    ensure!(crate_has_new(&ctx, "Counter"), "no construction of `Counter`");
     Ok(())
 }
 
@@ -90,6 +99,14 @@ export const run = (): number => new Node().compare(new Node());
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "#deeper", "#deeper(this: Node) -> Float")?;
+    ensure_signature(&ctx, "compare", "compare(this: Node, other: Node) -> Float")?;
+    ensure_signature(&ctx, "#at_least", "#at_least(this: Node, value: Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> Node")?;
+    ensure_signature(&ctx, "run", "run() -> Float")?;
+    ensure!(crate_has_method(&ctx, "#deeper"), "no call of method `#deeper`");
+    ensure!(crate_has_method(&ctx, "#at_least"), "no call of method `#at_least`");
+    ensure!(crate_has_field(&ctx, "#depth"), "no read of field `#depth`");
     Ok(())
 }
 
@@ -108,6 +125,8 @@ function run(handler: Handler, value: number): number {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(handler: fn(Float) -> Float, value: Float) -> Float")?;
+    ensure_exprs!(&ctx, ClosureCall);
     Ok(())
 }
 
@@ -127,6 +146,8 @@ export function invariant(condition: unknown, message: string): asserts conditio
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "invariant", "invariant(condition: Unknown, message: String) -> None")?;
+    ensure_exprs!(&ctx, DictLit, PrimitiveCast);
     Ok(())
 }
 
@@ -143,12 +164,13 @@ export interface RecursiveArray<T> extends Array<T | RecursiveArray<T>> {}
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_item(&ctx, "RecursiveArray"), "no item named `RecursiveArray`");
     Ok(())
 }
 
 #[test]
 fn lowers_generic_class_with_type_param_methods() -> Result<(), String> {
-    // Issue #99: a generic class carries its declared type parameters into HIR,
+    // A generic class carries its declared type parameters into HIR,
     // and a call to a method whose declared return type is the class parameter
     // resolves to the receiver's concrete argument (`Container<number>::get()`
     // is `number`), so the whole program lowers and validates.
@@ -194,7 +216,7 @@ export function useContainer(): number {
 
 #[test]
 fn lowers_generic_free_function_with_type_params() -> Result<(), String> {
-    // Issue #99: a generic free function retains its declared type parameters on
+    // A generic free function retains its declared type parameters on
     // the HIR `Function` item (they were previously dropped at
     // `function_declaration_named`), so MIR and codegen can emit real Rust
     // generics instead of erasing `T` to `SmeltUnknown`.
@@ -246,10 +268,11 @@ export interface ByIndex {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_item(&ctx, "ByIndex"), "no item named `ByIndex`");
     Ok(())
 }
 
-/// A class that is purely a string index signature (issue #84) lowers instead
+/// A class that is purely a string index signature lowers instead
 /// of being rejected, and its statically known value type is recorded so keyed
 /// access resolves through it. The keyed read is the honest `Optional<T>`
 /// (missing key -> undefined), not an erased `SmeltUnknown`.
@@ -273,7 +296,7 @@ export function readBag(bag: StringBag, key: string): string | undefined {
     // The index signature's value type is recorded for the class.
     ensure!(!ctx.class_index_values.is_empty());
     // The class carries a synthesized HIDDEN `__smelt_index_store` field typed
-    // `Dict<String, String>` that backs the runtime keyed store (issue #84/#18).
+    // `Dict<String, String>` that backs the runtime keyed store.
     let string_bag = module
         .items
         .iter()
@@ -451,7 +474,7 @@ fn interface_named<'a>(
 }
 
 /// A `const`-keyed computed interface field (`{ [KEY]: T }`) resolves to the
-/// const's string value as a static named member (issue #96), instead of being
+/// const's string value as a static named member, instead of being
 /// rejected as a dynamic property name.
 #[test]
 fn lowers_const_keyed_computed_interface_field() -> Result<(), String> {
@@ -482,7 +505,7 @@ export interface Keyed {
 }
 
 /// An enum-member-keyed computed interface field (`{ [E.A]: T }`) folds to the
-/// enum member's string value as a static named member (issue #96).
+/// enum member's string value as a static named member.
 #[test]
 fn lowers_enum_keyed_computed_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -514,7 +537,7 @@ export interface ByKind {
 }
 
 /// A `const`-keyed computed class field resolves to the const's string value as
-/// a static named class field (issue #96).
+/// a static named class field.
 #[test]
 fn lowers_const_keyed_computed_class_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -543,7 +566,7 @@ class Node {
 }
 
 /// A well-known `[Symbol.iterator]` interface method resolves to the stable
-/// synthetic member spelling so it lowers to a named method (issue #96) rather
+/// synthetic member spelling so it lowers to a named method rather
 /// than being silently dropped or rejected as a dynamic key.
 #[test]
 fn lowers_symbol_iterator_computed_interface_method() -> Result<(), String> {
@@ -615,7 +638,7 @@ export function writeBag(bag: StringBag, key: string, value: string): void {
     Ok(())
 }
 
-/// Issue #98: a `static` method lowers to a `ClassStaticMethod`-owned function
+/// A `static` method lowers to a `ClassStaticMethod`-owned function
 /// (no `this` receiver) kept in the class's `static_methods`, and a `static`
 /// constant becomes a materialized static field with a concrete literal value.
 #[test]
@@ -688,7 +711,7 @@ export function area(radius: number): number {
     Ok(())
 }
 
-/// Issue #114 (follow-up to #83/#84): dotted access to an *undeclared* member of
+/// Dotted access to an *undeclared* member of
 /// a class that carries a string index signature resolves through the index
 /// signature's value type, not the erased `Unknown` boundary. `bag.anything`
 /// is a keyed store read whose static type is the index value `string`, so the
@@ -732,7 +755,7 @@ export function readBag(bag: StringBag): string {
     Ok(())
 }
 
-/// Issue #114: dotted access to an undeclared member of a class whose base type
+/// Dotted access to an undeclared member of a class whose base type
 /// carries an index signature resolves through the *inherited* index value
 /// type. `derived.dynamic` finds no named field on `Derived` and no index
 /// signature on `Derived` itself, but the base `Bag`'s string index signature
@@ -756,10 +779,14 @@ export function readDynamic(derived: Derived): string {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "read_dynamic", "read_dynamic(derived: Derived) -> String")?;
+    ensure_signature(&ctx, "new", "new() -> Bag")?;
+    ensure_exprs!(&ctx, BaseConstructorInit);
+    ensure!(crate_has_field(&ctx, "dynamic"), "no read of field `dynamic`");
     Ok(())
 }
 
-/// Issue #114: an undeclared dotted read on a concrete class with neither an
+/// An undeclared dotted read on a concrete class with neither an
 /// index signature nor a resolvable base no longer aborts lowering with the
 /// `unknown class or interface field` blocker. Static resolution (declared
 /// fields, methods, index signatures, base/interface heritage, builtins) is
@@ -805,7 +832,7 @@ export function readDynamic(p: Point): unknown {
 
 /// A well-known `[Symbol.asyncIterator]` interface method resolves to a stable
 /// synthetic member spelling and lowers to a named method rather than hitting
-/// the "property names must be static" gate (issue #115, neverthrow residual).
+/// the "property names must be static" gate.
 #[test]
 fn lowers_symbol_async_iterator_computed_interface_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -831,7 +858,7 @@ export interface Seq {
 
 /// A `Symbol.for(<literal>)`-aliased const used as a computed interface method
 /// key (`const matcher = Symbol.for("k"); { [matcher](): T }`) folds to the
-/// registry synthetic member spelling (issue #115, ts-pattern residual). This is
+/// registry synthetic member spelling. This is
 /// the const-alias shape ts-pattern uses for its `[matcher]()` protocol methods.
 #[test]
 fn lowers_symbol_for_const_keyed_interface_method() -> Result<(), String> {
@@ -860,7 +887,7 @@ export interface Matcher {
 
 /// An inline `[Symbol.for("k")]` computed interface field folds to the same
 /// registry synthetic member spelling as a `Symbol.for`-aliased const, since
-/// registry symbols are interned by description (issue #115).
+/// registry symbols are interned by description.
 #[test]
 fn lowers_inline_symbol_for_computed_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -887,7 +914,7 @@ export interface Branded {
 /// A `Symbol.for(<literal>)`-aliased const referenced through a namespace import
 /// (`import * as symbols; { [symbols.override]: T }`) folds to the registry
 /// synthetic member spelling — the exact shape ts-pattern's `Pattern.ts` uses
-/// (issue #115). The registry const is declared and re-exported by an earlier
+///. The registry const is declared and re-exported by an earlier
 /// module so it resolves through the cross-module const machinery.
 #[test]
 fn lowers_namespace_symbol_for_computed_interface_field() -> Result<(), String> {
@@ -1088,6 +1115,11 @@ export function build(): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "build", "build() -> Float")?;
+    ensure_signature(&ctx, "new", "new(v: Float) -> Node")?;
+    ensure!(crate_has_method(&ctx, "self"), "no call of method `self`");
+    ensure!(crate_has_method(&ctx, "rebuild"), "no call of method `rebuild`");
+    ensure!(crate_has_new(&ctx, "Node"), "no construction of `Node`");
     Ok(())
 }
 
@@ -1325,6 +1357,11 @@ export function run(box: ResultBox): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(box: ResultBox) -> Float")?;
+    ensure_signature(&ctx, "match", "match(this: ResultBox, ok: fn(Float) -> Float, err: fn(String) -> Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> ResultBox")?;
+    ensure_no_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
     Ok(())
 }
 
@@ -1354,6 +1391,11 @@ export function run(box: OkBox | ErrBox): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "run", "run(box: OkBox | ErrBox) -> Float")?;
+    ensure_signature(&ctx, "match", "match(this: OkBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> OkBox")?;
+    ensure_no_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
     Ok(())
 }
 
@@ -1406,6 +1448,14 @@ export function run(holder: Holder): number {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "make_result", "make_result() -> ResultBox")?;
+    ensure_signature(&ctx, "run", "run(holder: Holder) -> Float")?;
+    ensure_signature(&ctx, "match", "match(this: ResultBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float")?;
+    ensure_signature(&ctx, "new", "new() -> ResultBox")?;
+    ensure_signature(&ctx, "get_result", "get_result(this: Holder) -> ResultBox")?;
+    ensure_no_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
+    ensure!(crate_has_method(&ctx, "get_result"), "no call of method `get_result`");
     Ok(())
 }
 

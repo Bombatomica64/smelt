@@ -248,7 +248,7 @@ def test_raises_forms():
         body.locals.iter().any(|local| {
             local
                 .name
-                .is_some_and(|name| symbol(&ctx, name).is_ok_and(|name| name == "excinfo"))
+                .is_some_and(|name| symbol(&ctx, name).is_ok_and(|text| text == "excinfo"))
         }),
         "expected pytest.raises as excinfo to bind a catch local",
     )?;

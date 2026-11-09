@@ -69,7 +69,7 @@ fn ensure_class_shape(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
     };
     let base = class
         .base
-        .map(|base| render(base).map(|base| format!(": {base}")))
+        .map(|base| render(base).map(|rendered| format!(": {rendered}")))
         .transpose()?
         .unwrap_or_default();
     let fields = class
@@ -153,8 +153,8 @@ fn method_receiver_types(ctx: &HirCtx, name: &str) -> Result<Vec<String>, String
         })
         .map(|receiver| {
             let index = usize::try_from(receiver.0).map_err(|error| error.to_string())?;
-            let receiver = body.exprs.get(index).ok_or("missing receiver expression")?;
-            Ok(smelt_hir::type_display(&ctx.krate, receiver.ty))
+            let receiver_expr = body.exprs.get(index).ok_or("missing receiver expression")?;
+            Ok(smelt_hir::type_display(&ctx.krate, receiver_expr.ty))
         })
         .collect()
 }
