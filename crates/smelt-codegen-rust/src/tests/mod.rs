@@ -33,27 +33,31 @@ fn program_body(source: &str) -> &str {
 /// crate cannot satisfy it.
 #[track_caller]
 fn rust_fn(source: &str, name: &str) -> String {
-    let lines: Vec<&str> = program_body(source).lines().map(str::trim).collect();
-    let start = lines.iter().position(|line| {
-        let line = line.strip_prefix("pub ").unwrap_or(line);
-        let line = line.strip_prefix("async ").unwrap_or(line);
-        line.strip_prefix("fn ")
-            .and_then(|rest| rest.strip_prefix(name))
-            .is_some_and(|rest| rest.starts_with(['(', '<']))
-    });
-    let Some(start) = start else {
+    let mut lines = program_body(source).lines().map(str::trim).skip_while(|line| !declares_fn(line, name));
+    let Some(signature) = lines.next() else {
         panic!("no emitted function named `{name}`:\n{source}");
     };
-    let mut depth = 0_i32;
-    let mut item = Vec::new();
-    for line in &lines[start..] {
-        item.push(*line);
-        depth += brace_delta(line);
-        if depth == 0_i32 && line.contains('}') {
-            return item.join("\n");
+    let mut depth = brace_delta(signature);
+    let mut item = vec![signature];
+    for line in lines {
+        if depth == 0_i32 && item.iter().any(|seen| seen.contains('}')) {
+            break;
         }
+        item.push(line);
+        depth = depth.saturating_add(brace_delta(line));
     }
-    panic!("emitted function `{name}` has no closing brace:\n{source}");
+    assert!(depth == 0_i32, "emitted function `{name}` has no closing brace:\n{source}");
+    item.join("\n")
+}
+
+/// Whether a trimmed line of Rust opens the definition of function `name`.
+fn declares_fn(line: &str, name: &str) -> bool {
+    let without_pub = line.strip_prefix("pub ").unwrap_or(line);
+    let without_async = without_pub.strip_prefix("async ").unwrap_or(without_pub);
+    without_async
+        .strip_prefix("fn ")
+        .and_then(|rest| rest.strip_prefix(name))
+        .is_some_and(|rest| rest.starts_with(['(', '<']))
 }
 
 /// Net `{`/`}` count of one line of Rust, ignoring braces in string literals.
@@ -66,8 +70,8 @@ fn brace_delta(line: &str) -> i32 {
             (true, true, _) => escaped = false,
             (true, false, '\\') => escaped = true,
             (_, false, '"') => in_string = !in_string,
-            (false, _, '{') => delta += 1_i32,
-            (false, _, '}') => delta -= 1_i32,
+            (false, _, '{') => delta = delta.saturating_add(1_i32),
+            (false, _, '}') => delta = delta.saturating_sub(1_i32),
             _ => {}
         }
     }
