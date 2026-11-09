@@ -260,7 +260,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // reaches these helpers (their signatures pin `SmeltUnknown` elements, so
     // the generated crate would not compile).
     // Proven in `erased_generic_list_alias_is_a_boundary` below and in
-    // `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`
+    // `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files`
     // (`erased_generic_list_into_unknown_list_takes_the_alias_helper`,
     // `erased_generic_list_argument_judges_each_side_at_its_own_scope`,
     // `concrete_list_erasure_still_converts_elements`,
@@ -382,7 +382,7 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // program-storage erasure: no concrete Rust `Fn`, generated union arm,
     // or scoped generic can carry two overloads of different shape at once.
     // Proven in `erased_callable_object_slot_is_a_boundary` below and in
-    // `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`
+    // `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files`
     // (`ambiguous_same_arity_call_signatures_answer_the_erased_call_result`,
     // `call_beyond_every_declared_overload_arity_keeps_its_arguments`,
     // `same_arity_call_signatures_are_selected_by_argument_type`).

@@ -1,4 +1,4 @@
-//! Split codegen tests chunk.
+//! Generated Rust for Python dicts, lists and sets.
 
 use super::*;
 

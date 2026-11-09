@@ -39,7 +39,7 @@ whose body is a single TypeScript fixture program plus a one-line call, and each
 carries `#[ignore = "slow: emits and runs a generated test crate"]`. Splitting
 one into three or five Rust tests would multiply that emit-and-run cost with no
 extra coverage, so instead the program is hoisted to a module-level `const` —
-the convention `CALLABLE_OVERLOAD_PRELUDE` in `part_7_tests.rs` already follows.
+the convention `CALLABLE_OVERLOAD_PRELUDE` in `the `emit_*_tests.rs` files` already follows.
 The reasoning comment stays on the test, where it belongs. Files:
 `form_data_runtime.rs`, `map_lookup_runtime.rs`,
 `projected_receiver_place_runtime.rs`, `callback_destructuring_runtime.rs`,

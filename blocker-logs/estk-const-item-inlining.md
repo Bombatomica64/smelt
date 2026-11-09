@@ -104,8 +104,8 @@ any const imports):
   - `smelt-frontend-ts::tests::part01_tests::imported_const_with_array_spread_initializer_inlines`
   - `smelt-frontend-ts::tests::part01_tests::imported_const_with_method_chain_initializer_inlines`
   - `smelt-frontend-ts::tests::part01_tests::imported_const_with_callback_chain_initializer_inlines`
-  - `smelt-codegen-rust::tests::part_7_tests::inlined_spread_const_emits_concrete_string_list_concat`
-  - `smelt-codegen-rust::tests::part_7_tests::inlined_method_chain_const_emits_concat_and_slice`
+  - `smelt-codegen-rust::tests::emit_closures_tests::inlined_spread_const_emits_concrete_string_list_concat`
+  - `smelt-codegen-rust::tests::emit_closures_tests::inlined_method_chain_const_emits_concat_and_slice`
 - Fixture project (spread + concat/slice + filter/join consts imported across
   modules): `smelt build` succeeds and the generated crate's `cargo test`
   passes 3/3.

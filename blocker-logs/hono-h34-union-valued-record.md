@@ -76,7 +76,7 @@ first, so it picks the new guard up with no change.
 
 ## Coverage
 
-Two tests in `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`, each
+Two tests in `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files`, each
 asserting its enabling condition before its claim, and both verified to FAIL
 with the fixes reverted:
 

@@ -1453,7 +1453,7 @@ it("configures a chain", () => {
     // results, so `body.exprs` holds dangling duplicates; only the exprs
     // referenced by statements reach MIR (single mock construction per chain
     // is pinned on the generated Rust by `vitest_mock_chain_constructs_one_stateful_mock`
-    // in `crates/smelt-codegen-rust/src/tests/part_7_tests.rs`).
+    // in `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files`).
     ensure!(
         body.exprs
             .iter()

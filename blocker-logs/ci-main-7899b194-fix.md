@@ -55,8 +55,8 @@ named `mints_object_ids` predicate and also covers the event emitter, the `node:
 the request/response/body runtimes. (Same family as item 1: a demand tracked separately from the
 emission that creates it.)
 
-**Regression tests.** `part_7_tests::a_typed_array_element_read_is_a_concrete_number`,
-`part_7_tests::a_primitive_set_program_defines_the_object_id_counter`, plus the
+**Regression tests.** `emit_closures_tests::a_typed_array_element_read_is_a_concrete_number`,
+`emit_closures_tests::a_primitive_set_program_defines_the_object_id_counter`, plus the
 `set_collection_emission` snapshot, which now carries the counter it calls.
 
 ## 4. Runtime tier `async` / `promise_value_fidelity_runtime` — "union guard selected an excluded member"

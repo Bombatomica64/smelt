@@ -14,7 +14,7 @@
 //
 // The erased forwarded slot survives only where the base is NOT reproducible
 // (a host constructor, an abstract base, a generic one); that is a genuine
-// dynamic boundary and `part_7_tests.rs` pins it separately, out of this
+// dynamic boundary and `the `emit_*_tests.rs` files` pins it separately, out of this
 // zero-erasure corpus.
 //
 // Every line below is diffed against Node.

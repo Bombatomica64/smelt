@@ -92,7 +92,7 @@ host class WITH a member table and every non-optional target field is one of its
 optional field the source does not expose is absent, which is what an optional property means. The
 "the source exposes members at all" gate is load-bearing: without it a dictionary source reported
 "no member" per field and an all-optional record was built entirely out of absent fields, which
-COMPILES and silently drops the value. `part_7_tests::a_record_target_is_not_built_from_a_source_with_no_members`
+COMPILES and silently drops the value. `emit_closures_tests::a_record_target_is_not_built_from_a_source_with_no_members`
 pins that.
 
 **Result:** 39 → 37, both `Option<globalThis_ResponseInit>` sites. Fixture

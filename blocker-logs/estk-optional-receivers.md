@@ -63,7 +63,7 @@ semantics. es-toolkit does not rely on optional `Set` mutation propagation.
 
 ## Tests
 
-* Codegen regression tests (`crates/smelt-codegen-rust/src/tests/part_5_tests.rs`):
+* Codegen regression tests (`crates/smelt-codegen-rust/src/tests/emit_array_methods_tests.rs`):
   * `emits_optional_chained_map_methods_as_guarded_modeled_ops`
   * `emits_optional_chained_set_has_as_guarded_modeled_op`
 * End-to-end fixture verified with `smelt build` + generated `cargo test`

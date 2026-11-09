@@ -11,7 +11,7 @@
 //
 // (The counter-case, an arrow that reads only scalars and is therefore still
 // free to lift, is covered by `keeps_lifting_a_module_arrow_over_scalars` in
-// `part_7_tests.rs`: a lifted item's Rust name embeds the source path, so it
+// `the `emit_*_tests.rs` files`: a lifted item's Rust name embeds the source path, so it
 // cannot appear in a checked-in `expected.rs`.)
 const rem: string[] = [];
 

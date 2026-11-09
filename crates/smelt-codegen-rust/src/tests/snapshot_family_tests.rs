@@ -95,7 +95,7 @@ export function count(a: boolean, b: boolean): number {
 
 /// Snapshot the full array-callback method surface (map/filter/find/some/every/
 /// reduce, captured closures, bound callbacks). This is the densest cluster of
-/// fragment assertions in `part_1_tests.rs`.
+/// fragment assertions in `emit_callback_options_tests.rs`.
 #[test]
 fn array_callback_methods_emission() {
     assert_emitted_source_snapshot(
@@ -164,7 +164,7 @@ for (let ch: string of word) {
 // Note: a `Record`-indexing callback case was considered here but its emitted
 // module (record runtime helpers) exceeds the 450-line selective-snapshot
 // budget; the callback/record interaction is covered by the substring tests in
-// part_1_tests.rs and by the other callback snapshots below.
+// emit_callback_options_tests.rs and by the other callback snapshots below.
 
 // --- Closures / callbacks -------------------------------------------------
 

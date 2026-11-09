@@ -343,7 +343,7 @@ it.
   that every name in `TYPED_ARRAY_CLASS_NAMES` has a registry entry with an
   element type. A drift here silently changes `length`, `isTypedArray`, and every
   decode.
-* `crates/smelt-codegen-rust/src/tests/part_7_tests.rs` — string goldens (these run
+* `crates/smelt-codegen-rust/src/tests/the `emit_*_tests.rs` files` — string goldens (these run
   in CI) for the per-view spec tags, the element codec (one decode/encode per
   width, signed vs unsigned, `Uint8ClampedArray` saturating, the
   `(marker, tag, BYTES_PER_ELEMENT)` table with the byte-addressed kinds excluded),

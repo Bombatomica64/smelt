@@ -1,4 +1,4 @@
-//! Split codegen tests chunk.
+//! Generated Rust for callbacks and optional parameters.
 
 use super::*;
 

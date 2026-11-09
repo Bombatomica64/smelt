@@ -37,7 +37,7 @@ already-rendered form verbatim; the prelude path clones the recovered `Rc` cell
 nested shared-capture closures.
 
 Regression test: `nested_closure_reuses_enclosing_shared_capture_cell`
-(part_1_tests.rs) — asserts the double-wrap substring never appears, the nested
+(emit_callback_options_tests.rs) — asserts the double-wrap substring never appears, the nested
 `Rc` clone is emitted, and the assignment targets the single-wrapped cell.
 
 ### 2. E0631 optional-union `.length` mapper mismatch (5 -> 3)
@@ -62,7 +62,7 @@ is a legitimate dynamic boundary (documented inline). The two sites did not
 compile before, so this adds `into_smelt_unknown` erasure only at real
 `.length`-on-dynamic-union boundaries, not to ordinary data flow.
 
-Regression test: `optional_union_length_inspects_dynamically` (part_1_tests.rs).
+Regression test: `optional_union_length_inspects_dynamically` (emit_callback_options_tests.rs).
 
 ## Deferred (root cause identified; fix is architectural or out-of-lane)
 

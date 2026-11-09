@@ -62,7 +62,7 @@ something out of scope. Any branchy method hit it; Hono's routers are nothing
 but branchy methods. `emit_method` now calls `emit_mutable_local_preludes`, so a
 method body and a function body agree.
 
-Two constructor assertions moved with it (`part_7_tests`): a `super()` result is
+Two constructor assertions moved with it (`emit_closures_tests`): a `super()` result is
 now `let __smelt_super: A;` plus an assignment rather than one initialized
 `let`, which is what every free-function body already looked like.
 

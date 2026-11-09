@@ -1,4 +1,4 @@
-//! Split codegen tests chunk.
+//! Generated Rust for Python JSON and builtin arrays.
 
 use super::*;
 
