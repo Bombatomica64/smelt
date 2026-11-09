@@ -137,6 +137,7 @@ function adjust(value: number): number {
 function searches(): void {
   const values = [1, 2, NaN, 3, 2];
   console.log(values.indexOf(2), values.lastIndexOf(2), values.indexOf(NaN));
+  console.log(values.lastIndexOf(NaN), values.indexOf(NaN, 1), values.lastIndexOf(NaN, 3));
   console.log(values.indexOf(2, 2), values.indexOf(2, -1), values.indexOf(2, -100), values.indexOf(2, 99));
   console.log(values.lastIndexOf(2, 3), values.lastIndexOf(2, -2), values.lastIndexOf(2, -100));
 }
