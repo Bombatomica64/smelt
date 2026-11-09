@@ -837,11 +837,6 @@ impl ModuleBuilder<'_> {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(resolved_ty).cloned() {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Future(_)) => None,
-            Some(Type::Class { name, .. })
-                if self.ctx.krate.symbols.get(name) == Some("PropertyKey") =>
-            {
-                None
-            }
             Some(Type::Union(items)) => {
                 let mut matches = items
                     .into_iter()
@@ -1100,6 +1095,20 @@ impl ModuleBuilder<'_> {
                 ty: target,
                 span: self.span(span.start, span.end),
             }));
+        }
+        // An assertion cannot turn a symbol into another kind of value:
+        // `Symbol.isConcatSpreadable as keyof object` is still the symbol at
+        // runtime (TypeScript lets `keyof` stand for `string | number |
+        // symbol`, which Smelt lowers to `string`). A target that has no
+        // place for a symbol keeps the symbol; every consumer converts it to
+        // the slot it fills (a key through `ToPropertyKey`).
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Symbol))
+            && matches!(
+                self.ctx.krate.types.get(target),
+                Some(Type::String | Type::Float | Type::Int | Type::Bool | Type::BigInt)
+            )
+        {
+            return Ok(value);
         }
         // A TypeScript tuple assertion applied to a list-typed value
         // (`xs.filter(...) as [T]`) is type-level only: at runtime the value is

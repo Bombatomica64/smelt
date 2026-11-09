@@ -347,6 +347,16 @@ impl FunctionEmitter<'_> {
                 self.string_locale_compare_expr(left, right)
             }
             Rvalue::ObjectToStringTag { operand } => self.object_to_string_tag_expr(operand),
+            // `SmeltSymbol::description` answers the `Option<JsString>` an
+            // optional string is.
+            Rvalue::SymbolUnique { base } => {
+                let base_text = self.operand_expr(base)?;
+                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base_text})")))
+            }
+            Rvalue::SymbolDescription { operand } => {
+                let symbol = self.operand_expr(operand)?;
+                Ok(RustExpr::postfix_on(&symbol, format!("{symbol}.description()")))
+            }
             Rvalue::StructuredClone { operand } => self.structured_clone_expr(operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_expr(*side, operand),
             Rvalue::StringAffix {
@@ -468,6 +478,9 @@ impl FunctionEmitter<'_> {
             Rvalue::ClosureCall { callee, args } => self.closure_call_rvalue_expr(callee, args, dest_ty),
             Rvalue::ClosureCallSpread { callee, args } => self.closure_call_spread_expr(callee, args, dest_ty),
             Rvalue::ClosureCallRest { callee, items } => self.closure_call_rest_expr(callee, items, dest_ty),
+            Rvalue::ErasedFunctionMethodCall { receiver, method, args } => {
+                self.erased_function_method_call_expr(receiver, *method, args, dest_ty)
+            }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_expr(*op, list, callback, dest_ty)
             }

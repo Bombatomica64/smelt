@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use smelt_hir::TypeId;
 
 use crate::lowering::{ConstCollection, ConstLiteral};
+use crate::lowering::resolve::EnumBinding;
 use crate::ObjectConst;
 
 /// A `RegExp` literal constant: source pattern, flags and its HIR type.
@@ -51,23 +52,15 @@ pub(in crate::lowering) struct ConstRegistry {
 }
 
 impl ConstRegistry {
-    /// Build the registry a fresh module starts from, seeded with the constants
-    /// published by earlier modules.
-    pub(in crate::lowering) fn new(
-        literals: HashMap<String, ConstLiteral>,
-        enum_members: Published<HashMap<String, HashMap<String, ConstLiteral>>>,
-        objects: Published<HashMap<String, ObjectConst>>,
-        collections: Published<HashMap<String, ConstCollection>>,
-        object_value_collections: Published<HashMap<String, ConstCollection>>,
-    ) -> Self {
-        Self {
-            literals,
-            enum_members,
-            regexps: HashMap::new(),
-            objects,
-            collections,
-            object_value_collections,
-        }
+    /// Build the registry a fresh module starts from, seeded with the literal
+    /// constants earlier modules lowered.
+    ///
+    /// Object constants, collections and enum members start empty: another
+    /// module's become visible only through an import, which copies them in
+    /// under the local name from the exporting module's qualified entries
+    /// (see `ModuleBuilder::adopt_exported_facts`).
+    pub(in crate::lowering) fn new(literals: HashMap<String, ConstLiteral>) -> Self {
+        Self { literals, ..Self::default() }
     }
 
     /// Return whether `name` resolves to a folded literal, object, or collection constant.
@@ -111,14 +104,27 @@ impl ConstRegistry {
         self.literals.insert(name, value);
     }
 
-    /// Return the folded literal of one `enum` member.
+    /// Return whether `name` names an `enum` this module declares or imports.
+    ///
+    /// Only the resolver asks: whether a READ of `name` is the enum also
+    /// depends on the lexical scope (`crate::lowering::resolve`).
+    pub(in crate::lowering) fn has_enum(&self, name: &str) -> bool {
+        self.enum_members.contains_key(name)
+    }
+
+    /// Return the folded literal of one member of the resolved `enum`.
+    ///
+    /// Takes an [`EnumBinding`], which only `ModuleBuilder::resolve_value`
+    /// mints after asking the lexical scope, so a parameter that shadows the
+    /// enum (`function f(Mode: { Fast: number })`) can never fold to a member
+    /// (audit finding A3).
     pub(in crate::lowering) fn enum_member(
         &self,
-        enum_name: &str,
+        binding: &EnumBinding<'_>,
         member_name: &str,
     ) -> Option<&ConstLiteral> {
         self.enum_members
-            .get(enum_name)
+            .get(binding.name())
             .and_then(|members| members.get(member_name))
     }
 

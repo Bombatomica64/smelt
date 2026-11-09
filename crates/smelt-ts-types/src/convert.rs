@@ -133,6 +133,15 @@ impl<'checker> Converter<'checker> {
         Some(expanded)
     }
 
+    /// A mutable array of the already converted `element`, a type the checker
+    /// has no node for (the join of an evolving array's reads, see
+    /// `walk::joined_evolved_array`).
+    pub(crate) fn array_of(&mut self, element: TsTypeId) -> TsTypeId {
+        let id = self.table.reserve();
+        self.table.fill(id, TsType { kind: TsTypeKind::Array { element, readonly: false }, display: None, alias: None });
+        id
+    }
+
     /// Converts `ty` as a root the span walk asked about, with a fresh budget.
     pub(crate) fn convert_root(&mut self, ty: P<Type>) -> TsTypeId {
         self.budget = STRUCTURAL_EXPANSION_BUDGET;

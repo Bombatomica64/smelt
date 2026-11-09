@@ -21,7 +21,9 @@
 //!
 //! Type preservation: the temporary and `%s` have the same type, so every use
 //! sees the type it saw before; no value moves to a different Rust type and no
-//! conversion is dropped. A copy between different types is a coercion and stays.
+//! conversion is dropped. A copy between different types is a coercion and stays,
+//! except the unwrap of an `unknown | undefined` local into a copy that converts
+//! it anyway ([`erased_unwrap`]).
 //!
 //! # Correctness
 //!
@@ -162,13 +164,30 @@ fn forwardable(
     };
     let (temp, from) = (*dest, source.local()?);
     let temp_decl = body.local_decl(temp)?;
-    let same_type = temp_decl.ty == body.local_decl(from)?.ty;
+    let from_ty = body.local_decl(from)?.ty;
+    let same_type = temp_decl.ty == from_ty;
     let callable = matches!(types.get(temp_decl.ty), Some(Type::Function(_)));
-    if temp == from || !same_type || callable || !single_use.contains(&temp) {
+    let unwrap = erased_unwrap(types, temp_decl.ty, from_ty);
+    if temp == from || !(same_type || unwrap) || callable || !single_use.contains(&temp) {
         return None;
     }
     let after = at.saturating_add(1);
     let consumer = find_consumer(block, after, temp)?;
+    if unwrap
+        && !matches!(
+            consumer,
+            Consumer::Statement(index)
+                if matches!(
+                    block.statements.get(index),
+                    Some(
+                        Statement::Assign { value: Rvalue::Use(read), .. }
+                        | Statement::AssignPlace { place: Place::Local(_), value: Rvalue::Use(read) }
+                    ) if read.local() == Some(temp)
+                )
+        )
+    {
+        return None;
+    }
     let end = match consumer {
         Consumer::Statement(index) => index,
         Consumer::Terminator => block.statements.len(),
@@ -190,6 +209,21 @@ fn forwardable(
         return None;
     }
     Some(Forward { at, temp, source: source.clone(), consumer })
+}
+
+/// Whether `t = copy s` is the unwrap of an `unknown | undefined` local `s`
+/// read at its narrowed `unknown` (`t: Unknown`, `s: Optional<Unknown>`).
+///
+/// The one exception to the same-type guard, and only when `t`'s one reader is
+/// a plain copy `d = copy t` (a definition or a reassignment of `d`): that copy is itself a conversion to `d`'s type,
+/// and the conversion from the `Option` converts its payload the same way
+/// (an absent one, which the narrowing ruled out, would read as the target's
+/// default), so the unwrap in front of it is not a value of its own.
+/// `comparator = _comparator` after `typeof _comparator === "function"` in
+/// es-toolkit's `intersectionWith` reads the stored local.
+fn erased_unwrap(types: &TypeInterner, temp_ty: smelt_hir::TypeId, from_ty: smelt_hir::TypeId) -> bool {
+    matches!(types.get(temp_ty), Some(Type::Unknown))
+        && matches!(types.get(from_ty), Some(Type::Optional(inner)) if *inner == temp_ty)
 }
 
 /// Where in `block`, at or after `from`, `temp` is read.
@@ -239,6 +273,7 @@ fn may_run_code(statement: &Statement, body: Body<'_>, types: &TypeInterner) -> 
         Rvalue::ClosureCall { .. }
             | Rvalue::ClosureCallSpread { .. }
             | Rvalue::ClosureCallRest { .. }
+            | Rvalue::ErasedFunctionMethodCall { .. }
             | Rvalue::Construct { .. }
             | Rvalue::ConstructLike { .. }
             | Rvalue::Await { .. }

@@ -1,6 +1,7 @@
 //! Const collections: top-level `const` arrays and object-value lists whose
 //! elements are known literals, recorded so reads can fold them.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::{ObjectConst, ObjectConstValue};
 use crate::lowering::js_text::js_str_literal;
 use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression, ObjectPropertyKind};
@@ -179,7 +180,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<ConstCollection> {
         // Not recorded yet: the erasure is recorded once below, only when the
         // collection is actually built.
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
         let mut items = Vec::new();
         for property in &object.properties {

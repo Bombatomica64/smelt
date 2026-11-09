@@ -189,7 +189,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(key.clone(), item);
         // Exported so an importer's `partial.placeholder` read resolves through the
         // same item-visibility path as any other module const.
-        self.ctx.export_aliases.insert(key, item);
+        self.publish_export_alias(key, item);
         Ok(true)
     }
 
@@ -214,8 +214,32 @@ impl ModuleBuilder<'_> {
         let Item::Const(const_item) = self.item_ref(item).clone() else {
             return Ok(None);
         };
-        self.const_item_expression(&const_item, member.span.start, member.span.end, body)
-            .map(Some)
+        let read = self.const_item_expression(&const_item, member.span.start, member.span.end, body)?;
+        Ok(Some(Self::folded_literal_of(body, read)))
+    }
+
+    /// The literal under an assertion when `read` is one: `Symbol('p') as
+    /// Placeholder` reads as the symbol it is.
+    ///
+    /// A folded static is a constant, so its read is that one value, and the
+    /// value's own type is what it is. The assertion only widened it, and
+    /// keeping the wider type (here a union with an erased arm) spilled the
+    /// value into an erased temporary at every read. Any consumer still
+    /// converts it to the type its own slot asks for.
+    fn folded_literal_of(body: &Body, read: smelt_hir::ExprId) -> smelt_hir::ExprId {
+        use crate::lowering::body_arena::BodyArena as _;
+        let mut current = read;
+        while let Some(smelt_hir::Expr {
+            kind: smelt_hir::ExprKind::TypeAssert { value } | smelt_hir::ExprKind::UnknownCast { value, .. },
+            ..
+        }) = body.expr_at(current)
+        {
+            current = *value;
+        }
+        match body.expr_at(current) {
+            Some(smelt_hir::Expr { kind: smelt_hir::ExprKind::Literal(_), .. }) => current,
+            _ => read,
+        }
     }
 
     /// Lower `const { placeholder } = f;` against the recorded function statics.

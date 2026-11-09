@@ -263,6 +263,10 @@ impl ModuleBuilder<'_> {
                 self.items.insert(alias, item);
             }
         }
+        // Facts that are not items (an object constant's entries, enum
+        // members, overloads, ...) come from the module `source` resolves to,
+        // never from whichever module last published the bare name.
+        self.adopt_exported_facts(source, imported, local);
         if let Some(exports) = self.source_module_exports(source)
             && let Some(item) = exports.get(imported).copied()
         {
@@ -334,19 +338,17 @@ impl ModuleBuilder<'_> {
         for (alias, item) in qualified_interface_aliases {
             self.interfaces.register_alias(alias, item);
         }
-        // One call rebinds every constant kind the imported name carries.
+        // Rebinding by the imported name only reaches this module's own
+        // declarations (`import { a as b } from './self'`): another module's
+        // constants were adopted through its qualified exports above.
         self.consts.rebind_import(local, imported);
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
             self.object_namespaces.write().insert(local.to_owned(), namespace);
         }
         if let Some(overloads) = self.functions.overloads(imported).cloned() {
             self.functions.set_overloads(local.to_owned(), overloads);
-        } else if let Some(overloads) = self.ctx.overloads.get(imported).cloned() {
-            self.functions.set_overloads(local.to_owned(), overloads);
         }
         if let Some(rest) = self.functions.rest(imported) {
-            self.functions.set_rest(local.to_owned(), rest);
-        } else if let Some(rest) = self.ctx.function_rests.get(imported).copied() {
             self.functions.set_rest(local.to_owned(), rest);
         }
     }

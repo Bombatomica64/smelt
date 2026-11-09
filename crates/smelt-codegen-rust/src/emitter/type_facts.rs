@@ -107,6 +107,16 @@ impl FunctionEmitter<'_> {
         dict_key_uses_js_key_map(self.mir, key_ty)
     }
 
+    /// Whether a `Dict` keyed by `key_ty` is a property-key record, rendered
+    /// as the runtime `SmeltPropKeyRecord<V>`: an object store whose every
+    /// key operation takes a `SmeltPropKey`. It answers the `SmeltJsMap`
+    /// method surface (`get`, `insert`, `contains_key`, `remove`, `iter`,
+    /// ...), so a site that only spells methods treats it as one; a site
+    /// that names the container type asks this first.
+    pub(super) fn is_prop_key_record_key(&self, key_ty: TypeId) -> bool {
+        self.mir.types.get(key_ty) == Some(&Type::PropKey)
+    }
+
     /// Returns whether a string-keyed dictionary should carry object identity.
     ///
     /// TypeScript object literals lower to records internally. When one of
@@ -607,6 +617,12 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
         // A bigint key hashes by value, which is SameValueZero for bigints.
         Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr) => false,
         Some(Type::Float) => true,
+        // A property-key record (`Record<K, V>` with a type-parameter key, or
+        // one holding symbols) is a `SmeltPropKeyRecord<_>`, which answers the
+        // `SmeltJsMap` method surface over `SmeltPropKey` keys (see
+        // `is_prop_key_record_key`). A symbol key compares by identity like
+        // any `SmeltJsKeyEq` key.
+        Some(Type::PropKey | Type::Symbol) => true,
         Some(Type::Optional(inner) | Type::Future(inner)) => dict_key_uses_js_key_map(mir, *inner),
         Some(Type::Union(items)) => items.iter().any(|item| dict_key_uses_js_key_map(mir, *item)),
         Some(

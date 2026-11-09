@@ -1,5 +1,6 @@
 //! `Object` statics, `SameValueZero` equality and `Array.isArray`-style type queries.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
@@ -241,7 +242,7 @@ impl ModuleBuilder<'_> {
                 (key_ty, value_ty)
             }
         };
-        let key_ty = key_type;
+        let key_ty = self.enumerated_key_type(key_type);
         let value_ty = value_type;
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
@@ -291,6 +292,19 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// The type of the keys a record's string-key enumeration yields
+    /// (`Object.keys`, `Object.entries`, `for...in`).
+    ///
+    /// A property-key record ([`Type::PropKey`]) also holds symbol keys, but
+    /// those enumerations report only its string keys, so they are `string`.
+    pub(in crate::lowering) fn enumerated_key_type(&mut self, key_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
+            self.ctx.krate.types.intern(Type::String)
+        } else {
+            key_ty
+        }
+    }
+
     /// Return whether a type can use JavaScript object projection through `Object.*`.
     pub(in crate::lowering) fn object_keys_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
@@ -331,6 +345,22 @@ impl ModuleBuilder<'_> {
             ));
         };
         let value = self.argument(argument, body)?;
+        // A property-key record holds its symbol keys as typed symbols, so
+        // the projection reads them off the record itself, typed.
+        if let Some(Type::Dict(key, _)) = self.ctx.krate.types.get(Self::expr_ty(body, value))
+            && matches!(self.ctx.krate.types.get(*key), Some(Type::PropKey))
+        {
+            let symbol_ty = self.ctx.krate.types.intern(Type::Symbol);
+            let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictProjection {
+                    op: DictProjectionOp::Symbols,
+                    dict: value,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.getOwnPropertySymbols");
         let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -554,7 +584,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         // not a new erasure yet: the call may still decline below, so the
         // decision is recorded only once the rule applies (before the result).
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let (target, descriptors) = match member.property.name.as_str() {
             "defineProperties" => {
                 let [target, descriptors] = call.arguments.as_slice() else {
@@ -710,7 +740,7 @@ impl ModuleBuilder<'_> {
                         let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
                         // not a new erasure: the entries list is only re-viewed as the
                         // tagged runtime-helper operand; the result keeps `value_ty`.
-                        let unknown = self.unknown_type();
+                        let unknown = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
                         let entries = body.push_expr(Expr {
                             kind: ExprKind::TypeAssert { value },
                             ty: unknown,
@@ -859,7 +889,7 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         // not a new erasure yet: `read_pair` may still decline; the
         // descriptor's `any` value is recorded once both reads succeed.
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let record_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
         let read_pair = |this: &mut Self, target: &mut Body| -> Result<Option<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
@@ -874,7 +904,11 @@ impl ModuleBuilder<'_> {
             });
             let key = this.expression(key_expr, target)?;
             let key_ty = Self::expr_ty(target, key);
-            let key = if key_ty == string_ty {
+            // A symbol key indexes the string-keyed record under its reserved
+            // storage spelling; the key conversion does that at the site.
+            let key = if key_ty == string_ty
+                || matches!(this.ctx.krate.types.get(key_ty), Some(Type::Symbol))
+            {
                 key
             } else if this.is_string_compatible_type(key_ty) {
                 target.push_expr(Expr {
@@ -1246,6 +1280,21 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        // A property-key record takes the key as it is: codegen applies
+        // `ToPropertyKey` at the probe, so the probe, the insert and the read
+        // of `if (!Object.hasOwn(r, k)) r[k] = []; r[k].push(x)` all name one
+        // operand (which is what lets the guarded insert fuse into one entry).
+        if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict,
+                    key,
+                    lookup: PropertyLookup::Own,
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
             key = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: key },

@@ -35,6 +35,15 @@ impl ModuleBuilder<'_> {
             .lookup(name)
             .and_then(|local| Self::local_ty_checked(body, local))
             .and_then(|ty| self.narrowed_type(name).or(Some(ty)));
+        // A local already narrowed to one array or tuple type stays that type:
+        // the guard proves nothing new about it, and widening it to an erased
+        // list would throw away its element types (`typeof p === 'object'`
+        // leaves only the `[keyof T, unknown]` arm, then `Array.isArray(p)`).
+        if let Some(ty) = local_ty
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+        {
+            return Some((name.to_owned(), ty));
+        }
         if let Some(ty) = local_ty
             && let Some(members) = self.filtered_union_members(ty, |union_member| {
                 matches!(union_member, Type::List(_) | Type::Tuple(_))

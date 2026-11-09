@@ -1,6 +1,7 @@
 //! Shared callback helpers: return-type checks, the call forms of `.call` and
 //! `.apply`, and what a receiver's type declares as a method.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::support::source_spelling;
 use crate::RestParam;
@@ -212,7 +213,7 @@ impl ModuleBuilder<'_> {
         // carrier it is about to emit, instead of failing at emit time with
         // "type table does not contain literal operand type Unknown".
         // not a new erasure: names the runtime call-ABI carrier type only.
-        let unknown_ty = self.unknown_type();
+        let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         self.ctx.krate.types.intern(Type::List(unknown_ty));
         Ok(body.push_expr(Expr {
             kind: ExprKind::ClosureCallSpread {

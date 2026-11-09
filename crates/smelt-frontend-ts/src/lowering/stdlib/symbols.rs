@@ -4,7 +4,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{Argument, Expression};
-use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Span, Type};
+use smelt_hir::{Body, Expr, ExprKind, Literal, Span, Type};
 
 /// Render the opaque runtime string that stands for a *unique* `Symbol(...)`.
 ///
@@ -34,10 +34,11 @@ pub(in crate::lowering) fn registry_symbol_spelling(description: &str) -> String
 }
 
 impl ModuleBuilder<'_> {
-    /// Lower JavaScript `Symbol(description)` branding calls as opaque strings.
+    /// Lower JavaScript `Symbol(description)` and `Symbol.for(key)` calls.
     ///
-    /// Smelt does not model symbol identity yet. Type-level branding libraries
-    /// only need a stable opaque value here so the containing module can lower.
+    /// The value is a `symbol` (`Type::Symbol`) whose identity is its
+    /// spelling: a registry symbol is keyed by its description, a unique one
+    /// by its creation site (see [`unique_symbol_spelling`]).
     pub(in crate::lowering) fn symbol_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -59,7 +60,7 @@ impl ModuleBuilder<'_> {
         self.symbol_like_call(call, body, false)
     }
 
-    /// Lower a supported symbol-producing call as a stable opaque string.
+    /// Lower a supported symbol-producing call to its `symbol` literal.
     pub(in crate::lowering) fn symbol_like_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -76,7 +77,7 @@ impl ModuleBuilder<'_> {
         let checked_description = description_arg
             .map(|argument| self.argument(argument, body))
             .transpose()?;
-        let ty = self.erase_with(ErasureReason::UnmodeledType, "symbol");
+        let ty = self.ctx.krate.types.intern(Type::Symbol);
         if let Some(description) = checked_description
             && !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, description)),
@@ -107,10 +108,47 @@ impl ModuleBuilder<'_> {
         } else {
             unique_symbol_spelling(&description, self.span(call.span.start, call.span.end))
         };
-        Ok(Some(body.push_expr(Expr {
+        let span = self.span(call.span.start, call.span.end);
+        let literal = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(value)),
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
+        });
+        // A registry symbol is the same symbol at every evaluation; a unique
+        // one is new at every evaluation (`mk() !== mk()`).
+        if global {
+            return Ok(Some(literal));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::SymbolUnique { base: literal },
+            ty,
+            span,
         })))
+    }
+
+    /// `sym.description` on a `symbol`: the text it was created with, or
+    /// `undefined`, so the read is an optional string.
+    ///
+    /// Only a receiver typed `symbol` itself; an optional receiver keeps the
+    /// ordinary member paths.
+    pub(in crate::lowering) fn symbol_member_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if member.property.name != "description"
+            || !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Symbol))
+        {
+            return None;
+        }
+        let string = self.ctx.krate.types.intern(Type::String);
+        let ty = self.ctx.krate.types.intern(Type::Optional(string));
+        Some(body.push_expr(Expr {
+            kind: ExprKind::SymbolDescription { operand: receiver },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
     }
 }

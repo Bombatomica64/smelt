@@ -207,7 +207,7 @@ export function tally<T>(first: T): T[] {
 }
 
 #[test]
-fn defaults_and_constraints_do_not_instantiate_an_unbound_parameter() -> Result<(), String> {
+fn defaults_do_not_and_primitive_constraints_do_instantiate_an_unbound_parameter() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -229,7 +229,15 @@ export const nothing = blank();
     // `A` is argument-bound and kept; `B` has only a default, which the
     // emitted definition does not honour.
     ensure_eq!(value_type(&ctx, "pair")?, "(String, Unknown)");
-    ensure_eq!(value_type(&ctx, "scores")?, "List<Unknown>");
+    // A PRIMITIVE constraint does instantiate an unbound parameter
+    // (`bind_primitive_constraints`). Old requirement: `List<Unknown>`, because
+    // the definition renders `T` as `SmeltUnknown`. New requirement:
+    // `List<Float>`. `T extends number` admits only numbers, so the type is
+    // sound, and the call boundary converts the definition's erased return to
+    // it (checked end to end against Node: `only<T extends number>(): T[]`
+    // returning `[3, 4]`, then `push(5)`, prints `[ 3, 4, 5 ]`). A default is
+    // still no evidence.
+    ensure_eq!(value_type(&ctx, "scores")?, "List<Float>");
     // Never the raw callee `T`.
     ensure_eq!(value_type(&ctx, "nothing")?, "List<Unknown>");
     Ok(())

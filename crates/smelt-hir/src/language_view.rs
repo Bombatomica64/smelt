@@ -93,6 +93,8 @@ fn children(ty: &Type) -> Vec<TypeId> {
         | Type::BigInt
         | Type::String
         | Type::PyStr
+        | Type::Symbol
+        | Type::PropKey
         | Type::Unknown
         | Type::Never
         | Type::TypeParam { .. }
@@ -141,6 +143,8 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
             | Type::BigInt
             | Type::String
             | Type::PyStr
+            | Type::Symbol
+            | Type::PropKey
             | Type::Unknown
             | Type::Never
             | Type::TypeParam { .. }

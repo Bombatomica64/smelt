@@ -226,8 +226,10 @@ impl ModuleBuilder<'_> {
                 }
             }
             ForwardTarget::Local { local, ty } => {
+                let callee_local = body_local.unwrap_or(local);
+                let ty = self.erased_callee_read_ty(ty, Self::local_ty(closure_body, callee_local));
                 let callee = closure_body.push_expr(Expr {
-                    kind: ExprKind::Local(body_local.unwrap_or(local)),
+                    kind: ExprKind::Local(callee_local),
                     ty,
                     span,
                 });

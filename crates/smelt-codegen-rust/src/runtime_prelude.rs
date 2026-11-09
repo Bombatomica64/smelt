@@ -145,6 +145,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "prim_set" => Need::PrimSet,
         "panic_route" => Need::PanicRoute,
         "bigint" => Need::BigInt,
+        "symbol" => Need::Symbol,
         "generator" => Need::Generator,
         "iterator_result" => Need::IteratorResult,
         "timers" => Need::Timers,

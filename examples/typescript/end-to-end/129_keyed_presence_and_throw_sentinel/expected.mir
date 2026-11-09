@@ -353,38 +353,39 @@ fn new (FuncId(6)) -> Router
 
 fn main (FuncId(7)) -> None
   locals
-    %0 user path_error: Unknown
+    %0 user path_error: Symbol
     %1 user router: Router
-    %2 temp: Router
-    %3 temp: None
+    %2 temp: Symbol
+    %3 temp: Router
     %4 temp: None
     %5 temp: None
     %6 temp: None
     %7 temp: None
-    %8 temp: String
-    %9 temp: None
-    %10 temp: String
-    %11 temp: None
+    %8 temp: None
+    %9 temp: String
+    %10 temp: None
+    %11 temp: String
+    %12 temp: None
   bb0:
-    %0 = symbol("Symbol()@237")
-    %2 = call fn6() -> bb1
+    %0 = symbol_unique symbol("Symbol()@237")
+    %3 = call fn6() -> bb1
   bb1:
-    %1 = move %2
-    %3 = call fn0(copy %1, "GET", "/posts/:id") -> bb2
+    %1 = move %3
+    %4 = call fn0(copy %1, "GET", "/posts/:id") -> bb2
   bb2:
-    %4 = call fn0(copy %1, "GET", "/posts/:id") -> bb3
+    %5 = call fn0(copy %1, "GET", "/posts/:id") -> bb3
   bb3:
-    %5 = call fn0(copy %1, "GET", "/posts/new") -> bb4
+    %6 = call fn0(copy %1, "GET", "/posts/new") -> bb4
   bb4:
-    %6 = call fn0(copy %1, "POST", "/posts") -> bb5
+    %7 = call fn0(copy %1, "POST", "/posts") -> bb5
   bb5:
-    %7 = call fn0(copy %1, "GET", "/users/(a|b)") -> bb6
+    %8 = call fn0(copy %1, "GET", "/users/(a|b)") -> bb6
   bb6:
-    %8 = string_join copy %1.field14, ", "
-    %9 = call @console_log(move %8) -> bb7
+    %9 = string_join copy %1.field14, ", "
+    %10 = call @console_log(move %9) -> bb7
   bb7:
-    %10 = json_stringify copy %1.field13
-    %11 = call @console_log(move %10) -> bb8
+    %11 = json_stringify copy %1.field13
+    %12 = call @console_log(move %11) -> bb8
   bb8:
     return none
 

@@ -112,6 +112,7 @@ const fn runs_code_or_stores(kind: &ExprKind) -> bool {
             | ExprKind::ClosureCall { .. }
             | ExprKind::ClosureCallSpread { .. }
             | ExprKind::ClosureCallRest { .. }
+            | ExprKind::ErasedFunctionMethodCall { .. }
             | ExprKind::Method { .. }
             | ExprKind::Construct { .. }
             | ExprKind::ConstructLike { .. }

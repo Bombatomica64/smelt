@@ -22,6 +22,11 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(key).is_some_and(Type::is_text) {
             return Ok(RustExpr::chain(format!("{field_name:?}.to_owned()")).owned_literal());
         }
+        // A dotted member of a property-key record is the string key it names.
+        if self.mir.types.get(key) == Some(&Type::PropKey) {
+            let string_ty = self.type_id(Type::String)?;
+            return self.rendered_at_type(&RustExpr::js_string_literal(field_name), string_ty, key, &self.render_scope());
+        }
         if self.has_dynamic_shape(key)
         {
             return self.erase_rendered(
@@ -628,6 +633,12 @@ impl FunctionEmitter<'_> {
             return Ok(text);
         }
         let index_ty = self.operand_ty(index)?;
+        // A symbol is a property key, never an element index: `xs[Symbol.iterator]`
+        // addresses no element (the read misses, as `NaN` did when the symbol
+        // was erased).
+        if matches!(self.mir.types.get(index_ty), Some(Type::Symbol)) {
+            return Ok(RustExpr::atom("usize::MAX"));
+        }
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
             self.operand_expr(index)?
         } else {
@@ -895,7 +906,9 @@ impl FunctionEmitter<'_> {
         let index_ty = self.operand_ty(index)?;
         let index_text = self.operand_expr(index)?;
         let key_text = self.property_key_to_string_expr(&index_text, index_ty)?;
-        if matches!(self.mir.types.get(index_ty), Some(Type::String | Type::PyStr)) {
+        // A symbol (or a property key) names a property, never an element:
+        // it reads through its storage key like a string key does.
+        if matches!(self.mir.types.get(index_ty), Some(Type::String | Type::PyStr | Type::Symbol | Type::PropKey)) {
             return Ok(RustExpr::atom(format!(
                 r#"match {base_text} {{
                     SmeltUnknown::String(value) => {{
@@ -1072,79 +1085,94 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(base_ty)
         {
             let field_name = self.symbol_source_name(field)?;
-            let field_rule = smelt_stdlib::typescript_field_rule(field_name);
             let base_text = self.local_value(base)?;
             // A concrete-union receiver stores a tagged enum; project it
             // back to `SmeltUnknown` before the erased-object field match.
             let scrutinee =
                 self.erase_concrete_union_expr(&base_text.cloned_value(), base_ty);
-            if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
-                // A callable's `.length` is its declared arity, which the
-                // erasure boundary parks in the function-length registry
-                // (an `Rc<dyn Fn>` has nowhere to carry it). Without this
-                // arm an erased callable answered `null`, and es-toolkit
-                // `rest(func)` — whose default split point is
-                // `func.length - 1` — reshaped every call wrongly.
-                return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
-                    function_length =
-                        smelt_stdlib::runtime_symbols::function_length::READ,
-                    string_len = self.string_len_text("value"),
-                ))));
-            }
-            // `AbortController`/`AbortSignal` methods are surfaced as
-            // runtime-helper-bound closures that mutate the shared abort
-            // record (see `smelt_abort_method`). Plain data fields
-            // (`signal`, `aborted`, ...) keep the ordinary erased-object
-            // read; the helper only intercepts a method read when the
-            // receiver actually carries an abort marker.
-            if matches!(
-                field_name,
-                "abort"
-                    | "addEventListener"
-                    | "removeEventListener"
-                    | "dispatchEvent"
-                    | "throwIfAborted"
-            ) {
-                return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
-                ))));
-            }
-            // `Function.prototype.apply`/`call` must resolve when the
-            // erased receiver is a `SmeltUnknown::Function` (not just an
-            // object). The plain object field match below returns
-            // `Undefined` for a function receiver, collapsing every
-            // invocation to a null callback (see `partial`/`partialRight`).
-            // The runtime helper binds the callable with the correct
-            // this-dropping/argument-spreading semantics and falls back to
-            // the ordinary field read for object receivers.
-            if matches!(field_name, "apply" | "call") {
-                return Ok(RustExpr::chain(format!(
-                    "smelt_function_method({scrutinee}, {field_name:?})"
-                )));
-            }
-            // `Object.prototype.valueOf` exists on EVERY value, so it can
-            // never resolve through the own-field read: a boxed primitive
-            // (`Object(1)`, `new Number(1)`) is a marker object with no own
-            // `valueOf`, and an erased primitive is not an object at all.
-            // Both used to collapse to a null callback, which is what made
-            // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
-            // helper unwraps the wrapper and still prefers a user-defined
-            // own `valueOf` when the receiver has one.
-            if field_name == "valueOf" {
-                return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})")));
-            }
-            // Every receiver shape through one prelude helper: an object
-            // record, an erased ARRAY (whose `length`, indices and named
-            // side-table properties are all readable), and the
-            // `Object.prototype` sentinel. Inlining an object-only `match`
-            // here answered `undefined` for `arr.x` and for
-            // `Object.prototype.toString`.
-            return Ok(RustExpr::chain(format!(
-                "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
-            )));
+            return self.erased_field_read_expr(&scrutinee, field_name);
         }
         self.optional_or_host_field_place_expr(base, field, base_ty)
+    }
+
+    /// The read of property `field_name` off the erased value `scrutinee`
+    /// (Rust text of a `SmeltUnknown`), as JavaScript reads it: a callable's
+    /// `length` is its arity, `call`/`apply` are `Function.prototype`'s,
+    /// `valueOf` exists on every value, an abort record's methods are bound
+    /// to it, and anything else is the own (or array, or prototype) property.
+    ///
+    /// Both an erased receiver and an `undefined`-able one (whose `scrutinee`
+    /// is its payload, or `undefined`) read through here, so the two cannot
+    /// answer differently: the optional one once had its own `length` arm
+    /// with no callable case, and a destructured `[when] = ..` element's
+    /// `when.length` read `NaN` (remeda's `conditional`).
+    fn erased_field_read_expr(&self, scrutinee: &str, field_name: &str) -> Result<RustExpr, EmitError> {
+        let field_rule = smelt_stdlib::typescript_field_rule(field_name);
+        if field_rule == Some(smelt_stdlib::FieldRule::TsLength) {
+            // A callable's `.length` is its declared arity, which the
+            // erasure boundary parks in the function-length registry
+            // (an `Rc<dyn Fn>` has nowhere to carry it). Without this
+            // arm an erased callable answered `null`, and es-toolkit
+            // `rest(func)` — whose default split point is
+            // `func.length - 1` — reshaped every call wrongly.
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
+                "match {scrutinee} {{ SmeltUnknown::String(value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), value @ SmeltUnknown::Function(_) => SmeltUnknown::Number({function_length}(&value)), SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"length\") {{ SmeltUnknown::Undefined | SmeltUnknown::Null if map.contains_key(\"{SMELT_CALL}\") => SmeltUnknown::Number({function_length}(&SmeltUnknown::Object(map))), value => value }}, _ => SmeltUnknown::Null }}",
+                function_length =
+                    smelt_stdlib::runtime_symbols::function_length::READ,
+                string_len = self.string_len_text("value"),
+            ))));
+        }
+        // `AbortController`/`AbortSignal` methods are surfaced as
+        // runtime-helper-bound closures that mutate the shared abort
+        // record (see `smelt_abort_method`). Plain data fields
+        // (`signal`, `aborted`, ...) keep the ordinary erased-object
+        // read; the helper only intercepts a method read when the
+        // receiver actually carries an abort marker.
+        if matches!(
+            field_name,
+            "abort"
+                | "addEventListener"
+                | "removeEventListener"
+                | "dispatchEvent"
+                | "throwIfAborted"
+        ) {
+            return Ok(RustExpr::atom(self.carrier_format(format_args!(
+                "match {scrutinee} {{ SmeltUnknown::Object(map) => smelt_host_method(&map, {field_name:?}).unwrap_or_else(|| smelt_get_object_field(&map, {field_name:?})), _ => SmeltUnknown::Undefined }}"
+            ))));
+        }
+        // `Function.prototype.apply`/`call` must resolve when the
+        // erased receiver is a `SmeltUnknown::Function` (not just an
+        // object). The plain object field match below returns
+        // `Undefined` for a function receiver, collapsing every
+        // invocation to a null callback (see `partial`/`partialRight`).
+        // The runtime helper binds the callable with the correct
+        // this-dropping/argument-spreading semantics and falls back to
+        // the ordinary field read for object receivers.
+        if matches!(field_name, "apply" | "call") {
+            return Ok(RustExpr::chain(format!(
+                "smelt_function_method({scrutinee}, {field_name:?})"
+            )));
+        }
+        // `Object.prototype.valueOf` exists on EVERY value, so it can
+        // never resolve through the own-field read: a boxed primitive
+        // (`Object(1)`, `new Number(1)`) is a marker object with no own
+        // `valueOf`, and an erased primitive is not an object at all.
+        // Both used to collapse to a null callback, which is what made
+        // `isEqualWith(1, Object(1), noop)` answer `false`. The runtime
+        // helper unwraps the wrapper and still prefers a user-defined
+        // own `valueOf` when the receiver has one.
+        if field_name == "valueOf" {
+            return Ok(RustExpr::chain(format!("smelt_value_of_method({scrutinee})")));
+        }
+        // Every receiver shape through one prelude helper: an object
+        // record, an erased ARRAY (whose `length`, indices and named
+        // side-table properties are all readable), and the
+        // `Object.prototype` sentinel. Inlining an object-only `match`
+        // here answered `undefined` for `arr.x` and for
+        // `Object.prototype.toString`.
+        Ok(RustExpr::chain(format!(
+            "smelt_get_unknown_field(&{scrutinee}, {field_name:?})"
+        )))
     }
 
     /// A field read through an optional receiver or a host class.
@@ -1162,17 +1190,8 @@ impl FunctionEmitter<'_> {
         {
             let field_name = self.symbol_source_name(field)?;
             let base_text = self.local_value(base)?;
-            if smelt_stdlib::typescript_field_rule(field_name)
-                == Some(smelt_stdlib::FieldRule::TsLength)
-            {
-                return Ok(RustExpr::atom(self.carrier_format(format_args!(
-                    "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number({string_len} as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}",
-                    string_len = self.string_len_text("value"),
-                ))));
-            }
-            return Ok(RustExpr::chain(self.carrier_format(format_args!(
-                "smelt_get_unknown_field(&{base_text}.clone().unwrap_or(SmeltUnknown::Undefined), {field_name:?})"
-            ))));
+            let scrutinee = self.carrier_format(format_args!("{base_text}.clone().unwrap_or(SmeltUnknown::Undefined)"));
+            return self.erased_field_read_expr(&scrutinee, field_name);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
             && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)

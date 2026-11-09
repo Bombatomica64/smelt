@@ -2,6 +2,7 @@
 //! private member, `console`, a constructed value, the result of another call, an
 //! asserted callee, or a name bound to a value rather than an item.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::peel::{Wrappers, peel};
@@ -222,7 +223,7 @@ impl ModuleBuilder<'_> {
                 // value (`expect(makeAdder(2)(3)).toBe(5)` became a test that
                 // `5` is not nullish).
                 // not a new erasure: the inner call already returned `unknown`
-                let unknown_ty = self.unknown_type();
+                let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
                 let args = call
                     .arguments
                     .iter()
@@ -416,47 +417,9 @@ impl ModuleBuilder<'_> {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(callable_ty).cloned()
         else {
             if self.erased_or_union_surface(callee_ty) {
-                if Self::call_has_spread_arguments(call) {
-                    let unknown_ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
-                    let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
-                    let callee = if self.ctx.krate.types.get(callee_ty)
-                        == Some(&Type::Unknown)
-                    {
-                        callee
-                    } else {
-                        body.push_expr(Expr {
-                            kind: ExprKind::TypeAssert { value: callee },
-                            ty: unknown_ty,
-                            span: self.span(callee_ident.span.start, callee_ident.span.end),
-                        })
-                    };
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ClosureCallSpread { callee, args },
-                        ty: unknown_ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
-                }
-                let args = call
-                    .arguments
-                    .iter()
-                    .map(|arg| self.argument(arg, body))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let ty = self.erase_unless_unknown(callee_ty, ErasureReason::ByName);
-                let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
-                {
-                    callee
-                } else {
-                    body.push_expr(Expr {
-                        kind: ExprKind::TypeAssert { value: callee },
-                        ty,
-                        span: self.span(callee_ident.span.start, callee_ident.span.end),
-                    })
-                };
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::ClosureCall { callee, args },
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
+                // The same erased call `erased_value_call` lowers for any
+                // other callee shape.
+                return self.erased_value_call(callee, callee_ident.span, call, body);
             }
             return Err(SmeltError::unsupported(
                 self.span(callee_ident.span.start, callee_ident.span.end),

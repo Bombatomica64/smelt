@@ -435,7 +435,9 @@ impl FunctionEmitter<'_> {
             && self.operand_ty(rhs)? == self.none_ty
         {
             let lhs_text = self.operand_expr(lhs)?;
-            if self.optional_inner_preserves_erased_singletons(inner) {
+            if let Some(text) = self.null_or_undefined_equality_expr(&lhs_text, inner, rhs, strict_nullish) {
+                text
+            } else if self.optional_inner_preserves_erased_singletons(inner) {
                 self.optional_erased_singleton_equality_expr(&lhs_text, rhs, strict_nullish, inner)?
             } else {
                 RustExpr::postfix_on(&lhs_text, format!("{lhs_text}.is_none()"))
@@ -444,7 +446,9 @@ impl FunctionEmitter<'_> {
             && self.operand_ty(lhs)? == self.none_ty
         {
             let rhs_text = self.operand_expr(rhs)?;
-            if self.optional_inner_preserves_erased_singletons(inner) {
+            if let Some(text) = self.null_or_undefined_equality_expr(&rhs_text, inner, lhs, strict_nullish) {
+                text
+            } else if self.optional_inner_preserves_erased_singletons(inner) {
                 self.optional_erased_singleton_equality_expr(&rhs_text, lhs, strict_nullish, inner)?
             } else {
                 RustExpr::postfix_on(&rhs_text, format!("{rhs_text}.is_none()"))
@@ -469,6 +473,34 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         Ok(Some(if negate { RustExpr::loose(format!("!({text})")) } else { text }))
+    }
+
+    /// Equality between a `null | undefined` value (`Option<()>`: present is
+    /// `null`, absent is `undefined`) and a `null` or `undefined` constant.
+    ///
+    /// `===` tells the two apart (`x === null` is the present case), while `==`
+    /// holds for both. `None` when `inner` is not the unit or the other side is
+    /// not a nullish constant, which keeps the ordinary presence rule.
+    fn null_or_undefined_equality_expr(
+        &self,
+        option_text: &RustExpr,
+        inner: TypeId,
+        singleton: &Operand,
+        strict_nullish: bool,
+    ) -> Option<RustExpr> {
+        if inner != self.none_ty {
+            return None;
+        }
+        let is_null = match singleton {
+            Operand::Const(Constant::None) => true,
+            Operand::Const(Constant::Undefined) => false,
+            _ => return None,
+        };
+        Some(match (strict_nullish, is_null) {
+            (false, _) => RustExpr::path("true"),
+            (true, true) => RustExpr::postfix_on(option_text, format!("{option_text}.is_some()")),
+            (true, false) => RustExpr::postfix_on(option_text, format!("{option_text}.is_none()")),
+        })
     }
 
     /// Emits equality between `Option<SmeltUnknown>`-like storage and a JS

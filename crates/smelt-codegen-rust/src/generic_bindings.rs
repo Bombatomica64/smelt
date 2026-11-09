@@ -557,7 +557,7 @@ fn literal_type(mir: &Mir, language: smelt_hir::Language, constant: &Constant) -
         Constant::String(_) if language == smelt_hir::Language::Python => Type::PyStr,
         Constant::String(_) | Constant::StringUnits(_) => Type::String,
         Constant::None | Constant::Undefined => Type::None,
-        Constant::Symbol(_) => Type::Unknown,
+        Constant::Symbol(_) => Type::Symbol,
     };
     mir.types
         .all()
@@ -1001,7 +1001,7 @@ mod tests {
         let float_ty = types.intern(Type::Float);
         let string_ty = types.intern(Type::String);
         let none_ty = types.intern(Type::None);
-        let unknown_ty = types.intern(Type::Unknown);
+        let symbol_ty = types.intern(Type::Symbol);
         let mir = mir_with_types(types);
 
         assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Bool(true)), Some(bool_ty));
@@ -1015,7 +1015,7 @@ mod tests {
         assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Undefined), Some(none_ty));
         assert_eq!(
             literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Symbol("key".to_owned())),
-            Some(unknown_ty)
+            Some(symbol_ty)
         );
     }
 

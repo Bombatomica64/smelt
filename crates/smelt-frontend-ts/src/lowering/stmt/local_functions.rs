@@ -1,6 +1,7 @@
 //! Functions declared inside a body: local arrow consts and nested `function`
 //! declarations, which become locals holding closures.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
@@ -68,7 +69,7 @@ impl ModuleBuilder<'_> {
                 .or(declared_return)
                 // not a new erasure: "no return hint" sentinel; recorded after
                 // closure-body lowering if the return stays erased
-                .unwrap_or_else(|| self.unknown_type());
+                .unwrap_or_else(|| self.unknown_type(NotNewErasure::NoHint));
             if arrow.r#async
                 && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
             {
@@ -448,7 +449,7 @@ impl ModuleBuilder<'_> {
             // not a new erasure: provisional return, replaced by the inferred
             // one once the body is lowered.
             let provisional_return_ty =
-                declared_return_ty.unwrap_or_else(|| this.unknown_type());
+                declared_return_ty.unwrap_or_else(|| this.unknown_type(NotNewErasure::ErasedUpstream));
             let provisional_fn_ty = this.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
                 rest: rest_index,
@@ -658,7 +659,7 @@ impl ModuleBuilder<'_> {
             })
             // not a new erasure: provisional pre-pass return, refined from the
             // lowered body
-            .unwrap_or_else(|| self.unknown_type());
+            .unwrap_or_else(|| self.unknown_type(NotNewErasure::ErasedUpstream));
         let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,

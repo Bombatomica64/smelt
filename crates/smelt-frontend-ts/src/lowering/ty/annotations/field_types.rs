@@ -2,6 +2,7 @@
 //! optional and dynamic fields, and the bounds of type parameters a field read
 //! goes through.
 
+use crate::lowering::erasure::NotNewErasure;
 use std::collections::{HashMap, HashSet};
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -54,7 +55,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.optional_chain_result_type(inner_field))
             }
             // not a new erasure: the receiver is already erased
-            Type::Unknown => Ok(self.unknown_type()),
+            Type::Unknown => Ok(self.unknown_type(NotNewErasure::ErasedUpstream)),
             // TypeScript accepts no member read off `never`, so a `never`
             // receiver here is a contextual type inference could not resolve,
             // and its members have no static layout.
@@ -533,7 +534,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Dict(_, value)) => value,
             Some(Type::Unknown) if self.allows_unknown_index_access() => {
-                self.unknown_type() // not a new erasure: receiver already erased
+                self.unknown_type(NotNewErasure::ErasedUpstream) // not a new erasure: receiver already erased
             }
             Some(Type::Class { name, .. }) => {
                 let fields = self.types.alias_fields(name)
@@ -566,12 +567,12 @@ impl ModuleBuilder<'_> {
                 }
                 match value_tys.as_slice() {
                     [single] => *single,
-                    [] => self.unknown_type(), // not a new erasure: unreachable, only an empty union yields no arm
+                    [] => self.unknown_type(NotNewErasure::Unreachable), // not a new erasure: unreachable, only an empty union yields no arm
                     _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
                 }
             }
             // not a new erasure: the receiver is already erased
-            Some(Type::Unknown) => self.unknown_type(),
+            Some(Type::Unknown) => self.unknown_type(NotNewErasure::ErasedUpstream),
             _ => self.erase(ErasureReason::DynamicOperator),
         }
     }

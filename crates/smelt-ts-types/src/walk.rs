@@ -20,6 +20,7 @@ use std::collections::HashMap;
 
 use smelt_ts_model::TsTypeKind;
 use tsrs_ast::{self as ast, Kind, Node, SourceFile, Symbol};
+use tsrs_checker::Type;
 use tsrs_core::P;
 
 use crate::{FileTypes, SpanKey};
@@ -37,22 +38,31 @@ pub(crate) struct CollectedTypes {
     pub(crate) evolved_arrays: FileTypes,
 }
 
+/// The evolved types of one evolving array's reads, in source order.
+type EvolvedReads = Vec<P<Type>>;
+
 /// Variables declared `const x = []` (no annotation), whose type TypeScript
 /// grows with every `x.push(..)` and `x[i] = ..` ("evolving arrays").
 ///
 /// TypeScript reports `any[]` at the declaration and at every mutation
 /// receiver. Only a later plain read (`return x`) shows the type the pushes
-/// built (`T[]`). A Rust port declares the local once with its final type, so
-/// the facts carry, per declaration name, the evolved type of its LAST read in
-/// source order whose element is neither `any` nor `never`. Flow typing only
-/// grows an evolving array along the program, so the last read holds every
-/// element type an earlier one does.
+/// built so far (`T[]`). A Rust port declares the local once with a type that
+/// holds every element any path pushes, so the facts carry, per declaration
+/// name, the array of the UNION of the element types of all its reads whose
+/// element is neither `any` nor `never`.
+///
+/// Not the last read's: flow typing grows an evolving array along each path,
+/// not across branches, so in `if (c) { xs.push(1); use(xs) } xs.push("a");
+/// return xs` the last read is `string[]` and misses the `number` the first
+/// branch pushed (audit finding A7).
 #[derive(Default)]
 struct EvolvingArrays {
     /// Declared symbol → span of its declaration name.
     declarations: HashMap<P<Symbol>, SpanKey>,
     /// The declared names, to skip the symbol lookup for every other identifier.
     names: std::collections::HashSet<&'static str>,
+    /// Every evolved read of each declaration, in source order.
+    reads: HashMap<SpanKey, EvolvedReads>,
 }
 
 impl EvolvingArrays {
@@ -118,7 +128,7 @@ pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFi
                 if is_evolved_array(converter, id)
                     && let Some(declaration) = evolving.read_of(converter, text, node)
                 {
-                    collected.evolved_arrays.insert(declaration, id);
+                    evolving.reads.entry(declaration).or_default().push(ty);
                 }
             } else if is_annotation_type_node(node) && !collected.type_nodes.contains_key(&key) {
                 let ty = converter.checker().get_type_from_type_node_exported(node);
@@ -127,7 +137,33 @@ pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFi
         }
         push_children_in_order(node, &mut work);
     }
+    #[expect(clippy::iter_over_hash_type, reason = "keyed inserts, one per declaration")]
+    for (declaration, reads) in evolving.reads {
+        if let Some(id) = joined_evolved_array(converter, &reads) {
+            collected.evolved_arrays.insert(declaration, id);
+        }
+    }
     collected
+}
+
+/// The array type holding every element type of `reads`, the evolved types of
+/// one evolving array's reads: one read's type as it is, or an array of the
+/// union of their element types.
+fn joined_evolved_array(converter: &mut Converter<'_>, reads: &[P<Type>]) -> Option<crate::TsTypeId> {
+    let (&first, rest) = reads.split_first()?;
+    if rest.iter().all(|&read| read == first) {
+        return Some(converter.convert_root(first));
+    }
+    let mut elements: Vec<P<Type>> = Vec::new();
+    for &read in reads {
+        let element = *converter.checker().get_type_arguments_exported(read).first()?;
+        if !elements.contains(&element) {
+            elements.push(element);
+        }
+    }
+    let union = converter.checker().get_union_type_exported(&elements);
+    let element = converter.convert_root(union);
+    Some(converter.array_of(element))
 }
 
 /// Whether `node` is a type annotation whose evaluated type is meaningful on its own.

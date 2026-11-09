@@ -272,13 +272,7 @@ impl ModuleBuilder<'_> {
                 } else {
                     None
                 };
-                if let Some(narrowing) = rhs_narrowing.clone() {
-                    self.scope.push_narrowing_scope(narrowing);
-                }
-                let rhs = self.expression(&logical.right, body)?;
-                if rhs_narrowing.is_some() {
-                    self.scope.pop_narrowing_scope();
-                }
+                let rhs = self.with_narrowing(rhs_narrowing, |this| this.expression(&logical.right, body))?;
                 // JavaScript's `&&`/`||` select an OPERAND, so in this value
                 // position the result is the union of the operand types, not a
                 // boolean. `logical_operand_value_expression` builds that

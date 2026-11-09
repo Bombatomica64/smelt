@@ -1,6 +1,7 @@
 //! Regular expressions: literals, `new RegExp`, `test`/`exec`, and the string methods
 //! that take a pattern (`match`, `replace`).
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -131,7 +132,7 @@ impl ModuleBuilder<'_> {
             .collect();
         // not a new erasure: "no return hint", so the replacer keeps the type its
         // body answers and the replacement applies `ToString` to it.
-        let return_ty = self.unknown_type();
+        let return_ty = self.unknown_type(NotNewErasure::NoHint);
         self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
@@ -538,7 +539,6 @@ impl ModuleBuilder<'_> {
                     return false;
                 };
                 self.consts.object(object.name.as_str())
-                    .or_else(|| self.ctx.object_consts.get(object.name.as_str()))
                     .and_then(|object_const| {
                         object_const
                             .entries

@@ -565,6 +565,7 @@ impl ModuleBuilder<'_> {
         let object_ty = self.type_param_constraint_or_self(Self::expr_ty(body, object));
         match self.ctx.krate.types.get(object_ty).cloned() {
             Some(Type::Dict(key_ty, _)) => {
+                let key_ty = self.enumerated_key_type(key_ty);
                 let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::DictProjection {

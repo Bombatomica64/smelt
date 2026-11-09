@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use crate::context::{ModuleKey, QualifiedExport};
 use crate::lowering::support::source_spelling;
 use smelt_hir::{Module, Type};
 use super::phases::SignaturesDeclared;
@@ -19,7 +20,6 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn record_module_exports(
         &mut self,
         module: &Module,
-        previous_export_aliases: &HashMap<String, smelt_hir::ItemId>,
         _lowered: SignaturesDeclared,
     ) {
         // Resolve the renames the export prepass could not: `export { Store as
@@ -35,7 +35,7 @@ impl ModuleBuilder<'_> {
         let resolved = self
             .export_renames
             .iter()
-            .filter(|(exported, _)| !self.ctx.export_aliases.contains_key(*exported))
+            .filter(|(exported, _)| !self.ctx.export_aliases.contains_key(&self.export_key(exported.as_str())))
             // A namespace import re-exported under a new name published its
             // members instead (`reexport_namespace_members`).
             .filter(|(_, local)| !self.imports.is_namespace(local))
@@ -48,7 +48,7 @@ impl ModuleBuilder<'_> {
             .collect::<Vec<_>>();
         for (exported, item) in resolved {
             self.items.insert(exported.clone(), item);
-            self.ctx.export_aliases.insert(exported, item);
+            self.publish_export_alias(exported, item);
         }
         let mut exports = HashMap::new();
         for item_id in &module.items {
@@ -69,14 +69,13 @@ impl ModuleBuilder<'_> {
             reason = "keyed inserts of distinct aliases"
         )]
         for (alias, item_id) in &self.ctx.export_aliases {
-            if previous_export_aliases.get(alias) != Some(item_id) {
-                exports.insert(alias.clone(), *item_id);
+            if alias.module == self.module_key {
+                exports.insert(alias.name.clone(), *item_id);
             }
         }
         // The module's own `export { local as exported }` specifiers, including
         // re-exports of an import (`import { matcher } from ..; export { matcher }`)
-        // whose alias another module already published to the shared map, so the
-        // novelty test above does not see it.
+        // that bound no alias of their own.
         let own = self
             .export_renames
             .iter()
@@ -99,6 +98,77 @@ impl ModuleBuilder<'_> {
             self.ctx.module_exports.insert(canonical, exports);
         }
         self.record_module_global_object_aliases();
+    }
+
+    /// The key this module publishes `name` under in the crate-wide export
+    /// tables.
+    pub(in crate::lowering) fn export_key(&self, name: impl Into<String>) -> QualifiedExport {
+        QualifiedExport { module: self.module_key.clone(), name: name.into() }
+    }
+
+    /// Publish `value` for this module's export `name` in one crate-wide
+    /// export table (`table` picks it out of the context).
+    pub(in crate::lowering) fn publish_export<V: Clone>(
+        &mut self,
+        table: impl FnOnce(&mut crate::HirCtx) -> &mut crate::context::ExportTable<V>,
+        name: impl Into<String>,
+        value: V,
+    ) {
+        let key = self.export_key(name);
+        table(self.ctx).write().insert(key, value);
+    }
+
+    /// Publish `item` as this module's export `alias`.
+    pub(in crate::lowering) fn publish_export_alias(&mut self, alias: impl Into<String>, item: smelt_hir::ItemId) {
+        let key = self.export_key(alias);
+        self.ctx.export_aliases.insert(key, item);
+    }
+
+    /// The crate module an import specifier resolves to, when the crate has
+    /// created a builder for it (in an import cycle, possibly one that has not
+    /// finished lowering).
+    pub(in crate::lowering) fn source_module_key(&self, source: &str) -> Option<ModuleKey> {
+        self.resolved_module_export_keys(source)
+            .into_iter()
+            .map(|candidate| ModuleKey::of_path(&candidate))
+            .find(|key| self.ctx.known_modules.contains(key))
+    }
+
+    /// Copy the facts `source` publishes about its export `imported` into this
+    /// module's tables under the local binding `local`: an object constant and
+    /// its value projection, a collection, enum members, a namespace object,
+    /// overloads and a rest parameter.
+    ///
+    /// The tables are keyed by [`QualifiedExport`], so the facts are the
+    /// exporting module's even when another module exports the same name
+    /// (audit finding A2).
+    pub(in crate::lowering) fn adopt_exported_facts(&mut self, source: &str, imported: &str, local: &str) {
+        let Some(module) = self.source_module_key(source) else {
+            return;
+        };
+        let key = QualifiedExport { module, name: imported.to_owned() };
+        let local = local.to_owned();
+        if let Some(value) = self.ctx.object_consts.get(&key).cloned() {
+            self.consts.set_object(local.clone(), value);
+        }
+        if let Some(value) = self.ctx.object_value_collections.get(&key).cloned() {
+            self.consts.set_object_value_collection(local.clone(), value);
+        }
+        if let Some(value) = self.ctx.const_collections.get(&key).cloned() {
+            self.consts.set_collection(local.clone(), value);
+        }
+        if let Some(members) = self.ctx.enum_members.get(&key).cloned() {
+            self.consts.set_enum_members(local.clone(), members);
+        }
+        if let Some(namespace) = self.ctx.object_namespaces.get(&key).cloned() {
+            self.object_namespaces.write().insert(local.clone(), namespace);
+        }
+        if let Some(overloads) = self.ctx.overloads.get(&key).cloned() {
+            self.functions.set_overloads(local.clone(), overloads);
+        }
+        if let Some(rest) = self.ctx.function_rests.get(&key).copied() {
+            self.functions.set_rest(local, rest);
+        }
     }
 
     /// Publish what each exported type predicate proves, for importing modules.

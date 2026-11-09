@@ -188,6 +188,8 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
         Type::BigInt => "BigInt".to_owned(),
         Type::String => "String".to_owned(),
         Type::PyStr => "PyStr".to_owned(),
+        Type::Symbol => "Symbol".to_owned(),
+        Type::PropKey => "PropKey".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),
         Type::TypeParam { name } => krate.symbols.get(*name).unwrap_or("<unknown>").to_owned(),

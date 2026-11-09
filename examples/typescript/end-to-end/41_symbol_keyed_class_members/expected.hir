@@ -3,73 +3,77 @@ module examples/typescript/end-to-end/41_symbol_keyed_class_members/input.ts (Mo
   items
     class Holder fields [] constructor Some(ItemId(6)) methods [ItemId(0), ItemId(1), ItemId(2), ItemId(3), ItemId(4), ItemId(5)] implements []
   locals
-    %0 const MATCH_RESULT: Unknown
-    %1 const DESCRIBED: Unknown
-    %2 const SHARED: Unknown
-    %3 const SAME_A: Unknown
-    %4 const SAME_B: Unknown
+    %0 const MATCH_RESULT: Symbol
+    %1 const DESCRIBED: Symbol
+    %2 const SHARED: Symbol
+    %3 const SAME_A: Symbol
+    %4 const SAME_B: Symbol
     %5 const holder: Holder
   exprs
-    #0: Unknown = symbol("Symbol()@813")
-    #1: String = "described"
-    #2: Unknown = symbol("Symbol(described)@841")
-    #3: String = "shared"
-    #4: Unknown = symbol("Symbol.for(shared)")
-    #5: String = "same"
-    #6: Unknown = symbol("Symbol(same)@914")
+    #0: Symbol = symbol("Symbol()@813")
+    #1: Symbol = symbol_unique #0
+    #2: String = "described"
+    #3: Symbol = symbol("Symbol(described)@841")
+    #4: Symbol = symbol_unique #3
+    #5: String = "shared"
+    #6: Symbol = symbol("Symbol.for(shared)")
     #7: String = "same"
-    #8: Unknown = symbol("Symbol(same)@945")
-    #9: Holder = new Holder()
-    #10: Holder = %5
-    #11: Float = #10.__smelt_symbol_unique__at_813
-    #12: None = @8(console_log)
-    #13: None = call #12(#11)
+    #8: Symbol = symbol("Symbol(same)@914")
+    #9: Symbol = symbol_unique #8
+    #10: String = "same"
+    #11: Symbol = symbol("Symbol(same)@945")
+    #12: Symbol = symbol_unique #11
+    #13: Holder = new Holder()
     #14: Holder = %5
-    #15: fn(Float) -> Float = #14.__smelt_symbol_unique_described_at_841
-    #16: Float = 1.0
-    #17: Float = closure_call #15(#16)
-    #18: None = @9(console_log)
-    #19: None = call #18(#17)
-    #20: Holder = %5
-    #21: Holder = %5
-    #22: fn() -> String = #21.__smelt_symbol_for_shared
-    #23: String = closure_call #22()
-    #24: None = @10(console_log)
-    #25: None = call #24(#23)
-    #26: Holder = %5
-    #27: Holder = %5
-    #28: fn() -> String = #27.__smelt_symbol_unique_same_at_914
-    #29: String = closure_call #28()
+    #15: Float = #14.__smelt_symbol_unique__at_813
+    #16: None = @8(console_log)
+    #17: None = call #16(#15)
+    #18: Holder = %5
+    #19: fn(Float) -> Float = #18.__smelt_symbol_unique_described_at_841
+    #20: Float = 1.0
+    #21: Float = closure_call #19(#20)
+    #22: None = @9(console_log)
+    #23: None = call #22(#21)
+    #24: Holder = %5
+    #25: Holder = %5
+    #26: fn() -> String = #25.__smelt_symbol_for_shared
+    #27: String = closure_call #26()
+    #28: None = @10(console_log)
+    #29: None = call #28(#27)
     #30: Holder = %5
     #31: Holder = %5
-    #32: fn() -> String = #31.__smelt_symbol_unique_same_at_945
+    #32: fn() -> String = #31.__smelt_symbol_unique_same_at_914
     #33: String = closure_call #32()
-    #34: String = Add #29, #33
-    #35: None = @11(console_log)
-    #36: None = call #35(#34)
-    #37: Holder = %5
-    #38: fn() -> String = #37.plain
-    #39: Holder = %5
-    #40: String = #39.plain()
-    #41: None = @12(console_log)
-    #42: None = call #41(#40)
+    #34: Holder = %5
+    #35: Holder = %5
+    #36: fn() -> String = #35.__smelt_symbol_unique_same_at_945
+    #37: String = closure_call #36()
+    #38: String = Add #33, #37
+    #39: None = @11(console_log)
+    #40: None = call #39(#38)
+    #41: Holder = %5
+    #42: fn() -> String = #41.plain
+    #43: Holder = %5
+    #44: String = #43.plain()
+    #45: None = @12(console_log)
+    #46: None = call #45(#44)
   stmts
-    s0: let %0: Unknown = #0
-    s1: let %1: Unknown = #2
-    s2: let %2: Unknown = #4
-    s3: let %3: Unknown = #6
-    s4: let %4: Unknown = #8
-    s5: let %5: Holder = #9
-    s6: #13
-    s7: #19
-    s8: #25
-    s9: #36
-    s10: #42
+    s0: let %0: Symbol = #1
+    s1: let %1: Symbol = #4
+    s2: let %2: Symbol = #6
+    s3: let %3: Symbol = #9
+    s4: let %4: Symbol = #12
+    s5: let %5: Holder = #13
+    s6: #17
+    s7: #23
+    s8: #29
+    s9: #40
+    s10: #46
 
 interned types
   t0 = Float
   t1 = String
-  t2 = Unknown
+  t2 = Symbol
   t3 = Holder
   t4 = None
   t5 = fn(Float) -> Float

@@ -414,6 +414,8 @@ pub(crate) fn type_supports_partial_eq(
             | Type::BigInt
             | Type::Float
             | Type::String | Type::PyStr
+            | Type::Symbol
+            | Type::PropKey
             | Type::None
             | Type::Unknown
             | Type::Never

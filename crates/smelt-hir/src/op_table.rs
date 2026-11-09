@@ -447,6 +447,25 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("object_to_string_tag {operand}"));
+            /// Evaluate a `Symbol(d)` call: a symbol no other evaluation returns.
+            ///
+            /// `base` is the call site's `symbol` constant. The first
+            /// evaluation answers it, so a key folded from the site statically
+            /// (a module-level `const K = Symbol()`, evaluated once) still
+            /// names the same property; every later evaluation answers a fresh
+            /// symbol, so `mk() !== mk()` as in JavaScript.
+            SymbolUnique {
+                /// The call site's symbol constant.
+                base: one,
+            }
+                => (format!("symbol_unique {base}"));
+            /// JavaScript `symbol.description`: the text a symbol was created
+            /// with, or `undefined` for a `Symbol()` made without one.
+            SymbolDescription {
+                /// Symbol operand to read.
+                operand: one,
+            }
+                => (format!("symbol_description {operand}"));
             /// Deep-copy an erased value graph with fresh identities, preserving host
             /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
             StructuredClone {
@@ -2512,6 +2531,21 @@ macro_rules! op_group_custom {
                 args: many @CALLED,
             }
                 => (format!("closure_call {callee}({})", args.join(", ")));
+            /// `f.call(thisArg, ..args)` / `f.apply(thisArg, argsArray)` on an
+            /// erased `f`, resolved at run time as JavaScript resolves it: a
+            /// function (or callable object) runs with `thisArg` as its `this`,
+            /// and an object with its own `call`/`apply` member runs that member
+            /// with the object as `this`. One operation, because the method read
+            /// is not a value the source can observe.
+            ErasedFunctionMethodCall {
+                /// The erased value the method is called on.
+                receiver: one @CALLED,
+                /// `call` or `apply`.
+                method: (sym "method"),
+                /// The source arguments, `thisArg` first.
+                args: many @CALLED,
+            }
+                => (format!("{receiver}.{method}!({})", args.join(", ")));
             /// Call a method through a TypeScript optional-chain receiver.
             OptionalMethod {
                 /// Receiver operand, either `T` or `Option<T>`.

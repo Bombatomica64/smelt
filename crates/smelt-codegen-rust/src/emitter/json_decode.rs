@@ -165,6 +165,9 @@ impl FunctionEmitter<'_> {
             // JSON has no bigint: `JSON.parse` can never produce one, so a
             // bigint target is not a decodable shape.
             Some(Type::BigInt) => false,
+            // Nor a symbol; a property key only ever reaches here as the key of
+            // a record, which the dict arm reads.
+            Some(Type::Symbol | Type::PropKey) => false,
             Some(Type::List(item) | Type::Optional(item)) => self.json_decodable(*item, visiting),
             Some(Type::Tuple(items)) => items.iter().all(|item| self.json_decodable(*item, visiting)),
             Some(Type::Dict(key, value)) => {

@@ -451,6 +451,16 @@ fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc
 /// A callable object (`{ __smelt_call }`) reports the arity of the callable it
 /// carries; anything else reports `0`, which is what JavaScript answers for a
 /// value with no `length` property.
-fn smelt_function_length(value: &SmeltUnknown) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return 0.0; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(0.0) }
+fn smelt_function_length(value: &SmeltUnknown) -> f64 { smelt_function_length_or(value, 0.0) }
+
+/// Read `Function.prototype.length` off an erased value, answering `fallback`
+/// when no representation recorded the arity.
+///
+/// Extracting an erased callable into a `SmeltErasedFunction` uses this so the
+/// struct's `length` is the function's own arity (recorded when it was
+/// erased), not the arity of the variadic signature it is read through: a
+/// `typeof f === "function" && f.length === 1` guard must see the `1` a
+/// one-parameter callback declared.
+fn smelt_function_length_or(value: &SmeltUnknown, fallback: f64) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return fallback; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(fallback) }
 
 // @smelt:item-end

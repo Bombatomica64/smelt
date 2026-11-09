@@ -151,6 +151,15 @@ impl ModuleBuilder<'_> {
         self.call_result_shaped_by_checker(result, call.span.start, call.span.end, span)
     }
 
+    /// Whether `ty` mentions any of `params` anywhere.
+    pub(in crate::lowering) fn mentions_type_params(&self, ty: smelt_hir::TypeId, params: &[TypeParamDef]) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            None => false,
+            Some(Type::TypeParam { name }) => params.iter().any(|param| param.name == *name),
+            Some(other) => other.children().any(|child| self.mentions_type_params(child, params)),
+        }
+    }
+
     /// Whether type parameter `name` occurs in `ty` at a position no union encloses.
     fn mentions_outside_a_union(&self, ty: smelt_hir::TypeId, name: smelt_hir::Symbol) -> bool {
         match self.ctx.krate.types.get(ty) {
@@ -343,6 +352,9 @@ impl ModuleBuilder<'_> {
             | (_, Some(Type::Unknown | Type::TypeParam { .. }))
             | (Some(Type::Float), Some(Type::Int))
             | (Some(Type::Int), Some(Type::Float)) => true,
+            // A property-key record's key takes any key: every key a record
+            // stores went through `ToPropertyKey`.
+            (Some(Type::PropKey), _) => true,
             _ if self.is_date_constructor_arg_type(expected)
                 && self.is_date_constructor_arg_type(actual) =>
             {

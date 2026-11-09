@@ -9,26 +9,36 @@ use smelt_hir::Type;
 impl ModuleBuilder<'_> {
     /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.
     ///
-    /// JavaScript object records expose stringified own keys for normal object
-    /// operations, so concrete `string`, `number`, literal, `keyof`, and
-    /// `PropertyKey`-like key surfaces normalize to `string`. A direct generic
-    /// key such as `Record<K, V>` is preserved because later alias substitution
-    /// still needs to thread that type parameter through generic helper returns.
+    /// JavaScript converts every key it stores on an object with
+    /// `ToPropertyKey`, so a record's keys are strings and symbols whatever the
+    /// source spelled. Two lowerings follow from that:
+    ///
+    /// * a key space that can only hold strings and numbers (`string`,
+    ///   `number`, literals, `keyof`) is `string`: a number key is converted to
+    ///   its string where it is used;
+    /// * a key that is a type parameter (`Record<K, V>`), or a key space that
+    ///   holds symbols (`symbol`, `PropertyKey`), is [`Type::PropKey`], the
+    ///   converted key itself. A type parameter is not kept as the key type:
+    ///   whatever `K` a caller binds, the record it builds stores property
+    ///   keys, and keeping `K` stored the RAW key (`1` beside `'1'`).
     pub(in crate::lowering) fn record_key_type_to_hir(
         &mut self,
         key: &TSType<'_>,
-        span: oxc::span::Span,
+        _span: oxc::span::Span,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        if let Some(param_ty) = self.direct_record_key_type_param(key)? {
-            return Ok(param_ty);
+        if self.direct_record_key_type_param(key)?.is_some() || self.record_key_surface_holds_symbols(key) {
+            return Ok(self.ctx.krate.types.intern(Type::PropKey));
         }
         if self.record_key_surface_is_lowerable(key)? {
             return Ok(self.ctx.krate.types.intern(Type::String));
         }
-        Err(SmeltError::unsupported(
-            self.span(span.start, span.end),
-            "Record keys must lower to TypeScript object property keys",
-        ))
+        // Every other key TypeScript accepted is assignable to `PropertyKey`
+        // (the checker enforces `Record<K extends keyof any, V>`): an alias
+        // or indexed access that can hold a symbol (`Extract<.., PropertyKey>`,
+        // a key computed from type-level machinery). The record stores
+        // `ToPropertyKey` of whatever it is given, which is what the
+        // property-key record is.
+        Ok(self.ctx.krate.types.intern(Type::PropKey))
     }
 
     /// Return a direct generic key for `Record<K, V>` without normalizing it.
@@ -63,6 +73,42 @@ impl ModuleBuilder<'_> {
                 Ok(self.types.param_type(name.name.as_str()))
             }
             _ => Ok(None),
+        }
+    }
+
+    /// Whether a `Record` key surface can hold a symbol: `symbol`, a
+    /// `unique symbol`, the lib's `PropertyKey`, or a union with one of them.
+    ///
+    /// Read off the syntax, so asking does not lower (and record erasures for)
+    /// key spellings the string lowering handles on its own.
+    fn record_key_surface_holds_symbols(&self, key: &TSType<'_>) -> bool {
+        match key {
+            TSType::TSSymbolKeyword(_) => true,
+            TSType::TSParenthesizedType(parenthesized) => {
+                self.record_key_surface_holds_symbols(&parenthesized.type_annotation)
+            }
+            TSType::TSTypeOperatorType(operator)
+                if matches!(
+                    operator.operator,
+                    oxc::ast::ast::TSTypeOperatorOperator::Readonly
+                        | oxc::ast::ast::TSTypeOperatorOperator::Unique
+                ) =>
+            {
+                self.record_key_surface_holds_symbols(&operator.type_annotation)
+            }
+            TSType::TSUnionType(union) => union
+                .types
+                .iter()
+                .any(|member| self.record_key_surface_holds_symbols(member)),
+            TSType::TSTypeReference(reference) => {
+                let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+                    return false;
+                };
+                reference.type_arguments.is_none()
+                    && name.name == "PropertyKey"
+                    && self.resolve_type_name("PropertyKey") == crate::lowering::resolve::TypeBinding::Lib
+            }
+            _ => false,
         }
     }
 

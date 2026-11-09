@@ -1,6 +1,7 @@
 //! Method resolution on a receiver type: the method a call reaches, including
 //! methods of a class still being lowered and methods returning their receiver.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
@@ -87,7 +88,7 @@ impl ModuleBuilder<'_> {
                 else {
                     // An erased member type was recorded by `class_field_type`.
                     let unknown = if self.ctx.krate.types.get(field_ty) == Some(&Type::Unknown) {
-                        self.unknown_type()
+                        self.unknown_type(NotNewErasure::ErasedUpstream)
                     } else {
                         self.erase(ErasureReason::ByName)
                     };
@@ -100,7 +101,7 @@ impl ModuleBuilder<'_> {
             }
             let return_ty = match return_types.as_slice() {
                 [single] => *single,
-                [] => self.unknown_type(), // not a new erasure: unreachable, only an empty union yields no arm
+                [] => self.unknown_type(NotNewErasure::Unreachable), // not a new erasure: unreachable, only an empty union yields no arm
                 _ => self.ctx.krate.types.intern(Type::Union(return_types)),
             };
             // A union call has no single static method item. MIR retains the
@@ -121,7 +122,7 @@ impl ModuleBuilder<'_> {
             // tuples, ...) all lower uniformly instead of being rejected.
             // An already-erased receiver was recorded where it was decided.
             let ty = if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown) {
-                self.unknown_type()
+                self.unknown_type(NotNewErasure::ErasedUpstream)
             } else {
                 self.erase(ErasureReason::ByName)
             };

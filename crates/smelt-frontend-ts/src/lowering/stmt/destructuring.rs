@@ -104,16 +104,18 @@ impl ModuleBuilder<'_> {
                             self.binding_declaration(&property.value, Some(extracted), Some(ty), mutable, body, block)?;
                             continue;
                         }
-                        let is_stdlib_len = self.ctx.krate.symbols.get(field) == Some("length")
-                            && self.supports_stdlib_length(receiver_ty);
-                        let is_stdlib_size = self.ctx.krate.symbols.get(field) == Some("size")
-                            && self.supports_stdlib_size(receiver_ty);
-                        let ty = if is_stdlib_len || is_stdlib_size {
+                        let is_element_count = self
+                            .ctx
+                            .krate
+                            .symbols
+                            .get(field)
+                            .is_some_and(|name| self.element_count_member(receiver_ty, name));
+                        let ty = if is_element_count {
                             self.ctx.krate.types.intern(Type::Float)
                         } else {
                             self.class_field_type(receiver_ty, field)?
                         };
-                        let extracted = if is_stdlib_len || is_stdlib_size {
+                        let extracted = if is_element_count {
                             body.push_expr(Expr {
                                 kind: ExprKind::Len { operand: receiver },
                                 ty,

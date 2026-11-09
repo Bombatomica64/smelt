@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use super::*;
 use smelt_specialize::{
     BindingMode, CallableProvenance, ClassDefinition, ConstructorShape, Definition,
-    DescriptorDefinition, FieldDefinition, FunctionSignature, GraphValue, GraphValueKind,
+    DescriptorDefinition, FieldDefinition, FunctionDefinition, FunctionSignature, GraphValue, GraphValueKind,
     HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, MaterializedDefinition, ModuleRecord,
     SandboxPolicyRecord, SourceProvenance, SourceSpan, SpecializationManifest, StaticType,
     ValueGraph, ValueId,
@@ -278,4 +278,148 @@ fn source_span() -> SourceSpan {
         start: 0,
         end: u32::try_from(DECORATED_SOURCE.len()).unwrap_or(u32::MAX),
     }
+}
+
+/// Two statics whose Rust renderings fold alike (`PI`, `pi`).
+const CASE_STATICS_SOURCE: &str = r"
+@dec
+class Consts {
+  @dec static pi: number = 1;
+  @dec static PI: number = 2;
+}
+console.log(Consts.PI);
+";
+
+/// `decorated_manifest` reshaped for [`CASE_STATICS_SOURCE`]: `pi` holds 1
+/// and `PI` holds 2.
+fn case_statics_manifest() -> SpecializationManifest {
+    let mut manifest = decorated_manifest();
+    let span = SourceSpan {
+        file: "fixture.ts".to_owned(),
+        start: 0,
+        end: u32::try_from(CASE_STATICS_SOURCE.len()).unwrap_or(u32::MAX),
+    };
+    if let Some(module) = manifest.modules.first_mut()
+        && let Some(definition) = module.definitions.first_mut()
+    {
+        definition.original_name = "Consts".to_owned();
+        definition.binding_name = "Consts".to_owned();
+        definition.source.qualified_name = "Consts".to_owned();
+        definition.source.span = span.clone();
+        if let Definition::Class(class) = &mut definition.definition {
+            class.mro = vec!["Consts".to_owned()];
+            let mut pi = materialized_field("pi", true, false);
+            let mut upper = materialized_field("PI", true, false);
+            pi.span = Some(span.clone());
+            upper.span = Some(span);
+            class.fields = vec![pi, upper];
+            class.descriptors = Vec::new();
+            class.static_values =
+                BTreeMap::from([("pi".to_owned(), ValueId(0)), ("PI".to_owned(), ValueId(1))]);
+        }
+        module.globals = BTreeMap::from([("Consts".to_owned(), ValueId(2))]);
+    }
+    manifest.values.nodes = vec![
+        GraphValue { id: ValueId(0), ty: StaticType::Float, value: GraphValueKind::Float(1.0) },
+        GraphValue { id: ValueId(1), ty: StaticType::Float, value: GraphValueKind::Float(2.0) },
+        GraphValue {
+            id: ValueId(2),
+            ty: StaticType::Named("fixture.Consts".to_owned()),
+            value: GraphValueKind::ClassRef { module: "fixture".to_owned(), qualified_name: "Consts".to_owned() },
+        },
+    ];
+    manifest
+}
+
+/// A materialized static is read by its SOURCE key: `Consts.PI` is 2, never
+/// the `pi` whose Rust rendering it shares (audit finding A13).
+#[test]
+fn materialized_static_reads_match_the_source_key() -> Result<(), String> {
+    let manifest = case_statics_manifest();
+    let mut ctx = HirCtx::new();
+    to_hir_with_options(
+        CASE_STATICS_SOURCE,
+        FileId(0),
+        "fixture.ts",
+        &mut ctx,
+        FrontendOptions { specialization: Some(&manifest), ..FrontendOptions::default() },
+    )
+    .map_err(|errors| format!("manifest-aware lowering failed: {errors:?}"))?;
+    let floats = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter_map(|expr| match expr.kind {
+            ExprKind::Literal(Literal::Float(value)) => Some(value),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure!(floats.contains(&2.0_f64), "`Consts.PI` must read PI's 2: {floats:?}");
+    ensure!(!floats.contains(&1.0_f64), "`Consts.PI` read pi's 1: {floats:?}");
+    Ok(())
+}
+
+/// [`DECORATED_SOURCE`] with a function expression a method's provenance
+/// can name, so the lift re-parses it.
+fn lifted_getter_source() -> String {
+    format!("{DECORATED_SOURCE}const helper = function () {{ return \"lifted\"; }};\n")
+}
+
+/// `decorated_manifest` whose `greet` method is the function expression of
+/// [`lifted_getter_source`], declared in `file`.
+fn lifted_getter_manifest(source: &str, file: &str) -> SpecializationManifest {
+    let mut manifest = decorated_manifest();
+    let start = source.find("function ()").unwrap_or(0);
+    let end = source.rfind('}').map_or(source.len(), |end| end + 1);
+    let span = SourceSpan {
+        file: file.to_owned(),
+        start: u32::try_from(start).unwrap_or(u32::MAX),
+        end: u32::try_from(end).unwrap_or(u32::MAX),
+    };
+    for module in &mut manifest.modules {
+        for definition in &mut module.definitions {
+            if let Definition::Class(class) = &mut definition.definition {
+                let mut callable = callable_provenance("Example.greet");
+                callable.span = span.clone();
+                class.methods = vec![FunctionDefinition {
+                    name: "greet".to_owned(),
+                    signature: FunctionSignature {
+                        parameters: Vec::new(),
+                        return_type: StaticType::String,
+                        is_async: false,
+                        throws: false,
+                    },
+                    callable,
+                    wrapper_chain: Vec::new(),
+                    binding_mode: BindingMode::Instance,
+                }];
+            }
+        }
+    }
+    manifest
+}
+
+/// A callable whose provenance names another file is not re-parsed out of
+/// this one (audit finding A9): the lift reports an adapter instead, while
+/// the same callable named in this file is lifted.
+#[test]
+fn a_callable_from_another_file_is_not_lifted_from_this_one() -> Result<(), String> {
+    let source = lifted_getter_source();
+    let lower = |file: &str| {
+        let manifest = lifted_getter_manifest(&source, file);
+        let mut ctx = HirCtx::new();
+        to_hir_with_options(
+            &source,
+            FileId(0),
+            "fixture.ts",
+            &mut ctx,
+            FrontendOptions { specialization: Some(&manifest), ..FrontendOptions::default() },
+        )
+        .map(|_| ())
+    };
+    lower("fixture.ts").map_err(|errors| format!("the method of this file must lift: {errors:?}"))?;
+    let errors = lower("elsewhere.ts").err().ok_or("a method of another file was lifted from this one")?;
+    ensure!(errors.iter().any(|error| error.message.contains("elsewhere.ts")), "{errors:?}");
+    Ok(())
 }

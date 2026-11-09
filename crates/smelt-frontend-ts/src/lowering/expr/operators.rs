@@ -299,7 +299,14 @@ impl ModuleBuilder<'_> {
             ));
         }
 
+        // The module's object constant only when the name IS it: a parameter
+        // or local of the same name shadows it (`function has(r, k) { return
+        // k in r; }` beside a module `const r = {}`).
         if let Expression::Identifier(receiver_ident) = &receiver_expr
+            && !matches!(
+                self.resolve_value(receiver_ident.name.as_str()),
+                crate::lowering::resolve::ValueBinding::Local(_)
+            )
             && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
                 .cloned()
         {
@@ -437,6 +444,18 @@ impl ModuleBuilder<'_> {
             ));
         };
         let key_ty = *receiver_key_ty;
+        // A property-key record takes any key; codegen applies `ToPropertyKey`.
+        if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict: receiver,
+                    key,
+                    lookup: PropertyLookup::PrototypeChain,
+                },
+                ty: bool_ty,
+                span,
+            }));
+        }
         if Self::expr_ty(body, key) != key_ty
             && self.is_string_compatible_type(Self::expr_ty(body, key))
         {
@@ -754,6 +773,9 @@ struct ValueKinds {
     string: bool,
     /// `boolean`.
     boolean: bool,
+    /// `symbol`: compared by identity, and `==` never converts one to
+    /// another kind.
+    symbol: bool,
     /// Objects, arrays, functions, promises: compared by reference.
     object: bool,
     /// `unknown`: any kind at all.
@@ -765,7 +787,7 @@ struct ValueKinds {
 impl ValueKinds {
     /// How many distinct non-nullish kinds were seen.
     fn count(&self) -> usize {
-        [self.number, self.bigint, self.string, self.boolean, self.object].into_iter().filter(|kind| *kind).count()
+        [self.number, self.bigint, self.string, self.boolean, self.symbol, self.object].into_iter().filter(|kind| *kind).count()
     }
 }
 
@@ -813,6 +835,12 @@ impl ModuleBuilder<'_> {
             Some(Type::BigInt) => kinds.bigint = true,
             Some(Type::String | Type::PyStr) => kinds.string = true,
             Some(Type::Bool) => kinds.boolean = true,
+            Some(Type::Symbol) => kinds.symbol = true,
+            // A property key is a string or a symbol.
+            Some(Type::PropKey) => {
+                kinds.string = true;
+                kinds.symbol = true;
+            }
             Some(Type::None | Type::Never) => {}
             Some(Type::Optional(inner)) => self.collect_value_kinds(*inner, kinds, depth + 1),
             Some(Type::Union(members)) => {

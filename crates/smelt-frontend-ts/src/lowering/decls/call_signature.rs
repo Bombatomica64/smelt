@@ -35,6 +35,7 @@
 //! arguments — so they keep the erased variadic slot
 //! (`overloaded_call_signature_slot_type`).
 
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::TSCallSignatureDeclaration;
 use smelt_hir::{ErasureReason, FunctionType, Type, TypeId};
 
@@ -199,7 +200,7 @@ impl ModuleBuilder<'_> {
         // `unknown | T` is `unknown` in TypeScript, so an overload that accepts
         // anything at this position makes the merged position accept anything.
         // not a new erasure: matching an overload arm that is already erased
-        let unknown = self.unknown_type();
+        let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
         let merged = match members.as_slice() {
             _ if members.contains(&unknown) => unknown,
             [single] => *single,

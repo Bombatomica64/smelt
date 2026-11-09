@@ -2,6 +2,7 @@
 //! arrow/function callback recognizers, factory predicates, and opaque
 //! (local/member) callback values, plus building callbacks from param lists.
 
+use crate::lowering::erasure::NotNewErasure;
 use super::forwarding::{ForwardTarget, ForwardingCallback};
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
@@ -495,7 +496,7 @@ impl ModuleBuilder<'_> {
     ) -> ForwardingCallback {
         let unknown_ty = if self.ctx.krate.types.get(local_ty) == Some(&Type::Unknown) {
             // not a new erasure: the callee local is already erased
-            self.unknown_type()
+            self.unknown_type(NotNewErasure::ErasedUpstream)
         } else {
             // A type-parameter or function-union callee has no single return type.
             self.erase_with(ErasureReason::TypeLevel, "opaque local callback")

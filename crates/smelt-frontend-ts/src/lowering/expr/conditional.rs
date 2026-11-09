@@ -73,15 +73,11 @@ impl ModuleBuilder<'_> {
         // : ..)`) used to lower both arms unnarrowed, so the present arm saw
         // `string[] | undefined` and its array method was refused.
         let then_narrowing = self.guard_narrowing(&conditional.test, body);
-        if let Some(narrowing) = then_narrowing.clone() {
-            self.scope.push_narrowing_scope(narrowing);
-        }
-        let then_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
-            slf.expression_with_hint(&conditional.consequent, body, type_hint)
+        let then_expr = self.with_narrowing(then_narrowing, |this| {
+            this.lower_conditional_arm(body, arm_span, |slf, body| {
+                slf.expression_with_hint(&conditional.consequent, body, type_hint)
+            })
         });
-        if then_narrowing.is_some() {
-            self.scope.pop_narrowing_scope();
-        }
         let then_expr = then_expr?;
         // The consequent's type is the alternate's hint (`c ? [1] : []` types
         // the empty literal as the consequent's list) — except a `null` /
@@ -118,15 +114,11 @@ impl ModuleBuilder<'_> {
             Some(then_ty)
         };
         let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
-        if let Some(narrowing) = else_narrowing.clone() {
-            self.scope.push_narrowing_scope(narrowing);
-        }
-        let else_expr = self.lower_conditional_arm(body, arm_span, |slf, body| {
-            slf.expression_with_hint(&conditional.alternate, body, branch_hint)
+        let else_expr = self.with_narrowing(else_narrowing, |this| {
+            this.lower_conditional_arm(body, arm_span, |slf, body| {
+                slf.expression_with_hint(&conditional.alternate, body, branch_hint)
+            })
         });
-        if else_narrowing.is_some() {
-            self.scope.pop_narrowing_scope();
-        }
         let else_expr = else_expr?;
         let ty = self.ternary_branch_type(
             body,
@@ -145,6 +137,42 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(conditional.span.start, conditional.span.end),
         }))
+    }
+
+    /// `c ? null : undefined`: the one join of two `None` arms that must keep
+    /// which of the two it holds.
+    ///
+    /// TypeScript's `null` and `undefined` share `Type::None`, and a `None`
+    /// value is the unit `()`, so a value that is `null` on one path and
+    /// `undefined` on the other would print, compare and erase as whichever
+    /// spelling its type defaults to. When one arm is the `null` literal and
+    /// the other the `undefined` literal, the result is `Optional<None>`
+    /// instead: absent is `undefined` and present-unit is `null`, so both
+    /// survive a return, a comparison and an erasure. `None` when the arms are
+    /// not that pair.
+    fn null_or_undefined_join(
+        &mut self,
+        body: &Body,
+        then_expr: smelt_hir::ExprId,
+        else_expr: smelt_hir::ExprId,
+    ) -> Option<smelt_hir::TypeId> {
+        let then_literal = Self::nullish_literal_of(body, then_expr)?;
+        let else_literal = Self::nullish_literal_of(body, else_expr)?;
+        if then_literal == else_literal {
+            return None;
+        }
+        let none = self.ctx.krate.types.intern(Type::None);
+        Some(self.ctx.krate.types.intern(Type::Optional(none)))
+    }
+
+    /// `Some(true)` for a `null` literal arm, `Some(false)` for `undefined`.
+    fn nullish_literal_of(body: &Body, expr: smelt_hir::ExprId) -> Option<bool> {
+        match &body.expr_at(expr)?.kind {
+            ExprKind::Literal(smelt_hir::Literal::None) => Some(true),
+            ExprKind::Literal(smelt_hir::Literal::Undefined) => Some(false),
+            ExprKind::TypeAssert { value } => Self::nullish_literal_of(body, *value),
+            _ => None,
+        }
     }
 
     /// Whether `ty` names a stdlib class backed by a concrete Rust runtime
@@ -229,6 +257,8 @@ impl ModuleBuilder<'_> {
         };
         let ty = if let Some(joined) = never_join {
             joined
+        } else if let Some(nullish) = self.null_or_undefined_join(body, then_expr, else_expr) {
+            nullish
         } else if then_ty == else_ty {
             then_ty
         } else if self.numeric_type_compatible(then_ty, else_ty) {
@@ -281,8 +311,9 @@ impl ModuleBuilder<'_> {
             || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
             || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
         {
-            // not a new erasure: the hint or an arm is already erased
-            self.unknown_type()
+            // The hint or an arm is already erased; a concrete arm is erased
+            // here, and recorded as such.
+            self.erased_join(&[then_ty, else_ty])
         } else if self.concrete_stdlib_class_type(then_ty) || self.concrete_stdlib_class_type(else_ty)
         {
             // A modeled stdlib class with a concrete runtime type (a typed
@@ -346,8 +377,9 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.intern(Type::List(item_ty))
         } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
         {
-            // not a new erasure: an arm already contains unknown
-            self.unknown_type()
+            // An arm already holds `unknown`; a concrete other arm is erased
+            // here, and recorded as such.
+            self.erased_join(&[then_ty, else_ty])
         } else if let Some(hint) = type_hint
             && !self.concrete_type_requires_never_value(hint)
         {
@@ -477,8 +509,9 @@ impl ModuleBuilder<'_> {
             || self.type_contains_unknown(then_ty)
             || self.type_contains_unknown(else_ty)
         {
-            // not a new erasure: the hint or an arm already contains unknown
-            Ok(self.unknown_type())
+            // The hint or an arm already holds `unknown`; a concrete arm is
+            // erased here, and recorded as such.
+            Ok(self.erased_join(&[then_ty, else_ty]))
         } else if let Some(hint) = type_hint
             && !self.concrete_type_requires_never_value(hint)
         {
@@ -610,8 +643,9 @@ impl ModuleBuilder<'_> {
             let inner = self.unify_conditional_list_item_type(then_inner, else_inner);
             self.ctx.krate.types.intern(Type::List(inner))
         } else if self.type_contains_unknown(then_item) || self.type_contains_unknown(else_item) {
-            // not a new erasure: an element already contains unknown
-            self.unknown_type()
+            // An element already holds `unknown`; a concrete other element is
+            // erased here, and recorded as such.
+            self.erased_join(&[then_item, else_item])
         } else {
             self.ctx
                 .krate

@@ -55,7 +55,7 @@ export const table: Record<string, Formatter> = {
     )?;
     let namespace = ctx
         .object_namespaces
-        .get("table")
+        .exported("table")
         .ok_or_else(|| "expected table namespace metadata".to_owned())?;
     let keys = namespace.keys().map(String::as_str).collect::<Vec<_>>();
     ensure_eq!(keys, ["zulu", "yankee", "alpha", "papa", "Papa", "bravo", "mike", "kilo"]);
@@ -96,7 +96,12 @@ export { First as Second, Second as Third };
             &mut ctx,
         )?;
         let name = |alias: &str| -> Result<String, String> {
-            let item = ctx.export_aliases.get(alias).ok_or_else(|| format!("no alias {alias}"))?;
+            let item = ctx
+                .export_aliases
+                .iter()
+                .find(|(key, _)| key.name == alias)
+                .map(|(_, item)| *item)
+                .ok_or_else(|| format!("no alias {alias}"))?;
             match ctx.krate.items.get(item.0 as usize) {
                 Some(Item::Class(class)) => ctx
                     .krate

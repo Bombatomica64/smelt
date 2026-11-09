@@ -170,6 +170,8 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
         | Type::Float
         | Type::String
         | Type::PyStr
+        | Type::Symbol
+        | Type::PropKey
         | Type::Unknown
         | Type::Never
         | Type::TypeParam { .. }
@@ -218,18 +220,29 @@ fn normalize_union_type(
             has_none = true;
             continue;
         }
-        if let Some(Type::Optional(inner)) = types.get(item).cloned()
+        let item = if let Some(Type::Optional(inner)) = types.get(item).cloned()
             && options.flatten_union_none
             && !options.preserve_observable_absence
         {
             has_none = true;
-            if !normalized.contains(&inner) {
-                normalized.push(inner);
+            inner
+        } else {
+            item
+        };
+        // A union is never an arm of a union: `PropertyKey | PropertyKey[]`
+        // composes the alias's own union with a list, and codegen reads only a
+        // union's top-level arms (its tagged enum, `typeof` routing, arm
+        // projection). The nested arms are already normalized.
+        let arms = match types.get(item) {
+            Some(Type::Union(nested)) => nested.clone(),
+            _ => vec![item],
+        };
+        for arm in arms {
+            if arm == none_ty {
+                has_none = true;
+            } else if !normalized.contains(&arm) {
+                normalized.push(arm);
             }
-            continue;
-        }
-        if !normalized.contains(&item) {
-            normalized.push(item);
         }
     }
     match (

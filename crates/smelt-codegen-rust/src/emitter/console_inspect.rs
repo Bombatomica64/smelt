@@ -483,10 +483,14 @@ impl FunctionEmitter<'_> {
                 || matches!(
                     self.mir.types.get(ty),
                     Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
-                ) && self.type_mentions_any(ty, &self.current_function_type_params()))
+                ) && self.type_mentions_any(ty, &self.current_function_type_params())
+                || matches!(self.mir.types.get(ty), Some(Type::Dict(key, _)) if self.dict_uses_js_key_map(*key)))
         {
             // A container of a Rust generic has no `SmeltInspect` impl: its
             // elements print through the erased carrier their bound provides.
+            // A record backed by a `SmeltJsMap` (its keys are not plain
+            // strings) has no object rendering of its own either; erased, it
+            // is the object JavaScript prints, keyed by property-key strings.
             self.context.mark_console_inspect_used();
             Ok((
                 "{}",

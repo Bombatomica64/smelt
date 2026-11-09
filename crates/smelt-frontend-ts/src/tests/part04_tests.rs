@@ -5033,12 +5033,20 @@ type UpsertProp<T, K extends PropertyKey, V> = T & Record<K, V>;
     )?;
     let module = module(&ctx, module_id)?;
     ensure_eq!(module.items.len(), 1);
+    // Old requirement: `Record<K, V>` kept `K` as the dict key so a later
+    // substitution could thread it. New requirement: a type-parameter key is
+    // the property-key record key (`Type::PropKey`): whatever `K` a caller
+    // binds, the record stores `ToPropertyKey` of each key, so the key type
+    // no longer depends on `K` (keeping `K` stored raw keys, `1` beside
+    // `'1'`). The value type still substitutes.
     ensure!(
         ctx.krate.types.all().iter().any(|ty| matches!(
             ty,
-            Type::Dict(key, _) if matches!(ctx.krate.types.get(*key), Some(Type::TypeParam { .. }))
+            Type::Dict(key, value)
+                if matches!(ctx.krate.types.get(*key), Some(Type::PropKey))
+                    && matches!(ctx.krate.types.get(*value), Some(Type::TypeParam { .. }))
         )),
-        "expected generic Record<K, V> to preserve K for later substitution",
+        "expected generic Record<K, V> to be a property-key record over V",
     );
     Ok(())
 }

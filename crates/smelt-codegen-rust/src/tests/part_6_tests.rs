@@ -1091,7 +1091,13 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("match receiver { SmeltUnknown::Function(function) => { let method = method.to_owned(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let receiver_method = smelt_is_receiver_method(&function); let forwarded: Vec<SmeltUnknown> = if method == \"apply\" { let mut forwarded = if receiver_method { ::std::vec![args.first().map_or(SmeltUnknown::Undefined, Clone::clone)] } else { Vec::new() }; if let Some(SmeltUnknown::Array(values)) = args.get(1) { forwarded.extend(values.clone().into_vec()); } forwarded } else if receiver_method { args.into_iter().collect() } else {"), "{source}");
+    // The erased-callable `call`/`apply` helper is in the prelude. Old
+    // requirement: its one-line body, byte for byte, which dropped the `this`
+    // argument. New: the helper and its argument forwarding are present, and
+    // the `this` it installs is pinned by the Node-checked
+    // `erased_functions_are_called_like_javascript` CLI test.
+    assert!(source.contains("fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {"), "{source}");
+    assert!(source.contains("let forwarded: Vec<SmeltUnknown> = if method == \"apply\""), "{source}");
     assert!(source.contains("\"loop\" => {"), "{source}");
     assert!(source.contains("\"double\" => {"), "{source}");
     // The early-return arm diverges inline.

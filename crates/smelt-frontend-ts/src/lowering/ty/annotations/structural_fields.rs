@@ -1,6 +1,7 @@
 //! Structural field lists read from annotations: the fields of a type literal,
 //! a type reference, a union, or a static `Pick`.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
@@ -202,7 +203,7 @@ impl ModuleBuilder<'_> {
             }
             let ty = match value_tys.as_slice() {
                 [single] => *single,
-                [] => self.unknown_type(), // not a new erasure: unreachable, every grouped field contributes a type
+                [] => self.unknown_type(NotNewErasure::Unreachable), // not a new erasure: unreachable, every grouped field contributes a type
                 _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
             };
             out.push(Field {

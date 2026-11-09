@@ -15,7 +15,7 @@ impl RuntimeDemand {
             Rvalue::ThisRead => {
                 self.add(Need::ThisRead);
             }
-            Rvalue::BindThis { .. } => {
+            Rvalue::BindThis { .. } | Rvalue::ErasedFunctionMethodCall { .. } => {
                 self.add(Need::ThisChannel);
             }
             Rvalue::Construct { .. } => {
@@ -441,6 +441,9 @@ impl RuntimeDemand {
             | Rvalue::StringIsWellFormed { .. }
             | Rvalue::StringToWellFormed { .. }
             | Rvalue::ObjectToStringTag { .. }
+            // The operand's `Symbol` type already demands `Need::Symbol`.
+            | Rvalue::SymbolDescription { .. }
+            | Rvalue::SymbolUnique { .. }
             | Rvalue::StringTrim { .. }
             | Rvalue::StringAffix { .. }
             | Rvalue::StringReplace { .. }
