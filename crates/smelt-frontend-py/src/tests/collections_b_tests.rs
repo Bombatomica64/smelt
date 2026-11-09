@@ -13,7 +13,7 @@ item: int = values.pop()
     let code = module_code(&ctx, module)?;
     ensure(
         code.exprs()
-            .any(|expr| matches!(expr.kind, ExprKind::ListPop { .. })),
+            .any(|expr| matches!(expr.kind, ExprKind::ListPop { raises_when_empty: true, .. })),
         "expected list pop lowering",
     )
 }

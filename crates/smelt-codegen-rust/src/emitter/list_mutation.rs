@@ -552,23 +552,27 @@ impl FunctionEmitter<'_> {
             ));
         };
         let list_text = self.local_value(*local)?;
-        // `Array.prototype.pop` yields `item | undefined`. Beyond the two exact-match
-        // fast paths, any other destination (e.g. a widened/narrowed optional whose
-        // inner differs from the list item type, as when the item type is a union)
-        // coerces the popped value to the destination through the standard coercion
-        // seam.
+        // `Array.prototype.pop` yields `item | undefined`, so an empty list is a
+        // missing value and never a panic. A destination equal to the item type
+        // is an item type that already holds `undefined` (`T | undefined`,
+        // `unknown`), where `item | undefined` is the item type itself. Any other
+        // destination (e.g. a widened/narrowed optional whose inner differs from
+        // the list item type, as when the item type is a union) coerces the popped
+        // value through the standard coercion seam.
         let list_mut = list_write_expr(&list_text);
+        let or_missing = || -> Result<RustExpr, EmitError> {
+            let missing = self.element_missing_value(item_ty)?;
+            Ok(list_mut.postfix(format!(".pop().unwrap_or_else(|| {missing})", missing = missing.delimited())))
+        };
         match self.mir.types.get(dest_ty) {
             Some(Type::Optional(inner)) if *inner == item_ty => Ok(list_mut.postfix(".pop()")),
-            _ if dest_ty == item_ty => {
-                Ok(list_mut.postfix(".pop().expect(\"pop from empty list\")"))
-            }
+            _ if dest_ty == item_ty => or_missing(),
             Some(Type::Optional(_)) => {
                 let pop_ty = self.type_id(Type::Optional(item_ty))?;
                 self.rendered_at_type(&list_mut.postfix(".pop()"), pop_ty, dest_ty, &self.render_scope())
             }
             _ => self.rendered_at_type(
-                &list_mut.postfix(".pop().expect(\"pop from empty list\")"),
+                &or_missing()?,
                 item_ty,
                 dest_ty,
                 &self.render_scope(),
@@ -583,10 +587,14 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+        let Some(Type::List(item)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list shift receiver must be a list"));
         };
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *item_ty)
+        let item_ty = *item;
+        // An item type that already holds `undefined` is its own `item | undefined`.
+        let item_absorbs_missing = dest_ty == item_ty;
+        if !item_absorbs_missing
+            && !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == item_ty)
         {
             return Err(EmitError::new(
                 "list shift destination must be an optional item",
@@ -599,6 +607,13 @@ impl FunctionEmitter<'_> {
         };
         let list_text = self.local_value(*local)?;
         let list_mut = list_write_expr(&list_text);
+        if item_absorbs_missing {
+            let missing = self.element_missing_value(item_ty)?;
+            return Ok(RustExpr::loose(format!(
+                "if {list_text}.is_empty() {{ {missing} }} else {{ {list_mut}.remove(0) }}",
+                list_text = list_text.tight(), list_mut = list_mut.tight(), missing = missing.delimited()
+            )));
+        }
         Ok(RustExpr::loose(format!(
             "if {list_text}.is_empty() {{ None }} else {{ Some({list_mut}.remove(0)) }}", list_text = list_text.tight(), list_mut = list_mut.tight()
         )))
@@ -666,6 +681,20 @@ impl FunctionEmitter<'_> {
             )));
         };
         let collection_text = self.assignment_place_expr(collection_place)?;
+        // A list clears through its shared cell. A `SmeltRecord` has no bulk clear,
+        // so its entries go key by key.
+        if collection_name == "list" {
+            let list_mut = list_write_expr(&collection_text);
+            return Ok(RustExpr::atom(format!("{{ {list_mut}.clear(); () }}", list_mut = list_mut.tight())));
+        }
+        if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(collection_ty)
+            && self.dict_uses_smelt_record(*key_ty)
+        {
+            return Ok(RustExpr::atom(format!(
+                "{{ let smelt_keys: Vec<_> = {collection_text}.keys().collect(); for smelt_key in smelt_keys {{ {collection_text}.remove(&smelt_key); }} () }}",
+                collection_text = collection_text.tight()
+            )));
+        }
         Ok(RustExpr::atom(format!("{{ {collection_text}.clear(); () }}", collection_text = collection_text.tight())))
     }
 

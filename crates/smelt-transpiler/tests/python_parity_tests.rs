@@ -198,3 +198,15 @@ fn writes_through_module_globals() -> TestResult {
 fn frontend_lowering_shapes() -> TestResult {
     verify_python_parity("frontend_lowering_shapes")
 }
+
+/// `list.pop()` on an empty list raises a catchable `IndexError`.
+#[test]
+fn list_pop_empty() -> TestResult {
+    verify_python_parity("list_pop_empty")
+}
+
+/// Builtins, closures, JSON, regex and sequence operations behave like Python.
+#[test]
+fn builtins_and_sequences() -> TestResult {
+    verify_python_parity("builtins_and_sequences")
+}

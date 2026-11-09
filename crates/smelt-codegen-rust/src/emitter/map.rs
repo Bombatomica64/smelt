@@ -1002,8 +1002,11 @@ impl FunctionEmitter<'_> {
                     // rule from `smelt_own_js_map_entries` in the non-`String`
                     // key branch below. A `SmeltJsMap` DOES carry the markers: the
                     // erased-object coercion copies them in verbatim.
+                    // A Python dict's keys are its own, so it never carries markers.
+                    let keys_may_be_markers = self.records_may_hold_markers()
+                        && !matches!(self.mir.types.get(*key_ty), Some(Type::PyStr));
                     if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
-                        && !self.records_may_hold_markers()
+                        && !keys_may_be_markers
                     {
                         Ok(RustExpr::atom_on(&dict_text, format!("{dict_text}.keys().collect::<Vec<_>>()", dict_text = dict_text.tight())))
                     } else if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {

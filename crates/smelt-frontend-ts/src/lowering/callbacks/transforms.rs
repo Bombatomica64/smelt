@@ -98,7 +98,7 @@ impl ModuleBuilder<'_> {
         let index = self.coerce_at_index_operand(index, span_start, span_end, body)?;
         let ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
         Ok(body.push_expr(Expr {
-            kind: ExprKind::OptionalIndex { receiver, index },
+            kind: ExprKind::OptionalIndex { receiver, index, from_end: true },
             ty,
             span: self.span(span_start, span_end),
         }))

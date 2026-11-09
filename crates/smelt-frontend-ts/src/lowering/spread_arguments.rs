@@ -419,6 +419,7 @@ impl ModuleBuilder<'_> {
                         ExprKind::OptionalIndex {
                             receiver: spread_list,
                             index,
+                            from_end: false,
                         }
                     } else {
                         ExprKind::Index {

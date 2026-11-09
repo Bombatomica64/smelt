@@ -285,8 +285,11 @@ macro_rules! op_group_transcribed {
                 receiver: one,
                 /// Index operand used when the receiver is present.
                 index: one,
+                /// Whether a negative index counts from the end (`.at(-1)`, Python)
+                /// or addresses no slot (`xs[-1]` in JavaScript).
+                from_end: [bool],
             }
-                => (format!("{receiver}?.[{index}]"));
+                => ({ let _ = from_end; format!("{receiver}?.[{index}]") });
             /// Compute the length of a value.
             Len {
                 /// The value measured.
@@ -2715,13 +2718,18 @@ macro_rules! op_group_custom {
                         format!("list_sort {list}{comparator_text}{key_text}{reverse_text}")
                     }
                 );
-            /// Pop the last item from a list.
+            /// Pop the last item from a list. An empty list follows the source
+            /// language's own rule: JavaScript answers `undefined`, Python
+            /// raises `IndexError`.
             ListPop {
                 /// List value to mutate.
                 list: one @RECV_MUT,
+                /// Whether an empty list raises instead of answering a missing value.
+                raises_when_empty: [bool],
             }
                 mutates(Some(list))
-                => (format!("list_pop {list}"));
+                fallible(*raises_when_empty)
+                => (format!("list_pop {list}{}", if *raises_when_empty { " raises" } else { "" }));
             /// Remove and return the first item from a list.
             ListShift {
                 /// List value to mutate.

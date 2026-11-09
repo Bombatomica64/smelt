@@ -1465,7 +1465,7 @@ impl ModuleBuilder<'_> {
             let value_ty = self.index_type(access_receiver_ty)?;
             let ty = self.optional_chain_result_type(value_ty);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::OptionalIndex { receiver, index },
+                kind: ExprKind::OptionalIndex { receiver, index, from_end: false },
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
