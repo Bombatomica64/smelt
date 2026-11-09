@@ -2774,7 +2774,8 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
         _ => false,
@@ -3977,7 +3978,7 @@ impl Bag {
     return _smelt_tmp_4;
     }
     fn find_index(&self, x: f64) -> f64 {
-    let _smelt_tmp_2: f64 = { let smelt_needle = x; self.items.borrow().iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |smelt_idx| smelt_idx as f64) };
+    let _smelt_tmp_2: f64 = { let smelt_needle = x; self.items.borrow().iter().position(|smelt_item| *smelt_item == smelt_needle).map_or(-1.0, |smelt_idx| smelt_idx as f64) };
     let _smelt_tmp_3: f64 = _smelt_tmp_2 + 10.0;
     return _smelt_tmp_3;
     }
