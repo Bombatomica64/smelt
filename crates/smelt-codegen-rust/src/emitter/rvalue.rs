@@ -179,6 +179,8 @@ impl FunctionEmitter<'_> {
             | Rvalue::PythonSequenceRead { .. }
             | Rvalue::PythonStepSlice { .. }
             | Rvalue::PythonListExtrema { .. }
+            | Rvalue::ListIndex { .. }
+            | Rvalue::ListRemove { .. }
             | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
@@ -553,8 +555,6 @@ impl FunctionEmitter<'_> {
                 self.list_range_expr(start, end, step, dest_ty)
             }
             Rvalue::ListRandomChoice { list } => self.list_random_choice_expr(list, dest_ty),
-            Rvalue::ListIndex { list, item } => self.list_index_expr(list, item, dest_ty),
-            Rvalue::ListRemove { list, item } => self.list_remove_expr(list, item, dest_ty),
             Rvalue::ListSort {
                 list,
                 comparator,

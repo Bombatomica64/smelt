@@ -428,7 +428,13 @@ impl FunctionEmitter<'_> {
         }
         let y_text = self.float_operand_expr(y_operand)?;
         let x_text = self.float_operand_expr(x_operand)?;
-        Ok(y_text.postfix(format!(".atan2({x_text})", x_text = x_text.delimited())))
+        // A receiver cast, as `powf` does: a method call on a bare float
+        // literal is ambiguous.
+        Ok(RustExpr::atom(format!(
+            "({y_text} as f64).atan2({x_text})",
+            y_text = y_text.delimited(),
+            x_text = x_text.delimited()
+        )))
     }
 
     /// Converts an inclusive integer random operation to Rust text.

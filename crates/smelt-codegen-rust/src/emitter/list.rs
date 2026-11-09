@@ -1121,7 +1121,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         let items_text = (0..items.len())
-            .map(|idx| format!("smelt_tuple_items[{idx}].clone()"))
+            .map(|idx| format!("smelt_tuple_items.borrow()[{idx}].clone()"))
             .collect::<Vec<_>>()
             .join(", ");
         let tuple_text = if items.len() == 1 {

@@ -116,7 +116,7 @@ impl LoweringCtx<'_> {
     /// never reach an enclosing `try`: the catch block would have no predecessor
     /// and MIR would drop the handler the source wrote. With no handler active,
     /// the throwing pass sees the same terminator and marks the function.
-    fn finish_op(&mut self, expr: &Expr, value: Rvalue) -> Result<Operand, LowerError> {
+    pub(super) fn finish_op(&mut self, expr: &Expr, value: Rvalue) -> Result<Operand, LowerError> {
         if !value.is_fallible() {
             return self.place_callback_op(expr.ty, expr.span, value);
         }
