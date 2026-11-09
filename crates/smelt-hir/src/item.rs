@@ -344,6 +344,17 @@ pub struct StaticField {
     pub visibility: Visibility,
     /// Materialized primitive value, when directly representable.
     pub value: Option<Literal>,
+    /// Whether the program may write the field: a source `static` field that
+    /// is not `readonly`. A mutable static is LIVE storage, read with
+    /// `StaticFieldGet` and written with `StaticFieldSet` (directly or
+    /// through the class used as a value); a `readonly` one is the constant
+    /// `value`, since TypeScript rejects every write to it.
+    #[serde(default)]
+    pub mutable: bool,
+    /// The [`Item::MutableGlobal`] holding a mutable static's live value
+    /// (initialized from `value`); `None` for a constant.
+    #[serde(default)]
+    pub storage: Option<ItemId>,
     /// Source location.
     pub span: Span,
 }

@@ -160,6 +160,14 @@ impl ModuleBuilder<'_> {
     /// constructor parameter or local, which the scratch body does not bind):
     /// a join missing one write's type would be narrower than what the field
     /// holds.
+    ///
+    /// A write that reads the field itself (`this.count = this.count + 1`,
+    /// where `this` is `any`) is typed by FIXED POINT: assume the field holds
+    /// the join of the writes that type on their own, type the self-reading
+    /// writes with each `this.<field>` read at that assumption, and repeat
+    /// with the widened join until it is stable. The answer is then exactly
+    /// what every write stores; a self-reading write that stays untyped (or a
+    /// join that keeps widening) erases the field as before.
     fn constructor_function_field_type(
         &mut self,
         field: smelt_hir::Symbol,
@@ -167,6 +175,7 @@ impl ModuleBuilder<'_> {
         span: Span,
     ) -> smelt_hir::TypeId {
         let mut types = Vec::new();
+        let mut self_reading = Vec::new();
         let mut untyped = false;
         for (name, value) in writes {
             if self.intern_source_name(name) != field {
@@ -174,7 +183,14 @@ impl ModuleBuilder<'_> {
             }
             match self.infer_module_global_initializer_type(value) {
                 Ok(ty) if !self.type_contains_unknown(ty) => types.push(ty),
-                Ok(_) | Err(_) => untyped = true,
+                Ok(_) | Err(_) => {
+                    let reads = this_field_reads(value, name);
+                    if reads.is_empty() {
+                        untyped = true;
+                    } else {
+                        self_reading.push((*value, reads));
+                    }
+                }
             }
         }
         if untyped || types.is_empty() {
@@ -184,7 +200,49 @@ impl ModuleBuilder<'_> {
                 "constructor-function field",
             );
         }
-        self.joined_inferred_type(types)
+        let mut assumed = self.joined_inferred_type(types.clone());
+        for _ in 0_u8..4 {
+            let mut all = types.clone();
+            for (value, reads) in &self_reading {
+                match self.infer_with_pinned_reads(value, reads, assumed) {
+                    Some(ty) => all.push(ty),
+                    None => {
+                        return self.erase_at(ErasureReason::MissingAnnotation, span, "constructor-function field");
+                    }
+                }
+            }
+            let joined = self.joined_inferred_type(all);
+            if joined == assumed {
+                return joined;
+            }
+            assumed = joined;
+        }
+        self.erase_at(ErasureReason::MissingAnnotation, span, "constructor-function field")
+    }
+
+    /// The type `value` evaluates to with every node in `reads` read as a
+    /// value of type `assumed`, or `None` when it does not type (or types
+    /// erased) even then. The scratch lowering is rolled back.
+    fn infer_with_pinned_reads(
+        &mut self,
+        value: &Expression<'_>,
+        reads: &[usize],
+        assumed: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let mut body = Body::new(None, self.expression_span(value));
+        let mark = self.speculation_mark(&body);
+        let temp = body.push_local(LocalDecl {
+            name: Some(self.intern_synthesized_name("smelt_assumed_field")),
+            ty: assumed,
+            mutable: false,
+            span: self.expression_span(value),
+        });
+        let pinned = self.pinned_nodes.len();
+        self.pinned_nodes.extend(reads.iter().map(|node| (*node, temp, assumed)));
+        let result = self.expression_with_hint(value, &mut body, None).map(|expr| Self::expr_ty(&body, expr));
+        self.pinned_nodes.truncate(pinned);
+        self.roll_back_to(mark, &mut body);
+        result.ok().filter(|ty| !self.type_contains_unknown(*ty))
     }
 
     /// Collect `this.<name>` assignment targets from an expression subtree.
@@ -231,7 +289,12 @@ impl ModuleBuilder<'_> {
             return true;
         }
         // `Foo.x = …`: receiver is the synthesized class binding itself (static
-        // members such as `Foo.c = function () {}`).
+        // members such as `Foo.c = function () {}`). A write to a MUTABLE static
+        // the class declares is a real store into its live storage, never
+        // dropped.
+        if self.static_field_write_storage(member).is_some() {
+            return false;
+        }
         matches!(
             &member.object,
             Expression::Identifier(object) if self.classes.contains(object.name.as_str())
@@ -948,4 +1011,35 @@ fn nested_statements<'b, 'c>(statement: &'b Statement<'c>) -> Vec<&'b Statement<
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// The addresses of every `this.<field>` read inside `value`, the nodes a
+/// fixed-point typing of a self-reading field write pins to an assumed type.
+fn this_field_reads(value: &Expression<'_>, field: &str) -> Vec<usize> {
+    use oxc::ast_visit::{Visit, walk};
+
+    /// Collects the `this.<field>` member reads of one expression.
+    struct ThisFieldReads<'f> {
+        /// The field's source name.
+        field: &'f str,
+        /// Addresses of the matching `Expression` nodes.
+        nodes: Vec<usize>,
+    }
+
+    impl<'a> Visit<'a> for ThisFieldReads<'_> {
+        fn visit_expression(&mut self, expression: &Expression<'a>) {
+            if let Expression::StaticMemberExpression(member) = expression
+                && matches!(&member.object, Expression::ThisExpression(_))
+                && member.property.name == self.field
+            {
+                self.nodes.push(std::ptr::from_ref(expression).addr());
+                return;
+            }
+            walk::walk_expression(self, expression);
+        }
+    }
+
+    let mut reads = ThisFieldReads { field, nodes: Vec::new() };
+    reads.visit_expression(value);
+    reads.nodes
 }

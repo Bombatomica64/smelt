@@ -114,6 +114,11 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ array-length path.
     if field == "mock" { if let Some(state) = smelt_vitest_mock_state(&SmeltUnknown::Object(map.clone())) { let state = state.borrow(); let calls = state.calls.iter().map(|call| SmeltUnknown::Array(call.clone().into())).collect::<Vec<_>>(); let results = state.results.clone(); let mock = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new()); mock.insert("calls".to_owned(), SmeltUnknown::Array(calls.into())); mock.insert("results".to_owned(), SmeltUnknown::Array(results.into())); return SmeltUnknown::Object(mock); } }
 // @smelt:end
+// @smelt:if class_value
+    //~ A class value answers its mutable statics from their live storage
+    //~ (`smelt_class_static_write`), never from a copy; an own property wins.
+    if let Some(value) = map.get("__smelt_method:__smelt_static_get").filter(|_| !map.contains_key(field)).and_then(|hook| match hook { SmeltUnknown::Function(getter) => getter(vec![SmeltUnknown::String(field.into())]).ok(), _ => None }).filter(|value| !matches!(value, SmeltUnknown::Undefined)) { return value; }
+// @smelt:end
 // @smelt:if unknown
     //~ An erased `Map` is a marker object `{ __smelt_map: [[k, v], ...] }`.
     //~ Real Maps expose `.size` through `Map.prototype`, which the marker

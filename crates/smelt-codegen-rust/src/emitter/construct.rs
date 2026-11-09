@@ -83,10 +83,11 @@ impl FunctionEmitter<'_> {
             constructor.map_or_else(|| Ok(RustExpr::undefined()), |ctor| self.erase(ctor))?;
         // Static methods are own properties of the class object
         // (`class_proto::class_static_entries`).
-        let statics = crate::class_proto::class_static_entries(self.mir, self.context, class)?
+        let mut statics = crate::class_proto::class_static_entries(self.mir, self.context, class)?
             .into_iter()
             .map(|(key, adapter)| format!("({key:?}.to_owned(), {adapter})", adapter = adapter.delimited()))
             .collect::<Vec<_>>();
+        statics.extend(self.class_value_static_hooks(class)?);
         let statics_text = if statics.is_empty() {
             "Vec::new()".to_owned()
         } else {
@@ -97,6 +98,64 @@ impl FunctionEmitter<'_> {
             covered[0],
             covered.join(","), constructor_text = constructor_text.delimited()
         )))
+    }
+
+    /// The live-static hooks of a class value: a `__smelt_static_get` closure
+    /// reading every mutable static the class declares or inherits from its
+    /// storage global, and a `__smelt_static_set` closure writing the class's
+    /// OWN mutable statics (answering `true` for a key it stored). Empty for
+    /// a class with no mutable static. The runtime asks them on a read of a
+    /// missing own property and on every property write
+    /// (`smelt_class_static_write`), so a class value never holds a copy that
+    /// a direct `Box.PI = v` would leave stale.
+    fn class_value_static_hooks(&self, class: smelt_hir::Symbol) -> Result<Vec<String>, EmitError> {
+        let mut readable = Vec::new();
+        let mut writable = Vec::new();
+        let mut current = crate::classes::find_class(self.mir, class);
+        let mut own = true;
+        let mut seen = std::collections::HashSet::new();
+        while let Some(found) = current {
+            for field in &found.static_fields {
+                let Some(global) = field.global else {
+                    continue;
+                };
+                let key = self.symbol_source_name(field.name)?.to_owned();
+                if !seen.insert(key.clone()) {
+                    continue;
+                }
+                readable.push((key.clone(), global, field.ty));
+                if own {
+                    writable.push((key, global, field.ty));
+                }
+            }
+            own = false;
+            current = found.base.and_then(|base| crate::classes::find_class(self.mir, base));
+        }
+        if readable.is_empty() {
+            return Ok(Vec::new());
+        }
+        let key_text = "let smelt_static_key = match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_key.to_string(), _ => return Ok(SmeltUnknown::Undefined) };";
+        let mut get_arms = String::new();
+        for (key, global, ty) in &readable {
+            let read = self.erase_rendered(&self.global_get_expr(*global)?, *ty)?;
+            get_arms.push_str(&format!("{key:?} => {}, ", read.delimited()));
+        }
+        let mut set_arms = String::new();
+        for (key, global, ty) in &writable {
+            let value = self.extract_rendered(&RustExpr::path("smelt_static_value"), *ty, &self.render_scope())?;
+            let store = self.global_store_text(*global, &value)?;
+            set_arms.push_str(&format!("{key:?} => {{ {store}; true }}, "));
+        }
+        Ok(vec![
+            self.carrier_format(self.carrier()?, format_args!(
+                "(\"__smelt_method:{get_hook}\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ {key_text} Ok(match smelt_static_key.as_str() {{ {get_arms}_ => SmeltUnknown::Undefined }}) }})))",
+                get_hook = smelt_stdlib::runtime_symbols::markers::SMELT_STATIC_GET
+            )),
+            self.carrier_format(self.carrier()?, format_args!(
+                "(\"__smelt_method:{set_hook}\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ {key_text} let smelt_static_value = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined); let _ = &smelt_static_value; Ok(SmeltUnknown::Bool(match smelt_static_key.as_str() {{ {set_arms}_ => false }})) }})))",
+                set_hook = smelt_stdlib::runtime_symbols::markers::SMELT_STATIC_SET
+            )),
+        ])
     }
 
     /// Render JavaScript `value instanceof target` for a runtime constructor.

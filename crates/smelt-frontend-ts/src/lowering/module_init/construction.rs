@@ -70,7 +70,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
-            narrowed_receiver_nodes: Vec::new(),
+            pinned_nodes: Vec::new(),
             asymmetric_matchers_lowered: 0,
             presence_widened_bindings: HashMap::new(),
             defining_local_functions: Vec::new(),

@@ -391,8 +391,14 @@ pub struct MirStaticField {
     pub ty: TypeId,
     /// Source visibility.
     pub visibility: Visibility,
-    /// Materialized primitive value.
+    /// Materialized primitive value (a mutable static's initial value).
     pub value: Option<smelt_hir::Literal>,
+    /// Whether the field is live storage; see `smelt_hir::StaticField::mutable`.
+    #[serde(default)]
+    pub mutable: bool,
+    /// The `Mir::globals` index holding a mutable static's live value.
+    #[serde(default)]
+    pub global: Option<u32>,
 }
 
 /// MIR representation of a function with basic blocks and locals.

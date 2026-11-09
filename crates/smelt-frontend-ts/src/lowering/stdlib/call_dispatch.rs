@@ -260,7 +260,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// exactly that: the receiver is stored in a temporary, and the call is
     /// lowered as the present arm of `temp present ? call : undefined` with
     /// the receiver node answering a read of the temporary narrowed to `T`
-    /// (`narrowed_receiver_nodes`), so every builtin rule sees an ordinary
+    /// (`pinned_nodes`), so every builtin rule sees an ordinary
     /// `T` receiver. Its result is `R | undefined` for the call's `R`. Any
     /// other receiver type is declined with nothing lowered.
     fn optional_builtin_receiver_value_call(
@@ -271,7 +271,7 @@ impl<'builder> ModuleBuilder<'builder> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let span = self.span(call.span.start, call.span.end);
         let node = std::ptr::from_ref(&member.object).addr();
-        if self.narrowed_receiver_nodes.iter().any(|(entry, _, _)| *entry == node) {
+        if self.pinned_nodes.iter().any(|(entry, _, _)| *entry == node) {
             return Ok(None);
         }
         self.speculate(body, |this, body| {
@@ -293,9 +293,9 @@ impl<'builder> ModuleBuilder<'builder> {
                 });
                 let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
                 this.push_stmt_to_sink(body, smelt_hir::Stmt::Let { pat, ty: receiver_ty, value: Some(receiver) });
-                this.narrowed_receiver_nodes.push((node, temp, present_ty));
+                this.pinned_nodes.push((node, temp, present_ty));
                 let op = this.lower_conditional_arm(body, span, |this, body| this.call_expression(call, body));
-                this.narrowed_receiver_nodes.pop();
+                this.pinned_nodes.pop();
                 let op = op?;
                 let temp_read = body.push_expr(Expr { kind: ExprKind::Local(temp), ty: receiver_ty, span });
                 Ok(Some(this.wrap_optional_receiver_method(temp_read, op, call.span, body)))

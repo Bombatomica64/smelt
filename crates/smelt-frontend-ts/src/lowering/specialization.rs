@@ -442,7 +442,69 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Lowers a materialized primitive static member as an ordinary literal.
+    /// The static field `class_name.member_key` declares or inherits, with
+    /// whether it is the class's OWN field (not an ancestor's), found by its
+    /// SOURCE key: the folded Rust rendering (`PI` -> `pi`) is not unique, so
+    /// `Class.PI` would read a static `pi` declared before it (audit finding
+    /// A13). `None` when the name is no class or declares no such static.
+    pub(in crate::lowering) fn class_static_field_named(
+        &self,
+        class_name: &str,
+        member_key: &str,
+    ) -> Option<(smelt_hir::StaticField, bool)> {
+        let in_flight = self.classes.statics_in_flight(class_name);
+        let (own_fields, mut base) = if let Some(fields) = in_flight {
+            (fields, self.classes.base(class_name).map(|base| base.0))
+        } else {
+            let class_item = self.classes.item(class_name)?;
+            let Item::Class(class) = self.item_ref(class_item) else {
+                return None;
+            };
+            (class.static_fields.as_slice(), class.base)
+        };
+        let named = |field: &&smelt_hir::StaticField| {
+            super::support::source_spelling(&self.ctx.krate, field.name) == Some(member_key)
+        };
+        if let Some(field) = own_fields.iter().find(named) {
+            return Some((field.clone(), true));
+        }
+        // A subclass inherits its ancestors' statics, after its own.
+        for _ in 0..64_u32 {
+            let declared = base.and_then(|name| self.class_by_symbol(name))?;
+            if let Some(field) = declared.static_fields.iter().find(named) {
+                return Some((field.clone(), false));
+            }
+            base = declared.base;
+        }
+        None
+    }
+
+    /// The live storage of the static field `member` writes, when `member`
+    /// is `Class.field` for a class (not shadowed by a local) whose OWN
+    /// mutable static `field` is.
+    ///
+    /// Only an own static: in JavaScript `Sub.x = v` on a static `Sub`
+    /// inherits creates an own property of `Sub` and leaves `Base.x` alone,
+    /// so writing the ancestor's storage would be wrong.
+    pub(in crate::lowering) fn static_field_write_storage(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Option<smelt_hir::ItemId> {
+        let Expression::Identifier(class_name) = &member.object else {
+            return None;
+        };
+        // A class whose body is being lowered (`static bump() { Box.n++ }`)
+        // is not registered yet, so only a LEXICAL binding of the spelling
+        // disqualifies it; `class_static_field_named` asks the class tables.
+        if matches!(self.resolve_value(class_name.name.as_str()), super::resolve::ValueBinding::Local(_)) {
+            return None;
+        }
+        let (field, own) = self.class_static_field_named(class_name.name.as_str(), member.property.name.as_str())?;
+        if own { field.storage } else { None }
+    }
+
+    /// Lowers a static member read: a mutable static reads its live storage
+    /// (`GlobalGet`), a constant one is its literal.
     pub(super) fn materialized_static_member(
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -451,41 +513,21 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(class_name) = &member.object else {
             return Ok(None);
         };
-        let in_flight = self.classes.statics_in_flight(class_name.name.as_str());
-        let (own_fields, mut base) = if let Some(fields) = in_flight {
-            (fields, self.classes.base(class_name.name.as_str()).map(|base| base.0))
-        } else {
-            let Some(class_item) = self.classes.item(class_name.name.as_str()) else {
-                return Ok(None);
-            };
-            let Item::Class(class) = self.item_ref(class_item) else {
-                return Ok(None);
-            };
-            (class.static_fields.as_slice(), class.base)
-        };
-        // A subclass inherits its ancestors' statics, after its own.
-        let mut static_fields = own_fields.to_vec();
-        for _ in 0..64_u32 {
-            let Some(declared) = base.and_then(|name| self.class_by_symbol(name)) else {
-                break;
-            };
-            static_fields.extend(declared.static_fields.iter().cloned());
-            base = declared.base;
+        // A parameter or local named like the class is that binding (A4).
+        if matches!(self.resolve_value(class_name.name.as_str()), super::resolve::ValueBinding::Local(_)) {
+            return Ok(None);
         }
-        // A static field is found by its SOURCE key: the folded Rust rendering
-        // (`PI` -> `pi`) is not unique, so `Class.PI` would read a static `pi`
-        // declared before it (audit finding A13).
-        let member_key = member.property.name.as_str();
-        let Some(field) = static_fields
-            .iter()
-            .find(|field| super::support::source_spelling(&self.ctx.krate, field.name) == Some(member_key))
-            .cloned()
+        let Some((field, _own)) = self.class_static_field_named(class_name.name.as_str(), member.property.name.as_str())
         else {
             return Ok(None);
         };
+        let span = self.span(member.span.start, member.span.end);
+        if let Some(item) = field.storage {
+            return Ok(Some(body.push_expr(Expr { kind: ExprKind::GlobalGet { item }, ty: field.ty, span })));
+        }
         let Some(value) = field.value else {
             return Err(SmeltError::native_specialization_adapter_required(
-                self.span(member.span.start, member.span.end),
+                span,
                 "typescript.static-value",
                 &format!(
                     "static member '{}.{}' is not a concrete primitive",
@@ -496,7 +538,7 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(value),
             ty: field.ty,
-            span: self.span(member.span.start, member.span.end),
+            span,
         })))
     }
 
@@ -597,6 +639,8 @@ impl ModuleBuilder<'_> {
                     materialized.is_private,
                 ),
                 value: value.and_then(|value| self.materialized_literal(value)),
+                mutable: false,
+                storage: None,
                 span: materialized
                     .span
                     .as_ref()
@@ -618,6 +662,8 @@ impl ModuleBuilder<'_> {
                 ty: self.materialized_static_type(&node.ty),
                 visibility: Visibility::Public,
                 value: self.materialized_literal(*value),
+                mutable: false,
+                storage: None,
                 span,
             });
         }

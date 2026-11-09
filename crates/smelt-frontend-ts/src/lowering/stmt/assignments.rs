@@ -20,6 +20,9 @@ impl ModuleBuilder<'_> {
         &self,
         target: &AssignmentTarget<'_>,
     ) -> Option<smelt_hir::ItemId> {
+        if let AssignmentTarget::StaticMemberExpression(member) = target {
+            return self.static_field_write_storage(member);
+        }
         let AssignmentTarget::AssignmentTargetIdentifier(identifier) = target else {
             return None;
         };
@@ -85,22 +88,32 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         keep_old_value: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) = &update.argument
-        else {
-            return Ok(None);
-        };
-        // A same-named local (function body or re-lowered test setup) shadows
-        // the module global; the ordinary local update path handles it.
-        if self.scope.is_bound(identifier.name.as_str()) {
-            return Ok(None);
-        }
-        let Some(item) = self.mutable_global_item(identifier.name.as_str()) else {
-            return Ok(None);
+        // `Class.count++` on a mutable static updates its live storage.
+        let (item, name) = match &update.argument {
+            SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                let Some(item) = self.static_field_write_storage(member) else {
+                    return Ok(None);
+                };
+                (item, member.property.name.as_str())
+            }
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                // A same-named local (function body or re-lowered test setup)
+                // shadows the module global; the ordinary local update path
+                // handles it.
+                if self.scope.is_bound(identifier.name.as_str()) {
+                    return Ok(None);
+                }
+                let Some(item) = self.mutable_global_item(identifier.name.as_str()) else {
+                    return Ok(None);
+                };
+                (item, identifier.name.as_str())
+            }
+            _ => return Ok(None),
         };
         let span = self.span(update.span.start, update.span.end);
         let ty = match self.item_ref(item) {
             Item::MutableGlobal(global_item) => global_item.ty,
-            _ => self.erase_at(ErasureReason::ByName, span, identifier.name.as_str()),
+            _ => self.erase_at(ErasureReason::ByName, span, name),
         };
         let op = match update.operator {
             UpdateOperator::Increment => BinOp::Add,

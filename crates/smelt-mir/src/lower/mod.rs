@@ -295,7 +295,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         global_ids: &global_ids,
         languages: &languages,
     };
-    lower_type_tables(krate, &mut mir, &item_functions);
+    lower_type_tables(krate, &mut mir, &item_functions, &global_ids);
     if let Err(duplicates) = crate::index::NameIndex::new(&mir) {
         return Err(duplicates
             .iter()
@@ -479,13 +479,18 @@ fn lower_globals(
 /// assigned [`FuncId`]s, and interface fields are flattened (with generic
 /// substitution) so codegen sees a concrete record layout. Function, type
 /// alias, and const items carry no table entry here.
-fn lower_type_tables(krate: &smelt_hir::Crate, mir: &mut Mir, item_functions: &FunctionIds) {
+fn lower_type_tables(
+    krate: &smelt_hir::Crate,
+    mir: &mut Mir,
+    item_functions: &FunctionIds,
+    global_ids: &HashMap<smelt_hir::ItemId, u32>,
+) {
     // Shared across the interfaces so an `extends` chain flattens each
     // ancestor once; see `lower_effective_interface_fields`.
     let mut flattening = InterfaceFlattening::default();
     for hir_item in &krate.items {
         match hir_item {
-            smelt_hir::Item::Class(class) => lower_class_table_entry(mir, class, item_functions),
+            smelt_hir::Item::Class(class) => lower_class_table_entry(mir, class, item_functions, global_ids),
             smelt_hir::Item::Interface(interface) => {
                 lower_interface_table_entry(krate, mir, interface, &mut flattening);
             }
@@ -503,7 +508,12 @@ fn lower_type_tables(krate: &smelt_hir::Crate, mir: &mut Mir, item_functions: &F
 /// Field, static-field, and descriptor layouts are copied directly; getters,
 /// setters, the constructor, and methods are resolved from `item_functions` to
 /// the [`FuncId`]s [`assign_function_ids`] allocated for them.
-fn lower_class_table_entry(mir: &mut Mir, class: &smelt_hir::Class, item_functions: &FunctionIds) {
+fn lower_class_table_entry(
+    mir: &mut Mir,
+    class: &smelt_hir::Class,
+    item_functions: &FunctionIds,
+    global_ids: &HashMap<smelt_hir::ItemId, u32>,
+) {
     mir.classes.push(crate::MirClass {
         name: class.name,
         kind: class.kind.clone(),
@@ -528,6 +538,8 @@ fn lower_class_table_entry(mir: &mut Mir, class: &smelt_hir::Class, item_functio
                 ty: field.ty,
                 visibility: field.visibility,
                 value: field.value.clone(),
+                mutable: field.mutable,
+                global: field.storage.and_then(|item| global_ids.get(&item).copied()),
             })
             .collect(),
         descriptors: class

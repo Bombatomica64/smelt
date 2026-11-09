@@ -930,14 +930,18 @@ struct ModuleBuilder<'ctx> {
     /// Keyed by the node's address because the address identifies exactly the
     /// one receiver node; nested calls push and pop their own entries.
     array_view_receivers: Vec<usize>,
-    /// Receiver nodes an optional builtin call (`f()?.join(",")`) evaluated
-    /// once into a temporary: `(node address, temporary, present type)`.
+    /// AST nodes answered by a temporary instead of being lowered:
+    /// `(node address, temporary, type the read is asserted to)`.
     ///
-    /// While the call is lowered for the present branch, [`Self::expression`]
-    /// answers that node with a read of the temporary narrowed to its present
-    /// type, so the receiver runs once and every builtin rule sees `T`, not
-    /// `T | undefined`. See `ModuleBuilder::optional_builtin_receiver_call`.
-    narrowed_receiver_nodes: Vec<(usize, smelt_hir::LocalId, smelt_hir::TypeId)>,
+    /// While an entry is pushed, [`Self::expression`] answers that node with
+    /// a read of the temporary at the entry's type. Two users: an optional
+    /// builtin call (`f()?.join(",")`) evaluates its receiver once into a
+    /// temporary and lowers the call with the receiver narrowed to its
+    /// present type (`ModuleBuilder::optional_builtin_receiver_call`); and a
+    /// constructor-function field typed from its writes reads `this.<field>`
+    /// at an assumed type to reach a fixed point
+    /// (`ModuleBuilder::constructor_function_field_type`).
+    pinned_nodes: Vec<(usize, smelt_hir::LocalId, smelt_hir::TypeId)>,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///
