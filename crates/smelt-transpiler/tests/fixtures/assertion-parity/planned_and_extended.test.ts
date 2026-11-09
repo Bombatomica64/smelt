@@ -23,6 +23,8 @@ describe('planned', () => {
   test('F_assertions_over', () => { expect.assertions(1); expect(1).toBe(1); expect(2).toBe(2) })
   test('T_has_assertions', () => { expect.hasAssertions(); expect(1).toBe(1) })
   test('F_has_assertions_none', () => { expect.hasAssertions() })
+  test('F_assertions_early_return', () => { expect.assertions(2); expect(1).toBe(1); if (Date.now() > 0) return; expect(2).toBe(2) })
+  test('T_assertions_early_return', () => { expect.assertions(1); expect(1).toBe(1); if (Date.now() > 0) return; expect(2).toBe(2) })
   test('T_assertions_loop', () => { expect.assertions(3); for (const n of [1, 2, 3]) expect(n).toBe(n) })
 })
 
@@ -49,6 +51,9 @@ describe('should interface', () => {
   test('T_should_not', () => { ('a' as any).should.not.equal('b') })
   test('T_should_chain', () => { ([1, 2] as any).should.be.an('array').and.have.lengthOf(2) })
   test('F_should_chain', () => { ([1, 2] as any).should.have.lengthOf(3) })
+  test('T_should_throw', () => { (throwsBoom as any).should.throw(Boom, 'kaboom') })
+  test('F_should_throw', () => { (((() => 1) as any).should.throw()) })
+  test('F_should_not_throw', () => { (throwsBoom as any).should.not.throw() })
   test('T_should_deep', () => { ({ a: 1 } as any).should.deep.equal({ a: 1 }) })
 })
 

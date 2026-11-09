@@ -918,6 +918,7 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
+            this.fn_ctx.verifies_assertion_plan = this.test_counts_assertions;
             this.test_arrow_body(arrow, &mut body, &mut errors);
             if this.test_counts_assertions {
                 this.verify_planned_assertions(arrow.span, &mut body);
