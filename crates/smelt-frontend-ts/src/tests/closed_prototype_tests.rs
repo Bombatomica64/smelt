@@ -50,6 +50,9 @@ export function call(value: any): unknown {
 "#),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "call", "call(value: Unknown) -> Unknown")?;
+    ensure_exprs!(&ctx, StringCase, BindThis);
+    ensure!(crate_has_field(&ctx, "anchor"), "no read of field `anchor`");
     Ok(())
 }
 

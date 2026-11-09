@@ -70,6 +70,13 @@ fn thrown_payload_channel() -> TestResult {
     verify_node_parity("thrown_payload_channel")
 }
 
+/// Loops, switch fallthrough, rest packing, parameter defaults and optional
+/// callbacks evaluate the way the language defines them.
+#[test]
+fn frontend_control_flow() -> TestResult {
+    verify_node_parity("frontend_control_flow")
+}
+
 /// A computed key read from an `any` receiver names the property at run time.
 #[test]
 fn computed_member_object_keys() -> TestResult {

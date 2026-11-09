@@ -99,6 +99,9 @@ export function top(): boolean {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "top", "top() -> Bool")?;
+    ensure_signature(&ctx, "apply", "apply(run: fn(Unknown) -> Bool) -> Bool")?;
+    ensure_exprs!(&ctx, Call, ClosureCall);
     Ok(())
 }
 
@@ -146,6 +149,7 @@ export const bytes = Buffer.from("abc");
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, HostConstruct);
     Ok(())
 }
 
