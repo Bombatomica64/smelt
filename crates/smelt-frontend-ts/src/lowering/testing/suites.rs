@@ -13,9 +13,19 @@ use oxc::ast::ast::{
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type};
+use smelt_hir::{Body, Expr, ExprKind, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type, UnaryOp};
 use crate::lowering::support::arrow_block_statements;
 use std::borrow::Cow;
+
+/// A test's run-time guard: `cond ? it : it.skip` runs the body only when
+/// `condition` evaluates to `run_when`.
+#[derive(Clone, Copy)]
+pub(in crate::lowering) struct TestRunGuard<'a> {
+    /// The alias's source condition.
+    condition: &'a Expression<'a>,
+    /// The truth value of `condition` for which the test body runs.
+    run_when: bool,
+}
 
 impl ModuleBuilder<'_> {
     /// Lower a `describe` test-suite declaration and its inherited hooks.
@@ -187,6 +197,19 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             if self.dynamic_test_alias_call(&expr_stmt.expression) {
+                if let Expression::CallExpression(call) = &expr_stmt.expression
+                    && let Some(guard) = self.conditional_test_alias(call, &setup)
+                {
+                    items.push(self.guarded_test_case_declaration(
+                        call,
+                        Some(group_name),
+                        &setup,
+                        &before_each,
+                        &after_each,
+                        table_bindings,
+                        guard,
+                    )?);
+                }
                 continue;
             }
             if self.skipped_test_case_call(&expr_stmt.expression) {
@@ -569,6 +592,87 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// The `cond ? it : it.skip` a dynamic test alias call names, as a run guard.
+    ///
+    /// `None` when the callee is not bound to such a conditional in `setup`.
+    /// Inner `Some(None)` is an alias that always runs; [`TestRunGuard`] otherwise.
+    pub(in crate::lowering) fn conditional_test_alias<'a>(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        setup: &[&'a Statement<'a>],
+    ) -> Option<Option<TestRunGuard<'a>>> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return None;
+        };
+        let conditional = setup.iter().rev().find_map(|statement| {
+            let Statement::VariableDeclaration(declaration) = statement else {
+                return None;
+            };
+            declaration.declarations.iter().find_map(|declarator| {
+                let oxc::ast::ast::BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    return None;
+                };
+                if binding.name != callee.name {
+                    return None;
+                }
+                match declarator.init.as_ref()? {
+                    Expression::ConditionalExpression(conditional) => Some(conditional),
+                    _ => None,
+                }
+            })
+        })?;
+        let runs = |arm: &Expression<'_>| -> Option<bool> {
+            if self.skipped_test_callee(arm) {
+                return Some(false);
+            }
+            matches!(arm, Expression::Identifier(id)
+                if self.imports.is_test_builtin(id.name.as_str())
+                    && matches!(id.name.as_str(), "it" | "test"))
+            .then_some(true)
+        };
+        match (runs(&conditional.consequent)?, runs(&conditional.alternate)?) {
+            (true, true) => Some(None),
+            (false, false) => None,
+            (true, false) => Some(Some(TestRunGuard { condition: &conditional.test, run_when: true })),
+            (false, true) => Some(Some(TestRunGuard { condition: &conditional.test, run_when: false })),
+        }
+    }
+
+    /// Whether `callee` is `it.skip` or `test.skip`.
+    fn skipped_test_callee(&self, callee: &Expression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = callee else {
+            return false;
+        };
+        member.property.name == "skip"
+            && matches!(&member.object, Expression::Identifier(object)
+                if self.imports.is_test_builtin(object.name.as_str())
+                    && matches!(object.name.as_str(), "it" | "test"))
+    }
+
+    /// Return early from a test body whose alias chose `it.skip` at run time.
+    fn lower_test_run_guard(
+        &mut self,
+        guard: TestRunGuard<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let span = self.expression_span(guard.condition);
+        let condition = self.condition_expression(guard.condition, body)?;
+        let skip_when = if guard.run_when {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            body.push_expr(Expr {
+                kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: condition },
+                ty,
+                span,
+            })
+        } else {
+            condition
+        };
+        let skip_block = body.push_block(span);
+        body.push_stmt_to_block(skip_block, Stmt::Return(None));
+        body.push_stmt(Stmt::If { cond: skip_when, then_block: skip_block, else_block: None });
+        Ok(())
+    }
+
     /// Lower a top-level Vitest `test` / `it` call into an HIR test function.
     pub(in crate::lowering) fn test_case_declaration(
         &mut self,
@@ -578,6 +682,23 @@ impl ModuleBuilder<'_> {
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, TableBindingValue<'_>)],
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.guarded_test_case_declaration(
+            call, group_name, setup, before_each, after_each, table_bindings, None,
+        )
+    }
+
+    /// [`Self::test_case_declaration`] for a test that may skip itself at run time.
+    #[expect(clippy::too_many_arguments, reason = "the test_case_declaration signature plus its guard")]
+    pub(in crate::lowering) fn guarded_test_case_declaration(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        group_name: Option<&str>,
+        setup: &[&Statement<'_>],
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        table_bindings: &[(&str, TableBindingValue<'_>)],
+        guard: Option<TestRunGuard<'_>>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -601,7 +722,12 @@ impl ModuleBuilder<'_> {
                 before_each,
                 after_each,
                 table_bindings,
+                guard,
             ),
+            Argument::FunctionExpression(_) if guard.is_some() => Err(SmeltError::unsupported(
+                self.span(body_arg.span().start, body_arg.span().end),
+                "a conditional test alias requires an arrow callback",
+            )),
             Argument::FunctionExpression(function) => self.test_function_from_function(
                 &test_name,
                 self.span(call.span.start, call.span.end),
@@ -736,6 +862,7 @@ impl ModuleBuilder<'_> {
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, TableBindingValue<'_>)],
+        guard: Option<TestRunGuard<'_>>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let class_scope = self.test_case_class_scope();
         let ctx = self.nested_fn_ctx(BodyKind::Arrow, arrow.r#async, None);
@@ -754,6 +881,11 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
             this.lower_setup_with_table_bindings(setup, table_bindings, &mut body, &mut errors);
+            if let Some(guard) = guard
+                && let Err(error) = this.lower_test_run_guard(guard, &mut body)
+            {
+                errors.push(error);
+            }
             for hook in before_each {
                 this.test_arrow_body(hook, &mut body, &mut errors);
             }
@@ -980,6 +1112,7 @@ impl ModuleBuilder<'_> {
                 before_each,
                 after_each,
                 &bindings,
+                None,
             )?);
         }
         Ok(items)

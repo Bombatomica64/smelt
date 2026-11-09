@@ -244,6 +244,25 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             if let Statement::ExpressionStatement(expr_stmt) = statement
+                && self.dynamic_test_alias_call(&expr_stmt.expression)
+                && let oxc::ast::ast::Expression::CallExpression(call) = &expr_stmt.expression
+                && let Some(guard) = self.conditional_test_alias(call, &top_level_test_setup)
+            {
+                match self.guarded_test_case_declaration(
+                    call,
+                    None,
+                    &top_level_test_setup,
+                    &before_each,
+                    &after_each,
+                    &[],
+                    guard,
+                ) {
+                    Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(test_call) = self.test_case_call(&expr_stmt.expression)
             {
                 match self.test_case_declaration(
