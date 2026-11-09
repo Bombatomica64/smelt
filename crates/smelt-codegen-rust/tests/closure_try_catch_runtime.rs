@@ -126,25 +126,12 @@ test("a try/catch inside a closure body retries", () => {
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_closure_catch_observes_the_thrown_payload() {
     // The `Ok(Err(..))` arm of the shared throwing emitter is the real Smelt error
-    // channel; the discarded-handler path never produced that arm at all, so a
-    // `catch` binding in a closure could not observe any payload.
+    // channel, so a `catch` binding in a closure observes the payload.
     //
-    // Both projections of the payload are asserted, and each pins a different
-    // half of the fix.
-    //
-    // `err.message` is `"kaboom"` only because the thrown operand is now the
-    // whole `Error` object. `throw new Error(msg)` used to be narrowed to `msg`
-    // at the throw site, so every `catch` saw a bare `SmeltUnknown::String` and
-    // `err.message` was `undefined` everywhere.
-    //
-    // `String(err)` is `"Error: kaboom"` because an erased error stringifies
-    // through `Error.prototype.toString`, not through the generic object
-    // placeholder. While the payload was a bare string this read `"kaboom"` by
-    // accident; had the payload become an object without the `toString` rule it
-    // would read the useless `"[object Object]"`.
-    //
-    // Both are also load-bearing for the original closure defect this tier was
-    // written for: they are non-empty only if the Smelt error channel ran at all.
+    // `err.message` is `"kaboom"` because the thrown operand is the whole `Error`
+    // object. `String(err)` is `"Error: kaboom"` because an erased error stringifies
+    // through `Error.prototype.toString`. Both are non-empty only if the Smelt error
+    // channel ran at all.
     let source = r#"
 import { test, expect } from "vitest";
 

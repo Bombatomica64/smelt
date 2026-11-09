@@ -237,10 +237,8 @@ test("a spread and a slice are independent copies", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn array_of_length_gives_each_slot_its_own_array() {
-    // `Array(n)` used to emit `vec![<hole>; n]`, which is `Clone`-based — and a
-    // Smelt reference value clones by SHARING since the shared-buffer change. So
-    // every slot was a handle to ONE array, carrying one JavaScript identity, and
-    // pushing through `a[0]` was visible through `a[1]`.
+    // Each slot of `Array(n)` is its own value, because a Smelt reference value
+    // clones by SHARING: `vec![<hole>; n]` would give every slot one identity.
     //
     // This is the assertion that catches over-sharing at construction, the same
     // way the spread/slice fixture catches it at copy. Both directions matter: a
@@ -281,23 +279,15 @@ test("writing one slot of a fresh Array(n) does not write the others", () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn erasing_a_list_into_an_unknown_slot_keeps_the_same_array() {
-    // The erasure boundary, which is where a `SmeltList` used to stop being a
-    // reference. `From<SmeltList<SmeltUnknown>> for SmeltArray` carried the list's
-    // `id` but rebuilt its buffer (`with_id(list.id(), list.into_vec())`), so the
-    // erased value was a HALF reference: a frozen snapshot wearing the live
-    // array's identity.
+    // The erasure boundary. In JavaScript an array put into an `unknown[]` slot IS
+    // the array, so `From<SmeltList<SmeltUnknown>> for SmeltArray` shares the buffer
+    // and a later push through the typed handle is visible through the erased
+    // element. `===` compares ids and earlier reads agree, so only a write made AFTER
+    // the erasure can observe this, which is what both fixtures do.
     //
-    // Nothing else in the suite catches that. `===` still answered `true` because
-    // it compares ids, and every read taken before the erasure agreed, so the only
-    // observable is a write made AFTER it — which is what both fixtures below do.
-    // In JavaScript an array put into an `unknown[]` slot IS the array, so a later
-    // push through the typed handle must be visible through the erased element.
-    //
-    // The second fixture is the shape this was found on: a self-referential array.
-    // `a[0] = a` can only mean anything if the erased element can BE `a`; with a
-    // snapshot it stored a copy of `a` as it was one statement earlier — empty —
-    // which is why es-toolkit's two `isEqualWith` circular-reference tests could
-    // not pass.
+    // The second fixture is a self-referential array: `a[0] = a` only means something
+    // if the erased element can BE `a`, as es-toolkit's `isEqualWith`
+    // circular-reference tests require.
     let source = r#"
 import { test, expect } from "vitest";
 test("a write after erasure is visible through the erased element", () => {
@@ -373,13 +363,10 @@ fn a_local_alias_of_an_erased_object_field_stays_one_array_across_pushes() {
     // `erased_to_list_text`'s array arm), so the push has already landed in the
     // buffer the field points at; the write-back re-stores that same handle.
     //
-    // It used to re-store a REBUILT element vector instead, which detached the
-    // field from the local's buffer once per push. A single push does not catch
-    // that — the rebuilt snapshot happens to hold the right contents — so this
-    // fixture pushes THROUGH BOTH NAMES, alternating, which only agrees while
+    // This fixture pushes THROUGH BOTH NAMES, alternating, which only agrees while
     // the two names keep denoting one array: a later push through the local must
     // be visible through the field, and a push through the field must be visible
-    // through the local. With the rebuild the two sequences diverged.
+    // through the local.
     let source = r#"
 import { test, expect } from "vitest";
 type Holder = { index: number; items: unknown[] };

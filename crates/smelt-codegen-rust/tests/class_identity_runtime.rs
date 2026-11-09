@@ -7,13 +7,8 @@
 //! areObjectsEqual(a.constructor, b.constructor, …) || (isPlainObject(a) && isPlainObject(b))
 //! ```
 //!
-//! The hidden class marker used to be `Bool(true)` for every class, so an erased
-//! instance had no way to name its class and `.constructor` read `undefined`. With
-//! both sides `undefined`, `Object.is(undefined, undefined)` held, so two instances
-//! of *different* classes compared equal — a false positive in a deep-equality
-//! primitive.
-//!
-//! The marker now records the class name and `.constructor` interns one value per
+//! Two instances of *different* classes must not compare equal there, so the hidden
+//! class marker records the class name and `.constructor` interns one value per
 //! name. It is a `Function` deliberately: `areObjectsEqual` tags it
 //! `[object Function]` and that branch decides by identity, so it never recurses
 //! into the constructor's own `.constructor` the way an object value would.
@@ -86,10 +81,8 @@ fn a_function_value_first_erased_inside_a_class_body_is_defined() {
     // accessor (`__smelt_fn_value_<key>`) so every reference to that function
     // compares equal under JavaScript reference identity. The accessor's name is
     // minted where the value is erased and its definition is flushed once per
-    // crate; the flush used to run after the FREE functions only, while class
-    // constructors and methods are emitted afterwards. A function whose first
-    // erasure is inside a class body therefore referenced a name the crate never
-    // defined, and the generated crate did not compile at all (E0425).
+    // crate, after class constructors and methods as well as free functions, so a
+    // first erasure inside a class body still names a defined accessor.
     //
     // Both emission points are covered on purpose: `handler` is erased only from
     // a method body and `label` only from a constructor body, so the test fails
@@ -223,10 +216,9 @@ test("instances of different constructor functions are different classes", () =>
 fn module_scope_constructor_function_instances_compare_by_class() {
     // The same constructor-function idiom declared at module top level, which is
     // where real JavaScript writes it. Two things differ from the in-body
-    // spelling and both used to make the module fail to lower with "unresolved
-    // class ZzFoo": the `new ZzFoo()` site lives inside *another* top-level
+    // spelling: the `new ZzFoo()` site lives inside *another* top-level
     // function's body rather than beside the declaration, and the declaration may
-    // be wrapped in `export`. Module-scope declarations are now scanned for
+    // be wrapped in `export`. Module-scope declarations are scanned for
     // constructor use before function items are predeclared, so `ZzFoo` becomes a
     // real Rust struct with a `ZzFoo::new()` constructor instead of a plain
     // function item.

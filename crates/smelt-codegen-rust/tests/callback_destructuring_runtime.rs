@@ -205,12 +205,10 @@ fn a_nested_destructured_callback_parameter_reads_the_nested_value() {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn an_object_spread_in_a_concise_callback_keeps_every_source() {
-    // The compact callback IR has no ordered record merge. It used to evaluate
-    // and DROP each spread, so `({ ...route, path })` built `{ path }` and a
-    // generic `({ ...a, ...b } as T)` built `{}` (radash `partob`). A spread
-    // now routes the callback to full closure-body lowering; a later
-    // homogeneous record spread into an erased merge is value-converted
-    // instead of skipped.
+    // The compact callback IR has no ordered record merge, so a spread routes the
+    // callback to full closure-body lowering; a later homogeneous record spread into
+    // an erased merge is value-converted. `({ ...route, path })` and a generic
+    // `({ ...a, ...b } as T)` (radash `partob`) keep every entry.
     let source = r"
 import { test, expect } from 'vitest';
 

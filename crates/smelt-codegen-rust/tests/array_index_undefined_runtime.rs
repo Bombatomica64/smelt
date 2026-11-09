@@ -1,17 +1,9 @@
 //! Runtime execution tests for JavaScript out-of-range element reads.
 //!
 //! A JavaScript array read is **total**: `arr[5]` on a three-element array and
-//! `arr[-1]` on any array are both `undefined`, never an error. The generated
-//! Rust used to disagree in two different ways at once, and `last([])` showed
-//! both:
-//!
-//! * the normalized index went through
-//!   `usize::try_from(normalized).expect("negative index out of bounds")`, so a
-//!   still-negative index aborted the program instead of missing; and
-//! * `arr[i]` has TypeScript type `T`, so a source signature of
-//!   `T | undefined` re-wrapped the read as
-//!   `Some(arr.get(..).cloned().unwrap_or(Default::default()))` — answering
-//!   `Some(0.0)` where JavaScript answers `undefined`.
+//! `arr[-1]` on any array are both `undefined`, never an error. `last([])` needs
+//! both halves: a still-negative index misses instead of aborting, and a source
+//! signature of `T | undefined` keeps the miss as `None`.
 //!
 //! Golden string assertions live in `the `emit_*_tests.rs` files`; they prove the shape is
 //! emitted. Only running the program proves `last([])` is actually `None` and
