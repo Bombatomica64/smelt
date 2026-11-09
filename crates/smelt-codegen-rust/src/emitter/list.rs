@@ -840,9 +840,10 @@ impl FunctionEmitter<'_> {
                 "array with value and destination must match the list type",
             ));
         }
-        // Read by borrow: the emitted body appends its own `.clone()` to get the
-        // mutable copy it edits, so cloning here made it `x.clone().clone()`.
-        let list_text = self.operand_borrow_expr(list)?;
+        // The emitted body appends its own `.clone()` to the backing `Vec`: cloning
+        // the `SmeltList` handle would share the array, and `with` leaves its input
+        // alone.
+        let list_text = list_read_expr(&self.operand_borrow_expr(list)?);
         let index_text = format!("({})", self.operand_expr(index)?.delimited());
         let value_text = self.operand_expr(value)?;
         Ok(RustExpr::atom(format!(

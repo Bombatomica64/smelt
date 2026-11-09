@@ -466,7 +466,7 @@ impl FunctionEmitter<'_> {
                     dict
                 {
                     return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "match &mut {} {{ SmeltUnknown::Object(smelt_map) => smelt_map.remove(&{key_text}).is_some(), _ => true }}",
+                        "match &mut {} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.remove(&{key_text}); true }}, _ => true }}",
                         self.local_mut_value(*local)?.tight(), key_text = key_text.tight()
                     ))));
                 }

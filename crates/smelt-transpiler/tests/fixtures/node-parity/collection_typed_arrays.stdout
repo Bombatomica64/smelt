@@ -1,0 +1,40 @@
+[object Int8Array]
+[object Uint8Array]
+[object Uint8ClampedArray]
+[object Int16Array]
+[object Uint16Array]
+[object Int32Array]
+[object Uint32Array]
+[object Float32Array]
+[object Float64Array]
+[object BigInt64Array]
+[object BigUint64Array]
+[object Uint8Array]
+true true true
+false false false
+true true false true
+-1 255
+-1 65535
+-1 4294967295
+-1n 18446744073709551615n
+1.5 63
+0.1
+255,0,0,2,2
+44,255
+1 2 8
+8 6 3
+2 2 true
+2 4 3
+2
+255
+2
+255 2
+2 3
+10 30 3
+0,1
+0
+4,5 0:4
+true false false
+1ab
+0,1 [object Arguments] 2 2
+3,4

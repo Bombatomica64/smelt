@@ -64,15 +64,15 @@ impl FunctionEmitter<'_> {
             smelt_hir::ListSearchOp::RFind => "rposition",
         };
         // Without a `fromIndex` this reduces to a direct `position`/`rposition`
-        // scan over the borrowed list. Element comparison mirrors JavaScript
-        // `indexOf`'s SameValueZero semantics (so `NaN` matches `NaN` and
-        // `+0`/`-0` are equal) for value-typed elements, and falls back to
-        // structural equality for reference-typed elements.
+        // scan over the borrowed list. JavaScript `indexOf` compares with strict
+        // equality: `NaN` never matches and `+0`/`-0` are equal, which is `f64`'s
+        // own `==`. Other value-typed elements compare by JS value and
+        // reference-typed elements structurally.
         let Some(from_index_operand) = from_index else {
             if self.list_item_uses_same_value_zero(element_ty) {
                 if self.mir.types.get(element_ty) == Some(&Type::Float) {
                     return Ok(RustExpr::atom(format!(
-                        "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map_or(-1.0, |smelt_idx| smelt_idx as f64) }}", item_text = item_text.delimited(), borrowed_list_text = borrowed_list_text.tight()
+                        "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|smelt_item| *smelt_item == smelt_needle).map_or(-1.0, |smelt_idx| smelt_idx as f64) }}", item_text = item_text.delimited(), borrowed_list_text = borrowed_list_text.tight()
                     )));
                 }
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
@@ -96,7 +96,7 @@ impl FunctionEmitter<'_> {
         let element_type_text = self.signature_type(element_ty)?;
         let predicate = if self.list_item_uses_same_value_zero(element_ty) {
             if self.mir.types.get(element_ty) == Some(&Type::Float) {
-                "|item: &f64| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())".to_owned()
+                "|item: &f64| *item == smelt_needle".to_owned()
             } else {
                 self.carrier_format(self.carrier()?, format_args!("|smelt_item: &{element_type_text}| smelt_item.same_js_key(&smelt_needle)"))
             }

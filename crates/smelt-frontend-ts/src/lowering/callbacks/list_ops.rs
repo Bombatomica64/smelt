@@ -95,8 +95,13 @@ impl ModuleBuilder<'_> {
             }
         };
         if right_arguments.is_empty() {
-            // `arr.concat()` with no arguments is a shallow copy.
-            return Ok(Some(left));
+            // `arr.concat()` with no arguments is a shallow copy: a new array the
+            // caller can mutate without touching the receiver.
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListCopy { list: left },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
         for right_argument in right_arguments {
             let (right, widened_item_ty) = self.list_concat_argument(
