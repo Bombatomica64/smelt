@@ -2991,11 +2991,11 @@ fn smelt_drain_due_timers(id_barrier: u64) {
         });
         if due.is_empty() { break; }
         for timer in due {
-            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
             if let Some(period_ms) = timer.period_ms {
                 let next_due = now.saturating_add(period_ms);
                 SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
             }
+            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
         }
     }
 }
