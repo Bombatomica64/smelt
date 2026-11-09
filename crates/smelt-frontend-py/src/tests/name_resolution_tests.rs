@@ -643,11 +643,8 @@ class Color(IntEnum):
 
 #[test]
 fn protocol_base_lowers_as_an_interface_for_every_import_spelling() -> TestResult {
-    // Requirement change (2026-11-04): this test used to require rejection
-    // (`smelt::no-protocol`), because lowering a protocol as a plain class
-    // made `x: HasArea = Square()` a Rust type mismatch. A protocol is now a
-    // structural HIR interface, as a TypeScript interface is, so every
-    // spelling of `typing.Protocol` must produce the interface item and no
+    // A protocol is a structural HIR interface, as a TypeScript interface is,
+    // so every spelling of `typing.Protocol` produces the interface item and no
     // class item. Conformance at the use sites is covered in `class_tests`.
     for (import, spelled) in spellings("typing", "Protocol") {
         let source = format!(

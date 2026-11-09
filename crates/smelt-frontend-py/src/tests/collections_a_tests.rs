@@ -8,7 +8,22 @@ x: int = 1
 print(x)
 ");
     let mut ctx = HirCtx::new();
-    lower_module(source, &mut ctx)?;
+    let module_id = lower_module(source, &mut ctx)?;
+    let module_body = body(&ctx, module(&ctx, module_id)?.body.ok_or("expected module body")?)?;
+    // `print(x)` is one call of the runtime print item with the one argument.
+    let print_arg_counts: Vec<usize> = module_body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::Call { callee, args }
+                if usize::try_from(callee.0).ok().and_then(|index| module_body.exprs.get(index)).is_some_and(|callee| matches!(callee.kind, ExprKind::Item(_))) =>
+            {
+                Some(args.len())
+            }
+            _ => None,
+        })
+        .collect();
+    ensure_eq(&print_arg_counts, &vec![1], "print calls and their argument counts")?;
     Ok(())
 }
 

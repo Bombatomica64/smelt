@@ -639,6 +639,7 @@ def collected(xs: list[int]) -> list[int]:
     let mut ctx = HirCtx::new();
     // Generator expressions materialize eagerly; lowering should succeed.
     lower_module(source, &mut ctx)?;
+    ensure_signature(&ctx, "collected", "collected(xs: List<Int>) -> List<Int>")?;
     Ok(())
 }
 
@@ -650,6 +651,7 @@ def chars(text: str) -> list[str]:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
+    ensure_signature(&ctx, "chars", "chars(text: PyStr) -> List<PyStr>")?;
     Ok(())
 }
 

@@ -190,3 +190,11 @@ fn module_state_and_defaults() -> TestResult {
 fn writes_through_module_globals() -> TestResult {
     verify_python_parity("writes_through_module_globals")
 }
+
+/// Comprehensions, inheritance, abstract bases, generics, static forward
+/// references, constructor-declared fields and every type-alias spelling run
+/// as Python runs them.
+#[test]
+fn frontend_lowering_shapes() -> TestResult {
+    verify_python_parity("frontend_lowering_shapes")
+}

@@ -1,4 +1,4 @@
-//! Tests for `ty`-backed type resolution (issue #93).
+//! Tests for `ty`-backed type resolution.
 //!
 //! These are gated on the crate's `ty` feature because they depend on Astral's
 //! `ty` resolving Python types from source that omits (or mis-declares) type
@@ -78,6 +78,11 @@ fn method_without_return_annotation_lowers() -> Result<(), String> {
     // `snapshot` has no `-> T`; without the `ty` feature this raises
     // "method '...' must have an explicit return type annotation".
     lower_module(source, &mut ctx)?;
+    ensure_eq(
+        &smelt_hir::function_signature(&ctx.krate, "snapshot"),
+        &Some("snapshot(self: Counter, extra: Int) -> Int".to_owned()),
+        "signature resolved through `ty`",
+    )?;
     Ok(())
 }
 
@@ -132,7 +137,7 @@ fn divergent_return_annotation_prefers_inferred() -> Result<(), String> {
 }
 
 /// An explicit `-> float` annotation is preserved even when `ty` infers a wider
-/// type for the body (issue #93 regression).
+/// type for the body.
 ///
 /// `value * value` for `value: float` is inferred by `ty` as a broader numeric
 /// type (`int | float`) than the declared `float`. The declared `float` is a
@@ -175,12 +180,17 @@ fn annotated_staticmethod_return_kept_when_ty_infers_wider() -> Result<(), Strin
     // Lowering succeeds and does not panic; the static method's `-> float`
     // contract is honoured (verified end to end by the codegen `f64` test).
     lower_module(source, &mut ctx)?;
+    ensure_eq(
+        &smelt_hir::function_signature(&ctx.krate, "square"),
+        &Some("square(value: Float) -> Float".to_owned()),
+        "the annotation is the contract",
+    )?;
     Ok(())
 }
 
 /// An UNANNOTATED function still resolves its return type via `ty` after the
 /// annotation-respecting reconciliation change: the fix must only affect the
-/// annotated path, leaving the #93 inference-for-unannotated behaviour intact.
+/// annotated path, and an unannotated function keeps its inference.
 #[test]
 fn unannotated_return_still_resolves_via_ty() -> Result<(), String> {
     let source = "def to_text(x: int):\n    return str(x)\n";

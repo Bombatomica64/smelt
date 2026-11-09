@@ -829,11 +829,25 @@ def materialized_definition(
     }
 
 
+def is_type_form(value: object) -> bool:
+    """Return whether a value is a typing construct rather than program data.
+
+    Type aliases and type-variable declarations (`Result = Ok | Err`,
+    `T = TypeVar("T")`, `type S = int`, `list[int]`) describe types; the
+    frontend resolves them from the source, and they have no runtime state to
+    snapshot.
+    """
+    if typing.get_origin(value) is not None:
+        return True
+    declarations = (typing.TypeVar, typing.ParamSpec, typing.TypeVarTuple)
+    return isinstance(value, declarations) or type(value).__name__ == "TypeAliasType"
+
+
 def should_materialize(
     module_name: str, name: str, value: object, candidate_modules: set[str]
 ) -> bool:
     """Return whether a public module binding belongs in the static snapshot."""
-    if name.startswith("_") or isinstance(value, types.ModuleType):
+    if name.startswith("_") or isinstance(value, types.ModuleType) or is_type_form(value):
         return False
     owner = getattr(value, "__module__", module_name)
     if inspect.isclass(value) or callable(value):
