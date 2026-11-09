@@ -272,6 +272,13 @@ fn console_erased_generic() -> TestResult {
     verify_node_parity("console_erased_generic")
 }
 
+/// `console.log` follows `util.inspect`: quoting, depth, grouping, line breaks,
+/// absent optional properties, class prefixes, tuples and collections.
+#[test]
+fn console_inspect_layout() -> TestResult {
+    verify_node_parity("console_inspect_layout")
+}
+
 /// A class stored in a value keeps its identity for `instanceof` and `new`.
 #[test]
 fn class_values() -> TestResult {
