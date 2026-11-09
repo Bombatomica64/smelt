@@ -228,6 +228,13 @@ impl FunctionEmitter<'_> {
             // A write through a CLASS VALUE reaches the class's live static
             // storage (`smelt_class_static_write`) when the program has class
             // values at all.
+            // A proxy can be behind any erased receiver: its `set` trap decides.
+            if self.context.demand().has(Need::Construct) {
+                out.push_str(&self.carrier_format(self.carrier()?, format_args!(
+                    "    {{ let smelt_value = {rendered_value}; smelt_index_assign(&mut {base_text}, {field_name:?}, smelt_value); }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
+                )));
+                return Ok(true);
+            }
             let write_through = self.context.erased_view_write_through();
             let class_statics = self.context.demand().has(Need::ClassValue);
             if write_through || class_statics {

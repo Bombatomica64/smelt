@@ -197,6 +197,12 @@ fn writes_through_module_globals() -> TestResult {
     verify_python_parity("writes_through_module_globals")
 }
 
+/// `set` mutation (`add`, `discard`, `remove`, `copy`, `clear`) and algebra run as Python runs them.
+#[test]
+fn python_set_methods() -> TestResult {
+    verify_python_parity("python_set_methods")
+}
+
 /// List, dict, set, tuple and str methods and the math helpers behave as
 /// Python's, including the exceptions for missing items.
 #[test]

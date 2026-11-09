@@ -438,20 +438,25 @@ impl ModuleBuilder<'_> {
         message: &str,
         body: &mut Body,
     ) -> Result<(), SmeltError> {
-        if check == LibraryCheck::Matcher("toThrow") && actual.is_none() {
-            self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
-            return Ok(());
-        }
         if let LibraryCheck::Matcher(name) = check {
             let actual = match (name == "toThrow", shared, actual) {
-                (false, Some(value), _) => SiteActual::Lowered(LoweredActual { value, inverted }),
-                (_, _, Some(argument)) => SiteActual::Argument { argument, inverted },
-                (true, Some(_) | None, None) | (false, None, None) => {
+                (_, _, Some(argument)) if name == "toThrow" => SiteActual::Argument { argument, inverted },
+                (_, Some(value), _) => SiteActual::Lowered(LoweredActual { value, inverted }),
+                (_, None, Some(argument)) => SiteActual::Argument { argument, inverted },
+                (_, None, None) => {
                     self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
                     return Ok(());
                 }
             };
-            let handled = self.matcher_site_statement(MatcherSite { name, arguments, span, actual }, body)?;
+            let lowered_throw = name == "toThrow" && matches!(actual, SiteActual::Lowered(_));
+            let site = MatcherSite { name, arguments, span, actual };
+            // A `.should` chain's lowered callee reaches `toThrow` directly; the
+            // general dispatch keeps declining a lowered `.resolves` value.
+            let handled = if lowered_throw {
+                self.expect_to_throw_statement(site, body)?
+            } else {
+                self.matcher_site_statement(site, body)?
+            };
             debug_assert!(handled, "{name} is a modelled matcher");
             return Ok(());
         }

@@ -189,6 +189,66 @@ fn keyed_view_write_and_shape_overloads() -> TestResult {
     verify_node_parity("keyed_view_write_and_shape_overloads")
 }
 
+/// A Proxy answers through its handler's traps on object, function and callable
+/// object targets, and `f(x)(...args)` spreads into the returned function.
+#[test]
+fn proxy_traps() -> TestResult {
+    verify_node_parity("proxy_traps")
+}
+
+/// `+` on contextually typed parameters concatenates, and symbol keys survive a
+/// `keyof` array assertion.
+#[test]
+fn contextual_add_and_symbol_keys() -> TestResult {
+    verify_node_parity("contextual_add_and_symbol_keys")
+}
+
+/// An uncaught throw exits as Node does: status 1, with the thrown class and
+/// message on stderr. Covers a throw returned out of `main` and one that crosses
+/// a callback through the panic route.
+#[test]
+fn uncaught_throw_exits_one_with_its_message() -> TestResult {
+    let programs = [
+        ("returned out of main", "throw new TypeError('top level');\n", "TypeError: top level"),
+        (
+            "through a callback",
+            "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
+            "RangeError: nope 1",
+        ),
+    ];
+    for (name, source, message) in programs {
+        let project = TempProject::new()?;
+        let root = project.path();
+        fs::create_dir_all(root.join("src"))?;
+        fs::write(root.join("src/main.ts"), source)?;
+        fs::write(
+            root.join("Smelt.toml"),
+            r#"[project]
+name = "node-parity"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "node_parity"
+build = false
+"#,
+        )?;
+        smelt_in(root, &["build"])?;
+        let output = std::process::Command::new("cargo")
+            .args(["run", "--quiet", "--manifest-path", "dist/Cargo.toml"])
+            .current_dir(root)
+            .env("RUSTFLAGS", "-Awarnings")
+            .output()?;
+        ensure_eq(&output.status.code(), &Some(1_i32), format!("{name}: exit status"))?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        ensure_eq(&stderr.contains(message), &true, format!("{name}: stderr was {stderr}"))?;
+    }
+    Ok(())
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
@@ -876,6 +936,42 @@ fn closure_values_behaviour() -> TestResult {
 #[test]
 fn promise_calls_behaviour() -> TestResult {
     verify_node_parity("promise_calls_behaviour")
+}
+
+/// Array methods: every callback spelling, search bounds, slices, in-place mutators and copies.
+#[test]
+fn collection_array_methods() -> TestResult {
+    verify_node_parity("collection_array_methods")
+}
+
+/// Record and object key order, reads, writes, rest copies, and interface literals.
+#[test]
+fn collection_objects_records() -> TestResult {
+    verify_node_parity("collection_objects_records")
+}
+
+/// Map and Set methods, projections, optional receivers, erasure and reference identity.
+#[test]
+fn collection_maps_sets() -> TestResult {
+    verify_node_parity("collection_maps_sets")
+}
+
+/// Typed-array codecs, view/storage construction, own keys and tags; the `arguments` object.
+#[test]
+fn collection_typed_arrays() -> TestResult {
+    verify_node_parity("collection_typed_arrays")
+}
+
+/// Callable objects, overload slots, rest adapters, tuples at erased boundaries.
+#[test]
+fn collection_callable_objects() -> TestResult {
+    verify_node_parity("collection_callable_objects")
+}
+
+/// Option bags, module slots, IIFE typing, generators, optional sort, statics and boxed primitives run as Node runs them.
+#[test]
+fn emission_rules_behaviour() -> TestResult {
+    verify_node_parity("emission_rules_behaviour")
 }
 
 /// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.

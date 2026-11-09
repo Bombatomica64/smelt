@@ -692,8 +692,9 @@ fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(de
 #[allow(dead_code)]
 fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
 /// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
-/// must say what was thrown, as Node does, instead of exiting silently.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
+/// says what was thrown and exits 1, as Node does. Under `cargo test` it unwinds
+/// instead, so one test's throw fails that test and not the whole harness.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); if !cfg!(test) { ::std::process::exit(1); } } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -1714,11 +1715,11 @@ fn smelt_for_in_object_shape(object: &SmeltObject) -> SmeltForInShape { if !obje
 /// Return whether `key` is visible to `for...in` on an object of this shape.
 fn smelt_is_for_in_shape_key(shape: SmeltForInShape, key: &JsStr) -> bool { if !shape.host && !shape.regexp && !shape.error && !shape.arguments && !key.eq_str_prefix("__smelt") { return true; } smelt_is_for_in_shape_key_text(shape, &key.to_string_lossy()) }
 /// [`smelt_is_for_in_shape_key`] over a key's UTF-8 text.
-fn smelt_is_for_in_shape_key_text(shape: SmeltForInShape, key: &str) -> bool { !shape.host && !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && key != "__smelt_map" && key != "__smelt_set" && !(shape.regexp && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(shape.error && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(shape.arguments && matches!(key, "__smelt_arguments" | "length")) }
+fn smelt_is_for_in_shape_key_text(shape: SmeltForInShape, key: &str) -> bool { !shape.host && !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_call" && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && key != "__smelt_map" && key != "__smelt_set" && !(shape.regexp && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(shape.error && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(shape.arguments && matches!(key, "__smelt_arguments" | "length")) }
 /// Return whether an object key is visible to JavaScript `for...in` iteration.
 fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { smelt_is_for_in_shape_key_text(smelt_for_in_object_shape(object), key) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<JsString, V>, key: &JsStr) -> bool { if smelt_record_has_host_marker(record) { return false; } if !key.eq_str_prefix("__smelt") && !record.store.borrow().has_internal_keys() { return true; } let key = &*key.to_string_lossy(); !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.has_text_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.has_text_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.has_text_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<JsString, V>, key: &JsStr) -> bool { if smelt_record_has_host_marker(record) { return false; } if !key.eq_str_prefix("__smelt") && !record.store.borrow().has_internal_keys() { return true; } let key = &*key.to_string_lossy(); !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_call" && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.has_text_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.has_text_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.has_text_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
 /// Every key JavaScript `for...in` yields for an erased object, prototype chain included.
 fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<JsString> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.eq_str_prefix("__smelt_proto:") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_str_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
@@ -1740,7 +1741,7 @@ fn smelt_key_symbol_value_text(key: &str) -> Option<SmeltUnknown> { if let Some(
 fn smelt_own_keys<V>(record: &SmeltRecord<JsString, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.eq_str_prefix("__smelt_proto:") { strings.push(SmeltUnknown::String(key.clone())); } } strings.extend(symbols); strings }
 
 /// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.
-fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_shape_key(shape, &key) && !key.eq_str_prefix("__smelt_proto:") { strings.push(SmeltUnknown::String(key.clone())); } } strings.extend(symbols); strings }
+fn smelt_own_object_keys(map: &SmeltObject) -> Vec<SmeltUnknown> {  let mut strings = Vec::new(); let mut symbols = Vec::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_shape_key(shape, &key) && !key.eq_str_prefix("__smelt_proto:") { strings.push(SmeltUnknown::String(key.clone())); } } strings.extend(symbols); strings }
 
 /// `Reflect.ownKeys` over a `SmeltJsMap` backing: string keys, then symbol keys.
 fn smelt_own_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { symbols.push(key); } else { strings.push(key); } } strings.extend(symbols); strings }
@@ -2194,6 +2195,7 @@ fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_nam
 
 fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
     let key: JsString = key.into();
+    
     match target {
         SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => {  map.insert(key, value); }
@@ -2700,6 +2702,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Siz
 
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
+    
     match value {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         SmeltUnknown::Object(map) => match smelt_host_method(map, field).unwrap_or_else(|| smelt_get_object_field(map, field)) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Object"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
@@ -2723,7 +2726,8 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 /// Whether `value` has `key` as an own property (JS `Object.hasOwn`).
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_host_buffer_element(map, key).is_some() || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
         _ => false,
@@ -2732,7 +2736,12 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Siz
 
 /// Whether `value` has `key` as an own OR inherited property (JS `key in value`).
 fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
+    
     if smelt_has_own_property(value, key) { return true; }
+    // A buffer view holds its `length`/`byteLength` accessors on this object;
+    // in JavaScript they are prototype accessors, so `in` finds them and
+    // `Object.hasOwn` does not.
+    if let SmeltUnknown::Object(map) = value && smelt_host_buffer_marker(map).is_some() && map.contains_key(key) { return true; }
     match value {
         SmeltUnknown::Object(map) => ((map.contains_key("__smelt_map") || map.contains_key("__smelt_set")) && key == "size") || map.contains_key(&format!("__smelt_method:{key}")) || map.contains_key(&format!("__smelt_proto:{key}")) || smelt_object_prototype_member(key).is_some(),
         SmeltUnknown::Array(_) | SmeltUnknown::String(_) => key == "__smelt_symbol_iterator" || smelt_object_prototype_member(key).is_some(),
@@ -2913,10 +2922,10 @@ impl ::std::fmt::Display for SmeltUnknown {
 }
 
 /// A JavaScript `throw` payload travelling Smelt's `Box<dyn Error>` channel.
-#[derive(Debug)]
 struct SmeltThrown { value: SmeltUnknown }
 /// Project a thrown payload to the message text a string-typed `catch` observes.
 fn smelt_thrown_message(value: &SmeltUnknown) -> String { if let SmeltUnknown::Object(object) = value { if let Some(SmeltUnknown::String(message)) = object.get("message") { return message.to_string(); } } format!("{value}") }
+impl ::std::fmt::Debug for SmeltThrown { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { let message = smelt_thrown_message(&self.value); if let SmeltUnknown::Object(object) = &self.value && let Some(SmeltUnknown::String(class)) = object.get("__smelt_error") { return write!(formatter, "Uncaught {}: {message}", class.to_string_lossy()); } write!(formatter, "Uncaught {message}") } }
 impl ::std::fmt::Display for SmeltThrown { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&smelt_thrown_message(&self.value)) } }
 impl ::std::error::Error for SmeltThrown {}
 /// Enter the error channel, keeping the thrown value's structure and identity.
