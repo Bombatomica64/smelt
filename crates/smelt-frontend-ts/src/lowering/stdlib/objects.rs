@@ -690,6 +690,26 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// `Object.fromEntries` over an erased or shapeless entries value: the
+    /// runtime helper reads whatever pairs it holds.
+    fn erased_from_entries(
+        &mut self,
+        value: smelt_hir::ExprId,
+        ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(call.span.start, call.span.end);
+        // not a new erasure: the entries are only re-viewed as the helper's operand.
+        let unknown = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
+        let entries = body.push_expr(Expr { kind: ExprKind::TypeAssert { value }, ty: unknown, span });
+        body.push_expr(Expr {
+            kind: ExprKind::DictProjection { op: DictProjectionOp::FromEntries, dict: entries },
+            ty,
+            span,
+        })
+    }
+
     /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
     pub(in crate::lowering) fn object_from_entries_call(
         &mut self,
@@ -738,16 +758,6 @@ impl ModuleBuilder<'_> {
                 }
                 Some(Type::List(entry_ty)) => {
                     if let Some((_key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
-                        // A `(string | number)[]` entry holds its key and value at
-                        // one union type, and only the position says which is
-                        // which: the entry's value has no narrower static type.
-                        let value_ty = if matches!(self.ctx.krate.types.get(entry_ty), Some(Type::List(_)))
-                            && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Union(_)))
-                        {
-                            self.erase_with(ErasureReason::OpenLayout, "array-spelled entry value")
-                        } else {
-                            value_ty
-                        };
                         let string_ty = self.ctx.krate.types.intern(Type::String);
                         let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
                         // not a new erasure: the entries list is only re-viewed as the
@@ -758,35 +768,40 @@ impl ModuleBuilder<'_> {
                             ty: unknown,
                             span: self.span(call.span.start, call.span.end),
                         });
-                        return Ok(Some(body.push_expr(Expr {
+                        // The runtime helper builds erased values; the result is
+                        // narrowed back to the entries' own value type.
+                        let span = self.span(call.span.start, call.span.end);
+                        let erased_dict = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown));
+                        let built = body.push_expr(Expr {
                             kind: ExprKind::DictProjection {
                                 op: DictProjectionOp::FromEntries,
                                 dict: entries,
                             },
+                            ty: if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) { ty } else { erased_dict },
+                            span,
+                        });
+                        if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
+                            return Ok(Some(built));
+                        }
+                        let view = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: built }, ty: unknown, span });
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::UnknownCast { value: view, target: ty },
                             ty,
-                            span: self.span(call.span.start, call.span.end),
+                            span,
                         })));
                     }
                     if self.erased_or_union_surface(entry_ty) {
                         let key_ty = self.ctx.krate.types.intern(Type::String);
                         let value_ty = self.erase_unless_unknown(entry_ty, ErasureReason::UntypedBuiltin);
                         let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-                        return Ok(Some(body.push_expr(Expr {
-                            kind: ExprKind::DictLit(Vec::new()),
-                            ty,
-                            span: self.span(call.span.start, call.span.end),
-                        })));
+                        return Ok(Some(self.erased_from_entries(value, ty, call, body)));
                     }
                 }
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                     let key_ty = self.ctx.krate.types.intern(Type::String);
                     let value_ty = self.erase_unless_unknown(Self::expr_ty(body, value), ErasureReason::UntypedBuiltin);
                     let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-                    return Ok(Some(body.push_expr(Expr {
-                        kind: ExprKind::DictLit(Vec::new()),
-                        ty,
-                        span: self.span(call.span.start, call.span.end),
-                    })));
+                    return Ok(Some(self.erased_from_entries(value, ty, call, body)));
                 }
                 _ => {}
             }
