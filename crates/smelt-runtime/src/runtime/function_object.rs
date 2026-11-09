@@ -183,10 +183,7 @@ fn smelt_proxy_set(proxy: &SmeltUnknown, key: &str, value: &SmeltUnknown) -> boo
 //~ `key in proxy`: the `has` trap, else the target's answer.
 fn smelt_proxy_has(proxy: &SmeltUnknown, key: &str) -> Option<bool> {
     let (target, handler) = smelt_proxy_parts(proxy)?;
-    Some(match smelt_proxy_trap(&handler, "has", vec![target.clone(), smelt_proxy_key(key)]) {
-        Some(answer) => !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)) && !matches!(&answer, SmeltUnknown::Number(number) if *number == 0.0 || number.is_nan()) && !matches!(&answer, SmeltUnknown::String(text) if text.is_empty()),
-        None => smelt_has_property(&target, key),
-    })
+    Some(smelt_proxy_trap(&handler, "has", vec![target.clone(), smelt_proxy_key(key)]).map_or_else(|| smelt_has_property(&target, key), |answer| !matches!(answer, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Bool(false)) && !matches!(&answer, SmeltUnknown::Number(number) if *number == 0.0 || number.is_nan()) && !matches!(&answer, SmeltUnknown::String(text) if text.is_empty())))
 }
 
 //~ The `ownKeys` trap's answer, when the proxy has one.
