@@ -523,7 +523,7 @@ impl FunctionEmitter<'_> {
 
     /// The class whose `impl` receives the initializer a `super(..)` here calls:
     /// the receiving class of a base-initializer copy, else this constructor's own.
-    fn base_initializer_owner(&self) -> Option<smelt_hir::Symbol> {
+    fn base_initializer_owner(&self) -> Option<Symbol> {
         match &self.role {
             emit_role::EmitRole::BaseInitializerCopy { receiver, .. } => Some(receiver.owner),
             _ => crate::base_init::constructor_class(self.function),

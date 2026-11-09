@@ -89,17 +89,16 @@ fn rust_items(source: &str, specs: &[&str]) -> String {
 /// `pub`, with each line's indentation removed.
 #[track_caller]
 fn rust_declaration(source: &str, prefix: &str) -> String {
-    let lines: Vec<&str> = program_body(source).lines().map(str::trim).collect();
-    let start = lines
-        .iter()
-        .position(|line| line.strip_prefix("pub ").unwrap_or(line).starts_with(prefix));
-    let Some(start) = start else {
-        panic!("no generated declaration starting `{prefix}`:\n{source}");
-    };
+    let mut lines = program_body(source)
+        .lines()
+        .map(str::trim)
+        .skip_while(|line| !line.strip_prefix("pub ").unwrap_or(line).starts_with(prefix))
+        .peekable();
+    assert!(lines.peek().is_some(), "no generated declaration starting `{prefix}`:\n{source}");
     let mut depth = 0_i32;
     let mut item = Vec::new();
-    for line in &lines[start..] {
-        item.push(*line);
+    for line in lines {
+        item.push(line);
         depth += brace_delta(line);
         if depth == 0_i32 && (line.contains('}') || line.ends_with(';')) {
             return item.join("\n");
