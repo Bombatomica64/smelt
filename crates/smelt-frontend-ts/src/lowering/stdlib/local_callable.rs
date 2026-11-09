@@ -224,14 +224,24 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        // An OPTIONAL parameter (`b?: string`, `required_params` on the
-        // function type) is omittable exactly like a defaulted one; it is
-        // padded with `undefined` below. Counting it as required sent
-        // `f('p')` against `(a: string, b?: string)` down the shortfall branch,
-        // which dropped EVERY argument (`f()`), so `getPattern(':id')` in Hono
-        // ran with an empty label.
-        let required_arg_count =
+        // A parameter is omittable when its declaration says so
+        // (`required_params`, optional and defaulted parameters) or when its
+        // type can hold the absence: a closure's own `required_params` counts
+        // its syntax, so a contextually typed `(d, o) => ..` against
+        // `(v: number, o?: string) => string` counts `o` as required while the
+        // slot is `Option`. Omitted ones are padded with `undefined` below.
+        let declared_required =
             fixed_param_count.min(function.required_params.unwrap_or(fixed_param_count));
+        let omittable = |this: &Self, index: usize| {
+            index >= declared_required
+                || function.params.get(index).is_some_and(|param| {
+                    matches!(this.ctx.krate.types.get(*param), Some(Type::Optional(_)))
+                })
+        };
+        let required_arg_count = (0..fixed_param_count)
+            .rev()
+            .find(|index| !omittable(self, *index))
+            .map_or(0, |index| index + 1);
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -282,7 +292,7 @@ impl ModuleBuilder<'_> {
                 .params
                 .get(index)
                 .copied()
-                .filter(|_| index >= function.required_params.unwrap_or(fixed_param_count))
+                .filter(|_| omittable(self, index))
             else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),

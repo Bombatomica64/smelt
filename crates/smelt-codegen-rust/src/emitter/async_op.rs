@@ -195,7 +195,14 @@ impl FunctionEmitter<'_> {
                 let arg_text = args_source.postfix(self.carrier_format(self.carrier()?, format_args!(
                     ".get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
                 )));
-                call_args.push(self.rendered_at_type(&arg_text, unknown_ty, *param, &self.render_scope())?);
+                let rendered = self.rendered_at_type(&arg_text, unknown_ty, *param, &self.render_scope())?;
+                // The callback takes this parameter by shared reference; the
+                // converted value is a temporary living to the end of the call.
+                call_args.push(if self.callback_param_is_shared_reference(function, index, *param) {
+                    RustExpr::atom(format!("&({rendered})", rendered = rendered.delimited()))
+                } else {
+                    rendered
+                });
             }
         }
         let call = format!("(smelt_timer_callback)({})", call_args.join(", "));
