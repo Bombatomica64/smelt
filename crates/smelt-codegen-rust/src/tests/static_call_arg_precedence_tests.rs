@@ -2,39 +2,25 @@
 //!
 //! `emitter::static_call_args` makes the ladder a total function: one classifier
 //! assigns each argument exactly one `StaticArgumentKind`, and the rungs are
-//! tried in a fixed, documented order. Two of that order's constraints are
-//! load-bearing, and each is a defect the callback-generics campaign actually
-//! shipped:
+//! tried in a fixed, documented order:
 //!
 //! * a borrowed callback outranks the monomorphization passthrough, and
 //! * a `&mut` parameter outranks the monomorphization passthrough.
 //!
-//! Neither constraint is observable unless an argument satisfies BOTH competing
-//! rungs at once, so each test below builds exactly that overlap: a callee that
-//! really emits Rust generics (so the passthrough rung is live), called at a
-//! site that pins those generics to concrete types (so `substitution_matches`
-//! succeeds for the contested argument). Reversing either constraint changes the
-//! asserted text — verified by reversing it — so neither test passes vacuously.
+//! Neither order is observable unless an argument satisfies BOTH competing
+//! rungs at once, so each test builds that overlap: a callee that really emits
+//! Rust generics, called at a site that pins those generics to concrete types.
+//! Each caller is compared whole because the rendered argument forms are the
+//! requirement here; what the programs compute is in the
+//! `function_value_semantics` Node-parity fixture.
 
 use super::*;
 
-/// A `&mut` parameter that is ALSO a monomorphizing composite must be rendered
-/// by the mutable-reference rung, not by the passthrough.
+/// A `&mut` list parameter a generic callee mutates is passed as a borrow.
 ///
-/// `xs: T[]` on a callee that mutates it lowers to `&mut SmeltList<T>`, and this
-/// call site pins `T = f64`, so `substitution_matches` holds for the argument:
-/// the passthrough rung would claim it and render it BY VALUE against a `&mut`
-/// parameter (E0308). The mutable-reference rung runs first and renders the
-/// borrow.
-///
-/// The callback parameter is not decoration. A `&mut` LIST argument is normally
-/// emitted by a THIRD ladder — `call::static_call_mut_list_adapter`, the
-/// convert-in-place adapter, recognisable by its `smelt_mut_call_result`
-/// wrapper — which never reaches the classifier at all. That adapter declines
-/// for a callee whose callback parameter mentions one of the callee's own
-/// emitted type parameters, which is exactly what `make: (index: number) => T`
-/// does, so this call is emitted by the main ladder and the contested `&mut`
-/// argument really is classified here.
+/// The callback parameter names the callee's own type parameter, which keeps
+/// this call out of the convert-in-place list adapter, so the classifier is the
+/// code that renders it.
 #[test]
 fn mutable_reference_outranks_monomorphizing_passthrough() {
     let source = source_for(
@@ -50,45 +36,23 @@ export function useFill(): number[] {
 ",
     );
 
-    // The callee emits real generics behind a `&mut` list parameter, which is
-    // what makes the argument a candidate for BOTH rungs. Without this the test
-    // would pass for the wrong reason.
-    assert!(
-        source.contains("(mut xs: &mut SmeltList<T>, make: &F0)"),
-        "callee did not emit a generic `&mut` list parameter, so the two rungs do not \
-         overlap here:\n{source}"
-    );
-    // The caller's local is the concrete `SmeltList<f64>` the call site pins
-    // `T` to, so the passthrough's `substitution_matches` really does hold.
-    assert!(
-        source.contains("let mut nums: SmeltList<f64>"),
-        "caller local is not the concrete list that pins `T`:\n{source}"
-    );
-    // Not the convert-in-place adapter: this call went through the classifier.
-    assert!(
-        !source.contains("smelt_mut_call_result"),
-        "the mutable-list adapter emitted this call, so the main ladder never classified \
-         its arguments:\n{source}"
-    );
-    // The mutable-reference rung won: a borrow, not a value.
-    assert!(
-        source.contains("fill_with(&mut nums, "),
-        "expected the `&mut` rung to render a borrow:\n{source}"
-    );
-    assert!(
-        !source.contains("fill_with(nums"),
-        "the passthrough claimed a `&mut` parameter and rendered it by value:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "fill_with"), r#"fn fill_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(f64) -> T + ?Sized>(mut xs: &mut SmeltList<T>, make: &F0) -> () {
+let _smelt_tmp_2: T = make(0.0);
+let _smelt_tmp_3: f64 = { let smelt_push_item = _smelt_tmp_2; xs.borrow_mut().push(smelt_push_item); xs.len() as f64 };
+return;
+}"#);
+    assert_eq!(rust_fn(&source, "use_fill"), r#"fn use_fill() -> SmeltList<f64> {
+let mut nums: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
+let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64| {
+let _smelt_tmp_1: f64 = closure_arg_0 + 10.0;
+_smelt_tmp_1
+});
+let _ = fill_with(&mut nums, &*_smelt_tmp_2);
+return nums;
+}"#);
 }
 
-/// A borrowed callback that is ALSO a monomorphizing passthrough candidate must
-/// be rendered by the borrowed-callback rung, not by the passthrough.
-///
-/// Once a callback-bearing callee emits real generics, a pinned call site
-/// satisfies `substitution_matches` for its `Fn(T) -> T` parameter too, so the
-/// passthrough rung would claim the callback and render it as an owned
-/// `Rc<closure>` against a borrowed `&F0` parameter (E0308). The
-/// borrowed-callback rung runs first and reborrows it.
+/// A borrowed callback that could also pass through is reborrowed at the call.
 #[test]
 fn borrowed_callback_outranks_monomorphizing_passthrough() {
     let source = source_for(
@@ -103,46 +67,22 @@ export function useApply(): number[] {
 ",
     );
 
-    // The callee emits real generics AND takes its callback by reference behind
-    // an `F{n}` bound: that is the overlap this test exists for.
-    assert!(
-        source.contains("fn apply_to<T:") && source.contains("F0: Fn(&T) -> T + ?Sized>"),
-        "callee did not emit a generic borrowed callback parameter, so the two rungs do not \
-         overlap here:\n{source}"
-    );
-    // The sibling list argument passes through concretely, which is the direct
-    // evidence that this call site DID monomorphize the callee — the state in
-    // which the passthrough rung competes for the callback.
-    assert!(
-        source.contains("apply_to(nums, "),
-        "call site did not monomorphize the callee, so the passthrough rung is not in \
-         play:\n{source}"
-    );
-    // The borrowed-callback rung won: the callback is reborrowed at the call,
-    // not handed over as the owned `Rc` handle the caller holds.
-    assert!(
-        source.contains("apply_to(nums, &mut { let _smelt_adapted_callback ="),
-        "expected the borrowed-callback rung to reborrow the callback:\n{source}"
-    );
-    assert!(
-        !source.contains("apply_to(nums, _smelt_tmp"),
-        "the passthrough claimed a borrowed callback and rendered it as an owned \
-         handle:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "apply_to"), r#"fn apply_to<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> T + ?Sized>(xs: SmeltList<T>, fn_: &F0) -> SmeltList<T> {
+let _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into({ let smelt_callback = fn_; xs.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item) }).collect::<Vec<_>>() });
+return _smelt_tmp_2;
+}"#);
+    assert_eq!(rust_fn(&source, "use_apply"), r#"fn use_apply() -> SmeltList<f64> {
+let nums: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64| {
+let _smelt_tmp_1: f64 = closure_arg_0 + 1.0;
+_smelt_tmp_1
+});
+let _smelt_tmp_3: SmeltList<f64> = apply_to(nums, &mut { let _smelt_adapted_callback = _smelt_tmp_2.clone(); move |smelt_arg0: &f64| -> f64 { (_smelt_adapted_callback)(smelt_arg0.clone()) } });
+return _smelt_tmp_3;
+}"#);
 }
 
-
-/// H25: a CLASS METHOD's parameters carry the same ABI as every other callee's.
-///
-/// A parameter the callee mutates in place is emitted `&mut T` by the very
-/// predicate the call site can consult (`parameter_needs_mutable_reference_in`),
-/// and a parameter the call omits is padded with its default. Both were already
-/// true for free functions, static methods and constructors; the instance-method
-/// arm asked neither question, so Hono's `#pushHandlerSets(handlerSets, node,
-/// method, nodeParams, params?)` -- a private method that pushes into its first
-/// parameter and is called both with and without the optional tail -- produced
-/// `expected &mut SmeltList<_>, found SmeltList<_>` and `takes 5 arguments but 4
-/// were supplied`: together 419 of the router slice's 498 errors.
+/// An instance method borrows a parameter it mutates and pads one the call omits.
 #[test]
 fn a_method_call_borrows_a_mutated_parameter_and_pads_an_omitted_one() {
     let source = source_for(
@@ -172,32 +112,15 @@ console.log(total);
 ",
     );
 
-    // The signature side: the mutated parameter really is by-reference here, so
-    // the call-site assertions below are not vacuous.
-    assert!(
-        source.contains("into: &mut SmeltList<"),
-        "the mutated parameter did not lower to `&mut`, so this fixture does not \
-         exercise the ABI:\n{source}"
-    );
-    // The call with the optional argument omitted passes `None` for it rather
-    // than being short one argument.
-    assert!(
-        source.contains("self._add_row(&mut sink,"),
-        "a method call passed a `&mut` parameter by value:\n{source}"
-    );
-    assert!(
-        !source.contains("self._add_row(sink.clone()"),
-        "the mutated argument is still cloned by value:\n{source}"
-    );
-    // The two calls differ only in the optional tail: the one that omits it
-    // pads `None`, the one that writes it passes `Some(..)`. Both must be
-    // present, so neither the padding nor the ordinary argument regressed.
-    assert!(
-        source.contains(", None::<JsString>);"),
-        "the omitted optional parameter was not padded:\n{source}"
-    );
-    assert!(
-        source.contains("Some(JsString::from(\"twice\")));"),
-        "the supplied optional argument no longer reaches the call:\n{source}"
-    );
+    assert_eq!(rust_fn(&source, "collect"), r#"fn collect(&self) -> f64 {
+let _smelt_tmp_5: SmeltRecord<JsString, f64>;
+let _smelt_tmp_7: f64;
+let mut sink: SmeltList<Row> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Row> = vec![]; smelt_list_items }));
+let _smelt_tmp_3: SmeltRecord<JsString, f64> = SmeltRecord::from([(JsString::from("id"), 1.0)]);
+let _ = self._add_row(&mut sink, { let smelt_record_map = _smelt_tmp_3.clone(); Row { id: smelt_record_map.get_text("id").cloned().map_or(0.0, |smelt_value| smelt_value) } }, None::<JsString>);
+_smelt_tmp_5 = SmeltRecord::from([(JsString::from("id"), 5.0)]);
+let _ = self._add_row(&mut sink, { let smelt_record_map = _smelt_tmp_5.clone(); Row { id: smelt_record_map.get_text("id").cloned().map_or(0.0, |smelt_value| smelt_value) } }, Some(JsString::from("twice")));
+_smelt_tmp_7 = sink.len() as f64;
+return _smelt_tmp_7;
+}"#);
 }

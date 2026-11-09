@@ -211,6 +211,7 @@ pub(crate) use union::emit_union_definitions;
 pub(crate) use json_decode::emit_json_decoders;
 pub(crate) use console_inspect::emit_console_inspect_support;
 pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
+pub(crate) use capture_analysis::parameter_is_mutable_reference;
 
 /// Process-wide runtime state an emitted native test resets before its body,
 /// so mock state one test installs does not leak into the next.
@@ -995,14 +996,9 @@ fn callback_param_escapes_locally(
     // timer closure (see the emitter's timer callback lowering). A borrowed
     // `&dyn Fn` cannot escape into that `'static` closure, so the parameter must
     // enter the function as an owned handle. Mirrors es-toolkit `delay`.
-    let escapes_into_timer = function.blocks.iter().any(|block| {
-        block.statements.iter().any(|statement| {
-            let value = match statement {
-                Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => value,
-                Statement::DictEntryUpdate { .. } => return false,
-            };
-            matches!(
-                value,
+    let escapes_into_timer = function_rvalues(function).any(|value| {
+        matches!(
+            value,
                 Rvalue::AsyncOp {
                     op: smelt_hir::AsyncOp::SetTimeout | smelt_hir::AsyncOp::SetInterval,
                     args,
@@ -1011,8 +1007,22 @@ fn callback_param_escapes_locally(
                     Some(Operand::Copy(Place::Local(callback)) | Operand::Move(Place::Local(callback)))
                         if *callback == local
                 )
-            )
-        })
+        )
+    });
+    // A continuation handed to `.then`/`.catch`/`.finally` runs after the settling
+    // promise's `'static` future, so it is retained past this call.
+    let escapes_into_promise_chain = function_rvalues(function).any(|value| {
+        matches!(
+            value,
+                Rvalue::AsyncOp {
+                    op: smelt_hir::AsyncOp::Then | smelt_hir::AsyncOp::Catch | smelt_hir::AsyncOp::Finally,
+                    args,
+                } if args.iter().any(|arg| matches!(
+                    arg,
+                    Operand::Copy(Place::Local(callback)) | Operand::Move(Place::Local(callback))
+                        if *callback == local
+                ))
+        )
     });
     // A borrowed callback parameter bound to a LOCAL whose own Rust type is the
     // owned `SmeltErasedFunction` struct (the erased-unknown-rest shape) has to
@@ -1069,6 +1079,7 @@ fn callback_param_escapes_locally(
         || retained_by_async_body
         || rebound_locally
         || escapes_into_timer
+        || escapes_into_promise_chain
         || erased_or_dynamic_escape
         || captured_by_erased_closure_value
         || captured_by_erased_return
@@ -1083,6 +1094,22 @@ fn callback_param_escapes_locally(
                     .iter()
                     .any(|capture| capture.source_local == local)
         }))
+}
+
+/// Every rvalue a function computes: its assignments, and the operation a call
+/// terminator carries when the operation runs inside a `try`.
+fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
+    function.blocks.iter().flat_map(|block| {
+        let assigned = block.statements.iter().filter_map(|statement| match statement {
+            Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => Some(value),
+            Statement::DictEntryUpdate { .. } => None,
+        });
+        let carried = match &block.terminator {
+            Some(Terminator::Call { callee: Callee::Op(value, _), .. }) => Some(value.as_ref()),
+            _ => None,
+        };
+        assigned.chain(carried)
+    })
 }
 
 /// Return whether a statement may put a callback parameter behind erased state.

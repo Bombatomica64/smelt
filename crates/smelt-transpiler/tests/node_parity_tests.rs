@@ -63,6 +63,19 @@ clone-strategy = "aggressive"
     ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
 }
 
+/// Captures share one cell, a method call supplies its receiver, a function value
+/// is an object, and every call shape honours the callee's argument ABI.
+#[test]
+fn function_value_semantics() -> TestResult {
+    verify_node_parity("function_value_semantics")
+}
+
+/// A `catch` runs wherever its `try` sits: a loop, a closure, an `if` arm, a callback.
+#[test]
+fn throw_and_catch_forms() -> TestResult {
+    verify_node_parity("throw_and_catch_forms")
+}
+
 /// A throw delivers its operand whole through one channel, whatever it is, and
 /// a `try` around a call that cannot throw still builds and runs.
 #[test]
