@@ -708,3 +708,9 @@ fn ordering_boundaries() -> TestResult {
 fn erased_array_search() -> TestResult {
     verify_node_parity("erased_array_search")
 }
+
+/// A nested function reads before its declaration; computed member keys name fields.
+#[test]
+fn forward_references_and_computed_keys() -> TestResult {
+    verify_node_parity("forward_references_and_computed_keys")
+}
