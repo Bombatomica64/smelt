@@ -1620,21 +1620,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Resolve a local to the closure local it aliases, following simple copy assignments.
-    /// How many statements write `local`; a value it holds is only statically
-    /// known when this is at most one.
-    fn local_write_count(&self, local: LocalId) -> usize {
-        self.function
-            .blocks
-            .iter()
-            .flat_map(|block| &block.statements)
-            .filter(|statement| match statement {
-                Statement::Assign { dest, .. } => *dest == local,
-                Statement::AssignPlace { place: Place::Local(written), .. } => *written == local,
-                _ => false,
-            })
-            .count()
-    }
-
     fn closure_source_local(&self, local: LocalId) -> LocalId {
         let mut current = local;
         for _ in 0_u8..8 {
@@ -1667,6 +1652,21 @@ impl FunctionEmitter<'_> {
             current = source;
         }
         current
+    }
+
+    /// How many statements write `local`; a value it holds is only statically
+    /// known when this is at most one.
+    fn local_write_count(&self, local: LocalId) -> usize {
+        self.function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter(|statement| match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace { place: Place::Local(written), .. } => *written == local,
+                _ => false,
+            })
+            .count()
     }
 
     /// Resolve a callback operand to a Rust closure shaped like its function type.
