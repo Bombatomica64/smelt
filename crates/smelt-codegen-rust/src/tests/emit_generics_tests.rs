@@ -138,10 +138,10 @@ const copied: Boxed<number> = boxed;
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Boxed<T>"]), r#"struct Boxed<T> {
+    assert_eq!(rust_items(&source, &["struct Boxed<T>"]), r"struct Boxed<T> {
 value: T,
 _smelt_phantom: ::std::marker::PhantomData<(T)>,
-}"#);
+}");
     assert!(source.contains("boxed: Boxed<f64>"), "{source}");
 }
 
@@ -306,11 +306,11 @@ export function genericKey<T extends object>(object: T, key: string): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig index_present", "sig key_present", "sig generic_key"]), r#"fn index_present(arr: SmeltList<f64>, i: f64) -> bool
+    assert_eq!(rust_items(&source, &["sig index_present", "sig key_present", "sig generic_key"]), r"fn index_present(arr: SmeltList<f64>, i: f64) -> bool
 
 fn key_present(obj: Option<SmeltRecord<JsString, f64>>, key: Option<JsString>) -> bool
 
-fn generic_key(object: SmeltUnknown, key: JsString) -> bool"#);
+fn generic_key(object: SmeltUnknown, key: JsString) -> bool");
 }
 
 #[test]
@@ -329,7 +329,7 @@ export function keysOf<T>(object: T): string[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig keys_of"]), r#"fn keys_of(object: SmeltUnknown) -> SmeltList<JsString>"#);
+    assert_eq!(rust_items(&source, &["sig keys_of"]), r"fn keys_of(object: SmeltUnknown) -> SmeltList<JsString>");
 }
 
 #[test]
@@ -448,7 +448,7 @@ export function useTake(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig take_held", "fn use_take"]), r#"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
+    assert_eq!(rust_items(&source, &["sig take_held", "fn use_take"]), r"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
 
 fn use_take() -> f64 {
 let held: Holder<f64>;
@@ -460,7 +460,7 @@ held = _smelt_tmp_3;
 _smelt_tmp_4 = ys.len() as f64;
 _smelt_tmp_5 = held.value + _smelt_tmp_4;
 return _smelt_tmp_5;
-}"#);
+}");
 }
 
 /// A generic base's constructor runs over the derived instance. No base value is built, so
@@ -531,7 +531,7 @@ const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pick_first"]), r#"fn pick_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(arr: SmeltList<T>, key: &F0, fallback: T) -> T"#);
+    assert_eq!(rust_items(&source, &["sig pick_first"]), r"fn pick_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(arr: SmeltList<T>, key: &F0, fallback: T) -> T");
 }
 
 /// A type parameter inspected inside a closure body does not lift even when the enclosing
@@ -552,7 +552,7 @@ const r = scan(['a', 'b'], (s) => 'k');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig scan"]), r#"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"#);
+    assert_eq!(rust_items(&source, &["sig scan"]), r"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
 }
 
 /// A type parameter moved into a differently-typed container does not lift: moving a `T`
@@ -575,7 +575,7 @@ const r = collect([[1, 2]], (v) => 'k');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig collect"]), r#"fn collect(rows: SmeltList<SmeltList<SmeltUnknown>>, key: &dyn Fn(&SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"#);
+    assert_eq!(rust_items(&source, &["sig collect"]), r"fn collect(rows: SmeltList<SmeltList<SmeltUnknown>>, key: &dyn Fn(&SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
 }
 
 /// A generic call signature stores its callable at the CONSTRAINT of each of

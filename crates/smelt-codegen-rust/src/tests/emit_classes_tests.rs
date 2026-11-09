@@ -66,9 +66,9 @@ export function mixedSize(bag: MixedBag): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig read_bag", "sig mixed_size"]), r#"fn read_bag(bag: StringBag, key: JsString) -> Option<JsString>
+    assert_eq!(rust_items(&source, &["sig read_bag", "sig mixed_size"]), r"fn read_bag(bag: StringBag, key: JsString) -> Option<JsString>
 
-fn mixed_size(bag: MixedBag) -> f64"#);
+fn mixed_size(bag: MixedBag) -> f64");
     assert!(source.contains("size: f64"), "{source}");
     assert!(source.contains(".__smelt_index_store.get(&"), "the keyed read routes to the store:\n{source}");
     assert!(source.contains(".__smelt_index_store.insert("), "the keyed write routes to the store:\n{source}");
@@ -91,7 +91,7 @@ const count = keyCount(new PrivateBox());
 
     assert!(!source.contains("(\"value\".to_owned(), SmeltUnknown::String(self.value))"), "private class fields must not become enumerable erased object keys: {source}");
     assert!(!source.contains("smelt_object_entries.insert(\"value\".to_owned()"), "direct class-to-unknown erasure must also omit private fields: {source}");
-    assert_eq!(rust_items(&source, &["sig key_count"]), r#"fn key_count(value: SmeltUnknown) -> f64"#);
+    assert_eq!(rust_items(&source, &["sig key_count"]), r"fn key_count(value: SmeltUnknown) -> f64");
 }
 
 #[test]
@@ -112,7 +112,7 @@ const count = keyCount(new GetterBox());
     );
 
     assert!(!source.contains("smelt_object_entries.insert(\"value\".to_owned()"), "class accessors live on the prototype and must not erase as own enumerable fields: {source}");
-    assert_eq!(rust_items(&source, &["sig key_count"]), r#"fn key_count(value: SmeltUnknown) -> f64"#);
+    assert_eq!(rust_items(&source, &["sig key_count"]), r"fn key_count(value: SmeltUnknown) -> f64");
 }
 
 #[test]
@@ -182,7 +182,7 @@ const yes = value instanceof Error;
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["sig make_error"]), r#"fn make_error() -> SmeltUnknown"#);
+    assert_eq!(rust_items(&source, &["sig make_error"]), r"fn make_error() -> SmeltUnknown");
 }
 
 #[test]
@@ -233,12 +233,12 @@ export function make(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn make"]), r#"fn make() -> f64 {
+    assert_eq!(rust_items(&source, &["fn make"]), r"fn make() -> f64 {
 let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 let values: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::BigUint64, &_smelt_tmp_1.to_vec());
 let _smelt_tmp_3: f64 = values.length();
 return _smelt_tmp_3;
-}"#);
+}");
 }
 
 /// An implicit derived constructor declares the base constructor's parameters, not one
@@ -332,9 +332,9 @@ export function read(holder: Holder): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn read"]), r#"fn read(holder: Holder) -> f64 {
+    assert_eq!(rust_items(&source, &["fn read"]), r"fn read(holder: Holder) -> f64 {
 return holder.__smelt_get___smelt_symbol_unique__at_13();
-}"#);
+}");
 }
 
 #[test]
@@ -725,13 +725,13 @@ export function startsAt(s: string, t: string, p: number): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pad", "sig first_char", "sig repeated", "sig starts_at"]), r#"fn pad(s: JsString, n: f64, c: JsString) -> JsString
+    assert_eq!(rust_items(&source, &["sig pad", "sig first_char", "sig repeated", "sig starts_at"]), r"fn pad(s: JsString, n: f64, c: JsString) -> JsString
 
 fn first_char(s: SmeltUnknown) -> JsString
 
 fn repeated(s: JsString, n: f64) -> JsString
 
-fn starts_at(s: JsString, t: JsString, p: f64) -> bool"#);
+fn starts_at(s: JsString, t: JsString, p: f64) -> bool");
 }
 
 #[test]
@@ -878,9 +878,9 @@ def area(radius: float) -> float:
     assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
     assert!(!source.contains("fn square(&self") && !source.contains("fn square(&mut self"), "static method must not take a receiver: {source}");
     assert!(source.contains("MathUtils::square("), "{source}");
-    assert_eq!(rust_items(&source, &["fn __smelt_static_PI"]), r#"fn __smelt_static_PI() -> i64 {
+    assert_eq!(rust_items(&source, &["fn __smelt_static_PI"]), r"fn __smelt_static_PI() -> i64 {
 3
-}"#);
+}");
 }
 
 /// A module const whose initializer is a concat/slice method chain
@@ -902,11 +902,11 @@ export function numberCount(): number {
     let program = program_body(&source);
     assert!(program.contains(".chain("), "the inlined concat emits list concatenation:\n{program}");
     assert!(program.contains(".skip("), "the inlined slice emits a skip-based slice:\n{program}");
-    assert_eq!(rust_items(&source, &["fn number_count"]), r#"fn number_count() -> f64 {
+    assert_eq!(rust_items(&source, &["fn number_count"]), r"fn number_count() -> f64 {
 let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SMALL_NUMBERS_0.with(|smelt_value| smelt_value.borrow().clone()));
 let _smelt_tmp_2: f64 = values.len() as f64;
 return _smelt_tmp_2;
-}"#);
+}");
 }
 
 /// A derived constructor's `super(...)` runs the base constructor against the derived
