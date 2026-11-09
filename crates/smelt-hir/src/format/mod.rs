@@ -9,6 +9,7 @@ mod types;
 
 use crate::body::Body;
 use crate::ids::{ExprId, LocalId, ModuleId, TypeId, id_index};
+use crate::item::Item;
 use crate::krate::Crate;
 use call::expr_text;
 use control_flow::stmt_text;
