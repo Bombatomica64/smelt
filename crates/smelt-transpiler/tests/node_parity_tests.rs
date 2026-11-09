@@ -684,3 +684,27 @@ fn erased_optional_coalesce() -> TestResult {
 fn presence_tested_parameters() -> TestResult {
     verify_node_parity("presence_tested_parameters")
 }
+
+/// A thrown value reaches its catch whole, through every channel.
+#[test]
+fn thrown_payload() -> TestResult {
+    verify_node_parity("thrown_payload")
+}
+
+/// `typeof` of a statically undefined value is `"undefined"`, not `"object"`.
+#[test]
+fn typeof_undefined() -> TestResult {
+    verify_node_parity("typeof_undefined")
+}
+
+/// `<=` and `>=` hold at equality for numbers, strings, bigints, dates and erased values.
+#[test]
+fn ordering_boundaries() -> TestResult {
+    verify_node_parity("ordering_boundaries")
+}
+
+/// `indexOf` and friends on an erased receiver start at the first element.
+#[test]
+fn erased_array_search() -> TestResult {
+    verify_node_parity("erased_array_search")
+}
