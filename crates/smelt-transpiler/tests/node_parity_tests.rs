@@ -798,3 +798,15 @@ fn erased_array_search() -> TestResult {
 fn forward_references_and_computed_keys() -> TestResult {
     verify_node_parity("forward_references_and_computed_keys")
 }
+
+/// Index signatures, erased projection, statics, typed arrays and inheritance behave like TypeScript.
+#[test]
+fn classes_behaviour() -> TestResult {
+    verify_node_parity("classes_behaviour")
+}
+
+/// Generic classes, functions and callbacks behave like TypeScript on every lift and demotion path.
+#[test]
+fn generics_behaviour() -> TestResult {
+    verify_node_parity("generics_behaviour")
+}
