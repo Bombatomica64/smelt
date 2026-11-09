@@ -242,7 +242,7 @@ build = false
             .current_dir(root)
             .env("RUSTFLAGS", "-Awarnings")
             .output()?;
-        ensure_eq(&output.status.code(), &Some(1), format!("{name}: exit status"))?;
+        ensure_eq(&output.status.code(), &Some(1_i32), format!("{name}: exit status"))?;
         let stderr = String::from_utf8_lossy(&output.stderr);
         ensure_eq(&stderr.contains(message), &true, format!("{name}: stderr was {stderr}"))?;
     }
