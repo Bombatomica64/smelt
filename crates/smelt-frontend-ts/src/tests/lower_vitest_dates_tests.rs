@@ -185,6 +185,8 @@ export function apply(values: string[]): string[] {
     let mut ctx = HirCtx::new();
     lower_ok(source, &mut ctx)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "apply", "apply(values: List<String>) -> List<String>")?;
+    ensure_exprs!(&ctx, ClosureCall, Index, StringCase, ListCallback);
     Ok(())
 }
 
@@ -207,6 +209,9 @@ export function normalize(parts: Part[]): Part[] {
     let mut ctx = HirCtx::new();
     lower_ok(source, &mut ctx)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "normalize", "normalize(parts: List<Part>) -> List<Part>")?;
+    ensure_exprs!(&ctx, Conditional, ListCallback);
+    ensure!(crate_has_field(&ctx, "is_token"), "no read of field `is_token`");
     Ok(())
 }
 
@@ -574,6 +579,8 @@ function label(day: Day): string {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "label", "label(day: Float) -> String")?;
+    ensure_exprs!(&ctx, PrimitiveCast);
     Ok(())
 }
 
@@ -836,6 +843,8 @@ export function pick(flag: boolean): number | string {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "pick", "pick(flag: Bool) -> Float | String")?;
+    ensure_exprs!(&ctx, Conditional);
     Ok(())
 }
 
@@ -865,6 +874,8 @@ export function endOf(queryIndex: number, hashIndex: number): number | undefined
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "end_of", "end_of(query_index: Float, hash_index: Float) -> Optional<Float>")?;
+    ensure_exprs!(&ctx, Conditional, NumericExtrema);
     Ok(())
 }
 
@@ -1300,6 +1311,8 @@ export function trimStartLike(str: string, chars: string | string[]): number {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "trim_start_like", "trim_start_like(str: String, chars: String | List<String>) -> Float")?;
+    ensure_exprs!(&ctx, TypeofValue, ListContains, Index);
     Ok(())
 }
 
@@ -1348,6 +1361,8 @@ function emptyish(data: object | string | undefined): boolean {
     let _module = module(&ctx, module_id)?;
 
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "emptyish", "emptyish(data: Unknown | String | None) -> Bool")?;
+    ensure_exprs!(&ctx, TypeAssert, Conditional, BinOp);
     Ok(())
 }
 
@@ -1575,6 +1590,9 @@ function setDefaultOptions(newOptions: DefaultOptions): void {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "get_default_options", "get_default_options() -> DefaultOptions")?;
+    ensure_signature(&ctx, "set_default_options", "set_default_options(new_options: DefaultOptions) -> None")?;
+    ensure_exprs!(&ctx, GlobalGet, GlobalSet);
     Ok(())
 }
 
@@ -2190,6 +2208,9 @@ function read(options: Options, date: number): number {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "use_context", "use_context(date: Float, context: Optional<Float>) -> Float")?;
+    ensure_signature(&ctx, "read", "read(options: Optional<Options>, date: Float) -> Float")?;
+    ensure_exprs!(&ctx, OptionalField, Call);
     Ok(())
 }
 
@@ -2314,6 +2335,7 @@ export type LocaleUnit = "second" | "minute";
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_item(&ctx, "FormatDistanceFn"), "no item named `FormatDistanceFn`");
     Ok(())
 }
 
@@ -2341,6 +2363,7 @@ export interface FPFn2<Result, Arg2, Arg1> {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(crate_has_item(&ctx, "FPFn"), "no item named `FPFn`");
     Ok(())
 }
 
@@ -2353,6 +2376,7 @@ export interface AddOptions<DateType extends Date = Date> extends ContextOptions
 "),
         &mut ctx,
     )?;
+    ensure!(crate_has_item(&ctx, "AddOptions"), "no item named `AddOptions`");
     Ok(())
 }
 
@@ -2466,6 +2490,10 @@ function resolve(value: TokenValue, count: number): string {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "resolve", "resolve(value: String | Dict<String, String>, count: Float) -> String")?;
+    ensure_exprs!(&ctx, UnknownIs);
+    ensure!(crate_has_field(&ctx, "one"), "no read of field `one`");
+    ensure!(crate_has_field(&ctx, "other"), "no read of field `other`");
     Ok(())
 }
 
@@ -2482,6 +2510,9 @@ function format(value: ExternalTokenValue): string {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "format", "format(value: ExternalTokenValue) -> String")?;
+    ensure_exprs!(&ctx, StringReplace);
+    ensure!(crate_has_field(&ctx, "other"), "no read of field `other`");
     Ok(())
 }
 
@@ -2515,6 +2546,9 @@ function format(tokenValue: FormatDistanceTokenValue, count: number): string {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "format", "format(token_value: String | Dict<String, String>, count: Float) -> String")?;
+    ensure_exprs!(&ctx, StringReplace);
+    ensure!(crate_has_field(&ctx, "one"), "no read of field `one`");
     Ok(())
 }
 
@@ -2564,6 +2598,8 @@ function format(token: FormatDistanceToken, count: number): string {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "format", "format(token: String, count: Float) -> String")?;
+    ensure_exprs!(&ctx, StringReplace, Index);
     Ok(())
 }
 
@@ -2589,6 +2625,9 @@ function buildFormatLongFn(defaultWidth: FormatLongWidth): FormatLongFn {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "build_format_long_fn", "build_format_long_fn(default_width: String) -> fn(FormatLongFnOptions) -> String")?;
+    ensure_exprs!(&ctx, Closure);
+    ensure!(crate_has_field(&ctx, "width"), "no read of field `width`");
     Ok(())
 }
 
@@ -2664,6 +2703,9 @@ function read(date: Date): string {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "read", "read(date: Date) -> String")?;
+    ensure_signature(&ctx, "lightFormatters_y", "lightFormatters_y(date: Date, token: String) -> String")?;
+    ensure_exprs!(&ctx, Call, DateGetPart);
     Ok(())
 }
 
@@ -2684,6 +2726,8 @@ export const formatters: { [token: string]: Formatter } = {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "formatters_y", "formatters_y(date: Date, token: String) -> String")?;
+    ensure_exprs!(&ctx, DateGetPart);
     Ok(())
 }
 
@@ -2746,6 +2790,8 @@ export const formatters: { [token: string]: Formatter } = {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "formatters_y", "formatters_y(date: Date, token: String) -> String")?;
+    ensure_exprs!(&ctx, DateGetPart);
     Ok(())
 }
 
@@ -2766,6 +2812,8 @@ export const formatters: { [token: string]: Formatter } = {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "formatters_t", "formatters_t(date: Date, token: String) -> Float")?;
+    ensure_exprs!(&ctx, PrimitiveCast);
     Ok(())
 }
 
@@ -2788,6 +2836,9 @@ function check(): boolean {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "accepts", "accepts(predicate: fn(String) -> Bool) -> Bool")?;
+    ensure_signature(&ctx, "check", "check() -> Bool")?;
+    ensure_exprs!(&ctx, Call, Closure, ClosureCall, Len);
     Ok(())
 }
 
@@ -2804,6 +2855,9 @@ function parts(pattern: string): string[] | null {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "parts", "parts(pattern: String) -> Optional<List<String>>")?;
+    ensure_exprs!(&ctx, RegexFind);
+    ensure!(crate_has_new(&ctx, "RegExp"), "no construction of `RegExp`");
     Ok(())
 }
 
@@ -2878,6 +2932,9 @@ function width(args: Args): string {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "width", "width(args: Args) -> String")?;
+    ensure_exprs!(&ctx, Conditional);
+    ensure!(crate_has_field(&ctx, "default_formatting_width"), "no read of field `default_formatting_width`");
     Ok(())
 }
 
@@ -3475,6 +3532,9 @@ function buildLocalizeFn<
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "build_localize_fn", "build_localize_fn<Value, ArgCallback>(args: BuildLocalizeFnArgs<Value, ArgCallback>) -> fn(Value, Optional<Dict<String, Optional<String>>>) -> String")?;
+    ensure_exprs!(&ctx, OptionalField);
+    ensure!(crate_has_field(&ctx, "formatting_values"), "no read of field `formatting_values`");
     Ok(())
 }
 
@@ -3500,6 +3560,8 @@ function call<ArgCallback extends Callback | undefined>(
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ClosureCall, Conditional);
+    ensure!(crate_has_field(&ctx, "argument_callback"), "no read of field `argument_callback`");
     Ok(())
 }
 
@@ -3519,6 +3581,7 @@ function applyMaybe(mapper: Mapper, value: number): number {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ClosureCall, Conditional, ListCallback);
     Ok(())
 }
 
@@ -3539,6 +3602,8 @@ function widths(options: Options | undefined): string[] {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "widths", "widths(options: Optional<Options>) -> List<String>")?;
+    ensure_exprs!(&ctx, OptionalField, ListCallback, Conditional);
     Ok(())
 }
 
@@ -3615,6 +3680,8 @@ function buildLocalizeFn<
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ClosureCall);
+    ensure!(crate_has_field(&ctx, "argument_callback"), "no read of field `argument_callback`");
     Ok(())
 }
 
@@ -3660,6 +3727,7 @@ export const localize: Localize = {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, Call, Closure, DictLit);
     Ok(())
 }
 
@@ -3914,6 +3982,8 @@ function rest(matchResult: string[] | undefined, text: string): string | undefin
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "rest", "rest(match_result: Optional<List<String>>, text: String) -> Optional<String>")?;
+    ensure_exprs!(&ctx, StringSlice, Index);
     Ok(())
 }
 
@@ -4133,7 +4203,7 @@ const values: Mapped<readonly number[], string> = ["a", "b"];
 
 #[test]
 fn in_guard_narrows_class_union_to_concrete_arm() -> Result<(), String> {
-    // Issue #55: a structural `"field" in value` guard narrows a class union so
+    // A structural `"field" in value` guard narrows a class union so
     // the true-branch read is lowered at the single matching arm. Smelt records
     // this as a narrowing fact that re-types the local read with an
     // `UnknownCast` to the narrowed type.
@@ -4218,7 +4288,7 @@ function describe(shape: Circle | Square): number {
 
 #[test]
 fn reassigning_narrowed_local_with_compatible_value_keeps_narrowing() -> Result<(), String> {
-    // Issue #55 invalidation: writing a value still inside the narrowed set
+    // Invalidation: writing a value still inside the narrowed set
     // refines the fact instead of dropping it. The reassigned `path` read stays
     // narrowed to `string`, so the function validates cleanly.
     let mut ctx = HirCtx::new();
@@ -4235,6 +4305,8 @@ function resolve(path: string | (() => string)): string {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "resolve", "resolve(path: String | fn() -> String) -> String")?;
+    ensure_exprs!(&ctx, ClosureCall, UnknownIs);
     let _ = module_id;
     Ok(())
 }

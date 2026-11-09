@@ -1162,6 +1162,8 @@ export function isTypedArray(x: unknown): boolean {
 "),
         &mut ctx,
     )?;
+    ensure_signature(&ctx, "is_typed_array", "is_typed_array(x: Unknown) -> Bool")?;
+    ensure_exprs!(&ctx, InstanceOf);
     Ok(())
 }
 

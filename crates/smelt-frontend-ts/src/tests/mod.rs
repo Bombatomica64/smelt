@@ -210,6 +210,88 @@ fn crate_has_expr(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool) -> bool {
         .any(|body| body.exprs.iter().any(|expr| pred(&expr.kind)))
 }
 
+/// Fail unless the crate holds an expression of every named [`ExprKind`] variant.
+macro_rules! ensure_exprs {
+    ($ctx:expr, $($variant:ident),+ $(,)?) => {
+        $(ensure!(
+            crate_has_expr($ctx, |kind| matches!(kind, ExprKind::$variant { .. })),
+            "no {} expression was lowered",
+            stringify!($variant)
+        );)+
+    };
+}
+
+/// Fail when the crate holds an expression of any named [`ExprKind`] variant.
+macro_rules! ensure_no_exprs {
+    ($ctx:expr, $($variant:ident),+ $(,)?) => {
+        $(ensure!(
+            !crate_has_expr($ctx, |kind| matches!(kind, ExprKind::$variant { .. })),
+            "unexpected {} expression was lowered",
+            stringify!($variant)
+        );)+
+    };
+}
+
+/// Whether `symbol` is the interned spelling of `name`.
+fn symbol_is(ctx: &HirCtx, symbol: smelt_hir::Symbol, name: &str) -> bool {
+    ctx.krate.symbols.get(symbol) == Some(name)
+}
+
+/// Whether any body reads a field named `name`.
+fn crate_has_field(ctx: &HirCtx, name: &str) -> bool {
+    crate_has_expr(ctx, |kind| {
+        matches!(kind, ExprKind::Field { field, .. } if symbol_is(ctx, *field, name))
+    })
+}
+
+/// Whether any body calls a method named `name` on a class receiver.
+fn crate_has_method(ctx: &HirCtx, name: &str) -> bool {
+    crate_has_expr(ctx, |kind| {
+        matches!(kind, ExprKind::Method { method, .. } if symbol_is(ctx, *method, name))
+    })
+}
+
+/// Whether any body constructs the class named `name`.
+fn crate_has_new(ctx: &HirCtx, name: &str) -> bool {
+    crate_has_expr(ctx, |kind| {
+        matches!(kind, ExprKind::New { class, .. } if symbol_is(ctx, *class, name))
+    })
+}
+
+/// Whether any body declares a local named `name`.
+fn crate_has_local(ctx: &HirCtx, name: &str) -> bool {
+    ctx.krate.bodies.iter().any(|body| {
+        body.locals
+            .iter()
+            .any(|local| local.name.is_some_and(|symbol| symbol_is(ctx, symbol, name)))
+    })
+}
+
+/// Whether the crate declares any named item (function, class, interface,
+/// alias, const or mutable global) spelled `name`.
+fn crate_has_item(ctx: &HirCtx, name: &str) -> bool {
+    ctx.krate.items.iter().any(|item| {
+        let symbol = match item {
+            Item::Function(item) => item.name,
+            Item::Class(item) => item.name,
+            Item::Interface(item) => item.name,
+            Item::TypeAlias(item) => item.name,
+            Item::Const(item) => item.name,
+            Item::MutableGlobal(item) => item.name,
+        };
+        symbol_is(ctx, symbol, name)
+    })
+}
+
+/// Whether an interned type's rendered text mentions `needle`.
+fn crate_has_type(ctx: &HirCtx, needle: &str) -> bool {
+    (0..ctx.krate.types.all().len()).any(|index| {
+        u32::try_from(index).is_ok_and(|index| {
+            smelt_hir::type_display(&ctx.krate, smelt_hir::TypeId(index)).contains(needle)
+        })
+    })
+}
+
 /// Assert that the first lowering error is an unsupported TS diagnostic containing `needle`.
 fn assert_unsupported_ts(errors: &[SmeltError], needle: &str) -> Result<(), String> {
     let error = errors
@@ -276,3 +358,4 @@ mod anonymous_record_tests;
 mod receiver_reuse_tests;
 mod abstract_class_value_tests;
 mod closed_prototype_tests;
+

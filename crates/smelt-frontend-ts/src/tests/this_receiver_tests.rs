@@ -39,6 +39,11 @@ console.log(new R1().match('a'));
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "match", "match<R>(path: String) -> String")?;
+    ensure_signature(&ctx, "new", "new() -> R1")?;
+    ensure_exprs!(&ctx, BindThis, Closure);
+    ensure!(crate_has_field(&ctx, "match"), "no read of field `match`");
+    ensure!(crate_has_new(&ctx, "R1"), "no construction of `R1`");
     Ok(())
 }
 

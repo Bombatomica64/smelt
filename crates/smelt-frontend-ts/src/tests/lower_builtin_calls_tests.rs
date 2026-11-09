@@ -105,6 +105,10 @@ export function overlap(intervalLeft: Interval, intervalRight: Interval, millise
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "to_date", "to_date<DateType>(date: Float | String | DateType) -> DateType")?;
+    ensure_signature(&ctx, "offset", "offset(value: Float) -> Float")?;
+    ensure_signature(&ctx, "overlap", "overlap(interval_left: Interval<Date>, interval_right: Interval<Date>, milliseconds_in_day: Float) -> Float")?;
+    ensure_exprs!(&ctx, NumericRound, ListSort);
     Ok(())
 }
 
@@ -458,6 +462,8 @@ export function format(units: string[]): string[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "format", "format(units: List<String>) -> List<String>")?;
+    ensure_exprs!(&ctx, RegexReplaceCallback, StringCase);
     Ok(())
 }
 
@@ -473,6 +479,8 @@ export function values(record: Record<string, number>, keys: string[]): number[]
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "values", "values(record: Dict<String, Float>, keys: List<String>) -> List<Float>")?;
+    ensure_exprs!(&ctx, Index, ListCallback);
     Ok(())
 }
 
@@ -490,6 +498,8 @@ export function hasLong(parts: { value: string }[]): boolean {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "has_long", "has_long(parts: List<Dict<String, String>>) -> Bool")?;
+    ensure_exprs!(&ctx, ListContains, ListCallback);
     Ok(())
 }
 
@@ -514,6 +524,9 @@ export function findIncompatible(parser: Parser, usedTokens: UsedToken[]) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "find_incompatible", "find_incompatible(parser: Parser, used_tokens: List<UsedToken>) -> Optional<UsedToken>")?;
+    ensure_exprs!(&ctx, ListContains);
+    ensure!(crate_has_field(&ctx, "incompatible_tokens"), "no read of field `incompatible_tokens`");
     Ok(())
 }
 
@@ -538,6 +551,9 @@ export function formatRelative(token: string): unknown {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "week", "week(value: Bool) -> fn(Date) -> String")?;
+    ensure_signature(&ctx, "format_relative", "format_relative(token: String) -> Unknown")?;
+    ensure_exprs!(&ctx, GlobalGet, Index);
     Ok(())
 }
 
@@ -556,6 +572,8 @@ export function extract(token: string): string | undefined {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "extract", "extract(token: String) -> Optional<String>")?;
+    ensure_exprs!(&ctx, RegExpCompile, RegexFind);
     Ok(())
 }
 
@@ -573,6 +591,8 @@ export function format(count: number, translated: string): string {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "format", "format(count: Float, translated: String) -> String")?;
+    ensure_exprs!(&ctx, BinOp, Conditional);
     Ok(())
 }
 
@@ -588,6 +608,8 @@ export function words(value: unknown): string[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "words", "words(value: Unknown) -> List<String>")?;
+    ensure_exprs!(&ctx, StringSplit);
     Ok(())
 }
 
@@ -611,6 +633,8 @@ export function suffix(value: string): string {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "suffix", "suffix(value: String) -> String")?;
+    ensure_exprs!(&ctx, BinOp);
     Ok(())
 }
 
@@ -1269,6 +1293,7 @@ const next = values.concat("a");
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ListConcat);
     Ok(())
 }
 
