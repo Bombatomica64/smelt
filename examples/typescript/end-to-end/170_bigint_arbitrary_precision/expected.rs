@@ -4007,6 +4007,16 @@ impl SmeltInspect for SmeltUnknown {
                 smelt_inspect_array(ctx, depth, &entries)
             }
             Self::Object(object) => {
+                if let Some(Self::Array(members)) = object.get("__smelt_set") {
+                    let members = members.iter().collect::<Vec<_>>();
+                    let entries = members.iter().map(|member| (member as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+                    return smelt_inspect_collection(ctx, depth, "Set", &entries);
+                }
+                if let Some(Self::Array(items)) = object.get("__smelt_map") {
+                    let pairs = items.iter().filter_map(|item| match item { Self::Array(pair) => Some((pair.get(0).unwrap_or(Self::Undefined), pair.get(1).unwrap_or(Self::Undefined))), _ => None }).collect::<Vec<_>>();
+                    let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
+                    return smelt_inspect_collection(ctx, depth, "Map", &entries);
+                }
                 let pairs = object.iter().collect::<Vec<_>>();
                 if pairs.iter().any(|(key, value)| key.eq_str_prefix("__smelt") || matches!(value, Self::Function(_))) {
                     return self.to_string();

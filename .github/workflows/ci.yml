@@ -517,9 +517,7 @@ jobs:
         run: target/debug/smelt --manifest-path target/compat-repos/remeda/Smelt.toml build
 
       - name: Compile and run generated Remeda tests (regression gate)
-        # 1788 of 1789 pass; `isObjectType` fails its inline snapshot because an
-        # erased `Set<string>` is a bare array (blocker-logs/radash-real-assertion-failures.md).
-        # Earlier runs of all 1789: The four `randomBigInt` tests that used to fail
+        # All 1789 pass. The four `randomBigInt` tests that used to fail
         # needed a real bigint: a literal wider than i64
         # (`9_999_999_999_999_999_999_999n`) and an accumulator past 2^63, which
         # `num_bigint::BigInt` now carries exactly
@@ -528,7 +526,7 @@ jobs:
         run: |
           cargo test --manifest-path target/compat-repos/remeda/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee remeda-tests.log || true
-          grep -F "test result: FAILED. 1788 passed; 1 failed;" remeda-tests.log
+          grep -F "test result: ok. 1789 passed; 0 failed;" remeda-tests.log
 
       # Advisory SmeltUnknown metric: classify generated erasure and surface any
       # rise in avoidable erasure against remeda's OWN committed baseline.

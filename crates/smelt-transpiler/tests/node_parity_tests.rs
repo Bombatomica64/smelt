@@ -106,6 +106,13 @@ fn cyclic_erasure_and_selected_values() -> TestResult {
     verify_node_parity("cyclic_erasure_and_selected_values")
 }
 
+/// An erased primitive `Set` keeps the `Set` shape: `instanceof`, `toString`,
+/// iteration and `console.log` match Node.
+#[test]
+fn erased_set_view() -> TestResult {
+    verify_node_parity("erased_set_view")
+}
+
 /// A copy keeps its value when a closure writes the source afterwards, whether the
 /// copy sits in a function or a closure and however deep the writing closure is.
 #[test]
