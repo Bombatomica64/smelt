@@ -387,7 +387,7 @@ fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, Lo
 /// original read was. A `move %dest` (made by [`MoveOnLastUse`] in an earlier
 /// round) is a last use of `%dest`, not of its source: the source may well be
 /// read again later, so rewriting it to `move %source` would move a value that
-/// is still live (audit finding C11). A copy is correct at any position, and
+/// is still live. A copy is correct at any position, and
 /// [`MoveOnLastUse`] re-derives the move from the source's own last use in the
 /// next round, so the hazard cannot be produced rather than being checked for.
 fn rewrite_operand(operand: &mut Operand, aliases: &HashMap<LocalId, LocalId>) -> bool {

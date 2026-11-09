@@ -21,13 +21,13 @@ pub struct SmeltGenerator<Y, R, N> {
 impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone() } } }
 impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltGenerator") } }
 impl<Y, R: Clone, N> SmeltGenerator<Y, R, N> {
-    /// Hide the producer future type while retaining concrete yield/return types.
+    //~ Hide the producer future type while retaining concrete yield/return types.
     fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Resume execution until the next suspension point or completion.
+    //~ Resume execution until the next suspension point or completion.
     fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> { if let Some(value) = self.completed.borrow().clone() { return SmeltGeneratorResult::Complete(value); } let result = (self.resume.borrow_mut())(command); if let SmeltGeneratorResult::Complete(value) = &result { *self.completed.borrow_mut() = Some(value.clone()); } result }
 }
 impl<Y, R: Clone, N: Default> SmeltGenerator<Y, R, N> {
-    /// Drain the generator's remaining yields in order (`Array.from(gen)` / `[...gen]`).
+    //~ Drain the generator's remaining yields in order (`Array.from(gen)` / `[...gen]`).
     #[allow(dead_code)]
     fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(N::default())) { items.push(value); } items }
 }

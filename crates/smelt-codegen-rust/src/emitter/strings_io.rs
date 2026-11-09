@@ -5,7 +5,7 @@ use super::*;
 
 impl FunctionEmitter<'_> {
     /// Whether `ty` is the concrete `Date` class (`SmeltDate`, see
-    /// `date_prelude`), as opposed to an erased or user-declared class.
+    /// `smelt-runtime`'s `date.rs`), as opposed to an erased or user-declared class.
     pub(super) fn is_concrete_date_type(&self, ty: TypeId) -> bool {
         matches!(self.mir.types.get(ty), Some(Type::Class { name, .. })
             if !self.is_erased_class_type(ty)
@@ -16,7 +16,7 @@ impl FunctionEmitter<'_> {
     /// The `SmeltDate` handle behind a value of type `ty`, as Rust text: the
     /// value itself for a concrete `Date`, and the `DateLike` view for a type
     /// parameter bounded by `Date` that is a real generic here
-    /// (`D: DateLike`, see `date_prelude`). `None` for any other type, which
+    /// (`D: DateLike`, see `smelt-runtime`'s `date.rs`). `None` for any other type, which
     /// keeps the erased date paths.
     pub(super) fn date_handle_expr(&self, value_text: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         if self.is_concrete_date_type(ty) {

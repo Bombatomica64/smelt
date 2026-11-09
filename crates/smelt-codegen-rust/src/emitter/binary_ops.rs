@@ -294,8 +294,7 @@ impl FunctionEmitter<'_> {
         // every other case — including a unit temporary produced by an
         // `undefined`-valued expression such as `clone(undefined)` compared
         // against the `undefined` literal — they share the same nullish value and
-        // strict-equal. (The old code keyed on "is undefined?", so a non-literal
-        // unit actual wrongly differed from the `undefined` literal.)
+        // strict-equal.
         let provably_null =
             |operand: &Operand| matches!(operand, Operand::Const(Constant::None));
         let provably_undefined =
@@ -1101,9 +1100,8 @@ impl FunctionEmitter<'_> {
     /// function never handles — it only fires for `StrictEq`/`StrictNotEq`.
     ///
     /// When a reference operand's representation carries no observable identity
-    /// (see [`Self::reference_identity_expr`]) the result stays the pre-existing
-    /// constant `false`: two such values cannot be proven to be the same
-    /// reference.
+    /// (see [`Self::reference_identity_expr`]) the result is the constant `false`:
+    /// two such values cannot be proven to be the same reference.
     pub(super) fn strict_identity_expr(
         &self,
         op: smelt_hir::BinOp,

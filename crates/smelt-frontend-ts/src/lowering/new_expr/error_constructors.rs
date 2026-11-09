@@ -84,7 +84,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         // The marker VALUE is the constructor's class name, not a bare `true`.
-        // Every error class shared one boolean marker, so `instance_of_text`
+        // Every error class shared one boolean marker, so `instance_of_expr`
         // could not tell them apart: `new Error('x') instanceof AggregateError`
         // answered `true`, which sent es-toolkit `clone` down the AggregateError
         // branch and rebuilt the error as `new Ctor(obj.errors, obj.message, ..)`
@@ -194,7 +194,7 @@ impl ModuleBuilder<'_> {
     /// than erase it to a shapeless `SmeltUnknown`, model it like `Error`: a record
     /// carrying a dedicated `__smelt_domexception` marker plus its `message` and
     /// `name`, so the identity survives later dynamic `instanceof` checks (see
-    /// `instance_of_text`). The two-argument form is `(message, name)`; the name
+    /// `instance_of_expr`). The two-argument form is `(message, name)`; the name
     /// defaults to `"Error"` to match the spec fallback path es-toolkit relies on.
     pub(in crate::lowering) fn domexception_object_constructor_expression(
         &mut self,
@@ -306,14 +306,13 @@ impl ModuleBuilder<'_> {
     /// - `new AggregateError(errors, message?, options?)`, whose leading
     ///   `errors` iterable is retained as a list value.
     ///
-    /// The message follows the pre-existing model: a missing message lowers to
-    /// the literal `"Error"`, a concrete `string` passes through, and a
-    /// string-compatible or erased operand is asserted to `string`. A
-    /// non-literal `options` expression is rejected with an honest blocker
-    /// rather than guessed at, because whether a `cause` is attached depends on
-    /// `"cause" in options`, which a general static rule can only answer for a
-    /// literal spelling. Options properties other than `cause` are lowered for
-    /// their effects and discarded, matching JavaScript (only `cause` is read).
+    /// A missing message lowers to the literal `"Error"`, a concrete `string`
+    /// passes through, and a string-compatible or erased operand is asserted to
+    /// `string`. A non-literal `options` expression is rejected with an honest
+    /// blocker rather than guessed at, because whether a `cause` is attached
+    /// depends on `"cause" in options`, which a general static rule can only answer
+    /// for a literal spelling. Options properties other than `cause` are lowered
+    /// for their effects and discarded, matching JavaScript (only `cause` is read).
     fn error_constructor_parts(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,

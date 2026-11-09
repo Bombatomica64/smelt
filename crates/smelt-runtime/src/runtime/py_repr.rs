@@ -10,10 +10,10 @@
 /// Python's `repr` of a value.
 #[allow(dead_code)]
 trait SmeltPyRepr {
-    /// The text `repr(self)` answers.
+    //~ The text `repr(self)` answers.
     fn py_repr(&self) -> String;
-    /// The text `str(self)` answers, which is the `repr` for every value but a
-    /// string and an exception.
+    //~ The text `str(self)` answers, which is the `repr` for every value but a
+    //~ string and an exception.
     fn py_str(&self) -> String { self.py_repr() }
 }
 

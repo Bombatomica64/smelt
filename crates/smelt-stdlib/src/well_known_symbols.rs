@@ -25,10 +25,9 @@
 
 /// Synthetic member-name prefix for well-known ECMAScript symbols.
 ///
-/// The historical `Symbol.iterator` key (`__smelt_symbol_iterator`) predates the
-/// table and keeps its exact spelling; every other well-known symbol derives its
-/// key from this prefix plus the snake-cased symbol name, so the spellings never
-/// collide with ordinary string members.
+/// The `Symbol.iterator` key is `__smelt_symbol_iterator`; every other
+/// well-known symbol derives its key from this prefix plus the snake-cased
+/// symbol name, so the spellings never collide with ordinary string members.
 const KEY_PREFIX: &str = "__smelt_symbol_";
 
 /// The well-known symbols Smelt models as static members.
@@ -66,8 +65,8 @@ pub fn storage_key(name: &str) -> Option<String> {
         return None;
     }
     if name == "iterator" {
-        // Keep the pre-existing spelling that member access, the interface
-        // lookup and the coercion emitter already read.
+        // Keep the spelling that member access, the interface lookup and the
+        // coercion emitter already read.
         return Some(format!("{KEY_PREFIX}iterator"));
     }
     Some(format!("{KEY_PREFIX}{}", camel_to_snake_ascii(name)))

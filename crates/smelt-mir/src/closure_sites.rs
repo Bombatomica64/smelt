@@ -3,10 +3,8 @@
 //! A [`crate::MirClosure`] is built by exactly one [`Rvalue::Closure`], and
 //! that construction's `captures` operands are the authoritative record of what
 //! it captures from which local of which body. The closure table also keeps a
-//! `source_local` per capture because the backend reads it everywhere, and the
-//! two copies drifted: copy propagation rewrote the operands and left
-//! `source_local` naming a local the construction no longer reads (audit
-//! finding C4).
+//! `source_local` per capture because the backend reads it everywhere, so the
+//! two copies must agree after any pass that rewrites operands.
 //!
 //! The site is therefore the source and `source_local` the derived copy:
 //! [`sync_capture_sources`] rewrites every `source_local` from its site, and

@@ -87,7 +87,7 @@ impl ModuleBuilder<'_> {
     /// The interned `Type::Unknown` id, WITHOUT recording an erasure.
     ///
     /// Allowed only for the uses [`NotNewErasure`] lists, and every call names
-    /// which one it is: that enum IS the allowlist (audit finding A12). A new
+    /// which one it is: that enum IS the allowlist. A new
     /// kind of use needs a new variant, reviewed here, rather than one more
     /// unannotated call. Anything that turns a value with a static shape into
     /// `unknown` must use [`Self::erase`] (or [`Self::erase_unless_unknown`] /

@@ -490,9 +490,7 @@ impl ModuleBuilder<'_> {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             // Both matchers read the live mock state behind the erased actual
             // (`__smelt_vitest_mock` marker). A value that is not a mock has
-            // recorded no calls, so the runtime helpers answer FALSE for it —
-            // `vi.spyOn` produces a real mock now, and the vacuous pass the
-            // placeholder era needed would only hide a broken assertion.
+            // recorded no calls, so the runtime helpers answer FALSE for it.
             let matched = if matches!(matcher_name, "toHaveBeenCalled" | "toHaveBeenCalledOnce") {
                 // Both are call-count assertions: "called at least once" is the
                 // negation of "called exactly zero times", and `toHaveBeenCalledOnce`
@@ -690,11 +688,10 @@ impl ModuleBuilder<'_> {
         // compare values whose STATIC types are unrelated — a mocked KV store
         // returns a string where the declaration says `ReadableStream | null`,
         // and the test asserts `toBe('This is index')`. Neither side is
-        // assignable to the other, so there is no typed comparison to emit
-        // (`Option<SmeltBody> == Option<String>` was E0308). JavaScript compares
-        // the runtime VALUES, which is exactly the erased comparison: both
-        // operands cross the `unknown` boundary and the matcher's runtime
-        // equality decides.
+        // assignable to the other, so there is no typed comparison to emit.
+        // JavaScript compares the runtime VALUES, which is exactly the erased
+        // comparison: both operands cross the `unknown` boundary and the
+        // matcher's runtime equality decides.
         let (actual, expected) = if matches!(
             matcher,
             TestMatcher::Be | TestMatcher::Equal | TestMatcher::StrictEqual

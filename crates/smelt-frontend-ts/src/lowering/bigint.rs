@@ -16,8 +16,7 @@
 //!   a `BinOp` rvalue; so does `bigint.toString(radix)`, whose radix is
 //!   range-checked;
 //! * `BigInt(x)` converts with ECMA-262 `ToBigInt` semantics (a fractional
-//!   number is a `RangeError`, a malformed string a `SyntaxError`) instead of
-//!   the `number` cast it used to share with `Number(x)`;
+//!   number is a `RangeError`, a malformed string a `SyntaxError`);
 //! * `BigInt.asIntN` / `BigInt.asUintN` are fallible on their width;
 //! * `~x` over a bigint is `x ^ -1n` at bigint type, not the int32 form.
 
@@ -235,9 +234,8 @@ impl ModuleBuilder<'_> {
     ///
     /// The literal keeps its exact digits ([`Literal::BigInt`]) and the
     /// `bigint` type, at every magnitude: `9_999_999_999_999_999_999_999n` is
-    /// the same kind of value as `1n`. It used to share `Int` (`i64`) with the
-    /// bounded integers and fall back to an `f64` past `i64`, which saturated
-    /// the wide literal and wrapped `i64` arithmetic (remeda's `randomBigInt`).
+    /// the same kind of value as `1n`, and an `i64` or `f64` would saturate or
+    /// wrap it (remeda's `randomBigInt`).
     pub(in crate::lowering) fn bigint_literal_expression(
         &mut self,
         value: &str,

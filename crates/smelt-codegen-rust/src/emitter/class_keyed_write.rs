@@ -12,11 +12,8 @@
 //! so the write is a dispatch on the key over the fields the value can be
 //! stored in — what a hand port would write as
 //! `match key { "get" => self.get = f, "post" => self.post = f, .. }`. A key
-//! that names no such field is an expando property the struct has no slot for;
-//! it is discarded, which is what every class-index write without an index
-//! signature did before (the whole write used to be discarded, so a verb
-//! handler installed this way was never callable: `app.get(..)` ran the
-//! field's default closure and registered no route).
+//! that names no such field is an expando property the struct has no slot for,
+//! and is discarded.
 //!
 //! A field is a candidate when the value is assignable to it without a lossy
 //! conversion: the same type, or a function value stored into a

@@ -18,7 +18,7 @@ use super::{ValidationError, assignment, block_index, error, local_index};
 /// Validate one MIR body and append any discovered errors.
 ///
 /// Runs for every body [`Mir::bodies`] yields, so closure bodies get the same
-/// terminator, id and definite-assignment checks as functions (audit C1).
+/// terminator, id and definite-assignment checks as functions.
 pub(super) fn validate_body(
     mir: &Mir,
     body: MirBody<'_>,

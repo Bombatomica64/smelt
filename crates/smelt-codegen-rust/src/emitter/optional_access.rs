@@ -516,7 +516,7 @@ impl FunctionEmitter<'_> {
             return self.match_index_expr(receiver_text, index);
         }
         // A class with an index signature backs keyed reads with a real store
-        // field (issue #84). A dynamic `bag[key]` read returns the store value
+        // field. A dynamic `bag[key]` read returns the store value
         // for the key or `None` (missing key -> `undefined`), giving the honest
         // `Option<T>` round-trip result rather than a stub.
         if let Some((key_ty, value_ty)) = self.class_index_store_types(receiver_ty) {

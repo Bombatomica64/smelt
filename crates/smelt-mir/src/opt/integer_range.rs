@@ -427,7 +427,7 @@ fn retype_body(
     types.intern(Type::Int);
     // Interned in local order, not `widths`' hash order: a new width's
     // `TypeId` is its position in the table, which must not depend on hash
-    // iteration (audit finding C14).
+    // iteration.
     let mut ordered: Vec<(LocalId, IntWidth)> =
         widths.iter().map(|(local, width)| (*local, *width)).collect();
     ordered.sort_by_key(|(local, _)| local.0);

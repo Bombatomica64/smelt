@@ -499,12 +499,12 @@ impl CrateBuilder<'_, HoistedItemsWritten> {
         // The `util.inspect` formatter is pay-for-use like the rest of the
         // prelude, but whether a `console.log` argument needs it is decided while
         // the bodies above are emitted, so it is spliced in ahead of the prelude
-        // marker only now. See `emitter::console_inspect`.
+        // marker at this point. See `emitter::console_inspect`.
         let console_inspect = emitter::emit_console_inspect_support(self.mir, self.context)?;
         if !console_inspect.is_empty() {
             // The marker position was recorded when the prelude phase wrote it, so
-            // the splice point cannot be lost (it used to be searched for, and a
-            // missing marker silently dropped the runtime).
+            // the splice point cannot be lost: a missing marker would silently drop the
+            // runtime.
             self.out
                 .insert_str(self.prelude_end, &format!("\n\n{}", console_inspect.trim_end()));
         }

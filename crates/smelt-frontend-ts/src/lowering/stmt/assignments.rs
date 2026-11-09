@@ -1261,11 +1261,8 @@ impl ModuleBuilder<'_> {
     ///
     /// JavaScript's assignment is an expression whose value is the assigned
     /// value and whose effect is the store - `const child = (rec[key] ||= new
-    /// Node())` both writes the record and evaluates to the child. Expression
-    /// position previously kept only the value and dropped the store, for every
-    /// operator and every target: `const got = (a = 5)` left `a` at `0`, and
-    /// Hono's trie `insert`, written exactly in that shape, built a child,
-    /// handed it back and stored nothing, so the whole trie stayed empty.
+    /// Node())` both writes the record and evaluates to the child. Both halves
+    /// matter in expression position, for every operator and every target.
     ///
     /// The store must run inside the current statement block, before the
     /// enclosing expression finishes evaluating, and the result must be a value

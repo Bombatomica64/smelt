@@ -8,11 +8,11 @@
 // `__smelt_error` field exceptions.
 // @smelt:item smelt_arguments_object when unknown
 /// Build the array-like `arguments` object from a function's parameters.
-///
-/// Positional parameters lead; the rest parameter's list is flattened onto
-/// the end, recovering the original call's argument vector. Elements are
-/// stored under index keys and `length` is stored but hidden from own-key
-/// enumeration, matching the exotic object's property attributes.
+//~
+//~ Positional parameters lead; the rest parameter's list is flattened onto
+//~ the end, recovering the original call's argument vector. Elements are
+//~ stored under index keys and `length` is stored but hidden from own-key
+//~ enumeration, matching the exotic object's property attributes.
 fn smelt_arguments_object(fixed: Vec<SmeltUnknown>, rest: Option<SmeltUnknown>) -> SmeltUnknown { let mut smelt_elements = fixed; if let Some(SmeltUnknown::Array(items)) = rest { smelt_elements.extend(items.into_vec()); } let mut fields = Vec::from([("__smelt_arguments".to_owned(), SmeltUnknown::Bool(true))]); for (index, value) in smelt_elements.iter().enumerate() { fields.push((index.to_string(), value.clone())); } fields.push(("length".to_owned(), SmeltUnknown::Number(smelt_elements.len() as f64))); SmeltUnknown::Object(SmeltObject::new(fields)) }
 //~ An `arguments` object is iterable in JavaScript (its `Symbol.iterator`
 //~ is `Array.prototype.values`), but the marker record above stores no
@@ -100,17 +100,17 @@ fn smelt_for_in_record_keys<V>(record: &SmeltRecord<JsString, V>) -> Vec<JsStrin
 //~ string-versus-symbol split (`Object.keys` excludes symbol keys,
 //~ `Object.getOwnPropertySymbols` keeps only those) works on real tags.
 /// Own entries of a `SmeltJsMap` backing, with representation markers removed.
-///
-/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited
-/// members, prototype methods and class provenance are not own properties) and
-/// restores any symbol key to its `SmeltUnknown::Symbol` tag.
+//~
+//~ Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited
+//~ members, prototype methods and class provenance are not own properties) and
+//~ restores any symbol key to its `SmeltUnknown::Symbol` tag.
 fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with("__smelt_proto:") || text.starts_with("__smelt_method:") || text == "__smelt_class" { return None; } if let Some(symbol) = smelt_own_symbol_key_value(&text) { return Some((symbol, value)); } Some((key, value)) }).collect() }
 
 /// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.
-///
-/// Own string keys first, then the enumerable `__smelt_proto:` members with
-/// their prefix stripped -- the same order and the same prototype-chain rule as
-/// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.
+//~
+//~ Own string keys first, then the enumerable `__smelt_proto:` members with
+//~ their prefix stripped -- the same order and the same prototype-chain rule as
+//~ `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.
 fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.to_string_lossy().strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }
 
 //~ Emits the `Reflect.ownKeys` projection and the storage-key → symbol inverse.
@@ -134,9 +134,9 @@ fn smelt_key_symbol_value(key: &JsStr) -> Option<SmeltUnknown> { if !key.eq_str_
 fn smelt_key_symbol_value_text(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } if let Some(spelling) = smelt_folded_symbol_key_spelling(key) { return Some(SmeltUnknown::Symbol(spelling.into())); } match key { "__smelt_symbol_iterator" => Some(SmeltUnknown::Symbol("Symbol.iterator".into())), "__smelt_symbol_async_iterator" => Some(SmeltUnknown::Symbol("Symbol.asyncIterator".into())), "__smelt_symbol_has_instance" => Some(SmeltUnknown::Symbol("Symbol.hasInstance".into())), "__smelt_symbol_is_concat_spreadable" => Some(SmeltUnknown::Symbol("Symbol.isConcatSpreadable".into())), "__smelt_symbol_match" => Some(SmeltUnknown::Symbol("Symbol.match".into())), "__smelt_symbol_match_all" => Some(SmeltUnknown::Symbol("Symbol.matchAll".into())), "__smelt_symbol_replace" => Some(SmeltUnknown::Symbol("Symbol.replace".into())), "__smelt_symbol_search" => Some(SmeltUnknown::Symbol("Symbol.search".into())), "__smelt_symbol_species" => Some(SmeltUnknown::Symbol("Symbol.species".into())), "__smelt_symbol_split" => Some(SmeltUnknown::Symbol("Symbol.split".into())), "__smelt_symbol_to_primitive" => Some(SmeltUnknown::Symbol("Symbol.toPrimitive".into())), "__smelt_symbol_to_string_tag" => Some(SmeltUnknown::Symbol("Symbol.toStringTag".into())), "__smelt_symbol_unscopables" => Some(SmeltUnknown::Symbol("Symbol.unscopables".into())), _ => None } }
 
 /// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.
-///
-/// DYNAMIC BOUNDARY: a key is `string | symbol` in the source type of
-/// `Reflect.ownKeys`, and callers discriminate with `typeof`.
+//~
+//~ DYNAMIC BOUNDARY: a key is `string | symbol` in the source type of
+//~ `Reflect.ownKeys`, and callers discriminate with `typeof`.
 fn smelt_own_keys<V>(record: &SmeltRecord<JsString, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.eq_str_prefix("__smelt_proto:") { strings.push(SmeltUnknown::String(key.clone())); } } strings.extend(symbols); strings }
 
 /// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.

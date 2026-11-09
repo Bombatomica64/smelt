@@ -221,12 +221,12 @@ impl FunctionEmitter<'_> {
                     // The recovered panic is presented through the shared
                     // exception-payload record, built by
                     // `caught_panic_error_value_expr`; see
-                    // `thrown::panic_payload_record_expr` for why this is a real
+                    // `runtime/thrown.rs` for why this is a real
                     // dynamic boundary rather than avoidable erasure.
                     // The class comes from the panic payload, not a hard-coded
                     // `Error`: a `URIError` routed through the panic channel
                     // must still answer `error.name === 'URIError'`. See
-                    // `thrown::emit_panic_route_support`.
+                    // `runtime/thrown.rs`.
                     Some(Type::Unknown) => {
                         crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                     }
@@ -329,9 +329,9 @@ impl FunctionEmitter<'_> {
                 Some(Type::String) => RustExpr::chain("JsString::from(__smelt_error.as_str())"),
                 Some(Type::PyStr) => RustExpr::path("__smelt_error"),
                 // Same exception-payload record as the sibling call terminator;
-                // see `thrown::panic_payload_record_expr`.
+                // see `runtime/thrown.rs`.
                 // Same class-preserving recovery as the sibling call
-                // terminator; see `thrown::emit_panic_route_support`.
+                // terminator; see `runtime/thrown.rs`.
                 Some(Type::Unknown) => {
                     crate::thrown::caught_panic_error_value_expr("__smelt_panic")
                 }
@@ -448,9 +448,7 @@ impl FunctionEmitter<'_> {
         out.push_str("        Err(__smelt_error) => {\n");
         // A rejected future carries the same error channel as a throwing call, so
         // an erased catch binding recovers the rejection's payload here too
-        // (`await` on a rejected promise is `throw` in JavaScript). Previously
-        // this arm eagerly collapsed the error to `to_string()`, which is why a
-        // `catch` after `await` could only ever observe a message.
+        // (`await` on a rejected promise is `throw` in JavaScript).
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;

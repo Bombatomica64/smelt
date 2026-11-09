@@ -116,13 +116,11 @@ impl ModuleBuilder<'_> {
     /// `&&` whose left operand is falsy is never evaluated, and neither is the
     /// right operand of a `||` whose left operand is truthy. Smelt folds plenty
     /// of guards to a compile-time literal — a `typeof` probe against the target
-    /// profile's absent globals is the common one — and until now it still went
-    /// on to LOWER the dead operand, which then had to resolve names that only
-    /// exist in the branch JavaScript never takes. es-toolkit's `isBrowser`
-    /// (`typeof window !== 'undefined' && window?.document != null`) is the
-    /// instance: `typeof window` folds to `false` for the non-DOM profile, and
-    /// lowering `window?.document` anyway demands a `window` binding the profile
-    /// deliberately does not provide.
+    /// profile's absent globals is the common one — so lowering the dead operand
+    /// would demand names that exist only in the branch JavaScript never takes.
+    /// es-toolkit's `isBrowser` (`typeof window !== 'undefined' &&
+    /// window?.document != null`) is the instance: `typeof window` folds to `false`
+    /// for the non-DOM profile, which deliberately provides no `window` binding.
     ///
     /// Deliberately narrow: only a `bool` LITERAL left operand short-circuits,
     /// so this folds exactly the guards lowering already reduced to a constant

@@ -216,7 +216,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         // One resolver decides what the name is, lexical scope first: a local
         // `const Item = xs[0]` beside a module `class Item`, or a local named
-        // `Date`, is the local (audit finding A4).
+        // `Date`, is the local.
         let binding = self.resolve_value(name);
         match binding {
             ValueBinding::Class => return self.class_value_expression(name, start, end, body),
@@ -354,12 +354,8 @@ impl ModuleBuilder<'_> {
             // module global: the enclosing class-method and constructor paths
             // bind `this` as a local before lowering a body, so reaching here
             // means the receiver comes from the call rather than from the
-            // definition site. It used to be listed with the ambient globals
-            // below, which routed it through `module_global_expression` and, for
-            // `Type::Unknown`, fabricated an EMPTY OBJECT LITERAL -- so
-            // `function (this: any) { return this; }` silently returned `{}`
-            // with no diagnostic. It now reads the dynamically scoped receiver
-            // channel that `ExprKind::BindThis` installs.
+            // definition site. It reads the dynamically scoped receiver channel
+            // that `ExprKind::BindThis` installs.
             if name == "this" {
                 let ty = self.erase_with(ErasureReason::ByName, "this");
                 return Ok(body.push_expr(Expr {
@@ -494,7 +490,7 @@ impl ModuleBuilder<'_> {
         //
         // Only a NOMINAL CLASS arm takes this path here. A class member is
         // rendered as an INHERENT Rust method call on the raw receiver text
-        // (`blob_op_text` is `format!("{receiver}.file_name()")`), so the value
+        // (`blob_op_expr` is `format!("{receiver}.file_name()")`), so the value
         // has to already BE the arm. Other arm shapes reach their members
         // through a type-directed coercion (`value_at_type`) that unwraps the
         // payload itself, and their extra temporary would just hold an erased
@@ -666,7 +662,7 @@ impl ModuleBuilder<'_> {
     /// JavaScript utility code frequently passes the global coercion and parse
     /// functions around as values — `['6', '8'].map(unary(parseInt))`,
     /// `values.map(Number)`, `xs.filter(Boolean)`. The direct-call form of each
-    /// is lowered by `primitive_cast_call` / `primitive_predicate_call`; this
+    /// is lowered by `primitive_cast_call`; this
     /// path gives the *value* form the same concrete behavior by synthesizing a
     /// single-argument closure that runs the builtin's existing IR op, rather
     /// than resolving the name as an unresolved identifier or erasing it to a
@@ -1797,7 +1793,7 @@ impl ModuleBuilder<'_> {
     /// class body, a lifted arrow, a replayed const initializer, a slot's own
     /// initializer) is lifted to a module slot or folded before any body is
     /// lowered — see `ModuleBuilder::collect_item_context_reads` and
-    /// `collect_class_value_globals` — so a real read no longer reaches the
+    /// `collect_class_value_globals` — so a real read does not reach the
     /// default-value arms below. What still arrives is a binding those passes
     /// cannot lift (a destructured or uninitialized binding, an erased binding
     /// the program calls) and an erased host/import name.
@@ -1836,7 +1832,7 @@ impl ModuleBuilder<'_> {
         // record type rather than at `SmeltUnknown`, so the generated crate did
         // not even compile (`blocker-logs/standards-module-const-host-value.md`).
         //
-        // Such a binding now lifts to a module-global slot in
+        // Such a binding lifts to a module-global slot in
         // `ModuleBuilder::collect_class_value_globals`, and the read resolves
         // through `GlobalGet` before ever reaching here. What still arrives is
         // a binding that pass could not lift, and for those a named blocker is

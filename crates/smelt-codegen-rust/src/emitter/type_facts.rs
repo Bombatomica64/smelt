@@ -195,7 +195,7 @@ impl FunctionEmitter<'_> {
 
     /// Return the key/value types of a class's index-signature store field.
     ///
-    /// A class declaring `[key: string]: T` (issue #84) carries a synthesized
+    /// A class declaring `[key: string]: T` carries a synthesized
     /// private `Dict` field (named [`smelt_hir::CLASS_INDEX_STORE_FIELD`]) that
     /// backs dynamic keyed reads/writes at runtime. When `ty` is such a class,
     /// this returns the store `Dict`'s `(key_ty, value_ty)` so keyed access can
@@ -518,8 +518,7 @@ impl FunctionEmitter<'_> {
         // (an integral number has no fraction, a non-finite one is `null`, an
         // `undefined` property is omitted, a byte-backed view serializes as its
         // element indices, a host object as `{}`), and it has an arm for every
-        // tag a `SmeltUnknown` can carry. So for such an operand this predicate
-        // is asking a question about a representation that no longer exists.
+        // tag a `SmeltUnknown` can carry.
         //
         // **The boundary, documented at the emit site as the policy requires.**
         // This does not introduce an erasure: the operand is ALREADY a

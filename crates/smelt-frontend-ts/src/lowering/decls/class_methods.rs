@@ -490,8 +490,7 @@ impl ModuleBuilder<'_> {
                         }
                     }
                     // A rest parameter binds the list of the remaining arguments, exactly as
-                    // in `function_declaration_named`. Methods used to skip it, so every
-                    // read of the rest name in the body was an unresolved identifier.
+                    // in `function_declaration_named`.
                     let rest = match method.value.params.rest.as_ref() {
                         Some(rest) => {
                             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {

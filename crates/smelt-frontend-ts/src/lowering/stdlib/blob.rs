@@ -1,11 +1,9 @@
 //! WHATWG `Blob`/`File` lowering for the TypeScript frontend.
 //!
-//! `Blob` and `File` used to be marker-bearing `SmeltUnknown` records whose
-//! whole observable surface was `.size`/`.type` read back off the record. They
-//! are now the concrete generated `SmeltBlob` type, and every member is the
-//! member's exact source type: `size` a `number`, `type`/`name` a `string`,
-//! `lastModified` a `number`, `text()` a `Promise<string>`, `bytes()` a
-//! `Promise<Uint8Array>`, and `slice()` a `Blob`.
+//! `Blob` and `File` are the concrete generated `SmeltBlob` type, and every
+//! member is the member's exact source type: `size` a `number`, `type`/`name` a
+//! `string`, `lastModified` a `number`, `text()` a `Promise<string>`, `bytes()`
+//! a `Promise<Uint8Array>`, and `slice()` a `Blob`.
 //!
 //! # One Rust type for two spellings
 //!
@@ -158,7 +156,7 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.intern(Type::Future(string_ty))
             }
             // `arrayBuffer()` answers an `ArrayBuffer` and `bytes()` a
-            // `Uint8Array`, each its own concrete type now that the
+            // `Uint8Array`, each its own concrete type because the
             // view-vs-storage distinction is observable — `ArrayBuffer.isView`
             // separates them, and `new Uint8Array(await blob.arrayBuffer())`
             // re-views the storage rather than copying elements.

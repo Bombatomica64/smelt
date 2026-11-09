@@ -107,11 +107,11 @@ impl ModuleBuilder<'_> {
                 false
             }
             // A class- or interface-bounded type parameter declares what its
-            // bound declares (bounded-generics plan, increment 1), so the call
-            // stays an `ExprKind::Method` that MIR dispatches through the bound.
-            // An interface counts only for a METHOD signature with a typed
-            // result: a function-valued property is still a callable field, and
-            // an erased result would have `member_call` drop the call.
+            // bound declares, so the call stays an `ExprKind::Method` that MIR
+            // dispatches through the bound. An interface counts only for a METHOD
+            // signature with a typed result: a function-valued property is still a
+            // callable field, and an erased result would have `member_call` drop the
+            // call.
             Some(Type::TypeParam { .. }) => {
                 let Some(bound) = self.type_param_member_bound(receiver_ty) else {
                     return false;
@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
     /// (see [`Self::bind_this_receiver`], which elides the bind for a
     /// null/undefined receiver and for a concrete callable-object callee), and
     /// the trailing array is spread through `ClosureCallSpread`, mirroring the
-    /// spread branch of [`Self::callback_call_method_to_body_expr`]. This
+    /// spread branch of the `call` method lowering. This
     /// generalizes the closure-body method table to the `apply` form the same way
     /// `call` is already supported, without special-casing any particular library
     /// function.
@@ -602,10 +602,7 @@ impl ModuleBuilder<'_> {
         // A contextual type describes the signature the SOURCE wrote. The
         // variadic rewrite above replaced that signature with a single rest list
         // (`lowering::arguments_forwarding`), so a hint taken here would type the
-        // closure at an arity its body no longer has: `(function () { return
-        // arguments; })()` was typed `() => unknown` while its lowered body takes
-        // `__smelt_arguments`, and the call site then invoked a one-parameter
-        // closure with no arguments at all (E0057). The rewritten signature is
+        // closure at an arity its body does not have. The rewritten signature is
         // the only one that describes what was lowered.
         let function_ty = match hint_function {
             Some((ty, _)) if !forwards_arguments => ty,

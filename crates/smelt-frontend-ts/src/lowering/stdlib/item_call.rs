@@ -547,11 +547,7 @@ impl ModuleBuilder<'_> {
         if let Some(Type::Function(function)) =
             self.ctx.krate.types.get(item_ty).cloned()
         {
-            // Read the item's VALUE as the callee. This used to push
-            // `Literal::None` typed as the function — a fabricated
-            // NULL callee — so `export const alias = original;
-            // alias(s)` compiled and answered a default-constructed
-            // value instead of calling anything. `identifier_expression`
+            // Read the item's VALUE as the callee. `identifier_expression`
             // is the general "read this name" path and inlines a
             // module const's initializer, so it produces the real
             // callable for a const aliasing a function, an arrow, or

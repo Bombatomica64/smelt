@@ -361,7 +361,7 @@ impl FunctionEmitter<'_> {
     /// An `async move` block captures every referenced outer binding by move, so
     /// a callback that names a live outer variable would be consumed by the
     /// future even though JavaScript's `.then(cb)`/`.catch(cb)` do not consume
-    /// `cb` (was E0382). Returns a `(prelude, callback_expr)` pair: for a
+    /// `cb`. Returns a `(prelude, callback_expr)` pair: for a
     /// place-based callback the prelude binds a clone in an enclosing block and
     /// the future moves that clone; an inline callback (a literal closure) is not
     /// live afterward and is left in place with an empty prelude.
@@ -793,9 +793,7 @@ impl FunctionEmitter<'_> {
         // it enters the error channel through the same payload-preserving
         // adapter as `Terminator::Throw` (see `crate::thrown`). The
         // rejection reason keeps its class, `name`, `message`, `cause` and
-        // custom fields, and `SmeltThrown`'s `Display` still projects
-        // `message`, so a string-typed `catch` observes the same text this
-        // site used to build by hand.
+        // custom fields.
         Ok(RustExpr::atom(format!(
             "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, {ERROR_BOX}>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(smelt_result) = smelt_promise_result.borrow_mut().take() {{ break smelt_result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
             sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,

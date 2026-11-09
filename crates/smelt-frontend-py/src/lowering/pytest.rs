@@ -161,7 +161,7 @@ impl ModuleBuilder<'_> {
         // Return type — required except for pytest test functions, where an
         // omitted annotation is treated as `-> None`. `resolve_return_ty`
         // reconciles any declared annotation with `ty`'s inferred *actual*
-        // returned type (issue #93), preferring the accurate type. Only a
+        // returned type, preferring the accurate type. Only a
         // genuinely unresolved, unannotated case falls through to the error.
         let annotated_return_ty = if self.is_pytest_test_function(func) && func.returns.is_none() {
             self.intern_type(Type::None)

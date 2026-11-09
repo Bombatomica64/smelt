@@ -41,9 +41,8 @@ impl FunctionEmitter<'_> {
         };
         // The case operation always yields a `String`. A `.to_lowercase()` /
         // `.to_uppercase()` call is a postfix expression, so the rendered value
-        // is an atom: erasing it through the coercion seam reproduces the
-        // historical `SmeltUnknown::String(...)` wrapping while letting the seam
-        // (not this caller) own the parenthesization decision.
+        // is an atom, and the coercion seam (not this caller) owns the
+        // parenthesization decision.
         let result = receiver_text.postfix(format!(".{method_name}()"));
         if matches!(
             self.mir.types.get(dest_ty),
@@ -666,7 +665,7 @@ impl FunctionEmitter<'_> {
 
     /// Converts JavaScript `RegExp.prototype.exec` to a concrete match result.
     ///
-    /// The runtime `exec` returns a typed `Option<SmeltMatch>`. The frontend now
+    /// The runtime `exec` returns a typed `Option<SmeltMatch>`. The frontend
     /// types the result as `Optional(SmeltMatch)`, so consumer reads (`m[0]`,
     /// `m.index`, `m.input`, `m.groups.name`) stay typed against the concrete
     /// match value. The optional-erasing seam is only taken when the *result

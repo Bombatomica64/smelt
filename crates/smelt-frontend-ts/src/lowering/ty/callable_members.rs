@@ -341,12 +341,10 @@ impl ModuleBuilder<'_> {
     /// Smelt carries symbols as opaque runtime values, so both parameter
     /// positions read as `unknown` here and no static rule can pick between
     /// them — the callee picks at runtime by comparing the argument against its
-    /// placeholder sentinel. Rather than guess one overload's return type (the
-    /// old behaviour: `curried(2, 3)` claimed to return a `CurriedFunction1`,
-    /// so the comparison against `6` const-folded to `false`), the call keeps
-    /// each type only where every survivor agrees on it — the shared return
-    /// type when they all return the same thing, and `unknown` otherwise, which
-    /// is exactly the erased type the interface's single `__smelt_call` slot
+    /// placeholder sentinel. Rather than guess one overload's return type, the
+    /// call keeps each type only where every survivor agrees on it — the shared
+    /// return type when they all return the same thing, and `unknown` otherwise,
+    /// which is exactly the erased type the interface's single `__smelt_call` slot
     /// already carries. This is a real dynamic boundary, not erasure of a known
     /// shape: the callee inspects the argument values to decide, and the caller
     /// narrows the result back with the checks it already writes.

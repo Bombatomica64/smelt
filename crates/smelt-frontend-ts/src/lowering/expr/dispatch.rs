@@ -104,7 +104,7 @@ impl ModuleBuilder<'_> {
             }
             Expression::Identifier(ident) => {
                 // A function-typed local that collected `fn.prop = …` writes and
-                // now coerces to a callable-interface class is bundled into a
+                // coerces to a callable-interface class is bundled into a
                 // typed `CallableObjectAssign` here, at the coercion position,
                 // instead of leaking the props (the `debounce`/`throttle` shape).
                 if let Some(expr) = self.try_consume_callable_local(

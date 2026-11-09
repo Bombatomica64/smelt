@@ -14,7 +14,7 @@ impl ModuleBuilder<'_> {
     // -----------------------------------------------------------------------
 
     /// Resolve a function/method return type, reconciling any source-declared
-    /// annotation with `ty`'s inferred *actual* returned type (issue #93).
+    /// annotation with `ty`'s inferred *actual* returned type.
     ///
     /// The reconciliation is **annotation-respecting**: an explicit source
     /// contract is honoured and is never widened just because `ty` infers a
@@ -27,14 +27,13 @@ impl ModuleBuilder<'_> {
     ///   * `declared` is assignable to `ty`'s inferred type — i.e. the
     ///     annotation is an equal-or-narrower, still-valid description of what
     ///     the body returns (e.g. `-> float` while `ty` infers `int | float`)
-    ///     → keep `declared`. This is the fix for the #93 regression: an
-    ///     annotated `-> float` must stay `f64`, not degrade into an erased
-    ///     union.
+    ///     → keep `declared`: an annotated `-> float` must stay `f64`, not
+    ///     degrade into an erased union.
     ///   * Otherwise `ty` inferred a strictly narrower / genuinely more precise
     ///     type than the annotation (`declared` is *not* assignable to it, e.g.
     ///     an annotation of `object`/`float` while the body only ever returns
     ///     `int`) → prefer `ty`'s refinement, unless the declared type is a
-    ///     CONTRACT the refinement would break (audit finding A8):
+    ///     CONTRACT the refinement would break:
     ///     * on a method ([`ReturnOwner::Method`]), whose declared return type
     ///       is what overrides and overridden methods must agree on: a base
     ///       `-> float` returning `0` refined to `int` diverges from a subclass
@@ -97,7 +96,7 @@ impl ModuleBuilder<'_> {
 
     /// Whether the `value` HIR type is assignable to (a subtype of, or equal to)
     /// the `target` HIR type under the subset of Python typing rules the frontend
-    /// needs to reconcile annotations with `ty`'s inference (issue #93).
+    /// needs to reconcile annotations with `ty`'s inference.
     ///
     /// This is intentionally narrow and conservative — it exists only to decide
     /// whether an explicit annotation remains a valid description of `ty`'s
@@ -187,7 +186,7 @@ impl ModuleBuilder<'_> {
     /// Return the `ty`-resolved HIR type for parameter `p`, if `ty` resolved a
     /// representable type for it.
     ///
-    /// Used when the source omits the parameter's annotation (issue #93). The
+    /// Used when the source omits the parameter's annotation. The
     /// key is the parameter node's start offset, matching how `smelt-py-types`
     /// records resolved parameter types.
     fn resolved_param_ty(&mut self, p: &ruff_python_ast::Parameter) -> Option<TypeId> {

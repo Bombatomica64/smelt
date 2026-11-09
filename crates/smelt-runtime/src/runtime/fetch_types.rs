@@ -72,7 +72,7 @@
 #[derive(Clone)]
 pub struct SmeltHeaders {
     id: usize,
-    /// Lower-cased name and normalized value, in insertion order.
+    //~ Lower-cased name and normalized value, in insertion order.
     entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
 }
 
@@ -86,33 +86,33 @@ impl Default for SmeltHeaders { fn default() -> Self { Self::new() } }
 //~ Emit the WHATWG operations as inherent methods.
 #[allow(dead_code)]
 impl SmeltHeaders {
-    /// An empty header list with a fresh JS reference identity.
+    //~ An empty header list with a fresh JS reference identity.
     pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    /// JS reference identity of this header list.
+    //~ JS reference identity of this header list.
     pub fn id(&self) -> usize { self.id }
-    /// Build a header list from name/value pairs, appending in order.
+    //~ Build a header list from name/value pairs, appending in order.
     pub fn from_pairs<N: SmeltHostText, V: SmeltHostText>(pairs: Vec<(N, V)>) -> Self { let headers = Self::new(); for (name, value) in pairs { headers.append(&name, &value); } headers }
-    /// The spec's header-name normalization: lower-cased.
+    //~ The spec's header-name normalization: lower-cased.
     fn normalize_name(name: &str) -> String { name.trim().to_ascii_lowercase() }
-    /// The spec's header-value normalization: strip HTTP whitespace.
+    //~ The spec's header-value normalization: strip HTTP whitespace.
     fn normalize_value(value: &str) -> String { value.trim_matches(|ch| ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n').to_owned() }
-    /// `get(name)`: every value for the name, joined with `", "`.
-    ///
-    /// `None` is the source `null`: the name is not in the list. The
-    /// return type is the source type, so no caller has to re-narrow it.
+    //~ `get(name)`: every value for the name, joined with `", "`.
+    //~
+    //~ `None` is the source `null`: the name is not in the list. The
+    //~ return type is the source type, so no caller has to re-narrow it.
     pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name;
         let key = Self::normalize_name(name);
         let values: Vec<String> = self.entries.borrow().iter().filter(|(entry_name, _)| *entry_name == key).map(|(_, value)| value.clone()).collect();
         if values.is_empty() { None } else { Some(values.join(", ")) }
     }
-    /// `has(name)`.
+    //~ `has(name)`.
     pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; let key = Self::normalize_name(name); self.entries.borrow().iter().any(|(entry_name, _)| *entry_name == key) }
-    /// `append(name, value)`: add a pair, keeping existing ones.
+    //~ `append(name, value)`: add a pair, keeping existing ones.
     pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value; self.entries.borrow_mut().push((Self::normalize_name(name), Self::normalize_value(value))); }
-    /// `set(name, value)`: replace every value for the name.
-    ///
-    /// The first existing pair's position is kept, matching the spec's
-    /// "set the value of the first such header and remove the others".
+    //~ `set(name, value)`: replace every value for the name.
+    //~
+    //~ The first existing pair's position is kept, matching the spec's
+    //~ "set the value of the first such header and remove the others".
     pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let key = Self::normalize_name(name);
         let normalized = Self::normalize_value(value);
@@ -120,17 +120,17 @@ impl SmeltHeaders {
         let position = entries.iter().position(|(entry_name, _)| *entry_name == key);
         let Some(index) = position else { entries.push((key, normalized)); return; };
         entries[index] = (key.clone(), normalized);
-        // Keep the first pair with this name (the one just written) and
-        // drop the rest, as the spec's `set` does.
+        //~ Keep the first pair with this name (the one just written) and
+        //~ drop the rest, as the spec's `set` does.
         let mut kept = false;
         entries.retain(|(entry_name, _)| { if *entry_name != key { return true; } let first = !kept; kept = true; first });
     }
-    /// `delete(name)`: remove every pair with the name.
+    //~ `delete(name)`: remove every pair with the name.
     pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let key = Self::normalize_name(name); self.entries.borrow_mut().retain(|(entry_name, _)| *entry_name != key); }
-    /// The spec's iteration order: sorted by name, values combined.
-    ///
-    /// `set-cookie` is the exception the spec carves out: its values are
-    /// never combined, so each cookie stays its own entry.
+    //~ The spec's iteration order: sorted by name, values combined.
+    //~
+    //~ `set-cookie` is the exception the spec carves out: its values are
+    //~ never combined, so each cookie stays its own entry.
     pub fn entries_sorted(&self) -> Vec<(String, String)> {
         //~ Sort borrowed positions, not copies: a stable sort keeps each
         //~ name's values in insertion order, and every output pair is
@@ -159,18 +159,18 @@ impl SmeltHeaders {
         }
         combined
     }
-    /// The stored pairs, in insertion order, uncombined.
-    ///
-    /// NOT the spec's iteration order (`entries_sorted`), which sorts by
-    /// name and comma-joins values. Copying a header list has to go
-    /// through this instead: rebuilding from the combined view would turn
-    /// two `Accept` headers into one, which a copy must not do.
+    //~ The stored pairs, in insertion order, uncombined.
+    //~
+    //~ NOT the spec's iteration order (`entries_sorted`), which sorts by
+    //~ name and comma-joins values. Copying a header list has to go
+    //~ through this instead: rebuilding from the combined view would turn
+    //~ two `Accept` headers into one, which a copy must not do.
     pub fn entries_in_insertion_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
-    /// `keys()`: header names in iteration order.
+    //~ `keys()`: header names in iteration order.
     pub fn keys(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(name, _)| name).collect() }
-    /// `values()`: header values in iteration order.
+    //~ `values()`: header values in iteration order.
     pub fn values(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(_, value)| value).collect() }
-    /// `getSetCookie()`: each `Set-Cookie` value, uncombined.
+    //~ `getSetCookie()`: each `Set-Cookie` value, uncombined.
     pub fn get_set_cookie(&self) -> Vec<String> { self.entries.borrow().iter().filter(|(name, _)| name == "set-cookie").map(|(_, value)| value.clone()).collect() }
 }
 
@@ -200,19 +200,19 @@ impl IntoSmeltUnknown for SmeltHeaders {
 }
 
 /// The modeled members of an erased `Headers` record, resolved at run time.
-///
-/// **Dynamic boundary.** The receiver is a marker-bearing record, so the
-/// member it carries is decided by the record's marker and the member NAME,
-/// both of which are runtime values here — a program reaches this only by
-/// erasing the value on purpose (`as any`, an `any`-typed field), since every
-/// ordinary spelling keeps its type through narrowing. Answering `undefined`
-/// instead, which is what a plain property read does, was a silent wrong
-/// value: `(headers as any).get('a')` gave `null` where Node gives the header.
-///
-/// The recovered value is the SAME one the record was erased from (the origin
-/// registry), so a mutating member is observed by the holder of the concrete
-/// value. Only the synchronous members are here; the async body readers are
-/// not, and they keep the erased read's `undefined`.
+//~
+//~ **Dynamic boundary.** The receiver is a marker-bearing record, so the
+//~ member it carries is decided by the record's marker and the member NAME,
+//~ both of which are runtime values here — a program reaches this only by
+//~ erasing the value on purpose (`as any`, an `any`-typed field), since every
+//~ ordinary spelling keeps its type through narrowing. Answering `undefined`
+//~ instead, which is what a plain property read does, was a silent wrong
+//~ value: `(headers as any).get('a')` gave `null` where Node gives the header.
+//~
+//~ The recovered value is the SAME one the record was erased from (the origin
+//~ registry), so a mutating member is observed by the holder of the concrete
+//~ value. Only the synchronous members are here; the async body readers are
+//~ not, and they keep the erased read's `undefined`.
 fn smelt_headers_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_headers") { return None; } if !matches!(name, "get" | "has" | "set" | "append" | "delete" | "keys" | "values" | "entries" | "getSetCookie") { return None; } let headers = <SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { "get" => headers.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), "has" => SmeltUnknown::Bool(headers.has(&arg(0))), "set" => { headers.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "append" => { headers.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "delete" => { headers.delete(&arg(0)); SmeltUnknown::Undefined }, "keys" => SmeltUnknown::Array(headers.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "values" => SmeltUnknown::Array(headers.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "entries" => SmeltUnknown::Array(headers.entries_sorted().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => SmeltUnknown::Array(headers.get_set_cookie().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), }) }))) }
 
 /// Rebuild a header list from an erased value.
@@ -247,10 +247,10 @@ impl SmeltFromUnknown for SmeltHeaders {
 #[derive(Clone)]
 pub struct SmeltUrlSearchParams {
     id: usize,
-    /// Name/value pairs in insertion order.
+    //~ Name/value pairs in insertion order.
     entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
-    /// The `URL` whose `searchParams` this list is, if any. The spec's
-    /// update steps write every mutation back to that URL's query.
+    //~ The `URL` whose `searchParams` this list is, if any. The spec's
+    //~ update steps write every mutation back to that URL's query.
     owner: Option<::std::rc::Rc<::std::cell::RefCell<::url::Url>>>,
 }
 
@@ -264,51 +264,51 @@ impl Default for SmeltUrlSearchParams { fn default() -> Self { Self::new() } }
 //~ Emit the WHATWG `URLSearchParams` operations as inherent methods.
 #[allow(dead_code)]
 impl SmeltUrlSearchParams {
-    /// An empty parameter list with a fresh JS reference identity.
+    //~ An empty parameter list with a fresh JS reference identity.
     pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), owner: None } }
-    /// The live `searchParams` list of a URL: its entries are the URL's
-    /// query, and each mutation rewrites that query.
+    //~ The live `searchParams` list of a URL: its entries are the URL's
+    //~ query, and each mutation rewrites that query.
     pub fn owned_by(owner: ::std::rc::Rc<::std::cell::RefCell<::url::Url>>) -> Self {
         let params = Self { owner: Some(owner), ..Self::new() };
         params.refresh_from_owner();
         params
     }
-    /// Re-read the entries from the owning URL's query, after a write to
-    /// the URL itself (`search` or `href`) replaced it.
+    //~ Re-read the entries from the owning URL's query, after a write to
+    //~ the URL itself (`search` or `href`) replaced it.
     pub fn refresh_from_owner(&self) {
         let Some(owner) = &self.owner else { return };
         let pairs = owner.borrow().query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
         *self.entries.borrow_mut() = pairs;
     }
-    /// The spec's update steps: serialize the list into the owning URL's
-    /// query, which an empty list sets to null.
+    //~ The spec's update steps: serialize the list into the owning URL's
+    //~ query, which an empty list sets to null.
     fn update_owner(&self) {
         let Some(owner) = &self.owner else { return };
         let query = self.to_text();
         owner.borrow_mut().set_query(if query.is_empty() { None } else { Some(&query) });
     }
-    /// JS reference identity of this parameter list.
+    //~ JS reference identity of this parameter list.
     pub fn id(&self) -> usize { self.id }
-    /// Build a parameter list from name/value pairs, in order.
+    //~ Build a parameter list from name/value pairs, in order.
     pub fn from_pairs<N: SmeltHostText, V: SmeltHostText>(pairs: Vec<(N, V)>) -> Self { let params = Self::new(); params.entries.borrow_mut().extend(pairs.into_iter().map(|(name, value)| (name.into_host_string(), value.into_host_string()))); params }
-    /// Parse a query string (with or without a leading `?`).
-    ///
-    /// `url::form_urlencoded` owns the decoding: `+` is a space, `%XX` is
-    /// a byte, and a pair with no `=` has the empty string as its value.
+    //~ Parse a query string (with or without a leading `?`).
+    //~
+    //~ `url::form_urlencoded` owns the decoding: `+` is a space, `%XX` is
+    //~ a byte, and a pair with no `=` has the empty string as its value.
     pub fn from_query(query: &(impl SmeltHostText + ?Sized)) -> Self { let query = query.host_text(); let query: &str = &query;
         let trimmed = query.strip_prefix('?').unwrap_or(query);
         let pairs = url::form_urlencoded::parse(trimmed.as_bytes()).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), value.into_owned())).collect::<Vec<(String, String)>>();
         Self::from_pairs(pairs)
     }
-    /// `get(name)`: the FIRST value for a name, or `null`.
+    //~ `get(name)`: the FIRST value for a name, or `null`.
     pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
-    /// `getAll(name)`: every value for a name, in order.
+    //~ `getAll(name)`: every value for a name, in order.
     pub fn get_all(&self, name: &(impl SmeltHostText + ?Sized)) -> Vec<String> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
-    /// `has(name)`.
+    //~ `has(name)`.
     pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
-    /// `append(name, value)`.
+    //~ `append(name, value)`.
     pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value; self.entries.borrow_mut().push((name.to_owned(), value.to_owned())); self.update_owner(); }
-    /// `set(name, value)`: replace the first value, drop the rest.
+    //~ `set(name, value)`: replace the first value, drop the rest.
     pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let mut entries = self.entries.borrow_mut();
         let position = entries.iter().position(|(entry_name, _)| entry_name == name);
@@ -319,23 +319,23 @@ impl SmeltUrlSearchParams {
         drop(entries);
         self.update_owner();
     }
-    /// `delete(name)`: remove every pair with the name.
+    //~ `delete(name)`: remove every pair with the name.
     pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); self.update_owner(); }
-    /// `sort()`: stable sort by name, keeping equal names in order.
+    //~ `sort()`: stable sort by name, keeping equal names in order.
     pub fn sort(&self) { self.entries.borrow_mut().sort_by(|left, right| left.0.cmp(&right.0)); self.update_owner(); }
-    /// `toString()`: the urlencoded serialization.
+    //~ `toString()`: the urlencoded serialization.
     pub fn to_text(&self) -> String {
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());
         for (name, value) in self.entries.borrow().iter() { serializer.append_pair(name, value); }
         serializer.finish()
     }
-    /// `entries()`: the pairs in insertion order.
+    //~ `entries()`: the pairs in insertion order.
     pub fn entries_in_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
-    /// `keys()`: parameter names in insertion order.
+    //~ `keys()`: parameter names in insertion order.
     pub fn keys(&self) -> Vec<String> { self.entries.borrow().iter().map(|(name, _)| name.clone()).collect() }
-    /// `values()`: parameter values in insertion order.
+    //~ `values()`: parameter values in insertion order.
     pub fn values(&self) -> Vec<String> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect() }
-    /// `size`: the number of pairs.
+    //~ `size`: the number of pairs.
     pub fn size(&self) -> f64 { self.entries.borrow().len() as f64 }
 }
 
@@ -363,19 +363,19 @@ impl IntoSmeltUnknown for SmeltUrlSearchParams {
 }
 
 /// The modeled members of an erased `URLSearchParams` record, resolved at run time.
-///
-/// **Dynamic boundary.** The receiver is a marker-bearing record, so the
-/// member it carries is decided by the record's marker and the member NAME,
-/// both of which are runtime values here — a program reaches this only by
-/// erasing the value on purpose (`as any`, an `any`-typed field), since every
-/// ordinary spelling keeps its type through narrowing. Answering `undefined`
-/// instead, which is what a plain property read does, was a silent wrong
-/// value: `(headers as any).get('a')` gave `null` where Node gives the header.
-///
-/// The recovered value is the SAME one the record was erased from (the origin
-/// registry), so a mutating member is observed by the holder of the concrete
-/// value. Only the synchronous members are here; the async body readers are
-/// not, and they keep the erased read's `undefined`.
+//~
+//~ **Dynamic boundary.** The receiver is a marker-bearing record, so the
+//~ member it carries is decided by the record's marker and the member NAME,
+//~ both of which are runtime values here — a program reaches this only by
+//~ erasing the value on purpose (`as any`, an `any`-typed field), since every
+//~ ordinary spelling keeps its type through narrowing. Answering `undefined`
+//~ instead, which is what a plain property read does, was a silent wrong
+//~ value: `(headers as any).get('a')` gave `null` where Node gives the header.
+//~
+//~ The recovered value is the SAME one the record was erased from (the origin
+//~ registry), so a mutating member is observed by the holder of the concrete
+//~ value. Only the synchronous members are here; the async body readers are
+//~ not, and they keep the erased read's `undefined`.
 fn smelt_url_search_params_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_urlsearchparams") { return None; } if !matches!(name, "get" | "getAll" | "has" | "set" | "append" | "delete" | "toString" | "keys" | "values" | "entries" | "sort") { return None; } let params = <SmeltUrlSearchParams as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); Ok(match method.as_str() { "get" => params.get(&arg(0)).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.into())), "getAll" => SmeltUnknown::Array(params.get_all(&arg(0)).into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "has" => SmeltUnknown::Bool(params.has(&arg(0))), "set" => { params.set(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "append" => { params.append(&arg(0), &arg(1)); SmeltUnknown::Undefined }, "delete" => { params.delete(&arg(0)); SmeltUnknown::Undefined }, "toString" => SmeltUnknown::String(params.to_text().into()), "keys" => SmeltUnknown::Array(params.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "values" => SmeltUnknown::Array(params.values().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "entries" => SmeltUnknown::Array(params.entries_in_order().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), SmeltUnknown::String(value.into())]).into())).collect::<Vec<_>>().into()), _ => { params.sort(); SmeltUnknown::Undefined }, }) }))) }
 
 /// Rebuild a parameter list from an erased value.
@@ -405,24 +405,24 @@ impl SmeltFromUnknown for SmeltUrlSearchParams {
 // Emit the `SmeltBody` enum, its identity, and its single-use flag.
 // @smelt:item SmeltBodyPayload when body
 /// The bytes a `Request`/`Response` carries, and whether they were read.
-///
-/// A body is **single-use**: the spec's `bodyUsed` becomes `true` on the
-/// first reader, and a second read is a `TypeError`. That is why the
-/// payload sits behind an `Rc<RefCell<..>>` with a `Cell<bool>` beside it
-/// rather than being moved out: two variables holding the same response
-/// observe one another's consumption, exactly as in JavaScript.
+//~
+//~ A body is **single-use**: the spec's `bodyUsed` becomes `true` on the
+//~ first reader, and a second read is a `TypeError`. That is why the
+//~ payload sits behind an `Rc<RefCell<..>>` with a `Cell<bool>` beside it
+//~ rather than being moved out: two variables holding the same response
+//~ observe one another's consumption, exactly as in JavaScript.
 #[derive(Clone)]
 pub enum SmeltBodyPayload {
-    /// No body at all (`new Response()`, a GET request).
+    //~ No body at all (`new Response()`, a GET request).
     Empty,
-    /// A fully-buffered body: a string, bytes, or form data.
+    //~ A fully-buffered body: a string, bytes, or form data.
     Bytes(Vec<u8>),
-    /// A body still arriving in chunks, in arrival order.
-    ///
-    /// This is the shape `node:http`'s `IncomingMessage` and a streamed
-    /// `fetch` response need. Reading it concatenates the chunks;
-    /// `ReadableStream` (not implemented yet) is the surface that will
-    /// expose them one at a time.
+    //~ A body still arriving in chunks, in arrival order.
+    //~
+    //~ This is the shape `node:http`'s `IncomingMessage` and a streamed
+    //~ `fetch` response need. Reading it concatenates the chunks;
+    //~ `ReadableStream` (not implemented yet) is the surface that will
+    //~ expose them one at a time.
     Stream(Vec<Vec<u8>>),
 }
 
@@ -431,15 +431,15 @@ pub enum SmeltBodyPayload {
 pub struct SmeltBody {
     id: usize,
     payload: ::std::rc::Rc<::std::cell::RefCell<SmeltBodyPayload>>,
-    /// The spec's `bodyUsed`, shared by every clone of this handle.
+    //~ The spec's `bodyUsed`, shared by every clone of this handle.
     used: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    /// The `Content-Type` this body implies, when it implies one.
-    ///
-    /// The spec's "extract a body" step returns a body *and* a type, and
-    /// the type is what a `Request`/`Response` constructor appends to the
-    /// header list when the caller did not set one. A string body implies
-    /// `text/plain;charset=UTF-8`; raw bytes and a stream imply nothing,
-    /// which is why this is an `Option` rather than a default string.
+    //~ The `Content-Type` this body implies, when it implies one.
+    //~
+    //~ The spec's "extract a body" step returns a body *and* a type, and
+    //~ the type is what a `Request`/`Response` constructor appends to the
+    //~ header list when the caller did not set one. A string body implies
+    //~ `text/plain;charset=UTF-8`; raw bytes and a stream imply nothing,
+    //~ which is why this is an `Option` rather than a default string.
     content_type: Option<String>,
 }
 
@@ -454,20 +454,20 @@ impl Default for SmeltBody { fn default() -> Self { Self::empty() } }
 //~ Emit the body's constructors and its readers.
 #[allow(dead_code)]
 impl SmeltBody {
-    /// An unused empty body with a fresh JS reference identity.
+    //~ An unused empty body with a fresh JS reference identity.
     pub fn empty() -> Self { Self::from_payload(SmeltBodyPayload::Empty) }
-    /// A buffered body holding `text`'s UTF-8 bytes.
-    ///
-    /// Carries `text/plain;charset=UTF-8` as its implied type, which the
-    /// holder's constructor appends when the caller set no `Content-Type`.
+    //~ A buffered body holding `text`'s UTF-8 bytes.
+    //~
+    //~ Carries `text/plain;charset=UTF-8` as its implied type, which the
+    //~ holder's constructor appends when the caller set no `Content-Type`.
     pub fn from_text(text: &(impl SmeltHostText + ?Sized)) -> Self { let text = text.host_text(); let text: &str = &text; let mut body = Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())); body.content_type = Some("text/plain;charset=UTF-8".to_owned()); body }
-    /// A buffered body holding `bytes`.
+    //~ A buffered body holding `bytes`.
     pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::from_payload(SmeltBodyPayload::Bytes(bytes)) }
     //~ The spec's "extract a body" step for a `Blob` carries the blob's
     //~ `type` as the body's content type, unless the blob has none.
-    /// A body from a blob's bytes, carrying the blob's MIME type.
+    //~ A body from a blob's bytes, carrying the blob's MIME type.
     pub fn from_blob(bytes: Vec<u8>, blob_type: String) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(bytes)); if !blob_type.is_empty() { body.content_type = Some(blob_type); } body }
-    /// A streaming body whose chunks arrive in order.
+    //~ A streaming body whose chunks arrive in order.
     pub fn from_chunks(chunks: Vec<Vec<u8>>) -> Self { Self::from_payload(SmeltBodyPayload::Stream(chunks)) }
     //~ The spec's `Request` constructor step for a REQUEST input (and for a
     //~ request at the init position): the new request reads the source's
@@ -477,30 +477,30 @@ impl SmeltBody {
     //~ not the used flag: sharing the flag would leave the source readable
     //~ until the copy was consumed, and copying the payload would let both
     //~ be read.
-    /// Take a source body: same payload, fresh used flag, source disturbed.
+    //~ Take a source body: same payload, fresh used flag, source disturbed.
     pub fn take_from_source(source: &Self) -> Self {
         if !source.is_empty() { source.used.set(true); }
         Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::clone(&source.payload), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: source.content_type.clone() }
     }
-    /// Wrap a payload, unused, with a fresh identity.
+    //~ Wrap a payload, unused, with a fresh identity.
     fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: None } }
-    /// JS reference identity of this body.
+    //~ JS reference identity of this body.
     pub fn id(&self) -> usize { self.id }
-    /// The spec's `bodyUsed`.
+    //~ The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
-    /// `ReadableStream.locked`: the body has no reader API in this model, so
-    /// it is locked exactly when it has been consumed (see
-    /// `smelt_stdlib::host_data_property`).
+    //~ `ReadableStream.locked`: the body has no reader API in this model, so
+    //~ it is locked exactly when it has been consumed (see
+    //~ `smelt_stdlib::host_data_property`).
     pub fn locked(&self) -> bool { self.used.get() }
-    /// The `Content-Type` this body implies, when it implies one.
+    //~ The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
-    /// Whether there is no body at all (the spec's null body).
+    //~ Whether there is no body at all (the spec's null body).
     pub fn is_empty(&self) -> bool { matches!(&*self.payload.borrow(), SmeltBodyPayload::Empty) }
-    /// The body's bytes WITHOUT consuming it.
-    ///
-    /// Only for observers that the spec does not count as readers:
-    /// equality, `Debug`, and cloning a response. Every source-visible
-    /// reader goes through `take_bytes`.
+    //~ The body's bytes WITHOUT consuming it.
+    //~
+    //~ Only for observers that the spec does not count as readers:
+    //~ equality, `Debug`, and cloning a response. Every source-visible
+    //~ reader goes through `take_bytes`.
     pub fn peek_bytes(&self) -> Vec<u8> {
         match &*self.payload.borrow() {
             SmeltBodyPayload::Empty => Vec::new(),
@@ -508,12 +508,12 @@ impl SmeltBody {
             SmeltBodyPayload::Stream(chunks) => chunks.concat(),
         }
     }
-    /// Consume the body, or fail the way the spec does.
-    ///
-    /// The first reader gets the bytes and sets `bodyUsed`; a second
-    /// reader gets the spec's `TypeError: Body is unusable`. The error is
-    /// a thrown JS value rather than a Rust panic, so source-level
-    /// `try`/`catch` around a double read behaves as it does in Node.
+    //~ Consume the body, or fail the way the spec does.
+    //~
+    //~ The first reader gets the bytes and sets `bodyUsed`; a second
+    //~ reader gets the spec's `TypeError: Body is unusable`. The error is
+    //~ a thrown JS value rather than a Rust panic, so source-level
+    //~ `try`/`catch` around a double read behaves as it does in Node.
     pub fn take_bytes(&self) -> Result<Vec<u8>, Box<dyn ::std::error::Error>> {
         if self.used.get() {
 // @smelt:if unknown
@@ -525,21 +525,21 @@ impl SmeltBody {
         self.used.set(true);
         Ok(self.peek_bytes())
     }
-    /// `text()`: the body decoded as UTF-8, lossily, as the spec does.
+    //~ `text()`: the body decoded as UTF-8, lossily, as the spec does.
     pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { Ok(String::from_utf8_lossy(&self.take_bytes()?).into_owned()) }
-    /// A clone that shares neither the bytes nor the used flag.
-    ///
-    /// This is `Response.clone()`: the spec gives the clone its own
-    /// unread body, so reading one must not consume the other. `Clone`
-    /// (the Rust trait) is the *handle* copy and shares both, which is
-    /// what assigning a response to another variable does.
-    ///
-    /// The spec makes `clone()` of a USED body throw a `TypeError`. A clone
-    /// here is a plain value, so the clone of a used body is itself used:
-    /// every read of it throws that same `TypeError` (`Body is unusable`),
-    /// and `try { await res.clone().json() } catch {}` takes the catch as it
-    /// does in JavaScript. The error surfaces at the first read rather than
-    /// at `clone()` itself.
+    //~ A clone that shares neither the bytes nor the used flag.
+    //~
+    //~ This is `Response.clone()`: the spec gives the clone its own
+    //~ unread body, so reading one must not consume the other. `Clone`
+    //~ (the Rust trait) is the *handle* copy and shares both, which is
+    //~ what assigning a response to another variable does.
+    //~
+    //~ The spec makes `clone()` of a USED body throw a `TypeError`. A clone
+    //~ here is a plain value, so the clone of a used body is itself used:
+    //~ every read of it throws that same `TypeError` (`Body is unusable`),
+    //~ and `try { await res.clone().json() } catch {}` takes the catch as it
+    //~ does in JavaScript. The error surfaces at the first read rather than
+    //~ at `clone()` itself.
     pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); if self.used.get() { body.used.set(true); } body }
 }
 
@@ -550,9 +550,8 @@ impl SmeltBody {
 // A body crossing an erased slot keeps its bytes: the record carries the
 // `ReadableStream` class tag and the live handle in its origin slot, so
 // narrowing it back is the SAME body, `bodyUsed` cell included, as for the
-// `Request`/`Response` that hold one. It used to erase field-wise to a bare
-// `{ __smelt_class: "ReadableStream" }`, so Hono's `c.newResponse(res.body,
-// res)` (its `HTTPException` error handler) answered with an empty body.
+// `Request`/`Response` that hold one (Hono's `c.newResponse(res.body, res)`
+// in its `HTTPException` error handler reads it).
 // @smelt:item impl_IntoSmeltUnknown_for_SmeltBody when body & unknown
 /// Erase a body for a dynamic boundary, retaining the live handle.
 impl IntoSmeltUnknown for SmeltBody {
@@ -574,12 +573,12 @@ impl SmeltFromUnknown for SmeltBody {
 // Emit the `SmeltResponse` struct and its comparisons.
 // @smelt:item SmeltResponse when response
 /// A WHATWG `Response`: a status line, a header list, and a body.
-///
-/// The status line and headers are plain fields because the spec makes
-/// them immutable on a response, so there is nothing for a shared cell to
-/// coordinate. The BODY is the mutable part — reading it is observable
-/// through every handle — and `SmeltBody` owns that sharing, which is why
-/// this struct does not wrap itself in another `Rc<RefCell<..>>`.
+//~
+//~ The status line and headers are plain fields because the spec makes
+//~ them immutable on a response, so there is nothing for a shared cell to
+//~ coordinate. The BODY is the mutable part — reading it is observable
+//~ through every handle — and `SmeltBody` owns that sharing, which is why
+//~ this struct does not wrap itself in another `Rc<RefCell<..>>`.
 #[derive(Clone)]
 pub struct SmeltResponse {
     id: usize,
@@ -599,55 +598,55 @@ impl Default for SmeltResponse { fn default() -> Self { Self::new() } }
 //~ Emit the response's constructors and its member operations.
 #[allow(dead_code)]
 impl SmeltResponse {
-    /// `new Response()`: 200, empty reason phrase, no body.
-    ///
-    /// 200 is the spec's default status, and the default reason phrase is
-    /// the EMPTY string, not `"OK"` — `new Response().statusText` is `""`
-    /// in Node. Filling in a phrase here would invent an observable value.
+    //~ `new Response()`: 200, empty reason phrase, no body.
+    //~
+    //~ 200 is the spec's default status, and the default reason phrase is
+    //~ the EMPTY string, not `"OK"` — `new Response().statusText` is `""`
+    //~ in Node. Filling in a phrase here would invent an observable value.
     pub fn new() -> Self { Self::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::empty()) }
-    /// Assemble a response with a fresh JS reference identity.
-    ///
-    /// A body that implies a `Content-Type` adds it to the header list
-    /// unless the caller already set one — the spec's "extract a body"
-    /// step, which is why `new Response('hi').headers.get('content-type')`
-    /// is `text/plain;charset=UTF-8` and not `null`.
+    //~ Assemble a response with a fresh JS reference identity.
+    //~
+    //~ A body that implies a `Content-Type` adds it to the header list
+    //~ unless the caller already set one — the spec's "extract a body"
+    //~ step, which is why `new Response('hi').headers.get('content-type')`
+    //~ is `text/plain;charset=UTF-8` and not `null`.
     pub fn from_parts(status: f64, status_text: impl SmeltHostText, headers: SmeltHeaders, body: SmeltBody) -> Self { let status_text = status_text.host_text().into_owned();
         if let Some(content_type) = body.content_type() { if !headers.has("content-type") {
             headers.append("content-type", &content_type);
         } }
         Self { id: smelt_next_object_id(), status, status_text, headers, body }
     }
-    /// JS reference identity of this response.
+    //~ JS reference identity of this response.
     pub fn id(&self) -> usize { self.id }
-    /// `status`.
+    //~ `status`.
     pub fn status(&self) -> f64 { self.status }
-    /// `statusText`.
+    //~ `statusText`.
     pub fn status_text(&self) -> String { self.status_text.clone() }
-    /// `ok`: the spec derives it from the status, so this does too.
-    ///
-    /// Storing it would let it drift from `status`; deriving cannot.
+    //~ `ok`: the spec derives it from the status, so this does too.
+    //~
+    //~ Storing it would let it drift from `status`; deriving cannot.
     pub fn ok(&self) -> bool { self.status >= 200.0 && self.status <= 299.0 }
-    /// `headers`.
-    ///
-    /// The same header list, not a copy: `Headers` is a reference object,
-    /// so two reads of `response.headers` observe one another.
+    //~ `headers`.
+    //~
+    //~ The same header list, not a copy: `Headers` is a reference object,
+    //~ so two reads of `response.headers` observe one another.
     pub fn headers(&self) -> SmeltHeaders { self.headers.clone() }
-    /// `bodyUsed`.
+    //~ `bodyUsed`.
     pub fn body_used(&self) -> bool { self.body.body_used() }
-    /// The response's body handle.
+    //~ The response's body handle.
     pub fn body(&self) -> SmeltBody { self.body.clone() }
-    /// `text()`: the body decoded as UTF-8, consuming it.
-    ///
-    /// Fallible for the spec's reason: a second read is a `TypeError`.
+    //~ `text()`: the body decoded as UTF-8, consuming it.
+    //~
+    //~ Fallible for the spec's reason: a second read is a `TypeError`.
     pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { self.body.take_text() }
-    /// `clone()`: a response whose body is independently readable.
-    ///
-    /// The spec's `clone()` tees the body, so reading one side must not
-    /// consume the other. It is therefore NOT Rust's `Clone`, which copies
-    /// the handle and keeps one shared body — that is what assigning a
-    /// response to a second variable does, and both spellings are needed.
-    ///
-    /// The header list is copied too: the clone's headers are its own.
+    //~ `clone()`: a response whose body is independently readable.
+    //~
+    //~ The spec's `clone()` tees the body, so reading one side must not
+    //~ consume the other. It is therefore NOT Rust's `Clone`, which copies
+    //~ the handle and keeps one shared body — that is what assigning a
+    //~ response to a second variable does, and both spellings are needed.
+    //~
+    //~ The header list is copied too: the clone's headers are its own.
     pub fn tee(&self) -> Self { Self::from_parts(self.status, self.status_text.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }
 }
 
@@ -673,15 +672,15 @@ impl SmeltResponse {
 //
 // The body is carried as its TEXT rather than as a handle, because an erased
 // record cannot hold a single-use cell: a body that round-tripped through the
-// boundary would otherwise share a used flag with a value that no longer
-// exists. Erasing does not consume the body (it peeks), so a response can be
+// boundary would otherwise share a used flag with a value that does not
+// exist. Erasing does not consume the body (it peeks), so a response can be
 // logged and still read.
 // @smelt:item impl_IntoSmeltUnknown_for_SmeltResponse when response & unknown
 /// Erase a response for a dynamic boundary (identity marker + status line).
-///
-/// Retains the live response, for the reason its `Request` sibling does:
-/// erasing a value and narrowing it back is the SAME object in JavaScript,
-/// body handle and `bodyUsed` cell included.
+//~
+//~ Retains the live response, for the reason its `Request` sibling does:
+//~ erasing a value and narrowing it back is the SAME object in JavaScript,
+//~ body handle and `bodyUsed` cell included.
 impl IntoSmeltUnknown for SmeltResponse {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         //~ The field record is built on first use (`lazy_view`): a response
@@ -694,9 +693,9 @@ impl IntoSmeltUnknown for SmeltResponse {
 }
 
 /// Recover a response from an erased value.
-///
-/// The retained origin first, exactly as for a request; a record that did
-/// not come from an erasure is rebuilt from its fields.
+//~
+//~ The retained origin first, exactly as for a request; a record that did
+//~ not come from an erasure is rebuilt from its fields.
 impl SmeltFromUnknown for SmeltResponse {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
@@ -725,26 +724,26 @@ impl SmeltFromUnknown for SmeltResponse {
 // `bool` for `keepalive` — so nothing here reaches `SmeltUnknown`.
 // @smelt:item SmeltRequestInit when request
 /// The stored, read-only members of a WHATWG `RequestInit`.
-///
-/// `Default` is the spec's own set for a request constructed from a URL,
-/// which is what Node answers for `new Request(url)`.
+//~
+//~ `Default` is the spec's own set for a request constructed from a URL,
+//~ which is what Node answers for `new Request(url)`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SmeltRequestInit {
-    /// The spec's `cache`.
+    //~ The spec's `cache`.
     pub cache: String,
-    /// The spec's `credentials`.
+    //~ The spec's `credentials`.
     pub credentials: String,
-    /// The spec's `integrity`.
+    //~ The spec's `integrity`.
     pub integrity: String,
-    /// The spec's `keepalive`.
+    //~ The spec's `keepalive`.
     pub keepalive: bool,
-    /// The spec's `mode`.
+    //~ The spec's `mode`.
     pub mode: String,
-    /// The spec's `redirect`.
+    //~ The spec's `redirect`.
     pub redirect: String,
-    /// The spec's `referrer`.
+    //~ The spec's `referrer`.
     pub referrer: String,
-    /// The spec's `referrerPolicy`.
+    //~ The spec's `referrerPolicy`.
     pub referrer_policy: String,
 }
 
@@ -755,7 +754,7 @@ impl Default for SmeltRequestInit {
 }
 
 thread_local! {
-    /// The spec's default `RequestInit`, shared by every request built without one.
+    //~ The spec's default `RequestInit`, shared by every request built without one.
     static SMELT_DEFAULT_REQUEST_INIT: ::std::rc::Rc<SmeltRequestInit> = ::std::rc::Rc::new(SmeltRequestInit::default());
 }
 
@@ -764,23 +763,23 @@ fn smelt_default_request_init() -> ::std::rc::Rc<SmeltRequestInit> { SMELT_DEFAU
 
 #[allow(dead_code)]
 impl SmeltRequestInit {
-    /// Serialize a spelled `referrer` the way the spec stores it.
-    ///
-    /// The referrer is parsed as a URL and stored as its serialization,
-    /// so `"https://c.test"` reads back as `"https://c.test/"`. The two
-    /// values that are not URLs — the empty string (no referrer) and
-    /// `about:client` — pass through, which falling back to the spelled
-    /// text gives for free. This is the same rule `from_parts` applies to
-    /// the request URL itself.
+    //~ Serialize a spelled `referrer` the way the spec stores it.
+    //~
+    //~ The referrer is parsed as a URL and stored as its serialization,
+    //~ so `"https://c.test"` reads back as `"https://c.test/"`. The two
+    //~ values that are not URLs — the empty string (no referrer) and
+    //~ `about:client` — pass through, which falling back to the spelled
+    //~ text gives for free. This is the same rule `from_parts` applies to
+    //~ the request URL itself.
     pub fn serialize_referrer(referrer: &(impl SmeltHostText + ?Sized)) -> String { let referrer = referrer.host_text(); let referrer: &str = &referrer; ::url::Url::parse(referrer).map_or_else(|_| referrer.to_owned(), |parsed| parsed.to_string()) }
 }
 
 //~ Emit the `SmeltRequest` struct and its comparisons.
 /// A WHATWG `Request`: a serialized URL, a method, headers, and a body.
-///
-/// The same split as `SmeltResponse`: the URL and method are immutable on
-/// a request, so they are plain fields, and `SmeltBody` owns the one
-/// mutable thing — whether the body has been read.
+//~
+//~ The same split as `SmeltResponse`: the URL and method are immutable on
+//~ a request, so they are plain fields, and `SmeltBody` owns the one
+//~ mutable thing — whether the body has been read.
 #[derive(Clone)]
 pub struct SmeltRequest {
     id: usize,
@@ -788,11 +787,11 @@ pub struct SmeltRequest {
     method: String,
     headers: SmeltHeaders,
     body: SmeltBody,
-    /// The stored `RequestInit` members; see `SmeltRequestInit`.
-    ///
-    /// Shared, because they are immutable once the request exists: a request
-    /// is cloned on every handle copy, and seven owned strings per clone were
-    /// a measurable share of a served request.
+    //~ The stored `RequestInit` members; see `SmeltRequestInit`.
+    //~
+    //~ Shared, because they are immutable once the request exists: a request
+    //~ is cloned on every handle copy, and seven owned strings per clone were
+    //~ a measurable share of a served request.
     init: ::std::rc::Rc<SmeltRequestInit>,
 }
 
@@ -831,18 +830,18 @@ fn smelt_url_is_serialized_http(input: &str) -> bool {
 //~ Emit the request's constructor and its member operations.
 #[allow(dead_code)]
 impl SmeltRequest {
-    /// Assemble a request with a fresh JS reference identity.
-    ///
-    /// `input` is SERIALIZED, not stored as written: the spec parses it
-    /// into a URL record and `request.url` reads back the serialization,
-    /// so `https://a.test` answers `https://a.test/`. A body that implies
-    /// a `Content-Type` adds it unless the caller set one, exactly as on a
-    /// response — the pairing belongs to the body, so both holders get it
-    /// from the same place.
+    //~ Assemble a request with a fresh JS reference identity.
+    //~
+    //~ `input` is SERIALIZED, not stored as written: the spec parses it
+    //~ into a URL record and `request.url` reads back the serialization,
+    //~ so `https://a.test` answers `https://a.test/`. A body that implies
+    //~ a `Content-Type` adds it unless the caller set one, exactly as on a
+    //~ response — the pairing belongs to the body, so both holders get it
+    //~ from the same place.
     pub fn from_parts(input: &(impl SmeltHostText + ?Sized), method: String, headers: SmeltHeaders, body: SmeltBody) -> Self { let input = input.host_text(); let input: &str = &input; Self::assemble(input, method, headers, body, smelt_default_request_init()) }
-    /// The same assembly, carrying the stored `RequestInit` members.
+    //~ The same assembly, carrying the stored `RequestInit` members.
     pub fn from_parts_with_init(input: &(impl SmeltHostText + ?Sized), method: String, headers: SmeltHeaders, body: SmeltBody, init: SmeltRequestInit) -> Self { let input = input.host_text(); let input: &str = &input; Self::assemble(input, method, headers, body, ::std::rc::Rc::new(init)) }
-    /// The assembly both constructors share, over an already-shared `init`.
+    //~ The assembly both constructors share, over an already-shared `init`.
     fn assemble(input: &str, method: String, headers: SmeltHeaders, body: SmeltBody, init: ::std::rc::Rc<SmeltRequestInit>) -> Self {
         let url = if input == "about:blank" || smelt_url_is_serialized_http(input) { input.to_owned() } else { ::url::Url::parse(input).map_or_else(|_| input.to_owned(), |parsed| parsed.to_string()) };
         if let Some(content_type) = body.content_type() { if !headers.has("content-type") {
@@ -850,12 +849,12 @@ impl SmeltRequest {
         } }
         Self { id: smelt_next_object_id(), url, method: Self::normalize_method(&method), headers, body, init }
     }
-    /// The spec's method normalization.
-    ///
-    /// Exactly the spec's list is upper-cased when a method is given in
-    /// any case: `DELETE GET HEAD OPTIONS POST PUT`. Every other token is
-    /// left as written — `patch` stays `patch`, which is observable and is
-    /// what Node does, so upper-casing everything would be wrong.
+    //~ The spec's method normalization.
+    //~
+    //~ Exactly the spec's list is upper-cased when a method is given in
+    //~ any case: `DELETE GET HEAD OPTIONS POST PUT`. Every other token is
+    //~ left as written — `patch` stays `patch`, which is observable and is
+    //~ what Node does, so upper-casing everything would be wrong.
     fn normalize_method(method: &str) -> String {
         let upper = method.to_ascii_uppercase();
         if matches!(upper.as_str(), "DELETE" | "GET" | "HEAD" | "OPTIONS" | "POST" | "PUT") {
@@ -865,45 +864,45 @@ impl SmeltRequest {
             method.to_owned()
         }
     }
-    /// JS reference identity of this request.
+    //~ JS reference identity of this request.
     pub fn id(&self) -> usize { self.id }
-    /// `url`: the serialized request URL.
+    //~ `url`: the serialized request URL.
     pub fn url(&self) -> String { self.url.clone() }
-    /// `method`.
+    //~ `method`.
     pub fn method(&self) -> String { self.method.clone() }
-    /// `headers`: the same list, not a copy.
+    //~ `headers`: the same list, not a copy.
     pub fn headers(&self) -> SmeltHeaders { self.headers.clone() }
-    /// `bodyUsed`.
+    //~ `bodyUsed`.
     pub fn body_used(&self) -> bool { self.body.body_used() }
-    /// The request's body handle.
+    //~ The request's body handle.
     pub fn body(&self) -> SmeltBody { self.body.clone() }
-    /// `text()`: the body decoded as UTF-8, consuming it.
+    //~ `text()`: the body decoded as UTF-8, consuming it.
     pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { self.body.take_text() }
-    /// `clone()`: a request whose body is independently readable.
-    ///
-    /// Same distinction as `SmeltResponse::tee`: the spec's `clone()` tees
-    /// the body, while Rust's `Clone` copies the handle and shares it.
-    ///
-    /// The url is already serialized, so it is passed through `from_parts`
-    /// unchanged; re-parsing a serialization is a no-op.
+    //~ `clone()`: a request whose body is independently readable.
+    //~
+    //~ Same distinction as `SmeltResponse::tee`: the spec's `clone()` tees
+    //~ the body, while Rust's `Clone` copies the handle and shares it.
+    //~
+    //~ The url is already serialized, so it is passed through `from_parts`
+    //~ unchanged; re-parsing a serialization is a no-op.
     pub fn tee(&self) -> Self { Self::from_parts_with_init(&self.url, self.method.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee(), (*self.init).clone()) }
-    /// The stored `RequestInit` members, as a copy.
+    //~ The stored `RequestInit` members, as a copy.
     pub fn init(&self) -> SmeltRequestInit { (*self.init).clone() }
-    /// `cache`: a stored `RequestInit` member.
+    //~ `cache`: a stored `RequestInit` member.
     pub fn cache(&self) -> String { self.init.cache.clone() }
-    /// `credentials`: a stored `RequestInit` member.
+    //~ `credentials`: a stored `RequestInit` member.
     pub fn credentials(&self) -> String { self.init.credentials.clone() }
-    /// `integrity`: a stored `RequestInit` member.
+    //~ `integrity`: a stored `RequestInit` member.
     pub fn integrity(&self) -> String { self.init.integrity.clone() }
-    /// `keepalive`: a stored `RequestInit` member.
+    //~ `keepalive`: a stored `RequestInit` member.
     pub fn keepalive(&self) -> bool { self.init.keepalive }
-    /// `mode`: a stored `RequestInit` member.
+    //~ `mode`: a stored `RequestInit` member.
     pub fn mode(&self) -> String { self.init.mode.clone() }
-    /// `redirect`: a stored `RequestInit` member.
+    //~ `redirect`: a stored `RequestInit` member.
     pub fn redirect(&self) -> String { self.init.redirect.clone() }
-    /// `referrer`: a stored `RequestInit` member.
+    //~ `referrer`: a stored `RequestInit` member.
     pub fn referrer(&self) -> String { self.init.referrer.clone() }
-    /// `referrerPolicy`: a stored `RequestInit` member.
+    //~ `referrerPolicy`: a stored `RequestInit` member.
     pub fn referrer_policy(&self) -> String { self.init.referrer_policy.clone() }
 }
 
@@ -911,16 +910,16 @@ impl SmeltRequest {
 
 // Emit the `Request` dynamic-boundary adapters.
 //
-// Same boundary and the same reasoning as [`emit_response_traits`]; the record
+// Same boundary and the same reasoning as `SmeltResponse`'s erasure; the record
 // carries a url and a method where a response's carries a status line.
 // @smelt:item impl_IntoSmeltUnknown_for_SmeltRequest when request & unknown
 /// Erase a request for a dynamic boundary (identity marker + url/method).
-///
-/// Retains the live request under the record's object id, so narrowing the
-/// erased value back hands out the SAME request rather than a rebuilt copy:
-/// `new Request(input)` on an erased input must disturb the ORIGINAL's body
-/// (Node leaves `input.bodyUsed` true at once), which a rebuilt copy cannot
-/// do. Same rule, and the same registry, as `host_value_erasure`'s pair.
+//~
+//~ Retains the live request under the record's object id, so narrowing the
+//~ erased value back hands out the SAME request rather than a rebuilt copy:
+//~ `new Request(input)` on an erased input must disturb the ORIGINAL's body
+//~ (Node leaves `input.bodyUsed` true at once), which a rebuilt copy cannot
+//~ do. Same rule, and the same registry, as `host_value_erasure`'s pair.
 impl IntoSmeltUnknown for SmeltRequest {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         //~ Built on first use, as the response's record is.
@@ -931,10 +930,10 @@ impl IntoSmeltUnknown for SmeltRequest {
 }
 
 /// Recover a request from an erased value.
-///
-/// A record that came from an erasure in this thread hands back the SAME
-/// request, body handle and `bodyUsed` cell included. Only a record that did
-/// not (one rebuilt from JSON, say) is reconstructed from its fields.
+//~
+//~ A record that came from an erasure in this thread hands back the SAME
+//~ request, body handle and `bodyUsed` cell included. Only a record that did
+//~ not (one rebuilt from JSON, say) is reconstructed from its fields.
 impl SmeltFromUnknown for SmeltRequest {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }

@@ -110,12 +110,11 @@ impl FunctionEmitter<'_> {
             return Ok(true);
         }
         // A JavaScript function is an object, so a property write onto
-        // a function-typed place is a real store, not a no-op: the
-        // place-text path below has no slot for it and used to discard
-        // the write (`let _ = value;`). It lands in the function's
-        // identity-keyed own-property bag, which every other
+        // a function-typed place is a real store, not a no-op, and the
+        // place-text path below has no slot for it. It lands in the
+        // function's identity-keyed own-property bag, which every other
         // representation of the same function reads through (see
-        // `crate::function_object_prelude`). This is the write side of
+        // `smelt-runtime`'s `function_object.rs`). This is the write side of
         // the `smelt_get_unknown_field` function arm.
         if let Some(Type::Function(function)) = self.mir.types.get(base_ty).cloned() {
             let unknown_ty = self.type_id(Type::Unknown)?;
@@ -249,7 +248,7 @@ impl FunctionEmitter<'_> {
             }
             // A FUNCTION receiver keeps being a function: the write
             // lands in its identity-keyed own-property bag (see
-            // `crate::function_object_prelude`), which every other
+            // `smelt-runtime`'s `function_object.rs`), which every other
             // representation of that function reads through. Falling
             // through to the primitive arm replaced the callable with a
             // one-property record, so `(f as any).x = 1` lost `f`.
@@ -266,7 +265,7 @@ impl FunctionEmitter<'_> {
         }
         // A dotted write to an UNDECLARED member on an index-signature
         // class (`bag.name = value`) inserts into the runtime store
-        // (issue #84), mirroring the computed `bag[k] = value` write, so
+        //, mirroring the computed `bag[k] = value` write, so
         // it round-trips to a later read. Declared fields keep their
         // concrete struct-field assignment via the tail path below.
         if let Some((key_ty, value_ty)) = self.class_index_store_types(base_ty)
@@ -409,7 +408,7 @@ impl FunctionEmitter<'_> {
                 ));
             }
             // A class with an index signature backs keyed writes with a
-            // real store field (issue #84): `bag[key] = value` inserts
+            // real store field: `bag[key] = value` inserts
             // into `bag.__smelt_index_store` so the write round-trips to a
             // later `bag[key]` read. The value is rendered at the store's
             // declared value type, keeping `T` concrete.

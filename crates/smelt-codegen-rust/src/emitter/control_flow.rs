@@ -18,13 +18,12 @@ mod switch;
 /// header — a back edge, which must render as `continue` — or the loop's exit
 /// block, which must render as `break`.
 ///
-/// The throwing-call and throwing-`await` emitters used to hardcode the
-/// top-level choice for their `Ok`/`Err` continuations. A `try`/`catch` in a loop
-/// body reaches the loop header from inside those match arms, so hardcoding
-/// `emit_block` there re-emitted the whole loop header and body inside the arm,
-/// recursively, until the block-depth cap (`ControlFlowState::enter_block`) replaced the tail with a
-/// default return. Threading this enum through instead is what turns those back
-/// edges into `continue`.
+/// A `try`/`catch` in a loop body reaches the loop header from inside the
+/// `Ok`/`Err` continuations of the throwing-call and throwing-`await` emitters,
+/// so hardcoding `emit_block` there would re-emit the whole loop header and
+/// body inside the arm, recursively, until the block-depth cap
+/// (`ControlFlowState::enter_block`) stopped it. Threading this enum through
+/// is what turns those back edges into `continue`.
 pub(super) enum Continuation<'a> {
     /// Emit the successor as an ordinary structured region.
     Block,
@@ -140,19 +139,17 @@ impl FunctionEmitter<'_> {
     ///
     /// Emission recurses once per successor, so a straight-line function of
     /// `n` blocks is `n` frames deep. The guard below only exists to stop a
-    /// cyclic region from recursing forever, so it scales with the function:
-    /// it used to be capped at 64, which silently replaced the tail of any
-    /// longer straight-line body with a default `return` (a module that
-    /// performed more than 64 calls in a row lost its last statements). The
-    /// stack grows on demand so a long body cannot overflow it instead.
+    /// cyclic region from recursing forever, so it scales with the function: a
+    /// fixed cap would refuse any long straight-line body. The stack grows on
+    /// demand so a long body cannot overflow it instead.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         if self.emit_enclosing_loop_jump(block.id, out)? {
             return Ok(());
         }
         let limit = self.function.blocks.len().saturating_mul(2).max(16);
         // Past this structural bound emission is re-entering a cycle it did
-        // not structure; it used to write a default `return` in place of the
-        // rest of the body, a silent miscompile, so it is an error.
+        // not structure. Writing a default `return` in place of the rest of the
+        // body would be a silent miscompile, so it is an error.
         let Some(_depth) = self.flow.enter_block(limit) else {
             return Err(self.unstructured_control_flow(format!("block emission exceeds {limit} levels")));
         };
@@ -491,8 +488,8 @@ impl FunctionEmitter<'_> {
                 // that loop's `continue`/`break` (labelled when it is not the
                 // innermost). Any other back edge is a cycle no loop was
                 // opened for: re-emitting a tail that terminates is fine, but a
-                // cycle that does not used to become a default `return`, which
-                // silently replaced the rest of the function. It is an error.
+                // cycle that does not is an error, since a default `return` would
+                // silently replace the rest of the function.
                 if let Some(jump) = self.flow.open_loop_jump(*target) {
                     return self.emit_loop_jump(jump, out);
                 }

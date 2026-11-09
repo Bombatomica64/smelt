@@ -115,8 +115,7 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", "));
             // Annotate the backing Vec with the element type so heterogeneous
-            // closures coerce to the shared `Rc<dyn Fn>` element (the dest
-            // annotation used to drive this before `Type::List` became SmeltList).
+            // closures coerce to the shared `Rc<dyn Fn>` element.
             let elem_text = self.rendered_type(item_ty)?;
             return Ok(RustExpr::atom(format!(
                 "SmeltList::from({{ let smelt_list_items: Vec<{elem_text}> = vec![{items_text}]; smelt_list_items }})", items_text = items_text.delimited()

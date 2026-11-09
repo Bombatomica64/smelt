@@ -63,11 +63,11 @@ impl<K, V> SmeltJsMapStore<K, V> {
 }
 
 impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
-    /// Build the store of `new Map(entries)`: the entries are `set` in order,
-    /// so a key seen again keeps its FIRST position and takes its LAST value,
-    /// as JavaScript's Map constructor does. Each entry costs one hash. It used
-    /// to keep duplicate keys as separate slots: `new Map([["p", 1], ["p", 3]])`
-    /// answered `size` 2 and `get("p")` 1.
+    //~ Build the store of `new Map(entries)`: the entries are `set` in order,
+    //~ so a key seen again keeps its FIRST position and takes its LAST value,
+    //~ as JavaScript's Map constructor does. Each entry costs one hash. It used
+    //~ to keep duplicate keys as separate slots: `new Map([["p", 1], ["p", 3]])`
+    //~ answered `size` 2 and `get("p")` 1.
     fn from_entries(entries: Vec<(K, V)>) -> Self {
         let mut store = Self { entries: Vec::with_capacity(entries.len()), index: SmeltJsSlotIndex::new() };
         for (key, value) in entries {
@@ -81,8 +81,8 @@ impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
         }
         store
     }
-    /// Slot of `key`, comparing only the slots that share `hash` — every
-    /// `same_js_key`-equal key is guaranteed to be one of them.
+    //~ Slot of `key`, comparing only the slots that share `hash` — every
+    //~ `same_js_key`-equal key is guaranteed to be one of them.
     fn position(&self, key: &K, hash: Option<u64>) -> Option<usize> { self.index.slots(hash).iter().copied().find(|slot| self.entries[*slot].0.same_js_key(key)) }
 }
 

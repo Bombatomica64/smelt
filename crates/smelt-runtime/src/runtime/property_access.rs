@@ -18,15 +18,13 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
         SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
         SmeltUnknown::Object(map) => { map.insert(key, value); }
         //~ A JavaScript function is an object, so a keyed write onto one is a
-        //~ real store into its own-property bag (`function_object_prelude`) --
+        //~ real store into its own-property bag (`smelt-runtime`'s `function_object.rs`) --
         //~ not a reason to replace the function with a record, which is what the
         //~ fallback arm below would do and which loses the callable.
         SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         //~ A JS array keeps being an array when a non-index key is written to it:
         //~ `a[0] = x` sets an element, `a.x = v` sets a named property in the
-        //~ array's side table (`SmeltArray::props`). Replacing the array with a
-        //~ one-property object — what this used to do — lost every element and made
-        //~ `Array.isArray(a)` answer `false`.
+        //~ array's side table (`SmeltArray::props`).
         SmeltUnknown::Array(array) => {
             let key_text = key.to_string_lossy();
             if let Ok(index) = key_text.parse::<usize>() { array.set_index(index, value); }
@@ -39,10 +37,9 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
 // @smelt:item-end
 
 // JavaScript property-key coercion: `obj[key]` stringifies whatever `key`
-// is. Lives in the prelude because it was previously emitted as a full
-// nested `fn` definition at EVERY dynamic property-key site. es-toolkit's
-// `compat/object/mergeWith` key loop alone repeated it enough to make one
-// generated file 2.6 MB of the crate's 14 MB.
+// is. Lives in the prelude rather than as a nested `fn` at every dynamic
+// property-key site, which would make a generated file like es-toolkit's
+// `compat/object/mergeWith` megabytes larger.
 //
 // A symbol key keeps its `__smelt_symbol:` prefix, which is the storage
 // form symbol-keyed properties use, so a symbol round-trips as a distinct
@@ -72,9 +69,9 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
     pair.get(0).is_some_and(|entry_key| entry_key.same_js_key(key))
 }
 
-/// A property missing from a record's own entries, read through the
-/// prototype entries an erased object carries (`__smelt_proto:` for
-/// `Object.create`, `__smelt_method:` for a class method), else `undefined`.
+//~ A property missing from a record's own entries, read through the
+//~ prototype entries an erased object carries (`__smelt_proto:` for
+//~ `Object.create`, `__smelt_method:` for a class method), else `undefined`.
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&*JsString::from(format!("__smelt_proto:{key}"))).or_else(|| record.get(&*JsString::from(format!("__smelt_method:{key}")))).unwrap_or(SmeltUnknown::Undefined) }
 
@@ -264,8 +261,8 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
             _ => {}
         }
     }
-    // A missing property reads as JS `undefined`, distinct from an
-    // explicit `null` value (`obj.missing === undefined`, `!== null`).
+    //~ A missing property reads as JS `undefined`, distinct from an
+    //~ explicit `null` value (`obj.missing === undefined`, `!== null`).
     //~ Prototype-chain read. `Object.create(proto)` stores the prototype's
     //~ members behind a `__smelt_proto:` prefix so they stay out of own-key
     //~ enumeration; an own field shadows the inherited one, exactly as in JS.
@@ -306,7 +303,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
 // isPlainObject(b)` arm.
 // @smelt:item SMELT_OBJECT_PROTOTYPE_MEMBERS when unknown
 thread_local! {
-    /// One cached `Object.prototype` member value per key, so repeated reads are `===`.
+    //~ One cached `Object.prototype` member value per key, so repeated reads are `===`.
     static SMELT_OBJECT_PROTOTYPE_MEMBERS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -378,7 +375,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Siz
 //~ object uses, which is what makes `Object.prototype.toString` a value.
 //~
 //~ A FUNCTION is an object too, and its own properties live in the
-//~ identity-keyed bag (`function_object_prelude`) because an
+//~ identity-keyed bag (`smelt-runtime`'s `function_object.rs`) because an
 //~ `Rc<dyn Fn(..)>` has nowhere to store them. Routing the read there is
 //~ what makes `f.prototype` an object rather than `undefined`, and what
 //~ lets a property source code wrote onto a function read back.
@@ -397,7 +394,7 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         //~ An erased STRING answers `length`, its character indices and the
-        //~ `String.prototype` methods (`erased_method_prelude`). The other
+        //~ `String.prototype` methods (`smelt-runtime`'s `erased_method.rs`). The other
         //~ `__smelt_proto:` strings are prototype SENTINELS rather than source
         //~ text, so they keep answering `undefined` as before.
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),

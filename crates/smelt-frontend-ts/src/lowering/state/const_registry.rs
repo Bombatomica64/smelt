@@ -9,12 +9,11 @@
 //!
 //! * **A constant is one name resolving to at most one kind of folded value**,
 //!   and "is this name a constant at all?" is a single question
-//!   ([`ConstRegistry::is_folded_const`]) rather than an open-coded chain of
-//!   `contains_key` calls that a new kind can be forgotten from.
+//!   ([`ConstRegistry::is_folded_const`]).
 //! * **An import alias rebinds every kind the imported name has.**
 //!   [`ConstRegistry::rebind_import`] copies whichever tables hold the imported
-//!   name, so aliasing an import can no longer carry the literal across while
-//!   dropping the object or the collection.
+//!   name, so aliasing an import cannot carry the literal across while dropping
+//!   the object or the collection.
 
 use crate::context::Published;
 use std::collections::HashMap;
@@ -117,7 +116,7 @@ impl ConstRegistry {
     /// Takes an [`EnumBinding`], which only `ModuleBuilder::resolve_value`
     /// mints after asking the lexical scope, so a parameter that shadows the
     /// enum (`function f(Mode: { Fast: number })`) can never fold to a member
-    /// (audit finding A3).
+    ///.
     pub(in crate::lowering) fn enum_member(
         &self,
         binding: &EnumBinding<'_>,

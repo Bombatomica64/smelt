@@ -307,10 +307,8 @@ impl ModuleBuilder<'_> {
     /// receiver, so an `Optional<List<T>>` receiver here is one a guard
     /// already proved present (`if (!this.#routes) throw ..` before
     /// `this.#routes.push(..)`) whose narrowing did not reach the member path.
-    /// Such a call used to fall through to a lowering that dropped the
-    /// mutation entirely (its value became `none`). The `TypeAssert` keeps the
-    /// receiver a mutation place: MIR writes a `TypeAssert` over a field back
-    /// like the field itself.
+    /// The `TypeAssert` keeps the receiver a mutation place: MIR writes a
+    /// `TypeAssert` over a field back like the field itself.
     fn present_list_receiver(
         &mut self,
         object: &Expression<'_>,
@@ -938,7 +936,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(argument.span().start, argument.span().end),
             }));
         }
-        // The historical per-method wording, which diagnostics are matched on.
+        // The per-method wording, which diagnostics are matched on.
         let message = match method {
             "unshift" => "array unshift arguments must match the array element type",
             "splice" => "array splice replacement items must match the array element type",
@@ -1109,7 +1107,7 @@ impl ModuleBuilder<'_> {
             }))),
             _ if slice_erased_receiver => Ok(Some(body.push_expr(Expr {
                 // Erased/array-ish `slice`: `ListSlice` codegen routes the
-                // erased receiver through `unknown_list_slice_text`, which
+                // erased receiver through the list-slice helper, which
                 // dispatches on the runtime value tag (array vs string vs
                 // forwarded marker buffer).
                 kind: ExprKind::ListSlice {

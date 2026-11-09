@@ -7,10 +7,6 @@ pub(crate) use __smelt_module_source_main::*;
 
 
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
-///
-/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
-/// decimal exponent of the shortest round-trip digit string — which is
-/// what Rust's `{:e}` already produces.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
     if value.is_nan() { return "NaN".to_owned(); }
@@ -95,87 +91,61 @@ const fn smelt_units_from_number(number: f64) -> usize {
 }
 
 /// A JavaScript string: immutable UTF-16 code units, shared by reference count.
-///
-/// Lone surrogates are representable. Equality, hashing and ordering are by
-/// code unit, which is ECMAScript's order (`"😀" < "\u{FFFF}"`). A clone shares
-/// the buffer; [`JsString::push_str`] and `+` append in place when this handle
-/// is the buffer's only owner and copy it first when it is shared.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JsString(::std::rc::Rc<Vec<u16>>);
 
 /// A borrowed JavaScript string: a slice of UTF-16 code units.
-///
-/// The view `&JsString` derefs to, as `&String` derefs to `&str`. Its equality,
-/// hash and order are the code units', so a `JsString` key is found by a
-/// `&JsStr` lookup.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct JsStr([u16]);
 
 impl JsStr {
-    /// Views code units as a string.
     #[allow(unsafe_code)]
     const fn from_units(units: &[u16]) -> &Self {
         unsafe { &*(::std::ptr::from_ref::<[u16]>(units) as *const Self) }
     }
 
-    /// The code units.
     const fn units(&self) -> &[u16] {
         &self.0
     }
 
-    /// The JavaScript `length`: the number of code units.
     const fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Whether this is the empty string.
     const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// The code unit at `index` (`charCodeAt`), if any.
     fn unit_at(&self, index: usize) -> Option<u16> {
         self.0.get(index).copied()
     }
 
-    /// The one-unit string at `index` (`charAt`, `s[i]`), if any. At either
-    /// half of a surrogate pair this is that lone half.
     fn char_at(&self, index: usize) -> Option<JsString> {
         self.0.get(index).map(|unit| JsString::from_units(&[*unit]))
     }
 
-    /// The code point at `index` (`codePointAt`): a whole surrogate pair when
-    /// `index` holds its leading half, else the unit there.
     fn code_point_at(&self, index: usize) -> Option<u32> {
         let first = *self.0.get(index)?;
         let second = self.0.get(index + 1).copied().filter(|unit| (0xD800..0xDC00).contains(&first) && (0xDC00..0xE000).contains(unit));
         Some(second.map_or_else(|| u32::from(first), |second| 0x10000 + ((u32::from(first) - 0xD800) << 10) + (u32::from(second) - 0xDC00)))
     }
 
-    /// The code units `start..end`, clamped to the string; empty when
-    /// `end <= start`. A cut may split a surrogate pair, leaving lone halves.
     fn slice(&self, start: usize, end: usize) -> JsString {
         let end = end.min(self.0.len());
         if end <= start { return JsString::default(); }
         JsString::from_units(&self.0[start..end])
     }
 
-    /// [`Self::slice`] as a borrowed view.
     fn sub(&self, start: usize, end: usize) -> &Self {
         let end = end.min(self.0.len());
         Self::from_units(self.0.get(start.min(end)..end).unwrap_or(&[]))
     }
 
-    /// The first index at or after `from` where `needle` occurs (`indexOf`).
-    ///
-    /// `from` past the end is the end, so an empty needle is found at
-    /// `min(from, length)`, as in JavaScript.
     fn index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
         needle.with_units(|needle| self.index_of_units(needle, from))
     }
 
-    /// [`Self::index_of`] over a needle's code units.
     fn index_of_units(&self, needle: &[u16], from: usize) -> Option<usize> {
         let haystack = &self.0;
         let from = from.min(haystack.len());
@@ -190,7 +160,6 @@ impl JsStr {
         None
     }
 
-    /// The last index at or before `from` where `needle` occurs (`lastIndexOf`).
     fn last_index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
         needle.with_units(|needle| {
         let haystack = &self.0;
@@ -199,50 +168,40 @@ impl JsStr {
         })
     }
 
-    /// Whether `needle` occurs anywhere (`includes`).
     fn contains(&self, needle: impl SmeltJsPattern) -> bool {
         self.index_of(needle, 0).is_some()
     }
 
-    /// Whether the string starts with `prefix` (`startsWith`).
     fn starts_with(&self, prefix: impl SmeltJsPattern) -> bool {
         prefix.with_units(|prefix| self.0.starts_with(prefix))
     }
 
-    /// Whether the string ends with `suffix` (`endsWith`).
     fn ends_with(&self, suffix: impl SmeltJsPattern) -> bool {
         suffix.with_units(|suffix| self.0.ends_with(suffix))
     }
 
-    /// The string with JavaScript white space removed from both ends (`trim`).
     fn trim(&self) -> &Self {
         self.trim_start().trim_end()
     }
 
-    /// The string with leading JavaScript white space removed (`trimStart`).
     fn trim_start(&self) -> &Self {
         let start = self.0.iter().position(|unit| !js_is_white_space(*unit)).unwrap_or(self.0.len());
         Self::from_units(&self.0[start..])
     }
 
-    /// The string with trailing JavaScript white space removed (`trimEnd`).
     fn trim_end(&self) -> &Self {
         let end = self.0.iter().rposition(|unit| !js_is_white_space(*unit)).map_or(0, |last| last + 1);
         Self::from_units(&self.0[..end])
     }
 
-    /// The string repeated `count` times (`repeat`).
     fn repeat(&self, count: usize) -> JsString {
         JsString::from(self.0.repeat(count))
     }
 
-    /// The pieces between occurrences of `separator` (`split`), at most
-    /// `limit` of them. An empty separator splits into single code units.
     fn split(&self, separator: impl SmeltJsPattern, limit: usize) -> Vec<JsString> {
         separator.with_units(|separator| self.split_units(separator, limit))
     }
 
-    /// [`Self::split`] over a separator's code units.
     fn split_units(&self, separator: &[u16], limit: usize) -> Vec<JsString> {
         let mut pieces = Vec::new();
         if limit == 0 { return pieces; }
@@ -260,9 +219,6 @@ impl JsStr {
         pieces
     }
 
-    /// The string with its first occurrence of `pattern` replaced by
-    /// `replacement` (`replace` with a string pattern and a plain
-    /// replacement, no `$` substitutions).
     fn replace_first(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
         pattern.with_units(|pattern| self.index_of_units(pattern, 0).map_or_else(|| self.to_owned(), |at| {
             let mut out = Vec::with_capacity(self.len() - pattern.len() + replacement.len());
@@ -273,14 +229,10 @@ impl JsStr {
         }))
     }
 
-    /// The string with every occurrence of `pattern` replaced by `replacement`
-    /// (`replaceAll` with a string pattern and a plain replacement). An empty
-    /// pattern matches before every unit and at the end.
     fn replace_all(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
         pattern.with_units(|pattern| self.replace_all_units(pattern, replacement))
     }
 
-    /// [`Self::replace_all`] over a pattern's code units.
     fn replace_all_units(&self, pattern: &[u16], replacement: &Self) -> JsString {
         let mut out = Vec::with_capacity(self.len());
         if pattern.is_empty() {
@@ -301,19 +253,14 @@ impl JsStr {
         JsString::from(out)
     }
 
-    /// The characters, decoded: `Ok` for a scalar value, `Err` for a lone
-    /// surrogate.
     fn chars_lossless(&self) -> impl Iterator<Item = Result<char, u16>> + '_ {
         char::decode_utf16(self.0.iter().copied()).map(|decoded| decoded.map_err(|lone| lone.unpaired_surrogate()))
     }
 
-    /// The code points (`for...of`, `Array.from`, `[...s]`): a surrogate pair
-    /// is one code point, a lone surrogate is its own.
     fn code_points(&self) -> impl Iterator<Item = u32> + '_ {
         self.chars_lossless().map(|decoded| decoded.map_or_else(u32::from, u32::from))
     }
 
-    /// One string per code point (`[...s]`): a surrogate pair is one piece.
     fn code_point_strings(&self) -> Vec<JsString> {
         let mut pieces = Vec::with_capacity(self.len());
         let mut at = 0;
@@ -325,12 +272,10 @@ impl JsStr {
         pieces
     }
 
-    /// Whether the string has no lone surrogate (`isWellFormed`).
     fn is_well_formed(&self) -> bool {
         self.chars_lossless().all(|decoded| decoded.is_ok())
     }
 
-    /// The string with each lone surrogate replaced by U+FFFD (`toWellFormed`).
     fn to_well_formed(&self) -> JsString {
         if self.is_well_formed() { return self.to_owned(); }
         let mut out = Vec::with_capacity(self.len());
@@ -341,7 +286,6 @@ impl JsStr {
         JsString::from(out)
     }
 
-    /// UTF-8 text, a lone surrogate becoming U+FFFD: what Node writes to stdout.
     fn to_string_lossy(&self) -> String {
         if self.0.iter().all(|unit| *unit < 0x80) {
             return self.0.iter().map(|unit| char::from(u8::try_from(*unit).unwrap_or(b'?'))).collect();
@@ -349,27 +293,18 @@ impl JsStr {
         self.chars_lossless().map(|decoded| decoded.unwrap_or('\u{FFFD}')).collect()
     }
 
-    /// UTF-8 text when the string is well formed, `None` when it holds a lone
-    /// surrogate.
     fn to_str_exact(&self) -> Option<String> {
         self.chars_lossless().collect::<Result<String, u16>>().ok()
     }
 
-    /// The string upper-cased by the Unicode default rules (`toUpperCase`); a
-    /// lone surrogate passes through unchanged.
     fn to_upper_case(&self) -> JsString {
         self.map_case(u8::to_ascii_uppercase, str::to_uppercase)
     }
 
-    /// The string lower-cased by the Unicode default rules (`toLowerCase`); a
-    /// lone surrogate passes through unchanged.
     fn to_lower_case(&self) -> JsString {
         self.map_case(u8::to_ascii_lowercase, str::to_lowercase)
     }
 
-    /// Case mapping: `ascii` per unit when the text is ASCII, else `full` over
-    /// each well-formed run, so the standard library's special casing and
-    /// final-sigma rules apply and lone surrogates stay where they are.
     fn map_case(&self, ascii: fn(&u8) -> u8, full: fn(&str) -> String) -> JsString {
         if self.0.iter().all(|unit| *unit < 0x80) {
             return JsString::from(self.0.iter().map(|unit| u16::from(ascii(&u8::try_from(*unit).unwrap_or(b'?')))).collect::<Vec<u16>>());
@@ -390,19 +325,16 @@ impl JsStr {
         JsString::from(out)
     }
 
-    /// The code units' bytes in native order, for hashing.
     #[allow(unsafe_code)]
     const fn byte_view(&self) -> &[u8] {
         unsafe { ::std::slice::from_raw_parts(self.0.as_ptr().cast::<u8>(), self.0.len() * 2) }
     }
 
-    /// Whether the string starts with the text `prefix`.
     fn eq_str_prefix(&self, prefix: &str) -> bool {
         let mut units = self.0.iter();
         prefix.encode_utf16().all(|unit| units.next() == Some(&unit))
     }
 
-    /// The rest of the string after the text `prefix`, when it starts with it.
     fn strip_str_prefix(&self, prefix: &str) -> Option<&Self> {
         let mut at = 0;
         for unit in prefix.encode_utf16() {
@@ -412,48 +344,38 @@ impl JsStr {
         Some(Self::from_units(&self.0[at..]))
     }
 
-    /// Whether the string holds exactly the text `other`.
     fn eq_str(&self, other: &str) -> bool {
         let mut units = other.encode_utf16();
         self.0.iter().all(|unit| units.next() == Some(*unit)) && units.next().is_none()
     }
 }
 
-/// Whether `unit` is JavaScript white space or a line terminator, the set
-/// `trim` removes: TAB, VT, FF, SP, NBSP, ZWNBSP, the `Zs` category, LF, CR,
-/// LS and PS.
 const fn js_is_white_space(unit: u16) -> bool {
     matches!(unit, 0x09..=0x0D | 0x20 | 0xA0 | 0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 | 0xFEFF)
 }
 
 impl JsString {
-    /// The empty string.
     fn new() -> Self {
         Self::default()
     }
 
-    /// A string holding a copy of `units`.
     fn from_units(units: &[u16]) -> Self {
         Self(::std::rc::Rc::new(units.to_vec()))
     }
 
-    /// The borrowed view.
     fn as_js_str(&self) -> &JsStr {
         JsStr::from_units(&self.0)
     }
 
-    /// Appends `other`, in place when this handle is the buffer's only owner.
     fn push_str(&mut self, other: &JsStr) {
         if other.is_empty() { return; }
         ::std::rc::Rc::make_mut(&mut self.0).extend_from_slice(&other.0);
     }
 
-    /// Appends one code unit, in place when this handle is the only owner.
     fn push_unit(&mut self, unit: u16) {
         ::std::rc::Rc::make_mut(&mut self.0).push(unit);
     }
 
-    /// The pieces joined with `separator` between them (`Array.join`).
     fn join<I>(pieces: I, separator: &JsStr) -> Self
     where
         I: IntoIterator,
@@ -645,11 +567,7 @@ impl ::std::fmt::Debug for JsString {
     }
 }
 
-/// A search argument of the string methods: a JavaScript string, or text the
-/// emitter wrote as a Rust `&str` literal, encoded without allocating when it
-/// is short.
 pub trait SmeltJsPattern {
-    /// Calls `read` with the pattern's code units.
     fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R;
 }
 
@@ -692,7 +610,6 @@ impl<T: SmeltJsPattern + ?Sized> SmeltJsPattern for &T {
 /// The reads of a `HashMap` keyed by JavaScript strings by a key the emitter
 /// spelled as a Rust `&str` literal (a source property name).
 pub trait SmeltJsKeyedMap<V> {
-    /// The value at the key `key`, if any.
     fn get_text(&self, key: &str) -> Option<&V>;
 }
 
@@ -723,20 +640,14 @@ impl SmeltHostText for JsString {
 }
 
 /// Text a host API reads as UTF-8: URLs, header names and values, request
-/// bodies, digests. Host internals keep `String`, because their data model is
-/// UTF-8 bytes on the wire; a JavaScript string crosses into them here, a
-/// lone surrogate becoming U+FFFD as it does on Node's wire.
+/// bodies, digests.
 pub trait SmeltHostText {
-    /// The UTF-8 text, borrowed when it already is UTF-8.
     fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
 
-    /// Whether the text holds a lone surrogate, which has no UTF-8 spelling
-    /// (only a JavaScript string can).
     fn has_lone_surrogate(&self) -> bool {
         false
     }
 
-    /// The UTF-8 text as an owned `String`, for a host value that keeps it.
     fn into_host_string(self) -> String where Self: Sized {
         self.host_text().into_owned()
     }
@@ -786,44 +697,24 @@ impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltList<T> { fn fmt(&self, fo
 impl<T> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: ::std::rc::Rc::clone(&self.values) } } }
 #[allow(dead_code)]
 impl<T> SmeltList<T> {
-    /// Create an identity-bearing typed list with a fresh JS reference identity.
     fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.
     fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) -> Self { Self { id, values } }
-    /// Another handle on this array's shared buffer.
     fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<T>>> { ::std::rc::Rc::clone(&self.values) }
-    /// JS reference identity of this list.
     fn id(&self) -> usize { self.id }
-    /// Borrow the backing storage for reading. The guard lives to the end of the
-    /// enclosing statement; never pair it with `borrow_mut` in one expression.
     fn borrow(&self) -> ::std::cell::Ref<'_, Vec<T>> { self.values.borrow() }
-    /// Borrow the backing storage for writing, through the shared cell — so this
-    /// takes `&self`, and every other handle on the array observes the write.
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, Vec<T>> { self.values.borrow_mut() }
-    /// Element count, taking its own short-lived borrow.
     fn len(&self) -> usize { self.values.borrow().len() }
-    /// Whether the array holds no elements.
     fn is_empty(&self) -> bool { self.values.borrow().is_empty() }
-    /// Replace every element in place, so aliases observe the new contents.
     fn replace_all(&self, values: Vec<T>) { *self.values.borrow_mut() = values; }
 }
 #[allow(dead_code)]
 impl<T: Clone> SmeltList<T> {
-    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW identity AND a
-    /// new buffer. This is the operation that keeps sharing from over-sharing.
     fn fresh_copy(&self) -> Self { Self::new(self.values.borrow().clone()) }
-    /// Snapshot the elements. This COPIES unless this is the last handle, so
-    /// mutating the result does not write back.
     fn into_vec(self) -> Vec<T> { match ::std::rc::Rc::try_unwrap(self.values) { Ok(cell) => cell.into_inner(), Err(shared) => shared.borrow().clone() } }
-    /// Snapshot the elements without consuming the handle.
     fn to_vec(&self) -> Vec<T> { self.values.borrow().clone() }
-    /// Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
     fn get_index(&self, index: usize) -> Option<T> { self.values.borrow().get(index).cloned() }
-    /// Set the element at a numeric index, extending with `fill` holes to match JS `arr[i] = v`.
     fn set_index(&self, index: usize, value: T, fill: T) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; }
-    /// Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.values.borrow().clone().into_iter() }
 }
 impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }
@@ -872,16 +763,6 @@ impl ::std::hash::Hasher for SmeltFieldHasher {
 pub type SmeltFieldMap<K, V> = ::std::collections::HashMap<K, V, ::std::hash::BuildHasherDefault<SmeltFieldHasher>>;
 
 /// Hash a property key's bytes into a property store's key space.
-///
-/// Only the dictionary-sized path uses this; a record-sized store scans.
-/// Deliberately not routed through `Hash`/`SmeltFieldHasher`: `<str as Hash>::hash`
-/// makes TWO `Hasher::write` calls -- the bytes, then a `0xff` terminator that
-/// disambiguates concatenations -- and each rebuilds an 8-byte staging buffer.
-/// Property names are short, so this folds the length in directly (which serves
-/// the same disambiguating purpose) and takes the <=8-byte case, nearly every
-/// property name, as a single load and mix. No avalanche finalizer: the value
-/// only ever enters the `index` map, which re-hashes it through
-/// `SmeltFieldHasher`, and that finalizes.
 #[inline]
 fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
     const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
@@ -903,12 +784,6 @@ fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
 }
 
 /// A cheap same-length tie-break for a property key: length, first byte, last byte.
-///
-/// Equal keys MUST produce equal fingerprints, so every `SmeltPropertyKey`
-/// impl delegates here rather than computing its own -- a `String` entry and
-/// the `&str` a lookup borrows against it must agree or the lookup would
-/// report a present key absent. Unequal keys may collide; a fingerprint hit
-/// is always confirmed with full key equality.
 #[inline]
 fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
     let first = bytes.first().copied().unwrap_or(0) as u32;
@@ -917,10 +792,6 @@ fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
 }
 
 /// One property of a store: its key, its value, and the key's fingerprint.
-///
-/// `fingerprint` is derived from `key` at insert time and is never updated
-/// independently -- the key of an existing entry is never rewritten, only its
-/// value is -- so the two cannot drift apart.
 #[derive(Debug)]
 pub struct SmeltFieldEntry<K, V> {
     fingerprint: u32,
@@ -929,44 +800,23 @@ pub struct SmeltFieldEntry<K, V> {
 }
 
 /// Entries a property store scans linearly before it builds a hash index.
-///
-/// Set where an object stops looking like a record and starts looking like a
-/// dictionary: below it a length-first key scan beats hashing plus a probe,
-/// above it dictionary-shaped objects need their O(1) lookup back.
 const SMELT_FIELD_SCAN_LIMIT: usize = 12;
 
 /// The ordered property store behind a JavaScript object or record.
-///
-/// `entries` is held in JavaScript own-key order (array-index keys first, in
-/// ascending numeric order, then the remaining string keys in insertion
-/// order), so `keys()`/`iter()` read the order as a fact rather than
-/// re-deriving it. `index` maps a key hash to the FIRST entry position
-/// carrying it and exists ONLY while the store is larger than
-/// `SMELT_FIELD_SCAN_LIMIT` — a small store never hashes a key at all.
 #[derive(Debug)]
 pub struct SmeltFieldStore<K, V> {
     entries: Vec<SmeltFieldEntry<K, V>>,
     index: Option<SmeltFieldMap<u64, usize>>,
-    /// How many keys live in the runtime's internal `__smelt` namespace.
     internal: u32,
-    /// The live typed value this store is an erased view of, if any (see `smelt_with_origin`).
     origin: Option<Box<dyn ::std::any::Any>>,
 }
 
 impl<K, V> SmeltFieldStore<K, V> {
-    /// Build an empty store sized for `capacity` entries.
     fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None, internal: 0, origin: None } }
     #[inline]
     fn len(&self) -> usize { self.entries.len() }
-    /// Borrow the key/value pairs in JavaScript own-key order.
     #[inline]
     fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }
-    /// Whether any key is in the internal `__smelt` namespace (markers, slots).
-    ///
-    /// Every marker probe (`smelt_object_has_host_marker`, the byte-buffer
-    /// marker, `for...in`'s regexp/error/arguments checks) asks about keys in
-    /// that namespace, and almost every object has none: a store that says so
-    /// answers all of them without scanning its entries once per marker.
     #[inline]
     fn has_internal_keys(&self) -> bool { self.internal != 0 }
 }
@@ -976,29 +826,12 @@ impl<K, V> Default for SmeltFieldStore<K, V> {
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
-    /// Rebuild the hash index, or drop it when the store is small enough to scan.
     fn reindex(&mut self) {
         if self.entries.len() <= SMELT_FIELD_SCAN_LIMIT { self.index = None; return; }
         let mut index: SmeltFieldMap<u64, usize> = SmeltFieldMap::with_capacity_and_hasher(self.entries.len(), ::std::default::Default::default());
         for (position, entry) in self.entries.iter().enumerate() { index.entry(entry.key.smelt_key_hash()).or_insert(position); }
         self.index = Some(index);
     }
-    /// Return the entry position holding `key`, or `None`.
-    ///
-    /// A small store is SCANNED, comparing keys directly: `str` equality checks
-    /// the length first, so a handful of differently sized property names are
-    /// rejected without touching their bytes, and the key is never hashed. That
-    /// is the whole point — hashing a short key costs more than the scan it
-    /// would save. Two keys of the SAME length are the case that costs, so
-    /// each entry carries a `smelt_field_fingerprint` — length, first byte,
-    /// last byte — that is compared first and rejects such a key out of the
-    /// entries vector, without dereferencing its bytes. A fingerprint hit is
-    /// still confirmed with full key equality, so the answer is unchanged.
-    /// Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
-    /// dictionary rather than a record, and the hash index resolves the
-    /// position directly; a hash collision between two DISTINCT keys is
-    /// vanishingly unlikely but not impossible, so a failed key confirmation
-    /// falls back to the scan rather than reporting the key absent.
     #[inline]
     fn position<Q>(&self, key: &Q) -> Option<usize> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let fingerprint = key.smelt_key_fingerprint();
@@ -1021,7 +854,6 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         self.position(key).is_some()
     }
-    /// Remove `key`, returning its value; later positions shift, so reindex.
     fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let position = self.position(key)?;
         let entry = self.entries.remove(position);
@@ -1030,11 +862,6 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
         self.reindex();
         Some(value)
     }
-    /// Insert or overwrite `key`, keeping JavaScript own-key order.
-    ///
-    /// A new key almost always appends, which keeps the index valid with a
-    /// single added mapping; only an array-index key landing before an existing
-    /// entry shifts later positions and forces a rebuild.
     fn insert(&mut self, key: K, value: V) -> Option<V> {
         if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }
         if key.smelt_is_internal_key() { self.internal += 1; }
@@ -1063,10 +890,6 @@ struct SmeltPendingFill<K, V> {
 }
 
 /// The `RefCell` around a field store, building a pending snapshot on first use.
-///
-/// See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
-/// `RefCell` ones after materializing; `origin`/`origin_mut` skip it and reach
-/// nothing but the `origin` slot.
 pub struct SmeltStoreCell<K, V> {
     cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
     pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
@@ -1074,14 +897,11 @@ pub struct SmeltStoreCell<K, V> {
 
 #[allow(dead_code)]
 impl<K, V> SmeltStoreCell<K, V> {
-    /// A cell over an already-populated store.
     #[inline]
     fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None) } }
-    /// A cell whose entries `build` produces on the first read or write.
     fn lazy(store: SmeltFieldStore<K, V>, build: Box<dyn FnOnce() -> Vec<(K, V)>>, insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>)) -> Self {
         Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert })) }
     }
-    /// Build the pending snapshot, if any, into the store.
     #[inline]
     fn materialize(&self) {
         if let Some(fill) = self.pending.take() {
@@ -1089,16 +909,12 @@ impl<K, V> SmeltStoreCell<K, V> {
             (fill.insert)(&mut self.cell.borrow_mut(), entries);
         }
     }
-    /// Borrow the store, building a pending snapshot first.
     #[inline]
     fn borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow() }
-    /// Mutably borrow the store, building a pending snapshot first.
     #[inline]
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
-    /// The origin slot, pending snapshot left unbuilt.
     #[inline]
     fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
-    /// The origin slot, mutably, pending snapshot left unbuilt.
     #[inline]
     fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
 }
@@ -1118,7 +934,6 @@ impl<K, V> Clone for SmeltRecord<K, V> {
 }
 
 trait SmeltOwnedOptionCloned<T> {
-    /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
 }
 
@@ -1127,9 +942,6 @@ impl<T> SmeltOwnedOptionCloned<T> for Option<T> {
 }
 
 /// Return the canonical array index a JavaScript property key spells.
-///
-/// Only the canonical decimal spelling of a `u32` below `u32::MAX` is an
-/// array index, so `"01"`, `"+1"`, `"1.0"` and `"-1"` stay string keys.
 fn smelt_canonical_array_index(key: &str) -> Option<u32> {
     if key.is_empty() || key.len() > 10 { return None; }
     if key.len() > 1 && key.starts_with('0') { return None; }
@@ -1138,20 +950,10 @@ fn smelt_canonical_array_index(key: &str) -> Option<u32> {
 }
 
 /// A key of an erased JavaScript object or record.
-///
-/// Generated code only ever instantiates records with `String` keys; the
-/// trait exists so the shared ordering logic can ask a generic `K` whether
-/// it spells an array index without the containers hard-coding `String`,
-/// and so a lookup can hash a borrowed `str` key the same way the stored
-/// `String` was hashed. Both impls must agree on `smelt_key_hash` and on
-/// `smelt_key_fingerprint`, which is why both delegate to the shared
-/// `smelt_field_hash_bytes`/`smelt_field_fingerprint` functions.
 pub trait SmeltPropertyKey {
     fn smelt_array_index(&self) -> Option<u32>;
     fn smelt_key_hash(&self) -> u64;
-    /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
     fn smelt_key_fingerprint(&self) -> u32;
-    /// Whether this key is in the runtime's internal `__smelt` namespace.
     fn smelt_is_internal_key(&self) -> bool;
 }
 
@@ -1161,11 +963,6 @@ impl SmeltPropertyKey for JsStr { fn smelt_array_index(&self) -> Option<u32> { i
 impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> { (**self).smelt_array_index() } #[inline] fn smelt_key_hash(&self) -> u64 { (**self).smelt_key_hash() } #[inline] fn smelt_key_fingerprint(&self) -> u32 { (**self).smelt_key_fingerprint() } #[inline] fn smelt_is_internal_key(&self) -> bool { (**self).smelt_is_internal_key() } }
 
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
-///
-/// `entries` keeps its array-index keys as a sorted leading run, so the slot
-/// is found with two binary searches: one for the end of that run, one for
-/// the ascending slot inside it. A non-index key appends. Appending keys in
-/// ascending index order therefore stays linear overall, never quadratic.
 fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize {
     let Some(index) = key.smelt_array_index() else { return entries.len() };
     let indexed = entries.partition_point(|entry| entry.key.smelt_array_index().is_some());
@@ -1220,18 +1017,12 @@ impl<K, V> PartialEq<::std::collections::HashMap<K, V>> for SmeltRecord<K, V> wh
 }
 
 impl<V> SmeltRecord<JsString, V> {
-    /// Whether the record has the key spelled by the runtime text `key`.
     #[allow(dead_code)]
     fn has_text_key(&self, key: &str) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
-    /// The value at the key spelled by the runtime text `key`.
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<V> where V: Clone { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
 }
-/// A key an erased object is read by: a JavaScript string as it is, and the
-/// runtime's own `&str` keys (markers, spec property names) encoded on the
-/// stack when they are short, so a marker probe allocates nothing.
 pub trait SmeltObjectKey {
-    /// Calls `read` with the key as a JavaScript string.
     fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R;
 }
 
@@ -1254,7 +1045,6 @@ impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self
 #[derive(Clone)]
 pub struct SmeltHeaders {
     id: usize,
-    /// Lower-cased name and normalized value, in insertion order.
     entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
 }
 
@@ -1264,33 +1054,18 @@ impl Default for SmeltHeaders { fn default() -> Self { Self::new() } }
 
 #[allow(dead_code)]
 impl SmeltHeaders {
-    /// An empty header list with a fresh JS reference identity.
     pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    /// JS reference identity of this header list.
     pub fn id(&self) -> usize { self.id }
-    /// Build a header list from name/value pairs, appending in order.
     pub fn from_pairs<N: SmeltHostText, V: SmeltHostText>(pairs: Vec<(N, V)>) -> Self { let headers = Self::new(); for (name, value) in pairs { headers.append(&name, &value); } headers }
-    /// The spec's header-name normalization: lower-cased.
     fn normalize_name(name: &str) -> String { name.trim().to_ascii_lowercase() }
-    /// The spec's header-value normalization: strip HTTP whitespace.
     fn normalize_value(value: &str) -> String { value.trim_matches(|ch| ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n').to_owned() }
-    /// `get(name)`: every value for the name, joined with `", "`.
-    ///
-    /// `None` is the source `null`: the name is not in the list. The
-    /// return type is the source type, so no caller has to re-narrow it.
     pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name;
         let key = Self::normalize_name(name);
         let values: Vec<String> = self.entries.borrow().iter().filter(|(entry_name, _)| *entry_name == key).map(|(_, value)| value.clone()).collect();
         if values.is_empty() { None } else { Some(values.join(", ")) }
     }
-    /// `has(name)`.
     pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; let key = Self::normalize_name(name); self.entries.borrow().iter().any(|(entry_name, _)| *entry_name == key) }
-    /// `append(name, value)`: add a pair, keeping existing ones.
     pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value; self.entries.borrow_mut().push((Self::normalize_name(name), Self::normalize_value(value))); }
-    /// `set(name, value)`: replace every value for the name.
-    ///
-    /// The first existing pair's position is kept, matching the spec's
-    /// "set the value of the first such header and remove the others".
     pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let key = Self::normalize_name(name);
         let normalized = Self::normalize_value(value);
@@ -1298,17 +1073,10 @@ impl SmeltHeaders {
         let position = entries.iter().position(|(entry_name, _)| *entry_name == key);
         let Some(index) = position else { entries.push((key, normalized)); return; };
         entries[index] = (key.clone(), normalized);
-        // Keep the first pair with this name (the one just written) and
-        // drop the rest, as the spec's `set` does.
         let mut kept = false;
         entries.retain(|(entry_name, _)| { if *entry_name != key { return true; } let first = !kept; kept = true; first });
     }
-    /// `delete(name)`: remove every pair with the name.
     pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let key = Self::normalize_name(name); self.entries.borrow_mut().retain(|(entry_name, _)| *entry_name != key); }
-    /// The spec's iteration order: sorted by name, values combined.
-    ///
-    /// `set-cookie` is the exception the spec carves out: its values are
-    /// never combined, so each cookie stays its own entry.
     pub fn entries_sorted(&self) -> Vec<(String, String)> {
         let entries = self.entries.borrow();
         let mut order: Vec<usize> = (0..entries.len()).collect();
@@ -1331,40 +1099,17 @@ impl SmeltHeaders {
         }
         combined
     }
-    /// The stored pairs, in insertion order, uncombined.
-    ///
-    /// NOT the spec's iteration order (`entries_sorted`), which sorts by
-    /// name and comma-joins values. Copying a header list has to go
-    /// through this instead: rebuilding from the combined view would turn
-    /// two `Accept` headers into one, which a copy must not do.
     pub fn entries_in_insertion_order(&self) -> Vec<(String, String)> { self.entries.borrow().clone() }
-    /// `keys()`: header names in iteration order.
     pub fn keys(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(name, _)| name).collect() }
-    /// `values()`: header values in iteration order.
     pub fn values(&self) -> Vec<String> { self.entries_sorted().into_iter().map(|(_, value)| value).collect() }
-    /// `getSetCookie()`: each `Set-Cookie` value, uncombined.
     pub fn get_set_cookie(&self) -> Vec<String> { self.entries.borrow().iter().filter(|(name, _)| name == "set-cookie").map(|(_, value)| value.clone()).collect() }
 }
 
 /// The bytes a `Request`/`Response` carries, and whether they were read.
-///
-/// A body is **single-use**: the spec's `bodyUsed` becomes `true` on the
-/// first reader, and a second read is a `TypeError`. That is why the
-/// payload sits behind an `Rc<RefCell<..>>` with a `Cell<bool>` beside it
-/// rather than being moved out: two variables holding the same response
-/// observe one another's consumption, exactly as in JavaScript.
 #[derive(Clone)]
 pub enum SmeltBodyPayload {
-    /// No body at all (`new Response()`, a GET request).
     Empty,
-    /// A fully-buffered body: a string, bytes, or form data.
     Bytes(Vec<u8>),
-    /// A body still arriving in chunks, in arrival order.
-    ///
-    /// This is the shape `node:http`'s `IncomingMessage` and a streamed
-    /// `fetch` response need. Reading it concatenates the chunks;
-    /// `ReadableStream` (not implemented yet) is the surface that will
-    /// expose them one at a time.
     Stream(Vec<Vec<u8>>),
 }
 
@@ -1373,15 +1118,7 @@ pub enum SmeltBodyPayload {
 pub struct SmeltBody {
     id: usize,
     payload: ::std::rc::Rc<::std::cell::RefCell<SmeltBodyPayload>>,
-    /// The spec's `bodyUsed`, shared by every clone of this handle.
     used: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    /// The `Content-Type` this body implies, when it implies one.
-    ///
-    /// The spec's "extract a body" step returns a body *and* a type, and
-    /// the type is what a `Request`/`Response` constructor appends to the
-    /// header list when the caller did not set one. A string body implies
-    /// `text/plain;charset=UTF-8`; raw bytes and a stream imply nothing,
-    /// which is why this is an `Option` rather than a default string.
     content_type: Option<String>,
 }
 
@@ -1391,43 +1128,21 @@ impl Default for SmeltBody { fn default() -> Self { Self::empty() } }
 
 #[allow(dead_code)]
 impl SmeltBody {
-    /// An unused empty body with a fresh JS reference identity.
     pub fn empty() -> Self { Self::from_payload(SmeltBodyPayload::Empty) }
-    /// A buffered body holding `text`'s UTF-8 bytes.
-    ///
-    /// Carries `text/plain;charset=UTF-8` as its implied type, which the
-    /// holder's constructor appends when the caller set no `Content-Type`.
     pub fn from_text(text: &(impl SmeltHostText + ?Sized)) -> Self { let text = text.host_text(); let text: &str = &text; let mut body = Self::from_payload(SmeltBodyPayload::Bytes(text.as_bytes().to_vec())); body.content_type = Some("text/plain;charset=UTF-8".to_owned()); body }
-    /// A buffered body holding `bytes`.
     pub fn from_bytes(bytes: Vec<u8>) -> Self { Self::from_payload(SmeltBodyPayload::Bytes(bytes)) }
-    /// A body from a blob's bytes, carrying the blob's MIME type.
     pub fn from_blob(bytes: Vec<u8>, blob_type: String) -> Self { let mut body = Self::from_payload(SmeltBodyPayload::Bytes(bytes)); if !blob_type.is_empty() { body.content_type = Some(blob_type); } body }
-    /// A streaming body whose chunks arrive in order.
     pub fn from_chunks(chunks: Vec<Vec<u8>>) -> Self { Self::from_payload(SmeltBodyPayload::Stream(chunks)) }
-    /// Take a source body: same payload, fresh used flag, source disturbed.
     pub fn take_from_source(source: &Self) -> Self {
         if !source.is_empty() { source.used.set(true); }
         Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::clone(&source.payload), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: source.content_type.clone() }
     }
-    /// Wrap a payload, unused, with a fresh identity.
     fn from_payload(payload: SmeltBodyPayload) -> Self { Self { id: smelt_next_object_id(), payload: ::std::rc::Rc::new(::std::cell::RefCell::new(payload)), used: ::std::rc::Rc::new(::std::cell::Cell::new(false)), content_type: None } }
-    /// JS reference identity of this body.
     pub fn id(&self) -> usize { self.id }
-    /// The spec's `bodyUsed`.
     pub fn body_used(&self) -> bool { self.used.get() }
-    /// `ReadableStream.locked`: the body has no reader API in this model, so
-    /// it is locked exactly when it has been consumed (see
-    /// `smelt_stdlib::host_data_property`).
     pub fn locked(&self) -> bool { self.used.get() }
-    /// The `Content-Type` this body implies, when it implies one.
     pub fn content_type(&self) -> Option<String> { self.content_type.clone() }
-    /// Whether there is no body at all (the spec's null body).
     pub fn is_empty(&self) -> bool { matches!(&*self.payload.borrow(), SmeltBodyPayload::Empty) }
-    /// The body's bytes WITHOUT consuming it.
-    ///
-    /// Only for observers that the spec does not count as readers:
-    /// equality, `Debug`, and cloning a response. Every source-visible
-    /// reader goes through `take_bytes`.
     pub fn peek_bytes(&self) -> Vec<u8> {
         match &*self.payload.borrow() {
             SmeltBodyPayload::Empty => Vec::new(),
@@ -1435,12 +1150,6 @@ impl SmeltBody {
             SmeltBodyPayload::Stream(chunks) => chunks.concat(),
         }
     }
-    /// Consume the body, or fail the way the spec does.
-    ///
-    /// The first reader gets the bytes and sets `bodyUsed`; a second
-    /// reader gets the spec's `TypeError: Body is unusable`. The error is
-    /// a thrown JS value rather than a Rust panic, so source-level
-    /// `try`/`catch` around a double read behaves as it does in Node.
     pub fn take_bytes(&self) -> Result<Vec<u8>, Box<dyn ::std::error::Error>> {
         if self.used.get() {
             return Err(Box::<dyn ::std::error::Error>::from("TypeError: Body is unusable: Body has already been read"));
@@ -1448,31 +1157,11 @@ impl SmeltBody {
         self.used.set(true);
         Ok(self.peek_bytes())
     }
-    /// `text()`: the body decoded as UTF-8, lossily, as the spec does.
     pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { Ok(String::from_utf8_lossy(&self.take_bytes()?).into_owned()) }
-    /// A clone that shares neither the bytes nor the used flag.
-    ///
-    /// This is `Response.clone()`: the spec gives the clone its own
-    /// unread body, so reading one must not consume the other. `Clone`
-    /// (the Rust trait) is the *handle* copy and shares both, which is
-    /// what assigning a response to another variable does.
-    ///
-    /// The spec makes `clone()` of a USED body throw a `TypeError`. A clone
-    /// here is a plain value, so the clone of a used body is itself used:
-    /// every read of it throws that same `TypeError` (`Body is unusable`),
-    /// and `try { await res.clone().json() } catch {}` takes the catch as it
-    /// does in JavaScript. The error surfaces at the first read rather than
-    /// at `clone()` itself.
     pub fn tee(&self) -> Self { let mut body = Self::from_payload(self.payload.borrow().clone()); body.content_type = self.content_type.clone(); if self.used.get() { body.used.set(true); } body }
 }
 
 /// A WHATWG `Response`: a status line, a header list, and a body.
-///
-/// The status line and headers are plain fields because the spec makes
-/// them immutable on a response, so there is nothing for a shared cell to
-/// coordinate. The BODY is the mutable part — reading it is observable
-/// through every handle — and `SmeltBody` owns that sharing, which is why
-/// this struct does not wrap itself in another `Rc<RefCell<..>>`.
 #[derive(Clone)]
 pub struct SmeltResponse {
     id: usize,
@@ -1488,55 +1177,21 @@ impl Default for SmeltResponse { fn default() -> Self { Self::new() } }
 
 #[allow(dead_code)]
 impl SmeltResponse {
-    /// `new Response()`: 200, empty reason phrase, no body.
-    ///
-    /// 200 is the spec's default status, and the default reason phrase is
-    /// the EMPTY string, not `"OK"` — `new Response().statusText` is `""`
-    /// in Node. Filling in a phrase here would invent an observable value.
     pub fn new() -> Self { Self::from_parts(200.0, String::new(), SmeltHeaders::new(), SmeltBody::empty()) }
-    /// Assemble a response with a fresh JS reference identity.
-    ///
-    /// A body that implies a `Content-Type` adds it to the header list
-    /// unless the caller already set one — the spec's "extract a body"
-    /// step, which is why `new Response('hi').headers.get('content-type')`
-    /// is `text/plain;charset=UTF-8` and not `null`.
     pub fn from_parts(status: f64, status_text: impl SmeltHostText, headers: SmeltHeaders, body: SmeltBody) -> Self { let status_text = status_text.host_text().into_owned();
         if let Some(content_type) = body.content_type() { if !headers.has("content-type") {
             headers.append("content-type", &content_type);
         } }
         Self { id: smelt_next_object_id(), status, status_text, headers, body }
     }
-    /// JS reference identity of this response.
     pub fn id(&self) -> usize { self.id }
-    /// `status`.
     pub fn status(&self) -> f64 { self.status }
-    /// `statusText`.
     pub fn status_text(&self) -> String { self.status_text.clone() }
-    /// `ok`: the spec derives it from the status, so this does too.
-    ///
-    /// Storing it would let it drift from `status`; deriving cannot.
     pub fn ok(&self) -> bool { self.status >= 200.0 && self.status <= 299.0 }
-    /// `headers`.
-    ///
-    /// The same header list, not a copy: `Headers` is a reference object,
-    /// so two reads of `response.headers` observe one another.
     pub fn headers(&self) -> SmeltHeaders { self.headers.clone() }
-    /// `bodyUsed`.
     pub fn body_used(&self) -> bool { self.body.body_used() }
-    /// The response's body handle.
     pub fn body(&self) -> SmeltBody { self.body.clone() }
-    /// `text()`: the body decoded as UTF-8, consuming it.
-    ///
-    /// Fallible for the spec's reason: a second read is a `TypeError`.
     pub fn take_text(&self) -> Result<String, Box<dyn ::std::error::Error>> { self.body.take_text() }
-    /// `clone()`: a response whose body is independently readable.
-    ///
-    /// The spec's `clone()` tees the body, so reading one side must not
-    /// consume the other. It is therefore NOT Rust's `Clone`, which copies
-    /// the handle and keeps one shared body — that is what assigning a
-    /// response to a second variable does, and both spellings are needed.
-    ///
-    /// The header list is copied too: the clone's headers are its own.
     pub fn tee(&self) -> Self { Self::from_parts(self.status, self.status_text.clone(), SmeltHeaders::from_pairs(self.headers.entries_in_insertion_order()), self.body.tee()) }
 }
 

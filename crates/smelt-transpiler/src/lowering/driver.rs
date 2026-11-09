@@ -14,10 +14,9 @@
 //!
 //! The TypeScript context is kept alive across every file instead of being
 //! rebuilt per file from a mirror struct, so no field can be silently reset by
-//! a forgotten copy (the old per-file round trip re-listed ~30 fields twice).
-//! A frontend panic leaves the context in an unknown state; the recoverable
-//! driver models that as [`RecoverableLowering::Poisoned`] rather than an
-//! `Option<Crate>` taken and maybe put back.
+//! a forgotten copy. A frontend panic leaves the context in an unknown state;
+//! the recoverable driver models that as [`RecoverableLowering::Poisoned`]
+//! rather than an `Option<Crate>` taken and maybe put back.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -265,8 +264,8 @@ impl RecoverableLowering {
 
     /// Lower one file, catching a frontend panic and poisoning the driver.
     ///
-    /// Returns `None` when the driver is (now) poisoned, otherwise the file's
-    /// lowering outcome. A poisoned driver never lowers again.
+    /// Returns `None` when the driver is poisoned, otherwise the file's lowering
+    /// outcome. A poisoned driver never lowers again.
     pub(super) fn lower_source(
         &mut self,
         source: &ManifestSource,

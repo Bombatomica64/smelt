@@ -81,7 +81,7 @@ impl ModuleBuilder<'_> {
         }
         // `Set`, `Map` and `Promise` are host constructors only where the
         // callee resolves to the host: a parameter, local, class or import of
-        // one of those names is constructed as that binding (audit A4).
+        // one of those names is constructed as that binding.
         let host_callee = match &new_expr.callee {
             Expression::Identifier(callee) => self.host_global_named(callee.name.as_str()),
             _ => None,
@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
                 // callable value, so the construction is an ordinary indirect
                 // call through it, typed by the constructor's declared return
                 // type — the constructed value keeps its concrete shape instead
-                // of erasing to `unknown` (issue #54). This mirrors the
+                // of erasing to `unknown`. This mirrors the
                 // identifier value-callee path in `new_through_value_expression`.
                 if let Some(expr) = self.new_through_member_constructor_slot(new_expr, member, body)?
                 {
@@ -434,7 +434,7 @@ impl ModuleBuilder<'_> {
         // exactly as a call argument is against its parameter's: an object
         // literal passed for `options?: ContextOptions<E>` is then built as
         // that struct instead of a `Record<string, unknown>` the constructor
-        // has to take apart key by key (`blocker-logs/hono-crud-perf-round2.md`).
+        // has to take apart key by key.
         // The hints come from the prepass's constructor parameter types with
         // the class's type parameters substituted by the explicit type
         // arguments, else their defaults; a hint still naming an unsubstituted

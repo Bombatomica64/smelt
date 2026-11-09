@@ -134,7 +134,7 @@ impl ModuleBuilder<'_> {
         // route). Which representation the union gets is the emitter's
         // decision, so the union keeps a `ToBool` and the emitter folds it to
         // `true` only for a concrete generated union enum, which cannot hold an
-        // absent value (see `union_to_bool_text`).
+        // absent value .
         if !self.is_nullishable_type(cond_ty) && self.type_is_constantly_truthy(cond_ty) {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let kind = if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Union(_))) {

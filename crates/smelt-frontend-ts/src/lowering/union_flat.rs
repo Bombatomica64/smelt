@@ -18,7 +18,7 @@
 //! the result is the union over every depth up to the element's nesting.
 //!
 //! Behaviour requirement: unchanged; the runtime flattening is the same
-//! helper an erased list uses (`list_flat_text` in the Rust emitter). Type
+//! helper an erased list uses (`list_flat_expr` in the Rust emitter). Type
 //! preservation requirement: the result keeps the element type TypeScript
 //! proves instead of erasing the whole value.
 

@@ -170,7 +170,7 @@ pub(crate) fn caught_panic_message_expr(panic_text: &str) -> RustExpr {
 
 /// Renders the erased error record a `catch` observes for a caught panic.
 ///
-/// Unlike [`panic_payload_record_expr`], the class is recovered from the panic
+/// Unlike the panic payload record in `runtime/thrown.rs`, the class is recovered from the panic
 /// payload rather than hard-coded to `Error`, so a `URIError` routed through the
 /// panic channel still answers `error.name === 'URIError'`.
 pub(crate) fn caught_panic_error_value_expr(panic_text: &str) -> RustExpr {

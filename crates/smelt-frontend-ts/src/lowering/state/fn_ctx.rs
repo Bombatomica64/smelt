@@ -7,14 +7,12 @@
 //! lowered, whether postfix updates are being deferred past a declaration, and
 //! whether a lifted specialization keeps its concrete `this`.
 //!
-//! These used to be seven loose `ModuleBuilder` fields saved and restored by
-//! hand at every body entry point, and each entry point saved a different
-//! subset. A nested body therefore inherited whatever its entry point forgot to
-//! reset: a class method lowered while the enclosing statement's block was
-//! active pushed a parameter-default update into a `BlockId` of the OUTER body
-//! (a panic, or a silently misplaced store), and a method of a class expression
-//! in a `const` initializer appended its own `x++` to the OUTER declaration's
-//! deferral list.
+//! One value per body, so a nested body starts from a fresh context rather than
+//! inheriting what its entry point forgot to reset: a class method lowered while
+//! the enclosing statement's block is active must not push a parameter-default
+//! update into a `BlockId` of the OUTER body, and a method of a class expression
+//! in a `const` initializer must not append its own `x++` to the OUTER
+//! declaration's deferral list.
 //!
 //! # The invariants this module owns
 //!
@@ -124,8 +122,8 @@ pub(in crate::lowering) struct FnCtx {
     /// nothing ever writes; it takes its reservation with
     /// [`ModuleBuilder::take_forward_local_reservation`]. Reservations name
     /// locals of THIS body, so they live and die with its context: one left
-    /// behind by a declaration that failed to lower can no longer be taken by
-    /// a same-named declaration in a sibling body.
+    /// behind by a declaration that failed to lower cannot be taken by a
+    /// same-named declaration in a sibling body.
     forward_referenced_locals: HashSet<String>,
 }
 

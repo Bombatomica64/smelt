@@ -544,7 +544,6 @@ impl ModuleBuilder<'_> {
     }
 }
 
-// Module/import lowering helpers.
 include!("lowering/module_imports.rs");
 // Top-level bindings as module globals.
 include!("lowering/module_variables.rs");
@@ -552,7 +551,6 @@ include!("lowering/module_variables.rs");
 include!("lowering/default_params.rs");
 // Host-runtime specialization manifest consumption.
 include!("lowering/specialization.rs");
-// Class lowering helpers.
 include!("lowering/class.rs");
 // Class initializer synthesis helpers.
 include!("lowering/class_init.rs");
@@ -562,9 +560,7 @@ include!("lowering/function.rs");
 include!("lowering/pytest.rs");
 // Type annotation lowering helpers.
 include!("lowering/types.rs");
-// Statement lowering helpers.
 include!("lowering/statement.rs");
-// Control-flow statement lowering helpers.
 include!("lowering/control_flow.rs");
 // Exception classes, `raise` and `try`/`except`.
 include!("lowering/exceptions.rs");
@@ -572,7 +568,6 @@ include!("lowering/exceptions.rs");
 include!("lowering/match.rs");
 // Literal and base expression lowering helpers.
 include!("lowering/literals.rs");
-// Call lowering helpers.
 include!("lowering/call.rs");
 // Collection constructor and list/set/dict helpers.
 include!("lowering/list.rs");

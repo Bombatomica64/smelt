@@ -39,10 +39,10 @@
 // crate's `#![allow(dead_code)]` — the same trade the `typeof` helper makes.
 // @smelt:item smelt_number_to_string
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
-///
-/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
-/// decimal exponent of the shortest round-trip digit string — which is
-/// what Rust's `{:e}` already produces.
+//~
+//~ Exponential notation at `n > 21` and `n <= -6`, where `n` is the
+//~ decimal exponent of the shortest round-trip digit string — which is
+//~ what Rust's `{:e}` already produces.
 //~ `Borrow<f64>` rather than `f64`, so the one helper serves both call
 //~ shapes the emitter produces: a by-value number, and the `&f64` a
 //~ `match` over a BORROWED erased value binds (an erased list's items are

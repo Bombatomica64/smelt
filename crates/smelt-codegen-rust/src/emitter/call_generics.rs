@@ -117,12 +117,10 @@ impl FunctionEmitter<'_> {
     ///
     /// # Remaining scope
     ///
-    /// Increment 0b deleted this predicate's *general* consumers: the composite
-    /// argument decision and the return-conversion ladder now ask
-    /// [`crate::generic_bindings::substitution_matches`], which is exact and
-    /// unforgiving, instead of this whole-tree conjunction. What is left is one
-    /// caller, [`Self::mut_list_adapter_arg`], so this is now the mutable-list
-    /// adapter's private rule rather than a shared one.
+    /// General consumers (the composite argument decision and the return-conversion
+    /// ladder) ask [`crate::generic_bindings::substitution_matches`], which is exact
+    /// and unforgiving; this whole-tree conjunction is the mutable-list adapter's
+    /// private rule, with [`Self::mut_list_adapter_arg`] as its one caller.
     ///
     /// It is kept rather than migrated because the adapter *needs* the
     /// divergences listed above: its `TypeParam`-target-accepts-anything arm is
@@ -175,9 +173,8 @@ impl FunctionEmitter<'_> {
                 class
             }
             // Static methods are emitted as receiver-free associated functions and
-            // do not participate in the receiver's generic instantiation (static
-            // members on generic classes are deferred, see #98), so they carry no
-            // class type parameters relevant to argument pass-through here.
+            // do not participate in the receiver's generic instantiation, so they
+            // carry no class type parameters relevant to argument pass-through here.
             HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => return Vec::new(),
         };
         crate::classes::find_class(self.mir, class_name)
@@ -267,8 +264,7 @@ impl FunctionEmitter<'_> {
     /// Decide whether one static call really monomorphizes a generic callee at
     /// the caller's concrete types.
     ///
-    /// This replaces the former bare-`TypeParam`-return predicates. The return
-    /// shape is no longer an input to the decision: what licenses passing an
+    /// The return shape is not an input to the decision: what licenses passing an
     /// argument through concretely is that *this call site pins every one of the
     /// callee's type parameters*, not what the callee happens to return. The
     /// substituted return type falls out of the same bindings

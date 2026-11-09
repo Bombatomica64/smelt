@@ -84,10 +84,9 @@ impl FunctionEmitter<'_> {
             // `module_init`'s `append_module_exit_drain`. So this emission
             // supplies only the runtime the body runs on.
             // The signature depends only on whether the body can throw, and
-            // the runtime scope only on whether it is async. They used to be
-            // entangled because an async `main` carried a `#[tokio::main]`
-            // attribute; it now builds its own runtime inside the body, so the
-            // two questions are answered separately.
+            // the runtime scope only on whether it is async: an async `main`
+            // builds its own runtime inside the body, so the two questions are
+            // answered separately.
             if self.function.can_throw {
                 out.push_str(&format!("{visibility}fn main() -> Result<(), {ERROR_BOX}> {{\n"));
             } else {
@@ -120,7 +119,7 @@ impl FunctionEmitter<'_> {
         // erasure (`OwnGenerics::Erased`). In that case the parameters and body
         // are already rendered as `SmeltUnknown`, so declaring `<T>` would leave
         // an unconstrained, uninferable type parameter on the signature.
-        // Source type parameters first, then Increment 2's generated
+        // Source type parameters first, then the generated
         // `F{n}: Fn(..) + ?Sized` callback bounds, in declaration order.
         let generics = if self.role.own_generics_erased() {
             String::new()
@@ -529,9 +528,8 @@ impl FunctionEmitter<'_> {
                     // `async` block. The returned future therefore owns its state
                     // and is `'static`, so specs can spawn `receiver.method()` as
                     // a detached task without the future borrowing the local
-                    // receiver (which previously produced E0597). Reference-class
-                    // receivers clone as a cheap `Rc` handle preserving identity;
-                    // value classes derive `Clone`.
+                    // receiver (E0597). Reference-class receivers clone as a cheap
+                    // `Rc` handle preserving identity; value classes derive `Clone`.
                     let inner_ret = self.rendered_type(self.function.return_ty)?;
                     out.push_str(&format!(
                         "    fn {name}({rendered_params}) -> SmeltFuture<{inner_ret}> {{\n"
@@ -711,9 +709,9 @@ impl FunctionEmitter<'_> {
 /// The key is the emitted item's identity, never its rendering: the function
 /// id for a free function (whose name the plan made unique), and the owning
 /// class, the member's symbol and its kind for a constructor, method or static
-/// method. Overload implementations that share ONE emitted member still share
-/// one key, so the priority rule that picks between their signatures is
-/// unchanged; a static and an instance method of one name no longer do.
+/// method. Overload implementations that share ONE emitted member share
+/// one key, so the priority rule picks between their signatures; a static and
+/// an instance method of one name have different keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SignatureKey {
     /// A free function.

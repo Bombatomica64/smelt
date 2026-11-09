@@ -87,9 +87,7 @@ impl ModuleBuilder<'_> {
             // spelling through interning so erasure can stamp the `__smelt_map`
             // marker. At the type-check level the source-spelling distinction is
             // irrelevant, so the two are assignable in both directions with the
-            // same recursive key/value check `Dict` always had. Keeping them
-            // interchangeable here is what prevents `new Map(...)`/`Map<K,V>`
-            // stamping from rejecting mappings that previously typed as `Dict`.
+            // same recursive key/value check.
             (
                 Type::Dict(actual_key, actual_value) | Type::JsMap(actual_key, actual_value),
                 Type::Dict(expected_key, expected_value) | Type::JsMap(expected_key, expected_value),

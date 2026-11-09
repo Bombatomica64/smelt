@@ -871,9 +871,9 @@ const MAX_THROWING_ROUNDS: usize = 32;
 /// ABI, and [`closures::widen_throwing_closure_types`] gives that ABI to every
 /// local holding a closure marked throwing. The pair runs until a round leaves
 /// the observable state (every `can_throw` flag and every local and capture
-/// type) unchanged. It used to be unrolled exactly twice; no source program is
-/// known to need a third round (a five-closure call chain settles in two), but
-/// the fixpoint makes that a checked property instead of an assumption.
+/// type) unchanged. No source program is known to need a third round (a
+/// five-closure call chain settles in two), but the fixpoint makes that a
+/// checked property instead of an assumption.
 ///
 /// # Errors
 ///

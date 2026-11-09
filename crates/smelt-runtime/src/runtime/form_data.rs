@@ -23,7 +23,7 @@
 //   the same decoder `SmeltUrlSearchParams` uses, so the two cannot disagree
 //   about `+`, `%XX` or a pair with no `=`;
 // * `multipart/form-data` (RFC 7578), parsed by
-//   [`emit_multipart_helpers`]'s generated helpers.
+//   the generated multipart helpers.
 //
 // **Why the multipart parser is written here rather than taken from a crate.**
 // The obvious candidates are stream parsers: `multer` is built on
@@ -40,33 +40,33 @@
 // Emit `SmeltFormDataValue`, the `string | File` entry value.
 // @smelt:item SmeltFormDataValue when form_data
 /// A WHATWG form entry value: `string | File`.
-///
-/// Both arms are modeled concrete types, so a form entry never needs a
-/// tagged runtime value. The file arm is a `SmeltBlob` whose name is
-/// present, which is what a `File` is (see `StdlibClass::File`).
+//~
+//~ Both arms are modeled concrete types, so a form entry never needs a
+//~ tagged runtime value. The file arm is a `SmeltBlob` whose name is
+//~ present, which is what a `File` is (see `StdlibClass::File`).
 #[derive(Clone, PartialEq, Debug)]
 pub enum SmeltFormDataValue {
-    /// A text entry.
+    //~ A text entry.
     Text(String),
-    /// A file entry.
+    //~ A file entry.
     File(SmeltBlob),
 }
 
 #[allow(dead_code)]
 impl SmeltFormDataValue {
-    /// The entry read as text: a text entry verbatim, a file's bytes
-    /// decoded as UTF-8. This is what the urlencoded serialization and
-    /// `String(value)` observe.
+    //~ The entry read as text: a text entry verbatim, a file's bytes
+    //~ decoded as UTF-8. This is what the urlencoded serialization and
+    //~ `String(value)` observe.
     pub fn to_text(&self) -> String { match self { Self::Text(text) => text.clone(), Self::File(file) => file.to_text() } }
-    /// Whether this entry is a file.
+    //~ Whether this entry is a file.
     pub fn is_file(&self) -> bool { matches!(self, Self::File(_)) }
 }
 
 /// Build a form entry value from a blob, applying the spec's naming rule.
-///
-/// A `Blob` that is not a `File` becomes a `File` named `blob`; an
-/// explicit `filename` argument replaces whatever name the value has.
-/// That falls out of modeling a file as a blob whose name is present.
+//~
+//~ A `Blob` that is not a `File` becomes a `File` named `blob`; an
+//~ explicit `filename` argument replaces whatever name the value has.
+//~ That falls out of modeling a file as a blob whose name is present.
 #[allow(dead_code)]
 fn smelt_form_data_file_value(blob: SmeltBlob, filename: Option<impl SmeltHostText>) -> SmeltFormDataValue { let filename = filename.map(SmeltHostText::into_host_string);
     let existing = if blob.is_file() { Some(blob.file_name()) } else { None };
@@ -80,7 +80,7 @@ fn smelt_form_data_file_value(blob: SmeltBlob, filename: Option<impl SmeltHostTe
 #[derive(Clone)]
 pub struct SmeltFormData {
     id: usize,
-    /// Name/value pairs in insertion order.
+    //~ Name/value pairs in insertion order.
     entries: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, SmeltFormDataValue)>>>,
 }
 
@@ -96,24 +96,24 @@ impl Default for SmeltFormData { fn default() -> Self { Self::new() } }
 //~ Emit the WHATWG `FormData` operations as inherent methods.
 #[allow(dead_code)]
 impl SmeltFormData {
-    /// An empty form with a fresh JS reference identity.
+    //~ An empty form with a fresh JS reference identity.
     pub fn new() -> Self { Self { id: smelt_next_object_id(), entries: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
-    /// JS reference identity of this form.
+    //~ JS reference identity of this form.
     pub fn id(&self) -> usize { self.id }
-    /// Build a form from name/value pairs, in order.
+    //~ Build a form from name/value pairs, in order.
     pub fn from_pairs(pairs: Vec<(String, SmeltFormDataValue)>) -> Self { let form = Self::new(); form.entries.borrow_mut().extend(pairs); form }
-    /// `get(name)`: the FIRST value for a name, or `null`.
+    //~ `get(name)`: the FIRST value for a name, or `null`.
     pub fn get(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<SmeltFormDataValue> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().find(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()) }
-    /// `getAll(name)`: every value for a name, in order.
+    //~ `getAll(name)`: every value for a name, in order.
     pub fn get_all(&self, name: &(impl SmeltHostText + ?Sized)) -> Vec<SmeltFormDataValue> { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().filter(|(entry_name, _)| entry_name == name).map(|(_, value)| value.clone()).collect() }
-    /// `has(name)`.
+    //~ `has(name)`.
     pub fn has(&self, name: &(impl SmeltHostText + ?Sized)) -> bool { let name = name.host_text(); let name: &str = &name; self.entries.borrow().iter().any(|(entry_name, _)| entry_name == name) }
-    /// `append(name, value)`.
+    //~ `append(name, value)`.
     pub fn append(&self, name: &(impl SmeltHostText + ?Sized), value: SmeltFormDataValue) { let name = name.host_text(); let name: &str = &name; self.entries.borrow_mut().push((name.to_owned(), value)); }
-    /// `set(name, value)`: replace the first entry, drop the rest.
-    ///
-    /// Position-preserving, like the params list: the surviving entry
-    /// stays where the first one was rather than moving to the end.
+    //~ `set(name, value)`: replace the first entry, drop the rest.
+    //~
+    //~ Position-preserving, like the params list: the surviving entry
+    //~ stays where the first one was rather than moving to the end.
     pub fn set(&self, name: &(impl SmeltHostText + ?Sized), value: SmeltFormDataValue) { let name = name.host_text(); let name: &str = &name;
         let mut entries = self.entries.borrow_mut();
         let position = entries.iter().position(|(entry_name, _)| entry_name == name);
@@ -122,24 +122,24 @@ impl SmeltFormData {
         let mut kept = false;
         entries.retain(|(entry_name, _)| { if entry_name != name { return true; } let first = !kept; kept = true; first });
     }
-    /// `delete(name)`: remove every entry with the name.
+    //~ `delete(name)`: remove every entry with the name.
     pub fn delete(&self, name: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; self.entries.borrow_mut().retain(|(entry_name, _)| entry_name != name); }
-    /// `entries()`: the pairs in insertion order.
+    //~ `entries()`: the pairs in insertion order.
     pub fn entries_in_order(&self) -> Vec<(String, SmeltFormDataValue)> { self.entries.borrow().clone() }
-    /// `keys()`: one name per ENTRY, in insertion order.
-    ///
-    /// A duplicated name appears once per entry, because the spec's
-    /// iterator walks the entry list rather than a set of names.
+    //~ `keys()`: one name per ENTRY, in insertion order.
+    //~
+    //~ A duplicated name appears once per entry, because the spec's
+    //~ iterator walks the entry list rather than a set of names.
     pub fn keys(&self) -> Vec<String> { self.entries.borrow().iter().map(|(name, _)| name.clone()).collect() }
-    /// `values()`: entry values in insertion order.
+    //~ `values()`: entry values in insertion order.
     pub fn values(&self) -> Vec<SmeltFormDataValue> { self.entries.borrow().iter().map(|(_, value)| value.clone()).collect() }
-    /// The number of entries.
+    //~ The number of entries.
     pub fn size(&self) -> f64 { self.entries.borrow().len() as f64 }
-    /// Parse `application/x-www-form-urlencoded` bytes into a form.
-    ///
-    /// Delegated to `url::form_urlencoded`, the same decoder
-    /// `SmeltUrlSearchParams::from_query` uses. Every entry is text:
-    /// this encoding cannot carry a file.
+    //~ Parse `application/x-www-form-urlencoded` bytes into a form.
+    //~
+    //~ Delegated to `url::form_urlencoded`, the same decoder
+    //~ `SmeltUrlSearchParams::from_query` uses. Every entry is text:
+    //~ this encoding cannot carry a file.
     pub fn from_urlencoded(bytes: &[u8]) -> Self {
         let pairs = url::form_urlencoded::parse(bytes).map(|(name, value): (::std::borrow::Cow<'_, str>, ::std::borrow::Cow<'_, str>)| (name.into_owned(), SmeltFormDataValue::Text(value.into_owned()))).collect::<Vec<(String, SmeltFormDataValue)>>();
         Self::from_pairs(pairs)
@@ -153,7 +153,7 @@ impl SmeltFormData {
     //~ The boundary is a PARAMETER rather than minted here, because it also
     //~ has to appear in the body's `Content-Type` header — the framing bytes
     //~ and the header have to agree, and only the caller holds both.
-    /// Serialize this form as `multipart/form-data` bytes (RFC 7578).
+    //~ Serialize this form as `multipart/form-data` bytes (RFC 7578).
     pub fn to_multipart(&self, boundary: &str) -> Vec<u8> {
         let mut bytes: Vec<u8> = Vec::new();
         for (name, value) in self.entries_in_order() {
@@ -183,13 +183,13 @@ impl SmeltFormData {
         bytes.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
         bytes
     }
-    /// Parse `multipart/form-data` bytes (RFC 7578) into a form.
-    ///
-    /// A part with a `filename` parameter on its `Content-Disposition`
-    /// is a FILE entry, carrying the part's `Content-Type` (the RFC's
-    /// default is `text/plain`); any other part is a text entry decoded
-    /// as UTF-8. A part with no `name` parameter is skipped, as it names
-    /// no form field.
+    //~ Parse `multipart/form-data` bytes (RFC 7578) into a form.
+    //~
+    //~ A part with a `filename` parameter on its `Content-Disposition`
+    //~ is a FILE entry, carrying the part's `Content-Type` (the RFC's
+    //~ default is `text/plain`); any other part is a text entry decoded
+    //~ as UTF-8. A part with no `name` parameter is skipped, as it names
+    //~ no form field.
     pub fn from_multipart(bytes: &[u8], boundary: &str) -> Self {
         let form = Self::new();
         for (headers, content) in smelt_multipart_parts(bytes, boundary) {
@@ -208,7 +208,7 @@ impl SmeltFormData {
 //~
 //~ Free `smelt_*` functions rather than methods: they are byte-level utilities
 //~ over a `&[u8]`, they carry no form state, and keeping them out of the impl
-//~ keeps [`emit_inherent_impl`]'s methods readable.
+//~ keeps the inherent methods readable.
 //~
 //~ A fresh boundary per body, which is what the spec requires: it must not
 //~ occur in the payload. The JS reference implementations mint a random one;
@@ -229,11 +229,11 @@ fn smelt_find_bytes(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize
 }
 
 /// Split multipart bytes into each part's (header lines, content).
-///
-/// The delimiter is `--<boundary>`; a part ends at the CRLF before the
-/// next delimiter, and the header block ends at the first empty line.
-/// The closing `--<boundary>--` delimiter has no part after it, and the
-/// preamble before the first delimiter is discarded, both per RFC 7578.
+//~
+//~ The delimiter is `--<boundary>`; a part ends at the CRLF before the
+//~ next delimiter, and the header block ends at the first empty line.
+//~ The closing `--<boundary>--` delimiter has no part after it, and the
+//~ preamble before the first delimiter is discarded, both per RFC 7578.
 #[allow(dead_code)]
 fn smelt_multipart_parts(bytes: &[u8], boundary: &str) -> Vec<(Vec<String>, Vec<u8>)> {
     let delimiter = format!("--{boundary}").into_bytes();
@@ -261,9 +261,9 @@ fn smelt_multipart_header(headers: &[String], name: &str) -> Option<String> {
 }
 
 /// Read a `name="value"` parameter out of a header value.
-///
-/// RFC 7578 sends `name` and `filename` as quoted strings, so an
-/// unquoted form is accepted too but the quoted one is what is written.
+//~
+//~ RFC 7578 sends `name` and `filename` as quoted strings, so an
+//~ unquoted form is accepted too but the quoted one is what is written.
 #[allow(dead_code)]
 fn smelt_multipart_parameter(header: &str, parameter: &str) -> Option<String> {
     for piece in header.split(';') {
@@ -339,19 +339,19 @@ impl IntoSmeltUnknown for SmeltFormData {
 }
 
 /// The modeled members of an erased `FormData` record, resolved at run time.
-///
-/// **Dynamic boundary.** The receiver is a marker-bearing record, so the
-/// member it carries is decided by the record's marker and the member NAME,
-/// both of which are runtime values here — a program reaches this only by
-/// erasing the value on purpose (`as any`, an `any`-typed field), since every
-/// ordinary spelling keeps its type through narrowing. Answering `undefined`
-/// instead, which is what a plain property read does, was a silent wrong
-/// value: `(headers as any).get('a')` gave `null` where Node gives the header.
-///
-/// The recovered value is the SAME one the record was erased from (the origin
-/// registry), so a mutating member is observed by the holder of the concrete
-/// value. Only the synchronous members are here; the async body readers are
-/// not, and they keep the erased read's `undefined`.
+//~
+//~ **Dynamic boundary.** The receiver is a marker-bearing record, so the
+//~ member it carries is decided by the record's marker and the member NAME,
+//~ both of which are runtime values here — a program reaches this only by
+//~ erasing the value on purpose (`as any`, an `any`-typed field), since every
+//~ ordinary spelling keeps its type through narrowing. Answering `undefined`
+//~ instead, which is what a plain property read does, was a silent wrong
+//~ value: `(headers as any).get('a')` gave `null` where Node gives the header.
+//~
+//~ The recovered value is the SAME one the record was erased from (the origin
+//~ registry), so a mutating member is observed by the holder of the concrete
+//~ value. Only the synchronous members are here; the async body readers are
+//~ not, and they keep the erased read's `undefined`.
 fn smelt_form_data_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_formdata") { return None; } if !matches!(name, "get" | "getAll" | "has" | "set" | "append" | "delete" | "keys" | "values" | "entries") { return None; } let form = <SmeltFormData as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); let method = name.to_owned(); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let arg = |index: usize| args.get(index).cloned().map_or_else(String::new, smelt_property_key); let entry_value = |value: SmeltFormDataValue| match value { SmeltFormDataValue::Text(text) => SmeltUnknown::String(text.into()), SmeltFormDataValue::File(file) => file.into_smelt_unknown() }; Ok(match method.as_str() { "get" => form.get(&arg(0)).map_or(SmeltUnknown::Null, entry_value), "getAll" => SmeltUnknown::Array(form.get_all(&arg(0)).into_iter().map(entry_value).collect::<Vec<_>>().into()), "has" => SmeltUnknown::Bool(form.has(&arg(0))), "set" => { form.set(&arg(0), SmeltFormDataValue::Text(arg(1))); SmeltUnknown::Undefined }, "append" => { form.append(&arg(0), SmeltFormDataValue::Text(arg(1))); SmeltUnknown::Undefined }, "delete" => { form.delete(&arg(0)); SmeltUnknown::Undefined }, "keys" => SmeltUnknown::Array(form.keys().into_iter().map(|value| SmeltUnknown::String(value.into())).collect::<Vec<_>>().into()), "values" => SmeltUnknown::Array(form.values().into_iter().map(entry_value).collect::<Vec<_>>().into()), _ => SmeltUnknown::Array(form.entries_in_order().into_iter().map(|(entry_name, value)| SmeltUnknown::Array(Vec::from([SmeltUnknown::String(entry_name.into()), entry_value(value)]).into())).collect::<Vec<_>>().into()), }) }))) }
 
 /// Rebuild a form from an erased value.

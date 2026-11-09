@@ -93,7 +93,7 @@ impl ModuleBuilder<'_> {
     ///   (`[Symbol.for("k")]`), aliased to a `const` (`[matcher]`), or read
     ///   through a namespace import (`[symbols.override]`) — which folds to a
     ///   stable synthetic spelling derived from the registry description because
-    ///   registry symbols are globally interned (issue #115).
+    ///   registry symbols are globally interned.
     ///
     /// The boolean is `true` when the resolved name is a synthetic symbol key
     /// (interned verbatim) rather than an ordinary source-name-folded key.

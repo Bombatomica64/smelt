@@ -42,8 +42,7 @@
 //! # Eligibility
 //!
 //! [`method_is_proto_eligible`] is deliberately a *whitelist*, and a method it
-//! rejects is simply absent — exactly the pre-existing behaviour — rather than
-//! being routed through a fabricated value.
+//! rejects is simply absent rather than routed through a fabricated value.
 
 #![expect(
     clippy::redundant_pub_crate,
@@ -294,10 +293,9 @@ fn erased_callable_adapter(
             args.push(RustExpr::atom(emitter.erased_proto_argument(*param, &erased)?));
             continue;
         }
-        // The parameter's TYPE decides how it is recovered. This used to reach
-        // for the blanket `SmeltFromUnknown` regardless — the declaration was
-        // fetched and discarded — which does not compile for a parameter type
-        // that has no such impl. See `record_field_from_unknown_expr`.
+        // The parameter's TYPE decides how it is recovered: the blanket
+        // `SmeltFromUnknown` does not compile for a parameter type that has no such
+        // impl. See `record_field_from_unknown_expr`.
         args.push(crate::emitter::record_coercion::record_field_from_unknown_expr(
             mir,
             &RustExpr::chain(format!(
@@ -483,12 +481,12 @@ pub(crate) fn class_proto_entries_method(
     if pushes.is_empty() {
         return Ok(None);
     }
+    // Entries are keyed under the runtime's `__smelt_method:` prefix, which
+    // `smelt_get_object_field` resolves after the own property misses and which
+    // key enumeration, structural equality, hashing and JSON all skip: a class's
+    // methods are non-enumerable.
     let mut out = String::new();
     out.push_str("    /// Prototype-carried members of this class, as receiver-bound erased functions.\n");
-    out.push_str("    ///\n");
-    out.push_str("    /// Keyed under the runtime's `__smelt_method:` prefix, which `smelt_get_object_field`\n");
-    out.push_str("    /// resolves after the own property misses, and which key enumeration, structural\n");
-    out.push_str("    /// equality, hashing and JSON all skip -- a class's methods are non-enumerable.\n");
     out.push_str("    #[allow(dead_code)]\n");
     out.push_str(&format!(
         "    fn {PROTO_ENTRIES_METHOD}(&self) -> Vec<(String, SmeltUnknown)> {{\n"

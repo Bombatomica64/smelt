@@ -792,7 +792,7 @@ impl ModuleBuilder<'_> {
         // terminates. It still says NO for shapes that do terminate but need
         // real flow analysis to prove it (a `while (true)`, a `switch` without a
         // `default` that nonetheless covers its scrutinee), and a `no` here only
-        // means the caller's fallback is kept — the pre-existing behaviour.
+        // means the caller's fallback is kept.
         let body_always_returns = match &body_kind {
             ClosureBodyKind::ArrowExpression(_) => false,
             ClosureBodyKind::Statements(statements) => {

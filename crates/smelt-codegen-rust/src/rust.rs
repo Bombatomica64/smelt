@@ -717,15 +717,11 @@ mod tests {
 
 /// A Rust type fragment that has already been rendered as source text.
 ///
-/// Deliberately a newtype over `String` rather than a structured type. The
-/// canonical lowering entry point (`FunctionEmitter::rust_type`) is required to
-/// reproduce today's rendered bytes exactly, and every structural rendering
-/// decision it makes — container spellings, the one-tuple `(T,)` form, the
-/// `impl Fn` versus `Rc<dyn Fn>` split, inference placeholders — is a place a
-/// re-derived `Display` implementation could differ by a character. Wrapping the
-/// existing text costs nothing and makes the return type nameable now; giving
-/// `RustType` an internal representation later is a change behind these same
-/// constructors.
+/// Deliberately a newtype over `String` rather than a structured type. Every
+/// structural rendering decision of the canonical lowering entry point
+/// (`FunctionEmitter::rust_type`) — container spellings, the one-tuple `(T,)`
+/// form, the `impl Fn` versus `Rc<dyn Fn>` split, inference placeholders — is
+/// a place a re-derived `Display` implementation could differ by a character.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,

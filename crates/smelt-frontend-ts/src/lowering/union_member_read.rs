@@ -12,7 +12,7 @@
 //!
 //! — typed `SmeltUnknown`, which then infected every consumer downstream. A
 //! hand-writing Rust team would match the enum and read the field off the arm,
-//! which is what a METHOD call on a union already does (`union_method_text` in
+//! which is what a METHOD call on a union already does (`union_method_expr` in
 //! the emitter).
 //!
 //! # Why the desugaring lives here and not in the emitter

@@ -2,11 +2,11 @@
 //!
 //! Three consumers need "every type the backend may read": operational type
 //! normalization rewrites them, the validator checks that each exists, and the
-//! inherited-member pass substitutes and interns those of a method body. Each
-//! used to keep its own partial list, and all three skipped the same positions
-//! (`JsonParse.target`, `MirGlobal.ty`, an `UnknownCast` stored through a place
-//! or a dict-entry update, a fallible op's render type), so a type there could
-//! be unnormalized or dangling (audit finding C6).
+//! inherited-member pass substitutes and interns those of a method body. One
+//! list means none of them can skip a position (`JsonParse.target`,
+//! `MirGlobal.ty`, an `UnknownCast` stored through a place or a dict-entry
+//! update, a fallible op's render type) and leave a type there unnormalized or
+//! dangling.
 //!
 //! This module is the one list. The `Rvalue` arms are generated from the op
 //! table: a `(ty)` field is visited directly and a carried `[T]` field through

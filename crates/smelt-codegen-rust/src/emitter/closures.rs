@@ -189,12 +189,10 @@ impl FunctionEmitter<'_> {
                                 return format!("let {SELF_CAPTURE_NAME} = self.clone();");
                             }
                             // Mutability is driven purely by whether the closure
-                            // body actually writes through the capture. A blanket
-                            // `mut` for every list/set/dict capture made almost
-                            // every collection binding `mut` regardless of use;
-                            // `closure_capture_body_writes` now recognizes every
-                            // write shape (including callback/mut-ref forwarding),
-                            // so read-only captures stay non-`mut`.
+                            // body actually writes through the capture:
+                            // `closure_capture_body_writes` recognizes every write
+                            // shape (including callback/mut-ref forwarding), so
+                            // read-only captures stay non-`mut`.
                             let mutability = if self.mutable_locals.contains(&capture.source_local)
                                 || source_closure
                                     .captures
@@ -623,8 +621,7 @@ impl FunctionEmitter<'_> {
             let mut owned_param_prelude = String::new();
             // Whether this closure's body is moved into a `'static` block — an
             // `async move` future or a generator producer. Such a body can only hold
-            // OWNED values, so every by-reference parameter is copied on entry, which
-            // is exactly the value the by-value ABI used to hand it.
+            // OWNED values, so every by-reference parameter is copied on entry.
             let body_moves_into_static_block = closure_is_async
                 || closure.is_generator
                 || matches!(self.mir.types.get(closure_return_ty), Some(Type::Future(_)));
@@ -678,8 +675,7 @@ impl FunctionEmitter<'_> {
                         //
                         // The signature cannot change: it has to keep matching the
                         // `dyn Fn` this closure is cast to. So the body materializes
-                        // its own owned copy from the reference, which is exactly the
-                        // value the by-VALUE ABI used to hand it — a JS parameter
+                        // its own owned copy from the reference. A JS parameter
                         // rebind, and a mutation through an owned parameter copy, are
                         // both invisible to the caller either way (see
                         // `parameter_needs_mutable_reference_in`, which is what gives
@@ -1123,8 +1119,7 @@ impl FunctionEmitter<'_> {
     /// an `Rvalue::Await` statement. Nested closures (Promise continuations,
     /// `async move` blocks) are separate `MirFunction`s referenced through
     /// `Rvalue::Closure` and are never inlined into `self.function.blocks`, so
-    /// their awaits are naturally excluded — this is the structural, formatting-
-    /// independent replacement for the old brace-counting text scan.
+    /// their awaits are naturally excluded.
     pub(super) fn closure_body_awaits(&self) -> bool {
         self.function.blocks.iter().any(|block| {
             let terminator_awaits = matches!(&block.terminator, Some(Terminator::Await { .. }));

@@ -78,12 +78,9 @@ impl FunctionEmitter<'_> {
         ) {
             let value_text = self.operand_expr(value)?;
             // `Error` is the base class, so ANY error marker satisfies it. A
-            // subclass must match the class name the marker records — every error
-            // class used to share one boolean marker, so `new Error('x') instanceof
-            // AggregateError` answered `true`. es-toolkit `clone` branches on
-            // exactly that and rebuilt a plain Error as
-            // `new Ctor(obj.errors, obj.message, ..)`, putting `errors` in the
-            // message slot and dropping the message.
+            // subclass must match the class name the marker records:
+            // `new Error('x') instanceof AggregateError` is `false`, and es-toolkit
+            // `clone` branches on exactly that.
             //
             // This models the one level of the built-in hierarchy that exists:
             // every built-in error derives directly from `Error`, so a subclass
@@ -170,7 +167,7 @@ impl FunctionEmitter<'_> {
         }
         // A CONCRETE blob answers both spellings statically: it always is a
         // `Blob`, and it is a `File` exactly when its optional name is present
-        // (the two share one Rust type — see `blob_prelude`). Without these arms
+        // (the two share one Rust type — see `smelt-runtime`'s `blob.rs`). Without these arms
         // the marker probe below would be handed a `SmeltBlob` where it expects
         // a `SmeltUnknown`.
         if smelt_stdlib::typescript_stdlib_class(class_name)
@@ -286,13 +283,12 @@ impl FunctionEmitter<'_> {
         // branch: `const x: unknown = new TextEncoder(); if (x instanceof
         // TextEncoder)` became `if false` with no diagnostic.
         //
-        // Every modeled class now carries an identity marker and erases through
-        // its own adapter, so the probe above answers all of them and nothing
-        // modeled reaches here any more. The blocker stays as the honest answer
-        // for a target that is modeled but has no marker — the state no class is
-        // in today, and the state a NEW modeled class starts in before its
-        // erasure adapter is written. Keeping it makes that omission a build
-        // error instead of a deleted branch.
+        // Every modeled class carries an identity marker and erases through
+        // its own adapter, so the probe above answers all of them. The blocker is
+        // the honest answer for a target that is modeled but has no marker, the
+        // state a NEW modeled class starts in before its erasure adapter is
+        // written, and makes that omission a build error instead of a deleted
+        // branch.
         if self.instanceof_operand_is_dynamic(value_ty)
             && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
         {
@@ -558,10 +554,10 @@ fn host_instance_markers(class_name: &str) -> Option<Vec<&'static str>> {
     // remains does so because it asks something OTHER than marker presence,
     // and says which.
     //
-    // `AbortController`/`AbortSignal` used to be here too. They are registry
-    // entries now (`HostObject::helper_backed_methods`), so the branch above
-    // answers for them and their internal keys are hidden from `for...in` like
-    // every other host record's.
+    // `AbortController`/`AbortSignal` are registry entries
+    // (`HostObject::helper_backed_methods`), so the branch above answers for
+    // them and their internal keys are hidden from `for...in` like every other
+    // host record's.
     let subsystem = smelt_stdlib::subsystem_instance_marker(class_name)?;
     Some(vec![subsystem])
 }

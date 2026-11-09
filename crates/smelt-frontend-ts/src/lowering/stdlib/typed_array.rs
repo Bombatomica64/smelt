@@ -1,10 +1,6 @@
 //! The concrete typed-array family: construction, members, and methods.
 //!
-//! Increment 3 of `blocker-logs/standards-typed-array-views-plan.md`. Before
-//! this, a source `Uint8Array` annotation and a `new Uint8Array(..)` both
-//! resolved to the ERASED byte-backed host record: the value existed, carried a
-//! marker and real bytes inside a `SmeltUnknown`, and every read of it crossed
-//! the dynamic boundary. Now the eleven view spellings and `ArrayBuffer` are
+//! The eleven view spellings and `ArrayBuffer` are
 //! [`smelt_stdlib::StdlibClass::TypedArray`] / `ArrayBuffer` — two generated
 //! Rust types — and the erased record is their BOUNDARY form, reached only
 //! through `IntoSmeltUnknown` / `SmeltFromUnknown`.
@@ -17,13 +13,12 @@
 //! name (see `typed_array_prelude::kind_expression`). The kind is a runtime
 //! property of the value — `Object.prototype.toString.call(view)` reports it,
 //! and reflective construction reads it back off an erased record — so making
-//! it a Rust type parameter would have forced it to be erased at every
-//! boundary. The registry, not a `matches!` here, decides which spellings are
-//! the family.
+//! it a Rust type parameter would force it to be erased at every boundary. The
+//! registry, not a `matches!` here, decides which spellings are the family.
 //!
 //! ## `SharedArrayBuffer` and `DataView`
 //!
-//! Both are now concrete too, and each in the shape its surface asks for.
+//! Both are concrete too, and each in the shape its surface asks for.
 //!
 //! `SharedArrayBuffer` is the SAME class as `ArrayBuffer`: the two differ in
 //! their `[object X]` tag, their `instanceof` answer and the growth members,

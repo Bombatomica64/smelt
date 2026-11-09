@@ -5,11 +5,11 @@
 //! type-level property of the table itself; lowering makes it true by
 //! construction (reserved slots) and [`crate::Mir::push_function`] assigns the
 //! id, and this check makes any other writer's mistake a release-mode error
-//! rather than a silent mis-call (audit finding C5). The member-id checks are
-//! the range checks every `FuncId` stored in a table needs (audit C13). The
+//! rather than a silent mis-call. The member-id checks are
+//! the range checks every `FuncId` stored in a table needs. The
 //! name checks reject a second class or interface of one name, which every
 //! by-name lookup (`Mir::class_named`, inherited-type substitution, bound
-//! throwing) would otherwise answer with whichever came first (audit C12).
+//! throwing) would otherwise answer with whichever came first.
 
 use crate::index::NameIndex;
 use crate::{FuncId, Mir, MirClassProtocol, MirGlobalInit};

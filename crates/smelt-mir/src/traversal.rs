@@ -551,7 +551,7 @@ impl Terminator {
     /// so it is defined on its `target` edge and NOT on its unwind edge; the
     /// unwind edge instead defines the handler's exception local. Dataflow that
     /// meets per edge through this cannot treat `dest` as defined in a catch
-    /// block (audit finding C7). The edges are in [`Self::successors`] order.
+    /// block. The edges are in [`Self::successors`] order.
     #[must_use]
     pub fn edges(&self) -> Vec<Edge> {
         match self {

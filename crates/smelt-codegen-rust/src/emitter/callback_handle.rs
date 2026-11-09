@@ -26,11 +26,10 @@ impl FunctionEmitter<'_> {
     /// `SmeltErasedFunction::call` method, rather than being a bare `dyn Fn`
     /// handle that is invoked with direct call syntax.
     ///
-    /// This is the single authority for that question. Two call-emitting sites
-    /// used to answer it independently — `Rvalue::ClosureCall` with an explicit
-    /// precedence ladder, and `rendered_call`'s `Callee::Indirect` with none — so
-    /// routing one call from the statement form to the terminator form silently
-    /// flipped its ABI (E0658 `fn_traits` plus E0308).
+    /// This is the single authority for that question, shared by
+    /// `Rvalue::ClosureCall` and `rendered_call`'s `Callee::Indirect` so that
+    /// routing one call from the statement form to the terminator form cannot flip
+    /// its ABI.
     ///
     /// The precedence matters and is encoded here once: a function *parameter*
     /// and a borrowed callback *capture* are emitted as borrowed `&dyn Fn`
@@ -498,13 +497,13 @@ impl FunctionEmitter<'_> {
         } else {
             return_value.into_string()
         };
-        // Increment 3: this is the renderer that produces the literal
-        // `&|| Default::default()` of §1.3. With no closure argument to carry
-        // the type, a callee type parameter appearing only in this callback's
-        // return has no inference source at all, so the annotation is what makes
-        // it definite. `callback_only_params_are_pinned_at_every_call_site`
-        // demotes the callee crate-wide for the same shape; the redundancy is
-        // deliberate, since the valve is crate-wide and this is local.
+        // This renderer produces the literal `&|| Default::default()`. With no
+        // closure argument to carry the type, a callee type parameter appearing
+        // only in this callback's return has no inference source at all, so the
+        // annotation is what makes it definite.
+        // `callback_only_params_are_pinned_at_every_call_site` demotes the callee
+        // crate-wide for the same shape; the redundancy is deliberate, since the
+        // valve is crate-wide and this is local.
         if let Some(annotation) = self.callback_return_annotation(function, callee_bindings)? {
             return Ok(RustExpr::loose(format!("&|{params}| -> {annotation} {{ {return_text} }}")));
         }
@@ -561,8 +560,7 @@ impl FunctionEmitter<'_> {
 /// How the emitted Rust value for a callee is invoked.
 ///
 /// The three-valued generalisation of the `callee_uses_erased_call_method` /
-/// `callee_is_borrowed_function_handle` pair (Increment 2 of
-/// `blocker-logs/estk-callback-generics-plan.md`, §3).
+/// `callee_is_borrowed_function_handle` pair.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CallbackHandleKind {
     /// A `SmeltErasedFunction` value: invoked as `value.call(vec![..])`.

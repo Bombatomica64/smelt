@@ -476,7 +476,7 @@ impl FunctionEmitter<'_> {
         // `Number.prototype.toString(radix)` for a number, and the receiver's
         // own `toString` (which ignores the argument) for anything else.
         // `Array.prototype.map.call(bytes, (x) => x.toString(16))` hands the
-        // callback an erased element, which used to be refused here.
+        // callback an erased element.
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Unknown)

@@ -8,11 +8,10 @@
 //! # What this struct owns
 //!
 //! Each set answers one question about a *source name*, and every membership
-//! test now runs through a named predicate, so a lowering path cannot start
+//! test runs through a named predicate, so a lowering path cannot start
 //! treating one provenance set as another. In particular
 //! [`ImportScope::is_imported_binding`] is the single answer to "did this module
-//! import this name at all?", replacing an open-coded three-set chain that a new
-//! import form could be forgotten from.
+//! import this name at all?".
 //!
 //! Note what is deliberately *not* claimed: value and type-only membership are
 //! not mutually exclusive. An inline `import { type A, b }` marks `A` type-only

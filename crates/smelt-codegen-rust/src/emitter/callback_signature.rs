@@ -133,6 +133,10 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether parameter `index` of a callback type is passed as a shared `&T`.
+    ///
+    /// A mutable or rest parameter never is, whatever its type; every other
+    /// parameter follows [`Self::param_type_is_by_shared_reference`].
     pub(super) fn callback_param_is_shared_reference(
         &self,
         function: &FunctionType,
@@ -146,13 +150,10 @@ impl FunctionEmitter<'_> {
 
     /// Render `arg0: T0, arg1: T1, ..` declarations for one callback shape.
     ///
-    /// Six renderers used to hand-roll this loop, and they disagreed on two
-    /// independent axes that are both visible in emitted bytes: which
-    /// type-parameter environment the parameter types are lowered in, and
-    /// whether `FunctionType::mutable_params` contributes a `&mut ` prefix.
-    /// Both axes are therefore explicit arguments rather than a choice this
-    /// helper makes — collapsing them onto one answer would be a behaviour
-    /// change, not a consolidation.
+    /// The caller supplies both axes visible in emitted bytes: which type-parameter
+    /// environment the parameter types are lowered in, and whether
+    /// `FunctionType::mutable_params` contributes a `&mut ` prefix. Renderers
+    /// differ on both, so neither is a choice this helper makes.
     pub(super) fn callback_arg_decls(
         &self,
         function: &FunctionType,
@@ -266,11 +267,8 @@ impl FunctionEmitter<'_> {
     pub(super) fn param_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(ty) {
             // BOTH halves of the callback type render in the lexical scope of
-            // the item being defined. They used to disagree — the parameters in
-            // an explicitly empty environment, the return in the lexical scope —
-            // which is the §1.2 defect of the callback-generics plan: a callee
-            // whose `T` was in scope emitted `Fn(SmeltUnknown) -> T`, so the
-            // gate had to refuse every callback-borne type parameter outright.
+            // the item being defined. Split scopes would emit
+            // `Fn(SmeltUnknown) -> T` for a callee whose `T` is in scope.
             //
             // `param_type` is only ever reached from
             // `parameter_decl_type`, and that only from the four signature
@@ -298,9 +296,9 @@ impl FunctionEmitter<'_> {
     ///
     /// The single producer of that inner text, shared by the borrowed
     /// `&dyn Fn(..)` parameter rendering in [`Self::param_type`] and by the
-    /// `F{n}: Fn(..) + ?Sized` bound Increment 2 declares for a monomorphized
-    /// callback parameter. Sharing it is what guarantees the parameter spelling
-    /// and the bound spelling cannot drift — a signature whose `&F0` and whose
+    /// `F{n}: Fn(..) + ?Sized` bound declared for a monomorphized callback
+    /// parameter. Sharing it is what guarantees the parameter spelling and the
+    /// bound spelling cannot drift — a signature whose `&F0` and whose
     /// `F0: Fn(..)` disagreed would either fail to compile or silently re-erase.
     ///
     /// Both halves go through the canonical helpers:
@@ -410,11 +408,10 @@ impl FunctionEmitter<'_> {
         }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {
-                // Increment 2 (Option B): a direct required borrowed callback
-                // parameter of a generic free function is monomorphized as
-                // `&F{n}` rather than dispatched dynamically through
-                // `&dyn Fn(..)`. `callback_generic_bounds_text` declares the
-                // matching bound from the same list.
+                // A direct required borrowed callback parameter of a generic free function
+                // is monomorphized as `&F{n}` rather than dispatched dynamically through
+                // `&dyn Fn(..)`. `callback_generic_bounds_text` declares the matching bound
+                // from the same list.
                 if let Some(name) = self.callback_generic_name(local)? {
                     return Ok(RustType::raw(format!("&{name}")));
                 }

@@ -47,9 +47,9 @@
 //! ([`smelt_codegen_rust::PRELUDE_END_MARKER`]) between the fixed runtime prelude
 //! and the generated program. When the scanner finds it, every line up to and
 //! including the marker is authoritatively the runtime prelude, which is exact
-//! and needs no guessing. For older generated files (and the checked-in example
-//! fixtures) that predate the marker, the scanner falls back to the per-line
-//! prelude heuristics in [`update_prelude_helper_state`].
+//! and needs no guessing. For generated files without the marker, the scanner
+//! falls back to the per-line prelude heuristics in
+//! [`update_prelude_helper_state`].
 
 mod baseline;
 mod classify;

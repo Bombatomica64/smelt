@@ -27,7 +27,7 @@ impl ModuleBuilder<'_> {
     /// `manifest_type_renames` in the transpiler for how it is computed.
     ///
     /// `local_name` is the declaration's own identifier and `qualified_name` is
-    /// that identifier after [`Self::qualified_type_declaration_name`] has
+    /// that identifier after qualification has
     /// applied the active namespace path. The rename map is keyed by the SOURCE
     /// spelling of a module-scope declaration, and the scanner that builds it
     /// only walks top-level statements, so a declaration nested in a namespace
@@ -85,9 +85,8 @@ impl ModuleBuilder<'_> {
         // An alias of a plain object type (`type R = { a: string; b?: number }`)
         // declares exactly the structural type `interface R { .. }` declares,
         // so it lowers to the same interface item and gets the same generated
-        // struct. It used to stay an alias whose references named a record no
-        // struct backed, which erased every value of the type. A literal with
-        // an index signature is a dictionary and keeps the alias lowering.
+        // struct. A literal with an index signature is a dictionary and keeps
+        // the alias lowering.
         if let oxc::ast::ast::TSType::TSTypeLiteral(literal) = &alias.type_annotation
             && !literal.members.is_empty()
             && literal.members.iter().all(|member| {
@@ -359,7 +358,7 @@ impl ModuleBuilder<'_> {
         // the first item per name), while the frontend's own lookups already
         // took the latest: Hono's `ContextOptions.notFoundHandler` kept the
         // placeholder for `NotFoundHandler<E>` and erased to `SmeltUnknown`
-        // (`blocker-logs/hono-crud-perf-round2.md`). Separate declarations of
+        //. Separate declarations of
         // one name (interface merging, a `.d.ts` then its `.ts`) have
         // different spans and are still appended.
         // `upsert_interface` holds that rule for every interface-push site.
@@ -454,9 +453,9 @@ impl ModuleBuilder<'_> {
     ///
     /// The name matches the object key produced by `CallableObjectAssign`
     /// construction (`callable_object_assign_text`) and read by the erased-call
-    /// coercion. A pre-existing field named `__smelt_call` (which user source
-    /// can legally declare) is left untouched. Interfaces with no call
-    /// signature are unchanged.
+    /// coercion. An existing field named `__smelt_call` (which user source can
+    /// legally declare) is left untouched. Interfaces with no call signature are
+    /// unchanged.
     pub(in crate::lowering) fn add_interface_call_signature_field(
         &mut self,
         fields: &mut Vec<Field>,
@@ -503,12 +502,9 @@ impl ModuleBuilder<'_> {
     /// The struct has exactly one `__smelt_call` slot, so no single concrete
     /// signature can store the value: which overload runs is decided by the
     /// *runtime* argument list, which is a genuine dynamic boundary, not a
-    /// shape a concrete Rust `Fn` type could carry. Typing the slot from the
-    /// FIRST signature — as this used to — made every call site adapt to that
-    /// signature and silently discard the arguments the caller actually passed:
-    /// es-toolkit's `curried(2, 3)` emitted `(smelt_callback)()`, calling the
-    /// zero-argument overload and answering a defaulted value with no
-    /// diagnostic.
+    /// shape a concrete Rust `Fn` type could carry. Typing the slot from any one
+    /// signature would make every call site adapt to that signature and silently
+    /// discard the arguments the caller actually passed.
     ///
     /// So an overload set whose signatures are not all the same collapses to one
     /// erased-rest variadic signature `(...args: unknown[]) => unknown`, exactly

@@ -5,22 +5,22 @@ struct SmeltTimer {
     id: u64,
     due_ms: u64,
     callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,
-    // `Some(period)` marks a repeating `setInterval` timer that re-arms
-    // itself `period` ms after each fire; `None` is a one-shot `setTimeout`.
+    //~ `Some(period)` marks a repeating `setInterval` timer that re-arms
+    //~ itself `period` ms after each fire; `None` is a one-shot `setTimeout`.
     period_ms: Option<u64>,
 }
 
 thread_local! {
     static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
     static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };
-    /// Whether a detached promise task finished since the event loop last checked for idleness.
+    //~ Whether a detached promise task finished since the event loop last checked for idleness.
     static SMELT_PROMISE_TASK_SETTLED: ::std::cell::Cell<bool> = const { ::std::cell::Cell::new(false) };
     static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
-    // Non-zero while a `Promise.race` driver owns the event loop; see
-    // `smelt_promise_race`.
+    //~ Non-zero while a `Promise.race` driver owns the event loop; see
+    //~ `smelt_promise_race`.
     static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
-    // Wakes the exit loop (`smelt_run_until_exit`) when work is queued
-    // while the program is only being kept alive by an open handle.
+    //~ Wakes the exit loop (`smelt_run_until_exit`) when work is queued
+    //~ while the program is only being kept alive by an open handle.
     static SMELT_LOOP_WAKE: ::std::rc::Rc<tokio::sync::Notify> = ::std::rc::Rc::new(tokio::sync::Notify::new());
 }
 
@@ -82,8 +82,8 @@ fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() ->
 
 fn smelt_set_interval(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {
     let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
-    // Clamp non-positive periods to 1 ms so an interval still advances virtual
-    // time and cannot busy-loop the drain at the current instant.
+    //~ Clamp non-positive periods to 1 ms so an interval still advances virtual
+    //~ time and cannot busy-loop the drain at the current instant.
     let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };
     let due_ms = smelt_mono_ms().saturating_add(period_ms);
     SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));
@@ -123,9 +123,9 @@ fn smelt_drain_due_timers(id_barrier: u64) {
         if due.is_empty() { break; }
         for timer in due {
             (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
-            // Re-arm repeating `setInterval` timers for their next period. The
-            // next fire is scheduled `period` ms from the current virtual time, so
-            // it is strictly in the future and cannot re-fire within this drain pass.
+            //~ Re-arm repeating `setInterval` timers for their next period. The
+            //~ next fire is scheduled `period` ms from the current virtual time, so
+            //~ it is strictly in the future and cannot re-fire within this drain pass.
             if let Some(period_ms) = timer.period_ms {
                 let next_due = now.saturating_add(period_ms);
                 SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
@@ -219,15 +219,15 @@ async fn smelt_sleep_ms(delay_ms: f64) {
     //~ over-fire it a tick early and, for a funnel, collapse the burst to
     //~ idle before the next `call`.
     'idle: {
-        // A `Promise.race` driver owns the clock while it is running: if a
-        // racer advanced time here, polling one racer could fire ANOTHER
-        // racer's timer, so both settle in the same round and the winner
-        // stops being the one that finished first. Yield instead and let
-        // `smelt_promise_race` take exactly one timer step per round.
+        //~ A `Promise.race` driver owns the clock while it is running: if a
+        //~ racer advanced time here, polling one racer could fire ANOTHER
+        //~ racer's timer, so both settle in the same round and the winner
+        //~ stops being the one that finished first. Yield instead and let
+        //~ `smelt_promise_race` take exactly one timer step per round.
         if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }
-        // A queued task only blocks the clock while tasks are finishing. Tasks
-        // that a whole drain left pending are themselves waiting on a timer or
-        // on each other, and nothing but the clock can release them.
+        //~ A queued task only blocks the clock while tasks are finishing. Tasks
+        //~ that a whole drain left pending are themselves waiting on a timer or
+        //~ on each other, and nothing but the clock can release them.
         let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
         let tasks_settled = SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.replace(false));
         if tasks_pending && tasks_settled { break 'idle; }
@@ -272,7 +272,7 @@ async fn smelt_sleep_ms(delay_ms: f64) {
 //~ process-keeping handle later (a listening socket, a watched file) increments
 //~ the same counter.
 thread_local! {
-    /// Open handles that keep the program alive, in Node's sense.
+    //~ Open handles that keep the program alive, in Node's sense.
     static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
 }
 /// Register a handle that must keep the program from exiting.
@@ -282,13 +282,13 @@ fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles
 #[allow(dead_code)]
 fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }
 /// Run the event loop until the program is allowed to exit.
-///
-/// First the ordinary run-until-idle drain, then Node's ref'd-handle
-/// rule: stay alive while any handle is open. Polling (rather than a
-/// notification) is deliberate -- this loop runs once, at the very end of
-/// the program, and only while a handle really is open, so its cost is a
-/// wakeup every few milliseconds in a process that is otherwise just
-/// serving.
+//~
+//~ First the ordinary run-until-idle drain, then Node's ref'd-handle
+//~ rule: stay alive while any handle is open. Polling (rather than a
+//~ notification) is deliberate -- this loop runs once, at the very end of
+//~ the program, and only while a handle really is open, so its cost is a
+//~ wakeup every few milliseconds in a process that is otherwise just
+//~ serving.
 #[allow(dead_code)]
 async fn smelt_run_until_exit() {
     smelt_sleep_ms(0.0).await;

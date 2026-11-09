@@ -77,10 +77,9 @@ impl ModuleBuilder<'_> {
         };
         let class_text = class_ident.name.as_str();
         // `x instanceof Uint8Array` (any typed-array view) resolves through the
-        // view's registry marker, like every other byte-backed host object — the
-        // typed arrays are no longer numeric lists whose identity had to be
-        // guessed from the static type, so this needs no fold of its own and falls
-        // through to the `InstanceOf` path below.
+        // view's registry marker, like every other byte-backed host object, so
+        // this needs no fold of its own and falls through to the `InstanceOf`
+        // path below.
         // `x instanceof Array`. Smelt backs a JavaScript array with a plain list,
         // so this asks exactly the question `Array.isArray(x)` asks (see
         // `array_is_array_call`) and shares its single rule, `static_array_match`:
@@ -131,7 +130,7 @@ impl ModuleBuilder<'_> {
         }
         // `Date` and `RegExp` both erase to marker-bearing objects
         // (`__smelt_date` / `__smelt_regexp`), so an ERASED operand's identity is
-        // recoverable at runtime and must not be folded away — `instance_of_text`
+        // recoverable at runtime and must not be folded away — `instance_of_expr`
         // emits the marker probe. Folding `RegExp` unconditionally is what made
         // es-toolkit `cloneDeepWithImpl` skip its `valueToClone instanceof RegExp`
         // branch for an `unknown`-typed regex and fall through to the generic
@@ -320,7 +319,7 @@ impl ModuleBuilder<'_> {
     /// `Map` and `Set` are intentionally absent: each source value erases to a
     /// marker object (`{ __smelt_map: [...] }` / `{ __smelt_set: [...] }`), so
     /// `value instanceof Map`/`instanceof Set` resolves through that marker in
-    /// `instance_of_text` rather than folding to a constant `false`. For `Date`
+    /// `instance_of_expr` rather than folding to a constant `false`. For `Date`
     /// and `RegExp` the `false` fold applies only to a concrete operand, whose
     /// storage carries no marker; an erased operand keeps its marker and is
     /// probed at runtime (see `operand_keeps_marker_identity` in the
@@ -439,7 +438,7 @@ impl ModuleBuilder<'_> {
             })));
         }
         // A modeled host constructor the crate *reassigns* somewhere
-        // (`globalThis.Blob = undefined`) can no longer fold its presence guard
+        // (`globalThis.Blob = undefined`) cannot fold its presence guard
         // to a constant: `typeof Blob === 'undefined'` becomes a dynamic slot
         // probe so `isBlob`/`isFile` observe the override at runtime. Handles the
         // bare identifier spelling (`typeof Blob`) and the global-alias member
@@ -732,13 +731,10 @@ impl ModuleBuilder<'_> {
     /// Return true for ambient globals the default deterministic profile treats
     /// as absent (no runtime support, no modeled value).
     ///
-    /// No ambient global is modeled as absent today: `Buffer` used to live here
-    /// (Node-only, non-Node default profile) but is now a modeled host object
-    /// with a concrete byte-buffer representation and a working `instanceof` /
-    /// `Buffer.isBuffer` identity, so it is reported *present* through
-    /// `is_known_defined_global_constructor` instead. The empty set is kept as a
-    /// deliberate seam: a genuinely unsupported ambient global can be reinstated
-    /// here to fold its `typeof` existence guards to the absent answer.
+    /// No ambient global is modeled as absent today (`Buffer` is a modeled host
+    /// object, reported *present* through `is_known_defined_global_constructor`).
+    /// The empty set is a deliberate seam: a genuinely unsupported ambient global
+    /// can be added here to fold its `typeof` existence guards to the absent answer.
     pub(super) fn is_absent_ambient_global(name: &str) -> bool {
         // Derived from the profile registry rather than a hand-kept list here, so
         // "which globals are absent" cannot drift between the `"X" in globalThis`
@@ -1142,9 +1138,8 @@ impl ModuleBuilder<'_> {
         // still a JS array. Smelt lowers tuples to Rust tuples and lists to the
         // identity-bearing `SmeltList`, which are incompatible representations,
         // so materializing the tuple would repackage the whole list into a
-        // 1-tuple (`(SmeltUnknown,)`) that no longer satisfies a `SmeltList`
-        // callee. Preserve the list value and its type; the tuple spelling is
-        // erased.
+        // 1-tuple that does not satisfy a `SmeltList` callee. Preserve the list
+        // value and its type; the tuple spelling is erased.
         if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::List(_))

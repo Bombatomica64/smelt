@@ -106,8 +106,8 @@ impl FunctionEmitter<'_> {
     /// item, or a callee the crate-wide generic-emission gate demoted to an
     /// erased signature. That is a genuine erased-interop boundary decided
     /// upstream of this function, and the annotation is only naming what the
-    /// iterator really holds. It is no longer imprecision: where the parameter
-    /// IS spellable the entries keep it and so does this.
+    /// iterator really holds. Where the parameter IS spellable the entries keep
+    /// it and so does this.
     fn collected_container_type(
         &self,
         target: TypeId,
@@ -924,11 +924,9 @@ impl FunctionEmitter<'_> {
         // concrete `SmeltBlob` therefore fell straight through and was assigned
         // to a `SmeltRecord` (E0308).
         //
-        // It became reachable when `instanceof` started narrowing an erased
-        // local (round 10): inside `x instanceof Blob ? (x as { type: string }) : ..`
-        // the operand is now the concrete class rather than `unknown`, so the
-        // cast has a concrete source where it used to have an erased one. The
-        // blob runtime tier is what caught it.
+        // `instanceof` narrows an erased local: inside
+        // `x instanceof Blob ? (x as { type: string }) : ..` the operand is the
+        // concrete class rather than `unknown`, so this cast has a concrete source.
         //
         // Stated over `erases_through_adapter`, so it holds for every host class
         // with an adapter rather than for the one that exposed it.
@@ -977,7 +975,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         // Element-wise `List<A>` -> `List<B>` re-mapping. The operand-based
-        // coercion (`coerce_operand_text`) already handles this for a place
+        // coercion already handles this for a place
         // operand, but this string-based entry point is reached when the source
         // list flows through an expression (e.g. an awaited erased future whose
         // static item is `SmeltList<SmeltUnknown>` coerced into the call site's
@@ -1082,16 +1080,11 @@ impl FunctionEmitter<'_> {
         if let Some(adapter) = self.structural_record_adapter(value_text, source, target, scope)? {
             return Ok(adapter);
         }
-        // H42. A `Type::TypeParam` target erases ONLY where the render position
-        // cannot spell it. This used to erase unconditionally, at any depth,
-        // which contradicted `extract_rendered`'s recovery arm: the recovery
-        // rebuilt the value as the Rust generic wherever the emitted item
-        // declares it, so a container whose entries took one path and whose
-        // annotation took the other could not type-check (the Hono router
-        // slice's `E0277` over a `SmeltRecord<.., SmeltList<(T, String)>>`, and
-        // its `SmeltList<(T, ..)>` vs `SmeltList<(SmeltUnknown, ..)>` twin
-        // reached from the other side). Both sides now ask `scope`, so the
-        // position's answer is the same wherever it is asked.
+        // A `Type::TypeParam` target erases ONLY where the render position
+        // cannot spell it, the same question `extract_rendered`'s recovery arm
+        // asks through `scope`. A container whose entries took one path and whose
+        // annotation took the other could not type-check, so the position's answer
+        // has to be the same wherever it is asked.
         //
         // This introduces no new erasure and removes some: where `scope` does
         // spell the name the value is recovered as that real Rust generic
@@ -1429,12 +1422,10 @@ impl FunctionEmitter<'_> {
         // of the truthiness arm near the top of this function ("a value asked
         // for at `bool` is a truthiness test, not a cast").
         //
-        // It is reached only where nothing else had an answer, and where
-        // nothing else has an answer the value used to be handed back at its
-        // own type — which does not compile, so no working conversion is
-        // displaced. tsc has already rejected any genuinely ill-typed
-        // assignment before Smelt runs; what survives is the shape TypeScript
-        // itself permits, `never` flowing into a string slot:
+        // It is reached only where nothing else has an answer. tsc has already
+        // rejected any genuinely ill-typed assignment before Smelt runs; what
+        // survives is the shape TypeScript itself permits, `never` flowing into a
+        // string slot:
         //
         // ```ts
         // const bufferToString = (buffer: ArrayBuffer): string => {

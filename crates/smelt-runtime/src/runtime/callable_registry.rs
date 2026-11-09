@@ -85,14 +85,14 @@ impl<T: ?Sized> SmeltAllocationGuard for ::std::rc::Weak<T> {
 }
 
 /// Hasher for keys that are allocation addresses (or ids minted from them).
-///
-/// The tables are keyed by `Rc::as_ptr` addresses, which an attacker cannot
-/// choose, so std's DoS-resistant SipHash buys nothing here and cost ~3% of a
-/// Hono request (every erased callable touches the table several times). A
-/// single folded 64x64->128 multiply mixes every key bit into both halves of
-/// the hash: the low bits pick hashbrown's bucket and the top seven are its
-/// control byte, and an address's low bits are always zero (alignment), so a
-/// plain multiply or identity hash would leave buckets unused.
+//~
+//~ The tables are keyed by `Rc::as_ptr` addresses, which an attacker cannot
+//~ choose, so std's DoS-resistant SipHash buys nothing here and cost ~3% of a
+//~ Hono request (every erased callable touches the table several times). A
+//~ single folded 64x64->128 multiply mixes every key bit into both halves of
+//~ the hash: the low bits pick hashbrown's bucket and the top seven are its
+//~ control byte, and an address's low bits are always zero (alignment), so a
+//~ plain multiply or identity hash would leave buckets unused.
 #[derive(Default, Clone, Copy)]
 struct SmeltAddressHasher(u64);
 
@@ -117,20 +117,20 @@ type SmeltAddressMap<V> = ::std::collections::HashMap<usize, V, ::std::hash::Bui
 const SMELT_ADDRESS_TABLE_MIN_SWEEP: usize = 256;
 
 /// How far past its surviving size a table grows before the next sweep.
-///
-/// A sweep scans every entry once and then lets the table reach this multiple
-/// of what survived, so each insert pays `GROWTH / (GROWTH - 1)` liveness
-/// checks on average and the table stays within `GROWTH` times its live size.
-/// Four keeps the scan near one check per insert for a small, bounded table.
+//~
+//~ A sweep scans every entry once and then lets the table reach this multiple
+//~ of what survived, so each insert pays `GROWTH / (GROWTH - 1)` liveness
+//~ checks on average and the table stays within `GROWTH` times its live size.
+//~ Four keeps the scan near one check per insert for a small, bounded table.
 const SMELT_ADDRESS_TABLE_GROWTH: usize = 4;
 
 /// One address-table entry: the metadata, and the `Weak` reserving its key.
 struct SmeltAddressSlot<V, F: ?Sized> { value: V, guard: ::std::rc::Weak<F> }
 
 /// An address-table entry seen without its allocation's type.
-///
-/// One boxed slot per entry keeps the map's own entries a pointer wide, so a
-/// rehash moves a few words per entry whatever the metadata holds.
+//~
+//~ One boxed slot per entry keeps the map's own entries a pointer wide, so a
+//~ rehash moves a few words per entry whatever the metadata holds.
 trait SmeltAddressEntry<V> {
     fn value(&self) -> &V;
     fn value_mut(&mut self) -> &mut V;
@@ -147,13 +147,13 @@ impl<V, F: ?Sized> SmeltAddressEntry<V> for SmeltAddressSlot<V, F> {
 }
 
 /// Metadata keyed by the address of a live `Rc` allocation.
-///
-/// Every entry owns a `Weak` to the allocation it is keyed by, which keeps
-/// the address reserved for exactly as long as the entry exists, so an
-/// address never names two allocations. Entries whose allocation has died
-/// are removed by an amortized sweep when the table reaches `sweep_at`, which
-/// is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
-/// the table stays proportional to the number of LIVE allocations it describes.
+//~
+//~ Every entry owns a `Weak` to the allocation it is keyed by, which keeps
+//~ the address reserved for exactly as long as the entry exists, so an
+//~ address never names two allocations. Entries whose allocation has died
+//~ are removed by an amortized sweep when the table reaches `sweep_at`, which
+//~ is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
+//~ the table stays proportional to the number of LIVE allocations it describes.
 struct SmeltAddressTable<V> {
     entries: SmeltAddressMap<Box<dyn SmeltAddressEntry<V>>>,
     sweep_at: usize,
@@ -161,34 +161,34 @@ struct SmeltAddressTable<V> {
 
 impl<V: 'static> SmeltAddressTable<V> {
     fn new() -> Self { Self { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
-    /// Number of entries, live or not yet swept.
+    //~ Number of entries, live or not yet swept.
     #[allow(dead_code)]
     fn len(&self) -> usize { self.entries.len() }
-    /// The metadata of the allocation at `key`, when it has any.
-    ///
-    /// `key` must come from a live handle (`Rc::as_ptr`), so a hit is always
-    /// that allocation's own entry: a dead entry's address is still reserved
-    /// by its guard and cannot belong to a live allocation.
+    //~ The metadata of the allocation at `key`, when it has any.
+    //~
+    //~ `key` must come from a live handle (`Rc::as_ptr`), so a hit is always
+    //~ that allocation's own entry: a dead entry's address is still reserved
+    //~ by its guard and cannot belong to a live allocation.
     #[inline]
     fn get(&self, key: usize) -> Option<&V> { self.entries.get(&key).map(|entry| entry.value()) }
-    /// The metadata of `allocation`, created with `init` on first use.
-    ///
-    /// The caller sweeps first when [`Self::wants_sweep`] says so (see
-    /// `smelt_sweep_address_table`); this never drops an entry itself.
+    //~ The metadata of `allocation`, created with `init` on first use.
+    //~
+    //~ The caller sweeps first when [`Self::wants_sweep`] says so (see
+    //~ `smelt_sweep_address_table`); this never drops an entry itself.
     fn slot<F: ?Sized + 'static>(&mut self, allocation: &::std::rc::Rc<F>, init: impl FnOnce() -> V) -> &mut V {
         let key = ::std::rc::Rc::as_ptr(allocation) as *const () as usize;
         self.entries.entry(key).or_insert_with(|| Box::new(SmeltAddressSlot { value: init(), guard: ::std::rc::Rc::downgrade(allocation) })).value_mut()
     }
-    /// Whether inserting an entry for `allocation` should sweep first.
+    //~ Whether inserting an entry for `allocation` should sweep first.
     #[inline]
     fn wants_sweep<F: ?Sized>(&self, allocation: &::std::rc::Rc<F>) -> bool {
         self.entries.len() >= self.sweep_at && !self.entries.contains_key(&(::std::rc::Rc::as_ptr(allocation) as *const () as usize))
     }
-    /// Remove every entry whose allocation has died, returning them undropped.
+    //~ Remove every entry whose allocation has died, returning them undropped.
     fn take_dead(&mut self) -> Vec<Box<dyn SmeltAddressEntry<V>>> {
         self.entries.extract_if(|_, entry| !entry.is_live()).map(|(_, entry)| entry).collect()
     }
-    /// Set the next threshold from the entries that survived a full sweep.
+    //~ Set the next threshold from the entries that survived a full sweep.
     fn finish_sweep(&mut self) {
         if self.entries.capacity() > 2 * SMELT_ADDRESS_TABLE_GROWTH * self.entries.len().max(SMELT_ADDRESS_TABLE_MIN_SWEEP) { self.entries.shrink_to(SMELT_ADDRESS_TABLE_GROWTH * self.entries.len()); }
         self.sweep_at = (SMELT_ADDRESS_TABLE_GROWTH * self.entries.len()).max(SMELT_ADDRESS_TABLE_MIN_SWEEP);
@@ -196,14 +196,14 @@ impl<V: 'static> SmeltAddressTable<V> {
 }
 
 /// Sweep `table` until no entry dies, then reset its threshold.
-///
-/// Dropping a dead entry can release the last handle on allocations other
-/// entries describe (a callback's entry held the erased adapter of another),
-/// so one pass leaves entries that are dead the moment its garbage is dropped.
-/// Setting the threshold from that inflated count let a table of such chains
-/// grow without bound; sweeping again until a pass frees nothing sets it from
-/// the TRUE live count. Garbage is dropped outside the table borrow, because
-/// dropping it can run code that reads the table.
+//~
+//~ Dropping a dead entry can release the last handle on allocations other
+//~ entries describe (a callback's entry held the erased adapter of another),
+//~ so one pass leaves entries that are dead the moment its garbage is dropped.
+//~ Setting the threshold from that inflated count let a table of such chains
+//~ grow without bound; sweeping again until a pass frees nothing sets it from
+//~ the TRUE live count. Garbage is dropped outside the table borrow, because
+//~ dropping it can run code that reads the table.
 fn smelt_sweep_address_table<V: 'static>(table: &::std::cell::RefCell<SmeltAddressTable<V>>) {
     loop {
         let dead = table.borrow_mut().take_dead();
@@ -214,19 +214,19 @@ fn smelt_sweep_address_table<V: 'static>(table: &::std::cell::RefCell<SmeltAddre
 }
 
 thread_local! {
-    /// The erased object id of each live reference record cell.
+    //~ The erased object id of each live reference record cell.
     static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<SmeltAddressTable<usize>> = ::std::cell::RefCell::new(SmeltAddressTable::new());
 }
 
 /// Return a stable erased-object id for a reference record's shared cell.
-///
-/// A reference record (a class or object shape whose fields are written
-/// after construction) is a handle over one `Rc<RefCell<..>>`, and every
-/// handle on that cell is the SAME JavaScript object. Erasing any of them
-/// must therefore produce an object that compares `===` equal to the
-/// others, which means one id per cell rather than a fresh id per erasure.
-/// The entry lives exactly as long as the cell (see `SmeltAddressTable`), so
-/// a recycled cell address gets a fresh id rather than a dead object's.
+//~
+//~ A reference record (a class or object shape whose fields are written
+//~ after construction) is a handle over one `Rc<RefCell<..>>`, and every
+//~ handle on that cell is the SAME JavaScript object. Erasing any of them
+//~ must therefore produce an object that compares `===` equal to the
+//~ others, which means one id per cell rather than a fresh id per erasure.
+//~ The entry lives exactly as long as the cell (see `SmeltAddressTable`), so
+//~ a recycled cell address gets a fresh id rather than a dead object's.
 #[allow(dead_code)]
 fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>) -> usize {
     SMELT_REFERENCE_OBJECT_IDENTITIES.with(|identities| {
@@ -238,27 +238,27 @@ fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>)
 // @smelt:item-end
 
 // @smelt:item SmeltFunctionIdentityState when unknown
-/// The state of one JavaScript function value, shared by every allocation
-/// that denotes it (a typed callable, its erasure adapters, the typed
-/// callbacks recovered from those).
+//~ The state of one JavaScript function value, shared by every allocation
+//~ that denotes it (a typed callable, its erasure adapters, the typed
+//~ callbacks recovered from those).
 #[derive(Default)]
 struct SmeltFunctionIdentityState {
-    /// `Function.prototype.length`, once some representation recorded it.
+    //~ `Function.prototype.length`, once some representation recorded it.
     length: ::std::cell::Cell<Option<f64>>,
-    /// Own JavaScript properties (`f.prototype`, `f.placeholder = ..`).
+    //~ Own JavaScript properties (`f.prototype`, `f.placeholder = ..`).
     properties: ::std::cell::RefCell<Option<SmeltObject>>,
 }
 
 /// A JavaScript function identity: a shared token every linked allocation holds.
-///
-/// Its address is the number `===` compares (`key`). The number can only be
-/// reused after the token is freed, which happens once no table entry holds
-/// it — when nothing that could still be compared against it is alive.
+//~
+//~ Its address is the number `===` compares (`key`). The number can only be
+//~ reused after the token is freed, which happens once no table entry holds
+//~ it — when nothing that could still be compared against it is alive.
 #[derive(Clone, Default)]
 struct SmeltFunctionIdentity(::std::rc::Rc<SmeltFunctionIdentityState>);
 
 impl SmeltFunctionIdentity {
-    /// The identity number two callables share when they are one JS function.
+    //~ The identity number two callables share when they are one JS function.
     #[inline]
     fn key(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as usize }
 }
@@ -270,33 +270,33 @@ impl PartialEq for SmeltFunctionIdentity {
 /// Everything the runtime knows about one callable allocation.
 #[derive(Default)]
 struct SmeltCallableMeta {
-    /// The JavaScript function this allocation denotes; minted on first need.
+    //~ The JavaScript function this allocation denotes; minted on first need.
     identity: Option<SmeltFunctionIdentity>,
-    /// The typed callable an erased adapter wraps, held WEAKLY (`Box<Weak<F>>`
-    /// for its `Rc<F>` type; see `SmeltFunctionOrigin`).
-    ///
-    /// The adapter captures this callable, so while the adapter is alive (the
-    /// only time it can be looked up) the upgrade succeeds. A strong handle
-    /// here would outlive the adapter until the next sweep, and that stale
-    /// count is what `SmeltClosureShare` reads: a class-field arrow erased
-    /// through an object view looked shared when its instance's last handle
-    /// went, so the instance was pinned for the rest of the program — every
-    /// Hono 4 `Context`, one per request.
+    //~ The typed callable an erased adapter wraps, held WEAKLY (`Box<Weak<F>>`
+    //~ for its `Rc<F>` type; see `SmeltFunctionOrigin`).
+    //~
+    //~ The adapter captures this callable, so while the adapter is alive (the
+    //~ only time it can be looked up) the upgrade succeeds. A strong handle
+    //~ here would outlive the adapter until the next sweep, and that stale
+    //~ count is what `SmeltClosureShare` reads: a class-field arrow erased
+    //~ through an object view looked shared when its instance's last handle
+    //~ went, so the instance was pinned for the rest of the program — every
+    //~ Hono 4 `Context`, one per request.
     wrapped: Option<Box<dyn ::std::any::Any>>,
-    /// The erased value a typed callable was narrowed from (a callable object,
-    /// or the full-arity function an arity-narrowing adapter forwards to).
+    //~ The erased value a typed callable was narrowed from (a callable object,
+    //~ or the full-arity function an arity-narrowing adapter forwards to).
     callable_object: Option<SmeltUnknown>,
-    /// The outer erased function built for this inner `SmeltErasedFunction`
-    /// callback, weak so it does not pin a transient erasure.
+    //~ The outer erased function built for this inner `SmeltErasedFunction`
+    //~ callback, weak so it does not pin a transient erasure.
     erased_value: Option<::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>,
-    /// The classes a stored constructor value constructs.
+    //~ The classes a stored constructor value constructs.
     classes: Option<Vec<&'static str>>,
-    /// Whether the callable takes its receiver as the leading argument.
+    //~ Whether the callable takes its receiver as the leading argument.
     receiver_method: bool,
 }
 
 thread_local! {
-    /// Metadata of every callable allocation that crossed an erased ABI.
+    //~ Metadata of every callable allocation that crossed an erased ABI.
     static SMELT_CALLABLES: ::std::cell::RefCell<SmeltAddressTable<SmeltCallableMeta>> = ::std::cell::RefCell::new(SmeltAddressTable::new());
 }
 
@@ -306,8 +306,8 @@ fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {
 }
 
 /// Update `function`'s metadata, creating its entry on first use.
-///
-/// `update` must not call back into the callable table.
+//~
+//~ `update` must not call back into the callable table.
 fn smelt_update_callable<F: ?Sized + 'static, R>(function: &::std::rc::Rc<F>, update: impl FnOnce(&mut SmeltCallableMeta) -> R) -> R {
     SMELT_CALLABLES.with(|table| {
         if table.borrow().wants_sweep(function) { smelt_sweep_address_table(table); }
@@ -322,28 +322,28 @@ fn smelt_read_callable<F: ?Sized, R>(function: &::std::rc::Rc<F>, read: impl FnO
 }
 
 /// The canonical JavaScript identity of a callable, minted on first use.
-///
-/// Holding the result is what keeps its number from being reused, so a
-/// caller that stores the number must also keep `function` alive (the
-/// event emitter keeps the listener beside its identity).
+//~
+//~ Holding the result is what keeps its number from being reused, so a
+//~ caller that stores the number must also keep `function` alive (the
+//~ event emitter keeps the listener beside its identity).
 fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> SmeltFunctionIdentity {
     smelt_update_callable(function, |meta| meta.identity.get_or_insert_with(SmeltFunctionIdentity::default).clone())
 }
 
 /// The JavaScript function identity number of a callable allocation.
-///
-/// Defaults to the allocation's own address, so two callables that were never
-/// linked stay distinct. An address and a token address cannot coincide: both
-/// name live allocations.
+//~
+//~ Defaults to the allocation's own address, so two callables that were never
+//~ linked stay distinct. An address and a token address cannot coincide: both
+//~ name live allocations.
 fn smelt_function_identity_of(key: usize) -> usize { SMELT_CALLABLES.with(|table| table.borrow().get(key).and_then(|meta| meta.identity.as_ref().map(SmeltFunctionIdentity::key))).unwrap_or(key) }
 
 /// Record that `derived` wraps `origin`, so both denote one JavaScript function.
 fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_canonical_function_identity(origin)); }
 
 /// Link `derived` to an already-resolved canonical identity.
-///
-/// Needed where the origin callable is moved into the wrapper being built, so
-/// its identity has to be read before the move.
+//~
+//~ Needed where the origin callable is moved into the wrapper being built, so
+//~ its identity has to be read before the move.
 fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
 /// Return the stable key for an erased callback wrapper.
@@ -353,13 +353,13 @@ fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) 
 }
 
 /// A typed callable that can be recorded as an erased adapter's origin.
-///
-/// The record is a `Weak` (see `SmeltCallableMeta::wrapped`); typed callables
-/// are `Rc<dyn Fn(..)>`, so this is implemented for `Rc` alone.
+//~
+//~ The record is a `Weak` (see `SmeltCallableMeta::wrapped`); typed callables
+//~ are `Rc<dyn Fn(..)>`, so this is implemented for `Rc` alone.
 trait SmeltFunctionOrigin: Sized + 'static {
-    /// The weak record kept in the callable table.
+    //~ The weak record kept in the callable table.
     fn smelt_origin_record(&self) -> Box<dyn ::std::any::Any>;
-    /// The callable back out of a record, while it is alive and of this type.
+    //~ The callable back out of a record, while it is alive and of this type.
     fn smelt_from_origin_record(record: &dyn ::std::any::Any) -> Option<Self>;
 }
 
@@ -380,10 +380,10 @@ fn smelt_restore_function_origin<T: SmeltFunctionOrigin>(function: &::std::rc::R
 }
 
 /// Remember the callable object a typed callback was narrowed from.
-///
-/// The object must not strongly reach `function` itself, or the entry would
-/// keep its own key alive; the erasure adapters register a fresh forwarding
-/// callable when the narrowed callback IS the object's own origin.
+//~
+//~ The object must not strongly reach `function` itself, or the entry would
+//~ keep its own key alive; the erasure adapters register a fresh forwarding
+//~ callable when the narrowed callback IS the object's own origin.
 fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
     if let SmeltUnknown::Object(_) = &object {
         smelt_update_callable(function, |meta| meta.callable_object = Some(object));
@@ -391,15 +391,15 @@ fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<
 }
 
 /// Remember the full-arity erased function a narrowing adapter forwards to.
-///
-/// An adapter that calls a wider callback through a signature with FEWER
-/// parameters (`((ctx, next) => ..) as Next`) is still that wider JavaScript
-/// function: a type assertion changes nothing at runtime, so a call reaching
-/// it through an erased `Function` must pass every argument it has. The
-/// adapter's `Rc<dyn Fn(..)>` cannot accept them, so it records the
-/// full-arity erased function here and shares its identity; erasing the
-/// adapter then answers that function. It preserves the source callable, it
-/// erases nothing.
+//~
+//~ An adapter that calls a wider callback through a signature with FEWER
+//~ parameters (`((ctx, next) => ..) as Next`) is still that wider JavaScript
+//~ function: a type assertion changes nothing at runtime, so a call reaching
+//~ it through an erased `Function` must pass every argument it has. The
+//~ adapter's `Rc<dyn Fn(..)>` cannot accept them, so it records the
+//~ full-arity erased function here and shares its identity; erasing the
+//~ adapter then answers that function. It preserves the source callable, it
+//~ erases nothing.
 fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {
     if let SmeltUnknown::Function(wide_function) = &wide {
         let identity = smelt_canonical_function_identity(wide_function);
@@ -413,25 +413,25 @@ fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Optio
 }
 
 /// Whether two callables denote the same JavaScript function value.
-///
-/// Two allocations can denote one source function once a wrapper sits between
-/// them (an erasure adapter, or the typed callback recovered back out of one),
-/// so a bare `Rc::ptr_eq` is not sufficient. Accepts differently-typed handles
-/// because `===` can compare a typed callback against an erased one.
+//~
+//~ Two allocations can denote one source function once a wrapper sits between
+//~ them (an erasure adapter, or the typed callback recovered back out of one),
+//~ so a bare `Rc::ptr_eq` is not sufficient. Accepts differently-typed handles
+//~ because `===` can compare a typed callback against an erased one.
 fn smelt_same_function_identity<L: ?Sized, R: ?Sized>(left: &::std::rc::Rc<L>, right: &::std::rc::Rc<R>) -> bool { let left_key = smelt_callable_object_key(left); let right_key = smelt_callable_object_key(right); left_key == right_key || smelt_function_identity_of(left_key) == smelt_function_identity_of(right_key) }
 
 /// Whether two erased callables are the same JavaScript function value.
 fn smelt_same_erased_function(left: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, right: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> bool { smelt_same_function_identity(left, right) }
 
 thread_local! {
-    /// Canonical identity of each class method, keyed by `Class::method`.
+    //~ Canonical identity of each class method, keyed by `Class::method`.
     static SMELT_METHOD_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltFunctionIdentity>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
 /// The canonical JavaScript identity of one class method.
-///
-/// Minted once per key and never freed, so it is stable across every read of
-/// the method and distinct from every other function's identity.
+//~
+//~ Minted once per key and never freed, so it is stable across every read of
+//~ the method and distinct from every other function's identity.
 fn smelt_method_identity(key: &'static str) -> SmeltFunctionIdentity {
     SMELT_METHOD_IDENTITIES.with(|identities| identities.borrow_mut().entry(key).or_default().clone())
 }
@@ -440,27 +440,27 @@ fn smelt_method_identity(key: &'static str) -> SmeltFunctionIdentity {
 fn smelt_register_function_length<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { smelt_canonical_function_identity(function).0.length.set(Some(length)); }
 
 /// Record an erased callable's `Function.prototype.length` if none is known.
-///
-/// An erasure adapter and the callable it wraps are ONE JavaScript function
-/// and share one identity, so a second registration would overwrite the
-/// arity already recorded; this keeps the first (the source-declared) one.
+//~
+//~ An erasure adapter and the callable it wraps are ONE JavaScript function
+//~ and share one identity, so a second registration would overwrite the
+//~ arity already recorded; this keeps the first (the source-declared) one.
 fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let identity = smelt_canonical_function_identity(function); if identity.0.length.get().is_none() { identity.0.length.set(Some(length)); } }
 
 /// Read `Function.prototype.length` off an erased value.
-///
-/// A callable object (`{ __smelt_call }`) reports the arity of the callable it
-/// carries; anything else reports `0`, which is what JavaScript answers for a
-/// value with no `length` property.
+//~
+//~ A callable object (`{ __smelt_call }`) reports the arity of the callable it
+//~ carries; anything else reports `0`, which is what JavaScript answers for a
+//~ value with no `length` property.
 fn smelt_function_length(value: &SmeltUnknown) -> f64 { smelt_function_length_or(value, 0.0) }
 
 /// Read `Function.prototype.length` off an erased value, answering `fallback`
 /// when no representation recorded the arity.
-///
-/// Extracting an erased callable into a `SmeltErasedFunction` uses this so the
-/// struct's `length` is the function's own arity (recorded when it was
-/// erased), not the arity of the variadic signature it is read through: a
-/// `typeof f === "function" && f.length === 1` guard must see the `1` a
-/// one-parameter callback declared.
+//~
+//~ Extracting an erased callable into a `SmeltErasedFunction` uses this so the
+//~ struct's `length` is the function's own arity (recorded when it was
+//~ erased), not the arity of the variadic signature it is read through: a
+//~ `typeof f === "function" && f.length === 1` guard must see the `1` a
+//~ one-parameter callback declared.
 fn smelt_function_length_or(value: &SmeltUnknown, fallback: f64) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return fallback; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(fallback) }
 
 // @smelt:item-end

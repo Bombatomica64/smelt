@@ -67,8 +67,8 @@ fn smelt_erased_integer(value: &SmeltUnknown) -> f64 {
 }
 
 /// A RELATIVE position argument (`slice`, `splice`, `fill`): negative counts from the end.
-///
-/// A missing or `undefined` argument takes `default`; the result is clamped to `0..=len`.
+//~
+//~ A missing or `undefined` argument takes `default`; the result is clamped to `0..=len`.
 fn smelt_erased_relative_position(value: Option<&SmeltUnknown>, len: usize, default: usize) -> usize {
     match value {
         None | Some(SmeltUnknown::Undefined) => default,
@@ -81,8 +81,8 @@ fn smelt_erased_relative_position(value: Option<&SmeltUnknown>, len: usize, defa
 }
 
 /// A CLAMPED position argument (`substring`, `startsWith`, string `indexOf`): negatives are `0`.
-///
-/// A missing or `undefined` argument takes `default`; the result is clamped to `0..=len`.
+//~
+//~ A missing or `undefined` argument takes `default`; the result is clamped to `0..=len`.
 fn smelt_erased_clamped_position(value: Option<&SmeltUnknown>, len: usize, default: usize) -> usize {
     match value {
         None | Some(SmeltUnknown::Undefined) => default,
@@ -139,12 +139,12 @@ const SMELT_ERASED_ARRAY_METHODS: [&str; 32] = ["map", "filter", "forEach", "red
 const SMELT_ERASED_STRING_METHODS: [&str; 21] = ["at", "charAt", "charCodeAt", "codePointAt", "concat", "endsWith", "includes", "indexOf", "lastIndexOf", "padEnd", "padStart", "repeat", "slice", "startsWith", "substring", "toLowerCase", "toUpperCase", "trim", "trimEnd", "trimStart", "toString"];
 
 /// Read `Array.prototype[field]` off an erased array, bound to that array.
-///
-/// `None` when `field` is not a modeled array method, so the caller answers
-/// `undefined`. The receiver handle shares the array's storage, so a mutating
-/// method called through the bound value mutates the caller's array. No
-/// canonical identity or `length` is registered: every `arr.map(f)` is a read,
-/// and registering would grow the identity registries once per call.
+//~
+//~ `None` when `field` is not a modeled array method, so the caller answers
+//~ `undefined`. The receiver handle shares the array's storage, so a mutating
+//~ method called through the bound value mutates the caller's array. No
+//~ canonical identity or `length` is registered: every `arr.map(f)` is a read,
+//~ and registering would grow the identity registries once per call.
 fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<SmeltUnknown> {
     let name: &'static str = SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?;
     let receiver = receiver.clone();
@@ -152,8 +152,8 @@ fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<Sm
 }
 
 /// Read `String.prototype[field]` off an erased string, bound to that string.
-///
-/// `None` when `field` is not a modeled string method (see the array twin).
+//~
+//~ `None` when `field` is not a modeled string method (see the array twin).
 fn smelt_string_prototype_member(receiver: &JsString, field: &str) -> Option<SmeltUnknown> {
     let name: &'static str = SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?;
     let receiver = receiver.clone();
@@ -178,11 +178,11 @@ fn smelt_erased_flatten_into(items: Vec<SmeltUnknown>, depth: f64, out: &mut Vec
 }
 
 /// Apply `Array.prototype[name]` to an erased array receiver.
-///
-/// Iteration reads the array LIVE (`receiver.get(index)`) over the length it had
-/// when the call began, as the specification's algorithms do, so a callback that
-/// mutates the array observes the same values it would in JavaScript. Callbacks
-/// receive `(element, index, array)`.
+//~
+//~ Iteration reads the array LIVE (`receiver.get(index)`) over the length it had
+//~ when the call began, as the specification's algorithms do, so a callback that
+//~ mutates the array observes the same values it would in JavaScript. Callbacks
+//~ receive `(element, index, array)`.
 fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let array = || SmeltUnknown::Array(receiver.clone());
@@ -239,8 +239,8 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
         "reverse" => { receiver.storage().borrow_mut().reverse(); array() }
         "sort" => {
             let compare = match args.first() { None | Some(SmeltUnknown::Undefined) => None, Some(value) => match smelt_erased_callable(value) { Some(function) => Some(function), None => smelt_throw_builtin_error("TypeError", "The comparison function must be either a function or undefined".to_owned()) } };
-            // Sort a snapshot: the comparator is user code and may read the
-            // array, so no borrow of the storage may be held across it.
+            //~ Sort a snapshot: the comparator is user code and may read the
+            //~ array, so no borrow of the storage may be held across it.
             let (mut defined, undefined): (Vec<SmeltUnknown>, Vec<SmeltUnknown>) = receiver.clone().into_vec().into_iter().partition(|value| !matches!(value, SmeltUnknown::Undefined));
             defined.sort_by(|left, right| match &compare {
                 Some(function) => { let order = smelt_unknown_to_number(&smelt_erased_invoke(function, vec![left.clone(), right.clone()])); if order < 0.0 { ::std::cmp::Ordering::Less } else if order > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }
@@ -257,13 +257,13 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
 }
 
 /// A live JavaScript array iterator over an erased array.
-///
-/// `kind` selects what each step yields: `0` the index (`keys`), `1` the element
-/// (`values`), `2` an `[index, element]` pair (`entries`). The iterator obeys the
-/// protocol the erased runtime drives (`next()` returning `{ value, done }`, see
-/// `smelt_unknown_iterator_items`) and is itself iterable through
-/// `__smelt_symbol_iterator`, so `for...of`, spread and `Array.from` accept it.
-/// It reads the array live and, once done, stays done, as JavaScript's does.
+//~
+//~ `kind` selects what each step yields: `0` the index (`keys`), `1` the element
+//~ (`values`), `2` an `[index, element]` pair (`entries`). The iterator obeys the
+//~ protocol the erased runtime drives (`next()` returning `{ value, done }`, see
+//~ `smelt_unknown_iterator_items`) and is itself iterable through
+//~ `__smelt_symbol_iterator`, so `for...of`, spread and `Array.from` accept it.
+//~ It reads the array live and, once done, stays done, as JavaScript's does.
 fn smelt_erased_array_iterator(receiver: SmeltArray, kind: u8) -> SmeltUnknown {
     let position = ::std::rc::Rc::new(::std::cell::Cell::new(0_usize));
     let next: SmeltDynCallable = ::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| {
@@ -301,8 +301,8 @@ fn smelt_erased_unit_index(value: &SmeltUnknown, len: usize) -> Option<usize> {
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
-///
-/// Positions count UTF-16 code units, as JavaScript's do.
+//~
+//~ Positions count UTF-16 code units, as JavaScript's do.
 fn smelt_string_prototype_apply(text: &JsStr, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let arg_text = |index: usize| smelt_erased_to_js_string(&arg(index));
@@ -351,25 +351,26 @@ fn smelt_string_prototype_apply(text: &JsStr, name: &str, args: Vec<SmeltUnknown
 /// Throw a JavaScript error of builtin class `class` through the error channel.
 fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_throw(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(class.into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
 /// Throw JavaScript's `TypeError: <callee> is not a function`.
-///
-/// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
+//~
+//~ `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
 /// Throw JavaScript's `TypeError` for a call of a value that holds no function,
 /// where the source spelling of the callee is not known.
 fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
-/// The member `key` of an erased object as a record conversion reads it, the
-/// way a JavaScript property read does: the own property (an accessor is run),
-/// else the prototype members, else a host object's modelled members. `None`
-/// when the read answers `undefined`, so an absent property and a present
-/// `undefined` are the same to the conversion, as they are to a reader.
+//~ The member `key` of an erased object as a record conversion reads it, the
+//~ way a JavaScript property read does: the own property (an accessor is run),
+//~ else the prototype members, else a host object's modelled members. `None`
+//~ when the read answers `undefined`, so an absent property and a present
+//~ `undefined` are the same to the conversion, as they are to a reader.
 fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(getter)) if getter.contains_key("__smelt_get") => Some(smelt_resolve_accessor(SmeltUnknown::Object(getter))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
 /// [`smelt_erased_member`] on a string-keyed record view of an erased object.
 fn smelt_erased_record_member(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> Option<SmeltUnknown> { smelt_erased_member(&SmeltObject::from_unknown_record(record.clone()), key) }
 /// The placeholder an erased class view holds for a method it cannot bridge
-/// (`async`, a generator, a parameter the carrier cannot rebuild). The member
-/// exists, as it does in JavaScript, so the conversion finds it and a
-/// `typeof` sees a function; only a call through the erased view fails, and it
-/// fails naming the method rather than answering a fabricated value.
+/// (`async`, a generator, a parameter the carrier cannot rebuild).
+//~ The member
+//~ exists, as it does in JavaScript, so the conversion finds it and a
+//~ `typeof` sees a function; only a call through the erased view fails, and it
+//~ fails naming the method rather than answering a fabricated value.
 fn smelt_unbridged_member(name: &'static str) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| smelt_throw_builtin_error("TypeError", format!("{name} cannot be called through an erased value")))) }
 /// The call slot of a record converted from a non-callable object: a call
 /// throws JavaScript's `TypeError`, as calling that object would.

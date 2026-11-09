@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
         // `borrow_mut()`s that same cell (Hono's `router.get(..)` slot sets
         // `this.#path`), which panicked "already borrowed" at startup. Binding
         // the slot in its own `let` drops the guard first, the same rule
-        // `indirect_call_text` applies to a plain function-typed field.
+        // `indirect_call` applies to a plain function-typed field.
         let slot_text = if self.operand_reads_through_ref_cell(callee) {
             format!(
                 "{{ let smelt_callable_slot = {}.{SMELT_CALL}.clone(); smelt_callable_slot }}",

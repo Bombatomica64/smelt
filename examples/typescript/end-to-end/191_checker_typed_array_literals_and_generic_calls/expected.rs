@@ -7,10 +7,6 @@ pub(crate) use __smelt_module_source_main::*;
 
 
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
-///
-/// Exponential notation at `n > 21` and `n <= -6`, where `n` is the
-/// decimal exponent of the shortest round-trip digit string — which is
-/// what Rust's `{:e}` already produces.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
     if value.is_nan() { return "NaN".to_owned(); }
@@ -95,87 +91,61 @@ const fn smelt_units_from_number(number: f64) -> usize {
 }
 
 /// A JavaScript string: immutable UTF-16 code units, shared by reference count.
-///
-/// Lone surrogates are representable. Equality, hashing and ordering are by
-/// code unit, which is ECMAScript's order (`"😀" < "\u{FFFF}"`). A clone shares
-/// the buffer; [`JsString::push_str`] and `+` append in place when this handle
-/// is the buffer's only owner and copy it first when it is shared.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct JsString(::std::rc::Rc<Vec<u16>>);
 
 /// A borrowed JavaScript string: a slice of UTF-16 code units.
-///
-/// The view `&JsString` derefs to, as `&String` derefs to `&str`. Its equality,
-/// hash and order are the code units', so a `JsString` key is found by a
-/// `&JsStr` lookup.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct JsStr([u16]);
 
 impl JsStr {
-    /// Views code units as a string.
     #[allow(unsafe_code)]
     const fn from_units(units: &[u16]) -> &Self {
         unsafe { &*(::std::ptr::from_ref::<[u16]>(units) as *const Self) }
     }
 
-    /// The code units.
     const fn units(&self) -> &[u16] {
         &self.0
     }
 
-    /// The JavaScript `length`: the number of code units.
     const fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Whether this is the empty string.
     const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// The code unit at `index` (`charCodeAt`), if any.
     fn unit_at(&self, index: usize) -> Option<u16> {
         self.0.get(index).copied()
     }
 
-    /// The one-unit string at `index` (`charAt`, `s[i]`), if any. At either
-    /// half of a surrogate pair this is that lone half.
     fn char_at(&self, index: usize) -> Option<JsString> {
         self.0.get(index).map(|unit| JsString::from_units(&[*unit]))
     }
 
-    /// The code point at `index` (`codePointAt`): a whole surrogate pair when
-    /// `index` holds its leading half, else the unit there.
     fn code_point_at(&self, index: usize) -> Option<u32> {
         let first = *self.0.get(index)?;
         let second = self.0.get(index + 1).copied().filter(|unit| (0xD800..0xDC00).contains(&first) && (0xDC00..0xE000).contains(unit));
         Some(second.map_or_else(|| u32::from(first), |second| 0x10000 + ((u32::from(first) - 0xD800) << 10) + (u32::from(second) - 0xDC00)))
     }
 
-    /// The code units `start..end`, clamped to the string; empty when
-    /// `end <= start`. A cut may split a surrogate pair, leaving lone halves.
     fn slice(&self, start: usize, end: usize) -> JsString {
         let end = end.min(self.0.len());
         if end <= start { return JsString::default(); }
         JsString::from_units(&self.0[start..end])
     }
 
-    /// [`Self::slice`] as a borrowed view.
     fn sub(&self, start: usize, end: usize) -> &Self {
         let end = end.min(self.0.len());
         Self::from_units(self.0.get(start.min(end)..end).unwrap_or(&[]))
     }
 
-    /// The first index at or after `from` where `needle` occurs (`indexOf`).
-    ///
-    /// `from` past the end is the end, so an empty needle is found at
-    /// `min(from, length)`, as in JavaScript.
     fn index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
         needle.with_units(|needle| self.index_of_units(needle, from))
     }
 
-    /// [`Self::index_of`] over a needle's code units.
     fn index_of_units(&self, needle: &[u16], from: usize) -> Option<usize> {
         let haystack = &self.0;
         let from = from.min(haystack.len());
@@ -190,7 +160,6 @@ impl JsStr {
         None
     }
 
-    /// The last index at or before `from` where `needle` occurs (`lastIndexOf`).
     fn last_index_of(&self, needle: impl SmeltJsPattern, from: usize) -> Option<usize> {
         needle.with_units(|needle| {
         let haystack = &self.0;
@@ -199,50 +168,40 @@ impl JsStr {
         })
     }
 
-    /// Whether `needle` occurs anywhere (`includes`).
     fn contains(&self, needle: impl SmeltJsPattern) -> bool {
         self.index_of(needle, 0).is_some()
     }
 
-    /// Whether the string starts with `prefix` (`startsWith`).
     fn starts_with(&self, prefix: impl SmeltJsPattern) -> bool {
         prefix.with_units(|prefix| self.0.starts_with(prefix))
     }
 
-    /// Whether the string ends with `suffix` (`endsWith`).
     fn ends_with(&self, suffix: impl SmeltJsPattern) -> bool {
         suffix.with_units(|suffix| self.0.ends_with(suffix))
     }
 
-    /// The string with JavaScript white space removed from both ends (`trim`).
     fn trim(&self) -> &Self {
         self.trim_start().trim_end()
     }
 
-    /// The string with leading JavaScript white space removed (`trimStart`).
     fn trim_start(&self) -> &Self {
         let start = self.0.iter().position(|unit| !js_is_white_space(*unit)).unwrap_or(self.0.len());
         Self::from_units(&self.0[start..])
     }
 
-    /// The string with trailing JavaScript white space removed (`trimEnd`).
     fn trim_end(&self) -> &Self {
         let end = self.0.iter().rposition(|unit| !js_is_white_space(*unit)).map_or(0, |last| last + 1);
         Self::from_units(&self.0[..end])
     }
 
-    /// The string repeated `count` times (`repeat`).
     fn repeat(&self, count: usize) -> JsString {
         JsString::from(self.0.repeat(count))
     }
 
-    /// The pieces between occurrences of `separator` (`split`), at most
-    /// `limit` of them. An empty separator splits into single code units.
     fn split(&self, separator: impl SmeltJsPattern, limit: usize) -> Vec<JsString> {
         separator.with_units(|separator| self.split_units(separator, limit))
     }
 
-    /// [`Self::split`] over a separator's code units.
     fn split_units(&self, separator: &[u16], limit: usize) -> Vec<JsString> {
         let mut pieces = Vec::new();
         if limit == 0 { return pieces; }
@@ -260,9 +219,6 @@ impl JsStr {
         pieces
     }
 
-    /// The string with its first occurrence of `pattern` replaced by
-    /// `replacement` (`replace` with a string pattern and a plain
-    /// replacement, no `$` substitutions).
     fn replace_first(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
         pattern.with_units(|pattern| self.index_of_units(pattern, 0).map_or_else(|| self.to_owned(), |at| {
             let mut out = Vec::with_capacity(self.len() - pattern.len() + replacement.len());
@@ -273,14 +229,10 @@ impl JsStr {
         }))
     }
 
-    /// The string with every occurrence of `pattern` replaced by `replacement`
-    /// (`replaceAll` with a string pattern and a plain replacement). An empty
-    /// pattern matches before every unit and at the end.
     fn replace_all(&self, pattern: impl SmeltJsPattern, replacement: &Self) -> JsString {
         pattern.with_units(|pattern| self.replace_all_units(pattern, replacement))
     }
 
-    /// [`Self::replace_all`] over a pattern's code units.
     fn replace_all_units(&self, pattern: &[u16], replacement: &Self) -> JsString {
         let mut out = Vec::with_capacity(self.len());
         if pattern.is_empty() {
@@ -301,19 +253,14 @@ impl JsStr {
         JsString::from(out)
     }
 
-    /// The characters, decoded: `Ok` for a scalar value, `Err` for a lone
-    /// surrogate.
     fn chars_lossless(&self) -> impl Iterator<Item = Result<char, u16>> + '_ {
         char::decode_utf16(self.0.iter().copied()).map(|decoded| decoded.map_err(|lone| lone.unpaired_surrogate()))
     }
 
-    /// The code points (`for...of`, `Array.from`, `[...s]`): a surrogate pair
-    /// is one code point, a lone surrogate is its own.
     fn code_points(&self) -> impl Iterator<Item = u32> + '_ {
         self.chars_lossless().map(|decoded| decoded.map_or_else(u32::from, u32::from))
     }
 
-    /// One string per code point (`[...s]`): a surrogate pair is one piece.
     fn code_point_strings(&self) -> Vec<JsString> {
         let mut pieces = Vec::with_capacity(self.len());
         let mut at = 0;
@@ -325,12 +272,10 @@ impl JsStr {
         pieces
     }
 
-    /// Whether the string has no lone surrogate (`isWellFormed`).
     fn is_well_formed(&self) -> bool {
         self.chars_lossless().all(|decoded| decoded.is_ok())
     }
 
-    /// The string with each lone surrogate replaced by U+FFFD (`toWellFormed`).
     fn to_well_formed(&self) -> JsString {
         if self.is_well_formed() { return self.to_owned(); }
         let mut out = Vec::with_capacity(self.len());
@@ -341,7 +286,6 @@ impl JsStr {
         JsString::from(out)
     }
 
-    /// UTF-8 text, a lone surrogate becoming U+FFFD: what Node writes to stdout.
     fn to_string_lossy(&self) -> String {
         if self.0.iter().all(|unit| *unit < 0x80) {
             return self.0.iter().map(|unit| char::from(u8::try_from(*unit).unwrap_or(b'?'))).collect();
@@ -349,27 +293,18 @@ impl JsStr {
         self.chars_lossless().map(|decoded| decoded.unwrap_or('\u{FFFD}')).collect()
     }
 
-    /// UTF-8 text when the string is well formed, `None` when it holds a lone
-    /// surrogate.
     fn to_str_exact(&self) -> Option<String> {
         self.chars_lossless().collect::<Result<String, u16>>().ok()
     }
 
-    /// The string upper-cased by the Unicode default rules (`toUpperCase`); a
-    /// lone surrogate passes through unchanged.
     fn to_upper_case(&self) -> JsString {
         self.map_case(u8::to_ascii_uppercase, str::to_uppercase)
     }
 
-    /// The string lower-cased by the Unicode default rules (`toLowerCase`); a
-    /// lone surrogate passes through unchanged.
     fn to_lower_case(&self) -> JsString {
         self.map_case(u8::to_ascii_lowercase, str::to_lowercase)
     }
 
-    /// Case mapping: `ascii` per unit when the text is ASCII, else `full` over
-    /// each well-formed run, so the standard library's special casing and
-    /// final-sigma rules apply and lone surrogates stay where they are.
     fn map_case(&self, ascii: fn(&u8) -> u8, full: fn(&str) -> String) -> JsString {
         if self.0.iter().all(|unit| *unit < 0x80) {
             return JsString::from(self.0.iter().map(|unit| u16::from(ascii(&u8::try_from(*unit).unwrap_or(b'?')))).collect::<Vec<u16>>());
@@ -390,19 +325,16 @@ impl JsStr {
         JsString::from(out)
     }
 
-    /// The code units' bytes in native order, for hashing.
     #[allow(unsafe_code)]
     const fn byte_view(&self) -> &[u8] {
         unsafe { ::std::slice::from_raw_parts(self.0.as_ptr().cast::<u8>(), self.0.len() * 2) }
     }
 
-    /// Whether the string starts with the text `prefix`.
     fn eq_str_prefix(&self, prefix: &str) -> bool {
         let mut units = self.0.iter();
         prefix.encode_utf16().all(|unit| units.next() == Some(&unit))
     }
 
-    /// The rest of the string after the text `prefix`, when it starts with it.
     fn strip_str_prefix(&self, prefix: &str) -> Option<&Self> {
         let mut at = 0;
         for unit in prefix.encode_utf16() {
@@ -412,48 +344,38 @@ impl JsStr {
         Some(Self::from_units(&self.0[at..]))
     }
 
-    /// Whether the string holds exactly the text `other`.
     fn eq_str(&self, other: &str) -> bool {
         let mut units = other.encode_utf16();
         self.0.iter().all(|unit| units.next() == Some(*unit)) && units.next().is_none()
     }
 }
 
-/// Whether `unit` is JavaScript white space or a line terminator, the set
-/// `trim` removes: TAB, VT, FF, SP, NBSP, ZWNBSP, the `Zs` category, LF, CR,
-/// LS and PS.
 const fn js_is_white_space(unit: u16) -> bool {
     matches!(unit, 0x09..=0x0D | 0x20 | 0xA0 | 0x1680 | 0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 | 0xFEFF)
 }
 
 impl JsString {
-    /// The empty string.
     fn new() -> Self {
         Self::default()
     }
 
-    /// A string holding a copy of `units`.
     fn from_units(units: &[u16]) -> Self {
         Self(::std::rc::Rc::new(units.to_vec()))
     }
 
-    /// The borrowed view.
     fn as_js_str(&self) -> &JsStr {
         JsStr::from_units(&self.0)
     }
 
-    /// Appends `other`, in place when this handle is the buffer's only owner.
     fn push_str(&mut self, other: &JsStr) {
         if other.is_empty() { return; }
         ::std::rc::Rc::make_mut(&mut self.0).extend_from_slice(&other.0);
     }
 
-    /// Appends one code unit, in place when this handle is the only owner.
     fn push_unit(&mut self, unit: u16) {
         ::std::rc::Rc::make_mut(&mut self.0).push(unit);
     }
 
-    /// The pieces joined with `separator` between them (`Array.join`).
     fn join<I>(pieces: I, separator: &JsStr) -> Self
     where
         I: IntoIterator,
@@ -645,11 +567,7 @@ impl ::std::fmt::Debug for JsString {
     }
 }
 
-/// A search argument of the string methods: a JavaScript string, or text the
-/// emitter wrote as a Rust `&str` literal, encoded without allocating when it
-/// is short.
 pub trait SmeltJsPattern {
-    /// Calls `read` with the pattern's code units.
     fn with_units<R>(&self, read: impl FnOnce(&[u16]) -> R) -> R;
 }
 
@@ -692,7 +610,6 @@ impl<T: SmeltJsPattern + ?Sized> SmeltJsPattern for &T {
 /// The reads of a `HashMap` keyed by JavaScript strings by a key the emitter
 /// spelled as a Rust `&str` literal (a source property name).
 pub trait SmeltJsKeyedMap<V> {
-    /// The value at the key `key`, if any.
     fn get_text(&self, key: &str) -> Option<&V>;
 }
 
@@ -723,20 +640,14 @@ impl SmeltHostText for JsString {
 }
 
 /// Text a host API reads as UTF-8: URLs, header names and values, request
-/// bodies, digests. Host internals keep `String`, because their data model is
-/// UTF-8 bytes on the wire; a JavaScript string crosses into them here, a
-/// lone surrogate becoming U+FFFD as it does on Node's wire.
+/// bodies, digests.
 pub trait SmeltHostText {
-    /// The UTF-8 text, borrowed when it already is UTF-8.
     fn host_text(&self) -> ::std::borrow::Cow<'_, str>;
 
-    /// Whether the text holds a lone surrogate, which has no UTF-8 spelling
-    /// (only a JavaScript string can).
     fn has_lone_surrogate(&self) -> bool {
         false
     }
 
-    /// The UTF-8 text as an owned `String`, for a host value that keeps it.
     fn into_host_string(self) -> String where Self: Sized {
         self.host_text().into_owned()
     }
@@ -799,44 +710,24 @@ impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltList<T> { fn fmt(&self, fo
 impl<T> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: ::std::rc::Rc::clone(&self.values) } } }
 #[allow(dead_code)]
 impl<T> SmeltList<T> {
-    /// Create an identity-bearing typed list with a fresh JS reference identity.
     fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    /// Reuse a caller-supplied identity so an erase/extract round-trip stays `===` equal.
     fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) -> Self { Self { id, values } }
-    /// Another handle on this array's shared buffer.
     fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<T>>> { ::std::rc::Rc::clone(&self.values) }
-    /// JS reference identity of this list.
     fn id(&self) -> usize { self.id }
-    /// Borrow the backing storage for reading. The guard lives to the end of the
-    /// enclosing statement; never pair it with `borrow_mut` in one expression.
     fn borrow(&self) -> ::std::cell::Ref<'_, Vec<T>> { self.values.borrow() }
-    /// Borrow the backing storage for writing, through the shared cell — so this
-    /// takes `&self`, and every other handle on the array observes the write.
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, Vec<T>> { self.values.borrow_mut() }
-    /// Element count, taking its own short-lived borrow.
     fn len(&self) -> usize { self.values.borrow().len() }
-    /// Whether the array holds no elements.
     fn is_empty(&self) -> bool { self.values.borrow().is_empty() }
-    /// Replace every element in place, so aliases observe the new contents.
     fn replace_all(&self, values: Vec<T>) { *self.values.borrow_mut() = values; }
 }
 #[allow(dead_code)]
 impl<T: Clone> SmeltList<T> {
-    /// A JS array copy (`[...a]`, `slice`): same contents, a NEW identity AND a
-    /// new buffer. This is the operation that keeps sharing from over-sharing.
     fn fresh_copy(&self) -> Self { Self::new(self.values.borrow().clone()) }
-    /// Snapshot the elements. This COPIES unless this is the last handle, so
-    /// mutating the result does not write back.
     fn into_vec(self) -> Vec<T> { match ::std::rc::Rc::try_unwrap(self.values) { Ok(cell) => cell.into_inner(), Err(shared) => shared.borrow().clone() } }
-    /// Snapshot the elements without consuming the handle.
     fn to_vec(&self) -> Vec<T> { self.values.borrow().clone() }
-    /// Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
     fn get_index(&self, index: usize) -> Option<T> { self.values.borrow().get(index).cloned() }
-    /// Set the element at a numeric index, extending with `fill` holes to match JS `arr[i] = v`.
     fn set_index(&self, index: usize, value: T, fill: T) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; }
-    /// Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.values.borrow().clone().into_iter() }
 }
 impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }
@@ -885,16 +776,6 @@ impl ::std::hash::Hasher for SmeltFieldHasher {
 pub type SmeltFieldMap<K, V> = ::std::collections::HashMap<K, V, ::std::hash::BuildHasherDefault<SmeltFieldHasher>>;
 
 /// Hash a property key's bytes into a property store's key space.
-///
-/// Only the dictionary-sized path uses this; a record-sized store scans.
-/// Deliberately not routed through `Hash`/`SmeltFieldHasher`: `<str as Hash>::hash`
-/// makes TWO `Hasher::write` calls -- the bytes, then a `0xff` terminator that
-/// disambiguates concatenations -- and each rebuilds an 8-byte staging buffer.
-/// Property names are short, so this folds the length in directly (which serves
-/// the same disambiguating purpose) and takes the <=8-byte case, nearly every
-/// property name, as a single load and mix. No avalanche finalizer: the value
-/// only ever enters the `index` map, which re-hashes it through
-/// `SmeltFieldHasher`, and that finalizes.
 #[inline]
 fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
     const SMELT_FX_SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
@@ -916,12 +797,6 @@ fn smelt_field_hash_bytes(bytes: &[u8]) -> u64 {
 }
 
 /// A cheap same-length tie-break for a property key: length, first byte, last byte.
-///
-/// Equal keys MUST produce equal fingerprints, so every `SmeltPropertyKey`
-/// impl delegates here rather than computing its own -- a `String` entry and
-/// the `&str` a lookup borrows against it must agree or the lookup would
-/// report a present key absent. Unequal keys may collide; a fingerprint hit
-/// is always confirmed with full key equality.
 #[inline]
 fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
     let first = bytes.first().copied().unwrap_or(0) as u32;
@@ -930,10 +805,6 @@ fn smelt_field_fingerprint(bytes: &[u8]) -> u32 {
 }
 
 /// One property of a store: its key, its value, and the key's fingerprint.
-///
-/// `fingerprint` is derived from `key` at insert time and is never updated
-/// independently -- the key of an existing entry is never rewritten, only its
-/// value is -- so the two cannot drift apart.
 #[derive(Debug)]
 pub struct SmeltFieldEntry<K, V> {
     fingerprint: u32,
@@ -942,42 +813,22 @@ pub struct SmeltFieldEntry<K, V> {
 }
 
 /// Entries a property store scans linearly before it builds a hash index.
-///
-/// Set where an object stops looking like a record and starts looking like a
-/// dictionary: below it a length-first key scan beats hashing plus a probe,
-/// above it dictionary-shaped objects need their O(1) lookup back.
 const SMELT_FIELD_SCAN_LIMIT: usize = 12;
 
 /// The ordered property store behind a JavaScript object or record.
-///
-/// `entries` is held in JavaScript own-key order (array-index keys first, in
-/// ascending numeric order, then the remaining string keys in insertion
-/// order), so `keys()`/`iter()` read the order as a fact rather than
-/// re-deriving it. `index` maps a key hash to the FIRST entry position
-/// carrying it and exists ONLY while the store is larger than
-/// `SMELT_FIELD_SCAN_LIMIT` — a small store never hashes a key at all.
 #[derive(Debug)]
 pub struct SmeltFieldStore<K, V> {
     entries: Vec<SmeltFieldEntry<K, V>>,
     index: Option<SmeltFieldMap<u64, usize>>,
-    /// How many keys live in the runtime's internal `__smelt` namespace.
     internal: u32,
 }
 
 impl<K, V> SmeltFieldStore<K, V> {
-    /// Build an empty store sized for `capacity` entries.
     fn with_capacity(capacity: usize) -> Self { Self { entries: Vec::with_capacity(capacity), index: None, internal: 0 } }
     #[inline]
     fn len(&self) -> usize { self.entries.len() }
-    /// Borrow the key/value pairs in JavaScript own-key order.
     #[inline]
     fn entries(&self) -> &[SmeltFieldEntry<K, V>] { &self.entries }
-    /// Whether any key is in the internal `__smelt` namespace (markers, slots).
-    ///
-    /// Every marker probe (`smelt_object_has_host_marker`, the byte-buffer
-    /// marker, `for...in`'s regexp/error/arguments checks) asks about keys in
-    /// that namespace, and almost every object has none: a store that says so
-    /// answers all of them without scanning its entries once per marker.
     #[inline]
     fn has_internal_keys(&self) -> bool { self.internal != 0 }
 }
@@ -987,29 +838,12 @@ impl<K, V> Default for SmeltFieldStore<K, V> {
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
-    /// Rebuild the hash index, or drop it when the store is small enough to scan.
     fn reindex(&mut self) {
         if self.entries.len() <= SMELT_FIELD_SCAN_LIMIT { self.index = None; return; }
         let mut index: SmeltFieldMap<u64, usize> = SmeltFieldMap::with_capacity_and_hasher(self.entries.len(), ::std::default::Default::default());
         for (position, entry) in self.entries.iter().enumerate() { index.entry(entry.key.smelt_key_hash()).or_insert(position); }
         self.index = Some(index);
     }
-    /// Return the entry position holding `key`, or `None`.
-    ///
-    /// A small store is SCANNED, comparing keys directly: `str` equality checks
-    /// the length first, so a handful of differently sized property names are
-    /// rejected without touching their bytes, and the key is never hashed. That
-    /// is the whole point — hashing a short key costs more than the scan it
-    /// would save. Two keys of the SAME length are the case that costs, so
-    /// each entry carries a `smelt_field_fingerprint` — length, first byte,
-    /// last byte — that is compared first and rejects such a key out of the
-    /// entries vector, without dereferencing its bytes. A fingerprint hit is
-    /// still confirmed with full key equality, so the answer is unchanged.
-    /// Past `SMELT_FIELD_SCAN_LIMIT` entries the store is a
-    /// dictionary rather than a record, and the hash index resolves the
-    /// position directly; a hash collision between two DISTINCT keys is
-    /// vanishingly unlikely but not impossible, so a failed key confirmation
-    /// falls back to the scan rather than reporting the key absent.
     #[inline]
     fn position<Q>(&self, key: &Q) -> Option<usize> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let fingerprint = key.smelt_key_fingerprint();
@@ -1032,7 +866,6 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         self.position(key).is_some()
     }
-    /// Remove `key`, returning its value; later positions shift, so reindex.
     fn remove<Q>(&mut self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized {
         let position = self.position(key)?;
         let entry = self.entries.remove(position);
@@ -1041,11 +874,6 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
         self.reindex();
         Some(value)
     }
-    /// Insert or overwrite `key`, keeping JavaScript own-key order.
-    ///
-    /// A new key almost always appends, which keeps the index valid with a
-    /// single added mapping; only an array-index key landing before an existing
-    /// entry shifts later positions and forces a rebuild.
     fn insert(&mut self, key: K, value: V) -> Option<V> {
         if let Some(position) = self.position(&key) { return Some(::std::mem::replace(&mut self.entries[position].value, value)); }
         if key.smelt_is_internal_key() { self.internal += 1; }
@@ -1086,14 +914,6 @@ impl<T: ?Sized> SmeltAllocationGuard for ::std::rc::Weak<T> {
 }
 
 /// Hasher for keys that are allocation addresses (or ids minted from them).
-///
-/// The tables are keyed by `Rc::as_ptr` addresses, which an attacker cannot
-/// choose, so std's DoS-resistant SipHash buys nothing here and cost ~3% of a
-/// Hono request (every erased callable touches the table several times). A
-/// single folded 64x64->128 multiply mixes every key bit into both halves of
-/// the hash: the low bits pick hashbrown's bucket and the top seven are its
-/// control byte, and an address's low bits are always zero (alignment), so a
-/// plain multiply or identity hash would leave buckets unused.
 #[derive(Default, Clone, Copy)]
 struct SmeltAddressHasher(u64);
 
@@ -1118,20 +938,12 @@ type SmeltAddressMap<V> = ::std::collections::HashMap<usize, V, ::std::hash::Bui
 const SMELT_ADDRESS_TABLE_MIN_SWEEP: usize = 256;
 
 /// How far past its surviving size a table grows before the next sweep.
-///
-/// A sweep scans every entry once and then lets the table reach this multiple
-/// of what survived, so each insert pays `GROWTH / (GROWTH - 1)` liveness
-/// checks on average and the table stays within `GROWTH` times its live size.
-/// Four keeps the scan near one check per insert for a small, bounded table.
 const SMELT_ADDRESS_TABLE_GROWTH: usize = 4;
 
 /// One address-table entry: the metadata, and the `Weak` reserving its key.
 struct SmeltAddressSlot<V, F: ?Sized> { value: V, guard: ::std::rc::Weak<F> }
 
 /// An address-table entry seen without its allocation's type.
-///
-/// One boxed slot per entry keeps the map's own entries a pointer wide, so a
-/// rehash moves a few words per entry whatever the metadata holds.
 trait SmeltAddressEntry<V> {
     fn value(&self) -> &V;
     fn value_mut(&mut self) -> &mut V;
@@ -1148,13 +960,6 @@ impl<V, F: ?Sized> SmeltAddressEntry<V> for SmeltAddressSlot<V, F> {
 }
 
 /// Metadata keyed by the address of a live `Rc` allocation.
-///
-/// Every entry owns a `Weak` to the allocation it is keyed by, which keeps
-/// the address reserved for exactly as long as the entry exists, so an
-/// address never names two allocations. Entries whose allocation has died
-/// are removed by an amortized sweep when the table reaches `sweep_at`, which
-/// is then reset to `SMELT_ADDRESS_TABLE_GROWTH` times the surviving count:
-/// the table stays proportional to the number of LIVE allocations it describes.
 struct SmeltAddressTable<V> {
     entries: SmeltAddressMap<Box<dyn SmeltAddressEntry<V>>>,
     sweep_at: usize,
@@ -1162,34 +967,21 @@ struct SmeltAddressTable<V> {
 
 impl<V: 'static> SmeltAddressTable<V> {
     fn new() -> Self { Self { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP } }
-    /// Number of entries, live or not yet swept.
     #[allow(dead_code)]
     fn len(&self) -> usize { self.entries.len() }
-    /// The metadata of the allocation at `key`, when it has any.
-    ///
-    /// `key` must come from a live handle (`Rc::as_ptr`), so a hit is always
-    /// that allocation's own entry: a dead entry's address is still reserved
-    /// by its guard and cannot belong to a live allocation.
     #[inline]
     fn get(&self, key: usize) -> Option<&V> { self.entries.get(&key).map(|entry| entry.value()) }
-    /// The metadata of `allocation`, created with `init` on first use.
-    ///
-    /// The caller sweeps first when [`Self::wants_sweep`] says so (see
-    /// `smelt_sweep_address_table`); this never drops an entry itself.
     fn slot<F: ?Sized + 'static>(&mut self, allocation: &::std::rc::Rc<F>, init: impl FnOnce() -> V) -> &mut V {
         let key = ::std::rc::Rc::as_ptr(allocation) as *const () as usize;
         self.entries.entry(key).or_insert_with(|| Box::new(SmeltAddressSlot { value: init(), guard: ::std::rc::Rc::downgrade(allocation) })).value_mut()
     }
-    /// Whether inserting an entry for `allocation` should sweep first.
     #[inline]
     fn wants_sweep<F: ?Sized>(&self, allocation: &::std::rc::Rc<F>) -> bool {
         self.entries.len() >= self.sweep_at && !self.entries.contains_key(&(::std::rc::Rc::as_ptr(allocation) as *const () as usize))
     }
-    /// Remove every entry whose allocation has died, returning them undropped.
     fn take_dead(&mut self) -> Vec<Box<dyn SmeltAddressEntry<V>>> {
         self.entries.extract_if(|_, entry| !entry.is_live()).map(|(_, entry)| entry).collect()
     }
-    /// Set the next threshold from the entries that survived a full sweep.
     fn finish_sweep(&mut self) {
         if self.entries.capacity() > 2 * SMELT_ADDRESS_TABLE_GROWTH * self.entries.len().max(SMELT_ADDRESS_TABLE_MIN_SWEEP) { self.entries.shrink_to(SMELT_ADDRESS_TABLE_GROWTH * self.entries.len()); }
         self.sweep_at = (SMELT_ADDRESS_TABLE_GROWTH * self.entries.len()).max(SMELT_ADDRESS_TABLE_MIN_SWEEP);
@@ -1197,14 +989,6 @@ impl<V: 'static> SmeltAddressTable<V> {
 }
 
 /// Sweep `table` until no entry dies, then reset its threshold.
-///
-/// Dropping a dead entry can release the last handle on allocations other
-/// entries describe (a callback's entry held the erased adapter of another),
-/// so one pass leaves entries that are dead the moment its garbage is dropped.
-/// Setting the threshold from that inflated count let a table of such chains
-/// grow without bound; sweeping again until a pass frees nothing sets it from
-/// the TRUE live count. Garbage is dropped outside the table borrow, because
-/// dropping it can run code that reads the table.
 fn smelt_sweep_address_table<V: 'static>(table: &::std::cell::RefCell<SmeltAddressTable<V>>) {
     loop {
         let dead = table.borrow_mut().take_dead();
@@ -1215,19 +999,10 @@ fn smelt_sweep_address_table<V: 'static>(table: &::std::cell::RefCell<SmeltAddre
 }
 
 thread_local! {
-    /// The erased object id of each live reference record cell.
     static SMELT_REFERENCE_OBJECT_IDENTITIES: ::std::cell::RefCell<SmeltAddressTable<usize>> = ::std::cell::RefCell::new(SmeltAddressTable::new());
 }
 
 /// Return a stable erased-object id for a reference record's shared cell.
-///
-/// A reference record (a class or object shape whose fields are written
-/// after construction) is a handle over one `Rc<RefCell<..>>`, and every
-/// handle on that cell is the SAME JavaScript object. Erasing any of them
-/// must therefore produce an object that compares `===` equal to the
-/// others, which means one id per cell rather than a fresh id per erasure.
-/// The entry lives exactly as long as the cell (see `SmeltAddressTable`), so
-/// a recycled cell address gets a fresh id rather than a dead object's.
 #[allow(dead_code)]
 fn smelt_reference_object_identity<T: ?Sized + 'static>(cell: &::std::rc::Rc<T>) -> usize {
     SMELT_REFERENCE_OBJECT_IDENTITIES.with(|identities| {
@@ -1248,20 +1023,10 @@ fn smelt_promise_identity(source_key: usize) -> usize {
 }
 
 thread_local! {
-    /// Map a source list's storage address to a stable erased-array identity.
     static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
 /// Return a stable erased-array id for a source list keyed on its `Vec` address.
-///
-/// Erasing the SAME source list local twice must yield arrays that compare
-/// `===` equal (arrays compare by id). Keying on the live `Vec`'s storage
-/// address lets every erasure of one binding reuse a single id, while a
-/// fresh list (literal or transform result) still gets a fresh id from
-/// `SmeltArray::new`. KNOWN LIMITATION: `Vec::as_ptr` on an EMPTY `Vec`
-/// returns a shared dangling sentinel, so distinct empty list bindings can
-/// collide on one id; acceptable here because the targeted cases are
-/// non-empty.
 fn smelt_list_identity(source_key: usize) -> usize {
     SMELT_LIST_IDENTITIES.with(|identities| {
         let mut identities = identities.borrow_mut();
@@ -1272,27 +1037,17 @@ fn smelt_list_identity(source_key: usize) -> usize {
     })
 }
 
-/// The state of one JavaScript function value, shared by every allocation
-/// that denotes it (a typed callable, its erasure adapters, the typed
-/// callbacks recovered from those).
 #[derive(Default)]
 struct SmeltFunctionIdentityState {
-    /// `Function.prototype.length`, once some representation recorded it.
     length: ::std::cell::Cell<Option<f64>>,
-    /// Own JavaScript properties (`f.prototype`, `f.placeholder = ..`).
     properties: ::std::cell::RefCell<Option<SmeltObject>>,
 }
 
 /// A JavaScript function identity: a shared token every linked allocation holds.
-///
-/// Its address is the number `===` compares (`key`). The number can only be
-/// reused after the token is freed, which happens once no table entry holds
-/// it — when nothing that could still be compared against it is alive.
 #[derive(Clone, Default)]
 struct SmeltFunctionIdentity(::std::rc::Rc<SmeltFunctionIdentityState>);
 
 impl SmeltFunctionIdentity {
-    /// The identity number two callables share when they are one JS function.
     #[inline]
     fn key(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as usize }
 }
@@ -1304,33 +1059,15 @@ impl PartialEq for SmeltFunctionIdentity {
 /// Everything the runtime knows about one callable allocation.
 #[derive(Default)]
 struct SmeltCallableMeta {
-    /// The JavaScript function this allocation denotes; minted on first need.
     identity: Option<SmeltFunctionIdentity>,
-    /// The typed callable an erased adapter wraps, held WEAKLY (`Box<Weak<F>>`
-    /// for its `Rc<F>` type; see `SmeltFunctionOrigin`).
-    ///
-    /// The adapter captures this callable, so while the adapter is alive (the
-    /// only time it can be looked up) the upgrade succeeds. A strong handle
-    /// here would outlive the adapter until the next sweep, and that stale
-    /// count is what `SmeltClosureShare` reads: a class-field arrow erased
-    /// through an object view looked shared when its instance's last handle
-    /// went, so the instance was pinned for the rest of the program — every
-    /// Hono 4 `Context`, one per request.
     wrapped: Option<Box<dyn ::std::any::Any>>,
-    /// The erased value a typed callable was narrowed from (a callable object,
-    /// or the full-arity function an arity-narrowing adapter forwards to).
     callable_object: Option<SmeltUnknown>,
-    /// The outer erased function built for this inner `SmeltErasedFunction`
-    /// callback, weak so it does not pin a transient erasure.
     erased_value: Option<::std::rc::Weak<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>,
-    /// The classes a stored constructor value constructs.
     classes: Option<Vec<&'static str>>,
-    /// Whether the callable takes its receiver as the leading argument.
     receiver_method: bool,
 }
 
 thread_local! {
-    /// Metadata of every callable allocation that crossed an erased ABI.
     static SMELT_CALLABLES: ::std::cell::RefCell<SmeltAddressTable<SmeltCallableMeta>> = ::std::cell::RefCell::new(SmeltAddressTable::new());
 }
 
@@ -1340,8 +1077,6 @@ fn smelt_callable_object_key<F: ?Sized>(function: &::std::rc::Rc<F>) -> usize {
 }
 
 /// Update `function`'s metadata, creating its entry on first use.
-///
-/// `update` must not call back into the callable table.
 fn smelt_update_callable<F: ?Sized + 'static, R>(function: &::std::rc::Rc<F>, update: impl FnOnce(&mut SmeltCallableMeta) -> R) -> R {
     SMELT_CALLABLES.with(|table| {
         if table.borrow().wants_sweep(function) { smelt_sweep_address_table(table); }
@@ -1356,28 +1091,17 @@ fn smelt_read_callable<F: ?Sized, R>(function: &::std::rc::Rc<F>, read: impl FnO
 }
 
 /// The canonical JavaScript identity of a callable, minted on first use.
-///
-/// Holding the result is what keeps its number from being reused, so a
-/// caller that stores the number must also keep `function` alive (the
-/// event emitter keeps the listener beside its identity).
 fn smelt_canonical_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) -> SmeltFunctionIdentity {
     smelt_update_callable(function, |meta| meta.identity.get_or_insert_with(SmeltFunctionIdentity::default).clone())
 }
 
 /// The JavaScript function identity number of a callable allocation.
-///
-/// Defaults to the allocation's own address, so two callables that were never
-/// linked stay distinct. An address and a token address cannot coincide: both
-/// name live allocations.
 fn smelt_function_identity_of(key: usize) -> usize { SMELT_CALLABLES.with(|table| table.borrow().get(key).and_then(|meta| meta.identity.as_ref().map(SmeltFunctionIdentity::key))).unwrap_or(key) }
 
 /// Record that `derived` wraps `origin`, so both denote one JavaScript function.
 fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derived: &::std::rc::Rc<D>, origin: &::std::rc::Rc<O>) { smelt_link_function_identity_key(derived, smelt_canonical_function_identity(origin)); }
 
 /// Link `derived` to an already-resolved canonical identity.
-///
-/// Needed where the origin callable is moved into the wrapper being built, so
-/// its identity has to be read before the move.
 fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
 /// Return the stable key for an erased callback wrapper.
@@ -1387,13 +1111,8 @@ fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) 
 }
 
 /// A typed callable that can be recorded as an erased adapter's origin.
-///
-/// The record is a `Weak` (see `SmeltCallableMeta::wrapped`); typed callables
-/// are `Rc<dyn Fn(..)>`, so this is implemented for `Rc` alone.
 trait SmeltFunctionOrigin: Sized + 'static {
-    /// The weak record kept in the callable table.
     fn smelt_origin_record(&self) -> Box<dyn ::std::any::Any>;
-    /// The callable back out of a record, while it is alive and of this type.
     fn smelt_from_origin_record(record: &dyn ::std::any::Any) -> Option<Self>;
 }
 
@@ -1414,10 +1133,6 @@ fn smelt_restore_function_origin<T: SmeltFunctionOrigin>(function: &::std::rc::R
 }
 
 /// Remember the callable object a typed callback was narrowed from.
-///
-/// The object must not strongly reach `function` itself, or the entry would
-/// keep its own key alive; the erasure adapters register a fresh forwarding
-/// callable when the narrowed callback IS the object's own origin.
 fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, object: SmeltUnknown) {
     if let SmeltUnknown::Object(_) = &object {
         smelt_update_callable(function, |meta| meta.callable_object = Some(object));
@@ -1425,15 +1140,6 @@ fn smelt_register_callable_object<F: ?Sized + 'static>(function: &::std::rc::Rc<
 }
 
 /// Remember the full-arity erased function a narrowing adapter forwards to.
-///
-/// An adapter that calls a wider callback through a signature with FEWER
-/// parameters (`((ctx, next) => ..) as Next`) is still that wider JavaScript
-/// function: a type assertion changes nothing at runtime, so a call reaching
-/// it through an erased `Function` must pass every argument it has. The
-/// adapter's `Rc<dyn Fn(..)>` cannot accept them, so it records the
-/// full-arity erased function here and shares its identity; erasing the
-/// adapter then answers that function. It preserves the source callable, it
-/// erases nothing.
 fn smelt_register_narrowed_callable<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, wide: SmeltUnknown) {
     if let SmeltUnknown::Function(wide_function) = &wide {
         let identity = smelt_canonical_function_identity(wide_function);
@@ -1447,25 +1153,16 @@ fn smelt_lookup_callable_object<F: ?Sized>(function: &::std::rc::Rc<F>) -> Optio
 }
 
 /// Whether two callables denote the same JavaScript function value.
-///
-/// Two allocations can denote one source function once a wrapper sits between
-/// them (an erasure adapter, or the typed callback recovered back out of one),
-/// so a bare `Rc::ptr_eq` is not sufficient. Accepts differently-typed handles
-/// because `===` can compare a typed callback against an erased one.
 fn smelt_same_function_identity<L: ?Sized, R: ?Sized>(left: &::std::rc::Rc<L>, right: &::std::rc::Rc<R>) -> bool { let left_key = smelt_callable_object_key(left); let right_key = smelt_callable_object_key(right); left_key == right_key || smelt_function_identity_of(left_key) == smelt_function_identity_of(right_key) }
 
 /// Whether two erased callables are the same JavaScript function value.
 fn smelt_same_erased_function(left: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, right: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> bool { smelt_same_function_identity(left, right) }
 
 thread_local! {
-    /// Canonical identity of each class method, keyed by `Class::method`.
     static SMELT_METHOD_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltFunctionIdentity>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
 /// The canonical JavaScript identity of one class method.
-///
-/// Minted once per key and never freed, so it is stable across every read of
-/// the method and distinct from every other function's identity.
 fn smelt_method_identity(key: &'static str) -> SmeltFunctionIdentity {
     SMELT_METHOD_IDENTITIES.with(|identities| identities.borrow_mut().entry(key).or_default().clone())
 }
@@ -1474,27 +1171,13 @@ fn smelt_method_identity(key: &'static str) -> SmeltFunctionIdentity {
 fn smelt_register_function_length<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { smelt_canonical_function_identity(function).0.length.set(Some(length)); }
 
 /// Record an erased callable's `Function.prototype.length` if none is known.
-///
-/// An erasure adapter and the callable it wraps are ONE JavaScript function
-/// and share one identity, so a second registration would overwrite the
-/// arity already recorded; this keeps the first (the source-declared) one.
 fn smelt_register_function_length_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, length: f64) { let identity = smelt_canonical_function_identity(function); if identity.0.length.get().is_none() { identity.0.length.set(Some(length)); } }
 
 /// Read `Function.prototype.length` off an erased value.
-///
-/// A callable object (`{ __smelt_call }`) reports the arity of the callable it
-/// carries; anything else reports `0`, which is what JavaScript answers for a
-/// value with no `length` property.
 fn smelt_function_length(value: &SmeltUnknown) -> f64 { smelt_function_length_or(value, 0.0) }
 
 /// Read `Function.prototype.length` off an erased value, answering `fallback`
 /// when no representation recorded the arity.
-///
-/// Extracting an erased callable into a `SmeltErasedFunction` uses this so the
-/// struct's `length` is the function's own arity (recorded when it was
-/// erased), not the arity of the variadic signature it is read through: a
-/// `typeof f === "function" && f.length === 1` guard must see the `1` a
-/// one-parameter callback declared.
 fn smelt_function_length_or(value: &SmeltUnknown, fallback: f64) -> f64 { let function = match value { SmeltUnknown::Function(function) => Some(function.clone()), SmeltUnknown::Object(object) => match object.get("__smelt_call") { Some(SmeltUnknown::Function(function)) => Some(function), _ => None }, _ => None }; let Some(function) = function else { return fallback; }; smelt_read_callable(&function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(fallback) }
 
 impl<K, V> Clone for SmeltRecord<K, V> {
@@ -1502,7 +1185,6 @@ impl<K, V> Clone for SmeltRecord<K, V> {
 }
 
 impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + serde::Serialize, V: serde::Serialize {
-    /// Serialize record entries in JavaScript insertion order.
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let store = self.store.borrow();
         let mut map = serde::Serializer::serialize_map(serializer, Some(store.len()))?;
@@ -1512,7 +1194,6 @@ impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Has
 }
 
 impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
-    /// Deserialize a JSON object into a record, entry by entry.
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct SmeltRecordVisitor<K, V>(::std::marker::PhantomData<(K, V)>);
         impl<'de, K, V> serde::de::Visitor<'de> for SmeltRecordVisitor<K, V> where K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + serde::Deserialize<'de>, V: serde::Deserialize<'de> {
@@ -1529,7 +1210,6 @@ impl<'de, K, V> serde::Deserialize<'de> for SmeltRecord<K, V> where K: Eq + ::st
 }
 
 trait SmeltOwnedOptionCloned<T> {
-    /// Return owned optional values unchanged when generated shared lookup code calls `.cloned()`.
     fn cloned(self) -> Option<T>;
 }
 
@@ -1538,9 +1218,6 @@ impl<T> SmeltOwnedOptionCloned<T> for Option<T> {
 }
 
 /// Return the canonical array index a JavaScript property key spells.
-///
-/// Only the canonical decimal spelling of a `u32` below `u32::MAX` is an
-/// array index, so `"01"`, `"+1"`, `"1.0"` and `"-1"` stay string keys.
 fn smelt_canonical_array_index(key: &str) -> Option<u32> {
     if key.is_empty() || key.len() > 10 { return None; }
     if key.len() > 1 && key.starts_with('0') { return None; }
@@ -1549,20 +1226,10 @@ fn smelt_canonical_array_index(key: &str) -> Option<u32> {
 }
 
 /// A key of an erased JavaScript object or record.
-///
-/// Generated code only ever instantiates records with `String` keys; the
-/// trait exists so the shared ordering logic can ask a generic `K` whether
-/// it spells an array index without the containers hard-coding `String`,
-/// and so a lookup can hash a borrowed `str` key the same way the stored
-/// `String` was hashed. Both impls must agree on `smelt_key_hash` and on
-/// `smelt_key_fingerprint`, which is why both delegate to the shared
-/// `smelt_field_hash_bytes`/`smelt_field_fingerprint` functions.
 pub trait SmeltPropertyKey {
     fn smelt_array_index(&self) -> Option<u32>;
     fn smelt_key_hash(&self) -> u64;
-    /// The stored-entry tie-break for this key; see `smelt_field_fingerprint`.
     fn smelt_key_fingerprint(&self) -> u32;
-    /// Whether this key is in the runtime's internal `__smelt` namespace.
     fn smelt_is_internal_key(&self) -> bool;
 }
 
@@ -1572,11 +1239,6 @@ impl SmeltPropertyKey for JsStr { fn smelt_array_index(&self) -> Option<u32> { i
 impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> { (**self).smelt_array_index() } #[inline] fn smelt_key_hash(&self) -> u64 { (**self).smelt_key_hash() } #[inline] fn smelt_key_fingerprint(&self) -> u32 { (**self).smelt_key_fingerprint() } #[inline] fn smelt_is_internal_key(&self) -> bool { (**self).smelt_is_internal_key() } }
 
 /// Return the position a newly inserted key takes in a JavaScript own-key order.
-///
-/// `entries` keeps its array-index keys as a sorted leading run, so the slot
-/// is found with two binary searches: one for the end of that run, one for
-/// the ascending slot inside it. A non-index key appends. Appending keys in
-/// ascending index order therefore stays linear overall, never quadratic.
 fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntry<K, V>], key: &K) -> usize {
     let Some(index) = key.smelt_array_index() else { return entries.len() };
     let indexed = entries.partition_point(|entry| entry.key.smelt_array_index().is_some());
@@ -1647,11 +1309,6 @@ impl<K, V> SmeltJsMapStore<K, V> {
 }
 
 impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
-    /// Build the store of `new Map(entries)`: the entries are `set` in order,
-    /// so a key seen again keeps its FIRST position and takes its LAST value,
-    /// as JavaScript's Map constructor does. Each entry costs one hash. It used
-    /// to keep duplicate keys as separate slots: `new Map([["p", 1], ["p", 3]])`
-    /// answered `size` 2 and `get("p")` 1.
     fn from_entries(entries: Vec<(K, V)>) -> Self {
         let mut store = Self { entries: Vec::with_capacity(entries.len()), index: SmeltJsSlotIndex::new() };
         for (key, value) in entries {
@@ -1665,8 +1322,6 @@ impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
         }
         store
     }
-    /// Slot of `key`, comparing only the slots that share `hash` — every
-    /// `same_js_key`-equal key is guaranteed to be one of them.
     fn position(&self, key: &K, hash: Option<u64>) -> Option<usize> { self.index.slots(hash).iter().copied().find(|slot| self.entries[*slot].0.same_js_key(key)) }
 }
 
@@ -1746,13 +1401,8 @@ enum SmeltSlotList {
 }
 
 impl SmeltSlotList {
-    /// The slots in this bucket, in insertion order.
     fn slots(&self) -> &[usize] { match self { Self::One(slot) => ::std::slice::from_ref(slot), Self::Many(slots) => slots.as_slice() } }
-    /// Append `slot`, promoting a one-slot bucket to an allocated one.
     fn push(&mut self, slot: usize) { match self { Self::One(first) => *self = Self::Many(::std::vec![*first, slot]), Self::Many(slots) => slots.push(slot) } }
-    /// Drop `removed` and shift every later slot down by one, mirroring what
-    /// `entries.remove(removed)` did to the positions this bucket stores.
-    /// Returns whether the bucket is now empty and should be dropped.
     fn forget(&mut self, removed: usize) -> bool {
         match self {
             Self::One(slot) => { if *slot == removed { return true; } if *slot > removed { *slot -= 1; } false }
@@ -1773,12 +1423,8 @@ struct SmeltJsSlotIndex {
 
 impl SmeltJsSlotIndex {
     fn new() -> Self { Self { hashed: SmeltPreHashedMap::default(), unhashed: Vec::new() } }
-    /// Index the freshly pushed slot `slot` under its entry's hash key.
     fn remember(&mut self, slot: usize, key: Option<u64>) { match key { Some(key) => match self.hashed.entry(key) { ::std::collections::hash_map::Entry::Occupied(mut bucket) => bucket.get_mut().push(slot), ::std::collections::hash_map::Entry::Vacant(bucket) => { bucket.insert(SmeltSlotList::One(slot)); } }, None => self.unhashed.push(slot) } }
-    /// Drop `slot` from the index and shift every later slot down by one, which
-    /// is what `entries.remove(slot)` did to the positions the index stores.
     fn forget(&mut self, slot: usize) { self.hashed.retain(|_, slots| !slots.forget(slot)); self.unhashed.retain(|existing| *existing != slot); for existing in self.unhashed.iter_mut() { if *existing > slot { *existing -= 1; } } }
-    /// The slots that may hold an entry with hash key `key`.
     fn slots(&self, key: Option<u64>) -> &[usize] { match key { Some(key) => self.hashed.get(&key).map_or(&[], SmeltSlotList::slots), None => self.unhashed.as_slice() } }
 }
 
@@ -1798,31 +1444,21 @@ impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsSet<T> { fn fmt(&self, f
 
 impl<T> SmeltJsSet<T> {
     fn new() -> Self { Self::with_id(smelt_next_object_id()) }
-    /// Build an empty set that keeps a caller-supplied JavaScript object identity.
     fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsSetStore::new())) } }
-    /// Drop every member, in the shared store: every handle sees the set empty.
-    /// Needs no `T: Clone` and never copies the members it is about to drop.
     #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsSetStore::new(); }
     fn len(&self) -> usize { self.store.borrow().entries.len() }
     fn is_empty(&self) -> bool { self.store.borrow().entries.is_empty() }
 }
 
 impl<T: Clone + IntoSmeltUnknown> SmeltJsSet<T> {
-    /// SameValueZero equality via each element's erased runtime value.
     fn same_member(left: &T, right: &T) -> bool { left.clone().into_smelt_unknown().same_js_key(&right.clone().into_smelt_unknown()) }
-    /// The hash-index key of `value`, or `None` when it has no hashable identity.
     fn member_key(value: &T) -> Option<u64> { smelt_js_member_hash_key(&value.clone().into_smelt_unknown()) }
-    /// A NEW set with the same members in the same order: its own id and its
-    /// own store, so later writes to either set leave the other unchanged.
     fn fresh_copy(&self) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())) } }
-    /// Slot of `value` in the members, comparing only the ones that share `key`
-    /// — every SameValueZero-equal member is guaranteed to be one of them.
     fn position_with_key(&self, value: &T, key: Option<u64>) -> Option<usize> { let store = self.store.borrow(); store.index.slots(key).iter().copied().find(|slot| Self::same_member(&store.entries[*slot], value)) }
     fn position(&self, value: &T) -> Option<usize> { self.position_with_key(value, Self::member_key(value)) }
     fn contains(&self, value: &T) -> bool { self.position(value).is_some() }
     #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn insert(&mut self, value: T) -> bool { let key = Self::member_key(&value); if self.position_with_key(&value, key).is_some() { return false; } let mut store = self.store.borrow_mut(); let slot = store.entries.len(); store.entries.push(value); store.index.remember(slot, key); true }
     #[expect(clippy::needless_pass_by_ref_mut, reason = "the write goes through the shared cell; `&mut` keeps the signature saying it writes, as SmeltJsMap does")] fn remove(&mut self, value: &T) -> bool { match self.position(value) { Some(slot) => { let mut store = self.store.borrow_mut(); store.entries.remove(slot); store.index.forget(slot); true }, None => false } }
-    /// The members, in insertion order, as an owned snapshot.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) { for value in iter { self.insert(value); } }
     fn is_disjoint(&self, other: &Self) -> bool { self.iter().all(|value| !other.contains(&value)) }
@@ -1866,11 +1502,6 @@ fn smelt_js_member_hash_key(value: &SmeltUnknown) -> Option<u64> {
 
 pub trait SmeltJsKeyEq {
     fn same_js_key(&self, other: &Self) -> bool;
-    /// A hash consistent with `same_js_key`: whenever two keys compare equal
-    /// they MUST hash the same, so a hash index can narrow a lookup without
-    /// changing its answer. The converse is not required — a collision only
-    /// costs a `same_js_key` comparison. `None` means the key has no stable
-    /// hashable identity and must keep the linear scan.
     fn js_key_hash(&self) -> Option<u64> { None }
 }
 
@@ -1924,18 +1555,12 @@ pub struct SmeltObject {
 
 impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
 impl<V> SmeltRecord<JsString, V> {
-    /// Whether the record has the key spelled by the runtime text `key`.
     #[allow(dead_code)]
     fn has_text_key(&self, key: &str) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
-    /// The value at the key spelled by the runtime text `key`.
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<V> where V: Clone { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
 }
-/// A key an erased object is read by: a JavaScript string as it is, and the
-/// runtime's own `&str` keys (markers, spec property names) encoded on the
-/// stack when they are short, so a marker probe allocates nothing.
 pub trait SmeltObjectKey {
-    /// Calls `read` with the key as a JavaScript string.
     fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R;
 }
 
@@ -1954,16 +1579,8 @@ impl SmeltObjectKey for JsStr { fn with_js_key<R>(&self, read: impl FnOnce(&Self
 impl SmeltObjectKey for JsString { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { read(self) } }
 impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self, read: impl FnOnce(&JsStr) -> R) -> R { (**self).with_js_key(read) } }
 impl SmeltObject {
-    /// A second handle on this object's own field store.
     fn smelt_shared_record(&self) -> SmeltRecord<JsString, SmeltUnknown> { SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }
-    /// Build an erased object from entries in source order.
-    ///
-    /// The entry sequence is ordered on purpose: JavaScript own-key order is a
-    /// property of how the object was written, and a `HashMap` argument would
-    /// have thrown that away before the constructor could see it. Duplicate
-    /// keys keep the first key's position and take the last value, as in JS.
     fn new<K: Into<JsString>>(entries: Vec<(K, SmeltUnknown)>) -> Self { Self::with_id(smelt_next_object_id(), entries) }
-    /// Build an erased object that keeps a source value's reference identity.
     fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
     fn from_unknown_record(record: SmeltRecord<JsString, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }
     fn len(&self) -> usize { self.store.borrow().len() }
@@ -1971,7 +1588,6 @@ impl SmeltObject {
     fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
     #[inline]
     fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
-    /// [`Self::get`] spelled like a record's text-keyed read.
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<SmeltUnknown> { self.get(key) }
     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { self.store.borrow_mut().insert(key.into(), value) }
@@ -1985,167 +1601,60 @@ impl SmeltObject {
 fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_url", "__smelt_crypto_key", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }
 fn smelt_record_has_host_marker<V>(record: &SmeltRecord<JsString, V>) -> bool { record.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_url", "__smelt_crypto_key", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| record.has_text_key(marker)) }
 /// Return the byte-backed host marker a record carries, if any.
-///
-/// The marker doubles as the record's identity, so a slice can rebuild a fresh
-/// record of the *same* host kind rather than degrading to a plain object, and
-/// the element codec can find the record's element type without being told.
 fn smelt_host_buffer_marker(map: &SmeltObject) -> Option<&'static str> { if !map.store.borrow().has_internal_keys() { return None; } ["__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().find(|marker| map.contains_key(marker)) }
 /// Whether an erased value is a *view* over byte storage (`ArrayBuffer.isView`).
-///
-/// `true` for the view kinds (the typed arrays, `DataView`, Node `Buffer`) and
-/// `false` for the storage kinds (`ArrayBuffer`, `SharedArrayBuffer`), exactly
-/// as the platform predicate answers.
 fn smelt_host_buffer_is_view(value: &SmeltUnknown) -> bool { let SmeltUnknown::Object(map) = value else { return false; }; ["__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().any(|marker| map.contains_key(marker)) }
 /// Whether a byte-backed marker names a *view* rather than byte storage.
-///
-/// A view in JavaScript is always a window onto an `ArrayBuffer`, so this is
-/// what decides whether a freshly built record also gets `buffer`/`byteOffset`.
 fn smelt_host_buffer_is_view_marker(marker: &str) -> bool { ["__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview"].into_iter().any(|entry| entry == marker) }
 /// The element tag and byte stride of a byte-backed marker's view.
-///
-/// `None` for the byte-addressed kinds (`ArrayBuffer`, `SharedArrayBuffer`,
-/// `DataView`), whose bytes carry no single element type; callers then treat
-/// the storage as a stride-one byte sequence.
 fn smelt_host_buffer_element_kind(marker: &str) -> Option<(&'static str, usize)> { [("__smelt_int8array", "int8", 1), ("__smelt_uint8array", "uint8", 1), ("__smelt_uint8clampedarray", "uint8clamped", 1), ("__smelt_int16array", "int16", 2), ("__smelt_uint16array", "uint16", 2), ("__smelt_int32array", "int32", 4), ("__smelt_uint32array", "uint32", 4), ("__smelt_float32array", "float32", 4), ("__smelt_float64array", "float64", 8), ("__smelt_bigint64array", "bigint64", 8), ("__smelt_biguint64array", "biguint64", 8), ("__smelt_buffer", "uint8", 1)].into_iter().find(|(entry, _, _)| *entry == marker).map(|(_, tag, width)| (tag, width)) }
 /// The byte stride of a byte-backed marker: its `BYTES_PER_ELEMENT`, or 1.
 fn smelt_host_buffer_stride(marker: &str) -> usize { smelt_host_buffer_element_kind(marker).map_or(1, |(_, width)| width) }
 /// Read one raw byte out of a `bytes` storage list, zero past the end.
 fn smelt_host_buffer_raw_byte(bytes: &[SmeltUnknown], index: usize) -> u8 { match bytes.get(index) { Some(SmeltUnknown::Number(value)) if value.is_finite() => *value as i64 as u8, _ => 0 } }
 /// Coerce a JavaScript number to the integer an integer view stores.
-///
-/// Truncates toward zero and maps the non-finite values to `0`, matching
-/// ECMAScript `ToIntegerOrInfinity` followed by the modulo-2^n wrap that the
-/// caller's `as i8`/`as u16`/... cast performs.
 fn smelt_host_buffer_to_integer(value: f64) -> i64 { if value.is_finite() { value.trunc() as i64 } else { 0 } }
 /// Decode the element of type `kind` starting at byte `offset`.
-///
-/// Little-endian, and signed for the signed views: byte `0xff` decodes to
-/// `255` through `uint8` and `-1` through `int8`. Bytes past the end read as
-/// zero, so a truncated final element decodes rather than panicking.
 fn smelt_host_buffer_decode_element(kind: &str, bytes: &[SmeltUnknown], offset: usize) -> SmeltUnknown { let mut raw = [0u8; 8]; let width = smelt_host_buffer_kind_width(kind); for index in 0..width { raw[index] = smelt_host_buffer_raw_byte(bytes, offset + index); } SmeltUnknown::Number(match kind { "int8" => i8::from_le_bytes([raw[0]]) as f64, "uint8" => raw[0] as f64, "uint8clamped" => raw[0] as f64, "int16" => i16::from_le_bytes([raw[0], raw[1]]) as f64, "uint16" => u16::from_le_bytes([raw[0], raw[1]]) as f64, "int32" => i32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as f64, "uint32" => u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as f64, "float32" => f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]) as f64, "float64" => f64::from_le_bytes(raw), "bigint64" => i64::from_le_bytes(raw) as f64, "biguint64" => u64::from_le_bytes(raw) as f64, _ => raw[0] as f64 }) }
 /// The byte width of an element tag, for the decode buffer above.
 fn smelt_host_buffer_kind_width(kind: &str) -> usize { match kind { "int8" => 1, "uint8" => 1, "uint8clamped" => 1, "int16" => 2, "uint16" => 2, "int32" => 4, "uint32" => 4, "float32" => 4, "float64" => 8, "bigint64" => 8, "biguint64" => 8, _ => 1 } }
 /// Encode one JavaScript value as the bytes of an element of type `kind`.
-///
-/// Integer views wrap modulo their width (ECMAScript `ToInt8`/`ToUint16`/...),
-/// which is why an `Int8Array` holding `-1` and a `Uint8Array` holding `255`
-/// have byte-identical buffers. `Uint8ClampedArray` saturates instead.
 fn smelt_host_buffer_encode_element(kind: &str, value: &SmeltUnknown) -> Vec<SmeltUnknown> { let number = match value { SmeltUnknown::Number(value) => *value, SmeltUnknown::Bool(value) => if *value { 1.0 } else { 0.0 }, SmeltUnknown::String(text) => smelt_js_string_to_number(&text), SmeltUnknown::Null => 0.0, _ => f64::NAN }; let raw: Vec<u8> = match kind { "int8" => vec![smelt_host_buffer_to_integer(number) as i8 as u8], "uint8" => vec![smelt_host_buffer_to_integer(number) as u8], "uint8clamped" => vec![if number.is_nan() { 0u8 } else { number.round_ties_even().clamp(0.0, 255.0) as u8 }], "int16" => (smelt_host_buffer_to_integer(number) as i16).to_le_bytes().to_vec(), "uint16" => (smelt_host_buffer_to_integer(number) as u16).to_le_bytes().to_vec(), "int32" => (smelt_host_buffer_to_integer(number) as i32).to_le_bytes().to_vec(), "uint32" => (smelt_host_buffer_to_integer(number) as u32).to_le_bytes().to_vec(), "float32" => (number as f32).to_le_bytes().to_vec(), "float64" => number.to_le_bytes().to_vec(), "bigint64" => smelt_host_buffer_to_integer(number).to_le_bytes().to_vec(), "biguint64" => (smelt_host_buffer_to_integer(number) as u64).to_le_bytes().to_vec(), _ => vec![smelt_host_buffer_to_integer(number) as u8] }; raw.into_iter().map(|byte| SmeltUnknown::Number(f64::from(byte))).collect() }
 /// Build a byte-backed host record of `marker` identity over `bytes`.
-///
-/// `byteLength` is the byte count and `length` is the *element* count, so a
-/// `Float64Array` over eight bytes reports length 1 while a `Uint8Array` over
-/// the same bytes reports 8. An element-typed view is always a window onto an
-/// `ArrayBuffer` in JavaScript, so it also gets `byteOffset` and a `buffer`
-/// storage record. The record gets a fresh object id, which is what
-/// `clone(buf) !== buf` depends on.
 fn smelt_host_buffer_record(marker: &'static str, bytes: Vec<SmeltUnknown>) -> SmeltUnknown { let buffer = smelt_host_buffer_is_view_marker(marker).then(|| smelt_host_buffer_storage_record(bytes.clone())); smelt_host_buffer_view_record(marker, bytes, buffer, 0) }
 /// Build a fresh `ArrayBuffer` record over `bytes`.
-///
-/// Backs `typedArray.buffer` for a view that was not built from an existing
-/// buffer (`new Uint8Array([1, 2, 3]).buffer`). `ArrayBuffer` is byte-addressed,
-/// so this never recurses into a nested buffer of its own.
 fn smelt_host_buffer_storage_record(bytes: Vec<SmeltUnknown>) -> SmeltUnknown { smelt_host_buffer_view_record("__smelt_arraybuffer", bytes, None, 0) }
 /// Build a byte-backed host record, optionally sharing an existing `buffer`.
-///
-/// Passing the *same* storage record two views were built from is what makes
-/// `view.buffer === buffer` hold, which lodash-compatible clone specs assert on
-/// a cloned view.
 fn smelt_host_buffer_view_record(marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { smelt_host_buffer_view_record_with_id(smelt_next_object_id(), marker, bytes, buffer, byte_offset) }
 /// Build a byte-backed host record at a given JS reference id.
 fn smelt_host_buffer_view_record_with_id(id: usize, marker: &'static str, bytes: Vec<SmeltUnknown>, buffer: Option<SmeltUnknown>, byte_offset: usize) -> SmeltUnknown { let byte_length = bytes.len(); let stride = smelt_host_buffer_stride(marker); let mut fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), ("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))), ("byteLength".to_owned(), SmeltUnknown::Number(byte_length as f64)), ("length".to_owned(), SmeltUnknown::Number((byte_length / stride) as f64))]); if let Some(buffer) = buffer { fields.push(("buffer".to_owned(), buffer)); fields.push(("byteOffset".to_owned(), SmeltUnknown::Number(byte_offset as f64))); } SmeltUnknown::Object(SmeltObject::with_id(id, fields)) }
 /// Return a byte-backed host record's raw storage bytes, or `None`.
-///
-/// This is the *byte* view of the record, which is what
-/// `new Float32Array(arrayBuffer)` re-interprets and what `DataView` windows.
 fn smelt_host_buffer_raw_bytes(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; smelt_host_buffer_marker(map)?; Some(match map.get("bytes") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }) }
 /// Return a byte-backed host record's storage decoded as its *elements*.
-///
-/// `None` for any other value, so callers can fall through to their existing
-/// array/string/iterator handling. This is the array-like face of a typed
-/// array: iteration, spread and `Array.from` all see decoded elements at the
-/// view's own width, not its raw bytes. Byte-addressed storage decodes as its
-/// bytes, which is what `new Uint8Array(dataView)` wants.
 fn smelt_host_buffer_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = smelt_host_buffer_raw_bytes(value)?; let Some((kind, width)) = smelt_host_buffer_element_kind(marker) else { return Some(bytes); }; Some((0..bytes.len() / width).map(|index| smelt_host_buffer_decode_element(kind, &bytes, index * width)).collect()) }
 /// A byte-backed host record's OWN ENUMERABLE property values.
-///
-/// Own indexed properties belong to an ELEMENT-TYPED view and to nothing
-/// else: byte storage (`ArrayBuffer`) and a `DataView` address their bytes
-/// through accessors, so `Object.keys` / `for...in` / `JSON.stringify` see no
-/// properties on them at all, exactly as Node does. The array-like face
-/// above (`ELEMENTS`) answers a different question and must keep decoding
-/// storage as bytes for iteration and `new Uint8Array(dataView)`.
 fn smelt_host_buffer_own_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; if smelt_host_buffer_element_kind(marker).is_none() { return Some(Vec::new()); } smelt_host_buffer_elements(value) }
 /// A byte-backed host record's own enumerable keys: its element indices.
-///
-/// `None` for values that are not byte-backed. A typed array's own properties
-/// are exactly its indexed elements — `length`, `byteLength`, `byteOffset` and
-/// `buffer` are prototype accessors and never enumerate — so
-/// `Object.keys(new Uint8Array(1))` is `['0']` and a deep-equality walk over
-/// two views compares elements rather than internal storage keys.
 fn smelt_host_buffer_index_keys(value: &SmeltUnknown) -> Option<Vec<JsString>> { let count = smelt_host_buffer_own_elements(value)?.len(); Some((0..count).map(|index| JsString::from(index.to_string())).collect()) }
 /// The same own-key set, for a byte-backed record reached through the
 /// structural `SmeltRecord` ABI rather than as a tagged `SmeltUnknown`.
-///
-/// An erased object crossing into a `Record<string, unknown>` parameter is
-/// re-materialized as a `SmeltRecord`, so `Object.keys` on that side needs the
-/// same index-key answer — remeda's `isShallowEqual` reads exactly that path.
 fn smelt_host_buffer_record_index_keys(record: &SmeltRecord<JsString, SmeltUnknown>) -> Option<Vec<JsString>> { smelt_host_buffer_index_keys(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 /// The decoded elements of a byte-backed record reached through the
-/// structural `SmeltRecord` ABI. Backs `Object.values`/`Object.entries` over a
-/// view, which pair with the index keys above.
+/// structural `SmeltRecord` ABI.
 fn smelt_host_buffer_record_elements(record: &SmeltRecord<JsString, SmeltUnknown>) -> Option<Vec<SmeltUnknown>> { smelt_host_buffer_own_elements(&SmeltUnknown::Object(SmeltObject::from_unknown_record(record.clone()))) }
 /// Slice a byte-backed host record into a fresh record of the same host kind.
-///
-/// `None` for values that are not byte-backed, so `.slice()`/`.subarray()` on
-/// an erased receiver keeps its array/string behavior. Bounds are *element*
-/// indices for an element-typed view and byte indices for byte-addressed
-/// storage — one code path once the stride comes from the registry. Negative
-/// bounds count back from the end and both bounds clamp, matching
-/// `ArrayBuffer.prototype.slice` and `TypedArray.prototype.subarray`.
 fn smelt_host_buffer_slice(value: &SmeltUnknown, start: i64, end: Option<i64>) -> Option<SmeltUnknown> { let SmeltUnknown::Object(map) = value else { return None; }; let marker = smelt_host_buffer_marker(map)?; let bytes = smelt_host_buffer_raw_bytes(value)?; let stride = smelt_host_buffer_stride(marker); let len = (bytes.len() / stride) as i64; let from = (if start < 0 { len + start } else { start }).clamp(0, len); let to = end.map_or(len, |end| if end < 0 { len + end } else { end }).clamp(0, len); let take = to.saturating_sub(from) as usize; Some(smelt_host_buffer_record(marker, bytes.into_iter().skip(from as usize * stride).take(take * stride).collect())) }
 /// Read one indexed element (`view[1]`) of a byte-backed host record.
-///
-/// `None` when the receiver is not byte-backed or the key is not an array
-/// index, so ordinary erased field/index reads are untouched. An in-range
-/// index of a view decodes at the element's own width and signedness; past the
-/// end it answers `undefined`, as a typed array does.
 fn smelt_host_buffer_element(map: &SmeltObject, key: &str) -> Option<SmeltUnknown> { let marker = smelt_host_buffer_marker(map)?; let index = key.parse::<usize>().ok()?; let bytes = match map.get("bytes") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); if (index + 1) * width > bytes.len() { return None; } Some(smelt_host_buffer_decode_element(kind, &bytes, index * width)) }
 /// Write one indexed element (`view[i] = value`) of a byte-backed host record.
-///
-/// Returns whether the write was absorbed by the byte storage; `false` leaves
-/// the caller's ordinary record insert in charge. The value is encoded into
-/// exactly the element's bytes, so `int8View[0] = -1` stores the byte `255`.
-/// Writes past the end are absorbed and dropped, matching a typed array's
-/// fixed-length storage. The write also lands in the view's backing `buffer`
-/// record *in place*, so `view[0] = 1` is visible through `view.buffer` and the
-/// buffer keeps its object identity (`view.buffer === buffer` still holds).
 fn smelt_host_buffer_set_element(map: &SmeltObject, key: &str, value: SmeltUnknown) -> bool { let Some(marker) = smelt_host_buffer_marker(map) else { return false; }; let Ok(index) = key.parse::<usize>() else { return false; }; let Some(SmeltUnknown::Array(values)) = map.get("bytes") else { return false; }; let mut bytes = values.into_vec(); let (kind, width) = smelt_host_buffer_element_kind(marker).unwrap_or(("uint8", 1)); let offset = index * width; if offset + width <= bytes.len() { let encoded = smelt_host_buffer_encode_element(kind, &value); for (step, byte) in encoded.iter().enumerate() { bytes[offset + step] = byte.clone(); } map.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes))); smelt_host_buffer_write_through(map, offset, &encoded);  } true }
 /// Mirror an element write into the view's backing `buffer` storage record.
-///
-/// A typed array is a window onto an `ArrayBuffer`, so a write through the view
-/// is a write to the buffer — `new Uint8Array(buf)[0] = 1` then shows up in
-/// `buf`. `SmeltObject` has interior mutability, so the storage record is updated
-/// in place rather than replaced: replacing it would mint a new object id and
-/// break `view.buffer === buf`. `byteOffset` places the window inside the
-/// buffer. A no-op for the byte-addressed kinds, which have no backing buffer.
 fn smelt_host_buffer_write_through(map: &SmeltObject, offset: usize, encoded: &[SmeltUnknown]) { let Some(SmeltUnknown::Object(storage)) = map.get("buffer") else { return; }; let base = match map.get("byteOffset") { Some(SmeltUnknown::Number(value)) if value >= 0.0 => value as usize, _ => 0 }; let Some(SmeltUnknown::Array(values)) = storage.get("bytes") else { return; }; let mut bytes = values.into_vec(); for (step, byte) in encoded.iter().enumerate() { let at = base + offset + step; if at < bytes.len() { bytes[at] = byte.clone(); } } storage.insert("bytes".to_owned(), SmeltUnknown::Array(SmeltArray::new(bytes)));  }
 /// Whether an erased value is byte *storage* (an `ArrayBuffer`), not a view.
-///
-/// This is the distinction that decides what `new Float32Array(source)` means:
-/// over storage it re-*views* the bytes (eight bytes become two elements), over
-/// a view or an array it *converts* the elements one by one.
 fn smelt_host_buffer_is_storage(value: &SmeltUnknown) -> bool { let SmeltUnknown::Object(map) = value else { return false; }; ["__smelt_arraybuffer", "__smelt_sharedarraybuffer"].into_iter().any(|marker| map.contains_key(marker)) }
 /// The six-bit value of one base64 character (either alphabet), if it has one.
 fn smelt_host_buffer_base64_value(value: char) -> Option<u8> { match value { 'A'..='Z' => Some(value as u8 - b'A'), 'a'..='z' => Some(value as u8 - b'a' + 26), '0'..='9' => Some(value as u8 - b'0' + 52), '+' | '-' => Some(62), '/' | '_' => Some(63), _ => None } }
 /// Encode a JavaScript string into buffer bytes under a Node encoding name.
-///
-/// `Buffer.from(string[, encoding])` is the one byte-buffer constructor form
-/// whose source is *text*: a typed array built from a string has no elements,
-/// but a Buffer built from a string holds that string's encoded bytes. The
-/// frontend rejects encodings this helper does not implement, so an unknown
-/// name can only reach here as a dynamic value and falls back to the
-/// JavaScript default of UTF-8.
 fn smelt_host_buffer_encode_text(text: &str, encoding: Option<String>) -> Vec<SmeltUnknown> {
     let encoding = encoding.unwrap_or_else(|| "utf8".to_owned()).to_ascii_lowercase();
     let bytes: Vec<u8> = match encoding.as_str() {
@@ -2160,19 +1669,6 @@ fn smelt_host_buffer_encode_text(text: &str, encoding: Option<String>) -> Vec<Sm
 /// Read an optional non-negative numeric constructor argument.
 fn smelt_host_buffer_count_argument(argument: Option<&SmeltUnknown>) -> Option<usize> { match argument { Some(SmeltUnknown::Number(value)) if *value >= 0.0 => Some(*value as usize), _ => None } }
 /// Build a byte-backed host record of `marker` identity from `new X(...)` args.
-///
-/// The four JavaScript constructor forms, all resolved from the registry rather
-/// than per call site:
-///
-/// * `new X(n)` — `n` *elements* of zeroes (`new Float64Array(2)` is 16 bytes);
-/// * `new X(arrayBuffer[, byteOffset[, length]])` — a **view** over that
-///   storage's bytes, sharing the buffer record so `view.buffer === buffer`;
-/// * `new X(otherView)` / `new X([...])` — an element-by-element **conversion**,
-///   so `new Uint8Array(new Int8Array([-1]))` holds `255`;
-/// * `new X()` — empty storage.
-///
-/// Byte-addressed targets (`ArrayBuffer`, `SharedArrayBuffer`) have stride one
-/// and no element codec, so the same code gives them their platform behavior.
 fn smelt_host_buffer_construct(marker: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let element = smelt_host_buffer_element_kind(marker);
     let stride = element.map_or(1, |(_, width)| width);
@@ -2185,11 +1681,6 @@ fn smelt_host_buffer_construct(marker: &'static str, args: Vec<SmeltUnknown>) ->
     }
 }
 /// Build the array-like `arguments` object from a function's parameters.
-///
-/// Positional parameters lead; the rest parameter's list is flattened onto
-/// the end, recovering the original call's argument vector. Elements are
-/// stored under index keys and `length` is stored but hidden from own-key
-/// enumeration, matching the exotic object's property attributes.
 fn smelt_arguments_object(fixed: Vec<SmeltUnknown>, rest: Option<SmeltUnknown>) -> SmeltUnknown { let mut smelt_elements = fixed; if let Some(SmeltUnknown::Array(items)) = rest { smelt_elements.extend(items.into_vec()); } let mut fields = Vec::from([("__smelt_arguments".to_owned(), SmeltUnknown::Bool(true))]); for (index, value) in smelt_elements.iter().enumerate() { fields.push((index.to_string(), value.clone())); } fields.push(("length".to_owned(), SmeltUnknown::Number(smelt_elements.len() as f64))); SmeltUnknown::Object(SmeltObject::new(fields)) }
 /// Extract an `arguments` object's elements, or `None` for any other value.
 fn smelt_arguments_elements(object: &SmeltObject) -> Option<Vec<SmeltUnknown>> { if !object.contains_key("__smelt_arguments") { return None; } let length = match object.get("length") { Some(SmeltUnknown::Number(length)) if length >= 0.0 => length as usize, _ => 0 }; Some((0..length).map(|index| object.get(&index.to_string()).unwrap_or(SmeltUnknown::Undefined)).collect()) }
@@ -2213,17 +1704,9 @@ fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<JsString> { let mut keys =
 fn smelt_for_in_record_keys<V>(record: &SmeltRecord<JsString, V>) -> Vec<JsString> { let mut keys = Vec::new(); let mut has_inherited = false; for key in record.keys() { if key.eq_str_prefix("__smelt_proto:") { has_inherited = true; continue; } if smelt_is_for_in_record_key(record, &key) { keys.push(key); } } if has_inherited { for key in record.keys() { if let Some(inherited) = key.strip_str_prefix("__smelt_proto:") { if !keys.iter().any(|existing| **existing == *inherited) { keys.push(inherited.to_owned()); } } } } keys }
 
 /// Own entries of a `SmeltJsMap` backing, with representation markers removed.
-///
-/// Drops `__smelt_proto:` / `__smelt_method:` / `__smelt_class` keys (inherited
-/// members, prototype methods and class provenance are not own properties) and
-/// restores any symbol key to its `SmeltUnknown::Symbol` tag.
 fn smelt_own_js_map_entries<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<(SmeltUnknown, V)> { map.iter().filter_map(|(key, value)| { let SmeltUnknown::String(text) = &key else { return Some((key, value)); }; let text = text.to_string(); if text.starts_with("__smelt_proto:") || text.starts_with("__smelt_method:") || text == "__smelt_class" { return None; } if let Some(symbol) = smelt_own_symbol_key_value(&text) { return Some((symbol, value)); } Some((key, value)) }).collect() }
 
 /// Every key JavaScript `for...in` yields for a `SmeltJsMap` backing.
-///
-/// Own string keys first, then the enumerable `__smelt_proto:` members with
-/// their prefix stripped -- the same order and the same prototype-chain rule as
-/// `smelt_for_in_record_keys`. Symbol keys are never enumerated by `for...in`.
 fn smelt_for_in_js_map_keys<V: Clone>(map: &SmeltJsMap<SmeltUnknown, V>) -> Vec<SmeltUnknown> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); for (key, _) in smelt_own_js_map_entries(map) { if matches!(key, SmeltUnknown::Symbol(_)) { continue; } if let SmeltUnknown::String(text) = &key { if !seen.insert(text.to_string()) { continue; } } keys.push(key); } for key in map.keys() { let SmeltUnknown::String(text) = &key else { continue; }; if let Some(inherited) = text.to_string_lossy().strip_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(SmeltUnknown::String(inherited.as_str().into())); } } } keys }
 
 /// The symbol value a stored property key denotes, if it is a symbol key.
@@ -2232,9 +1715,6 @@ fn smelt_key_symbol_value(key: &JsStr) -> Option<SmeltUnknown> { if !key.eq_str_
 fn smelt_key_symbol_value_text(key: &str) -> Option<SmeltUnknown> { if let Some(description) = key.strip_prefix("__smelt_symbol:") { return Some(SmeltUnknown::Symbol(description.into())); } if let Some(spelling) = smelt_folded_symbol_key_spelling(key) { return Some(SmeltUnknown::Symbol(spelling.into())); } match key { "__smelt_symbol_iterator" => Some(SmeltUnknown::Symbol("Symbol.iterator".into())), "__smelt_symbol_async_iterator" => Some(SmeltUnknown::Symbol("Symbol.asyncIterator".into())), "__smelt_symbol_has_instance" => Some(SmeltUnknown::Symbol("Symbol.hasInstance".into())), "__smelt_symbol_is_concat_spreadable" => Some(SmeltUnknown::Symbol("Symbol.isConcatSpreadable".into())), "__smelt_symbol_match" => Some(SmeltUnknown::Symbol("Symbol.match".into())), "__smelt_symbol_match_all" => Some(SmeltUnknown::Symbol("Symbol.matchAll".into())), "__smelt_symbol_replace" => Some(SmeltUnknown::Symbol("Symbol.replace".into())), "__smelt_symbol_search" => Some(SmeltUnknown::Symbol("Symbol.search".into())), "__smelt_symbol_species" => Some(SmeltUnknown::Symbol("Symbol.species".into())), "__smelt_symbol_split" => Some(SmeltUnknown::Symbol("Symbol.split".into())), "__smelt_symbol_to_primitive" => Some(SmeltUnknown::Symbol("Symbol.toPrimitive".into())), "__smelt_symbol_to_string_tag" => Some(SmeltUnknown::Symbol("Symbol.toStringTag".into())), "__smelt_symbol_unscopables" => Some(SmeltUnknown::Symbol("Symbol.unscopables".into())), _ => None } }
 
 /// `Reflect.ownKeys` over a string-keyed record: string keys, then symbol keys.
-///
-/// DYNAMIC BOUNDARY: a key is `string | symbol` in the source type of
-/// `Reflect.ownKeys`, and callers discriminate with `typeof`.
 fn smelt_own_keys<V>(record: &SmeltRecord<JsString, V>) -> Vec<SmeltUnknown> { let mut strings = Vec::new(); let mut symbols = Vec::new(); for key in record.keys() { if let Some(symbol) = smelt_key_symbol_value(&key) { symbols.push(symbol); } else if smelt_is_for_in_record_key(record, &key) && !key.eq_str_prefix("__smelt_proto:") { strings.push(SmeltUnknown::String(key.clone())); } } strings.extend(symbols); strings }
 
 /// `Reflect.ownKeys` over an erased object: string keys, then symbol keys.
@@ -2252,44 +1732,15 @@ thread_local! { static SMELT_CLASS_CONSTRUCTORS: ::std::cell::RefCell<::std::col
 fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
 
 /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
-/// Class instances carry a hidden `__smelt_class` marker and map to a distinct
-/// `"__smelt_proto:class"` sentinel so they are not treated as plain objects; arrays,
-/// `null`, and plain objects keep their existing sentinels.
-///
-/// The sentinel strings are themselves valid inputs: walking the prototype
-/// chain (`while (Object.getPrototypeOf(proto) !== null)`) re-invokes this
-/// helper on a returned sentinel, so each sentinel must advance one link
-/// toward `null` (Array/Promise/class prototypes inherit from
-/// `Object.prototype`, whose prototype is `null`). Without this the walk
-/// would return `"__smelt_proto:object"` forever and never terminate.
 /// Discriminate the class whose prototype a host-marker record reflects.
-/// `None` for plain objects, arrays and class instances, which keep their
-/// opaque `"__smelt_proto:*"` string sentinels.
 fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
     let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
     if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name.to_string_lossy()).is_some() { return Some(name.to_string_lossy()); } }
     Some(class.to_owned())
 }
 /// The class name a marker-bearing record's `.constructor` read resolves to.
-///
-/// `blob.constructor === Blob` holds in JavaScript, and es-toolkit's clone
-/// specs assert exactly that on a cloned host object. Unmarked records answer
-/// `None`, so a plain object's `.constructor` stays `undefined` — which is what
-/// makes two plain objects compare as equal instances.
 fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_url", "URL"), ("__smelt_crypto_key", "CryptoKey"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_databasesync", "DatabaseSync"), ("__smelt_statementsync", "StatementSync"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
 /// Build a modeled host instance of `kind` from constructor arguments.
-///
-/// This is the one constructor for a host identity: the direct `new X(...)`
-/// lowering and the reflected `new getPrototypeOf(x).constructor(...)` path
-/// both call it, so their records are indistinguishable — which the clone
-/// specs rely on when they compare a reflectively-built clone against a
-/// directly-built expectation.
-///
-/// Kinds it builds structurally: the byte buffers (from a length, another byte
-/// buffer, or an element array), `DataView` (a window over a storage buffer),
-/// `Blob`/`File` (from `BlobPart`s), and `Error` (from `(message, { cause })`).
-/// Every other kind copies its argument with a fresh identity, which is what
-/// `new Map(m)` / `new Date(d)` / `new Number(n)` observably do.
 fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     match kind {
         "Error" | "EvalError" | "RangeError" | "ReferenceError" | "SyntaxError" | "TypeError" | "URIError" | "AggregateError" => { let mut fields = Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(kind.into()))]); let mut it = args.into_iter(); let errors = if kind == "AggregateError" { it.next() } else { None }; if let Some(message) = it.next() { fields.push(("message".to_owned(), message)); } fields.push(("stack".to_owned(), SmeltUnknown::Undefined)); let cause = match it.next() { Some(SmeltUnknown::Object(options)) => options.get("cause").unwrap_or(SmeltUnknown::Undefined), _ => SmeltUnknown::Undefined }; fields.push(("cause".to_owned(), cause)); if let Some(errors) = errors { fields.push(("errors".to_owned(), errors)); } SmeltUnknown::Object(SmeltObject::new(fields)) }
@@ -2298,24 +1749,12 @@ fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> Sme
         _ => smelt_fresh_identity(args.into_iter().next().unwrap_or(SmeltUnknown::Undefined)),
     }
 }
-/// One cached prototype object per reflected class, so
-/// `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two values
-/// of the same class (`SmeltObject` `===` compares the stable `id`). Its
-/// `constructor` slot is the interned constructor value, so it is both callable
-/// and `===` the bare global reference.
 thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_reflected_prototype(class: String) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(class.clone()).or_insert_with(|| { let ctor = smelt_builtin_namespace(&class); SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), ctor)]))) }).clone()) }
 /// The kind a global constructor name constructs, when it names a modeled host
-/// identity. `None` for pure namespaces (`Math`, `JSON`), which are not callable.
+/// identity.
 fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Int8Array", "int8array"), ("Uint8Array", "uint8array"), ("Uint8ClampedArray", "uint8clampedarray"), ("Int16Array", "int16array"), ("Uint16Array", "uint16array"), ("Int32Array", "int32array"), ("Uint32Array", "uint32array"), ("Float32Array", "float32array"), ("Float64Array", "float64array"), ("BigInt64Array", "bigint64array"), ("BigUint64Array", "biguint64array"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "Error"), ("EvalError", "EvalError"), ("RangeError", "RangeError"), ("ReferenceError", "ReferenceError"), ("SyntaxError", "SyntaxError"), ("TypeError", "TypeError"), ("URIError", "URIError"), ("AggregateError", "AggregateError")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
 /// The interned value for a global builtin *name* used as a value.
-///
-/// JavaScript exposes one object per global name, so `Blob === Blob` and
-/// `blob.constructor === Blob` both hold. A record mints its identity on
-/// construction, so building one per reference would make both `false`;
-/// caching per name is what makes the two spellings meet. Names that also name
-/// a modeled host constructor get a `__smelt_call` slot, so `new Ctor(...)`
-/// through a captured reference constructs instead of answering `null`.
 thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
 fn smelt_fresh_identity(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => SmeltUnknown::Object(SmeltObject::with_id(smelt_next_object_id(), map.iter().collect())), SmeltUnknown::Array(array) => SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), array.into_vec())), other => other } }
@@ -2324,7 +1763,6 @@ fn smelt_prototype_slot_is_observable(prototype: &SmeltUnknown) -> bool { !match
 
 
 thread_local! {
-    /// `[[Prototype]]` of objects built by `Object.create`, keyed by object identity.
     static SMELT_OBJECT_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -2347,33 +1785,15 @@ fn smelt_function_property_lookup(identity: &SmeltFunctionIdentity, name: &str) 
 fn smelt_set_function_property_key(identity: &SmeltFunctionIdentity, name: &str, value: SmeltUnknown) { identity.0.properties.borrow_mut().get_or_insert_with(|| SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())).insert(name.to_owned(), value); }
 
 /// Store one own property on a function value (JS `f.name = value`).
-///
-/// Accepts any callable handle, typed or erased, and resolves it to the one
-/// canonical identity every representation of that function shares.
 fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, name: &str, value: SmeltUnknown) { smelt_set_function_property_key(&smelt_canonical_function_identity(function), name, value); }
 
 /// The `prototype` object of a function value, created on first read.
-///
-/// JavaScript gives every non-arrow function a fresh `{ constructor: f }`
-/// object when the function is created. Creating it lazily is observationally
-/// the same and costs nothing for a function nothing constructs through.
-/// The object references the function (`constructor`), which is the same
-/// reference cycle JavaScript has: a function whose prototype was read is
-/// kept alive by it, as any `Rc` cycle in the generated runtime is.
 fn smelt_function_prototype(identity: &SmeltFunctionIdentity, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, "prototype") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), constructor)]))); smelt_set_function_property_key(identity, "prototype", prototype.clone()); prototype }
 
 /// Read one own property of an erased function value (JS `f.prototype`).
 fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == "prototype" { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }
 
 /// Resolve the JavaScript `Object.prototype.toString.call(x)` tag for an erased value.
-///
-/// Primitive and function variants map to their spec tags. Object records
-/// resolve through Smelt's host identity markers: dates, regexps, errors, the
-/// global object, abort records, registry host objects (WeakMap, Blob, boxed
-/// primitives, Intl instances, ...), and builtin namespace records (whose
-/// `@@toStringTag`-bearing `name` becomes the tag, matching `[object JSON]` /
-/// `[object Math]`). Class instances and unmarked records are plain
-/// `[object Object]`, exactly like JavaScript objects without a custom tag.
 fn smelt_object_to_string_tag(value: &SmeltUnknown) -> String { match value { SmeltUnknown::Null => "[object Null]".to_owned(), SmeltUnknown::Undefined => "[object Undefined]".to_owned(), SmeltUnknown::Bool(_) => "[object Boolean]".to_owned(), SmeltUnknown::Number(_) => "[object Number]".to_owned(), SmeltUnknown::String(_) => "[object String]".to_owned(), SmeltUnknown::Symbol(_) => "[object Symbol]".to_owned(), SmeltUnknown::Array(_) => "[object Array]".to_owned(), SmeltUnknown::Function(_) => "[object Function]".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned(), SmeltUnknown::Object(map) => { if map.contains_key("__smelt_unmodeled") { return "[object Unmodeled]".to_owned(); } if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_symbol_to_string_tag") { return format!("[object {tag}]"); } if map.contains_key("__smelt_date") { return "[object Date]".to_owned(); } if map.contains_key("__smelt_regexp") { return "[object RegExp]".to_owned(); } if map.contains_key("__smelt_error") { return "[object Error]".to_owned(); } if map.contains_key("__smelt_global_object") { return "[object global]".to_owned(); } if map.contains_key("__smelt_map") { return "[object Map]".to_owned(); } if map.contains_key("__smelt_set") { return "[object Set]".to_owned(); } if map.contains_key("__smelt_arguments") { return "[object Arguments]".to_owned(); } if map.contains_key("__smelt_abortcontroller") { return "[object AbortController]".to_owned(); } if map.contains_key("__smelt_abortsignal") { return "[object AbortSignal]".to_owned(); } if map.contains_key("__smelt_arraybuffer") { return "[object ArrayBuffer]".to_owned(); } if map.contains_key("__smelt_sharedarraybuffer") { return "[object SharedArrayBuffer]".to_owned(); } if map.contains_key("__smelt_int8array") { return "[object Int8Array]".to_owned(); } if map.contains_key("__smelt_uint8array") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_uint8clampedarray") { return "[object Uint8ClampedArray]".to_owned(); } if map.contains_key("__smelt_int16array") { return "[object Int16Array]".to_owned(); } if map.contains_key("__smelt_uint16array") { return "[object Uint16Array]".to_owned(); } if map.contains_key("__smelt_int32array") { return "[object Int32Array]".to_owned(); } if map.contains_key("__smelt_uint32array") { return "[object Uint32Array]".to_owned(); } if map.contains_key("__smelt_float32array") { return "[object Float32Array]".to_owned(); } if map.contains_key("__smelt_float64array") { return "[object Float64Array]".to_owned(); } if map.contains_key("__smelt_bigint64array") { return "[object BigInt64Array]".to_owned(); } if map.contains_key("__smelt_biguint64array") { return "[object BigUint64Array]".to_owned(); } if map.contains_key("__smelt_buffer") { return "[object Uint8Array]".to_owned(); } if map.contains_key("__smelt_dataview") { return "[object DataView]".to_owned(); } if map.contains_key("__smelt_weakmap") { return "[object WeakMap]".to_owned(); } if map.contains_key("__smelt_weakset") { return "[object WeakSet]".to_owned(); } if map.contains_key("__smelt_file") { return "[object File]".to_owned(); } if map.contains_key("__smelt_blob") { return "[object Blob]".to_owned(); } if map.contains_key("__smelt_headers") { return "[object Headers]".to_owned(); } if map.contains_key("__smelt_urlsearchparams") { return "[object URLSearchParams]".to_owned(); } if map.contains_key("__smelt_url") { return "[object URL]".to_owned(); } if map.contains_key("__smelt_crypto_key") { return "[object CryptoKey]".to_owned(); } if map.contains_key("__smelt_request") { return "[object Request]".to_owned(); } if map.contains_key("__smelt_response") { return "[object Response]".to_owned(); } if map.contains_key("__smelt_textencoder") { return "[object TextEncoder]".to_owned(); } if map.contains_key("__smelt_textdecoder") { return "[object TextDecoder]".to_owned(); } if map.contains_key("__smelt_eventemitter") { return "[object EventEmitter]".to_owned(); } if map.contains_key("__smelt_httpserver") { return "[object Server]".to_owned(); } if map.contains_key("__smelt_incomingmessage") { return "[object IncomingMessage]".to_owned(); } if map.contains_key("__smelt_serverresponse") { return "[object ServerResponse]".to_owned(); } if map.contains_key("__smelt_formdata") { return "[object FormData]".to_owned(); } if map.contains_key("__smelt_databasesync") { return "[object DatabaseSync]".to_owned(); } if map.contains_key("__smelt_statementsync") { return "[object StatementSync]".to_owned(); } if map.contains_key("__smelt_readablestream") { return "[object ReadableStream]".to_owned(); } if map.contains_key("__smelt_domexception") { return "[object DOMException]".to_owned(); } if map.contains_key("__smelt_intl_collator") { return "[object Intl.Collator]".to_owned(); } if map.contains_key("__smelt_intl_displaynames") { return "[object Intl.DisplayNames]".to_owned(); } if map.contains_key("__smelt_intl_durationformat") { return "[object Intl.DurationFormat]".to_owned(); } if map.contains_key("__smelt_intl_listformat") { return "[object Intl.ListFormat]".to_owned(); } if map.contains_key("__smelt_intl_locale") { return "[object Intl.Locale]".to_owned(); } if map.contains_key("__smelt_intl_numberformat") { return "[object Intl.NumberFormat]".to_owned(); } if map.contains_key("__smelt_intl_pluralrules") { return "[object Intl.PluralRules]".to_owned(); } if map.contains_key("__smelt_intl_segmenter") { return "[object Intl.Segmenter]".to_owned(); } if map.contains_key("__smelt_number") { return "[object Number]".to_owned(); } if map.contains_key("__smelt_boolean") { return "[object Boolean]".to_owned(); } if map.contains_key("__smelt_string") { return "[object String]".to_owned(); } if map.contains_key("__smelt_symbol") { return "[object Symbol]".to_owned(); } if let Some(SmeltUnknown::String(name)) = map.get("name").filter(|_| map.contains_key("__smelt_builtin_namespace")) { return format!("[object {name}]"); } "[object Object]".to_owned() } } }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
@@ -2386,9 +1806,7 @@ impl IntoIterator for SmeltObject { type Item = (JsString, SmeltUnknown); type I
 struct SmeltArrayProps { props: Vec<(String, SmeltUnknown)>, owners: Vec<(usize, Box<dyn SmeltAllocationGuard>)>, pinned: bool }
 
 impl SmeltArrayProps {
-    /// Whether some representation that can still name this array is alive.
     fn is_live(&self) -> bool { self.pinned || self.owners.iter().any(|(_, owner)| owner.is_live()) }
-    /// Record a buffer carrying this array's id (erased or typed) as an owner of this entry.
     fn own<T: 'static>(&mut self, storage: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) { let key = ::std::rc::Rc::as_ptr(storage) as *const () as usize; if !self.owners.iter().any(|(owner, _)| *owner == key) { self.owners.retain(|(_, owner)| owner.is_live()); self.owners.push((key, Box::new(::std::rc::Rc::downgrade(storage)))); } }
 }
 
@@ -2396,12 +1814,9 @@ impl SmeltArrayProps {
 struct SmeltArrayPropsTable { entries: SmeltAddressMap<SmeltArrayProps>, sweep_at: usize }
 
 impl SmeltArrayPropsTable {
-    /// Number of entries, live or not yet swept.
     #[allow(dead_code)]
     fn len(&self) -> usize { self.entries.len() }
-    /// Whether creating an entry for `id` should sweep first.
     fn wants_sweep(&self, id: usize) -> bool { self.entries.len() >= self.sweep_at && !self.entries.contains_key(&id) }
-    /// The entry for `id`, created on first use.
     fn slot(&mut self, id: usize) -> &mut SmeltArrayProps { self.entries.entry(id).or_default() }
 }
 
@@ -2417,7 +1832,6 @@ fn smelt_sweep_array_props(table: &::std::cell::RefCell<SmeltArrayPropsTable>) {
 }
 
 thread_local! {
-    /// Named (non-index) properties of erased arrays, keyed by array identity.
     static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
@@ -2425,24 +1839,13 @@ thread_local! {
 fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).and_then(|entry| entry.props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }
 
 /// Write one named property of `array`, owned by its buffer (pinned through a detached copy).
-///
-/// `derived` marks a property the erasure of a typed value rewrites every
-/// time it erases (a match's `index`): such an entry is never pinned.
 fn smelt_array_store_named_property(array: &SmeltArray, key: String, property: SmeltUnknown, derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } match entry.props.iter_mut().find(|(name, _)| *name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key, property)) } }); }
 
 /// Write several named properties of `array` at once: one table lookup for all of them.
-///
-/// The same as calling `smelt_array_store_named_property` per pair, which a
-/// regex match's erasure did three times per match (`index`, `input`,
-/// `groups`), each with its own sweep check, slot lookup and owner check.
 #[allow(dead_code)]
 fn smelt_array_store_named_properties<const N: usize>(array: &SmeltArray, properties: [(&'static str, SmeltUnknown); N], derived: bool) { SMELT_ARRAY_PROPS.with(|props| { if props.borrow().wants_sweep(array.id) { smelt_sweep_array_props(props); } let mut props = props.borrow_mut(); let entry = props.slot(array.id); entry.own(&array.values); if array.detached && !derived { entry.pinned = true; } for (key, property) in properties { match entry.props.iter_mut().find(|(name, _)| name == key) { Some(slot) => slot.1 = property, None => entry.props.push((key.to_owned(), property)) } } }); }
 
 /// Make a typed copy's buffer an owner of `id`'s named properties, if it has any.
-///
-/// A copy carries the id onward (`as string[]` of a regex match), so the
-/// properties must live as long as it does, not only as long as the erased
-/// array it was copied from.
 fn smelt_array_props_adopt<T: 'static>(id: usize, storage: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) { SMELT_ARRAY_PROPS.with(|props| { if let Ok(mut props) = props.try_borrow_mut() { if let Some(entry) = props.entries.get_mut(&id) { entry.own(storage); } } }); }
 
 /// The named property keys of the array with this identity, in insertion order.
@@ -2454,46 +1857,28 @@ fn smelt_array_named_entries(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_A
 pub struct SmeltArray {
     id: usize,
     values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,
-    /// Whether the buffer is a COPY of another representation of `id` (`with_id`).
     detached: bool,
 }
 
 impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltArray").field("id", &self.id).field("values", &*self.values.borrow()).finish() } }
 impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), detached: self.detached } } }
 impl SmeltArray {
-    /// Create an identity-bearing erased JavaScript array.
     fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false } }
-    /// Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.
     fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true } }
-    /// Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false } }
-    /// Another handle on this array's shared buffer.
     fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { ::std::rc::Rc::clone(&self.values) }
-    /// Snapshot the elements. This COPIES: mutating the result does not write back.
     fn into_vec(self) -> Vec<SmeltUnknown> { self.values.borrow().clone() }
-    /// Element count.
     fn len(&self) -> usize { self.values.borrow().len() }
-    /// Whether the array holds no elements.
     fn is_empty(&self) -> bool { self.values.borrow().is_empty() }
-    /// Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
     fn get(&self, index: usize) -> Option<SmeltUnknown> { self.values.borrow().get(index).cloned() }
-    /// Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
     fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.values.borrow().clone().into_iter() }
-    /// Set the element at a numeric index, extending with `undefined` holes to match JS `arr[i] = v`.
     fn set_index(&self, index: usize, value: SmeltUnknown) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
-    /// Append one element (JS `arr.push(v)`), through the shared buffer.
     fn push(&self, value: SmeltUnknown) { self.values.borrow_mut().push(value); }
-    /// Replace every element in place, so aliases observe the new contents.
     fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.values.borrow_mut() = values; }
-    /// Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.
     fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
-    /// Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.
     fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_store_named_property(self, key, value, false); }
-    /// The named property keys, in insertion order (empty in the common case).
     fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }
-    /// Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.
     fn own_keys(&self) -> Vec<String> { let mut keys = (0..self.len()).map(|index| index.to_string()).collect::<Vec<_>>(); keys.extend(self.named_keys()); keys }
-    /// Own enumerable entries, paired with the keys `own_keys` reports.
     fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); entries.extend(smelt_array_named_entries(self.id)); entries }
 }
 impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }
@@ -2531,18 +1916,10 @@ pub struct SmeltPromise {
 }
 
 impl SmeltPromise {
-    /// Create a pending erased promise identity with shared settle state.
     fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Create a pending promise with a preassigned identity.
     fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Create an already-fulfilled erased promise value.
     fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// Store a live future behind a cloneable erased promise handle. This
-    /// is the lazy constructor used by derived/adapter promises (await
-    /// flattening, `.then`/`.catch` chains, coercions): the future is not
-    /// driven until `smelt_await`, matching JS deferral of those.
     fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))) } }
-    /// Await the stored future once and share its settled result with clones.
     async fn smelt_await(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
         if self.state.borrow().is_none() {
             let taken = self.future.borrow_mut().take();
@@ -2571,9 +1948,6 @@ async fn smelt_await_flatten(value: SmeltUnknown) -> Result<SmeltUnknown, Box<dy
 }
 
 /// Run one promise continuation handler over a settled value.
-///
-/// A missing or non-callable handler passes the value through, which is
-/// what `promise.then(undefined)` does in JavaScript.
 #[allow(dead_code)]
 async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnknown) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
     match handler {
@@ -2602,8 +1976,6 @@ enum SmeltFutureState<T> {
     Taken,
 }
 thread_local! {
-    /// Non-zero while `SmeltFuture::from_future_primed` is running its
-    /// eager prefix poll; see `smelt_sleep_ms`.
     static SMELT_PRIME_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
 }
 pub struct SmeltFuture<T> {
@@ -2614,26 +1986,7 @@ impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resol
 impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
 #[allow(dead_code)]
 impl<T> SmeltFuture<T> {
-    /// Wrap a live future behind a cloneable promise-value handle, lazily:
-    /// the future is not driven until `smelt_await`. Used by derived and
-    /// adapter promises (await flattening, `.then`/`.catch` chains, callback
-    /// coercions, `Promise.all` collection) whose bodies JS also defers,
-    /// so priming them would run continuations/handlers out of microtask
-    /// order — see `from_future_primed` for the eager-prefix constructor.
     fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Pending(future))) } }
-    /// Wrap an ASYNC-FUNCTION-BODY future, priming it with a single no-op-
-    /// waker poll so its synchronous prefix runs at call time (JS
-    /// eager-async-prefix semantics; see `smelt_eager_poll_waker`). Only
-    /// genuine async function / async closure / async method bodies use this,
-    /// so a call like `api.call()` registers its request synchronously before
-    /// the event loop turns — the difference that keeps
-    /// `Promise.all([call(), call(), call()])` from splitting a funnel/batch.
-    /// A prefix that completes resolves now; one that throws is captured as a
-    /// rejection surfaced only via `smelt_await` (JS: a throw before the first
-    /// await becomes a rejected promise, observable only through the
-    /// await/handler path); one that suspends keeps the advanced future for
-    /// later resume. Derived/adapter promises deliberately do NOT use this,
-    /// preserving when their continuations and rejections become observable.
     fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {
         struct SmeltPrimeGuard;
         impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
@@ -2648,10 +2001,7 @@ impl<T> SmeltFuture<T> {
         };
         Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)) }
     }
-    /// Build an already-resolved promise-value handle.
     fn resolved(value: T) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Resolved(value))) } }
-    /// Drive the stored future once, cache its resolved value, and serve
-    /// later awaits from that cache (single-consumer of the future).
     async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone {
         let pending = {
             let mut guard = self.state.borrow_mut();
@@ -2772,19 +2122,6 @@ impl Clone for SmeltUnknown {
 }
 
 /// Concatenate an erased `BlobPart` array into the bytes it contributes.
-///
-/// A `BlobPart` is `Blob | BufferSource | string` — a heterogeneous host
-/// union whose arm is a runtime fact — which is why the parts array is
-/// erased and walked here. Strings contribute their UTF-8 bytes; a nested
-/// `Blob`/`File` record contributes its exact bytes (`smelt_blob_record_bytes`,
-/// the same bytes a concrete `SmeltBlob` part contributes); a byte-backed
-/// host record (`Uint8Array`, `ArrayBuffer`, `DataView`, ...) contributes
-/// its raw `bytes`, which the pre-byte-backed version stringified and so
-/// corrupted; anything else stringifies the way JavaScript does.
-///
-/// Shared by `new Blob(..)` (through `SmeltBlob::from_parts_unknown`) and by
-/// the reflected host construction below, so a directly-constructed blob and
-/// a reflectively-constructed one cannot disagree about their bytes.
 fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
     let mut bytes: Vec<u8> = Vec::new();
     if let SmeltUnknown::Array(items) = parts {
@@ -2807,19 +2144,6 @@ fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
 }
 
 /// The ERASED form of a blob: the one definition of the record shape.
-///
-/// Called both by the reflected constructor below (through
-/// `smelt_blob_record_from_parts`) and by `impl IntoSmeltUnknown for
-/// SmeltBlob`, so a concrete blob crossing a dynamic boundary and a
-/// reflectively-constructed one are the same record. `content` is the
-/// UTF-8 decoding of the bytes, which is what consumers of an erased blob's
-/// text read. When the bytes are not valid UTF-8 that decoding is lossy, so
-/// the record also carries them exactly in the hidden `__smelt_blob_bytes`
-/// list (a host-marked record shows no keys to enumeration); a UTF-8 blob's
-/// record is unchanged. `smelt_blob_record_bytes` reads them back.
-///
-/// A file name stamps `__smelt_file` on top of `__smelt_blob`, so
-/// `file instanceof Blob` observes the host subtype relationship.
 fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option<String>, last_modified: f64) -> SmeltUnknown {
     let content = String::from_utf8_lossy(bytes).into_owned();
     let record = Vec::from([
@@ -2841,13 +2165,6 @@ fn smelt_blob_record(id: usize, bytes: &[u8], blob_type: &str, file_name: Option
     SmeltUnknown::Object(record)
 }
 
-/// The exact bytes of an erased `Blob`/`File` record: the hidden byte list
-/// `smelt_blob_record` stores when `content` is a lossy decoding, else the
-/// UTF-8 bytes of `content`.
-///
-/// The one reader of an erased blob's bytes, shared by the `BlobPart` walk
-/// and by `SmeltFromUnknown for SmeltBlob`, so a blob that crossed a dynamic
-/// boundary contributes the same bytes as the concrete blob it came from.
 fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
     if let Some(SmeltUnknown::Array(elements)) = map.get("__smelt_blob_bytes") {
         return elements.iter().filter_map(|element| match element { SmeltUnknown::Number(value) => Some(value as u8), _ => None }).collect();
@@ -2856,10 +2173,6 @@ fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
 }
 
 /// Build the erased `Blob`/`File` record for the reflected constructor.
-///
-/// Kept separate from the concrete `SmeltBlob` so a crate that reflects over
-/// host constructors but never names a blob does not carry the blob type.
-/// `lastModified` defaults to `0.0` for determinism instead of the wall clock.
 fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {
     let bytes = smelt_blob_parts_bytes(parts);
     smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
@@ -2909,9 +2222,6 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
     pair.get(0).is_some_and(|entry_key| entry_key.same_js_key(key))
 }
 
-/// A property missing from a record's own entries, read through the
-/// prototype entries an erased object carries (`__smelt_proto:` for
-/// `Object.create`, `__smelt_method:` for a class method), else `undefined`.
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&*JsString::from(format!("__smelt_proto:{key}"))).or_else(|| record.get(&*JsString::from(format!("__smelt_method:{key}")))).unwrap_or(SmeltUnknown::Undefined) }
 
@@ -2973,14 +2283,11 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
             _ => {}
         }
     }
-    // A missing property reads as JS `undefined`, distinct from an
-    // explicit `null` value (`obj.missing === undefined`, `!== null`).
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")) } };
     smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
 }
 
 thread_local! {
-    /// One cached `Object.prototype` member value per key, so repeated reads are `===`.
     static SMELT_OBJECT_PROTOTYPE_MEMBERS: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
 }
 
@@ -3016,30 +2323,14 @@ const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 17] = [("Ar
 fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(f64, &'static str)> { SMELT_BUILTIN_MEMBERS.into_iter().find(|(entry_class, entry_kind, entry_member, _, _)| *entry_class == class && *entry_kind == kind && *entry_member == member).map(|(_, _, _, length, key)| (length, key)) }
 
 /// The interned value of `<Builtin>.prototype`.
-///
-/// JavaScript has exactly one prototype object per builtin, so the record is
-/// cached by class name: `Array.prototype === Array.prototype` holds, and a
-/// member read off it resolves through the modeled-member registry. The record
-/// carries only the marker, so it never enumerates as data.
 thread_local! { static SMELT_BUILTIN_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_prototype_object(class: &str) -> SmeltUnknown { SMELT_BUILTIN_PROTOTYPES.with(|cache| cache.borrow_mut().entry(class.to_owned()).or_insert_with(|| SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_builtin_prototype".to_owned(), SmeltUnknown::String(class.into()))])))).clone()) }
 
 /// Callables that consume their receiver as the leading argument.
-///
-/// A prototype method's `this` is its receiver, and Smelt passes it as the
-/// first argument. `Function.prototype.call`/`.apply` drop the receiver for an
-/// ordinary erased callable (which has no `this` channel), so they must not do
-/// that for these: membership here is the difference.
-///
-/// The flag lives in the callable's entry of the bounded callable table.
 fn smelt_register_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) { smelt_update_callable(function, |meta| meta.receiver_method = true); }
 fn smelt_is_receiver_method<T: ?Sized + 'static>(function: &::std::rc::Rc<T>) -> bool { smelt_read_callable(function, |meta| Some(meta.receiver_method)).unwrap_or(false) }
 
 /// Read a modeled member off a builtin, or `None` when it is not modeled.
-///
-/// The callable is interned per member so two reads are the same function
-/// value, carries the member's JavaScript `length`, and gets the member's key
-/// as its identity — the same treatment `Object.prototype`'s members get.
 thread_local! { static SMELT_BUILTIN_MEMBER_VALUES: ::std::cell::RefCell<::std::collections::HashMap<&'static str, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<SmeltUnknown> {
     let (length, key) = smelt_builtin_member_entry(class, kind, member)?;
@@ -3048,25 +2339,13 @@ fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<S
 }
 
 /// The receiver of a `String.prototype` method as a Rust string.
-///
-/// A boxed `String` object unboxes first, so `new String('ab')` and `'ab'`
-/// behave the same through a prototype method, as they do in JavaScript.
 fn smelt_builtin_receiver_text(value: &SmeltUnknown) -> String { match smelt_unbox_primitive(value.clone()) { SmeltUnknown::String(text) => text.to_string(), other => other.to_string() } }
 /// The receiver of an `Array.prototype` method as its element vector.
 fn smelt_builtin_receiver_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnknown>> { match value { SmeltUnknown::Array(values) => Some(values.clone().into_vec()), _ => None } }
 /// Resolve a JavaScript relative index argument against a length.
-///
-/// `undefined` takes the caller's default, a negative counts from the end, and
-/// anything past either end clamps — the `slice` index rules, shared by the
-/// string and array arms so they cannot drift apart.
 fn smelt_builtin_relative_index(value: &SmeltUnknown, len: usize, default: usize) -> usize { match value { SmeltUnknown::Undefined => default, other => { let raw = match other { SmeltUnknown::Number(value) => *value, _ => 0.0 }; if raw.is_nan() { 0 } else if raw < 0.0 { let from_end = len as f64 + raw; if from_end < 0.0 { 0 } else { from_end as usize } } else { (raw as usize).min(len) } } } }
 
 /// Apply one modeled builtin member to its arguments.
-///
-/// For a prototype method the leading argument is the receiver; for a static
-/// function there is no receiver and the arguments start at index zero. Every
-/// arm is keyed by the registry's dispatch key, so adding a member is a table
-/// entry plus its arm and nothing else.
 fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
     let first = args.get(1).map_or(SmeltUnknown::Undefined, Clone::clone);
@@ -3112,8 +2391,6 @@ fn smelt_erased_integer(value: &SmeltUnknown) -> f64 {
 }
 
 /// A RELATIVE position argument (`slice`, `splice`, `fill`): negative counts from the end.
-///
-/// A missing or `undefined` argument takes `default`; the result is clamped to `0..=len`.
 fn smelt_erased_relative_position(value: Option<&SmeltUnknown>, len: usize, default: usize) -> usize {
     match value {
         None | Some(SmeltUnknown::Undefined) => default,
@@ -3126,8 +2403,6 @@ fn smelt_erased_relative_position(value: Option<&SmeltUnknown>, len: usize, defa
 }
 
 /// A CLAMPED position argument (`substring`, `startsWith`, string `indexOf`): negatives are `0`.
-///
-/// A missing or `undefined` argument takes `default`; the result is clamped to `0..=len`.
 fn smelt_erased_clamped_position(value: Option<&SmeltUnknown>, len: usize, default: usize) -> usize {
     match value {
         None | Some(SmeltUnknown::Undefined) => default,
@@ -3180,12 +2455,6 @@ const SMELT_ERASED_ARRAY_METHODS: [&str; 32] = ["map", "filter", "forEach", "red
 const SMELT_ERASED_STRING_METHODS: [&str; 21] = ["at", "charAt", "charCodeAt", "codePointAt", "concat", "endsWith", "includes", "indexOf", "lastIndexOf", "padEnd", "padStart", "repeat", "slice", "startsWith", "substring", "toLowerCase", "toUpperCase", "trim", "trimEnd", "trimStart", "toString"];
 
 /// Read `Array.prototype[field]` off an erased array, bound to that array.
-///
-/// `None` when `field` is not a modeled array method, so the caller answers
-/// `undefined`. The receiver handle shares the array's storage, so a mutating
-/// method called through the bound value mutates the caller's array. No
-/// canonical identity or `length` is registered: every `arr.map(f)` is a read,
-/// and registering would grow the identity registries once per call.
 fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<SmeltUnknown> {
     let name: &'static str = SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?;
     let receiver = receiver.clone();
@@ -3193,8 +2462,6 @@ fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<Sm
 }
 
 /// Read `String.prototype[field]` off an erased string, bound to that string.
-///
-/// `None` when `field` is not a modeled string method (see the array twin).
 fn smelt_string_prototype_member(receiver: &JsString, field: &str) -> Option<SmeltUnknown> {
     let name: &'static str = SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?;
     let receiver = receiver.clone();
@@ -3219,11 +2486,6 @@ fn smelt_erased_flatten_into(items: Vec<SmeltUnknown>, depth: f64, out: &mut Vec
 }
 
 /// Apply `Array.prototype[name]` to an erased array receiver.
-///
-/// Iteration reads the array LIVE (`receiver.get(index)`) over the length it had
-/// when the call began, as the specification's algorithms do, so a callback that
-/// mutates the array observes the same values it would in JavaScript. Callbacks
-/// receive `(element, index, array)`.
 fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let array = || SmeltUnknown::Array(receiver.clone());
@@ -3280,8 +2542,6 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
         "reverse" => { receiver.storage().borrow_mut().reverse(); array() }
         "sort" => {
             let compare = match args.first() { None | Some(SmeltUnknown::Undefined) => None, Some(value) => match smelt_erased_callable(value) { Some(function) => Some(function), None => smelt_throw_builtin_error("TypeError", "The comparison function must be either a function or undefined".to_owned()) } };
-            // Sort a snapshot: the comparator is user code and may read the
-            // array, so no borrow of the storage may be held across it.
             let (mut defined, undefined): (Vec<SmeltUnknown>, Vec<SmeltUnknown>) = receiver.clone().into_vec().into_iter().partition(|value| !matches!(value, SmeltUnknown::Undefined));
             defined.sort_by(|left, right| match &compare {
                 Some(function) => { let order = smelt_unknown_to_number(&smelt_erased_invoke(function, vec![left.clone(), right.clone()])); if order < 0.0 { ::std::cmp::Ordering::Less } else if order > 0.0 { ::std::cmp::Ordering::Greater } else { ::std::cmp::Ordering::Equal } }
@@ -3298,13 +2558,6 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
 }
 
 /// A live JavaScript array iterator over an erased array.
-///
-/// `kind` selects what each step yields: `0` the index (`keys`), `1` the element
-/// (`values`), `2` an `[index, element]` pair (`entries`). The iterator obeys the
-/// protocol the erased runtime drives (`next()` returning `{ value, done }`, see
-/// `smelt_unknown_iterator_items`) and is itself iterable through
-/// `__smelt_symbol_iterator`, so `for...of`, spread and `Array.from` accept it.
-/// It reads the array live and, once done, stays done, as JavaScript's does.
 fn smelt_erased_array_iterator(receiver: SmeltArray, kind: u8) -> SmeltUnknown {
     let position = ::std::rc::Rc::new(::std::cell::Cell::new(0_usize));
     let next: SmeltDynCallable = ::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| {
@@ -3342,8 +2595,6 @@ fn smelt_erased_unit_index(value: &SmeltUnknown, len: usize) -> Option<usize> {
 }
 
 /// Apply `String.prototype[name]` to an erased string receiver.
-///
-/// Positions count UTF-16 code units, as JavaScript's do.
 fn smelt_string_prototype_apply(text: &JsStr, name: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let arg = |index: usize| args.get(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::clone);
     let arg_text = |index: usize| smelt_erased_to_js_string(&arg(index));
@@ -3386,25 +2637,15 @@ fn smelt_string_prototype_apply(text: &JsStr, name: &str, args: Vec<SmeltUnknown
 /// Throw a JavaScript error of builtin class `class` through the error channel.
 fn smelt_throw_builtin_error(class: &str, message: String) -> ! { smelt_panic_throw(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(class.into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
 /// Throw JavaScript's `TypeError: <callee> is not a function`.
-///
-/// `callee` is the source spelling of what was called (`x.map`), as V8 words it.
 fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("TypeError", format!("{callee} is not a function")) }
 /// Throw JavaScript's `TypeError` for a call of a value that holds no function,
 /// where the source spelling of the callee is not known.
 fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
-/// The member `key` of an erased object as a record conversion reads it, the
-/// way a JavaScript property read does: the own property (an accessor is run),
-/// else the prototype members, else a host object's modelled members. `None`
-/// when the read answers `undefined`, so an absent property and a present
-/// `undefined` are the same to the conversion, as they are to a reader.
 fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(getter)) if getter.contains_key("__smelt_get") => Some(smelt_resolve_accessor(SmeltUnknown::Object(getter))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
 /// [`smelt_erased_member`] on a string-keyed record view of an erased object.
 fn smelt_erased_record_member(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> Option<SmeltUnknown> { smelt_erased_member(&SmeltObject::from_unknown_record(record.clone()), key) }
 /// The placeholder an erased class view holds for a method it cannot bridge
-/// (`async`, a generator, a parameter the carrier cannot rebuild). The member
-/// exists, as it does in JavaScript, so the conversion finds it and a
-/// `typeof` sees a function; only a call through the erased view fails, and it
-/// fails naming the method rather than answering a fabricated value.
+/// (`async`, a generator, a parameter the carrier cannot rebuild).
 fn smelt_unbridged_member(name: &'static str) -> SmeltUnknown { SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| smelt_throw_builtin_error("TypeError", format!("{name} cannot be called through an erased value")))) }
 /// The call slot of a record converted from a non-callable object: a call
 /// throws JavaScript's `TypeError`, as calling that object would.
@@ -3501,11 +2742,6 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
 }
 
 /// Whether an erased object key is an OWN property for structural comparison.
-///
-/// `__smelt_proto:<name>` / `__smelt_method:<name>` carry inherited members and
-/// `__smelt_class` records which prototype an instance came from;
-/// JavaScript exposes none of the three as an own property, so deep equality
-/// and the matching hash both skip them.
 fn smelt_is_own_structural_key(key: &JsStr) -> bool { !key.eq_str_prefix("__smelt_proto:") && !key.eq_str_prefix("__smelt_method:") && !key.eq_str("__smelt_class") }
 
 fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
@@ -3580,7 +2816,6 @@ impl Default for SmeltUnknown {
 }
 
 impl SmeltUnknown {
-    /// Returns the JavaScript-style length for unknown string, array, and object values.
     pub fn len(&self) -> usize {
         match self {
             Self::String(value) => value.len(),
@@ -3589,13 +2824,11 @@ impl SmeltUnknown {
             Self::Null | Self::Undefined | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => 0,
         }
     }
-    /// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
     pub fn get_day(&self) -> f64 {
         let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };
         let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;
         ((days_since_epoch + 4).rem_euclid(7)) as f64
     }
-    /// Return JavaScript Date.toISOString output for erased Date-compatible values.
     pub fn to_iso_string(&self) -> String {
         if let Self::Object(value) = self {
             if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
@@ -3619,7 +2852,6 @@ impl SmeltUnknown {
         };
         chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned())
     }
-    /// Return JavaScript-like `includes` membership for erased strings and arrays.
     pub fn includes<T: IntoSmeltUnknown>(&self, needle: T) -> bool {
         let needle = needle.into_smelt_unknown();
         match (self, needle) {
@@ -3628,7 +2860,6 @@ impl SmeltUnknown {
             _ => false,
         }
     }
-    /// Return JavaScript-like RegExp.test behavior for erased regex-like values.
     pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
         match self {
@@ -3641,7 +2872,6 @@ impl SmeltUnknown {
             _ => false,
         }
     }
-    /// No-op compatibility hook for erased callable objects with a `flush` method.
     pub fn flush(&self) {
     }
 }
@@ -3663,13 +2893,6 @@ impl ::std::fmt::Display for SmeltUnknown {
 }
 
 /// A JavaScript `throw` payload travelling Smelt's `Box<dyn Error>` channel.
-///
-/// DYNAMIC BOUNDARY: `throw` accepts any JavaScript value and a `catch`
-/// binding has no static type, so the single error channel shared by every
-/// generated fallible function cannot be a concrete type, a generated union,
-/// or a scoped generic. The payload is kept whole here and recovered by
-/// `smelt_thrown_value`; foreign errors reaching the same channel fall back
-/// to their `Display` text.
 #[derive(Debug)]
 struct SmeltThrown { value: SmeltUnknown }
 /// Project a thrown payload to the message text a string-typed `catch` observes.
@@ -3679,27 +2902,13 @@ impl ::std::error::Error for SmeltThrown {}
 /// Enter the error channel, keeping the thrown value's structure and identity.
 fn smelt_throw(value: SmeltUnknown) -> Box<dyn ::std::error::Error> { Box::new(SmeltThrown { value }) }
 /// Recover the original thrown payload from the error channel.
-///
-/// A foreign error (anything that reached the channel through `?` rather than
-/// a Smelt `throw`) has no payload, so it is presented as an erased `Error`
-/// record built from its `Display` text -- the shape a `catch` saw before the
-/// payload ABI existed.
 fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown { if let Some(thrown) = error.downcast_ref::<SmeltThrown>() { return thrown.value.clone(); } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String(error.to_string().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
 /// Project a channel error's class and message across an unwind.
-///
-/// The class brand is the one `new <ErrorClass>(message)` writes; a thrown
-/// class instance is read through its `name` property instead, which is what
-/// JavaScript reports for `error.name` on a user error class.
 /// The thrown value a panic-routed `throw` parked for its `catch`.
 thread_local! { static SMELT_PANIC_VALUE: ::std::cell::RefCell<Option<SmeltUnknown>> = const { ::std::cell::RefCell::new(None) }; }
 fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { let value = smelt_thrown_value(error); let message = smelt_thrown_message(&value); let mut class = "Error".to_owned(); if let SmeltUnknown::Object(object) = &value { if let Some(SmeltUnknown::String(name)) = object.get("__smelt_error") { class = name.to_string(); } else if let Some(SmeltUnknown::String(name)) = object.get("name") { class = name.to_string(); } } SMELT_PANIC_VALUE.with(|slot| { *slot.borrow_mut() = Some(value); }); SmeltPanic { class, message } }
 /// Present a caught panic as the value a `catch` binds.
-///
-/// The parked value when the throw took the panic route, so a thrown
-/// string arrives at the `catch` as that string and a thrown class
-/// instance keeps its own fields. The class-and-message record otherwise:
-/// a panic that is not a routed `throw` has no JavaScript value behind it.
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
 impl Eq for SmeltUnknown {}
@@ -3856,8 +3065,6 @@ impl IntoSmeltUnknown for () {
 impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
 
 pub trait SmeltFromUnknown {
-    /// Whether converting a value of this type may convert a generated record,
-    /// so a container tracks its element index for the error path.
     const HOLDS_RECORD: bool = false;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self;
 }
@@ -3948,7 +3155,6 @@ impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T> {
 }
 
 impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::collections::HashSet<T> {
-    /// Erase JavaScript Set values as iterable array-like values.
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();
         values.sort_by_key(smelt_unknown_stable_hash_key);
@@ -3957,24 +3163,20 @@ impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::c
 }
 
 trait SmeltArrayExt<T> {
-    /// Return the first JavaScript-style index of a value, or -1 when absent.
     fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq;
 }
 
 impl<T> SmeltArrayExt<T> for Vec<T> {
-    /// Implement `Array.prototype.indexOf` for generated Rust vectors.
     fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq {
         self.iter().position(|value| value == &needle).map_or(SmeltUnknown::Number(-1.0), |index| SmeltUnknown::Number(index as f64))
     }
 }
 
 trait SmeltUnknownArrayExt {
-    /// Concatenate erased array values with JavaScript-style spreading.
     fn concat(self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
 }
 
 impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {
-    /// Implement the generated rest-argument concat helper for erased arrays.
     fn concat(mut self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {
         self.extend(other);
         self
@@ -3982,12 +3184,10 @@ impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {
 }
 
 trait SmeltUnitExt {
-    /// Return false for generated calls against unreachable unit placeholders.
     fn includes<T>(&self, _needle: T) -> bool;
 }
 
 impl SmeltUnitExt for () {
-    /// Keep unreachable JavaScript membership calls type-checkable.
     fn includes<T>(&self, _needle: T) -> bool {
         false
     }
@@ -4054,9 +3254,6 @@ fn smelt_json_stringify(value: &SmeltUnknown) -> Result<String, &'static str> {
     Ok(out)
 }
 
-/// Appends `QuoteJSONString(text)`: `"` and `\` escaped, the short escapes
-/// for `\b \f \n \r \t`, other control characters and every lone surrogate as
-/// a lowercase `\uXXXX`, anything else as itself.
 fn smelt_json_quote(text: &JsStr, out: &mut String) {
     use ::std::fmt::Write as _;
     out.push('"');
@@ -4142,12 +3339,6 @@ fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
 thread_local! { static SMELT_REGRESS_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<regress::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 /// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).
-///
-/// `$$` is a literal `$`, `$&` the match, `` $` `` and `$'` the text before
-/// and after it, `$n`/`$nn` a numbered group (two digits preferred when that
-/// group exists), `$<name>` a named group. Anything else, including a `$n`
-/// past the last group, is left exactly as written. Every position is a
-/// code unit of `haystack`.
 fn smelt_js_regex_substitution(replacement: &[u16], haystack: &[u16], found: &regress::Match, out: &mut Vec<u16>) {
     let dollar = u16::from(b'$');
     let range_units = |range: Option<::std::ops::Range<usize>>| range.and_then(|range| haystack.get(range)).unwrap_or(&[]);
@@ -4196,7 +3387,6 @@ pub struct SmeltRegExp {
     source: ::std::rc::Rc<str>,
     flags: ::std::rc::Rc<str>,
     last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,
-    /// The compiled automaton, shared by every clone (`None` inside: the pattern does not compile).
     compiled: ::std::rc::Rc<::std::cell::OnceCell<::std::option::Option<::std::rc::Rc<regress::Regex>>>>,
 }
 
@@ -4204,17 +3394,10 @@ impl PartialEq for SmeltRegExp { fn eq(&self, other: &Self) -> bool { self.sourc
 
 #[allow(dead_code)]
 impl SmeltRegExp {
-    /// Construct a JavaScript-like RegExp value with shared lastIndex state.
-    ///
-    /// `source` is stored as the spec's `EscapeRegExpPattern` renders it:
-    /// an unescaped `/` outside a character class reads back as `\/`, so
-    /// `new RegExp('a/b').source` is `a\/b` exactly as for the literal
-    /// `/a\/b/`, and the two compare equal.
     pub fn new(source: impl ::std::fmt::Display, flags: impl ::std::fmt::Display) -> Self {
         let (source, flags) = (Self::escape_pattern_source(source.to_string()), flags.to_string());
         Self { id: smelt_next_object_id(), source: source.into(), flags: flags.into(), last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)), compiled: ::std::rc::Rc::default() }
     }
-    /// Escape every unescaped `/` outside a character class (`EscapeRegExpPattern`).
     fn escape_pattern_source(source: String) -> String {
         if !source.contains('/') { return source; }
         let mut escaped = String::with_capacity(source.len() + 2);
@@ -4226,31 +3409,18 @@ impl SmeltRegExp {
         }
         escaped
     }
-    /// Return true when this RegExp has a flag.
     pub fn has_flag(&self, flag: char) -> bool {
         self.flags.chars().any(|value| value == flag)
     }
-    /// Whether a surrogate pair is one character (`u` or `v`).
     fn is_unicode(&self) -> bool {
         self.has_flag('u') || self.has_flag('v')
     }
-    /// Whether the search reads and writes `lastIndex` (`g` or `y`).
     fn is_stateful(&self) -> bool {
         self.has_flag('g') || self.has_flag('y')
     }
-    /// The compiled automaton.
-    ///
-    /// A pattern that does not compile is a hard error naming the original
-    /// JavaScript spelling, so an unsupported pattern can never pass as a
-    /// silent no-op.
     fn compiled(&self) -> ::std::rc::Rc<regress::Regex> {
         match self.try_compiled() { Some(regex) => regex, None => panic!("SyntaxError: invalid regular expression: /{}/{}", self.source, self.flags) }
     }
-    /// The compiled automaton, or `None` when the pattern does not compile.
-    ///
-    /// The flags `regress` reads are `i`, `m`, `s`, `u` and `v`; `g`, `y`
-    /// and `d` change how a search is driven and what it records, which
-    /// this type does itself.
     fn try_compiled(&self) -> Option<::std::rc::Rc<regress::Regex>> {
         if let Some(compiled) = self.compiled.get() { return compiled.clone(); }
         let engine_flags: String = self.flags.chars().filter(|flag| matches!(flag, 'i' | 'm' | 's' | 'u' | 'v')).collect();
@@ -4269,28 +3439,17 @@ impl SmeltRegExp {
         let _ = self.compiled.set(compiled.clone());
         compiled
     }
-    /// The first match starting at or after code unit `start`.
     fn find_from(&self, regex: &regress::Regex, units: &[u16], start: usize) -> Option<regress::Match> {
         if start > units.len() { return None; }
         if self.is_unicode() { regex.find_from_utf16(units, start).next() } else { regex.find_from_ucs2(units, start).next() }
     }
-    /// Every match, left to right, as a global search finds them.
     fn find_all(&self, regex: &regress::Regex, units: &[u16]) -> Vec<regress::Match> {
         if self.is_unicode() { regex.find_from_utf16(units, 0).collect() } else { regex.find_from_ucs2(units, 0).collect() }
     }
-    /// Match a string with JavaScript String.prototype.match semantics.
-    ///
-    /// A non-global regex answers exactly what `exec` answers (the spec's
-    /// `RegExp.prototype[@@match]` IS `RegExpBuiltinExec` then). A global
-    /// regex resets `lastIndex` to 0 and answers every whole match; no match
-    /// at all is `None` (`null`).
     pub fn match_string(&self, haystack: &JsStr) -> Option<SmeltMatch> {
         if !self.has_flag('g') { return self.exec(haystack); }
         self.match_all_strings(haystack).map(|matches| SmeltMatch::from_global_matches(matches, haystack))
     }
-    /// Every whole match of a GLOBAL String.prototype.match, or `None` (`null`).
-    ///
-    /// The spec resets `lastIndex` to 0 first and leaves it there.
     pub fn match_all_strings(&self, haystack: &JsStr) -> Option<Vec<JsString>> {
         *self.last_index.borrow_mut() = 0;
         let regex = self.compiled();
@@ -4298,13 +3457,6 @@ impl SmeltRegExp {
         let matches = self.find_all(&regex, units).into_iter().map(|found| JsString::from_units(units.get(found.range()).unwrap_or(&[]))).collect::<Vec<_>>();
         if matches.is_empty() { None } else { Some(matches) }
     }
-    /// `String.prototype.split` with a RegExp separator (ECMA-262 `@@split`).
-    ///
-    /// Each match ends a piece and contributes its capture groups (an absent
-    /// group is `undefined`, which a `string[]` result cannot hold, so it is
-    /// the empty string); an empty match at the start of a piece is skipped,
-    /// so `"ab".split(/(?:)/)` is `["a", "b"]`. An empty subject is `[""]`
-    /// unless the regex matches it, then `[]`.
     pub fn split_string(&self, haystack: &JsStr) -> Vec<JsString> {
         let regex = self.compiled();
         let units = haystack.units();
@@ -4324,10 +3476,6 @@ impl SmeltRegExp {
         pieces.push(piece(start..units.len()));
         pieces
     }
-    /// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.
-    ///
-    /// The replacement string is a PATTERN (`$&`, `` $` ``, `$'`, `$$`, `$n`,
-    /// `$<name>`; see `smelt_js_regex_substitution`), expanded per match.
     pub fn replace_string(&self, haystack: &JsStr, replacement: &JsStr, force_all: bool) -> JsString {
         let units = haystack.units();
         let regex = self.compiled();
@@ -4343,8 +3491,6 @@ impl SmeltRegExp {
         output.extend_from_slice(units.get(last_end..).unwrap_or(&[]));
         JsString::from_units(&output)
     }
-    /// `String.prototype.replace` with a replacer function: each (or the
-    /// first) match is replaced by what `replacer` answers for it.
     pub fn replace_with(&self, haystack: &JsStr, force_all: bool, mut replacer: impl FnMut(&SmeltMatch) -> JsString) -> JsString {
         let units = haystack.units();
         let regex = self.compiled();
@@ -4360,12 +3506,6 @@ impl SmeltRegExp {
         output.extend_from_slice(units.get(last_end..).unwrap_or(&[]));
         JsString::from_units(&output)
     }
-    /// Execute this RegExp and return a concrete `SmeltMatch` result.
-    ///
-    /// A `g` or `y` regex starts at `lastIndex` and moves it past the match;
-    /// a FAILED stateful search resets it to 0, which is what makes `/a/g`
-    /// over "aa" answer true, true, false and then true again. A `y` match
-    /// must start exactly at `lastIndex`.
     pub fn exec(&self, haystack: &JsStr) -> Option<SmeltMatch> {
         let units = haystack.units();
         let regex = self.compiled();
@@ -4376,34 +3516,23 @@ impl SmeltRegExp {
         if stateful { *self.last_index.borrow_mut() = found.end(); }
         Some(SmeltMatch::from_regress(&found, haystack, self.has_flag('d')))
     }
-    /// Return concrete `SmeltMatch` results for String.prototype.matchAll.
     pub fn match_all_indices(&self, haystack: &JsStr) -> Vec<SmeltMatch> {
         let regex = self.compiled();
         self.find_all(&regex, haystack.units()).iter().map(|found| SmeltMatch::from_regress(found, haystack, self.has_flag('d'))).collect::<Vec<_>>()
     }
-    /// `String.prototype.search`: the code unit index of the first match, if any.
     pub fn search_index(&self, haystack: &JsStr) -> Option<usize> {
         let regex = self.compiled();
         self.find_from(&regex, haystack.units(), 0).map(|found| found.start())
     }
-    /// Whether the pattern matches anywhere, ignoring `lastIndex`: `test` on
-    /// a regex without `g` or `y`, whose `lastIndex` stays 0.
     pub fn is_match(&self, haystack: &JsStr) -> bool {
         self.search_index(haystack).is_some()
     }
-    /// Test this RegExp against a string with JavaScript lastIndex updates.
     pub fn test(&self, haystack: &JsStr) -> bool {
         self.exec(haystack).is_some()
     }
 }
 
 /// Erase a concrete RegExp into a `SmeltUnknown` at a dynamic boundary.
-///
-/// A JavaScript RegExp object owns three observable data properties:
-/// `source`, `flags` and the writable `lastIndex`. All three must cross
-/// the boundary, or a round trip through erased dataflow (`clone(re)`,
-/// `structuredClone`, a `Record<string, unknown>` bag) silently resets
-/// `lastIndex` to 0.
 impl IntoSmeltUnknown for SmeltRegExp {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let last_index = *self.last_index.borrow() as f64;
@@ -4417,11 +3546,6 @@ impl IntoSmeltUnknown for SmeltRegExp {
 }
 
 /// Recover a concrete RegExp from an erased value.
-///
-/// The exact inverse of the adapter above: a marker record restores
-/// `source`, `flags` and `lastIndex`; a bare string is the `new
-/// RegExp(str)` spelling and yields a flagless pattern. Anything else
-/// answers the empty pattern, matching `new RegExp(undefined)`.
 impl SmeltFromUnknown for SmeltRegExp {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         match value {
@@ -4439,7 +3563,6 @@ impl SmeltFromUnknown for SmeltRegExp {
 }
 
 impl Default for SmeltRegExp {
-    /// Construct a RegExp that matches the empty string.
     fn default() -> Self {
         Self::new(String::new(), String::new())
     }
@@ -4450,17 +3573,10 @@ impl Default for SmeltRegExp {
 #[derive(Clone, Debug, Default)]
 pub struct SmeltMatch {
     id: usize,
-    /// Numbered capture groups; entry 0 is the whole match. An absent
-    /// optional group is `None` (JavaScript `undefined`).
     groups: ::std::rc::Rc<Vec<Option<JsString>>>,
-    /// Named capture groups keyed by name (plus a snake_case alias).
     named: ::std::rc::Rc<::std::collections::HashMap<String, Option<JsString>>>,
-    /// Zero-based UTF-16 offset of the match within `input` (`.index`).
     match_index: usize,
-    /// The full string that was searched (`.input`).
     input: JsString,
-    /// Each numbered group's UTF-16 `[start, end)` (`.indices`), kept only
-    /// when the regexp has the `d` flag; an absent group is `None`.
     spans: Option<::std::rc::Rc<Vec<Option<(f64, f64)>>>>,
 }
 
@@ -4469,9 +3585,6 @@ impl PartialEq for SmeltMatch { fn eq(&self, other: &Self) -> bool { self.groups
 
 #[allow(dead_code)]
 impl SmeltMatch {
-    /// Build a `SmeltMatch` from a `regress` match over `input`'s code units;
-    /// `spans` keeps the group indices (the `d` flag). Every offset `regress`
-    /// reports is already a code unit index.
     fn from_regress(found: &regress::Match, input: &JsStr, spans: bool) -> Self {
         let units = input.units();
         let text = |range: ::std::ops::Range<usize>| JsString::from_units(units.get(range).unwrap_or(&[]));
@@ -4490,98 +3603,48 @@ impl SmeltMatch {
         }
         Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(groups), named: ::std::rc::Rc::new(named), match_index: found.start(), input: input.to_owned(), spans }
     }
-    /// Build the array a GLOBAL `String.prototype.match` answers.
-    ///
-    /// JavaScript returns a plain array of every whole match there, with no
-    /// capture groups, `index`, `input` or `groups`. It is carried as a
-    /// match value so both spellings of `match` share one type: the numbered
-    /// entries are the whole matches (all present), there are no named
-    /// groups, and `index` is 0 with `input` the searched string, which a
-    /// global match's reader does not consult.
     fn from_global_matches(matches: Vec<JsString>, input: &JsStr) -> Self {
         Self { id: smelt_next_object_id(), groups: ::std::rc::Rc::new(matches.into_iter().map(Some).collect()), named: ::std::rc::Rc::default(), match_index: 0, input: input.to_owned(), spans: None }
     }
-    /// The match viewed as the JavaScript array it is (`[...match]`).
-    ///
-    /// Entry 0 is the whole match; a group that did not participate is
-    /// `None` (`undefined`). The list keeps the match's identity (`===`)
-    /// but copies its entries: array methods lowered against it only read
-    /// (writes to a match are not lowered through it).
     pub fn to_array_view(&self) -> SmeltList<Option<JsString>> {
         SmeltList::with_id(self.id, self.groups.as_ref().clone())
     }
-    /// `match.indices`: each group's `[start, end]` when the regexp has the
-    /// `d` flag (an absent group `undefined`), else `undefined`.
     pub fn indices(&self) -> Option<SmeltList<Option<(f64, f64)>>> {
         self.spans.as_ref().map(|spans| SmeltList::new(spans.as_ref().clone()))
     }
-    /// Read a numbered capture group (`match[n]`).
     fn group(&self, index: usize) -> Option<&JsStr> {
         self.groups.get(index).and_then(|value| value.as_deref())
     }
-    /// Read a numbered capture group as an owned optional string.
-    ///
-    /// Consumer index reads (`match[n]`) are typed `Optional(String)`; a
-    /// group that did not participate in the match is `None` (JavaScript
-    /// `undefined`).
     pub fn group_owned(&self, index: usize) -> Option<JsString> {
         self.groups.get(index).cloned().flatten()
     }
-    /// Read a named capture group (`match.groups.name`).
     fn named_group(&self, name: &str) -> Option<&JsStr> {
         self.named.get(name).and_then(|value| value.as_deref())
     }
-    /// Read a named capture group as an owned optional string.
-    ///
-    /// Consumer named-group reads (`match.groups.name`) are typed
-    /// `Optional(String)`; a group that did not participate is `None`.
     pub fn named_group_owned(&self, name: &str) -> Option<JsString> {
         self.named.get(name).cloned().flatten()
     }
-    /// The zero-based match offset (`match.index`).
     pub fn index(&self) -> f64 {
         self.match_index as f64
     }
-    /// The full searched string (`match.input`).
     fn input(&self) -> &JsStr {
         &self.input
     }
-    /// The full searched string as an owned value (`match.input`).
     pub fn input_owned(&self) -> JsString {
         self.input.clone()
     }
-    /// Number of numbered capture groups, including the whole match.
     fn len(&self) -> usize {
         self.groups.len()
     }
-    /// Number of numbered capture groups as a JavaScript number (`match.length`).
     pub fn length(&self) -> f64 {
         self.groups.len() as f64
     }
-    /// Whether there are no numbered groups (never true for a real match).
     fn is_empty(&self) -> bool {
         self.groups.is_empty()
     }
 }
 
 /// Erase a concrete match into a `SmeltUnknown` at a dynamic boundary.
-///
-/// This reproduces the JavaScript match-array-with-properties shape:
-/// numbered string keys for the groups plus `groups`, `index`, and
-/// `input`. It is the single explicit adapter used when a typed
-/// `SmeltMatch` must flow into erased `unknown` consumer dataflow.
-///
-/// A JavaScript match result IS an array — `Array.isArray(/c/.exec(s))` is
-/// `true` and `Object.prototype.toString.call` reports `[object Array]` —
-/// carrying `index`, `input` and `groups` as ordinary named properties. So
-/// the erasure is a `SmeltUnknown::Array` over the numbered groups plus
-/// three entries in the identity-keyed named-property table. That is what
-/// makes a match compare equal to the plain array a spec matches it
-/// against (es-toolkit `isEqualWith`'s array arm compares only `length` and
-/// the elements), and, because the table is keyed by identity rather than
-/// held on the `SmeltArray`, a `T[]`-typed reader that narrows the value
-/// with `Array.isArray` and then reads `.index`/`.input` (es-toolkit
-/// `cloneDeepWith`) still finds them through its typed list handle.
 impl IntoSmeltUnknown for SmeltMatch {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)).collect::<Vec<_>>();
@@ -4593,13 +3656,6 @@ impl IntoSmeltUnknown for SmeltMatch {
 }
 
 /// Recover a concrete match from an erased value.
-///
-/// The inverse of the adapter above, so a match that round-trips through
-/// erased dataflow (`cloneDeep(/re/.exec(s))`, an `unknown` bag) comes back
-/// with its groups, named groups, `index` and `input` intact instead of the
-/// empty `Default::default()` the generic class fallback would produce.
-/// A bare array (the JavaScript match value IS an array) restores the
-/// numbered groups; the extra properties are then simply absent.
 impl SmeltFromUnknown for SmeltMatch {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let group_of = |value: SmeltUnknown| match value { SmeltUnknown::String(text) => Some(text), _ => None };

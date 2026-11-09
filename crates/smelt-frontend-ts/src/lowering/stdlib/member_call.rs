@@ -335,9 +335,8 @@ impl ModuleBuilder<'_> {
     /// method's type is a function, and parameter `i` is itself a function type
     /// with no unresolved type parameter (a method-generic `(x: U) => V` still
     /// needs the instantiation the free-function path infers from the sibling
-    /// arguments, so it keeps the old unhinted lowering). Every other position
-    /// is `None`: only function types are offered, so non-callback arguments
-    /// lower exactly as before.
+    /// arguments). Every other position is `None`: only function types are
+    /// offered.
     fn class_method_callback_param_hints(
         &mut self,
         receiver_ty: smelt_hir::TypeId,
@@ -961,12 +960,7 @@ impl ModuleBuilder<'_> {
         // right after this helper). It must not be lowered here as a callable
         // *field* read on the class value: the callee-field lowering below would
         // route it through the erased `SmeltUnknown` call ABI instead of the
-        // concrete `Class::staticMethod` associated function. This guard used to
-        // be implicit — undeclared field access on a `Type::Class` receiver hard-
-        // errored, so `static_member_no_absent_fallback` failed and this helper
-        // bailed. Issue #114 made that access route to the dynamic boundary
-        // instead of erroring, so the deferral is now made explicit here rather
-        // than relying on the removed hard error.
+        // concrete `Class::staticMethod` associated function.
         if self.static_member_is_class_static_method(member) {
             return Ok(None);
         }
@@ -1016,10 +1010,8 @@ impl ModuleBuilder<'_> {
                 let span = self.span(call.span.start, call.span.end);
                 // A receiver-less callee still OBSERVES the leading operand as
                 // its `this`: it is dropped from the positional list, then bound
-                // as the receiver installed for this one call. Dropping it
-                // outright used to be the whole story, so `fn.call(this, x)` in
-                // es-toolkit's `memoize` resolver and `flow` lost the caller's
-                // receiver even though the callee body reads it. A receiver-first
+                // as the receiver installed for this one call (`fn.call(this, x)`
+                // in es-toolkit's `memoize` resolver and `flow`). A receiver-first
                 // class method needs no bind: its `this` IS its first parameter.
                 let callable = if receiver_is_positional {
                     callable
@@ -1780,7 +1772,7 @@ impl ModuleBuilder<'_> {
         //
         //   * a UNION has no *single* method item by design — dispatch happens
         //     per tagged-union arm rather than through one function
-        //     (`union_method_text`), so every arm declaring the method is what
+        //     (`union_method_expr`), so every arm declaring the method is what
         //     makes it concrete;
         //   * a class whose own body is STILL BEING LOWERED has no registered
         //     class item yet, so `class_by_symbol` misses and `resolve_method`

@@ -2,12 +2,10 @@
 
 // A source `Set` whose elements can key a Rust hash map: `SmeltPrimSet`.
 //
-// JavaScript specifies `Set` iteration as INSERTION ORDER, and these sets
-// used to be a bare `::std::collections::HashSet`, which has none:
-// `[...new Set('hello')].join('')` answered `leoh` from one construction and
-// `hoel` from another in the same program. Sizes and membership were right,
-// so nothing threw — code that de-duplicates while preserving order, one of
-// the commonest JS idioms there is, silently scrambled its output.
+// JavaScript specifies `Set` iteration as INSERTION ORDER, which a bare
+// `::std::collections::HashSet` does not have: code that de-duplicates while
+// preserving order, one of the commonest JS idioms there is, would silently
+// scramble its output.
 //
 // The shape is the record store's: a `Vec` of entries for order plus a hash
 // index for lookup, so `has`/`add`/`delete` stay hashed while iteration,
@@ -17,11 +15,10 @@
 //
 // It exists SEPARATELY from `SmeltJsSet` because that container's membership
 // runs every element through `IntoSmeltUnknown` for SameValueZero, which
-// pulls the whole erased-value carrier into any program holding a set: the
-// snapshot for a four-line `Set<string>` program went from 18 lines to over
-// 450 when both backings were merged. For `bool`/`i64`/`String` (and
-// optionals/unions of those) SameValueZero IS Rust equality, so nothing is
-// lost by hashing the values directly, and pay-for-use is kept.
+// pulls the whole erased-value carrier into any program holding a set. For
+// `bool`/`i64`/`String` (and optionals/unions of those) SameValueZero IS Rust
+// equality, so nothing is lost by hashing the values directly, and pay-for-use
+// is kept.
 //
 // A JS `Set` is a reference value: `const b = a; b.add(x)` adds to `a`, a set
 // mutated inside a function is mutated for its caller, and a module-level set
@@ -30,11 +27,6 @@
 // the same `id`, exactly like `SmeltList` and `SmeltJsMap`. A genuine copy —
 // `new Set(a)`, Python `set(a)`, the result of set algebra — is a NEW set
 // (`fresh_copy`, `FromIterator`) with its own id and buffer.
-//
-// The store used to be copy-on-write (`Rc::make_mut`), which made every handle
-// an independent VALUE: codegen reads a captured or global set through a clone,
-// so `seen.add(n)` inside a function wrote to a copy and was lost, and an
-// alias never saw a write through the other name.
 //
 // Members are read by snapshot: `iter()` and the set-algebra helpers answer
 // owned members in insertion order (the `SmeltJsMap` shape), because a borrow
@@ -60,10 +52,10 @@ impl<T> SmeltPrimSet<T> {
 }
 
 impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> SmeltPrimSet<T> {
-    /// A NEW set with the same members in the same order: its own id and its
-    /// own store, so later writes to either set leave the other unchanged.
+    //~ A NEW set with the same members in the same order: its own id and its
+    //~ own store, so later writes to either set leave the other unchanged.
     fn fresh_copy(&self) -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())) } }
-    /// The members, in insertion order, as an owned snapshot.
+    //~ The members, in insertion order, as an owned snapshot.
     fn iter(&self) -> ::std::vec::IntoIter<T> { self.store.borrow().entries.clone().into_iter() }
     fn contains(&self, value: &T) -> bool { self.store.borrow().index.contains(value) }
     //~ `add` on an element already present is a no-op in JS, and in
@@ -92,7 +84,7 @@ impl<T: Clone> IntoIterator for SmeltPrimSet<T> { type Item = T; type IntoIter =
 impl<T: Clone> IntoIterator for &SmeltPrimSet<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.store.borrow().entries.clone().into_iter() } }
 //~ Two sets are equal when they hold the same members, as JS structural
 //~ comparison helpers (`isEqual`) expect; `===` identity is answered by
-//~ the `id` field through `reference_identity_text`, not by this impl.
+//~ the `id` field through `reference_identity_expr`, not by this impl.
 impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T> { fn eq(&self, other: &Self) -> bool { self.len() == other.len() && self.iter().all(|value| other.contains(&value)) } }
 
 // @smelt:item-end

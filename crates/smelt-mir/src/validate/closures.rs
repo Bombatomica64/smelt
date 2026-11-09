@@ -6,11 +6,11 @@
 //! - closure-table ids equal their positions;
 //! - each closure is constructed at most once, and its construction site's
 //!   captured operands are exactly the locals its capture table names
-//!   (`source_local` is derived from the site; audit finding C4);
+//!   (`source_local` is derived from the site;;
 //! - every capture's source local exists in the constructing body and its
-//!   target local exists in the closure body (audit C13);
+//!   target local exists in the closure body;
 //! - a capture's type, its source local's type and its target local's type are
-//!   one type (invariant 4; audit C2);
+//!   one type (invariant 4;;
 //! - escaping closures capture by value (invariant 1).
 //!
 //! The closure BODY is checked like any function body, by

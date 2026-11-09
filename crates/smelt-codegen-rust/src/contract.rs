@@ -30,12 +30,9 @@ pub const MODULE_SOURCE_HEADER: &str = "// source: ";
 /// `fn <prefix><n>(smelt_value: SmeltUnknown) -> T`.
 ///
 /// Each helper is the inverse adapter at an erased-to-typed boundary: it
-/// takes the erased value and rebuilds (or recovers) the typed class. Its
-/// body used to be inlined at every call site, where it was classified as a
-/// boundary through its `into_smelt_unknown` call; hoisted, the signature is
-/// the one line that newly names `SmeltUnknown`, and the SmeltUnknown report
-/// keys its boundary classification on this prefix so the same conversion
-/// keeps the classification it had inline.
+/// takes the erased value and rebuilds (or recovers) the typed class. The
+/// SmeltUnknown report keys its boundary classification on this prefix, since
+/// the signature is the one line of a hoisted helper naming `SmeltUnknown`.
 pub const RECORD_CONVERSION_HELPER_PREFIX: &str = "__smelt_from_unknown_record_";
 
 /// Name prefix of the hoisted record-to-record adapters

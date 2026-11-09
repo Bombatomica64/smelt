@@ -16,7 +16,7 @@ pub const CONSOLE_WRITE_SYMBOL: &str = "console_write";
 pub const CONSOLE_ERROR_WRITE_SYMBOL: &str = "console_error_write";
 /// Synthesized private field name backing a class/interface index signature.
 ///
-/// A class declaring `[key: string]: T` (issue #84) carries a real runtime
+/// A class declaring `[key: string]: T` carries a real runtime
 /// keyed store under this field so dynamic keyed writes round-trip. The
 /// frontend synthesizes the field and codegen routes keyed access to it; the
 /// name is shared here so both agree on the single store field identifier.
@@ -86,11 +86,11 @@ impl Crate {
     /// interface declaration more than once (predeclaration passes, then the
     /// module's own lowering; a type alias resolved again from another site),
     /// and each later lowering sees more of the crate, so it REPLACES the
-    /// earlier item (`blocker-logs/hono-crud-perf-round2.md`). The declaration
+    /// earlier item. The declaration
     /// is identified by name and span; a same-named interface at another span
     /// (interface merging, a `.d.ts` then its `.ts`) is a separate item.
     /// Appending instead left several interfaces of one name, which MIR
-    /// rejects (audit finding C12; radash's `DebounceFunction`, remeda's
+    /// rejects; radash's `DebounceFunction`, remeda's
     /// `LazyFunction`).
     pub fn upsert_interface(&mut self, interface: crate::Interface) -> ItemId {
         let earlier = self.items.iter().position(|existing| {

@@ -2,7 +2,7 @@
 //!
 //! The three keyless members of the `crypto` global. Two of them are one
 //! expression each; the third calls the algorithm-dispatching helper
-//! `crate::crypto_prelude` emits. Nothing here holds state, because `crypto`
+//! `smelt-runtime`'s `crypto.rs` emits. Nothing here holds state, because `crypto`
 //! has none — see that module's `Why no SmeltCrypto type`.
 
 use crate::rust::RustExpr;
@@ -44,7 +44,7 @@ impl FunctionEmitter<'_> {
                 // spelling. A concrete `SmeltUint8Array` fills through its byte
                 // storage directly; a view that is still the byte-backed host
                 // record fills through the record's storage helpers. See
-                // `crypto_prelude::emit_random_values_erased` for why the erased
+                // `smelt-runtime`'s `crypto.rs` for why the erased
                 // arm exists and when it goes away.
                 let view_ty = self.operand_ty(view)?;
                 let is_concrete_view = matches!(self.mir.types.get(view_ty), Some(Type::Class { name, .. })

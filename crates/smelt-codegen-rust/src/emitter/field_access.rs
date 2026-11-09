@@ -101,6 +101,9 @@ impl FunctionEmitter<'_> {
         Ok(smelt_stdlib::host_data_property(class, self.symbol_name(field)?))
     }
 
+    /// The expression reading `field` off a receiver rendered as `receiver_text`
+    /// of type `receiver_ty`: a host data property, a keyed read on a text-keyed
+    /// dictionary (absent keys following the value type), or a struct field.
     pub(super) fn field_access_expr(
         &self,
         receiver_text: &RustExpr,
@@ -426,11 +429,10 @@ impl FunctionEmitter<'_> {
     /// A `String` receiver's builtin field read, as Rust text PAIRED with the
     /// static type of that text.
     ///
-    /// The two must be decided together. When they were decided separately, the
-    /// text said `i64` and the type lookup said `Unknown`, so a caller coercing
-    /// the read ran the erased `SmeltUnknown` ToString match over an `i64`
-    /// expression — `` `${s.length}` `` inside a callback body did not compile.
-    /// Every reader of either half now goes through here: `string_field_expr`,
+    /// The two must be decided together, or the text says `i64` while the type
+    /// lookup says `Unknown`, and a caller coercing the read runs the erased
+    /// `SmeltUnknown` ToString match over an `i64` expression. Every reader of
+    /// either half goes through here: `string_field_expr`,
     /// [`Self::field_access_type`], `place_ty`, and the erasing coercion path.
     ///
     /// `.length` is a JavaScript Number, so its natural Rust spelling depends on
@@ -567,7 +569,7 @@ impl FunctionEmitter<'_> {
     /// Emits an `Option<T>`-returning keyed read against a `Dict`-typed store.
     ///
     /// Shared by optional dict index reads and by class index-signature store
-    /// reads (issue #84): both read a value by key from a `Dict(key, value)` and
+    /// reads: both read a value by key from a `Dict(key, value)` and
     /// yield `Option<value>` where a missing key is `None` (JavaScript
     /// `undefined`). String keys coerce the index through
     /// `property_key_to_string_expr`; a `SmeltRecord`/`SmeltJsMap` store already

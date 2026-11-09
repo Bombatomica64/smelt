@@ -10,7 +10,7 @@ pub trait IntoSmeltUnknown {
 //~ by the erased-callback adapters, and that walk yields `&SmeltUnknown`
 //~ rather than an owned value. Erasing a borrowed value clones it, which the
 //~ erasure would have done anyway when it built the `SmeltArray`; the saving
-//~ is on the ARGUMENT, which no longer deep-copies the list per element.
+//~ is on the ARGUMENT, which does not deep-copy the list per element.
 impl IntoSmeltUnknown for &SmeltUnknown { fn into_smelt_unknown(self) -> SmeltUnknown { self.clone() } }
 
 impl IntoSmeltUnknown for SmeltUnknown {
@@ -60,8 +60,8 @@ impl IntoSmeltUnknown for () {
 impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltList<T> { fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray::with_id(self.id(), self.into_vec().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())) } }
 
 pub trait SmeltFromUnknown {
-    /// Whether converting a value of this type may convert a generated record,
-    /// so a container tracks its element index for the error path.
+    //~ Whether converting a value of this type may convert a generated record,
+    //~ so a container tracks its element index for the error path.
     const HOLDS_RECORD: bool = false;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self;
 }
@@ -202,7 +202,7 @@ impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T> {
 }
 
 impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::collections::HashSet<T> {
-    /// Erase JavaScript Set values as iterable array-like values.
+    //~ Erase JavaScript Set values as iterable array-like values.
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();
         values.sort_by_key(smelt_unknown_stable_hash_key);
@@ -211,24 +211,24 @@ impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::c
 }
 
 trait SmeltArrayExt<T> {
-    /// Return the first JavaScript-style index of a value, or -1 when absent.
+    //~ Return the first JavaScript-style index of a value, or -1 when absent.
     fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq;
 }
 
 impl<T> SmeltArrayExt<T> for Vec<T> {
-    /// Implement `Array.prototype.indexOf` for generated Rust vectors.
+    //~ Implement `Array.prototype.indexOf` for generated Rust vectors.
     fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq {
         self.iter().position(|value| value == &needle).map_or(SmeltUnknown::Number(-1.0), |index| SmeltUnknown::Number(index as f64))
     }
 }
 
 trait SmeltUnknownArrayExt {
-    /// Concatenate erased array values with JavaScript-style spreading.
+    //~ Concatenate erased array values with JavaScript-style spreading.
     fn concat(self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
 }
 
 impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {
-    /// Implement the generated rest-argument concat helper for erased arrays.
+    //~ Implement the generated rest-argument concat helper for erased arrays.
     fn concat(mut self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {
         self.extend(other);
         self
@@ -236,12 +236,12 @@ impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {
 }
 
 trait SmeltUnitExt {
-    /// Return false for generated calls against unreachable unit placeholders.
+    //~ Return false for generated calls against unreachable unit placeholders.
     fn includes<T>(&self, _needle: T) -> bool;
 }
 
 impl SmeltUnitExt for () {
-    /// Keep unreachable JavaScript membership calls type-checkable.
+    //~ Keep unreachable JavaScript membership calls type-checkable.
     fn includes<T>(&self, _needle: T) -> bool {
         false
     }

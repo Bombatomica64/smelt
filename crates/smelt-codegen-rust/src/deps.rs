@@ -37,7 +37,7 @@ pub(crate) fn cargo_toml(
     // NO `panic` STRATEGY MAY BE SET HERE. A generated body whose own type says
     // `may_throw: false` reports a `throw` by panicking, and an enclosing `try`
     // catches it with `std::panic::catch_unwind` (see
-    // `thrown::emit_panic_route_support`). `panic = "abort"` would turn every
+    // `runtime/thrown.rs`). `panic = "abort"` would turn every
     // such catchable JavaScript exception into a process abort. This is pinned
     // by `no_profile_sets_panic_abort_while_the_panic_route_exists`.
     let profile = match release_profile {

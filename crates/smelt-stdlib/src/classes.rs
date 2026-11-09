@@ -118,10 +118,8 @@ pub enum StdlibClass {
     /// reference identity).
     ///
     /// One stdlib class for all eleven source spellings — `Uint8Array`,
-    /// `Int8Array`, ..., `BigUint64Array` — plus the reserved synthetic
-    /// `TextEncoder.encode`, `Blob.bytes()` and `crypto` all answer a
-    /// `Uint8Array` under that name; there is no reserved synthetic spelling
-    /// for the family any more. The element
+    /// `Int8Array`, ..., `BigUint64Array`. `TextEncoder.encode`, `Blob.bytes()`
+    /// and `crypto` all answer a `Uint8Array` under that name. The element
     /// KIND is deliberately not part of the class identity: it is a runtime
     /// property of the value (`Object.prototype.toString.call(view)` reports
     /// it, and reflective construction reads it back off an erased record), so
@@ -129,10 +127,9 @@ pub enum StdlibClass {
     /// the source name — selects the kind. `Type::Class { name }` still carries
     /// the source spelling, so nothing about the view's name is lost.
     ///
-    /// The erased byte-backed host record (`host_object.rs`) is now this
-    /// class's BOUNDARY form, not its representation: a view crosses into
-    /// `SmeltUnknown` through `IntoSmeltUnknown` (which stamps exactly the
-    /// marker record the erased face has always produced) and comes back
+    /// The erased byte-backed host record (`host_object.rs`) is this class's
+    /// BOUNDARY form, not its representation: a view crosses into `SmeltUnknown`
+    /// through `IntoSmeltUnknown` (which stamps the marker record) and comes back
     /// through `SmeltFromUnknown`.
     TypedArray,
     /// The concrete byte STORAGE a view reads: `ArrayBuffer`, backed by the
@@ -214,7 +211,7 @@ impl StdlibClass {
     ///
     /// This drives two things that must not disagree. The emitter routes an
     /// erasure of such a value to `.into_smelt_unknown()` instead of the
-    /// declared-field builder, and `instance_of_text` answers `instanceof` on
+    /// declared-field builder, and `instance_of_expr` answers `instanceof` on
     /// an erased value through the marker that same adapter stamps. Both used
     /// to consult their own hand-maintained lists of class names, which is how
     /// the two came apart for the six classes that had neither.
@@ -266,8 +263,8 @@ impl StdlibClass {
     /// reflected constructor builds, and `SmeltDate`'s recovery accepts it. For
     /// each of the others,
     /// the reflected constructor and the erasure adapter build the SAME record
-    /// — `blob_prelude`'s `smelt_blob_record` for a blob, and
-    /// `byte_buffer_prelude`'s `smelt_host_buffer_construct` for a view or its
+    /// — `smelt-runtime`'s `blob.rs`'s `smelt_blob_record` for a blob, and
+    /// `smelt-runtime`'s `byte_buffer.rs`'s `smelt_host_buffer_construct` for a view or its
     /// storage — so the record a reflected `new` produces is exactly the one a
     /// real value erases to, and it answers the whole erased surface
     /// (elements, `slice`, indexed reads, the `[object X]` tag) rather than

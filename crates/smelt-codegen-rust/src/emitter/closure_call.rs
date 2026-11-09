@@ -179,8 +179,7 @@ impl FunctionEmitter<'_> {
             // The dynamic dispatch below matches on the ERASED carrier.
             // A union with concrete members renders as its generated
             // enum, not as `SmeltUnknown`, so it crosses the boundary
-            // adapter first (`match SmeltUnionN { SmeltUnknown::.. }`
-            // was E0308).
+            // adapter first.
             let callee_text = if matches!(self.mir.types.get(callee_ty), Some(Type::Union(_)))
                 && self.concrete_union_members(callee_ty).is_some()
             {
@@ -548,8 +547,7 @@ impl FunctionEmitter<'_> {
         // extracted to that function like any other typed destination:
         // every later use (a call, `Object.assign(fn, ..)`, an erasure)
         // renders the local as the typed `Rc<dyn Fn>` its MIR type
-        // says. Leaving the bare `SmeltUnknown` in it was E0308/E0618
-        // at each of those uses (remeda `const fn = lazy(...lazyArgs)`).
+        // says (remeda `const fn = lazy(...lazyArgs)`).
         if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
             return Ok(RustExpr::atom(format!("{{ {rendered_call_text}; () }}", rendered_call_text = rendered_call_text.delimited())));
         }

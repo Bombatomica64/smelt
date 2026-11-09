@@ -89,13 +89,12 @@ pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> 
 
 /// Emit `SmeltFromUnknown` for a reference record's handle type.
 ///
-/// The inbound mirror of the reference erasure, and the reason it can exist at
-/// all: recovering a handle from a field snapshot would mint a NEW cell, which
-/// is not narrowing but copying, so reference records used to have no inbound
-/// impl. With the origin slot the recovery hands back the live handle an
-/// erasure stamped, and only a value that never was one of these instances (a
-/// literal, a JSON value, a spread copy) is rebuilt — into a fresh cell, which
-/// is exactly what that value is: a different object.
+/// The inbound mirror of the reference erasure. Recovering a handle from a
+/// field snapshot would mint a NEW cell, which is not narrowing but copying, so
+/// the recovery hands back the live handle an erasure stamped through the origin
+/// slot. Only a value that never was one of these instances (a literal, a JSON
+/// value, a spread copy) is rebuilt — into a fresh cell, which is exactly what
+/// that value is: a different object.
 ///
 /// Every lifted type parameter is bounded by `SmeltFromUnknown`, so a record
 /// without this impl cannot instantiate a generic at all; a class lifted to a

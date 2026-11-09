@@ -34,9 +34,7 @@ use std::{
 ///
 /// A callee's `T` has no meaning in the caller's world: [`smelt_hir::Symbol`] is
 /// name-interned, so rendering a callee type under the caller's lexical scope
-/// captures a same-named caller parameter and erases every other one. That is
-/// the historical `E0631` described in §1.2 of
-/// `blocker-logs/estk-callback-generics-plan.md`.
+/// captures a same-named caller parameter and erases every other one (`E0631`).
 ///
 /// There are exactly two sound answers, and which one applies is decided once
 /// per call site rather than once per argument:
@@ -275,7 +273,7 @@ pub(crate) struct EmitContext {
     /// [`Self::note_carrier_use`].
     carrier_touched: std::cell::Cell<bool>,
     /// Nesting of real dynamic boundaries, inside which a carrier use does not
-    /// count; see [`Self::at_carrier_boundary`].
+    /// count.
     carrier_boundaries: std::cell::Cell<usize>,
     /// The generated traits of class- and interface-bounded type parameters
     /// (see [`crate::bound_traits`]).
@@ -553,14 +551,13 @@ impl EmitContext {
     /// The decision is a **fixed point**, not a single pass, because a trial
     /// body is not independent of the answer: a call site renders its arguments
     /// differently depending on whether the callee emits generics
-    /// (`call::callee_free_function_type_params`), and since Increment 3 a
-    /// lifted caller statically calling a demoted callee renders a demotion
-    /// signal that dirties the caller's own trial body. A single pass answers
-    /// that question with "no callee is generic yet", which makes every such
-    /// caller demote for a reason the final emission does not reproduce.
+    /// (`call::callee_free_function_type_params`), and a lifted caller statically
+    /// calling a demoted callee renders a demotion signal that dirties the
+    /// caller's own trial body. A single pass answers that question with "no
+    /// callee is generic yet", which makes every such caller demote for a reason
+    /// the final emission does not reproduce.
     ///
-    /// The iteration starts from the empty set — so the FIRST round reproduces
-    /// the historical single-pass answer exactly — and recomputes the whole set
+    /// The iteration starts from the empty set and recomputes the whole set
     /// each round until it stops changing. Recomputing rather than only removing
     /// is load-bearing: a caller demoted in one round because its callee looked
     /// generic must be reconsidered once that callee demotes, and vice versa.
@@ -568,8 +565,8 @@ impl EmitContext {
     /// answer the emission will use.
     ///
     /// Convergence is not guaranteed in theory (the trial is not a monotone
-    /// predicate: a callee's answer changes how its callers render), so the loop is capped and falls back to
-    /// the first round's answer — the historical one — if it oscillates. In
+    /// predicate: a callee's answer changes how its callers render), so the loop
+    /// is capped and falls back to the first round's answer if it oscillates. In
     /// practice both compat corpora settle in two rounds.
     pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<GenericsDecided, EmitError> {
         /// Bound on the demotion rounds; each round holds out at least one more
@@ -670,8 +667,8 @@ impl EmitContext {
             }
             *self.generic_functions.borrow_mut() = next;
         }
-        // Non-convergent: keep the historical single-pass answer rather than an
-        // arbitrary round of an oscillation.
+        // Non-convergent: keep the first round's answer rather than an arbitrary
+        // round of an oscillation.
         let historical = first_round.unwrap_or_default();
         self.generic_functions.borrow_mut().clone_from(&historical);
         Ok(historical)
@@ -1022,12 +1019,11 @@ fn callback_param_escapes_locally(
     // enter the function owned. `SmeltErasedFunction` stores its callback as an
     // `Rc<dyn Fn(Vec<SmeltUnknown>) -> SmeltUnknown>`, i.e. a `'static` trait
     // object: a borrowed `&dyn Fn` cannot be wrapped into one (the borrow would
-    // escape). Emitting a bare `Rc::new(move |..| borrowed(..))` closure instead
-    // — which is what the borrowed-handle path used to do — types the local as
-    // something that is NOT `SmeltErasedFunction`, so the call site's erased
-    // `.call(..)` ABI disagreed with the value and produced E0658 + E0308.
-    // Requiring ownership here keeps the value and its call ABI in agreement
-    // with the type the renderer already assigned to that local.
+    // escape). A bare `Rc::new(move |..| borrowed(..))` closure instead would
+    // type the local as something that is NOT `SmeltErasedFunction`, so the call
+    // site's erased `.call(..)` ABI would disagree with the value. Requiring
+    // ownership here keeps the value and its call ABI in agreement with the type
+    // the renderer already assigned to that local.
     let bound_to_erased_handle = function.blocks.iter().any(|block| {
         block.statements.iter().any(|statement| {
             let Statement::Assign { dest, value } = statement else {

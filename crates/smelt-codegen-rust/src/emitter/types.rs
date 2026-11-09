@@ -10,13 +10,11 @@ use smelt_hir::{ErasureReason, FunctionType};
 
 /// Whether a callback parameter declared mutable gets a `&mut ` prefix.
 ///
-/// The callback-argument renderers historically differ here, and the difference
-/// is emitted bytes: `param_type`, the default-callback renderer, the
+/// The callback-argument renderers differ here, and the difference is
+/// emitted bytes: `param_type`, the default-callback renderer, the
 /// virtual-method storage field and the rendered shape adapter apply it; the
-/// three caller-scope adapters bypass `function_type_param` and do not.
-/// Preserved as an explicit axis rather than normalized, because normalizing it
-/// either way changes generated output. Whether the omission is a latent bug is
-/// a separate question from this consolidation.
+/// three caller-scope adapters bypass `function_type_param` and do not. It is
+/// an explicit axis because normalizing it either way changes generated output.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum MutablePrefix {
     /// Prefix `&mut ` for indices in `FunctionType::mutable_params`.
@@ -221,7 +219,7 @@ impl FunctionEmitter<'_> {
         // in-scope `T`s otherwise. Honoring it keeps closure bodies rendering
         // `T` exactly when the enclosing signature declares it.
         //
-        // An EMPTY enclosing set used to fall through to the origin rule below,
+        // An EMPTY enclosing set must not fall through to the origin rule below,
         // which for a closure's synthetic `HirOrigin::Body` function (declaring
         // no type parameters) answers the same empty set.
         //
@@ -256,9 +254,8 @@ impl FunctionEmitter<'_> {
                 if self.role.own_generics_erased() {
                     return HashSet::new();
                 }
-                // Increment 5: this is the *subset* that lifts, not all-or-
-                // nothing. A parameter absent from it lowers through the same
-                // erasure path a fully-erased function uses.
+                // This is the *subset* that lifts, not all-or-nothing. A parameter absent
+                // from it lowers through the same erasure path a fully-erased function uses.
                 return crate::generic_lifting::liftable_type_params(
                     self.mir,
                     self.function,
@@ -589,7 +586,7 @@ impl FunctionEmitter<'_> {
             // than a field of the value.
             Some(smelt_stdlib::StdlibClass::DataView) => Some("SmeltDataView"),
             Some(smelt_stdlib::StdlibClass::CryptoKey) => Some("SmeltCryptoKey"),
-            // A `Date` is a shared, mutable time value (`date_prelude`).
+            // A `Date` is a shared, mutable time value (`smelt-runtime`'s `date.rs`).
             Some(smelt_stdlib::StdlibClass::Date) => Some("SmeltDate"),
             _ => None,
         } {

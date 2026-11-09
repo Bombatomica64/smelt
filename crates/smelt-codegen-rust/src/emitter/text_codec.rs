@@ -1,7 +1,7 @@
 //! Rust emission for the WHATWG text codecs and the concrete byte view.
 //!
 //! Every operation lands on a real method of the concrete struct emitted by
-//! `crate::text_codec_prelude`, so the generated call is what a hand-written
+//! `smelt-runtime`'s `text_codec.rs`, so the generated call is what a hand-written
 //! Rust program would say: `encoder.encode(text)` is `encoder.encode(&text)`
 //! typed `SmeltUint8Array`, and `decoder.decode(bytes)` is
 //! `decoder.decode(&bytes)` typed `String` — no tagged value and no runtime

@@ -2,21 +2,13 @@
 //!
 //! # Why this crate exists
 //!
-//! Smelt's Python frontend (`smelt-frontend-py`) uses Ruff only as a *parser*
-//! and, historically, required every function/method/parameter to carry an
-//! explicit type annotation — otherwise it emitted a hard
-//! `must have an explicit ... annotation` error. Idiomatic Python omits most of
-//! those annotations, so that policy blocked nearly every real library before
-//! any lowering could happen (see issue #93).
-//!
-//! Rather than build a bespoke Python inference engine, this crate embeds
-//! **`ty`** (Astral's Rust type checker, formerly red-knot) as a *library* and
-//! consumes the types it resolves. `ty` already understands call-result types,
-//! unions/narrowing, generics, and — crucially — types that live in the
-//! **vendored typeshed stubs** rather than user source. The feasibility of
-//! embedding it was proven by a since-removed spike crate (the design record
-//! lives in `specs/python-type-checking-with-ty.md`); this crate productionizes
-//! that spike into a small, stable query surface.
+//! Smelt's Python frontend (`smelt-frontend-py`) uses Ruff only as a *parser*.
+//! Idiomatic Python omits most type annotations, so rather than build a bespoke
+//! Python inference engine, this crate embeds **`ty`** (Astral's Rust type
+//! checker) as a *library* and consumes the types it resolves. `ty` already
+//! understands call-result types, unions/narrowing, generics, and — crucially —
+//! types that live in the **vendored typeshed stubs** rather than user source.
+//! The design record lives in `specs/python-type-checking-with-ty.md`.
 //!
 //! # The stable query surface
 //!
@@ -40,17 +32,15 @@
 //! Such dynamic results are dropped by [`displayable_type`], so a genuinely
 //! unannotated parameter stays an explicit boundary and the frontend keeps
 //! requiring an annotation for it. The productive win from `ty` is therefore
-//! **return-type resolution**, which is the dominant blocker family; broader
-//! parameter inference is a deferred follow-up (see issue #93).
+//! **return-type resolution**, which is the dominant blocker family.
 //!
 //! # Return type: actual vs. declared
 //!
-//! Issue #93 stresses that a function's *actual returned* type may differ from
-//! its declared annotation, and that lowering should follow the accurate type.
-//! This crate therefore derives a function's return type from the inferred
-//! types of its `return <expr>` statements (unioned across all return sites),
-//! not from the annotation. A function with no value-returning `return` is
-//! reported as `None`.
+//! A function's *actual returned* type may differ from its declared annotation,
+//! and lowering should follow the accurate type. This crate therefore derives a
+//! function's return type from the inferred types of its `return <expr>`
+//! statements (unioned across all return sites), not from the annotation. A
+//! function with no value-returning `return` is reported as `None`.
 //!
 //! # Batch model
 //!
@@ -177,7 +167,7 @@ pub fn resolve_module_types(source: &str, module_stem: &str) -> Result<ResolvedM
     let model = SemanticModel::new(&db, program_file);
     let parsed = parsed_module(&db, program_file.python_file(&db)).load(&db);
 
-    // Rendering a `Type` now needs the program it was resolved in.
+    // Rendering a `Type` needs the program it was resolved in.
     let environment = ProgramEnvironment::from_program(db.program());
 
     let mut collector = TypeCollector {

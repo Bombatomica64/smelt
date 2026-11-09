@@ -519,7 +519,7 @@ impl ModuleBuilder<'_> {
 
         // Instance fields Python declares by assignment in `__init__` rather
         // than by a class-level annotation. Seeded before the body walk so that
-        // every method lowered below sees them (issue #94).
+        // every method lowered below sees them.
         for field in self.implicit_constructor_fields(class)? {
             self.class_fields
                 .entry(class_name_str.to_owned())
@@ -899,7 +899,7 @@ impl ModuleBuilder<'_> {
     /// * `<instance>.<name>: T = <value>` — the annotation states the field type;
     /// * `<instance>.<name> = <param>` — the field takes the parameter's type, which
     ///   is the source annotation when present and otherwise `ty`'s resolved
-    ///   type for that parameter (issue #93).
+    ///   type for that parameter.
     ///
     /// Values whose type is knowable without lowering a body are also accepted:
     /// a reference to an `__init__` parameter, a scalar literal, and a call to a
@@ -1674,12 +1674,10 @@ impl ModuleBuilder<'_> {
     ///
     /// Method resolution at call sites (`self.helper()`, `cls.helper()`,
     /// `Class.helper()`) looks methods up by name in [`Self::class_methods`] /
-    /// [`Self::class_static_methods`]. Those registries were previously filled
-    /// incrementally as each body was lowered, so a call to a sibling declared
-    /// *later* in the class body could not be resolved (issue #94's dominant
-    /// blocker). Reserving placeholder items up front — keyed by each method's
-    /// source-range start so the main pass can overwrite the exact slot — makes
-    /// intra-class forward references resolvable regardless of declaration order.
+    /// [`Self::class_static_methods`]. Reserving placeholder items up front — keyed
+    /// by each method's source-range start so the main pass can overwrite the exact
+    /// slot — makes intra-class forward references resolvable regardless of
+    /// declaration order.
     ///
     /// The reservation set mirrors the main class-body loop exactly: it skips
     /// `@abstractmethod`, `__init__`/`__new__` (constructor-shaped), materialized
@@ -1933,7 +1931,7 @@ impl ModuleBuilder<'_> {
             class_ty
         } else {
             // Reconcile any declared annotation with `ty`'s inferred actual
-            // return type (issue #93); error only when neither is available.
+            // return type; error only when neither is available.
             match self.resolve_return_ty(func, func.returns.as_deref(), ReturnOwner::Method) {
                 Some(ty) => ty,
                 None => {
@@ -2006,7 +2004,7 @@ impl ModuleBuilder<'_> {
 
                 let param_ty = match p.annotation.as_deref() {
                     Some(ann) => this.annotation_to_hir(ann)?,
-                    // No annotation: consult `ty` (issue #93) before erroring.
+                    // No annotation: consult `ty` before erroring.
                     None => this.resolved_param_ty(p).ok_or_else(|| {
                         SmeltError::type_constraint(
                             this.span(p.range),

@@ -5,7 +5,7 @@ use super::*;
 
 impl FunctionEmitter<'_> {
     /// The body of a callback adapter around `call_value`, once its value has
-    /// been converted to `converted_text`: what the target's return type asks of
+    /// been converted to the converted text: what the target's return type asks of
     /// a void, future or fallible result.
     ///
     /// `forward_thrown_future` hands a fallible source's future straight through
@@ -86,7 +86,7 @@ impl FunctionEmitter<'_> {
             // rather than re-wrapping it in `Ok(..)`. Wrapping here would make the
             // adapter closure return `Result<Future, _>`, and a chain of such
             // adapters (or a later erasure into a promise) would then observe a
-            // nested `Result<Result<Future, _>, _>` at its await seam (was E0277).
+            // nested `Result<Result<Future, _>, _>` at its await seam.
             RustExpr::from(default_adjusted_return_text)
         } else if target_function.may_throw {
             RustExpr::loose(format!("Ok::<_, {ERROR_BOX}>({default_adjusted_return_text})"))
@@ -247,11 +247,9 @@ impl FunctionEmitter<'_> {
         // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
         // DECLARED return type is — `is_erased_unknown_rest_function` keys only on
         // the parameter shape — so the call's value is already erased and its
-        // declared type must not be applied to it a second time. A rest-only
-        // function with a concrete return (`function f(...): unknown[]`, which is
-        // what an `arguments`-reading function becomes) otherwise produced
-        // `SmeltUnknown::Array(<already SmeltUnknown>.into())`, an E0277 in the
-        // generated crate.
+        // declared type must not be applied to it a second time (a rest-only
+        // function with a concrete return, which is what an `arguments`-reading
+        // function becomes, would wrap an already-erased value).
         let call_return_ty = if source_uses_erased_abi {
             self.type_id(Type::Unknown)?
         } else {
@@ -586,13 +584,8 @@ impl FunctionEmitter<'_> {
         // `SmeltErasedFunction::call` answers `SmeltUnknown` whatever the source's
         // DECLARED return type is — `is_erased_unknown_rest_function` keys only on
         // the parameter shape — so the call's value is already erased and its
-        // declared type must not be applied to it a second time. A rest-only
-        // function with a concrete return (`function f(...): unknown[]`, which is
-        // what an `arguments`-reading function becomes) otherwise produced
-        // `SmeltUnknown::Array(<already SmeltUnknown>.into())`, an E0277 in the
-        // generated crate. Mirrors the same correction in
-        // `rest_vector_unknown_adapter` and
-        // `erased_rest_forwarding_closure`.
+        // declared type must not be applied to it a second time. Same rule as
+        // `rest_vector_unknown_adapter` and `erased_rest_forwarding_closure`.
         let call_return_ty = if source_is_erased {
             self.type_id(Type::Unknown)?
         } else {
@@ -632,15 +625,14 @@ impl FunctionEmitter<'_> {
         } else {
             ("Vec<SmeltUnknown>", "")
         };
-        // Increment 3 deliberately emits NO return annotation here. This
-        // renderer threads no call-site bindings, so it can never be at a
-        // monomorphizing site -- the precondition
-        // `callback_return_annotation` requires -- and the only type
-        // environment available to it is the CALLER's lexical scope, under
-        // which rendering the callee's declared return captures the caller's
-        // unrelated same-named type parameter rather than pinning anything.
-        // With no bindings there is also nothing unsolved: the callee's
-        // declared rest-callback return is a known expected type.
+        // Deliberately NO return annotation here. This renderer threads no
+        // call-site bindings, so it can never be at a monomorphizing site -- the
+        // precondition `callback_return_annotation` requires -- and the only type
+        // environment available to it is the CALLER's lexical scope, under which
+        // rendering the callee's declared return captures the caller's unrelated
+        // same-named type parameter rather than pinning anything. With no bindings
+        // there is also nothing unsolved: the callee's declared rest-callback
+        // return is a known expected type.
         let closure =
             format!("move |smelt_args: {smelt_args_ty}| {{ {args_prelude}{return_text} }}", return_text = return_text.delimited());
         // When the source callback is NOT itself a function parameter, the
@@ -812,11 +804,10 @@ impl FunctionEmitter<'_> {
     /// The explicit `-> R` return annotation a call-site adapter closure needs,
     /// or `None` when its return type is already determined.
     ///
-    /// Increment 3 of `blocker-logs/estk-callback-generics-plan.md`. Callback
-    /// PARAMETER positions were never at risk — `callback_arg_decls` has always
-    /// annotated them — but a closure's RETURN type is inferred from its body,
-    /// and at a callee that infers a type parameter ONLY through this callback
-    /// there is nothing else to solve it from (`E0282`/`E0283`, §1.3).
+    /// Callback PARAMETER positions are annotated by `callback_arg_decls`, but a
+    /// closure's RETURN type is inferred from its body, and at a callee that infers
+    /// a type parameter ONLY through this callback there is nothing else to solve
+    /// it from (`E0282`/`E0283`).
     ///
     /// An inference variable exists only where the call site MONOMORPHIZED the
     /// callee, so `callee_bindings` is the whole precondition: `Some` means the
@@ -944,8 +935,7 @@ impl FunctionEmitter<'_> {
         let substitution = callee_substitution(&caller_scope, callee_bindings);
         let arg_decls =
             self.callback_arg_decls(target_function, &substitution, MutablePrefix::Ignore)?;
-        // Increment 3 of the callback-generics plan: see
-        // `callback_return_annotation` for when this is `Some` and why. It is
+        // See `callback_return_annotation` for when this is `Some` and why. It is
         // handed the same `callee_bindings` the `substitution` above is built
         // from, so the annotation cannot disagree with the argument
         // declarations it sits beside; when this site did not monomorphize it
@@ -1196,9 +1186,8 @@ impl FunctionEmitter<'_> {
         // (`callback_param_is_shared_reference`) cannot cross into a `'static`
         // future: the branches above place the body inside `Box::pin(async move ..)`
         // whenever either side of the adapter returns a promise, and a borrow of the
-        // caller's argument does not live that long (E0521). Copy each such
-        // parameter into an owned binding of the same name first — the value the
-        // by-VALUE ABI used to hand the body — which happens per CALL and only for
+        // caller's argument does not live that long (E0521). Each such parameter is
+        // copied into an owned binding of the same name first, per CALL and only for
         // the async adapters, not for the synchronous per-element ones the
         // by-reference ABI exists to speed up.
         let owned_arg_bindings: Vec<String> = if body_is_static_future {

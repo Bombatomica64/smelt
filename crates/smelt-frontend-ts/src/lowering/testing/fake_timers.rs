@@ -184,10 +184,9 @@ impl ModuleBuilder<'_> {
         // Only claim these method names on an actual Sinon fake-timers clock
         // (`sinon.useFakeTimers()` yields a `SinonFakeTimers` class value, read
         // directly or through an `Optional` `clock?`). Matching any class or —
-        // more dangerously — any `Unknown` receiver used to mis-claim ordinary
+        // more dangerously — any `Unknown` receiver would mis-claim ordinary
         // JavaScript methods that share a name, most notably the iterator
-        // protocol's `iterator.next()` on an erased `Iterable`, forcing its
-        // result to `None` and rejecting the subsequent `.done`/`.value` reads.
+        // protocol's `iterator.next()` on an erased `Iterable`.
         if !self.is_sinon_fake_timers_class(receiver_ty) {
             return Ok(None);
         }

@@ -124,7 +124,7 @@ impl ConstLiteral {
     ///
     /// A `Symbol.for(<description>)` registry symbol also folds: registry symbols
     /// are globally interned by description, so every reference names the same
-    /// member (issue #115). It maps to the stable synthetic spelling shared with
+    /// member. It maps to the stable synthetic spelling shared with
     /// inline `[Symbol.for(...)]` keys via
     /// [`crate::lowering::ty::computed_key_symbols::registry_symbol_key`]. A
     /// *unique* `Symbol(...)` value has fresh identity each time and never folds.
@@ -741,7 +741,7 @@ fn assignment_target_host_global_name<'a>(
 /// a test closure are deliberately skipped: none is nameable from another
 /// module under its bare spelling, so none can collide across modules, and each
 /// already has its own disambiguation (`anonymous_class_name`,
-/// `qualified_type_declaration_name`, `enter_test_suite_class_scope`). Parse
+/// `enter_test_suite_class_scope`). Parse
 /// failures yield an empty list so scanning never blocks a build.
 #[must_use]
 pub fn scan_declared_type_names(source: &str, path: &str) -> Vec<String> {

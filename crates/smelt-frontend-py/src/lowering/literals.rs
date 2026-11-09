@@ -128,10 +128,8 @@ impl ModuleBuilder<'_> {
             // --- Conditional expression: `a if cond else b` ---
             Expr::If(if_expr) => self.if_expression(if_expr, body),
 
-            // --- Calls ---
             Expr::Call(call) => self.call_expression_with_hint(call, body, type_hint),
 
-            // --- Await ---
             Expr::Await(await_expr) => {
                 if self.scope.kind != FnKind::Async {
                     return Err(SmeltError::unsupported(

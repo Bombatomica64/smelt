@@ -17,8 +17,7 @@ use crate::{Callee, FuncId, Mir, MirClass, MirFunction, MirInterface, Terminator
 ///
 /// Every by-name lookup in MIR (`class_named`, inherited-type substitution,
 /// bound-method throwing) assumes a class name, and an interface name, picks
-/// out one declaration. A duplicate used to be answered by whichever came
-/// first (audit finding C12); [`NameIndex::new`] refuses it instead, and both
+/// out one declaration. [`NameIndex::new`] refuses a duplicate, and both
 /// lowering and the validator build the index through it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateName {

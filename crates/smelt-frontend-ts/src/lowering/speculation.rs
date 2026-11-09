@@ -10,8 +10,8 @@
 //! Lowering also LOGS: every erasure decision is appended to
 //! `krate.erasures`, and the gated unknown and typedness reports explain
 //! avoidable erasure from that log. A discarded probe's records describe
-//! values that no longer exist, so they are rolled back with the bodies
-//! (audit finding A10); a probe that declared an item keeps them with it.
+//! values that do not exist, so they are rolled back with the bodies; a
+//! probe that declared an item keeps them with it.
 //!
 //! Prefer [`ModuleBuilder::speculate`], which rolls back on every exit that
 //! does not keep the probe, an early `?` included. The narrowing stack needs

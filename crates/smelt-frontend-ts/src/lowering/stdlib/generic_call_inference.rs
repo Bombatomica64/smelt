@@ -10,10 +10,10 @@ impl ModuleBuilder<'_> {
     /// Instantiate a generic METHOD's declared result type for one call.
     ///
     /// Used by the class-method and static-method call paths, which resolve a
-    /// concrete method item but previously typed the call with its declared
-    /// return verbatim, so a method-level type parameter (`list<U = number>():
-    /// U[]`, `static bag<T>(): Record<string, T>`) leaked into the caller as a
-    /// raw `TypeParam` — aliasing any same-named caller parameter.
+    /// concrete method item. Typing the call with its declared return verbatim
+    /// would leak a method-level type parameter (`list<U = number>(): U[]`,
+    /// `static bag<T>(): Record<string, T>`) into the caller as a raw `TypeParam`,
+    /// aliasing any same-named caller parameter.
     ///
     /// `type_params` are the method's OWN type parameters (recorded in
     /// `HirCtx::erased_item_type_params`). Only these are instantiated:
@@ -26,8 +26,7 @@ impl ModuleBuilder<'_> {
     /// argument inference. Codegen emits a method's own type parameters as
     /// `SmeltUnknown` (methods are never generic over them in Rust), so typing
     /// the result from the arguments would promise a concrete container the
-    /// erased definition does not return; `unknown` is exactly what the
-    /// leaked parameter used to render as.
+    /// erased definition does not return.
     ///
     /// Returns `return_ty` unchanged for a non-generic method, and keeps the
     /// declared return where instantiation would turn it into a function that

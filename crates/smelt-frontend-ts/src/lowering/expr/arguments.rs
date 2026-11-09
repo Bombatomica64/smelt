@@ -164,8 +164,7 @@ impl ModuleBuilder<'_> {
                 body,
             ),
             // Delegated so an awaited call argument lowers through the same rule
-            // as an awaited expression; the argument spelling used to have its
-            // own copy that dropped the operand for a non-future type.
+            // as an awaited expression.
             Argument::AwaitExpression(await_expr) => {
                 self.await_expression(await_expr, None, body)
             }

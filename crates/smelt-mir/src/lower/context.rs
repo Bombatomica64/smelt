@@ -59,8 +59,8 @@ pub(super) struct LoweringCtx<'hir> {
     /// should a frontend share an id between two branches, the second branch
     /// would read a temporary assigned only on the first. That state is not
     /// prevented here but is caught: definite assignment checks every
-    /// temporary read (now in closure bodies too), after lowering in debug and
-    /// test builds and on the optimized MIR in every build.
+    /// temporary read, after lowering in debug and test builds and on the
+    /// optimized MIR in every build.
     pub(super) exprs: HashMap<ExprId, Operand>,
     /// Lexical control scopes (loops, `try`/`catch` regions) enclosing the
     /// cursor, innermost last. Pushed only through

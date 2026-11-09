@@ -137,7 +137,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
 ///
 /// The whitelist behind [`emit_record_from_smelt_unknown_impl`]. Recoverable
 /// shapes are the primitives, the erased carrier itself, the generated
-/// containers, and generated records/unions (which now emit their own
+/// containers, and generated records/unions (which emit their own
 /// `SmeltFromUnknown`). Everything else keeps the record's `Default`: callbacks,
 /// futures and generators have no inbound impl in the prelude, and runtime
 /// builtin classes (a compiled `RegExp` among them, even though the prelude does
@@ -158,18 +158,17 @@ pub(crate) fn type_supports_from_unknown(
             | Type::TypeParam { .. },
         ) => true,
         // A class is recoverable only when *this* program generates it, because
-        // that is what now emits `SmeltFromUnknown`. `Type::Class` also names
+        // that is what emits `SmeltFromUnknown`. `Type::Class` also names
         // runtime builtins, which this program does not generate, so they are
         // excluded.
         //
         // A *reference* class is generated too, as an `Rc<RefCell<Inner>>`
-        // newtype by `emit_reference_class_storage`. It now carries an inbound
+        // newtype by `emit_reference_class_storage`, and carries an inbound
         // impl as well (`reference_origin::emit_reference_from_smelt_unknown_impl`,
         // which restores the live handle an erasure stamped), so it satisfies
         // the generated `SmeltFromUnknown` type-parameter bound. This whitelist
         // still leaves it out: it decides where the EMITTER reaches for the
-        // impl (record fields, prototype-method parameters), and widening those
-        // sites is a separate change from making identity round-trip.
+        // impl (record fields, prototype-method parameters).
         Some(Type::Class { name, .. }) => {
             let name = *name;
             !context.is_reference_class(name)
@@ -463,9 +462,9 @@ pub(crate) fn record_field_from_unknown_expr(
 /// typed callable as its origin so converting back yields that same callable.
 ///
 /// A parameter the rendered signature borrows (`&T`) gets a reference to the
-/// converted value. Declined, keeping the old spelling: rest, async and
-/// mutable-parameter signatures, an `impl` or `&mut` in the rendered type, and
-/// a parameter type that cannot be produced from an erased value.
+/// converted value. Declined: rest, async and mutable-parameter signatures, an
+/// `impl` or `&mut` in the rendered type, and a parameter type that cannot be
+/// produced from an erased value.
 fn erased_function_field_expr(
     mir: &Mir,
     context: &EmitContext,

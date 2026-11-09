@@ -91,7 +91,7 @@
 //
 // `needs_unknown` selects the panic-payload builder's body: the structured form
 // projects the thrown payload's class, and is emitted by
-// [`emit_thrown_payload_support`] because it names `SmeltUnknown`. A crate with
+// the thrown-payload items because it names `SmeltUnknown`. A crate with
 // no erased values has no structured payloads either — its throw sites carry
 // plain message strings — so the class is `Error` there by construction.
 //
@@ -119,13 +119,13 @@ fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.dow
 
 // @smelt:item SmeltThrown when unknown
 /// A JavaScript `throw` payload travelling Smelt's `Box<dyn Error>` channel.
-///
-/// DYNAMIC BOUNDARY: `throw` accepts any JavaScript value and a `catch`
-/// binding has no static type, so the single error channel shared by every
-/// generated fallible function cannot be a concrete type, a generated union,
-/// or a scoped generic. The payload is kept whole here and recovered by
-/// `smelt_thrown_value`; foreign errors reaching the same channel fall back
-/// to their `Display` text.
+//~
+//~ DYNAMIC BOUNDARY: `throw` accepts any JavaScript value and a `catch`
+//~ binding has no static type, so the single error channel shared by every
+//~ generated fallible function cannot be a concrete type, a generated union,
+//~ or a scoped generic. The payload is kept whole here and recovered by
+//~ `smelt_thrown_value`; foreign errors reaching the same channel fall back
+//~ to their `Display` text.
 #[derive(Debug)]
 struct SmeltThrown { value: SmeltUnknown }
 //~ `Display` projects the payload's `message` field when present. Erased
@@ -142,22 +142,22 @@ impl ::std::error::Error for SmeltThrown {}
 /// Enter the error channel, keeping the thrown value's structure and identity.
 fn smelt_throw(value: SmeltUnknown) -> Box<dyn ::std::error::Error> { Box::new(SmeltThrown { value }) }
 /// Recover the original thrown payload from the error channel.
-///
-/// A foreign error (anything that reached the channel through `?` rather than
-/// a Smelt `throw`) has no payload, so it is presented as an erased `Error`
-/// record built from its `Display` text -- the shape a `catch` saw before the
-/// payload ABI existed.
+//~
+//~ A foreign error (anything that reached the channel through `?` rather than
+//~ a Smelt `throw`) has no payload, so it is presented as an erased `Error`
+//~ record built from its `Display` text -- the shape a `catch` saw before the
+//~ payload ABI existed.
 fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnknown { if let Some(thrown) = error.downcast_ref::<SmeltThrown>() { return thrown.value.clone(); } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("Error".into())), ("message".to_owned(), SmeltUnknown::String(error.to_string().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 //~ Emits the payload-projecting halves of the panic route.
 //~
 //~ Only well-formed inside the prelude's `needs_unknown` region: both items name
-//~ `SmeltUnknown`. See [`emit_panic_route_support`] for the design.
+//~ `SmeltUnknown`. See the panic route in `runtime/thrown.rs` for the design.
 
 /// Project a channel error's class and message across an unwind.
-///
-/// The class brand is the one `new <ErrorClass>(message)` writes; a thrown
-/// class instance is read through its `name` property instead, which is what
-/// JavaScript reports for `error.name` on a user error class.
+//~
+//~ The class brand is the one `new <ErrorClass>(message)` writes; a thrown
+//~ class instance is read through its `name` property instead, which is what
+//~ JavaScript reports for `error.name` on a user error class.
 //~ The thrown VALUE, parked for the catch that is about to run.
 //~
 //~ `panic_any` needs `Any + Send` and a `SmeltUnknown` holds `Rc` handles,
@@ -176,11 +176,11 @@ fn smelt_thrown_value(error: &(dyn ::std::error::Error + 'static)) -> SmeltUnkno
 thread_local! { static SMELT_PANIC_VALUE: ::std::cell::RefCell<Option<SmeltUnknown>> = const { ::std::cell::RefCell::new(None) }; }
 fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { let value = smelt_thrown_value(error); let message = smelt_thrown_message(&value); let mut class = "Error".to_owned(); if let SmeltUnknown::Object(object) = &value { if let Some(SmeltUnknown::String(name)) = object.get("__smelt_error") { class = name.to_string(); } else if let Some(SmeltUnknown::String(name)) = object.get("name") { class = name.to_string(); } } SMELT_PANIC_VALUE.with(|slot| { *slot.borrow_mut() = Some(value); }); SmeltPanic { class, message } }
 /// Present a caught panic as the value a `catch` binds.
-///
-/// The parked value when the throw took the panic route, so a thrown
-/// string arrives at the `catch` as that string and a thrown class
-/// instance keeps its own fields. The class-and-message record otherwise:
-/// a panic that is not a routed `throw` has no JavaScript value behind it.
+//~
+//~ The parked value when the throw took the panic route, so a thrown
+//~ string arrives at the `catch` as that string and a thrown class
+//~ instance keeps its own fields. The class-and-message record otherwise:
+//~ a panic that is not a routed `throw` has no JavaScript value behind it.
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 // @smelt:if json_parse
 //~ Emits the fallible `JSON.parse` adapter into the generated prelude.
@@ -206,27 +206,28 @@ fn smelt_json_has_surrogate_escape(text: &str) -> bool {
 }
 
 /// A JSON reader that keeps every `\uXXXX` escape as the code unit it names,
-/// lone surrogates included (ECMA-262 `JSON.parse`). `smelt_json_parse` uses it
-/// only for text `serde_json` rejects because of such an escape.
+/// lone surrogates included (ECMA-262 `JSON.parse`).
+//~ `smelt_json_parse` uses it
+//~ only for text `serde_json` rejects because of such an escape.
 struct SmeltJsonReader<'a> { text: &'a [u8], at: usize }
 
 impl SmeltJsonReader<'_> {
-    /// The value of the whole of `text`, or `None` when it is not JSON.
+    //~ The value of the whole of `text`, or `None` when it is not JSON.
     fn read(text: &str) -> Option<SmeltUnknown> {
         let mut reader = SmeltJsonReader { text: text.as_bytes(), at: 0 };
         let value = reader.value()?;
         reader.skip_space();
         (reader.at == reader.text.len()).then_some(value)
     }
-    /// Skips JSON white space.
+    //~ Skips JSON white space.
     fn skip_space(&mut self) {
         while matches!(self.text.get(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) { self.at += 1; }
     }
-    /// Consumes `word` if the text continues with it.
+    //~ Consumes `word` if the text continues with it.
     fn eat(&mut self, word: &[u8]) -> bool {
         if self.text.get(self.at..self.at + word.len()) == Some(word) { self.at += word.len(); true } else { false }
     }
-    /// One JSON value.
+    //~ One JSON value.
     fn value(&mut self) -> Option<SmeltUnknown> {
         self.skip_space();
         match *self.text.get(self.at)? {
@@ -239,14 +240,14 @@ impl SmeltJsonReader<'_> {
             _ => self.number(),
         }
     }
-    /// A JSON number, read as an `f64` as JavaScript reads it.
+    //~ A JSON number, read as an `f64` as JavaScript reads it.
     fn number(&mut self) -> Option<SmeltUnknown> {
         let start = self.at;
         while matches!(self.text.get(self.at), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) { self.at += 1; }
         let digits = ::std::str::from_utf8(self.text.get(start..self.at)?).ok()?;
         serde_json::from_str::<f64>(digits).ok().map(SmeltUnknown::Number)
     }
-    /// A JSON string, as code units.
+    //~ A JSON string, as code units.
     fn string(&mut self) -> Option<JsString> {
         self.at += 1;
         let mut units: Vec<u16> = Vec::new();
@@ -285,7 +286,7 @@ impl SmeltJsonReader<'_> {
             }
         }
     }
-    /// A JSON array.
+    //~ A JSON array.
     fn array(&mut self) -> Option<SmeltUnknown> {
         self.at += 1;
         let mut items = Vec::new();
@@ -298,7 +299,7 @@ impl SmeltJsonReader<'_> {
             if !self.eat(b",") { return None; }
         }
     }
-    /// A JSON object; a repeated key keeps its first position and its last value.
+    //~ A JSON object; a repeated key keeps its first position and its last value.
     fn object(&mut self) -> Option<SmeltUnknown> {
         self.at += 1;
         let object = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new());
@@ -327,7 +328,7 @@ impl SmeltJsonReader<'_> {
 // `URIError`. These adapters convert one into the other through the ABI a
 // source-level `throw` uses, so a `catch` binding cannot tell a
 // runtime-raised `URIError` from a hand-written one, exactly as
-// [`emit_json_parse_support`] arranges for `SyntaxError`.
+// the `JSON.parse` support arranges for `SyntaxError`.
 //
 // Before this existed the emitter wrote
 // `smelt_decode_uri(..).expect("URIError: URI malformed")`, which does not

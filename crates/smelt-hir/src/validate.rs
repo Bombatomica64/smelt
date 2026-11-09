@@ -47,7 +47,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
     }
     // Every body a function item or a module names has to exist: MIR lowering
     // reserves a function slot for each, and a slot whose body is missing used
-    // to be skipped, which shifted every later function id (audit C5), or, for
+    // to be skipped, which shifted every later function id, or, for
     // a module, silently dropped its top-level code.
     for (item_idx, item) in krate.items.iter().enumerate() {
         if let crate::Item::Function(function) = item

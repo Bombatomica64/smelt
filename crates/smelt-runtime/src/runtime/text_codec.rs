@@ -36,7 +36,7 @@
 // A byte view that crosses a dynamic boundary becomes the byte-backed host
 // record the typed-array views already use
 // (`{ "__smelt_uint8array": true, "bytes": [..], "byteLength": N, "length": N }`,
-// see `byte_buffer_prelude`), so an erased concrete view and an erased
+// see `smelt-runtime`'s `byte_buffer.rs`), so an erased concrete view and an erased
 // `new Uint8Array(..)` are indistinguishable: `instanceof Uint8Array`, the
 // `[object Uint8Array]` tag, and the element reads all keep working on either.
 // That adapter is a DYNAMIC BOUNDARY adapter only — the internal
@@ -61,13 +61,13 @@ impl Default for SmeltTextEncoder { fn default() -> Self { Self::new() } }
 
 #[allow(dead_code)]
 impl SmeltTextEncoder {
-    /// A fresh encoder with a fresh JS reference identity.
+    //~ A fresh encoder with a fresh JS reference identity.
     pub fn new() -> Self { Self { id: smelt_next_object_id() } }
-    /// JS reference identity of this encoder.
+    //~ JS reference identity of this encoder.
     pub fn id(&self) -> usize { self.id }
-    /// `encoding`: always `"utf-8"` per the spec.
+    //~ `encoding`: always `"utf-8"` per the spec.
     pub fn encoding(&self) -> String { "utf-8".to_owned() }
-    /// `encode(input)`: the input's UTF-8 bytes.
+    //~ `encode(input)`: the input's UTF-8 bytes.
     pub fn encode(&self, input: &(impl SmeltHostText + ?Sized)) -> SmeltUint8Array { let input = input.host_text(); let input: &str = &input; SmeltUint8Array::from_bytes(input.as_bytes().to_vec()) }
 }
 
@@ -75,12 +75,12 @@ impl SmeltTextEncoder {
 
 // @smelt:item smelt_text_encoder_host_method when text_encoder & unknown
 /// The modeled member of an erased `TextEncoder` record, resolved at run time.
-///
-/// Same dynamic boundary as the sibling host resolvers: the receiver is a
-/// marker-bearing record, so the member is decided by the marker and the
-/// member NAME at run time. A program reaches this only by erasing the codec
-/// on purpose; answering `undefined`, which is what a plain property read
-/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+//~
+//~ Same dynamic boundary as the sibling host resolvers: the receiver is a
+//~ marker-bearing record, so the member is decided by the marker and the
+//~ member NAME at run time. A program reaches this only by erasing the codec
+//~ on purpose; answering `undefined`, which is what a plain property read
+//~ does, made `(encoder as any).encode('ab')` a null rather than the bytes.
 fn smelt_text_encoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textencoder") || name != "encode" { return None; } let encoder = <SmeltTextEncoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let input = args.first().cloned().map_or_else(String::new, smelt_property_key); Ok(encoder.encode(&input).into_smelt_unknown()) }))) }
 
 // @smelt:item-end
@@ -93,7 +93,7 @@ fn smelt_text_encoder_host_method(object: &SmeltObject, name: &str) -> Option<Sm
 #[derive(Clone)]
 pub struct SmeltTextDecoder {
     id: usize,
-    /// The decoder's normalized encoding label.
+    //~ The decoder's normalized encoding label.
     encoding: String,
 }
 
@@ -103,21 +103,21 @@ impl Default for SmeltTextDecoder { fn default() -> Self { Self::new() } }
 
 #[allow(dead_code)]
 impl SmeltTextDecoder {
-    /// A fresh UTF-8 decoder with a fresh JS reference identity.
+    //~ A fresh UTF-8 decoder with a fresh JS reference identity.
     pub fn new() -> Self { Self { id: smelt_next_object_id(), encoding: "utf-8".to_owned() } }
     //~ The label is normalized the way the encoding standard's label table
     //~ is looked up (trimmed, lower-cased) and then reported in the spec's
     //~ own canonical spelling: `new TextDecoder("UTF8").encoding` is
     //~ `"utf-8"`, not `"utf8"`. The frontend has already refused every label
     //~ that is not a UTF-8 row, so the canonical name is known here.
-    /// A decoder for an encoding label, which is always a UTF-8 label.
+    //~ A decoder for an encoding label, which is always a UTF-8 label.
     pub fn from_label(_label: &(impl SmeltHostText + ?Sized)) -> Self { Self::new() }
-    /// JS reference identity of this decoder.
+    //~ JS reference identity of this decoder.
     pub fn id(&self) -> usize { self.id }
-    /// `encoding`: the normalized encoding label.
+    //~ `encoding`: the normalized encoding label.
     pub fn encoding(&self) -> String { self.encoding.clone() }
-    /// `decode(input)`: the bytes read back as a string, substituting
-    /// U+FFFD for ill-formed sequences as the non-`fatal` spec does.
+    //~ `decode(input)`: the bytes read back as a string, substituting
+    //~ U+FFFD for ill-formed sequences as the non-`fatal` spec does.
     pub fn decode(&self, input: &SmeltUint8Array) -> String { String::from_utf8_lossy(&input.to_bytes()).into_owned() }
 }
 
@@ -125,12 +125,12 @@ impl SmeltTextDecoder {
 
 // @smelt:item smelt_text_decoder_host_method when text_decoder & unknown
 /// The modeled member of an erased `TextDecoder` record, resolved at run time.
-///
-/// Same dynamic boundary as the sibling host resolvers: the receiver is a
-/// marker-bearing record, so the member is decided by the marker and the
-/// member NAME at run time. A program reaches this only by erasing the codec
-/// on purpose; answering `undefined`, which is what a plain property read
-/// does, made `(encoder as any).encode('ab')` a null rather than the bytes.
+//~
+//~ Same dynamic boundary as the sibling host resolvers: the receiver is a
+//~ marker-bearing record, so the member is decided by the marker and the
+//~ member NAME at run time. A program reaches this only by erasing the codec
+//~ on purpose; answering `undefined`, which is what a plain property read
+//~ does, made `(encoder as any).encode('ab')` a null rather than the bytes.
 fn smelt_text_decoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textdecoder") || name != "decode" { return None; } let decoder = <SmeltTextDecoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let bytes = args.first().cloned().map_or_else(SmeltUint8Array::new, <SmeltUint8Array as SmeltFromUnknown>::smelt_from_unknown); Ok(SmeltUnknown::String(decoder.decode(&bytes).into())) }))) }
 
 // @smelt:item-end

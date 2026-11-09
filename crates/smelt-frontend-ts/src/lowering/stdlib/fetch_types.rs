@@ -276,7 +276,7 @@ impl ModuleBuilder<'_> {
     ///
     /// The one definition of shadowing: a declaration of this module, at any
     /// stage of lowering, or an import of the name, type-only or value, from
-    /// anything but a modeled host module (audit finding A5: `import type {
+    /// anything but a modeled host module: `import type {
     /// Map } from './game'` is the game's `Map`). A class another module
     /// declares is visible crate-wide by symbol, and must not capture this
     /// file's `Response`; an import of a host module's class is that host
@@ -1460,10 +1460,9 @@ impl ModuleBuilder<'_> {
         // the very same reader the `Request` constructor uses and the operand
         // becomes a request.
         //
-        // Until now the init was lowered and then DISCARDED, which made
+        // The init must reach the transport: discarding it would make
         // `fetch(url, { method: "POST", body })` silently issue a GET with no
-        // body: a false green of exactly the kind that survives every compile
-        // step and only shows up against a real server.
+        // body, a false green that survives every compile step.
         if let Some(init_argument) = call.arguments.get(1) {
             let request = self.fetch_request_from_init(url, init_argument, body)?;
             let response_ty = self.response_type();
@@ -1478,9 +1477,8 @@ impl ModuleBuilder<'_> {
             })));
         }
         let url_ty = Self::expr_ty(body, url);
-        // `fetch(request)`: the spec's other input form, and now that the
-        // transport can carry a method, headers and a body it is the same
-        // operand the two-argument form builds.
+        // `fetch(request)`: the spec's other input form, the same operand the
+        // two-argument form builds.
         if self.is_modeled_class(url_ty, smelt_stdlib::StdlibClass::Request) {
             let response_ty = self.response_type();
             let ty = self.ctx.krate.types.intern(Type::Future(response_ty));

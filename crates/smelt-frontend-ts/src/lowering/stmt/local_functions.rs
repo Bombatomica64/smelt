@@ -305,11 +305,11 @@ impl ModuleBuilder<'_> {
             // `Function.prototype.length` is the SOURCE arity — `fn(a, b, c).length`
             // is `3` — and es-toolkit `rest(func)` reads it to choose its default
             // `start` (`func.length - 1`). The variadic rewrite replaces the
-            // parameter list with one rest list, so the source arity is no longer
-            // recoverable from the signature and has to be recorded here.
-            // `required_params` is the field `length` is derived from, and it still
+            // parameter list with one rest list, so the source arity cannot be
+            // recovered from the signature and has to be recorded here.
+            // `required_params` is the field `length` is derived from, and it
             // describes the source contract (the parameters before the first
-            // optional one) even though the internal ABI is now a single list.
+            // optional one) even though the internal ABI is a single list.
             //
             // The same count is what a caller may omit down to, so it is
             // recorded for every nested declaration, not only the variadic one:

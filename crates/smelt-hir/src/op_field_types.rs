@@ -6,7 +6,7 @@
 //! type-position visitor calls [`OpFieldTypes`] on every carried field, which
 //! means adding an op with a `[T]` field whose `T` has no impl here is a
 //! compile error. The author then has to state, once, where `T` keeps its
-//! types (audit finding C6: `JsonParse.target` was a `[Option<TypeId>]` that
+//! types: `JsonParse.target` was a `[Option<TypeId>]` that
 //! normalization and validation both skipped).
 
 use crate::{Symbol, TypeId};

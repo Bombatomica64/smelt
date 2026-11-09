@@ -68,11 +68,11 @@ pub struct SmeltIncomingMessage {
     id: usize,
     method: String,
     url: String,
-    /// Header names lower-cased, duplicates already joined.
+    //~ Header names lower-cased, duplicates already joined.
     headers: ::std::rc::Rc<Vec<(String, String)>>,
-    /// The emitter this message IS, in Node's type hierarchy.
+    //~ The emitter this message IS, in Node's type hierarchy.
     emitter: SmeltEventEmitter,
-    /// The collected body, until `deliver_body` hands it to the listeners.
+    //~ The collected body, until `deliver_body` hands it to the listeners.
     pending_body: ::std::rc::Rc<::std::cell::RefCell<Option<Vec<u8>>>>,
 }
 
@@ -81,57 +81,57 @@ impl ::std::fmt::Debug for SmeltIncomingMessage { fn fmt(&self, formatter: &mut 
 
 #[allow(dead_code)]
 impl SmeltIncomingMessage {
-    /// Build a request from the parts hyper delivered.
+    //~ Build a request from the parts hyper delivered.
     pub fn from_parts(method: String, url: String, headers: Vec<(String, String)>, body: Vec<u8>) -> Self {
         Self { id: smelt_next_object_id(), method, url, headers: ::std::rc::Rc::new(headers), emitter: SmeltEventEmitter::new(), pending_body: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(body))) }
     }
-    /// JS reference identity of this message.
+    //~ JS reference identity of this message.
     pub fn id(&self) -> usize { self.id }
-    /// `req.method`.
+    //~ `req.method`.
     pub fn method(&self) -> String { self.method.clone() }
-    /// `req.url`: the request target, path and query only.
+    //~ `req.url`: the request target, path and query only.
     pub fn url(&self) -> String { self.url.clone() }
-    /// `req.headers`: the lower-cased name/value pairs, in arrival order.
-    ///
-    /// PAIRS rather than a finished map, because the container a
-    /// `Record<string, string>` uses is decided per crate -- a plain
-    /// `HashMap`, or the reference-semantics `SmeltRecord` when the
-    /// program stores the value somewhere that needs JS object identity.
-    /// Both build from these pairs through `FromIterator`, so the emit
-    /// site names the one it needs and this method commits to neither.
+    //~ `req.headers`: the lower-cased name/value pairs, in arrival order.
+    //~
+    //~ PAIRS rather than a finished map, because the container a
+    //~ `Record<string, string>` uses is decided per crate -- a plain
+    //~ `HashMap`, or the reference-semantics `SmeltRecord` when the
+    //~ program stores the value somewhere that needs JS object identity.
+    //~ Both build from these pairs through `FromIterator`, so the emit
+    //~ site names the one it needs and this method commits to neither.
     pub fn headers(&self) -> Vec<(String, String)> { (*self.headers).clone() }
     //~ The five emitter methods, forwarded under the SAME names codegen
     //~ renders for an `EventEmitterOp`. That is the whole of the
     //~ composition: no dispatch site needs to know which of the two
     //~ receivers it holds.
-    /// `on`/`addListener`/`once`, forwarded to the composed emitter.
+    //~ `on`/`addListener`/`once`, forwarded to the composed emitter.
     pub fn add(&self, event: &(impl SmeltHostText + ?Sized), callback: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>, once: bool) -> Self { let event = event.host_text(); let event: &str = &event;
         self.emitter.add(event, callback, once);
         //~ Node's `req.on(..)` answers the REQUEST, not the emitter, so
         //~ `req.on(..).on(..)` chains on the request's own type.
         self.clone()
     }
-    /// `off`/`removeListener`, forwarded to the composed emitter.
+    //~ `off`/`removeListener`, forwarded to the composed emitter.
     pub fn remove(&self, event: &(impl SmeltHostText + ?Sized), callback: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>>>) -> Self { let event = event.host_text(); let event: &str = &event;
         self.emitter.remove(event, callback);
         self.clone()
     }
-    /// `removeAllListeners`, forwarded to the composed emitter.
+    //~ `removeAllListeners`, forwarded to the composed emitter.
     pub fn remove_all(&self, event: &(impl SmeltHostText + ?Sized)) -> Self { let event = event.host_text(); let event: &str = &event;
         self.emitter.remove_all(event);
         self.clone()
     }
-    /// `listenerCount`, forwarded to the composed emitter.
+    //~ `listenerCount`, forwarded to the composed emitter.
     pub fn listener_count(&self, event: &(impl SmeltHostText + ?Sized)) -> f64 { let event = event.host_text(); let event: &str = &event; self.emitter.listener_count(event) }
-    /// `emit`, forwarded to the composed emitter.
+    //~ `emit`, forwarded to the composed emitter.
     pub fn emit(&self, event: &(impl SmeltHostText + ?Sized), args: Vec<SmeltUnknown>) -> Result<bool, Box<dyn ::std::error::Error>> { let event = event.host_text(); let event: &str = &event; self.emitter.emit(event, args) }
-    /// Hand the collected body to the listeners the handler registered.
-    ///
-    /// One `data` for a non-empty body then one `end`, which is the
-    /// event sequence Node produces for a fully buffered request. The
-    /// chunk is a STRING rather than a byte view because `body += chunk`
-    /// -- the shape every such handler is written in -- stringifies it
-    /// in JavaScript anyway.
+    //~ Hand the collected body to the listeners the handler registered.
+    //~
+    //~ One `data` for a non-empty body then one `end`, which is the
+    //~ event sequence Node produces for a fully buffered request. The
+    //~ chunk is a STRING rather than a byte view because `body += chunk`
+    //~ -- the shape every such handler is written in -- stringifies it
+    //~ in JavaScript anyway.
     pub fn deliver_body(&self) -> Result<(), Box<dyn ::std::error::Error>> {
         let Some(bytes) = self.pending_body.borrow_mut().take() else { return Ok(()); };
         if !bytes.is_empty() {
@@ -164,11 +164,11 @@ impl SmeltEmitterHandle for SmeltIncomingMessage {
 pub struct SmeltServerResponse {
     id: usize,
     status: ::std::rc::Rc<::std::cell::Cell<u16>>,
-    /// Name/value pairs in the order they were set, names lower-cased.
+    //~ Name/value pairs in the order they were set, names lower-cased.
     headers: ::std::rc::Rc<::std::cell::RefCell<Vec<(String, String)>>>,
     body: ::std::rc::Rc<::std::cell::RefCell<Vec<u8>>>,
     ended: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    /// Signalled by `end`, so the connection task wakes as soon as it answers.
+    //~ Signalled by `end`, so the connection task wakes as soon as it answers.
     ended_signal: ::std::rc::Rc<tokio::sync::Notify>,
 }
 
@@ -178,23 +178,23 @@ impl Default for SmeltServerResponse { fn default() -> Self { Self::new() } }
 
 #[allow(dead_code)]
 impl SmeltServerResponse {
-    /// A fresh response: 200, no headers, empty body, not yet sent.
+    //~ A fresh response: 200, no headers, empty body, not yet sent.
     pub fn new() -> Self { Self { id: smelt_next_object_id(), status: ::std::rc::Rc::new(::std::cell::Cell::new(200)), headers: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), body: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), ended: ::std::rc::Rc::new(::std::cell::Cell::new(false)), ended_signal: ::std::rc::Rc::new(tokio::sync::Notify::new()) } }
-    /// JS reference identity of this response.
+    //~ JS reference identity of this response.
     pub fn id(&self) -> usize { self.id }
-    /// `res.statusCode`.
+    //~ `res.statusCode`.
     pub fn status_code(&self) -> f64 { f64::from(self.status.get()) }
-    /// `res.statusCode = n`.
-    ///
-    /// A status outside the representable range is clamped rather than
-    /// wrapped: `res.statusCode = 70000` must not become a `4464` on the
-    /// wire, and there is no status line that could carry it.
+    //~ `res.statusCode = n`.
+    //~
+    //~ A status outside the representable range is clamped rather than
+    //~ wrapped: `res.statusCode = 70000` must not become a `4464` on the
+    //~ wire, and there is no status line that could carry it.
     pub fn set_status_code(&self, status: f64) -> f64 {
         let clamped = if status.is_finite() { status.clamp(100.0, 599.0) as u16 } else { 200 };
         self.status.set(clamped);
         status
     }
-    /// `res.setHeader(name, value)`: set or REPLACE, case-insensitively.
+    //~ `res.setHeader(name, value)`: set or REPLACE, case-insensitively.
     pub fn set_header(&self, name: &(impl SmeltHostText + ?Sized), value: &(impl SmeltHostText + ?Sized)) { let name = name.host_text(); let name: &str = &name; let value = value.host_text(); let value: &str = &value;
         let key = name.to_ascii_lowercase();
         let mut headers = self.headers.borrow_mut();
@@ -204,12 +204,12 @@ impl SmeltServerResponse {
         }
         headers.push((key, value.to_owned()));
     }
-    /// `res.getHeader(name)`: the pending value, or null.
+    //~ `res.getHeader(name)`: the pending value, or null.
     pub fn get_header(&self, name: &(impl SmeltHostText + ?Sized)) -> Option<String> { let name = name.host_text(); let name: &str = &name; let key = name.to_ascii_lowercase(); self.headers.borrow().iter().find(|(entry, _)| *entry == key).map(|(_, value)| value.clone()) }
-    /// `res.writeHead(status, headers?)`: set the status, merge headers.
-    ///
-    /// Merge rather than replace, as Node does: `writeHead` applies its
-    /// object on top of whatever `setHeader` already put there.
+    //~ `res.writeHead(status, headers?)`: set the status, merge headers.
+    //~
+    //~ Merge rather than replace, as Node does: `writeHead` applies its
+    //~ object on top of whatever `setHeader` already put there.
     pub fn write_head(&self, status: f64, headers: Option<Vec<(String, String)>>) -> Self {
         self.set_status_code(status);
         if let Some(pairs) = headers {
@@ -220,12 +220,12 @@ impl SmeltServerResponse {
         //~ Node answers the response so `writeHead(..).end(..)` chains.
         self.clone()
     }
-    /// `res.write(chunk)`: append to the buffered body.
+    //~ `res.write(chunk)`: append to the buffered body.
     pub fn write(&self, chunk: &(impl SmeltHostText + ?Sized)) -> bool { let chunk = chunk.host_text(); let chunk: &str = &chunk; self.body.borrow_mut().extend_from_slice(chunk.as_bytes()); true }
-    /// `res.end(chunk?)`: append the last chunk and send.
-    ///
-    /// Ending twice is a no-op rather than an error, which is how Node
-    /// treats a second `end` on an already-finished response.
+    //~ `res.end(chunk?)`: append the last chunk and send.
+    //~
+    //~ Ending twice is a no-op rather than an error, which is how Node
+    //~ treats a second `end` on an already-finished response.
     pub fn end(&self, chunk: Option<String>) -> Self {
         if !self.ended.get() {
             if let Some(chunk) = chunk {
@@ -236,34 +236,34 @@ impl SmeltServerResponse {
         }
         self.clone()
     }
-    /// Whether `end` has been called.
+    //~ Whether `end` has been called.
     pub fn is_ended(&self) -> bool { self.ended.get() }
-    /// Wait until the handler (or one of its listeners) calls `end`.
-    ///
-    /// A response that is never ended leaves the request hanging, exactly
-    /// as it does in Node, so there is deliberately no timeout here. `end`
-    /// signals the wait directly: this used to poll every millisecond, which
-    /// added up to a millisecond of idle time to every request a handler
-    /// answered asynchronously and capped a loaded server at roughly
-    /// connections per millisecond, whatever its CPU cost per request.
+    //~ Wait until the handler (or one of its listeners) calls `end`.
+    //~
+    //~ A response that is never ended leaves the request hanging, exactly
+    //~ as it does in Node, so there is deliberately no timeout here. `end`
+    //~ signals the wait directly: this used to poll every millisecond, which
+    //~ added up to a millisecond of idle time to every request a handler
+    //~ answered asynchronously and capped a loaded server at roughly
+    //~ connections per millisecond, whatever its CPU cost per request.
     pub async fn wait_until_ended(&self) {
         while !self.ended.get() {
             self.ended_signal.notified().await;
         }
     }
-    /// The status, headers and body, moved out for the wire.
-    ///
-    /// Called once, after `end`, when nothing can write the response any more;
-    /// taking the buffers spares a copy of every header and the whole body.
+    //~ The status, headers and body, moved out for the wire.
+    //~
+    //~ Called once, after `end`, when nothing can write the response any more;
+    //~ taking the buffers spares a copy of every header and the whole body.
     pub fn into_wire_parts(&self) -> (u16, Vec<(String, String)>, Vec<u8>) { (self.status.get(), ::std::mem::take(&mut *self.headers.borrow_mut()), ::std::mem::take(&mut *self.body.borrow_mut())) }
 }
 
 //~ Emit `SmeltHttpServer` and its `listen`/`close`/`address` surface.
 /// The handler `createServer` takes: one call per accepted request.
-///
-/// Stored at its real signature rather than through the erased callable
-/// ABI: `node:http` fixes both parameter types, so there is nothing here a
-/// concrete type cannot say.
+//~
+//~ Stored at its real signature rather than through the erased callable
+//~ ABI: `node:http` fixes both parameter types, so there is nothing here a
+//~ concrete type cannot say.
 pub type SmeltHttpHandler = ::std::rc::Rc<dyn Fn(SmeltIncomingMessage, SmeltServerResponse) -> Result<(), Box<dyn ::std::error::Error>>>;
 
 /// A `node:http` `Server`.
@@ -271,9 +271,9 @@ pub type SmeltHttpHandler = ::std::rc::Rc<dyn Fn(SmeltIncomingMessage, SmeltServ
 pub struct SmeltHttpServer {
     id: usize,
     handler: SmeltHttpHandler,
-    /// The bound socket address once `listen` has run, for `address()`.
+    //~ The bound socket address once `listen` has run, for `address()`.
     local: ::std::rc::Rc<::std::cell::Cell<Option<::std::net::SocketAddr>>>,
-    /// Sends the accept loop its stop signal; taken by `close`.
+    //~ Sends the accept loop its stop signal; taken by `close`.
     shutdown: ::std::rc::Rc<::std::cell::RefCell<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
@@ -282,21 +282,21 @@ impl ::std::fmt::Debug for SmeltHttpServer { fn fmt(&self, formatter: &mut ::std
 
 #[allow(dead_code)]
 impl SmeltHttpServer {
-    /// `createServer(handler)`.
+    //~ `createServer(handler)`.
     pub fn new(handler: SmeltHttpHandler) -> Self { Self { id: smelt_next_object_id(), handler, local: ::std::rc::Rc::new(::std::cell::Cell::new(None)), shutdown: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
-    /// JS reference identity of this server.
+    //~ JS reference identity of this server.
     pub fn id(&self) -> usize { self.id }
-    /// `server.listen(port[, host][, callback])`.
-    ///
-    /// SYNCHRONOUS through the bind, which is what makes
-    /// `server.listen(0); server.address()` a legal pair: the socket is
-    /// bound with `std::net` before this returns, and only the accept
-    /// loop is deferred to a spawned task. Port 0 therefore has a real
-    /// port to report the moment `listen` answers.
-    ///
-    /// Listening also registers a LIVE HANDLE, which is what keeps the
-    /// program alive at exit -- Node's ref'd-handle rule (see
-    /// `smelt_run_until_exit`).
+    //~ `server.listen(port[, host][, callback])`.
+    //~
+    //~ SYNCHRONOUS through the bind, which is what makes
+    //~ `server.listen(0); server.address()` a legal pair: the socket is
+    //~ bound with `std::net` before this returns, and only the accept
+    //~ loop is deferred to a spawned task. Port 0 therefore has a real
+    //~ port to report the moment `listen` answers.
+    //~
+    //~ Listening also registers a LIVE HANDLE, which is what keeps the
+    //~ program alive at exit -- Node's ref'd-handle rule (see
+    //~ `smelt_run_until_exit`).
     pub fn listen(&self, port: f64, host: Option<String>, callback: Option<::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>>>) -> Result<Self, Box<dyn ::std::error::Error>> {
         let host = host.unwrap_or_else(|| "127.0.0.1".to_owned());
         let port = if port.is_finite() && port >= 0.0 && port <= 65535.0 { port as u16 } else { 0 };
@@ -316,7 +316,7 @@ impl SmeltHttpServer {
         }
         Ok(self.clone())
     }
-    /// `server.close()`: stop accepting and release the process.
+    //~ `server.close()`: stop accepting and release the process.
     pub fn close(&self) -> Result<Self, Box<dyn ::std::error::Error>> {
         if let Some(shutdown) = self.shutdown.borrow_mut().take() {
             //~ A dropped receiver means the accept loop is already gone;
@@ -327,10 +327,10 @@ impl SmeltHttpServer {
         self.local.set(None);
         Ok(self.clone())
     }
-    /// `server.address()`: Node's `AddressInfo` fields of the bound socket --
-    /// `(address, family, port)`, e.g. `("127.0.0.1", "IPv4", 41234.0)` --
-    /// or `None` when not listening. The emitter builds the generated
-    /// `AddressInfo` record from the triple.
+    //~ `server.address()`: Node's `AddressInfo` fields of the bound socket --
+    //~ `(address, family, port)`, e.g. `("127.0.0.1", "IPv4", 41234.0)` --
+    //~ or `None` when not listening. The emitter builds the generated
+    //~ `AddressInfo` record from the triple.
     pub fn address(&self) -> Option<(String, String, f64)> { self.local.get().map(|local| (local.ip().to_string(), if local.is_ipv4() { "IPv4".to_owned() } else { "IPv6".to_owned() }, f64::from(local.port()))) }
 }
 
@@ -346,10 +346,9 @@ async fn smelt_http_accept_loop(listener: tokio::net::TcpListener, handler: Smel
             //~ out of scope — `createServer(..).listen(..)` inside a
             //~ helper that returns) is not a close: Node keeps a
             //~ listening server alive as a ref'd handle whether or not
-            //~ the program still references it. Breaking on the
-            //~ `RecvError` stopped accepting the moment such a helper
-            //~ returned; it now stops polling the finished channel
-            //~ (polling it again panics) and keeps serving.
+            //~ the program still references it. So on `RecvError` this
+            //~ stops polling the finished channel (polling it again
+            //~ panics) and keeps serving.
             closed = &mut shutdown, if shutdown_open => match closed { Ok(()) => break, Err(_) => { shutdown_open = false; continue } },
         }
         ;
@@ -371,9 +370,9 @@ async fn smelt_http_accept_loop(listener: tokio::net::TcpListener, handler: Smel
 }
 
 /// Run one request through the program's handler and answer hyper.
-///
-/// Infallible toward hyper because a handler error never gets that far:
-/// see `smelt_http_handler_failed`.
+//~
+//~ Infallible toward hyper because a handler error never gets that far:
+//~ see `smelt_http_handler_failed`.
 async fn smelt_http_dispatch(request: hyper::Request<hyper::body::Incoming>, handler: SmeltHttpHandler) -> Result<hyper::Response<http_body_util::Full<bytes::Bytes>>, ::std::convert::Infallible> {
     let (parts, body) = request.into_parts();
     let method = parts.method.as_str().to_owned();
@@ -423,20 +422,20 @@ async fn smelt_http_dispatch(request: hyper::Request<hyper::body::Incoming>, han
 }
 
 /// End the program the way Node ends it for a throwing handler.
-///
-/// Measured, not assumed: an uncaught exception thrown inside a Node
-/// request handler is NOT turned into a 500 -- it reaches the process as an
-/// uncaught exception, prints, and exits 1. The server does not carry on
-/// serving.
-///
-/// Answering 500 instead was the tempting shape, and it is worse than
-/// wrong: a generated program would keep serving where the original had
-/// stopped, so the bug that killed the Node process would show up as a run
-/// of quiet 500s instead. Exiting is the honest translation.
-///
-/// Not a panic: a panic inside a `spawn_local` connection task is caught
-/// by the runtime, which would drop just that connection and leave the
-/// program running -- neither Node's behaviour nor a useful one.
+//~
+//~ Measured, not assumed: an uncaught exception thrown inside a Node
+//~ request handler is NOT turned into a 500 -- it reaches the process as an
+//~ uncaught exception, prints, and exits 1. The server does not carry on
+//~ serving.
+//~
+//~ Answering 500 instead was the tempting shape, and it is worse than
+//~ wrong: a generated program would keep serving where the original had
+//~ stopped, so the bug that killed the Node process would show up as a run
+//~ of quiet 500s instead. Exiting is the honest translation.
+//~
+//~ Not a panic: a panic inside a `spawn_local` connection task is caught
+//~ by the runtime, which would drop just that connection and leave the
+//~ program running -- neither Node's behaviour nor a useful one.
 fn smelt_http_handler_failed(error: &dyn ::std::error::Error) -> ! {
     eprintln!("Uncaught {error}");
     ::std::process::exit(1)
@@ -465,10 +464,10 @@ fn smelt_fetch_server_request(message: &SmeltIncomingMessage) -> SmeltRequest {
 /// Write a fetch handler's answer to `response` once it settles.
 #[allow(dead_code)]
 fn smelt_fetch_server_respond(response: SmeltServerResponse, answer: Result<SmeltUnknown, Box<dyn ::std::error::Error>>) {
-    // A task of its own on the local set, like the connection that waits for
-    // it: the promise-task queue is drained only by the program's own event
-    // loop, which a program awaiting its own server (`await fetch(..)` at top
-    // level) is not running yet.
+    //~ A task of its own on the local set, like the connection that waits for
+    //~ it: the promise-task queue is drained only by the program's own event
+    //~ loop, which a program awaiting its own server (`await fetch(..)` at top
+    //~ level) is not running yet.
     tokio::task::spawn_local(async move {
         let settled = match answer {
             Ok(value) => smelt_await_flatten(value).await,
@@ -491,9 +490,9 @@ fn smelt_fetch_server_write(response: &SmeltServerResponse, settled: Result<Smel
                     has_content_type |= name == "content-type";
                     response.headers.borrow_mut().push((name, value));
                 }
-                // `@hono/node-server`'s `buildOutgoingHttpHeaders` defaults the
-                // header (`res["content-type"] ??= "text/plain; charset=UTF-8"`),
-                // so a bodyless `c.body(null, 204)` carries it too.
+                //~ `@hono/node-server`'s `buildOutgoingHttpHeaders` defaults the
+                //~ header (`res["content-type"] ??= "text/plain; charset=UTF-8"`),
+                //~ so a bodyless `c.body(null, 204)` carries it too.
                 if !has_content_type {
                     response.headers.borrow_mut().push(("content-type".to_owned(), "text/plain; charset=UTF-8".to_owned()));
                 }

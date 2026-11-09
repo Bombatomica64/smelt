@@ -10,12 +10,12 @@
 //! Smelt views a class instance through an interface type by building the
 //! interface's record from the instance's members (the structural adapter in
 //! `coercion/record_adapter.rs`). A prototype method becomes a closure bound to the instance
-//! (`virtual_method_storage_field_expr`), but an own CALLABLE FIELD used to be
-//! copied as a bare value: a later `iface.m(..)` then called the stored function
-//! with no receiver installed (`this` read `undefined`) and never saw a
-//! reassignment of the instance's field. A hand-written port would store a
-//! closure that dispatches through the instance, which is what this module
-//! emits: a slot of the interface member's type that, on each call,
+//! (`virtual_method_storage_field_expr`). An own CALLABLE FIELD copied as a bare
+//! value would be called with no receiver installed (`this` reads `undefined`)
+//! and would never see a reassignment of the instance's field. A hand-written
+//! port would store a closure that dispatches through the instance, which is
+//! what this module emits: a slot of the interface member's type that, on each
+//! call,
 //!
 //! 1. installs the SOURCE INSTANCE as `this` for the duration of the call
 //!    (lazily erased, exactly like a direct `instance.field(..)` call does

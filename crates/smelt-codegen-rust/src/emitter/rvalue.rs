@@ -22,7 +22,7 @@ impl FunctionEmitter<'_> {
             text = self.host_text_at_type(text, dest_ty);
         }
         // List-producing operations (concat/slice/flat/map/copy/…) emit a bare
-        // `Vec`, but `Type::List` now lowers to the identity-bearing `SmeltList`.
+        // `Vec`, but `Type::List` lowers to the identity-bearing `SmeltList`.
         // Coerce through `Into` at this single choke point: it is a no-op when the
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
@@ -148,7 +148,7 @@ impl FunctionEmitter<'_> {
             Rvalue::CryptoOp { op, args } => self.crypto_op_expr(*op, args, dest_ty),
             Rvalue::HostModuleCall { op, args } => self.host_module_rvalue_expr(*op, args),
             // The ONE global object: every reference is a handle on the same
-            // shared record (see `emit_global_object_support`).
+            // shared record (see `runtime/object_model.rs`).
             Rvalue::GlobalObject => Ok(RustExpr::atom(format!("{}()", crate::thrown::GLOBAL_OBJECT_FN))),
             Rvalue::FormDataNew => Ok(RustExpr::atom("SmeltFormData::new()")),
             Rvalue::FormDataOp { op, form, args } => {

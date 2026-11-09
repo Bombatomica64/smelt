@@ -49,18 +49,18 @@ struct BodyFacts {
 /// and capture edges between a constructing body's source local and the
 /// closure body's target local. A promoted capture's `ty` follows its source
 /// local, so after this pass every capture's type, source local type and
-/// target local type are still one type (audit finding C2). A parameter is
+/// target local type are still one type. A parameter is
 /// never promoted (that would change the function's ABI); a capture tied to a
 /// parameter therefore keeps BOTH ends unpromoted.
 ///
 /// Types are interned in sorted node order so the type table does not depend
-/// on hash iteration order (audit finding C14).
+/// on hash iteration order.
 pub fn promote_erased_mutated_records(mir: &mut Mir) {
     // Parameter value types for each statically-known function, used to detect
     // arguments that are erased to `unknown`/a generic type parameter.
     //
     // One entry per parameter, `None` for an out-of-range parameter local, so
-    // argument `i` always pairs with parameter `i` (audit C13: a `filter_map`
+    // argument `i` always pairs with parameter `i`: a `filter_map`
     // here shifted every later parameter past a bad one).
     let func_param_tys: ParamTypes = mir
         .functions

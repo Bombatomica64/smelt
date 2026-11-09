@@ -34,11 +34,9 @@ impl ModuleBuilder<'_> {
             Self::collect_mutated_names(program);
         // A binding is module state if it is mutated AT ALL, and a write
         // *through* it counts: `let cache: Record<string, number> = {}` that is
-        // only ever `cache[k] = v` is still state that every function shares.
-        // Before `Place::Global` such a binding could not be lowered anyway, so
-        // requiring a whole-binding reassignment to lift it was harmless; now
-        // it would silently leave the write on a module-local copy, which is
-        // exactly the class of defect this family exists to prevent.
+        // only ever `cache[k] = v` is still state that every function shares,
+        // and requiring a whole-binding reassignment to lift it would silently
+        // leave the write on a module-local copy.
         let mut mutated: HashSet<String> = reassigned
             .into_iter()
             .chain(mutated_through.iter().cloned())
@@ -282,11 +280,9 @@ impl ModuleBuilder<'_> {
             // erased values, constructed user instances), which were each this
             // rule for one type family.
             //
-            // The slot takes the type `collect_module_globals` recorded, so the
-            // slot and the old fabricated default agree on the type and only
-            // the VALUE changes; an erased (`any`/union) binding's type is the
-            // dynamic boundary the source declared, and the slot adds no
-            // erasure of its own.
+            // The slot takes the type `collect_module_globals` recorded; an erased
+            // (`any`/union) binding's type is the dynamic boundary the source
+            // declared, and the slot adds no erasure of its own.
             //
             // Two shapes keep their existing paths. A `class` expression names a
             // class, not an instance. And an ERASED binding the program CALLS
@@ -508,11 +504,10 @@ impl ModuleBuilder<'_> {
         let mut init_body = Body::new(None, span);
         // The initializer becomes a SEPARATE function item, so the module
         // body's locals are not in scope inside it — and its `LocalId`s do not
-        // even exist in this fresh body, so leaving them registered makes name
-        // resolution hand back an id that indexes nothing (it panicked in
-        // `local_ty`). Emptying the scope for the duration is both the fix and
-        // the correct rule: an initializer that references a module-body local
-        // now reports an unresolved name instead of mis-resolving one.
+        // even exist in this fresh body, so leaving them registered would make
+        // name resolution hand back an id that indexes nothing. An initializer
+        // that references a module-body local therefore reports an unresolved
+        // name instead of mis-resolving one.
         let value = self.with_empty_lexical_scope(|this| {
             this.expression_with_hint(init, &mut init_body, Some(global_ty))
         })?;

@@ -357,7 +357,7 @@ impl ModuleBuilder<'_> {
                             }
                             // A `static NAME: T = <literal>` declares a class-level
                             // constant resolvable via `Class.NAME`. Lower it to a
-                            // materialized static field (issue #98). Non-literal or
+                            // materialized static field. Non-literal or
                             // untyped static initializers are not yet lowered.
                             if let Some(static_field) = this.class_static_field(property)? {
                                 source_static_fields.push(static_field);
@@ -517,7 +517,7 @@ impl ModuleBuilder<'_> {
                     // `readonly x` (with no explicit accessibility) is still a
                     // parameter property and declares a public instance field, so a
                     // constructor arg such as `constructor(readonly innerError: Error)`
-                    // must produce a field (was E0609 on `.innerError`).
+                    // must produce a field.
                     if param.accessibility.is_none() && !param.readonly {
                         continue;
                     }
@@ -591,7 +591,7 @@ impl ModuleBuilder<'_> {
             let virtual_method_fields =
                 this.virtual_method_field_names(&class.body.body, class.r#abstract);
             this.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
-            // Runtime keyed store for a class index signature (issue #84 / #18).
+            // Runtime keyed store for a class index signature.
             //
             // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
             // real backing store so dynamic keyed writes round-trip at runtime:
@@ -606,11 +606,9 @@ impl ModuleBuilder<'_> {
             // string-keyed store because JavaScript object property keys are strings.
             //
             // Value type `T` stays concrete (`string`, `number`, a class, ...). A
-            // union index value type (`[key: string]: string | number`) is subject
-            // to the SAME pre-existing limitation as a plain union-typed class field:
-            // the generated union enum lacks `Debug`/`Default`, so a struct storing
-            // it does not derive them. That is an orthogonal codegen gap tracked
-            // separately, not specific to the index store.
+            // union index value type (`[key: string]: string | number`) has the same
+            // limitation as a plain union-typed class field: the generated union enum
+            // lacks `Debug`/`Default`, so a struct storing it does not derive them.
             if let Some(value_ty) = class_index_value_ty {
                 let store_name = this.intern_synthesized_name(CLASS_INDEX_STORE_FIELD);
                 let key_ty = this.ctx.krate.types.intern(Type::String);
@@ -633,7 +631,7 @@ impl ModuleBuilder<'_> {
             // class's own method bodies are still being lowered, and so later
             // modules see it too. Named fields resolve first; this is the fallback.
             //
-            // This drives the *type* level of the index signature (issue #84): the
+            // This drives the *type* level of the index signature: the
             // statically known value type `T` types keyed reads as `Optional<T>`
             // (missing key -> undefined) and undeclared member reads as `T`, while
             // declared named fields keep their concrete types. The matching runtime
@@ -690,7 +688,7 @@ impl ModuleBuilder<'_> {
                                 continue;
                             }
                             // Only plain `static foo(..)` methods are lowered as
-                            // receiver-free associated functions (issue #98). Static
+                            // receiver-free associated functions. Static
                             // getters/setters and computed static keys are deferred.
                             if method.kind != MethodDefinitionKind::Method {
                                 return Err(SmeltError::unsupported(

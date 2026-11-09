@@ -39,9 +39,9 @@ fn smelt_bigint_type_error_value(message: String) -> Box<dyn ::std::error::Error
 /// A JavaScript `SyntaxError` raised by `BigInt(string)`.
 fn smelt_bigint_syntax_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("SyntaxError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
 /// Throw a JavaScript `TypeError` raised by a bigint operation through the panic route.
-///
-/// Reached only where the static types cannot rule the operation out:
-/// TypeScript rejects `1n + 1` and `1n >>> 1n` at compile time.
+//~
+//~ Reached only where the static types cannot rule the operation out:
+//~ TypeScript rejects `1n + 1` and `1n >>> 1n` at compile time.
 fn smelt_bigint_type_error(message: &str) -> ! { let message = message.to_owned(); smelt_panic_throw(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
 
 /// `lhs / rhs`: truncating division; a zero divisor is a `RangeError`.

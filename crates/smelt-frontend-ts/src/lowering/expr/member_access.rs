@@ -324,13 +324,8 @@ impl ModuleBuilder<'_> {
     ///   lodash-style typed-array/error spec loops) or a literal that names no
     ///   modeled global — is a genuine dynamic property lookup on the global
     ///   object, and is lowered as exactly that: an erased computed read whose
-    ///   receiver is the global-object value. It used to fold to a constant
-    ///   `undefined`, which made the two spellings of one JavaScript operation
-    ///   disagree — `globalThis.Error` resolved to the modeled constructor while
-    ///   `globalThis[name]` with `name === "Error"` answered `undefined`, so
-    ///   `new (globalThis[type])(...)` fabricated a null-returning closure call
-    ///   instead of constructing. The runtime read resolves a modeled global
-    ///   constructor by name off the global-object marker record and still
+    ///   receiver is the global-object value. The runtime read resolves a modeled
+    ///   global constructor by name off the global-object marker record and
     ///   answers `undefined` for a name this profile does not model, so an
     ///   unmodeled global stays absent.
     pub(in crate::lowering) fn global_alias_computed_read(
@@ -906,7 +901,7 @@ impl ModuleBuilder<'_> {
     /// a *runtime* symbol value used as a key resolves to the same storage key
     /// in the generated prelude's property-key coercion. Because both sides read
     /// one table, `obj[Symbol.asyncIterator]` still indexes the field declared
-    /// by `[Symbol.asyncIterator]()` (issue #115).
+    /// by `[Symbol.asyncIterator]()`.
     pub(in crate::lowering) fn symbol_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -1311,8 +1306,7 @@ impl ModuleBuilder<'_> {
             // `process.env.X` is `string | undefined` in TypeScript, typed here
             // as `Optional(String)` so `process.env.PORT ?? 3000` keeps both
             // arms. A variable is read from the real environment: a program
-            // that serves has to see its `PORT` (this used to fold every
-            // variable to `undefined`). The timezone is the exception: the
+            // that serves has to see its `PORT`. The timezone is the exception: the
             // profile fixes it, because the date runtime computes in that zone
             // whatever the host's `TZ` says, and a program must read the zone
             // its dates are actually in.

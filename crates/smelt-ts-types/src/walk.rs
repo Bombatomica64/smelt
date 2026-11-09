@@ -54,7 +54,7 @@ type EvolvedReads = Vec<P<Type>>;
 /// Not the last read's: flow typing grows an evolving array along each path,
 /// not across branches, so in `if (c) { xs.push(1); use(xs) } xs.push("a");
 /// return xs` the last read is `string[]` and misses the `number` the first
-/// branch pushed (audit finding A7).
+/// branch pushed.
 #[derive(Default)]
 struct EvolvingArrays {
     /// Declared symbol → span of its declaration name.

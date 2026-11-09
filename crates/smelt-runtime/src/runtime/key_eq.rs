@@ -10,11 +10,11 @@
 // @smelt:item SmeltJsKeyEq when unknown
 pub trait SmeltJsKeyEq {
     fn same_js_key(&self, other: &Self) -> bool;
-    /// A hash consistent with `same_js_key`: whenever two keys compare equal
-    /// they MUST hash the same, so a hash index can narrow a lookup without
-    /// changing its answer. The converse is not required — a collision only
-    /// costs a `same_js_key` comparison. `None` means the key has no stable
-    /// hashable identity and must keep the linear scan.
+    //~ A hash consistent with `same_js_key`: whenever two keys compare equal
+    //~ they MUST hash the same, so a hash index can narrow a lookup without
+    //~ changing its answer. The converse is not required — a collision only
+    //~ costs a `same_js_key` comparison. `None` means the key has no stable
+    //~ hashable identity and must keep the linear scan.
     fn js_key_hash(&self) -> Option<u64> { None }
 }
 
@@ -32,7 +32,7 @@ impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.
 //~ reference identity (its stable object `id`), matching `same_js_key`'s
 //~ object arm on the erased value. This lets a `Set`/`Map`/cache keyed by
 //~ a concrete `SmeltRecord` resolve `SmeltJsKeyEq` without erasing to
-//~ `SmeltUnknown` (was E0599: unsatisfied `SmeltJsKeyEq` bound).
+//~ `SmeltUnknown`.
 impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&self.id)) } }
 
 //~ The fourth equality kind: JavaScript strict equality (`===`/`!==`).

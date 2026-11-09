@@ -149,9 +149,7 @@ impl ModuleBuilder<'_> {
     /// initializer is a synthesized nullary function constructing the value,
     /// exactly as the TypeScript frontend lifts a module `const`/`let` slot,
     /// and reads are [`ExprKind::GlobalGet`] (see `const_item_expression`).
-    /// It used to be a constant whose construction was inlined at each use,
-    /// which rebuilt a fresh object per read and lost every mutation. The
-    /// module body touches the global at the assignment's own position (see
+    /// The module body touches the global at the assignment's own position (see
     /// `module_global_touch`), so the constructor runs in source order.
     ///
     /// Returns whether the assignment had that shape and became a global;

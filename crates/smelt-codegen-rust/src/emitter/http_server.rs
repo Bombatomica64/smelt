@@ -3,7 +3,7 @@
 //! One module rather than four arms in `fetch_types.rs`, because `node:http`
 //! shares nothing with the fetch types but the `SmeltHeaders` conversion it
 //! borrows for `writeHead`. The runtime types these render against live in
-//! [`crate::http_server_prelude`].
+//! [`smelt-runtime`'s `http_server.rs`].
 //!
 //! # Callbacks here are not erased
 //!

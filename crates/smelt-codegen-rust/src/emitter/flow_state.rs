@@ -3,11 +3,9 @@
 //! Structured block emission keeps a little state across its recursion: two
 //! recursion-depth counters that stop a cyclic region from recursing forever,
 //! whether the most recently emitted region tail diverges, and the stack of
-//! pending loop-body JOIN stops. It used to live in thread-locals shared by
-//! every emitter on the thread — a closure body (rendered by its own emitter
-//! in the middle of its parent's recursion) saw and wrote its parent's
-//! counters and divergence register, and the join stops had to be keyed by the
-//! address of the emitter's `MirFunction` to tell emitters apart.
+//! pending loop-body JOIN stops. It belongs to one emitter: a closure body,
+//! rendered by its own emitter in the middle of its parent's recursion, must
+//! not see or write its parent's counters and divergence register.
 //!
 //! [`ControlFlowState`] is owned by one [`FunctionEmitter`], so none of that
 //! sharing exists: a join stop belongs to the emitter that registered it, and
