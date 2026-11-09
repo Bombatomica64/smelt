@@ -1052,6 +1052,19 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether `annotation` spells `(keyof X)[]`.
+    fn is_keyof_array_annotation(annotation: &TSType<'_>) -> bool {
+        let TSType::TSArrayType(array) = annotation else {
+            return false;
+        };
+        let mut element = &array.element_type;
+        while let TSType::TSParenthesizedType(inner) = element {
+            element = &inner.type_annotation;
+        }
+        matches!(element, TSType::TSTypeOperatorType(operator)
+            if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof)
+    }
+
     /// Lower TypeScript type assertions against `unknown` as checked extractions.
     pub(super) fn type_assertion_expression(
         &mut self,
@@ -1071,6 +1084,19 @@ impl ModuleBuilder<'_> {
         if self.is_bun_int32_annotation(annotation) {
             let value = self.expression(expression, body)?;
             return Ok(self.int32_assertion_expression(value, span, body));
+        }
+        // `Reflect.ownKeys(o) as (keyof T)[]`: the keys may be symbols, and an
+        // assertion cannot make them strings at run time. `keyof T` lowers to
+        // `string`, so the list keeps the element type the projection gave it.
+        if Self::is_keyof_array_annotation(annotation) {
+            let mark = self.speculation_mark(body);
+            let value = self.expression(expression, body)?;
+            if let Some(Type::List(element)) = self.ctx.krate.types.get(Self::expr_ty(body, value))
+                && matches!(self.ctx.krate.types.get(*element), Some(Type::Unknown))
+            {
+                return Ok(value);
+            }
+            self.roll_back_to(mark, body);
         }
         let asserted = self.ts_type_to_hir(annotation)?;
         if self.concrete_type_requires_never_value(asserted) {

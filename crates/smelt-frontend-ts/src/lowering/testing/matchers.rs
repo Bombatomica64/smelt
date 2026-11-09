@@ -1750,9 +1750,11 @@ impl ModuleBuilder<'_> {
         site: MatcherSite<'_, '_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
-        let SiteActual::Argument { argument: actual_arg, inverted } = site.actual else {
-            return Ok(false);
+        let (actual_arg, lowered_callee, inverted) = match site.actual {
+            SiteActual::Argument { argument, inverted } => (Some(argument), None, inverted),
+            SiteActual::Lowered(actual) => (None, Some(actual.value), actual.inverted),
         };
+        let actual_span = actual_arg.map_or(site.span, GetSpan::span);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let span = self.span(site.span.start, site.span.end);
         let did_throw_name = self.intern_source_name("did_throw");
@@ -1775,7 +1777,7 @@ impl ModuleBuilder<'_> {
         };
         self.push_stmt_to_sink(body, did_throw_stmt);
 
-        let try_block = if let Argument::ArrowFunctionExpression(arrow) = actual_arg {
+        let try_block = if let Some(Argument::ArrowFunctionExpression(arrow)) = actual_arg {
             let none_ty = self.ctx.krate.types.intern(Type::None);
             let mut callee = self.arrow_closure_body_expr(arrow, &[], none_ty, body)?;
             let function = FunctionType {
@@ -1805,7 +1807,13 @@ impl ModuleBuilder<'_> {
             body.push_stmt_to_block(try_block, Stmt::Expr(call_expr));
             try_block
         } else {
-            let mut callee = self.argument(actual_arg, body)?;
+            let mut callee = match (lowered_callee, actual_arg) {
+                (Some(value), _) => value,
+                (None, Some(argument)) => self.argument(argument, body)?,
+                (None, None) => {
+                    return Err(SmeltError::unsupported(span, "expect(...).toThrow(...) requires a value"));
+                }
+            };
             let callee_ty = self
                 .ctx
                 .krate
@@ -1831,12 +1839,12 @@ impl ModuleBuilder<'_> {
                 },
                 _ => {
                     return Err(SmeltError::unsupported(
-                        self.span(actual_arg.span().start, actual_arg.span().end),
+                        self.span(actual_span.start, actual_span.end),
                         "expect(...).toThrow(...) requires a zero-argument callback",
                     ));
                 }
             };
-            if Self::is_bind_call_argument(actual_arg) {
+            if actual_arg.is_some_and(Self::is_bind_call_argument) {
                 function.params.clear();
             }
             // `toThrow` observes the callable's error result. At this call site a
@@ -1851,28 +1859,28 @@ impl ModuleBuilder<'_> {
             callee = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: callee },
                 ty: throwing_function_ty,
-                span: self.span(actual_arg.span().start, actual_arg.span().end),
+                span: self.span(actual_span.start, actual_span.end),
             });
             let try_block =
-                body.push_block(self.span(actual_arg.span().start, actual_arg.span().end));
+                body.push_block(self.span(actual_span.start, actual_span.end));
             let mut args = Vec::new();
             for param_ty in function.params {
                 if !matches!(self.ctx.krate.types.get(param_ty), Some(Type::Optional(_))) {
                     return Err(SmeltError::unsupported(
-                        self.span(actual_arg.span().start, actual_arg.span().end),
+                        self.span(actual_span.start, actual_span.end),
                         "expect(...).toThrow(...) requires a zero-argument callback",
                     ));
                 }
                 args.push(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty: param_ty,
-                    span: self.span(actual_arg.span().start, actual_arg.span().end),
+                    span: self.span(actual_span.start, actual_span.end),
                 }));
             }
             let call_expr = body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
                 ty: function.return_ty,
-                span: self.span(actual_arg.span().start, actual_arg.span().end),
+                span: self.span(actual_span.start, actual_span.end),
             });
             body.push_stmt_to_block(try_block, Stmt::Expr(call_expr));
             try_block

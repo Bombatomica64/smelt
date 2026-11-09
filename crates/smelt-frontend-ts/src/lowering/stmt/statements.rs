@@ -226,6 +226,9 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|argument| self.expression_with_hint(argument, body, return_hint))
                     .transpose()?;
+                if self.fn_ctx.verifies_assertion_plan {
+                    self.verify_planned_assertions(return_stmt.span, body);
+                }
                 body.push_stmt_to_block(block, Stmt::Return(value));
                 Ok(())
             }

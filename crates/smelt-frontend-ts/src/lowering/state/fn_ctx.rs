@@ -125,6 +125,8 @@ pub(in crate::lowering) struct FnCtx {
     /// behind by a declaration that failed to lower cannot be taken by a
     /// same-named declaration in a sibling body.
     forward_referenced_locals: HashSet<String>,
+    /// Whether a `return` in this body ends a test that planned its assertions.
+    pub(in crate::lowering) verifies_assertion_plan: bool,
 }
 
 impl FnCtx {
@@ -164,6 +166,7 @@ impl FnCtx {
             update_mode: UpdateMode::Immediate,
             preserve_receiver,
             forward_referenced_locals: HashSet::new(),
+            verifies_assertion_plan: false,
         }
     }
 }

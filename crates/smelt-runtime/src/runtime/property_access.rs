@@ -10,6 +10,7 @@
 // @smelt:item smelt_index_assign when unknown
 fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
     let key: JsString = key.into();
+    /*@if construct*/if smelt_proxy_set(target, &key.to_string_lossy(), &value) { return; }/*@end*/
     match target {
         //~ A byte-backed host object's indexed slots are its bytes, not ordinary
         //~ record properties: `view[i] = byte` has to land in `bytes` so a later
@@ -383,6 +384,7 @@ fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Siz
 //~ lets a property source code wrote onto a function read back.
 /// Read a property off any erased value (JS `value.field`).
 fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
+    /*@if construct*/if let Some(answer) = smelt_proxy_get(value, field) { return answer; }/*@end*/
     match value {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_unmodeled") => value.clone(),
         //~ A marker-bearing host record resolves its MODELED MEMBERS first.
@@ -461,6 +463,7 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Siz
 //~ included -- inherits `Object.prototype`'s members.
 /// Whether `value` has `key` as an own OR inherited property (JS `key in value`).
 fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
+    /*@if construct*/if let Some(answer) = smelt_proxy_has(value, key) { return answer; }/*@end*/
     if smelt_has_own_property(value, key) { return true; }
     // A buffer view holds its `length`/`byteLength` accessors on this object;
     // in JavaScript they are prototype accessors, so `in` finds them and
