@@ -52,6 +52,9 @@ class Box {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "new", "new(value: Float) -> Box")?;
+    ensure_signature(&ctx, "selves", "selves(this: Box) -> List<Unknown>")?;
+    ensure_exprs!(&ctx, ListLit);
     Ok(())
 }
 
@@ -68,6 +71,9 @@ export function classes(): unknown[] {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "new", "new() -> Named")?;
+    ensure_exprs!(&ctx, ListLit);
+    ensure!(crate_has_item(&ctx, "Named"), "no item named `Named`");
     Ok(())
 }
 
@@ -84,6 +90,7 @@ export function classes(): unknown[] {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_exprs!(&ctx, ListLit);
     Ok(())
 }
 
@@ -103,6 +110,9 @@ export function make(): unknown {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_signature(&ctx, "new", "new() -> ctor")?;
+    ensure_exprs!(&ctx, ClassValue);
+    ensure!(crate_has_new(&ctx, "ctor"), "no construction of `ctor`");
     Ok(())
 }
 

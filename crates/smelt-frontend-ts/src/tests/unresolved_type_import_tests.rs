@@ -107,6 +107,7 @@ export function describe(value: Other): string {
         &mut ctx,
     )
     .map_err(|errors| format!("an in-crate module must not block: {errors:?}"))?;
+    ensure_signature(&ctx, "describe", "describe(value: Other) -> String")?;
     Ok(())
 }
 
@@ -136,6 +137,7 @@ export function describe(value: Simplify): string {
         &mut ctx,
     )
     .map_err(|errors| format!("an external package type must not block: {errors:?}"))?;
+    ensure_signature(&ctx, "describe", "describe(value: Simplify) -> String")?;
     Ok(())
 }
 
@@ -171,5 +173,6 @@ export function describe(value: Gone): string {
         &mut ctx,
     )
     .map_err(|errors| format!("an excluded module's type must not block: {errors:?}"))?;
+    ensure_signature(&ctx, "describe", "describe(value: Gone) -> String")?;
     Ok(())
 }
