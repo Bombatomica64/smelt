@@ -102,6 +102,11 @@ jobs:
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       full: ${{ steps.plan.outputs.full }}
+      # Set once the archive (and, in FULL mode, smelt) is uploaded. Every
+      # other job keys on it rather than on build's conclusion, so a clippy or
+      # doctest failure later in this job fails `build` without hiding the
+      # tests and gates that the archive feeds.
+      archived: ${{ steps.archived.outputs.archived }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -161,6 +166,11 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+      - name: Mark the archive uploaded
+        id: archived
+        if: ${{ steps.plan.outputs.mode != 'none' }}
+        run: echo "archived=true" >> "$GITHUB_OUTPUT"
+
       # Lint gate. The lint policy itself lives in the repo, not here:
       # `[workspace.lints.rust]` / `[workspace.lints.clippy]` in Cargo.toml set
       # clippy::{all,pedantic,nursery} to "deny" plus a large hand-picked
@@ -203,7 +213,7 @@ jobs:
   # are built once per job instead of once per test.
   test:
     needs: build
-    if: ${{ needs.build.outputs.mode != 'none' }}
+    if: ${{ !cancelled() && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -280,7 +290,7 @@ jobs:
   # run these tests too, with the same variable, whenever their crates change.
   sandbox:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -327,7 +337,7 @@ jobs:
   # and compiles nothing (`cargo package --no-verify`).
   package:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -363,7 +373,7 @@ jobs:
   # `--test-threads 3` bounds that; the runner image has ~88 GB free.
   runtime-tiers:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       # One shard failing says nothing about the others.
@@ -406,7 +416,7 @@ jobs:
   # the smelt binary. Both from build's archive.
   corpus:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -493,7 +503,7 @@ jobs:
   # ==========================================================================
   remeda-regression:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -606,7 +616,7 @@ jobs:
   radash-regression:
     # Full mode only; see the banner above `remeda-regression`.
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -677,7 +687,7 @@ jobs:
 
   ts-pattern-build:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -711,7 +721,7 @@ jobs:
   # stops at `smelt build`.
   date-fns-build:
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -738,7 +748,7 @@ jobs:
   hono:
     # Full mode only; see the banner above `remeda-regression`.
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -836,7 +846,7 @@ jobs:
   es-toolkit-regression:
     # Full mode only; see the banner above `remeda-regression`.
     needs: build
-    if: ${{ needs.build.outputs.full == 'true' }}
+    if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
