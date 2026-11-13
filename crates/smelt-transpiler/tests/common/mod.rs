@@ -19,8 +19,8 @@ use std::{
     error::Error,
     fs, io,
     path::{Path, PathBuf},
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    process::{Command, Output, Stdio},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use smelt_specialize::prereq::{locate_executable, missing_prerequisite};
@@ -275,16 +275,168 @@ pub(crate) fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
     run_generated_crate(&mut Command::new("cargo"), manifest)
 }
 
-/// Runs `cargo run --quiet --manifest-path <manifest>` through `command` (a
-/// `cargo` command, possibly with environment already set) and returns stdout.
-fn run_generated_crate(command: &mut Command, manifest: &Path) -> TestResult<String> {
+/// How long one run of a program under test (Node, `python3` or a generated
+/// binary) may take before the harness kills it.
+///
+/// The programs these tests run finish in well under a second; the bound only
+/// exists so a defect that makes either side loop fails the test with a clear
+/// message instead of hanging the whole suite. `SMELT_TEST_RUN_TIMEOUT_SECS`
+/// overrides it for a slow machine.
+pub(crate) fn program_run_limit() -> Duration {
+    const DEFAULT_SECS: u64 = 60;
+    let secs = std::env::var("SMELT_TEST_RUN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_SECS);
+    Duration::from_secs(secs)
+}
+
+/// Reads `pipe` to its end on its own thread; `None` reads nothing.
+fn drain<R: io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut reader) = pipe {
+            drop(reader.read_to_end(&mut bytes));
+        }
+        bytes
+    })
+}
+
+/// Runs `command` to completion like [`Command::output`], but kills it once it
+/// has run for `limit` and reports that as an error naming `what`.
+///
+/// Both pipes are drained on their own threads while the child runs, so a
+/// child that fills a pipe buffer cannot deadlock against the wait, and the
+/// output it printed before it was killed is part of the error.
+pub(crate) fn output_within(command: &mut Command, limit: Duration, what: &str) -> TestResult<Output> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout_reader = drain(child.stdout.take());
+    let stderr_reader = drain(child.stderr.take());
+    let started = Instant::now();
+    let exit = loop {
+        if let Some(finished) = child.try_wait()? {
+            break Some(finished);
+        }
+        if started.elapsed() >= limit {
+            drop(child.kill());
+            drop(child.wait());
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let joined = |handle: std::thread::JoinHandle<Vec<u8>>| {
+        handle.join().map_err(|panic| {
+            io::Error::other(format!("reading the output of {what} panicked: {panic:?}"))
+        })
+    };
+    let stdout = joined(stdout_reader)?;
+    let stderr = joined(stderr_reader)?;
+    let Some(status) = exit else {
+        return Err(io::Error::other(format!(
+            "{what} did not finish within {}s and was killed (set SMELT_TEST_RUN_TIMEOUT_SECS to \
+             raise the bound); a program that never ends is a defect on that side\n\
+             stdout so far:\n{}\nstderr so far:\n{}",
+            limit.as_secs(),
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr)
+        ))
+        .into());
+    };
+    Ok(Output { status, stdout, stderr })
+}
+
+/// Builds a generated crate with `command` (a `cargo` command, possibly with
+/// environment already set) and returns the path of its binary.
+///
+/// The build itself is not bounded: compile time depends on the machine and the
+/// cache, and rustc does not loop on generated code. Only the run is.
+fn build_generated_crate(command: &mut Command, manifest: &Path) -> TestResult<PathBuf> {
+    build_generated_artifacts(command.arg("build"), manifest)?
+        .pop()
+        .ok_or_else(|| io::Error::other(format!("cargo built {} but reported no binary", manifest.display())).into())
+}
+
+/// Compiles a generated crate's test harness with `command` (a `cargo`
+/// command) and returns the paths of its test binaries, unrun.
+pub(crate) fn build_generated_tests(command: &mut Command, manifest: &Path) -> TestResult<Vec<PathBuf>> {
+    build_generated_artifacts(command.arg("test").arg("--no-run"), manifest)
+}
+
+/// Runs each test binary of `binaries` under [`program_run_limit`] (with
+/// `configure` applied) and returns their combined output, failing on the
+/// first that is killed. The exit status is that of the first binary that
+/// failed, or success.
+pub(crate) fn run_generated_tests(
+    binaries: &[PathBuf],
+    configure: impl Fn(&mut Command),
+) -> TestResult<Output> {
+    let mut combined: Option<Output> = None;
+    for binary in binaries {
+        let mut run = Command::new(binary);
+        configure(&mut run);
+        let output = output_within(&mut run, program_run_limit(), "the generated tests")?;
+        combined = Some(match combined {
+            None => output,
+            Some(mut acc) => {
+                if acc.status.success() {
+                    acc.status = output.status;
+                }
+                acc.stdout.extend(output.stdout);
+                acc.stderr.extend(output.stderr);
+                acc
+            }
+        });
+    }
+    combined.ok_or_else(|| io::Error::other("cargo built no test binary").into())
+}
+
+/// Runs `command` (a `cargo build` or `cargo test --no-run` already carrying
+/// its subcommand) for `manifest` and returns every executable it reports, in
+/// build order.
+fn build_generated_artifacts(command: &mut Command, manifest: &Path) -> TestResult<Vec<PathBuf>> {
     let output = command
-        .arg("run")
         .arg("--quiet")
+        .arg("--message-format=json-render-diagnostics")
         .arg("--manifest-path")
         .arg(manifest)
         .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "generated crate failed to build\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+    let mut executables = Vec::new();
+    for line in String::from_utf8(output.stdout)?.lines() {
+        let Ok(message) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if message.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
+            && let Some(path) = message.get("executable").and_then(serde_json::Value::as_str)
+        {
+            executables.push(PathBuf::from(path));
+        }
+    }
+    Ok(executables)
+}
 
+/// Builds the generated crate through `command`, then runs its binary under
+/// [`program_run_limit`] with `configure` applied, and returns stdout.
+fn run_generated_crate_with(
+    command: &mut Command,
+    manifest: &Path,
+    configure: impl FnOnce(&mut Command),
+) -> TestResult<String> {
+    let binary = build_generated_crate(command, manifest)?;
+    let mut run = Command::new(&binary);
+    configure(&mut run);
+    let output = output_within(&mut run, program_run_limit(), "the generated program")?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "generated crate failed\nstdout:\n{}\nstderr:\n{}",
@@ -295,6 +447,12 @@ fn run_generated_crate(command: &mut Command, manifest: &Path) -> TestResult<Str
     }
 
     Ok(String::from_utf8(output.stdout)?)
+}
+
+/// Builds a generated crate through `command` (a `cargo` command, possibly
+/// with environment already set), runs it bounded, and returns stdout.
+fn run_generated_crate(command: &mut Command, manifest: &Path) -> TestResult<String> {
+    run_generated_crate_with(command, manifest, |_| {})
 }
 
 /// The first Node.js release that runs TypeScript with
@@ -418,7 +576,7 @@ pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> Tes
     if let Some(path) = std::env::var_os("PATH") {
         command.env("PATH", path);
     }
-    let output = command.output()?;
+    let output = output_within(&mut command, program_run_limit(), &format!("node on {entry}"))?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "node failed on {entry}\nstdout:\n{}\nstderr:\n{}",
@@ -488,34 +646,21 @@ pub(crate) fn cargo_run_manifest_with_env(
     env: &[(&str, &str)],
     unset: &[&str],
 ) -> TestResult<String> {
-    let mut command = Command::new("cargo");
-    command.arg("run").arg("--quiet").arg("--manifest-path").arg(manifest);
-    for (key, value) in env {
-        command.env(key, value);
-    }
-    for key in unset {
-        command.env_remove(key);
-    }
-    let output = command.output()?;
-    if !output.status.success() {
-        return Err(io::Error::other(format!(
-            "generated crate failed\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        ))
-        .into());
-    }
-    Ok(String::from_utf8(output.stdout)?)
+    run_generated_crate_with(&mut Command::new("cargo"), manifest, |run| {
+        for (key, value) in env {
+            run.env(key, value);
+        }
+        for key in unset {
+            run.env_remove(key);
+        }
+    })
 }
 
-/// Runs `cargo test --manifest-path` for a generated crate and returns stdout.
+/// Builds a generated crate's tests, runs them under [`program_run_limit`],
+/// and returns stdout.
 pub(crate) fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
-    let output = Command::new("cargo")
-        .arg("test")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(manifest)
-        .output()?;
+    let binaries = build_generated_tests(&mut Command::new("cargo"), manifest)?;
+    let output = run_generated_tests(&binaries, |_| {})?;
 
     if !output.status.success() {
         return Err(io::Error::other(format!(
@@ -717,11 +862,11 @@ pub(crate) fn ensure_python_agrees(source: &str, expected_stdout: &str, name: &s
     let root = project.path().join("python-oracle");
     fs::create_dir_all(&root)?;
     fs::write(root.join("main.py"), source)?;
-    let output = Command::new("python3")
-        .current_dir(&root)
-        .arg("-I")
-        .arg("main.py")
-        .output()?;
+    let output = output_within(
+        Command::new("python3").current_dir(&root).arg("-I").arg("main.py"),
+        program_run_limit(),
+        &format!("python3 on {name}"),
+    )?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "python3 failed on {name}\nstderr:\n{}",
