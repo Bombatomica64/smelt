@@ -63,7 +63,7 @@ impl SmeltObject {
     //~ it -- `Object.assign(erasedTarget, source)`, a property store on a
     //~ recovered object -- landed in a copy nothing else could see.
     //~ A second handle on this object's own field store.
-    fn smelt_shared_record(&self) -> SmeltRecord<JsString, SmeltUnknown> { /*@if construct*/smelt_proxy_sync(self);/*@end*/ SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }
+    fn smelt_shared_record(&self) -> SmeltRecord<JsString, SmeltUnknown> { /*@if construct*/smelt_proxy_sync(self); /*@end*/SmeltRecord { id: self.id, store: ::std::rc::Rc::clone(&self.store) } }
     //~ Build an erased object from entries in source order.
     //~
     //~ The entry sequence is ordered on purpose: JavaScript own-key order is a
