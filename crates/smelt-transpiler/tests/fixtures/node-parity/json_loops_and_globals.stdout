@@ -1,0 +1,62 @@
+6
+1 NaN
+[ 4, 5 ]
+1
+[1,2]
+{"args":[1,"a"]}
+2
+true
+localhost 1337
+1
+threw
+true false true
+true false
+true false true true
+true false
+true false 0 2 [ 3, 1 ]
+[ 1, 2 ]
+3
+0 false
+true false
+b 2
+2 3 undefined
+[ 0, 1, 2 ]
+[ 'a' ] [ 1, 2, 3 ]
+2 1
+42 1e+21 1e-7
+Invalid Date
+42.5 3.5 NaN
+1.5 2.5 NaN
+42 127 NaN
+12 -1
+true false
+Infinity -Infinity NaN
+true false
+true false false false true false
+NaN true
+true false
+true false
+1 9
+true false
+true false
+true false
+true true file.txt 7
+true false
+b
+true
+Ada 1
+1 0
+31 none none none
+y none none
+2 undefined
+[ 'ab', 'Cd' ]
+[ [ 1, 2 ], [ 3 ] ]
+https://ex.com/a%20b?x=1&y=2#frag
+a%20b
+[object Array] [object Date] [object Number] [object String] [object Null] [object Map] [object Set]
+1 2
+2
+true 5
+true [object Map] 0
+boom root many 1
+3 text/plain

@@ -920,6 +920,18 @@ fn generics_behaviour() -> TestResult {
     verify_node_parity("generics_behaviour")
 }
 
+/// `Array.prototype.pop` on an empty array answers `undefined` for every element shape.
+#[test]
+fn list_pop_empty() -> TestResult {
+    verify_node_parity("list_pop_empty")
+}
+
+/// Loop shapes, JSON, host values and global numeric helpers behave like Node.
+#[test]
+fn json_loops_and_globals() -> TestResult {
+    verify_node_parity("json_loops_and_globals")
+}
+
 /// Callbacks, optional parameters and the builtin calls reached from them behave like TypeScript.
 #[test]
 fn callback_options_behaviour() -> TestResult {

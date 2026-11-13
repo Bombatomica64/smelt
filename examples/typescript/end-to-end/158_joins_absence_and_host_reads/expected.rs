@@ -1785,7 +1785,7 @@ fn smelt_is_for_in_shape_key_text(shape: SmeltForInShape, key: &str) -> bool { !
 /// Return whether an object key is visible to JavaScript `for...in` iteration.
 fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { smelt_is_for_in_shape_key_text(smelt_for_in_object_shape(object), key) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<JsString, V>, key: &JsStr) -> bool { if smelt_record_has_host_marker(record) { return false; } if !key.eq_str_prefix("__smelt") && !record.store.borrow().has_internal_keys() { return true; } let key = &*key.to_string_lossy(); !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_call" && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.has_text_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.has_text_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.has_text_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<JsString, V>, key: &JsStr) -> bool { if smelt_record_has_host_marker(record) { return false; } if !key.eq_str_prefix("__smelt") && !record.store.borrow().has_internal_keys() { return true; } let key = &*key.to_string_lossy(); !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_call" && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && key != "__smelt_map" && key != "__smelt_set" && !(record.has_text_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.has_text_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.has_text_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
 /// Every key JavaScript `for...in` yields for an erased object, prototype chain included.
 fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<JsString> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.eq_str_prefix("__smelt_proto:") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_str_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
@@ -4148,7 +4148,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
+    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
@@ -4171,7 +4171,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
+    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
@@ -4185,7 +4185,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| ({ let smelt_len = _smelt_value.len() as i64; let smelt_index = 2.0 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
+    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     _smelt_tmp_13 = _smelt_tmp_15;
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));

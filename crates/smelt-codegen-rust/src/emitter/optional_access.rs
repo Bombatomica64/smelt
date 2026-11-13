@@ -117,6 +117,7 @@ impl FunctionEmitter<'_> {
         &self,
         receiver: &Operand,
         index: &Operand,
+        from_end: bool,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
@@ -138,12 +139,12 @@ impl FunctionEmitter<'_> {
         }
         if is_optional {
             let value =
-                self.optional_index_access_expr(&RustExpr::path("_smelt_value"), inner_ty, index, result_ty)?;
+                self.optional_index_access_expr(&RustExpr::path("_smelt_value"), inner_ty, index, from_end, result_ty)?;
             Ok(receiver_text.postfix(format!(
                 ".as_ref().and_then(|_smelt_value| {value})", value = value.delimited()
             )))
         } else {
-            self.optional_index_access_expr(&receiver_text, inner_ty, index, result_ty)
+            self.optional_index_access_expr(&receiver_text, inner_ty, index, from_end, result_ty)
         }
     }
 
@@ -505,6 +506,7 @@ impl FunctionEmitter<'_> {
         receiver_text: &RustExpr,
         receiver_ty: TypeId,
         index: &Operand,
+        from_end: bool,
         result_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         // A numbered group read (`match[n]`) has an `Optional(String)` result, so
@@ -526,7 +528,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(item_ty)) => {
                 let index_text =
-                    self.optional_normalized_index_expr(&receiver_text.postfix(".len()"), index)?;
+                    self.optional_normalized_index_expr(&receiver_text.postfix(".len()"), index, from_end)?;
                 // Read receiver, not a write one: the `.len()` in the index
                 // argument takes a second borrow of the same shared cell, and
                 // only shared borrows may coexist. See `place.rs`'s list index
@@ -551,6 +553,7 @@ impl FunctionEmitter<'_> {
                 let index_text = self.optional_normalized_index_expr(
                     &self.string_len_expr(receiver_text),
                     index,
+                    from_end,
                 )?;
                 Ok(RustExpr::atom(format!(
                     "({index_text}).and_then(|smelt_index| {})",
@@ -749,6 +752,7 @@ impl FunctionEmitter<'_> {
         &self,
         len_expr: &RustExpr,
         index: &Operand,
+        from_end: bool,
     ) -> Result<RustExpr, EmitError> {
         let index_ty = self.operand_ty(index)?;
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
@@ -756,6 +760,14 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type(index, self.type_id(Type::Float)?)?
         };
+        // Without `from_end` a negative index addresses no slot: JavaScript's
+        // `xs[-1]` reads a property that is not there, and only `.at` counts back.
+        if !from_end {
+            return Ok(RustExpr::atom(format!(
+                "usize::try_from({index_text} as i64).ok()",
+                index_text = index_text.as_cast_operand()
+            )));
+        }
         Ok(RustExpr::atom(format!(
             "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; let smelt_normalized = if smelt_index < 0 {{ smelt_len + smelt_index }} else {{ smelt_index }}; usize::try_from(smelt_normalized).ok() }}", len_expr = len_expr.as_cast_operand(), index_text = index_text.as_cast_operand()
         )))

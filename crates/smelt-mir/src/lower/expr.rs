@@ -19,6 +19,7 @@ use crate::{
 
 use super::context::LoweringCtx;
 use crate::AbsentSpelling;
+use crate::NegativeIndex;
 use super::transcribe::transcribed_op_pattern;
 use super::{LoweredMutationReceiver, LowerError, MutationWriteback, lower_literal};
 
@@ -258,11 +259,13 @@ impl LoweringCtx<'_> {
                 let index_operand = self.lower_expr(*index)?;
                 if matches!(self.krate.types.get(expr.ty), Some(Type::Optional(_))) {
                     let dest = self.push_temp(expr.ty, expr.span);
+                    let from_end = matches!(self.negative_index_policy(expr.span), NegativeIndex::FromEnd);
                     self.block_mut()?.statements.push(Statement::Assign {
                         dest,
                         value: Rvalue::OptionalIndex {
                             receiver: receiver_operand,
                             index: index_operand,
+                            from_end,
                         },
                     });
                     return Ok(Operand::Copy(Place::Local(dest)));
@@ -457,14 +460,12 @@ impl LoweringCtx<'_> {
                 self.write_back_mutation_receiver(writeback)?;
                 sorted
             }
-            ExprKind::ListPop { list } => {
+            ExprKind::ListPop { list, raises_when_empty } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                self.assign_temp_with_writeback(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::ListPop { list: list_operand },
-                    writeback,
-                )?
+                let value = Rvalue::ListPop { list: list_operand, raises_when_empty: *raises_when_empty };
+                let popped = self.finish_op(&expr, value)?;
+                self.write_back_mutation_receiver(writeback)?;
+                popped
             }
             ExprKind::ListShift { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;

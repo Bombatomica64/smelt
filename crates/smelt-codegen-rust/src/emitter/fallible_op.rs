@@ -109,6 +109,22 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Renders Python's `xs.pop()`: the last item, or a raised `IndexError`
+    /// on an empty list.
+    fn python_list_pop_call(&self, list: &Operand) -> Result<(RenderedCall, TypeId), EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("a Python list pop needs a list"));
+        };
+        let list_text = self.operand_borrow_expr(list)?;
+        Ok((
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{list_text}.borrow_mut().pop().ok_or_else(|| smelt_py_index_error(\"pop from empty list\"))", list_text = list_text.tight()
+            ))),
+            *item_ty,
+        ))
+    }
+
     /// Renders Python's `xs[i]` on a list or a string: a negative index counts
     /// from the end (a string's in code points), and an index past either end
     /// raises `IndexError`.
@@ -244,6 +260,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::DictPop { dict, key, default: None } => self.python_dict_pop_call(dict, key)?,
             Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
+            Rvalue::ListPop { list, .. } => self.python_list_pop_call(list)?,
             Rvalue::ListIndex { list, item } => (
                 RenderedCall::propagating(self.list_index_expr(list, item)?),
                 self.type_id(Type::Int)?,

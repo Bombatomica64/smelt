@@ -52,6 +52,13 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::from(check));
         }
+        // An optional of exactly this class: present means an instance, and an
+        // absent value is `false` (`undefined instanceof Date`).
+        if let Some(Type::Optional(inner)) = self.mir.types.get(value_ty)
+            && matches!(self.mir.types.get(*inner), Some(Type::Class { name, .. }) if *name == class)
+        {
+            return Ok(self.operand_expr(value)?.postfix(".is_some()"));
+        }
         // A host constructor this crate REASSIGNS (`globalThis.File = class File
         // extends Blob {}`) lives in an override slot, and `instanceof` reads the
         // binding — so the check has to read the slot too. The static marker

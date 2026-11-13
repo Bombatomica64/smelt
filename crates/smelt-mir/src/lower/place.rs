@@ -146,7 +146,7 @@ impl LoweringCtx<'_> {
                     writebacks,
                 ))
             }
-            ExprKind::OptionalIndex { receiver, index } => {
+            ExprKind::OptionalIndex { receiver, index, .. } => {
                 let (base, writebacks) = self.narrowed_receiver_base(*receiver, expr.span)?;
                 let index_operand = self.lower_expr(*index)?;
                 Ok((

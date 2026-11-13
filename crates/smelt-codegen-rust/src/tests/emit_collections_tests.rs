@@ -597,7 +597,7 @@ function read(values: Array<number | undefined>, index: number): number | undefi
 ",
     );
     assert_eq!(rust_items(&source, &["fn read"]), r"fn read(values: SmeltList<Option<f64>>, index: f64) -> Option<f64> {
-let _smelt_tmp_2: Option<f64> = ({ let smelt_len = values.clone().len() as i64; let smelt_index = index as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| values.clone().borrow().get(smelt_index).cloned().flatten());
+let _smelt_tmp_2: Option<f64> = (usize::try_from(index as i64).ok()).and_then(|smelt_index| values.clone().borrow().get(smelt_index).cloned().flatten());
 return _smelt_tmp_2;
 }");
 }
