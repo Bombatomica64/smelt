@@ -383,6 +383,14 @@ impl ModuleBuilder<'_> {
 
         for statement in &program.body {
             self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
+            // A class definition evaluates its static initializers here, in
+            // source order, though the class item was lowered above.
+            if let Some(class) = module_class_declaration(statement)
+                && let Some(item) = self.class_item_lowered_at(self.span(class.span.start, class.span.end)).map(|(item, _)| item)
+            {
+                let root = body.root;
+                self.touch_class_static_initializers(item, &mut body, root);
+            }
             if matches!(
                 statement,
                 Statement::FunctionDeclaration(_)
@@ -611,5 +619,22 @@ impl ModuleBuilder<'_> {
             // nobody awaits, and only a drain at exit runs it.
             matches!(self.ctx.krate.types.get(expr.ty), Some(Type::Future(_)))
         })
+    }
+}
+
+/// The class a module-level statement declares: `class C {}`, `export class
+/// C {}` or `export default class C {}`.
+fn module_class_declaration<'s, 'a>(statement: &'s Statement<'a>) -> Option<&'s oxc::ast::ast::Class<'a>> {
+    match statement {
+        Statement::ClassDeclaration(class) => Some(class),
+        Statement::ExportDeclaration(export) => match &export.declaration {
+            Declaration::ClassDeclaration(class) => Some(class),
+            _ => None,
+        },
+        Statement::ExportDefaultDeclaration(export) => match &export.declaration {
+            oxc::ast::ast::ExportDefaultDeclarationKind::ClassDeclaration(class) => Some(class),
+            _ => None,
+        },
+        _ => None,
     }
 }

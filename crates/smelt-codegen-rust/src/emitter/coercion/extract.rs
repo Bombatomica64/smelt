@@ -391,8 +391,17 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key).is_some_and(Type::is_text)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
+                // An erased object read as a dictionary is its own store,
+                // shared, except a class value: its enumerable static fields
+                // (`Object.keys(Box)`) live in their storage
+                // (`smelt_object_dict_view`, in a program with class values).
+                let object_view = if self.context.demand().has(Need::ClassValue) {
+                    "smelt_object_dict_view(&smelt_value)"
+                } else {
+                    "smelt_value.smelt_shared_record()"
+                };
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_value) => smelt_value.smelt_shared_record(), SmeltUnknown::Array(smelt_values) => smelt_values.own_entries().into_iter().map(|(smelt_key, smelt_value)| (JsString::from(smelt_key), smelt_value)).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| (JsString::from(smelt_index.to_string()), SmeltUnknown::String(JsString::from_units(&[*smelt_unit])))).collect(), SmeltUnknown::Function(smelt_value) => SmeltRecord::from([(JsString::from(\"{SMELT_CALL}\"), SmeltUnknown::Function(smelt_value))]), _ => SmeltRecord::new() }}", text = text.delimited()
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_value) => {object_view}, SmeltUnknown::Array(smelt_values) => smelt_values.own_entries().into_iter().map(|(smelt_key, smelt_value)| (JsString::from(smelt_key), smelt_value)).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| (JsString::from(smelt_index.to_string()), SmeltUnknown::String(JsString::from_units(&[*smelt_unit])))).collect(), SmeltUnknown::Function(smelt_value) => SmeltRecord::from([(JsString::from(\"{SMELT_CALL}\"), SmeltUnknown::Function(smelt_value))]), _ => SmeltRecord::new() }}", text = text.delimited()
                 ))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {

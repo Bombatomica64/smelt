@@ -290,6 +290,61 @@ fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, stati
 //~ write calls through this function. A write the hook stores (an own static
 //~ of the class) leaves no own data property behind, so a later read, through
 //~ this value or any other, asks the storage again.
+//~ A class value's enumerable properties, in JavaScript's order. Static
+//~ fields are own enumerable data properties of the class, in definition
+//~ order; its `name` and its static methods are non-enumerable, and its
+//~ ancestors' static fields are inherited through the constructor's
+//~ prototype chain (`Object.getPrototypeOf(Sub) === Box`), so `for...in`
+//~ yields them after the own keys while `Object.keys` does not. The emitter
+//~ names the fields in a `__smelt_class_fields` marker (`[key, own]` pairs)
+//~ and the static methods in `__smelt_class_methods`; values are read now
+//~ through the static getter, so the view shows every write, through the
+//~ class or through any value of it. Inherited fields are recorded under the
+//~ `__smelt_proto:` prefix the own-key filters skip and `for...in` walks. A
+//~ property the program added to the value later (`K.extra = 1`) follows
+//~ the fields, as it does in JavaScript. The view is a snapshot: a write to
+//~ it does not reach the class.
+/// The enumerable view of a class value; `None` for any other object.
+fn smelt_class_value_view(map: &SmeltObject) -> Option<SmeltRecord<JsString, SmeltUnknown>> {
+    let Some(SmeltUnknown::Array(fields)) = map.get("__smelt_class_fields") else { return None };
+    let methods = match map.get("__smelt_class_methods") { Some(SmeltUnknown::Array(methods)) => methods.into_vec(), _ => Vec::new() };
+    let view = SmeltRecord::new();
+    let mut inherited = Vec::new();
+    for field in fields.into_vec() {
+        let SmeltUnknown::Array(pair) = field else { continue };
+        let pair = pair.into_vec();
+        let (Some(SmeltUnknown::String(key)), Some(SmeltUnknown::Bool(own))) = (pair.first(), pair.get(1)) else { continue };
+        if *own { view.insert(key.clone(), smelt_get_object_field(map, &*key.to_string_lossy())); } else { inherited.push(key.clone()); }
+    }
+    for (key, value) in map.iter() {
+        let text = key.to_string_lossy();
+        if text.starts_with("__smelt") || text == "name" || view.contains_key(&*key) || methods.iter().any(|method| matches!(method, SmeltUnknown::String(method) if *method == key)) { continue; }
+        view.insert(key, value);
+    }
+    for key in inherited {
+        if view.contains_key(&*key) { continue; }
+        let value = smelt_get_object_field(map, &*key.to_string_lossy());
+        view.insert(JsString::from(format!("__smelt_proto:{}", key.to_string_lossy())), value);
+    }
+    Some(view)
+}
+
+//~ An erased object read as a string-keyed dictionary (`Object.keys`,
+//~ `Object.entries`, `for...in` over an erased value) is its own store,
+//~ shared (`smelt_shared_record`), except a class value: its static fields
+//~ live in their storage and its store holds its non-enumerable `name` and
+//~ static methods, so it answers its enumerable view, read at this point.
+//~ The emitter calls this only in a program with class values; any other
+//~ program reads the store directly.
+/// An erased object as a dictionary of its enumerable string-keyed properties.
+fn smelt_object_dict_view(object: &SmeltObject) -> SmeltRecord<JsString, SmeltUnknown> { smelt_class_value_view(object).unwrap_or_else(|| object.smelt_shared_record()) }
+//~ The entries a spread (`{ ...value }`) or an object rest copies out of an
+//~ erased object: its own entries, in a new record carrying its id. A class
+//~ value copies its own enumerable static fields (not the inherited ones a
+//~ spread never copies), not its `name`, methods and markers.
+/// The own entries a spread or object rest copies out of an erased object.
+fn smelt_object_copy_record(object: SmeltObject) -> SmeltRecord<JsString, SmeltUnknown> { match smelt_class_value_view(&object) { Some(view) => SmeltRecord::with_id_from_entries(object.id, view.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt_proto:"))), None => SmeltRecord::with_id_from_entries(object.id, object.into_iter()) } }
+
 /// Forward a property write on a class value to the class's live static storage.
 fn smelt_class_static_write(map: &SmeltObject, key: &str, value: &SmeltUnknown) { let stored = matches!(map.get("__smelt_method:__smelt_static_set"), Some(SmeltUnknown::Function(setter)) if matches!(setter(vec![SmeltUnknown::String(key.into()), value.clone()]), Ok(SmeltUnknown::Bool(true)))); if stored { map.remove(key); } }
 // @smelt:item-end

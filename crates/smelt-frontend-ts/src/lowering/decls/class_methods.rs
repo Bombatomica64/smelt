@@ -9,6 +9,7 @@ use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::visibility;
 use oxc::ast::ast::{BindingPattern, ClassElement, Expression, MethodDefinitionKind, PropertyKey};
+use oxc::span::GetSpan;
 use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, Field, Function, FunctionOwner, Item, Literal, LocalDecl,
     MethodSig, Param, ParamSig, Span, Type, Visibility,
@@ -212,6 +213,158 @@ impl ModuleBuilder<'_> {
             storage: None,
             span: self.span(property.span.start, property.span.end),
         }))
+    }
+
+    /// Declare a `static NAME[: T] = <expression>` whose initializer is not a
+    /// literal: a field with no folded `value`, whose live storage the class
+    /// lowering creates and whose initializer runs once, at class-definition
+    /// time ([`Self::lower_static_field_initializer`]).
+    ///
+    /// The field's type is the most precise one known before the class
+    /// exists: the annotation; else the type TypeScript gave the declared
+    /// property (`static cache = new Map<string, number>()` is
+    /// `Map<string, number>`); else the type of the initializer lowered on
+    /// its own. The last one is only a fallback for a program the checker did
+    /// not see: there the initializer cannot read the class it is declared in
+    /// yet, so such an initializer needs an annotation.
+    pub(in crate::lowering) fn class_static_expression_field(
+        &mut self,
+        class_text: &str,
+        property: &oxc::ast::ast::PropertyDefinition<'_>,
+        value: &Expression<'_>,
+    ) -> Result<smelt_hir::StaticField, SmeltError> {
+        let name = self.property_key_symbol(&property.key)?;
+        let key_span = property.key.span();
+        let ty = if let Some(annotation) = &property.type_annotation {
+            self.ts_type_to_hir(&annotation.type_annotation)?
+        } else if let Some(ty) = self.checker_binding_type(key_span.start, key_span.end) {
+            ty
+        } else {
+            let span = self.span(value.span().start, value.span().end);
+            let saved = self.static_initializer_class.replace(class_text.to_owned());
+            let ctx = self.nested_fn_ctx(BodyKind::Method, false, None);
+            let lowered = self.with_nested_body(ctx, ScopeGroups::BINDINGS, |this, _| {
+                let mut scratch = Body::new(None, span);
+                this.expression(value, &mut scratch).map(|expr| Self::expr_ty(&scratch, expr))
+            });
+            self.static_initializer_class = saved;
+            lowered?
+        };
+        let visibility = if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+            Visibility::Hidden
+        } else {
+            visibility(property.accessibility)
+        };
+        Ok(smelt_hir::StaticField {
+            name,
+            ty,
+            visibility,
+            value: None,
+            mutable: !property.readonly,
+            storage: None,
+            span: self.span(property.span.start, property.span.end),
+        })
+    }
+
+    /// Lower the initializer of class `class_item`'s static field `field`
+    /// into its storage's lazy initializer.
+    ///
+    /// Runs once the class is registered, so the initializer can read the
+    /// class's statics and call its static methods (`Box.count + 1`,
+    /// `Box.make()`), and `this` in it is the class itself
+    /// (`ModuleBuilder::static_initializer_class`). The body is a nested
+    /// method-like body with no enclosing local in scope: it becomes its own
+    /// function item. It runs when the class definition is evaluated, in
+    /// source order ([`Self::touch_class_static_initializers`]).
+    pub(in crate::lowering) fn lower_static_field_initializer(
+        &mut self,
+        class_text: &str,
+        class_item: smelt_hir::ItemId,
+        field: smelt_hir::Symbol,
+        value: &Expression<'_>,
+    ) -> Result<(), SmeltError> {
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return Ok(());
+        };
+        let Some((storage, ty, span)) = class
+            .static_fields
+            .iter()
+            .find(|static_field| static_field.name == field)
+            .and_then(|static_field| static_field.storage.map(|item| (item, static_field.ty, static_field.span)))
+        else {
+            return Ok(());
+        };
+        let field_text = crate::lowering::support::source_spelling(&self.ctx.krate, field)
+            .unwrap_or_default()
+            .to_owned();
+        // A class declared in a function body is still ONE class item, whose
+        // statics are one storage for the program (as its literal statics
+        // are): the initializer runs at the first definition and cannot read
+        // the enclosing function's locals, which the note says.
+        let nested = self.classes.in_body();
+        let saved_static = self.static_initializer_class.replace(class_text.to_owned());
+        let saved_class = self.current_class.replace(class_text.to_owned());
+        let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(ty));
+        let lowered = self.with_nested_body(ctx, ScopeGroups::BINDINGS, |this, _| {
+            let mut init_body = Body::new(None, span);
+            let value = this.expression_with_hint(value, &mut init_body, Some(ty))?;
+            init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
+            Ok::<_, SmeltError>(init_body)
+        });
+        self.current_class = saved_class;
+        self.static_initializer_class = saved_static;
+        let init_body = lowered.map_err(|mut error| {
+            if nested && error.category == smelt_stdlib::DiagnosticCategory::UnresolvedReference && error.note.is_none() {
+                error.note = Some(
+                    "a static field initializer of a class declared inside a function is evaluated once, \
+                     apart from the function's frames, so it cannot read the function's locals"
+                        .to_owned(),
+                );
+            }
+            error
+        })?;
+        self.install_global_initializer(storage, &format!("{class_text}_{field_text}"), init_body, ty, span);
+        Ok(())
+    }
+
+    /// Evaluate class `class_item`'s expression-initialized static fields
+    /// where the class definition is, in declaration order.
+    ///
+    /// Each one's storage is a lazy cell, which would otherwise initialize on
+    /// first access: an initializer's side effects (`static n = log("n")`)
+    /// would move to wherever the class is first used, or never happen.
+    /// JavaScript runs them once when the class definition is evaluated, so a
+    /// unit-typed read of each cell is placed there (the same touch a module
+    /// binding gets, `ModuleBuilder::force_module_slot_init`). A field whose
+    /// initializer reads an earlier static initializes that one first, which
+    /// is the order the touches already impose.
+    pub(in crate::lowering) fn touch_class_static_initializers(
+        &mut self,
+        class_item: smelt_hir::ItemId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) {
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return;
+        };
+        let touched = class
+            .static_fields
+            .iter()
+            .filter_map(|field| field.storage.map(|item| (item, field.span)))
+            .filter(|(item, _)| {
+                matches!(
+                    self.item_ref(*item),
+                    Item::MutableGlobal(global)
+                        if matches!(global.init, smelt_hir::MutableGlobalInit::Initializer(_))
+                )
+            })
+            .collect::<Vec<_>>();
+        // Typed UNIT: a unit-typed `GlobalGet` is a bare touch of the cell.
+        let unit = self.ctx.krate.types.intern(Type::None);
+        for (item, span) in touched {
+            let read = body.push_expr(Expr { kind: ExprKind::GlobalGet { item }, ty: unit, span });
+            body.push_stmt_to_block(block, smelt_hir::Stmt::Expr(read));
+        }
     }
 
     /// Convert a static-field initializer expression to a concrete literal and

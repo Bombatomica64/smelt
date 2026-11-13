@@ -490,34 +490,50 @@ impl ModuleBuilder<'_> {
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Option<smelt_hir::ItemId> {
-        let Expression::Identifier(class_name) = &member.object else {
-            return None;
-        };
-        // A class whose body is being lowered (`static bump() { Box.n++ }`)
-        // is not registered yet, so only a LEXICAL binding of the spelling
-        // disqualifies it; `class_static_field_named` asks the class tables.
-        if matches!(self.resolve_value(class_name.name.as_str()), super::resolve::ValueBinding::Local(_)) {
-            return None;
-        }
-        let (field, own) = self.class_static_field_named(class_name.name.as_str(), member.property.name.as_str())?;
-        if own { field.storage } else { None }
+        let class_name = self.static_class_receiver(&member.object)?;
+        let (field, own) = self.class_static_field_named(&class_name, member.property.name.as_str())?;
+        if own && field.mutable { field.storage } else { None }
     }
 
-    /// Lowers a static member read: a mutable static reads its live storage
-    /// (`GlobalGet`), a constant one is its literal.
+    /// The class `this` names in a static field initializer, when one is
+    /// being lowered and no binding of `this` is in scope.
+    pub(in crate::lowering) fn static_initializer_this(&self) -> Option<String> {
+        let class = self.static_initializer_class.clone()?;
+        (!self.scope.is_bound("this")).then_some(class)
+    }
+
+    /// The class a static-member receiver names: a class identifier no
+    /// lexical binding shadows, or `this` inside a static field initializer
+    /// (see `ModuleBuilder::static_initializer_class`).
+    ///
+    /// A class whose body is being lowered (`static bump() { Box.n++ }`) is
+    /// not registered yet, so only a LEXICAL binding of the spelling
+    /// disqualifies an identifier (a parameter named like the class is that
+    /// parameter, A4); the callers ask the class tables.
+    pub(in crate::lowering) fn static_class_receiver(&self, object: &Expression<'_>) -> Option<String> {
+        match object {
+            Expression::Identifier(class_name) => (!matches!(
+                self.resolve_value(class_name.name.as_str()),
+                super::resolve::ValueBinding::Local(_)
+            ))
+            .then(|| class_name.name.to_string()),
+            Expression::ThisExpression(_) => self.static_initializer_this(),
+            _ => None,
+        }
+    }
+
+    /// Lowers a static member read: a static with storage (every mutable
+    /// one, and a `readonly` one whose initializer is not a literal) reads
+    /// it (`GlobalGet`), a constant one is its literal.
     pub(super) fn materialized_static_member(
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(class_name) = &member.object else {
+        let Some(class_name) = self.static_class_receiver(&member.object) else {
             return Ok(None);
         };
-        // A parameter or local named like the class is that binding (A4).
-        if matches!(self.resolve_value(class_name.name.as_str()), super::resolve::ValueBinding::Local(_)) {
-            return Ok(None);
-        }
-        let Some((field, _own)) = self.class_static_field_named(class_name.name.as_str(), member.property.name.as_str())
+        let Some((field, _own)) = self.class_static_field_named(&class_name, member.property.name.as_str())
         else {
             return Ok(None);
         };
@@ -531,7 +547,7 @@ impl ModuleBuilder<'_> {
                 "typescript.static-value",
                 &format!(
                     "static member '{}.{}' is not a concrete primitive",
-                    class_name.name, member.property.name
+                    class_name, member.property.name
                 ),
             ));
         };
