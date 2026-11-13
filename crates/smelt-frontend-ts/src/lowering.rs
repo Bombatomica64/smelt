@@ -911,6 +911,16 @@ struct ModuleBuilder<'ctx> {
     types: state::type_scope::TypeScope,
     /// Currently processing class name, if any.
     current_class: Option<String>,
+    /// The class whose static field initializer is being lowered, if any.
+    ///
+    /// JavaScript evaluates a static initializer with `this` bound to the
+    /// class being defined: always that class, never a subclass (a subclass
+    /// runs its own initializers with its own `this`). So inside one, `this`
+    /// IS the class name, and `this.count` / `this.make()` lower exactly like
+    /// `Box.count` / `Box.make()` (`ModuleBuilder::static_class_receiver`).
+    /// A static METHOD does not set this: its `this` is the receiver of the
+    /// call, which may be a subclass.
+    static_initializer_class: Option<String>,
     /// The context of the function body being lowered: async-ness, return
     /// type, generator types, `arguments` arity, statement sink, postfix-update
     /// mode and specialization receiver.

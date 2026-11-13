@@ -68,6 +68,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ),
             types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
+            static_initializer_class: None,
             fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
             pinned_nodes: Vec::new(),

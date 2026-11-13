@@ -1509,6 +1509,20 @@ impl FunctionEmitter<'_> {
         Ok(text)
     }
 
+    /// Rust text stringifying one tagged, union or type-parameter join element, bound by reference
+    /// as `smelt_item`: each runtime arm of `String(item)` for the element type.
+    fn join_erased_item_text(&self, item_ty: TypeId) -> Result<String, EmitError> {
+        Ok(self.carrier_format(self.carrier()?, format_args!(
+            "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
+            smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"),
+            item = if matches!(self.mir.types.get(item_ty), Some(Type::Union(_) | Type::TypeParam { .. })) {
+                format!("({})", self.erase_rendered(&RustExpr::path("smelt_item").cloned_value(), item_ty)?.delimited())
+            } else {
+                "smelt_item".to_owned()
+            },
+        )))
+    }
+
     /// Converts a string join operation to Rust text.
     pub(super) fn string_join_expr(
         &self,
@@ -1542,15 +1556,7 @@ impl FunctionEmitter<'_> {
             // A union element (`(number | string)[]`) stringifies each value at
             // its runtime arm: erase it to the tagged value and take the same
             // `String(item)` arms an `unknown` element does.
-            Some(Type::Unknown | Type::Union(_)) => self.carrier_format(self.carrier()?, format_args!(
-                "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
-                smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"),
-                item = if matches!(self.mir.types.get(*item_ty), Some(Type::Union(_))) {
-                    format!("({})", self.erase_rendered(&RustExpr::path("smelt_item").cloned_value(), *item_ty)?.delimited())
-                } else {
-                    "smelt_item".to_owned()
-                },
-            )),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => self.join_erased_item_text(*item_ty)?,
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
                 Some(Type::Bool) => {
                     "smelt_item.as_ref().map_or_else(String::new, |smelt_value| smelt_value.to_string())".to_owned()
@@ -1567,6 +1573,13 @@ impl FunctionEmitter<'_> {
                     let to_string = if self.indexes_utf16() { "|value| value.to_string_lossy()" } else { "Clone::clone" };
                     format!("smelt_item.as_ref().map_or_else(String::new, {to_string})")
                 }
+                // An `(unknown | null)[]` element is absent or a tagged value; the
+                // closure parameter rebinds `smelt_item` to the present value, so the
+                // erased arms apply unchanged.
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => format!(
+                    "smelt_item.as_ref().map_or_else(String::new, |smelt_item| {{ {item} }})",
+                    item = self.join_erased_item_text(*inner)?,
+                ),
                 _ => {
                     return Err(EmitError::new(
                         "string join optional items must contain primitive values",

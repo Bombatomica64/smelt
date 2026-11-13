@@ -6,7 +6,15 @@
 //!   across modules) and a write through the class used as a value
 //!   (`(K: typeof Box) => { K.PI = n }`) all reach the one value every read
 //!   sees, through the class or through any value of it. A `static readonly`
-//!   field stays a folded constant.
+//!   field with a literal initializer stays a folded constant.
+//! - **Expression static initializers**: `static count = compute()`,
+//!   `static items: string[] = []`, `static next = Box.count + 1` and a
+//!   `static readonly` one run once, when the class definition runs, in
+//!   source order, with `this` bound to the class, and keep their types.
+//! - **Enumerable statics**: `Object.keys`/`Object.entries`/`for...in`
+//!   (and `Object.values`, a spread, `Object.assign`) over a class value see
+//!   its static fields in definition order, without its methods or `name`,
+//!   inherited ones only through `for...in`, and every write.
 //! - **Self-reading constructor-function fields**: `this.count = this.count +
 //!   1` in a prototype method keeps the field the `number` its other writes
 //!   give it (a fixed point over the field's own type), instead of erasing it.
@@ -154,4 +162,155 @@ fn self_reading_constructor_function_field_stays_typed() -> TestResult {
     ensure_eq(&output, &SELF_READING_FIELD_OUTPUT.to_owned(), "the self-reading-field program's output")?;
     let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
     ensure(generated.contains("    count: f64,"), "the fixed point keeps `count: f64`")
+}
+
+/// The storage declaration of the static `CLASS_FIELD` (upper-cased, as
+/// the global is named), or an empty string.
+fn static_storage_line<'a>(generated: &'a str, field: &str) -> &'a str {
+    let needle = format!("static SMELT_GLOBAL_{field}_");
+    generated.lines().find(|line| line.contains(&needle)).unwrap_or_default()
+}
+
+/// Static fields initialized by expressions: side effects in source order
+/// (around the module statements between the classes), a static reading an
+/// earlier one, `this` in an initializer (the class; a subclass's own `this`
+/// reads the inherited static), a static method called from one, a `static
+/// readonly` evaluated once, and array, Map and object statics mutated later.
+const STATIC_INITIALIZERS_TS: &str = r#"function log(tag: string): number { console.log("init", tag); return tag.length; }
+console.log("before");
+class Box {
+  static PI = 7;
+  static first = log("first");
+  static next = Box.first + 1;
+  static doubled = this.PI * 2;
+  static made = this.make(4);
+  static readonly LIMIT = Box.make(log("limit"));
+  static items: string[] = [];
+  static cache = new Map<string, number>();
+  static conf: { depth: number; tag: string } = { depth: 1, tag: "c" };
+  static make(n: number): number { return n * 10; }
+}
+console.log("between");
+class Sub extends Box { static extra = this.PI + log("extra"); }
+console.log("after", Box.first, Box.next, Box.doubled, Box.made, Box.LIMIT, Sub.extra);
+Box.items.push("a"); Box.items.push("b");
+Box.cache.set("k", 5); Box.cache.set("j", Box.cache.size);
+Box.conf.depth += 8;
+Box.first = 0;
+console.log(Box.items.join("+"), Box.items.length, Box.cache.get("k"), Box.cache.get("j"), Box.conf.depth, Box.conf.tag, Box.first, Box.next);
+"#;
+
+/// What Node prints for [`STATIC_INITIALIZERS_TS`].
+const STATIC_INITIALIZERS_OUTPUT: &str =
+    "before\ninit first\ninit limit\nbetween\ninit extra\nafter 5 6 14 40 50 12\na+b 2 5 1 9 c 0 6\n";
+
+/// Expression static initializers run once at class definition, in source
+/// order, and their storage keeps the initializer's precise type.
+#[test]
+fn static_initializers_run_at_class_definition() -> TestResult {
+    let sources = [("main.ts", STATIC_INITIALIZERS_TS)];
+    ensure_node_agrees(&sources, "main.ts", STATIC_INITIALIZERS_OUTPUT, "static initializers")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &STATIC_INITIALIZERS_OUTPUT.to_owned(), "the static-initializers program's output")?;
+    // Type preservation: each storage cell has the initializer's own type,
+    // and `this` in an initializer is the class, read statically rather than
+    // through the dynamic `this` channel.
+    let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
+    for (field, ty) in [
+        ("BOX_NEXT", "::std::cell::Cell<f64>"),
+        ("BOX_DOUBLED", "::std::cell::Cell<f64>"),
+        ("BOX_LIMIT", "::std::cell::Cell<f64>"),
+        ("BOX_ITEMS", "::std::cell::RefCell<SmeltList<JsString>>"),
+        ("BOX_CACHE", "::std::cell::RefCell<SmeltJsMap<JsString, f64>>"),
+        ("SUB_EXTRA", "::std::cell::Cell<f64>"),
+    ] {
+        ensure(static_storage_line(&generated, field).contains(ty), format!("`{field}` is stored as `{ty}`"))?;
+    }
+    let conf = static_storage_line(&generated, "BOX_CONF");
+    ensure(conf.contains("RefCell<SmeltRecord") && !conf.contains("SmeltUnknown"), format!("`Box.conf` keeps its declared struct type: {conf}"))?;
+    ensure(!generated.contains("smelt_this()"), "`this` in a static initializer is the class, not the dynamic `this`")
+}
+
+/// A class value enumerated: own static fields in definition order without
+/// methods (`Object.keys`, `Object.entries`), inherited ones through
+/// `for...in` only, a write through the class value and a mutation of an
+/// array static both visible, and `Object.values`, a spread and
+/// `Object.assign` (onto the class, and copying a subclass's own statics
+/// into a record or an erased object) agreeing.
+const CLASS_KEYS_TS: &str = r#"class Base {
+  static a = 1;
+  static readonly b = "two";
+  static c: number[] = [3];
+  static m(): number { return 0; }
+}
+class Child extends Base { static d = Base.a + 10; static n(): number { return 1; } }
+function keys(K: typeof Base) { return Object.keys(K); }
+function entries(K: typeof Base) { return JSON.stringify(Object.entries(K)); }
+function forIn(K: typeof Base) { const out: string[] = []; for (const k in K) out.push(k); return out.join(","); }
+function bump(K: typeof Base) { K.a = K.a + 5; }
+console.log(keys(Base).join(","), "|", keys(Child).join(","));
+console.log(forIn(Base), "|", forIn(Child));
+console.log(entries(Base), entries(Child));
+function intoErased(target: unknown, K: typeof Base) { return Object.assign(target as object, K); }
+console.log(JSON.stringify(Object.assign({}, Child)), JSON.stringify({ ...Child }), JSON.stringify(Object.values(Child)), JSON.stringify(intoErased({ z: 0 }, Child)));
+bump(Base); Base.c.push(4);
+console.log(entries(Base), JSON.stringify(Object.values(Base)), JSON.stringify({ ...Base }));
+Object.assign(Base, { a: 100 });
+console.log(Base.a, Child.a, entries(Base));
+"#;
+
+/// What Node prints for [`CLASS_KEYS_TS`].
+const CLASS_KEYS_OUTPUT: &str = concat!(
+    "a,b,c | d\n",
+    "a,b,c | d,a,b,c\n",
+    "[[\"a\",1],[\"b\",\"two\"],[\"c\",[3]]] [[\"d\",11]]\n",
+    "{\"d\":11} {\"d\":11} [11] {\"z\":0,\"d\":11}\n",
+    "[[\"a\",6],[\"b\",\"two\"],[\"c\",[3,4]]] [6,\"two\",[3,4]] {\"a\":6,\"b\":\"two\",\"c\":[3,4]}\n",
+    "100 100 [[\"a\",100],[\"b\",\"two\"],[\"c\",[3,4]]]\n",
+);
+
+/// Static fields are the enumerable own properties of a class value.
+#[test]
+fn class_values_enumerate_their_static_fields() -> TestResult {
+    let sources = [("main.ts", CLASS_KEYS_TS)];
+    ensure_node_agrees(&sources, "main.ts", CLASS_KEYS_OUTPUT, "class value keys")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &CLASS_KEYS_OUTPUT.to_owned(), "the class-value keys program's output")
+}
+
+/// A write through a class value, by name and by computed key, in a program
+/// that also builds a `Proxy`: there every erased property write goes through
+/// the runtime's generic keyed store (`smelt_index_assign`), which must still
+/// reach the class's static storage.
+const PROXY_STATICS_TS: &str = r#"class Box { static PI = 7; static tags: string[] = ["a"]; }
+const p = new Proxy({ x: 1 } as Record<string, number>, { get: (t, k) => (t[k as string] ?? 0) + 1 });
+function write(K: typeof Box, n: number) { K.PI = n; }
+function keyed(K: typeof Box, key: "PI", n: number) { K[key] = n; }
+write(Box, 9);
+console.log(Box.PI, p.x, JSON.stringify(Object.entries(Box)));
+keyed(Box, "PI", 12);
+console.log(Box.PI, Object.keys(Box).join(","));
+"#;
+
+/// What Node prints for [`PROXY_STATICS_TS`].
+const PROXY_STATICS_OUTPUT: &str = "9 2 [[\"PI\",9],[\"tags\",[\"a\"]]]\n12 PI,tags\n";
+
+/// Writes through a class value stay live when proxies route erased writes.
+#[test]
+fn class_value_writes_stay_live_beside_a_proxy() -> TestResult {
+    let sources = [("main.ts", PROXY_STATICS_TS)];
+    ensure_node_agrees(&sources, "main.ts", PROXY_STATICS_OUTPUT, "statics beside a proxy")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &PROXY_STATICS_OUTPUT.to_owned(), "the proxy-statics program's output")?;
+    let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
+    ensure(generated.contains("smelt_index_assign(&mut"), "the write goes through the generic keyed store")
 }

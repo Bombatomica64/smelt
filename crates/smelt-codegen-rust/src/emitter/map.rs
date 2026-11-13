@@ -810,6 +810,14 @@ impl FunctionEmitter<'_> {
         } else {
             self.carrier_format(self.carrier()?, format_args!("IntoSmeltUnknown::into_smelt_unknown({source_text}.clone())", source_text = source_text.tight()))
         };
+        // A class value spreads its static fields, not its markers
+        // (`smelt_object_copy_record`); without class values the copy is the
+        // object's entries as they are.
+        if self.context.demand().has(Need::ClassValue) {
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "match {scrutinee_text} {{ SmeltUnknown::Object(smelt_map) => {{ let smelt_copy = smelt_object_copy_record(smelt_map); SmeltRecord::with_id_from_entries(smelt_copy.id, smelt_copy.iter().map(|(smelt_key, smelt_value)| (smelt_key, {value_text}))) }}, _ => SmeltRecord::new() }}", value_text = value_text.delimited()
+            ))));
+        }
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
             "match {scrutinee_text} {{ SmeltUnknown::Object(smelt_map) => SmeltRecord::with_id_from_entries(smelt_map.id, smelt_map.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {value_text}))), _ => SmeltRecord::new() }}", value_text = value_text.delimited()
         ))))
@@ -863,8 +871,15 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("({dict_text}.clone()).into_smelt_unknown()", dict_text = dict_text.tight())))
                 };
+                // A class value's rest copies its static fields
+                // (`smelt_object_copy_record`).
+                let copy = if self.context.demand().has(Need::ClassValue) {
+                    "smelt_object_copy_record(smelt_map)"
+                } else {
+                    "SmeltRecord::with_id_from_entries(smelt_map.id, smelt_map.into_iter())"
+                };
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match {erased} {{ SmeltUnknown::Object(smelt_map) => SmeltRecord::with_id_from_entries(smelt_map.id, smelt_map.into_iter()), _ => Default::default() }}", erased = erased.delimited()
+                    "match {erased} {{ SmeltUnknown::Object(smelt_map) => {copy}, _ => Default::default() }}", erased = erased.delimited()
                 ))));
             }
             return Err(EmitError::new("dict copy receiver must be a dict"));
@@ -925,7 +940,7 @@ impl FunctionEmitter<'_> {
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS, dict_text = dict_text.delimited(),
                 )))),
                 smelt_hir::DictProjectionOp::ForInKeys => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Object(smelt_map) => {index_keys}(&SmeltUnknown::Object(smelt_map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&smelt_map)), SmeltUnknown::Array(smelt_values) => smelt_values.own_keys(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(smelt_map) => {index_keys}(&SmeltUnknown::Object(smelt_map.clone())).unwrap_or_else(|| smelt_for_in_object_keys(&smelt_map)), SmeltUnknown::Array(smelt_values) => smelt_values.own_keys().into_iter().map(Into::into).collect(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS, dict_text = dict_text.delimited(),
                 )))),
                 // `Reflect.ownKeys` reports the string keys AND the symbol keys,

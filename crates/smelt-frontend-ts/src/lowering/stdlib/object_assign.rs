@@ -64,6 +64,27 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // `Object.assign(Box, { PI: 5 })` writes onto the CLASS: each own
+        // static it names lands in that static's storage, any other key
+        // becomes an own property of the class value, all in place. The class
+        // value is the erased object those writes go through
+        // (`smelt_index_assign` → `smelt_class_static_write`); the record path
+        // below would merge into a copy the class never sees.
+        if let Some(target_expression) = target_arg.as_expression()
+            && self.names_class_value(target_expression.without_parentheses())
+        {
+            let target = self.expression(target_expression, body)?;
+            let unknown_ty = Self::expr_ty(body, target);
+            let mut sources = Vec::with_capacity(source_args.len());
+            for source_arg in source_args {
+                sources.push(self.argument(source_arg, body)?);
+            }
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictAssign { target, sources },
+                ty: unknown_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if let Some(expr) = self.object_assign_class_target(target_arg, source_args, call, body)? {
             return Ok(Some(expr));
         }
@@ -174,6 +195,19 @@ impl ModuleBuilder<'_> {
             ty: record_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Whether `expression` evaluates to a class itself (the erased class
+    /// value, `ExprKind::ClassValue`): a class name no local shadows, or
+    /// `this` in a static field initializer.
+    fn names_class_value(&self, expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::Identifier(name) => {
+                matches!(self.resolve_value(name.name.as_str()), crate::lowering::resolve::ValueBinding::Class)
+            }
+            Expression::ThisExpression(_) => self.static_initializer_this().is_some(),
+            _ => false,
+        }
     }
 
     /// Lower `Object.assign(instance, ...sources)` onto a class instance or interface record.

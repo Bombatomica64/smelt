@@ -297,6 +297,9 @@ impl ModuleBuilder<'_> {
             // Static class constants declared directly in source (`static NAME =
             // <literal>`), as opposed to `static_fields` merged from specialization.
             let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
+            // Source static fields whose initializer is an expression, in
+            // declaration order: lowered once the class is registered.
+            let mut static_initializers: Vec<(smelt_hir::Symbol, &Expression<'_>)> = Vec::new();
             let mut abstract_methods = Vec::new();
             let mut descriptor_accessors = Vec::new();
             // Accessor descriptors built directly from plain source getters on a
@@ -356,9 +359,9 @@ impl ModuleBuilder<'_> {
                                 continue;
                             }
                             // A `static NAME: T = <literal>` declares a class-level
-                            // constant resolvable via `Class.NAME`. Lower it to a
-                            // materialized static field. Non-literal or
-                            // untyped static initializers are not yet lowered.
+                            // field resolvable via `Class.NAME` whose value is the
+                            // literal; any other initializer is an expression the
+                            // class definition evaluates (below).
                             if let Some(static_field) = this.class_static_field(property)? {
                                 source_static_fields.push(static_field);
                                 continue;
@@ -383,9 +386,22 @@ impl ModuleBuilder<'_> {
                             ) {
                                 continue;
                             }
+                            // Any other initializer (`static count = compute()`,
+                            // `static items: string[] = []`, `static next =
+                            // Box.count + 1`) is evaluated once, when the class
+                            // definition runs, with `this` bound to the class:
+                            // the field gets storage whose lazy initializer is
+                            // that expression, lowered once the class exists.
+                            if let Some(value) = &property.value {
+                                let static_field =
+                                    this.class_static_expression_field(&class_source_name, property, value)?;
+                                static_initializers.push((static_field.name, value));
+                                source_static_fields.push(static_field);
+                                continue;
+                            }
                             return Err(SmeltError::unsupported(
                                 this.span(property.span.start, property.span.end),
-                                "static fields require a concrete literal initializer",
+                                "static fields without an initializer are not lowered yet",
                             ));
                         }
                         let name = this.property_key_symbol(&property.key)?;
@@ -564,12 +580,23 @@ impl ModuleBuilder<'_> {
                 }
             }
             // A mutable static is live storage: one module mutable global per
-            // field, initialized from its literal, which every read and write
-            // (direct, or through the class used as a value) goes through.
+            // field, which every read and write (direct, or through the class
+            // used as a value) goes through. A literal initializer is stored
+            // inline; an expression one is `Pending` until the class exists.
+            // A `readonly` static with an expression initializer gets storage
+            // too: it is evaluated once, not folded, and TypeScript rejects
+            // every write to it. A `readonly` literal stays a constant.
             for static_field in &mut static_fields {
-                if static_field.mutable
-                    && static_field.storage.is_none()
-                    && let Some(initial) = static_field.value.clone()
+                if static_field.storage.is_some() {
+                    continue;
+                }
+                let init = match &static_field.value {
+                    Some(literal) if static_field.mutable => smelt_hir::MutableGlobalInit::Literal(literal.clone()),
+                    None if static_initializers.iter().any(|(name, _)| *name == static_field.name) => {
+                        smelt_hir::MutableGlobalInit::Pending
+                    }
+                    _ => continue,
+                };
                 {
                     let field_text = super::super::support::source_spelling(&this.ctx.krate, static_field.name)
                         .unwrap_or_default()
@@ -579,7 +606,7 @@ impl ModuleBuilder<'_> {
                         smelt_hir::MutableGlobalItem {
                             name: symbol,
                             ty: static_field.ty,
-                            init: smelt_hir::MutableGlobalInit::Literal(initial),
+                            init,
                             visibility: Visibility::Public,
                             span: static_field.span,
                         },
@@ -1041,12 +1068,15 @@ impl ModuleBuilder<'_> {
                 implements,
                 protocols: Vec::new(),
             }));
-            Ok(item)
+            Ok((item, static_initializers))
         });
         self.classes.truncate_statics_in_flight(statics_depth);
-        let item = item?;
-        self.classes.register(class_source_name, item);
+        let (item, static_initializers) = item?;
+        self.classes.register(class_source_name.clone(), item);
         self.validate_implements(item)?;
+        for (field, value) in static_initializers {
+            self.lower_static_field_initializer(&class_source_name, item, field, value)?;
+        }
         Ok(item)
     }
 
