@@ -125,11 +125,6 @@ jobs:
             git diff --name-only HEAD^1 HEAD | python3 scripts/ci_affected_packages.py -
           fi
 
-      - name: Free runner disk
-        uses: ./.github/actions/free-disk
-        with:
-          background: "true"
-
       - name: Set up Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -221,11 +216,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Free runner disk
-        uses: ./.github/actions/free-disk
-        with:
-          background: "true"
-
       - name: Unpack test archive
         uses: ./.github/actions/test-archive
 
@@ -244,17 +234,29 @@ jobs:
       - name: Install test tools
         uses: ./.github/actions/setup-test-tools
 
-      - name: Tests (nextest partition)
+      # The process-shared share is mostly one sequential loop (the end-to-end
+      # examples), so it runs beside the nextest partition rather than after
+      # it; its log is printed whole once both finish.
+      - name: Tests (nextest partition + process-shared binaries)
         run: |
+          python3 scripts/ci_test_shard.py serial --shard ${{ matrix.shard }} --total 4 \
+            > serial.log 2>&1 &
+          serial=$!
+          set +e
           cargo nextest run $NEXTEST_META \
             --partition slice:${{ matrix.shard }}/4 \
             -E "$(python3 scripts/ci_test_shard.py filter)" \
             --no-fail-fast --no-tests=warn
+          nextest_status=$?
+          wait "$serial"
+          serial_status=$?
+          set -e
+          echo "::group::Process-shared binaries (libtest), exit $serial_status"
+          cat serial.log
+          echo "::endgroup::"
           df -h / | tail -1
-
-      - name: Tests that share one process (libtest)
-        if: ${{ !cancelled() }}
-        run: python3 scripts/ci_test_shard.py serial --shard ${{ matrix.shard }} --total 4
+          echo "nextest exit $nextest_status, process-shared exit $serial_status"
+          [ "$nextest_status" -eq 0 ] && [ "$serial_status" -eq 0 ]
 
       - name: Save sccache
         if: ${{ always() }}
@@ -358,7 +360,7 @@ jobs:
   #
   # Each test spawns a nested cargo build with its own scratch target directory
   # (~250 MB); an ENOSPC inside one surfaces as an ordinary test failure.
-  # `--test-threads 3` and the reclaimed disk keep each runner inside budget.
+  # `--test-threads 3` bounds that; the runner image has ~88 GB free.
   runtime-tiers:
     needs: build
     if: ${{ needs.build.outputs.full == 'true' }}
@@ -372,11 +374,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Free runner disk
-        uses: ./.github/actions/free-disk
-        with:
-          background: "true"
 
       - name: Unpack test archive
         uses: ./.github/actions/test-archive
