@@ -130,18 +130,18 @@ Fork the repo and submit a pr :)
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 79.08% |
-| Lines | 81.24% |
-| Regions | 74.40% |
+| Functions | 79.09% |
+| Lines | 81.27% |
+| Regions | 74.44% |
 | Branches | 69.42% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 90.44% | 84.93% | 70.96% |
+| `smelt-codegen-rust` | 90.45% | 85.03% | 70.97% |
 | `smelt-frontend-py` | 86.84% | 79.84% | 71.61% |
-| `smelt-frontend-ts` | 90.11% | 82.61% | 71.82% |
+| `smelt-frontend-ts` | 90.13% | 82.61% | 71.82% |
 | `smelt-hir` | 84.72% | 80.33% | 72.19% |
 | `smelt-mir` | 93.53% | 91.90% | 76.94% |
 | `smelt-py-types` | 84.62% | 92.44% | 68.97% |
@@ -152,6 +152,7 @@ Fork the repo and submit a pr :)
 | `smelt-ts-model` | 91.67% | 92.22% | 50.00% |
 | `smelt-ts-types` | 85.94% | 88.56% | 84.03% |
 <!-- COVERAGE:END -->
+
 
 
 
