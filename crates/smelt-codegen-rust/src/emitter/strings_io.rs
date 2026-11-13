@@ -89,12 +89,20 @@ impl FunctionEmitter<'_> {
         self.date_timestamp_result_preserving_receiver_expr(text, dest_ty, receiver)
     }
 
-    /// Wrap a replacement timestamp while preserving metadata from an erased Date receiver.
+    /// Store a replacement timestamp into an erased Date receiver and answer it.
     ///
-    /// Date subclasses and context-backed dates carry behavior through fields on
-    /// their erased object representation. JavaScript setters mutate that same
-    /// Date kind, so rebuilding only `__smelt_date` would incorrectly discard
-    /// timezone and subclass metadata.
+    /// A JavaScript setter mutates its receiver: `d.setDate(n)` changes the
+    /// date every alias of `d` sees, and answers the new time value (MIR
+    /// re-binds the receiver to the setter's result). An erased Date is a
+    /// marker object on a shared field store, so the new timestamp is written
+    /// into that store and the result is a second handle on the SAME object.
+    /// Its other fields (`__smelt_timezone`, subclass fields) are untouched,
+    /// which is also why they survive. A receiver that is not an object (no
+    /// Date to mutate) answers the freshly built marker.
+    ///
+    /// The receiver is borrowed, and the timestamp read inside `text` borrows
+    /// it too (`date_timestamp_value`), so the one MIR operand is rendered
+    /// twice without being moved twice.
     pub(super) fn date_timestamp_result_preserving_receiver_expr(
         &self,
         text: &RustExpr,
@@ -119,7 +127,7 @@ impl FunctionEmitter<'_> {
         }
         let receiver_text = self.operand_expr(receiver)?;
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-            "{{ let smelt_date_result = {result_text}; if let (SmeltUnknown::Object(smelt_result), SmeltUnknown::Object(receiver)) = (&smelt_date_result, {receiver_text}) {{ for (smelt_key, smelt_value) in receiver.iter() {{ if smelt_key != \"{SMELT_DATE}\" {{ smelt_result.insert(smelt_key, smelt_value); }} }} }} smelt_date_result }}", result_text = result_text.delimited(), receiver_text = receiver_text.delimited()
+            "{{ let smelt_date_result = {result_text}; match (&smelt_date_result, &{receiver_text}) {{ (SmeltUnknown::Object(smelt_result), SmeltUnknown::Object(smelt_receiver)) => {{ smelt_receiver.insert(\"{SMELT_DATE}\", smelt_result.get(\"{SMELT_DATE}\").unwrap_or(SmeltUnknown::Number(f64::NAN))); SmeltUnknown::Object(smelt_receiver.clone()) }} _ => smelt_date_result }} }}", result_text = result_text.delimited(), receiver_text = receiver_text.tight()
         ))))
     }
 
@@ -246,7 +254,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), value_text = value_text.delimited()
+                    "match &{value_text} {{ SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if *smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(value),"), value_text = value_text.tight()
                 ))))
             }
             _ => Ok(RustExpr::atom("f64::NAN")),

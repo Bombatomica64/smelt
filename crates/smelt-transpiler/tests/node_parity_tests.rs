@@ -736,6 +736,14 @@ fn record_callable_type_arguments() -> TestResult {
     verify_node_parity("record_callable_type_arguments")
 }
 
+/// A Date setter on an erased receiver (a `D extends Date` generic) borrows
+/// the receiver to read its timestamp and writes the new one into the same
+/// object, so the receiver is not moved twice and every alias sees the write.
+#[test]
+fn date_setter_erased_receiver() -> TestResult {
+    verify_node_parity("date_setter_erased_receiver")
+}
+
 /// A class value carries its static methods, so a computed-key call finds
 /// them, and a block-local class used as a value constructs that class, not
 /// another class of the same name.
