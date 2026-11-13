@@ -127,6 +127,8 @@ def workflow_violations(name, text):
     test = jobs.get("test", "")
     if "ci_test_shard.py serial" not in test or "ci_test_shard.py filter" not in test:
         found.append("ci.yml: job `test` no longer runs the process-shared binaries it excludes")
+    if "cargo fmt --all -- --check" not in jobs.get("ci-gates", ""):
+        found.append("ci.yml: job `ci-gates` no longer checks formatting")
     if "scripts/publish-crates.sh" not in jobs.get("package", ""):
         found.append("ci.yml: job `package` no longer dry-runs packaging")
     gate = jobs.get("es-toolkit-regression", "")
