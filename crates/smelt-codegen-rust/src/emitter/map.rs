@@ -466,7 +466,7 @@ impl FunctionEmitter<'_> {
                     dict
                 {
                     return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "match &mut {} {{ SmeltUnknown::Object(smelt_map) => smelt_map.remove(&{key_text}).is_some(), _ => true }}",
+                        "match &mut {} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.remove(&{key_text}); true }}, _ => true }}",
                         self.local_mut_value(*local)?.tight(), key_text = key_text.tight()
                     ))));
                 }
@@ -926,7 +926,7 @@ impl FunctionEmitter<'_> {
                 // An array's own keys are its indices and named properties, all
                 // strings.
                 smelt_hir::DictProjectionOp::OwnKeys => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match {dict_text} {{ SmeltUnknown::Object(smelt_map) => {index_keys}(&SmeltUnknown::Object(smelt_map.clone())).map_or_else(|| smelt_own_object_keys(&smelt_map), |smelt_keys| smelt_keys.into_iter().map(|smelt_key| SmeltUnknown::String(smelt_key.as_str().into())).collect()), SmeltUnknown::Array(smelt_values) => smelt_values.own_keys().into_iter().map(|smelt_key| SmeltUnknown::String(smelt_key.as_str().into())).collect(), _ => Vec::new() }}",
+                    "match {dict_text} {{ SmeltUnknown::Object(smelt_map) => {index_keys}(&SmeltUnknown::Object(smelt_map.clone())).map_or_else(|| smelt_own_object_keys(&smelt_map), |smelt_keys| smelt_keys.into_iter().map(|smelt_key| SmeltUnknown::String(smelt_key.clone().into())).collect()), SmeltUnknown::Array(smelt_values) => smelt_values.own_keys().into_iter().map(|smelt_key| SmeltUnknown::String(smelt_key.clone().into())).collect(), _ => Vec::new() }}",
                     index_keys = smelt_stdlib::runtime_symbols::byte_buffer::INDEX_KEYS, dict_text = dict_text.delimited(),
                 )))),
                 // `Object.getOwnPropertySymbols` yields symbol VALUES. The stored

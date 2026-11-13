@@ -322,11 +322,19 @@ impl ModuleBuilder<'_> {
         if !(shapes.contains(&true) && shapes.contains(&false)) {
             return last_return;
         }
-        let erased = self.erase_with(ErasureReason::OpenLayout, "overloads return an array or an object");
+        // The overload returns as one union, each arm at its awaited type.
+        let arms = returns
+            .iter()
+            .map(|ty| match self.ctx.krate.types.get(*ty) {
+                Some(Type::Future(inner)) => *inner,
+                _ => *ty,
+            })
+            .collect::<Vec<_>>();
+        let joined = self.ctx.krate.types.intern(Type::Union(arms));
         if is_async {
-            self.ctx.krate.types.intern(Type::Future(erased))
+            self.ctx.krate.types.intern(Type::Future(joined))
         } else {
-            erased
+            joined
         }
     }
 

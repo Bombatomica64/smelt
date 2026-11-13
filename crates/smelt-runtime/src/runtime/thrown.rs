@@ -111,8 +111,9 @@ fn smelt_panic_catch_enter() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(de
 #[allow(dead_code)]
 fn smelt_panic_catch_leave() { SMELT_PANIC_CATCH_DEPTH.with(|depth| depth.set(depth.get() - 1)); }
 /// Report a Smelt throw only when no `catch` will receive it: an uncaught throw
-/// must say what was thrown, as Node does, instead of exiting silently.
-fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); } return; } previous(info); })); }); }
+/// says what was thrown and exits 1, as Node does. Under `cargo test` it unwinds
+/// instead, so one test's throw fails that test and not the whole harness.
+fn smelt_install_panic_hook() { SMELT_PANIC_HOOK.call_once(|| { let previous = ::std::panic::take_hook(); ::std::panic::set_hook(Box::new(move |info| { if let Some(thrown) = info.payload().downcast_ref::<SmeltPanic>() { if SMELT_PANIC_CATCH_DEPTH.with(::std::cell::Cell::get) == 0 { eprintln!("Uncaught {thrown}"); if !cfg!(test) { ::std::process::exit(1); } } return; } previous(info); })); }); }
 /// Report a Smelt error through the panic channel, keeping its identity.
 fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_panic_hook(); ::std::panic::panic_any(smelt_panic_payload(&*error)) }
 /// Recover the message text a `catch` observes from a caught panic.
@@ -134,7 +135,6 @@ fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.dow
 //~ or a scoped generic. The payload is kept whole here and recovered by
 //~ `smelt_thrown_value`; foreign errors reaching the same channel fall back
 //~ to their `Display` text.
-#[derive(Debug)]
 struct SmeltThrown { value: SmeltUnknown }
 //~ `Display` projects the payload's `message` field when present. Erased
 //~ `Error` values carry `message`, and it is what the runtime's own promise
@@ -145,6 +145,9 @@ struct SmeltThrown { value: SmeltUnknown }
 //~ literal `[object Object]`.
 /// Project a thrown payload to the message text a string-typed `catch` observes.
 fn smelt_thrown_message(value: &SmeltUnknown) -> String { if let SmeltUnknown::Object(object) = value { if let Some(SmeltUnknown::String(message)) = object.get("message") { return message.to_string(); } } format!("{value}") }
+//~ What a thrown value escaping `main` prints: its class and message, as Node's
+//~ uncaught report names them, rather than the runtime's representation.
+impl ::std::fmt::Debug for SmeltThrown { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { let message = smelt_thrown_message(&self.value); if let SmeltUnknown::Object(object) = &self.value && let Some(SmeltUnknown::String(class)) = object.get("__smelt_error") { return write!(formatter, "Uncaught {}: {message}", class.to_string_lossy()); } write!(formatter, "Uncaught {message}") } }
 impl ::std::fmt::Display for SmeltThrown { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str(&smelt_thrown_message(&self.value)) } }
 impl ::std::error::Error for SmeltThrown {}
 /// Enter the error channel, keeping the thrown value's structure and identity.

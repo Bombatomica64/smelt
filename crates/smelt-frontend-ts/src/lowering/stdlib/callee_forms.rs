@@ -205,6 +205,50 @@ impl ModuleBuilder<'_> {
         }
         let callee = self.call_expression(callee_call, body)?;
         let callee_ty = Self::expr_ty(body, callee);
+        // `f(x)(...args)`: the spread list is the argument list, not one argument.
+        if Self::call_has_spread_arguments(call) {
+            // not a new erasure: names the runtime call-ABI carrier type only.
+            let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+            self.ctx.krate.types.intern(Type::List(unknown_ty));
+            let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
+            let span = self.span(call.span.start, call.span.end);
+            let fixed_return = match self.ctx.krate.types.get(callee_ty) {
+                Some(Type::Function(function)) if function.rest.is_none() => Some(function.return_ty),
+                _ => None,
+            };
+            // A list cannot fill fixed parameters positionally at the Rust
+            // level, so a fixed-arity callee is called through its erased view,
+            // and its result narrows back to the declared return.
+            let Some(return_ty) = fixed_return else {
+                let ty = match self.ctx.krate.types.get(callee_ty) {
+                    Some(Type::Function(function)) => function.return_ty,
+                    _ => unknown_ty,
+                };
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCallSpread { callee, args },
+                    ty,
+                    span,
+                }));
+            };
+            let erased_callee = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: unknown_ty,
+                span,
+            });
+            let result = body.push_expr(Expr {
+                kind: ExprKind::ClosureCallSpread { callee: erased_callee, args },
+                ty: unknown_ty,
+                span,
+            });
+            if self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown) {
+                return Ok(result);
+            }
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast { value: result, target: return_ty },
+                ty: return_ty,
+                span,
+            }));
+        }
         let probed_arg_tys = self.probe_argument_types(&call.arguments, body);
         let Some(function_ty) = self.function_member_type_for_args(
             callee_ty,

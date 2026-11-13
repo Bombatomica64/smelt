@@ -270,6 +270,15 @@ fn analyze_body(
                     } = value
                     {
                         note_erased_operand(&mut erased, cast_value);
+                    } else if let Rvalue::ConstructLike { args, .. } = value {
+                        // The dynamically constructed object may keep and write
+                        // through its arguments (`new Proxy(target, handler)`).
+                        for arg in args {
+                            note_erased_operand(&mut erased, arg);
+                            if let Some(local) = arg.local() {
+                                mutated.insert(local);
+                            }
+                        }
                     }
                 }
                 // The fused dict-entry update writes THROUGH its base, so the
