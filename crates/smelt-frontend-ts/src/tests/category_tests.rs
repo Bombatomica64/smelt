@@ -1185,8 +1185,8 @@ fn trapped_proxy_into_a_concrete_record_is_rejected() -> Result<(), String> {
 fn trapped_proxy_into_an_erased_record_lowers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let _ = lower_ok(
-        ts!(r#"function make<K>(): Record<string, K> { return new Proxy({}, { get: () => undefined as K }); }
-function erased(): Record<string, unknown> { return new Proxy({}, { get: () => 1 }); }"#),
+        ts!(r"function make<K>(): Record<string, K> { return new Proxy({}, { get: () => undefined as K }); }
+function erased(): Record<string, unknown> { return new Proxy({}, { get: () => 1 }); }"),
         &mut ctx,
     )?;
     Ok(())
