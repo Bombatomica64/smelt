@@ -2959,6 +2959,12 @@ fn smelt_noop_waker() -> ::std::task::Waker {
     unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
 }
 
+#[allow(dead_code)]
+fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
+    eprintln!("{error:?}");
+    if !cfg!(test) { ::std::process::exit(1); }
+}
+
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
     SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
@@ -4248,7 +4254,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_17 = ({ let smelt_bit_lhs = { let smelt_bit_v = ((match smelt_get_unknown_field(&_smelt_tmp_16.clone(), "maxAge").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_17)); };
     let _smelt_tmp_19 = finally_then_catch();
-    _smelt_tmp_20 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_19.await; })); () };
+    _smelt_tmp_20 = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_19.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
     let _smelt_tmp_21: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_22 = _smelt_tmp_21.await?;
     return Ok(());

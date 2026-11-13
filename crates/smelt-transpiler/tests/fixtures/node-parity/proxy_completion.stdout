@@ -1,0 +1,5 @@
+[ 'get:a', 'get:b' ]
+[ 'get:a', 'get:b', 'delete:a' ] [ 'b' ]
+[ 'b', 'c' ] [ [ 'b', 2 ], [ 'c', 3 ] ]
+[] false
+false

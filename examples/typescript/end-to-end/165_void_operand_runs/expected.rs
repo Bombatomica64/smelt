@@ -2880,6 +2880,12 @@ fn smelt_noop_waker() -> ::std::task::Waker {
     unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
 }
 
+#[allow(dead_code)]
+fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
+    eprintln!("{error:?}");
+    if !cfg!(test) { ::std::process::exit(1); }
+}
+
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
     SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
@@ -3824,11 +3830,11 @@ smelt_local.block_on(&smelt_runtime, async move {
     if !(_smelt_tmp_10) { break; }
     label = _smelt_tmp_7.borrow().get(_smelt_tmp_8).cloned().unwrap_or_else(|| JsString::new());
     let _smelt_tmp_11 = SmeltFuture::from_future(Box::pin(later(label)));
-    _smelt_tmp_12 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_11.await; })); () };
+    _smelt_tmp_12 = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_11.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
     _smelt_tmp_8 = _smelt_tmp_8 + 1;
     }
     let _smelt_tmp_13 = SmeltFuture::from_future(Box::pin(later(JsString::from("top"))));
-    _smelt_tmp_14 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_13.await; })); () };
+    _smelt_tmp_14 = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_13.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
     let mut _smelt_tmp_15: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_16 = _smelt_tmp_15.await?;
     return Ok(());

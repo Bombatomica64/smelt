@@ -2948,6 +2948,12 @@ fn smelt_noop_waker() -> ::std::task::Waker {
     unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
 }
 
+#[allow(dead_code)]
+fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
+    eprintln!("{error:?}");
+    if !cfg!(test) { ::std::process::exit(1); }
+}
+
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
     SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
@@ -4799,7 +4805,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_39 = SmeltRegExp::new(JsString::from("a/b"), JsString::new());
     let _ = { println!("{}", JsString::from(&*_smelt_tmp_39.source).clone()); };
     let _smelt_tmp_41 = SmeltFuture::from_future(Box::pin(run()));
-    _smelt_tmp_42 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_41.await; })); () };
+    _smelt_tmp_42 = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_41.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
     _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 171.0, 255.0]; smelt_list_items }));
     digest_bytes = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_43.to_vec());
     _smelt_tmp_45 = Into::<SmeltList<_>>::into(SmeltList::new(digest_bytes.clone().to_elements()));
