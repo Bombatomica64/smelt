@@ -14,4 +14,3 @@ module examples/python/end-to-end/04_none/input.py (ModuleId(0))
 
 interned types
   t0 = None
-  t1 = PyStr
