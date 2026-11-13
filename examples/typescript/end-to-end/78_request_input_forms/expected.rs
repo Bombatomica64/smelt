@@ -2946,6 +2946,12 @@ fn smelt_noop_waker() -> ::std::task::Waker {
     unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
 }
 
+#[allow(dead_code)]
+fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
+    eprintln!("{error:?}");
+    if !cfg!(test) { ::std::process::exit(1); }
+}
+
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
     SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
@@ -4328,7 +4334,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_1: ();
     let _smelt_tmp_3: ();
     let _smelt_tmp_0 = SmeltFuture::from_future(Box::pin(run()));
-    _smelt_tmp_1 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_0.await; })); () };
+    _smelt_tmp_1 = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_0.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
     let _smelt_tmp_2: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_3 = _smelt_tmp_2.await?;
     return Ok(());
