@@ -679,6 +679,25 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     }
 }
 
+/// A source binding that may not be assigned yet.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct SmeltBinding<T>(Option<T>);
+
+#[allow(dead_code)]
+impl<T> SmeltBinding<T> {
+    /// A binding before its first assignment.
+    const fn unbound() -> Self { Self(None) }
+    /// Assigns the binding.
+    fn bind(&mut self, value: T) { self.0 = Some(value); }
+    /// Reads a binding the compiler proved assigned at this read.
+    fn bound(&self) -> &T { self.0.as_ref().unwrap_or_else(|| unreachable!("a binding proved assigned was read unassigned")) }
+    /// Writes through a binding the compiler proved assigned at this write.
+    fn bound_mut(&mut self) -> &mut T { self.0.as_mut().unwrap_or_else(|| unreachable!("a binding proved assigned was written unassigned")) }
+    /// Raises `unbound()` if the binding is not assigned.
+    fn checked(&self, unbound: impl FnOnce() -> Box<dyn ::std::error::Error>) -> Result<&T, Box<dyn ::std::error::Error>> { self.0.as_ref().ok_or_else(unbound) }
+}
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -758,7 +777,7 @@ pub(crate) fn scaled(base: f64) -> f64 {
 }
 
 pub(crate) fn count_up(base: f64) -> f64 {
-    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64) -> f64>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let limit: f64 = 3.0;
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let limit = limit.clone();
@@ -771,18 +790,18 @@ pub(crate) fn count_up(base: f64) -> f64 {
     closure_arg_0
     } else {
     _smelt_tmp_4 = closure_arg_0 + 1.0;
-    _smelt_tmp_5 = ((*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_4);
+    _smelt_tmp_5 = ((*(*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_4);
     _smelt_tmp_5
     }
     }
 });
-    (*smelt_capture_walk.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_walk.borrow())); (smelt_callable)(base) };
+    { let smelt_next_value = _smelt_tmp_3.clone(); (*smelt_capture_walk.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_4: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_walk.borrow()).bound())); (smelt_callable)(base) };
     return _smelt_tmp_4;
 }
 
 pub(crate) fn count_up_hoisted(base: f64) -> f64 {
-    let smelt_capture_climb: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_climb: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64) -> f64>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let limit: f64 = 4.0;
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_climb = ::std::rc::Rc::downgrade(&smelt_capture_climb);
@@ -795,13 +814,13 @@ pub(crate) fn count_up_hoisted(base: f64) -> f64 {
     closure_arg_0
     } else {
     _smelt_tmp_4 = closure_arg_0 + 1.0;
-    _smelt_tmp_5 = ((*smelt_capture_climb.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_4);
+    _smelt_tmp_5 = ((*(*smelt_capture_climb.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_4);
     _smelt_tmp_5
     }
     }
 });
-    (*smelt_capture_climb.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_climb.borrow())); (smelt_callable)(base) };
+    { let smelt_next_value = _smelt_tmp_3.clone(); (*smelt_capture_climb.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_4: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_climb.borrow()).bound())); (smelt_callable)(base) };
     return _smelt_tmp_4;
 }
 

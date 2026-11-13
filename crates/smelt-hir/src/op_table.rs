@@ -2351,6 +2351,24 @@ macro_rules! op_group_transcribed {
                 fallible(*divisor_checked)
                 call("@python_division".to_owned())
                 => (format!("python_division {lhs} {} {rhs} checked={divisor_checked:?}", op.source_text()));
+            /// Raise the source language's error unless a binding whose storage
+            /// can be unassigned (`smelt_mir::LocalInit::MaybeUnbound`) is
+            /// assigned: a Python name assigned on only some paths, a JavaScript
+            /// binding read in its temporal dead zone through a closure.
+            ///
+            /// MIR lowering's definite-assignment pass is the only producer: it
+            /// puts one before every read of such a binding that the analysis
+            /// cannot prove assigned. The check answers nothing; past it the
+            /// binding is assigned, so the read after it is an ordinary one.
+            BindingCheck {
+                /// The binding, always a place naming the local itself.
+                binding: one @READ,
+                /// The error an unassigned binding raises.
+                unbound: [$crate::UnboundRead],
+            }
+                fallible(true)
+                call(format!("@binding_check_{}", unbound.name()))
+                => (format!("binding_check {binding} or {}", unbound.name()));
             /// Python's `d[k]` read, which raises `KeyError` on a missing key.
             PythonDictRead {
                 /// The dictionary.

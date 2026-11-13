@@ -338,6 +338,10 @@ impl FunctionEmitter<'_> {
             if name == "_" {
                 continue;
             }
+            if self.local_is_maybe_unbound(local)? {
+                self.emit_binding_declaration(local, out)?;
+                continue;
+            }
             let decl = self.local_decl(local)?;
             if matches!(self.mir.types.get(decl.ty), Some(Type::Future(_))) {
                 continue;

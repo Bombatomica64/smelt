@@ -22,7 +22,7 @@ use crate::{
     MirClosure, MirFunction, NegativeIndex, Operand,
 };
 
-use super::scope::ControlScope;
+use super::scope::{ControlScope, HandlerMarks};
 use super::{LowerError, function_item_for_body, u32_from_usize, usize_from_u32};
 
 /// Context for lowering a function body from HIR to MIR.
@@ -87,6 +87,10 @@ pub(super) struct LoweringCtx<'hir> {
     /// a declared, non-generic class or interface is recorded (see
     /// [`record_type_param_bounds`]).
     pub(super) type_param_bounds: HashMap<Symbol, Symbol>,
+    /// The handler each appended statement runs under (see [`HandlerMarks`]).
+    pub(super) handler_marks: HandlerMarks,
+    /// The [`HandlerMarks`] of every closure in [`Self::closures`].
+    pub(super) closure_handler_marks: Vec<(crate::ClosureId, HandlerMarks)>,
 }
 
 /// Record the class/interface bound of every type parameter in `params` that
@@ -198,6 +202,7 @@ fn build_locals(function: &mut MirFunction, body: &Body) -> Result<LocalMap, Low
             ty: local.ty,
             kind,
             span: local.span,
+            init: crate::LocalInit::Definite,
         });
         if is_param {
             function.params.push(mir_local);
@@ -352,6 +357,8 @@ impl<'hir> LoweringCtx<'hir> {
             thrown_ty: shared.thrown_ty,
             py_thrown_ty: shared.py_thrown_ty,
             type_param_bounds: HashMap::new(),
+            handler_marks: HandlerMarks::default(),
+            closure_handler_marks: Vec::new(),
         }
     }
 
@@ -386,6 +393,7 @@ impl<'hir> LoweringCtx<'hir> {
             ty,
             kind: LocalKind::Temp,
             span,
+            init: crate::LocalInit::Definite,
         })
     }
 
@@ -408,6 +416,12 @@ impl<'hir> LoweringCtx<'hir> {
             self.current_block.0,
             "MIR block index does not fit in usize",
         )?;
+        // Every statement lowering appends goes through here, so this is where
+        // the handler it runs under is written down (see `HandlerMarks`).
+        let handler = self.current_exception_handler();
+        let block = self.current_block;
+        let at = self.function.blocks.get(block_index).map_or(0, |current| current.statements.len());
+        self.handler_marks.record(block, at, handler);
         self.function
             .blocks
             .get_mut(block_index)

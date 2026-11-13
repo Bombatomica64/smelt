@@ -229,7 +229,7 @@ mod tests {
             (unknown, LocalKind::UserBinding(Symbol(1))),
             (floats, LocalKind::Param { symbol: None }),
         ] {
-            function.push_local(LocalDecl { ty, kind, span: span() });
+            function.push_local(LocalDecl { ty, kind, span: span(), init: crate::LocalInit::Definite });
         }
         function.blocks[0].statements = statements;
         function.blocks[0].terminator = Some(Terminator::Return(copy(RESULT)));

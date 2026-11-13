@@ -3601,7 +3601,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     SMELT_GLOBAL_LOG_0.with(|_| ());
     let _ = break_out_of_for_of()?;
     let _ = continue_in_while()?;
-    let _ = nested_try()?;
+    let _ = nested_try();
     let _ = loop_inside_try()?;
     let _ = break_from_catch()?;
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_LOG_0.with(|smelt_value| smelt_value.borrow().clone()));
@@ -3739,7 +3739,7 @@ pub(crate) fn continue_in_while() -> Result<(), Box<dyn std::error::Error>> {
     return Ok(());
 }
 
-pub(crate) fn nested_try() -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn nested_try() -> () {
     let mut x: f64;
     let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
@@ -3760,12 +3760,6 @@ pub(crate) fn nested_try() -> Result<(), Box<dyn std::error::Error>> {
     let mut _smelt_tmp_19: SmeltList<JsString>;
     let mut _smelt_tmp_20: JsString;
     let mut _smelt_tmp_21: f64;
-    let mut _smelt_tmp_22: SmeltList<JsString>;
-    let _smelt_tmp_23: JsString;
-    let _smelt_tmp_24: f64;
-    let mut _smelt_tmp_25: SmeltList<JsString>;
-    let _smelt_tmp_26: JsString;
-    let _smelt_tmp_27: f64;
     let mut _smelt_tmp_28: SmeltList<JsString>;
     let mut _smelt_tmp_29: f64;
     let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
@@ -3801,7 +3795,7 @@ pub(crate) fn nested_try() -> Result<(), Box<dyn std::error::Error>> {
     }
     _smelt_tmp_28 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_LOG_0.with(|smelt_value| smelt_value.borrow().clone()));
     _smelt_tmp_29 = { let smelt_push_item = JsString::from("after nested"); _smelt_tmp_28.borrow_mut().push(smelt_push_item); _smelt_tmp_28.len() as f64 };
-    return Ok(());
+    return;
 }
 
 pub(crate) fn loop_inside_try() -> Result<(), Box<dyn std::error::Error>> {
@@ -3928,12 +3922,12 @@ pub(crate) fn break_from_catch() -> Result<(), Box<dyn std::error::Error>> {
 
 pub(crate) fn finally_throw_skips_own_catch(fail: bool) -> JsString {
     let smelt_pending_thrown: SmeltUnknown;
-    let mut _smelt_tmp_2: bool;
+    let _smelt_tmp_2: bool;
     smelt_pending_thrown = SmeltUnknown::Undefined;
     _smelt_tmp_2 = false;
-    'smelt_branch_4_9_10_154: {
+    'smelt_branch_3_4_5_150: {
     if fail {
-    break 'smelt_branch_4_9_10_154;
+    break 'smelt_branch_3_4_5_150;
     }
     return JsString::from("from try");
     };

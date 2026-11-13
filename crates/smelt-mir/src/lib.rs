@@ -33,6 +33,10 @@
 
 /// The MIR stage as one call: lower, optimize, validate.
 mod compile;
+/// Definite assignment: which locals are assigned at each program point.
+pub mod definite_assignment;
+/// Block reachability, and removal of the blocks nothing reaches.
+pub mod reachability;
 pub mod index;
 /// Promote erased-and-mutated record locals to an erased value representation.
 mod erased_record_promote;
@@ -467,11 +471,13 @@ async function run(): Promise<number> {
             ty: bool_ty,
             kind: LocalKind::Param { symbol: None },
             span: smelt_hir::Span::new(FileId(0), 0, 0),
+            init: LocalInit::Definite,
         });
         let branch_only = function.push_local(LocalDecl {
             ty: bool_ty,
             kind: LocalKind::Temp,
             span: smelt_hir::Span::new(FileId(0), 0, 0),
+            init: LocalInit::Definite,
         });
         function.params.push(cond);
         let then_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
@@ -670,16 +676,21 @@ export function groupBy<T, K extends PropertyKey>(
         // `key` is defined by the call directly: `LetTempElision` removed the
         // `%9 = closure_call ..; %5 = move %9` temporary.
         assert!(
-            output.contains("%5 = closure_call copy %1(copy %4, move %16)\n    goto bb6\n"),
+            output.contains("%5 = closure_call copy %1(copy %4, move %16)\n    goto bb5\n"),
             "the guard block ends in a goto at the join: {output}"
         );
         assert!(
             output.contains("%14 = dict_entry_push copy %2[copy %5], move %4"),
             "the entry mutation still inserts the key: {output}"
         );
-        // The seeding block survives as an unreachable block: block ids are
-        // positional, so nothing renumbers it away.
-        assert!(output.contains("%2[copy %5] = move %12"), "{output}");
+        // The seeding block is gone. Old requirement: it survived as an
+        // unreachable block, because block ids are positional and nothing
+        // renumbered it away. New requirement: every pass ends by removing the
+        // blocks no edge reaches (`reachability::remove_unreachable_blocks`),
+        // so the validator checks every block and the emitter is never handed
+        // a block that reads locals no path assigned. The join the guard falls
+        // through to is renumbered from bb6 to bb5 accordingly.
+        assert!(!output.contains("%2[copy %5] = move %12"), "{output}");
     }
 
     /// Appends a second reader of the `dict_contains_key` temporary to the join

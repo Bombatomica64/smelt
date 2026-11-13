@@ -28,20 +28,18 @@ fn safe_encode (FuncId(2)) -> String
   bb0:
     goto bb1
   bb1:
-    %2 = call @btoa(copy %0) -> bb4 unwind bb3
+    %2 = call @btoa(copy %0) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %3 = instanceof copy %1, class7
-    switch move %3 ? bb5 : bb6
-  bb4:
+    switch move %3 ? bb4 : bb5
+  bb3:
     return move %2
-  bb5:
+  bb4:
     %4 = "E:" + copy %1.field8
     %5 = move %4 + ":"
     %6 = move %5 + copy %1.field9
     return move %6
-  bb6:
+  bb5:
     return "E:unexpected"
 
 fn safe_decode (FuncId(3)) -> String
@@ -56,20 +54,18 @@ fn safe_decode (FuncId(3)) -> String
   bb0:
     goto bb1
   bb1:
-    %2 = call @atob(copy %0) -> bb4 unwind bb3
+    %2 = call @atob(copy %0) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %3 = instanceof copy %1, class7
-    switch move %3 ? bb5 : bb6
-  bb4:
+    switch move %3 ? bb4 : bb5
+  bb3:
     return move %2
-  bb5:
+  bb4:
     %4 = "E:" + copy %1.field8
     %5 = move %4 + ":"
     %6 = move %5 + copy %1.field9
     return move %6
-  bb6:
+  bb5:
     return "E:unexpected"
 
 fn decoded_brand (FuncId(4)) -> Bool
@@ -81,13 +77,11 @@ fn decoded_brand (FuncId(4)) -> Bool
   bb0:
     goto bb1
   bb1:
-    %2 = call @atob(copy %0) -> bb4 unwind bb3
+    %2 = call @atob(copy %0) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %3 = instanceof move %1, class7
     return move %3
-  bb4:
+  bb3:
     return false
 
 fn main (FuncId(5)) -> None throws

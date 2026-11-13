@@ -1604,6 +1604,7 @@ impl Rewriter<'_> {
             ty: self.float,
             kind: LocalKind::Temp,
             span,
+            init: crate::LocalInit::Definite,
         });
         prelude.push(Statement::Assign {
             dest: temp,

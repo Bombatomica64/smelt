@@ -1,346 +1,228 @@
-//! Definite-assignment dataflow.
+//! Definite assignment: every read finds its local assigned, and the only way
+//! past a binding that may not be is a check that raises when it is not.
 //!
-//! A local must be provably assigned on every path that reaches a read of it.
-//! This module computes, for each block, the set of locals that are definitely
-//! defined on entry (the meet-over-all-paths intersection of predecessor
-//! out-sets) via a forward worklist fixpoint, then makes a second linear pass
-//! that reports any operand reading a local that is not in the block's
-//! definitely-defined set at that program point.
+//! The facts come from [`crate::definite_assignment`], the same analysis the
+//! lowering pass `lower::passes::unbound_bindings` used to decide which source
+//! bindings can be read unassigned. This module enforces that decision, so a
+//! later pass cannot reintroduce a read the source language would have
+//! rejected at run time:
 //!
-//! The two passes are kept as separate helpers so the fixpoint (which only
-//! *accumulates* definitions) and the reporting walk (which *checks* reads)
-//! stay independently readable.
+//! * **No local is assumed assigned.** Only the parameters and, in a closure,
+//!   the targets of initialized captures ([`CaptureInit`]) are assigned on
+//!   entry. A source binding gets no default: a read the analysis cannot prove
+//!   assigned is an error. A [`Rvalue::BindingCheck`] (a call terminator) is
+//!   the one operation that may name an unassigned binding; past its normal
+//!   edge the binding is assigned.
+//! * **A [`LocalInit::MaybeUnbound`] local** is written only by
+//!   [`Statement::Assign`], since codegen stores it as a `SmeltBinding<T>` that
+//!   a whole-value assignment fills. A capture shares its storage with the
+//!   closure's copy, so a capture's source and target agree on [`LocalInit`],
+//!   and a source that is not definitely assigned at the construction must be
+//!   `MaybeUnbound`.
+//! * **Every block is reachable.** Lowering and every optimization pass
+//!   remove the blocks no edge reaches ([`crate::reachability`]), so a block
+//!   the analysis cannot reach is a bug, and every block is checked.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
+use crate::definite_assignment::{
+    Assigned, CaptureInit, DefiniteAssignment, Point, non_capture_reads,
+};
+use crate::reachability::reachable_blocks;
 use crate::{
-    Callee, MirBody, GlobalProjection, LocalId, Mir, Operand, Place, Rvalue, Statement, Terminator,
+    Callee, LocalId, LocalInit, Mir, MirBody, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 use super::structure::validate_local_exists;
-use super::{ValidationError, error, block_index, local_index};
+use super::{ValidationError, error, local_index};
 
-/// Definite-assignment set for a single block's entry.
-///
-/// `None` marks a block the worklist never reached; `Some(set)` is the
-/// meet (intersection) of every predecessor's out-set.
-type BlockDefinitions = Option<HashSet<LocalId>>;
-
-/// Per-block [`BlockDefinitions`], indexed by block index.
-type EntryDefinitions = Vec<BlockDefinitions>;
-
-/// Perform forward dataflow to ensure locals are assigned before use.
+/// Checks one body's definite-assignment rules (see the module docs).
 pub(super) fn validate_definite_assignment(
     mir: &Mir,
     body: MirBody<'_>,
+    captures: &CaptureInit,
     errors: &mut Vec<ValidationError>,
 ) {
-    let entry_idx = block_index(body.entry);
-    if body.blocks.get(entry_idx).is_none() {
+    if body.blocks.get(body.entry.index()).is_none() {
         return;
     }
-
-    let Some(in_sets) = compute_entry_definitions(body, entry_idx) else {
-        return;
-    };
-    report_undefined_reads(mir, body, &in_sets, errors);
-}
-
-/// Run the forward worklist fixpoint and return the per-block entry
-/// definition sets.
-///
-/// `in_sets[i]` is `None` for blocks that are never reached, and otherwise the
-/// meet (intersection) of every predecessor's out-set. Returns `None` only when
-/// the entry index cannot be seeded, in which case the caller skips reporting.
-///
-/// # The two things this does NOT check, and why
-///
-/// Both are a contract with the Rust emitter rather than an oversight; the
-/// tests in `validate::tests` pin both halves of it.
-///
-/// * **User bindings are defined on entry.** The emitter predeclares a source
-///   binding at function scope, seeded with its type's default when any read
-///   can precede an assignment (`local_declaration.rs`), so a read before the
-///   first write is defined Rust. Source does produce such reads: a recursive
-///   arrow captures its own binding before the binding is assigned
-///   (`const walk = (n) => walk(n - 1)`), a hoisted function declaration is
-///   read before its statement, and a Python name assigned in one branch is
-///   read after the join. Temporaries get no such seed and are fully checked.
-/// * **Dead blocks are not checked.** Lowering legitimately leaves blocks no
-///   path reaches (the copy of a `finally` after an unconditional `break`),
-///   and they read temporaries defined only on the live path. The emitter
-///   renders regions from the entry block and never emits such a block.
-fn compute_entry_definitions(
-    body: MirBody<'_>,
-    entry_idx: usize,
-) -> Option<EntryDefinitions> {
-    let block_count = body.blocks.len();
-    let mut in_sets: EntryDefinitions = vec![None; block_count];
-    let mut entry_defs: HashSet<LocalId> = body.defined_on_entry().collect();
-    entry_defs.extend(body.locals.iter().enumerate().filter_map(|(idx, local)| {
-        match local.kind {
-            crate::LocalKind::UserBinding(_) => Some(LocalId(u32::try_from(idx).ok()?)),
-            crate::LocalKind::Param { .. } | crate::LocalKind::Temp => None,
-        }
-    }));
-
-    *in_sets.get_mut(entry_idx)? = Some(entry_defs);
-    run_worklist(body, body.entry, &mut in_sets);
-    Some(in_sets)
-}
-
-/// Propagate definitions forward from `start` until nothing changes.
-fn run_worklist(body: MirBody<'_>, start: crate::BlockId, in_sets: &mut [BlockDefinitions]) {
-    let mut queue = VecDeque::new();
-    queue.push_back(start);
-    while let Some(block_id) = queue.pop_front() {
-        let block_idx = block_index(block_id);
-        let Some(block) = body.blocks.get(block_idx) else {
-            continue;
-        };
-        let Some(Some(mut definitions)) = in_sets.get(block_idx).cloned() else {
-            continue;
-        };
-        accumulate_statement_definitions(block, &mut definitions);
-        if let Some(terminator) = &block.terminator {
-            propagate_to_successors(terminator, &definitions, in_sets, &mut queue);
+    let reachable = reachable_blocks(body.blocks, body.entry);
+    for block in body.blocks {
+        if !reachable.contains(&block.id) {
+            errors.push(error(format!(
+                "{} has block {:?}, which no edge reaches from the entry",
+                super::owner_name(mir, body.owner),
+                block.id
+            )));
         }
     }
-}
-
-/// Add every local the block's statements define to `definitions`.
-///
-/// The terminator's definition is not added here: what it defines depends on
-/// which edge leaves it, which [`propagate_to_successors`] applies per edge.
-fn accumulate_statement_definitions(
-    block: &crate::BasicBlock,
-    definitions: &mut HashSet<LocalId>,
-) {
-    for stmt in &block.statements {
-        definitions.extend(stmt.defs());
-    }
-}
-
-/// Meet `definitions`, plus what each edge defines, into each successor's
-/// entry set, enqueueing successors whose set changed so the fixpoint keeps
-/// propagating.
-///
-/// Per edge (see [`Terminator::edges`]): a call's `dest` reaches its normal
-/// target only, and a handler's exception local reaches its catch block only.
-fn propagate_to_successors(
-    terminator: &Terminator,
-    definitions: &HashSet<LocalId>,
-    in_sets: &mut [BlockDefinitions],
-    queue: &mut VecDeque<crate::BlockId>,
-) {
-    for edge in terminator.edges() {
-        let mut edge_definitions = definitions.clone();
-        edge_definitions.extend(edge.defines);
-        let Some(existing) = in_sets.get_mut(block_index(edge.target)) else {
-            continue;
-        };
-        let changed = if let Some(existing_defs) = existing {
-            let before = existing_defs.len();
-            existing_defs.retain(|local| edge_definitions.contains(local));
-            existing_defs.len() != before
-        } else {
-            *existing = Some(edge_definitions);
-            true
-        };
-        if changed {
-            queue.push_back(edge.target);
-        }
-    }
-}
-
-/// Walk each reachable block in program order and report any operand that reads
-/// a local before it is definitely defined at that point.
-fn report_undefined_reads(
-    mir: &Mir,
-    body: MirBody<'_>,
-    in_sets: &[BlockDefinitions],
-    errors: &mut Vec<ValidationError>,
-) {
-    for (block_idx, block) in body.blocks.iter().enumerate() {
-        let Some(definitions_slot) = in_sets.get(block_idx) else {
-            continue;
-        };
-        let Some(mut definitions) = definitions_slot.clone() else {
-            continue;
-        };
-
-        for stmt in &block.statements {
-            report_statement_reads(mir, body, &mut definitions, stmt, errors);
-        }
-
-        if let Some(terminator) = &block.terminator {
-            report_terminator_reads(mir, body, &mut definitions, terminator, errors);
-        }
-    }
-}
-
-/// Check a statement's read operands against `definitions`, then record the
-/// locals it defines.
-fn report_statement_reads(
-    mir: &Mir,
-    body: MirBody<'_>,
-    definitions: &mut HashSet<LocalId>,
-    stmt: &Statement,
-    errors: &mut Vec<ValidationError>,
-) {
-    match stmt {
-        Statement::Assign { dest, value } => {
-            validate_rvalue(mir, body, definitions, value, errors);
-            definitions.insert(*dest);
-        }
-        Statement::AssignPlace { place, value } => {
-            validate_rvalue(mir, body, definitions, value, errors);
-            match place {
-                Place::Local(local) => {
-                    definitions.insert(*local);
-                }
-                Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => {
-                    validate_place(mir, body, definitions, place, errors);
-                }
-            }
-        }
-        // Reads happen in evaluation order: the container, the key and the seed
-        // are all read BEFORE `current` is bound, and only then is the stored
-        // rvalue evaluated — which is where `current` becomes readable.
-        Statement::DictEntryUpdate {
-            base,
-            index,
-            default,
-            current,
-            value,
-        } => {
-            validate_place(mir, body, definitions, &Place::Local(*base), errors);
-            validate_operand(mir, body, definitions, index, errors);
-            validate_operand(mir, body, definitions, default, errors);
-            definitions.insert(*current);
-            validate_rvalue(mir, body, definitions, value, errors);
-        }
-    }
-}
-
-/// Check a terminator's read operands against `definitions`, then record any
-/// call/await destination it defines.
-fn report_terminator_reads(
-    mir: &Mir,
-    body: MirBody<'_>,
-    definitions: &mut HashSet<LocalId>,
-    terminator: &Terminator,
-    errors: &mut Vec<ValidationError>,
-) {
-    match terminator {
-        Terminator::Goto(_) => {}
-        Terminator::Call {
-            callee,
-            args,
-            dest,
-            unwind,
-            ..
-        } => {
-            validate_callee(mir, body, definitions, callee, errors);
-            for arg in args {
-                validate_operand(mir, body, definitions, arg, errors);
-            }
-            if let Some(handler) = unwind
-                && let Some(local) = handler.exception_local
-            {
-                validate_local_exists(body, local, errors);
-            }
-            definitions.insert(*dest);
-        }
-        Terminator::Await {
-            future,
-            dest,
-            unwind,
-            ..
-        } => {
-            validate_operand(mir, body, definitions, future, errors);
-            if let Some(handler) = unwind
-                && let Some(local) = handler.exception_local
-            {
-                validate_local_exists(body, local, errors);
-            }
-            definitions.insert(*dest);
-        }
-        Terminator::Switch { cond, .. } => {
-            validate_operand(mir, body, definitions, cond, errors);
-        }
-        Terminator::Match { scrutinee, .. } => {
-            validate_operand(mir, body, definitions, scrutinee, errors);
-        }
-        Terminator::Return(operand) | Terminator::Throw(operand) => {
-            validate_operand(mir, body, definitions, operand, errors);
-        }
-    }
-}
-
-/// Validate definite-assignment constraints for one rvalue.
-fn validate_rvalue(
-    mir: &Mir,
-    body: MirBody<'_>,
-    definitions: &HashSet<LocalId>,
-    value: &Rvalue,
-    errors: &mut Vec<ValidationError>,
-) {
-    // Operand traversal is the single source of truth in `Rvalue::reads`;
-    // route validation through it so the two cannot drift as variants are added.
-    value.reads(|operand| {
-        validate_operand(mir, body, definitions, operand, errors);
+    let analysis = DefiniteAssignment::of(body, captures.entry_defs(body));
+    let checker = Checker { mir, body };
+    analysis.walk(body, |point, state| match point {
+        Point::Statement { statement, .. } => checker.statement(statement, state, errors),
+        Point::Terminator { terminator, .. } => checker.terminator(terminator, state, errors),
     });
+    checker.writes(errors);
 }
 
-/// Validate definite-assignment constraints for one operand.
-fn validate_operand(
-    mir: &Mir,
-    body: MirBody<'_>,
-    definitions: &HashSet<LocalId>,
-    operand: &Operand,
-    errors: &mut Vec<ValidationError>,
-) {
-    match operand {
-        Operand::Copy(place) | Operand::Move(place) => {
-            validate_place(mir, body, definitions, place, errors);
-        }
-        Operand::Const(_) => {}
+/// One body's checks, with what they report against.
+#[derive(Clone, Copy)]
+struct Checker<'a> {
+    /// The program, for names and closure captures.
+    mir: &'a Mir,
+    /// The body being checked.
+    body: MirBody<'a>,
+}
+
+impl Checker<'_> {
+    /// Whether `local` may be read unassigned.
+    fn maybe_unbound(self, local: LocalId) -> bool {
+        self.body
+            .local_decl(local)
+            .is_some_and(|decl| decl.init == LocalInit::MaybeUnbound)
     }
-}
 
-/// Validate definite-assignment constraints for one place projection chain.
-fn validate_place(
-    mir: &Mir,
-    body: MirBody<'_>,
-    definitions: &HashSet<LocalId>,
-    place: &Place,
-    errors: &mut Vec<ValidationError>,
-) {
-    match place {
-        Place::Local(local) => {
-            if !definitions.contains(local) {
-                let owner = super::owner_name(mir, body.owner);
-                let local_detail = local_detail(mir, body, *local);
+    /// Checks the reads of one statement.
+    fn statement(self, statement: &Statement, state: &Assigned, errors: &mut Vec<ValidationError>) {
+        if let Rvalue::BindingCheck { .. } = statement.value() {
+            errors.push(error(format!(
+                "{} has a binding check outside a call terminator",
+                super::owner_name(self.mir, self.body.owner)
+            )));
+        }
+        match statement {
+            // The entry is located (base, key, seed read) before `current` is
+            // bound, and only then is the stored value evaluated.
+            Statement::DictEntryUpdate { base, index, default, current, value } => {
+                self.read(*base, state, errors);
+                for operand in [index, default] {
+                    operand.read_locals(&mut |local| self.read(local, state, errors));
+                }
+                let mut bound = state.clone();
+                bound.insert(*current);
+                value.read_locals(|local| self.read(local, &bound, errors));
+            }
+            Statement::Assign { .. } | Statement::AssignPlace { .. } => {
+                let mut reads = Vec::new();
+                non_capture_reads(statement, |local| reads.push(local));
+                for local in reads {
+                    self.read(local, state, errors);
+                }
+                if let Rvalue::Closure { id, captures } = statement.value() {
+                    self.captures(*id, captures, state, errors);
+                }
+            }
+        }
+    }
+
+    /// Checks the reads of one terminator.
+    fn terminator(self, terminator: &Terminator, state: &Assigned, errors: &mut Vec<ValidationError>) {
+        if let Terminator::Call { callee: Callee::Op(op, _), args, .. } = terminator
+            && let Rvalue::BindingCheck { binding, .. } = op.as_ref()
+        {
+            if binding.local().is_none() {
                 errors.push(error(format!(
-                    "{owner} reads local {local:?} {local_detail} before it is definitely defined"
+                    "{} checks something other than a local binding",
+                    super::owner_name(self.mir, self.body.owner)
+                )));
+            }
+            for arg in args {
+                arg.read_locals(&mut |local| self.read(local, state, errors));
+            }
+            return;
+        }
+        let mut reads = Vec::new();
+        terminator.read_locals(|local| reads.push(local));
+        for local in reads {
+            self.read(local, state, errors);
+        }
+    }
+
+    /// A read of `local`'s value: it must be definitely assigned here.
+    fn read(self, local: LocalId, state: &Assigned, errors: &mut Vec<ValidationError>) {
+        if !state.must.contains(&local) {
+            errors.push(error(format!(
+                "{} reads local {local:?} {} before it is definitely defined",
+                super::owner_name(self.mir, self.body.owner),
+                local_detail(self.mir, self.body, local)
+            )));
+        }
+    }
+
+    /// The captures of one closure construction.
+    fn captures(
+        self,
+        id: crate::ClosureId,
+        operands: &[Operand],
+        state: &Assigned,
+        errors: &mut Vec<ValidationError>,
+    ) {
+        let targets = self.mir.closure(id).map_or(&[][..], |closure| closure.captures.as_slice());
+        for (index, operand) in operands.iter().enumerate() {
+            let Some(source) = operand.local() else {
+                continue;
+            };
+            let source_unbound = self.maybe_unbound(source);
+            if !source_unbound && !state.must.contains(&source) {
+                errors.push(error(format!(
+                    "{} captures local {source:?} {} into closure {id:?} before it is definitely defined, but it is not MaybeUnbound",
+                    super::owner_name(self.mir, self.body.owner),
+                    local_detail(self.mir, self.body, source)
+                )));
+            }
+            let target_init = targets
+                .get(index)
+                .and_then(|capture| capture.target_local)
+                .and_then(|target| self.mir.closure(id)?.locals.get(target.index()))
+                .map(|decl| decl.init == LocalInit::MaybeUnbound);
+            if let Some(target_unbound) = target_init
+                && target_unbound != source_unbound
+            {
+                errors.push(error(format!(
+                    "{} captures local {source:?} into closure {id:?} capture {index}, whose target disagrees on whether it may be unassigned",
+                    super::owner_name(self.mir, self.body.owner)
                 )));
             }
         }
-        Place::Field { base, .. } => {
-            validate_place(mir, body, definitions, &Place::Local(*base), errors);
-        }
-        Place::Index { base, index, .. } => {
-            validate_place(mir, body, definitions, &Place::Local(*base), errors);
-            validate_operand(mir, body, definitions, index, errors);
-        }
-        // The base is a `thread_local!` cell, which is defined for the whole
-        // program and needs no definite-assignment check. The index operand
-        // does still need one.
-        Place::Global { projection, .. } => {
-            if let GlobalProjection::Index { index, .. } = projection {
-                validate_operand(mir, body, definitions, index, errors);
+    }
+
+    /// Checks that every write to a `MaybeUnbound` local is an
+    /// [`Statement::Assign`].
+    fn writes(self, errors: &mut Vec<ValidationError>) {
+        let mut written: HashSet<LocalId> = HashSet::new();
+        for block in self.body.blocks {
+            for statement in &block.statements {
+                match statement {
+                    Statement::AssignPlace { place: Place::Local(local), .. }
+                    | Statement::DictEntryUpdate { current: local, .. } => {
+                        written.insert(*local);
+                    }
+                    Statement::Assign { .. } | Statement::AssignPlace { .. } => {}
+                }
+                if let Rvalue::GeneratorYield { unwind: Some(handler), .. } = statement.value()
+                    && let Some(local) = handler.exception_local
+                {
+                    written.insert(local);
+                }
             }
+            if let Some(Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. }) =
+                &block.terminator
+            {
+                written.insert(*dest);
+                if let Some(local) = unwind.and_then(|handler| handler.exception_local) {
+                    validate_local_exists(self.body, local, errors);
+                    written.insert(local);
+                }
+            }
+        }
+        let mut wrong: Vec<LocalId> = written.into_iter().filter(|local| self.maybe_unbound(*local)).collect();
+        wrong.sort_unstable_by_key(|local| local.0);
+        for local in wrong {
+            errors.push(error(format!(
+                "{} writes MaybeUnbound local {local:?} {} other than by a whole-local assignment",
+                super::owner_name(self.mir, self.body.owner),
+                local_detail(self.mir, self.body, local)
+            )));
         }
     }
 }
@@ -366,23 +248,4 @@ fn local_detail(mir: &Mir, body: MirBody<'_>, local: LocalId) -> String {
         "({kind}, span file {} start {} end {})",
         decl.span.file.0, decl.span.start, decl.span.end
     )
-}
-
-/// Validate definite-assignment constraints for one callee.
-fn validate_callee(
-    mir: &Mir,
-    body: MirBody<'_>,
-    definitions: &HashSet<LocalId>,
-    callee: &Callee,
-    errors: &mut Vec<ValidationError>,
-) {
-    match callee {
-        Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
-        Callee::Indirect(operand) => {
-            validate_operand(mir, body, definitions, operand, errors);
-        }
-        Callee::Op(op, _) => {
-            op.reads(|operand| validate_operand(mir, body, definitions, operand, errors));
-        }
-    }
 }

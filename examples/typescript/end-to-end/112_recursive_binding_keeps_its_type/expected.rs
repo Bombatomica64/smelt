@@ -679,6 +679,25 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     }
 }
 
+/// A source binding that may not be assigned yet.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct SmeltBinding<T>(Option<T>);
+
+#[allow(dead_code)]
+impl<T> SmeltBinding<T> {
+    /// A binding before its first assignment.
+    const fn unbound() -> Self { Self(None) }
+    /// Assigns the binding.
+    fn bind(&mut self, value: T) { self.0 = Some(value); }
+    /// Reads a binding the compiler proved assigned at this read.
+    fn bound(&self) -> &T { self.0.as_ref().unwrap_or_else(|| unreachable!("a binding proved assigned was read unassigned")) }
+    /// Writes through a binding the compiler proved assigned at this write.
+    fn bound_mut(&mut self) -> &mut T { self.0.as_mut().unwrap_or_else(|| unreachable!("a binding proved assigned was written unassigned")) }
+    /// Raises `unbound()` if the binding is not assigned.
+    fn checked(&self, unbound: impl FnOnce() -> Box<dyn ::std::error::Error>) -> Result<&T, Box<dyn ::std::error::Error>> { self.0.as_ref().ok_or_else(unbound) }
+}
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -740,7 +759,7 @@ fn main() {
 use super::*;
 
 pub(crate) fn total_down(start: f64) -> f64 {
-    let smelt_capture_sum_down: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_sum_down: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64) -> f64>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_sum_down = ::std::rc::Rc::downgrade(&smelt_capture_sum_down);
     move |closure_arg_0: f64| {
@@ -752,19 +771,19 @@ pub(crate) fn total_down(start: f64) -> f64 {
     0.0
     } else {
     _smelt_tmp_3 = closure_arg_0 - 1.0;
-    _smelt_tmp_4 = ((*smelt_capture_sum_down.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_3);
+    _smelt_tmp_4 = ((*(*smelt_capture_sum_down.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_3);
     _smelt_tmp_5 = closure_arg_0 + _smelt_tmp_4;
     _smelt_tmp_5
     }
     }
 });
-    (*smelt_capture_sum_down.borrow_mut()) = _smelt_tmp_2.clone();
-    let _smelt_tmp_3: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_sum_down.borrow())); (smelt_callable)(start) };
+    { let smelt_next_value = _smelt_tmp_2.clone(); (*smelt_capture_sum_down.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_3: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_sum_down.borrow()).bound())); (smelt_callable)(start) };
     return _smelt_tmp_3;
 }
 
 pub(crate) fn banner(text: JsString, times: f64) -> JsString {
-    let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: f64, smelt_arg1: JsString| -> JsString { JsString::new() }); smelt_default_callback }));
+    let smelt_capture_repeat: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64, JsString) -> JsString>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_repeat = ::std::rc::Rc::downgrade(&smelt_capture_repeat);
     let text = text.clone();
@@ -778,18 +797,18 @@ pub(crate) fn banner(text: JsString, times: f64) -> JsString {
     } else {
     _smelt_tmp_5 = closure_arg_0 - 1.0;
     _smelt_tmp_6 = closure_arg_1.clone() + &text.clone();
-    _smelt_tmp_7 = ((*smelt_capture_repeat.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_5, _smelt_tmp_6.clone());
+    _smelt_tmp_7 = ((*(*smelt_capture_repeat.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_5, _smelt_tmp_6.clone());
     _smelt_tmp_7.clone()
     }
     }
 });
-    (*smelt_capture_repeat.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_repeat.borrow())); (smelt_callable)(times, JsString::new()) };
+    { let smelt_next_value = _smelt_tmp_3.clone(); (*smelt_capture_repeat.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_repeat.borrow()).bound())); (smelt_callable)(times, JsString::new()) };
     return _smelt_tmp_4;
 }
 
 pub(crate) fn trim(label: JsString) -> JsString {
-    let smelt_capture_strip: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(JsString) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> JsString { JsString::new() }); smelt_default_callback }));
+    let smelt_capture_strip: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(JsString) -> JsString>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let suffix: JsString = JsString::from("!");
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_capture_strip = ::std::rc::Rc::downgrade(&smelt_capture_strip);
@@ -807,12 +826,12 @@ pub(crate) fn trim(label: JsString) -> JsString {
     _smelt_tmp_7 = closure_arg_0.len() as f64;
     _smelt_tmp_8 = _smelt_tmp_7 - 1.0;
     _smelt_tmp_9 = { let smelt_len_units = closure_arg_0.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; closure_arg_0.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_8 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = 0.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_10 = ((*smelt_capture_strip.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_9.clone());
+    _smelt_tmp_10 = ((*(*smelt_capture_strip.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_9.clone());
     _smelt_tmp_10.clone()
     }
     }
 });
-    (*smelt_capture_strip.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_strip.borrow())); (smelt_callable)(label.clone()) };
+    { let smelt_next_value = _smelt_tmp_3.clone(); (*smelt_capture_strip.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_strip.borrow()).bound())); (smelt_callable)(label.clone()) };
     return _smelt_tmp_4;
 }

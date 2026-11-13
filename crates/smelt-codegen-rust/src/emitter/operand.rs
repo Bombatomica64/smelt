@@ -123,7 +123,9 @@ impl FunctionEmitter<'_> {
                 // gives, for the same reason (the cell keeps owning the value).
                 // A `Copy` scalar and a non-cloneable type are excluded exactly
                 // as they are there.
-                if self.place_reads_through_shared_capture(place)
+                // A possibly-unbound binding reads as `(*binding.bound())`, a
+                // place behind a reference, which no move can take either.
+                if (self.place_reads_through_shared_capture(place) || self.place_reads_through_binding(place)?)
                     && !self.place_type_is_copy_scalar(place)?
                     && !self.type_contains_noncloneable(self.place_ty(place)?)
                     && !matches!(
@@ -152,6 +154,17 @@ impl FunctionEmitter<'_> {
             Place::Global { .. } => return false,
         };
         self.local_uses_shared_capture_storage(root) && self.is_local_declared(root)
+    }
+
+    /// Whether reading `place` projects out of a possibly-unbound binding,
+    /// which is read as `(*binding.bound())`: a place behind a reference.
+    fn place_reads_through_binding(&self, place: &Place) -> Result<bool, EmitError> {
+        match place {
+            Place::Local(local) | Place::Field { base: local, .. } | Place::Index { base: local, .. } => {
+                self.local_is_maybe_unbound(*local)
+            }
+            Place::Global { .. } => Ok(false),
+        }
     }
 
     /// Whether a place reads a scalar that lowers to a `Copy` Rust type.

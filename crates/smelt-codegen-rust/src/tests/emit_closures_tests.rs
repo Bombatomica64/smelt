@@ -127,9 +127,11 @@ export function collect(rows: number[][]): number[] {
         source.contains("smelt_capture_recurse.upgrade().expect("),
         "{source}"
     );
-    // The frame keeps the strong owner, so the cell outlives every call through it.
+    // The frame keeps the strong owner, so the cell outlives every call through
+    // it. The cell starts unassigned and the frame fills it (C8); it used to be
+    // seeded with a default callback and overwritten in place.
     assert!(
-        source.contains("(*smelt_capture_recurse.borrow_mut()) ="),
+        source.contains("(*smelt_capture_recurse.borrow_mut()).bind(smelt_next_value)"),
         "{source}"
     );
     // No strong self-capture: the cycle cannot form.

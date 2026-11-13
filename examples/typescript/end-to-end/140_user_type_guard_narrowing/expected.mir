@@ -30,8 +30,6 @@ fn describe (FuncId(1)) -> String
     %4 = unknown_cast copy %0 as t1
     %5 = "req " + copy %4.field21
     return move %5
-  bb4:
-    return none
 
 fn describe_arrow (FuncId(2)) -> String
   locals

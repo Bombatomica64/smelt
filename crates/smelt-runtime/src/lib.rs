@@ -88,6 +88,7 @@ mod runtime {
     include!("runtime/accessor.rs");
     include!("runtime/array.rs");
     include!("runtime/bigint.rs");
+    include!("runtime/binding.rs");
     include!("runtime/blob.rs");
     include!("runtime/blob_record.rs");
     include!("runtime/boxing.rs");

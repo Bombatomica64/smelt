@@ -375,6 +375,15 @@ impl RuntimeDemand {
             Rvalue::PythonDictRead { .. } => {
                 self.add(Need::PythonDictRead);
             }
+            Rvalue::BindingCheck { unbound, .. } => {
+                self.add(Need::Binding);
+                match unbound {
+                    smelt_hir::UnboundRead::JsTemporalDeadZone => self.add(Need::BindingTdz),
+                    smelt_hir::UnboundRead::PyLocal
+                    | smelt_hir::UnboundRead::PyFreeVariable
+                    | smelt_hir::UnboundRead::PyGlobal => self.add(Need::BindingPy),
+                }
+            }
             Rvalue::PythonListRead { .. } => {
                 self.add(Need::PythonListRead);
             }

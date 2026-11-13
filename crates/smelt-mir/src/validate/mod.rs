@@ -16,8 +16,8 @@
 //!   at entities that actually exist in a body.
 //! - [`operands`] walks each statement/rvalue and confirms the operands it
 //!   reads reference valid places and globals.
-//! - [`assignment`] runs the forward definite-assignment dataflow that catches
-//!   reads of locals before they are provably defined.
+//! - [`assignment`] enforces definite assignment: every read finds its local
+//!   assigned, or is a checked binding read, and every block is reachable.
 //! - [`closures`] enforces the closure-table and capture ABI invariants.
 //!
 //! Every body check runs over [`Mir::bodies`], functions and closures alike,
@@ -47,8 +47,9 @@ pub fn validate(mir: &Mir) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     tables::validate_tables(mir, &mut errors);
     closures::validate_closures(mir, &mut errors);
+    let captures = crate::definite_assignment::CaptureInit::of(mir);
     for body in mir.bodies() {
-        structure::validate_body(mir, body, &mut errors);
+        structure::validate_body(mir, body, &captures, &mut errors);
     }
     mir.visit_types(&mut |ty| validate_type(mir, ty, &mut errors));
     errors

@@ -228,6 +228,7 @@ impl FunctionEmitter<'_> {
                 )
             }
             Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
+            Rvalue::BindingCheck { binding, unbound } => self.binding_check_call(binding, *unbound)?,
             Rvalue::PythonListRead { list, index } => {
                 let list_ty = self.operand_ty(list)?;
                 let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {

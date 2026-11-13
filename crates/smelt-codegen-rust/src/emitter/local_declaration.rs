@@ -75,7 +75,16 @@ impl FunctionEmitter<'_> {
 /// Compute locals that need function-scope bindings before Rust block emission.
 pub(super) fn predeclared_locals_for_function(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
     let mut seen = function.params.iter().copied().collect::<HashSet<_>>();
-    let mut locals = HashSet::new();
+    // A binding that can be read before its first assignment is declared up
+    // front, unassigned (see `binding_storage`), wherever it is first assigned.
+    let mut locals: HashSet<LocalId> = function
+        .locals
+        .iter()
+        .enumerate()
+        .filter(|(_, decl)| decl.init == smelt_mir::LocalInit::MaybeUnbound)
+        .filter_map(|(index, _)| u32::try_from(index).ok().map(LocalId))
+        .filter(|local| !seen.contains(local))
+        .collect();
     for block in &function.blocks {
         for statement in &block.statements {
             if let Statement::Assign { dest, .. } = statement

@@ -471,6 +471,7 @@ impl FunctionEmitter<'_> {
                                 ty: capture.ty,
                                 kind: LocalKind::Temp,
                                 span: fallback_span,
+                                init: smelt_mir::LocalInit::Definite,
                             },
                         );
                         if let Some(local) = closure_locals.get_mut(index) {

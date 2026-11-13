@@ -6,6 +6,13 @@
 use super::*;
 
 /// A self-recursive closure holds itself weakly, so it does not keep itself alive.
+///
+/// The cell starts as an unassigned `SmeltBinding` and is filled by `bind`
+/// (C8). Old requirement: it was seeded with a default callback answering
+/// `0.0`, a value that stood in for the function until the assignment
+/// replaced it. New requirement: no default stands in for a binding before
+/// its assignment; MIR proves this closure cannot run first, so its read is
+/// the unchecked `bound()`.
 #[test]
 fn a_self_recursive_closure_upgrades_its_weak_cell_before_borrowing() {
     let source = source_for(
@@ -18,7 +25,7 @@ console.log(run());
 ",
     );
     assert_eq!(rust_fn(&source, "run"), r#"fn run() -> f64 {
-let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> f64 { 0.0 }); smelt_default_callback }));
+let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64) -> f64>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
 let _smelt_tmp_1 = ::std::rc::Rc::new({
 let smelt_capture_walk = ::std::rc::Rc::downgrade(&smelt_capture_walk);
 move |closure_arg_0: f64| {
@@ -31,15 +38,15 @@ if _smelt_tmp_2 {
 _smelt_tmp_3 = 0.0;
 } else {
 _smelt_tmp_4 = closure_arg_0 - 1.0;
-_smelt_tmp_5 = ((*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_4);
+_smelt_tmp_5 = ((*(*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_4);
 _smelt_tmp_6 = 1.0 + _smelt_tmp_5;
 _smelt_tmp_3 = _smelt_tmp_6;
 }
 _smelt_tmp_3
 }
 });
-(*smelt_capture_walk.borrow_mut()) = _smelt_tmp_1.clone();
-let _smelt_tmp_2: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_walk.borrow())); (smelt_callable)(3.0) };
+{ let smelt_next_value = _smelt_tmp_1.clone(); (*smelt_capture_walk.borrow_mut()).bind(smelt_next_value); }
+let _smelt_tmp_2: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_walk.borrow()).bound())); (smelt_callable)(3.0) };
 return _smelt_tmp_2;
 }"#);
 }

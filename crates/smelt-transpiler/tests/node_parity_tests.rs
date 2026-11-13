@@ -70,6 +70,15 @@ fn truthiness_absence_identity() -> TestResult {
     verify_node_parity("truthiness_absence_identity")
 }
 
+/// A `let`/`const` read in its temporal dead zone throws a catchable
+/// `ReferenceError`, through a closure called early or a `switch` case that
+/// skipped the declaration; a hoisted function or a recursive arrow that runs
+/// after the binding it reads is initialized is unaffected (C8).
+#[test]
+fn temporal_dead_zone() -> TestResult {
+    verify_node_parity("temporal_dead_zone")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

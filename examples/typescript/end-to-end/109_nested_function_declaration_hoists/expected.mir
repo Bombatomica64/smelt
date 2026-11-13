@@ -15,7 +15,7 @@ fn scaled (FuncId(0)) -> Float
 fn count_up (FuncId(1)) -> Float
   locals
     %0 param base: Float
-    %1 user walk: fn(Float) -> Float
+    %1 user walk: fn(Float) -> Float (maybe unbound)
     %2 user limit: Float
     %3 temp: fn(Float) -> Float
     %4 temp: Float
@@ -29,7 +29,7 @@ fn count_up (FuncId(1)) -> Float
 fn count_up_hoisted (FuncId(2)) -> Float
   locals
     %0 param base: Float
-    %1 user climb: fn(Float) -> Float
+    %1 user climb: fn(Float) -> Float (maybe unbound)
     %2 user limit: Float
     %3 temp: fn(Float) -> Float
     %4 temp: Float
@@ -104,7 +104,7 @@ closure ClosureId(1) -> Float
   locals
     %0 param i: Float
     %1 user limit: Float
-    %2 user walk: fn(Float) -> Float
+    %2 user walk: fn(Float) -> Float (maybe unbound)
     %3 temp: Bool
     %4 temp: Float
     %5 temp: Float
@@ -121,7 +121,7 @@ closure ClosureId(1) -> Float
 closure ClosureId(2) -> Float
   locals
     %0 param i: Float
-    %1 user climb: fn(Float) -> Float
+    %1 user climb: fn(Float) -> Float (maybe unbound)
     %2 user limit: Float
     %3 temp: Bool
     %4 temp: Float

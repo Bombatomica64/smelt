@@ -854,6 +854,7 @@ mod tests {
                     ty: *ty,
                     kind: LocalKind::Param { symbol: None },
                     span: span(),
+                    init: smelt_mir::LocalInit::Definite,
                 })
                 .collect(),
             blocks: Vec::new(),
