@@ -243,6 +243,7 @@ mod tests {
             abstract_methods: Vec::new(),
             implements: Vec::new(),
             protocols: Vec::new(),
+            statics_of: None,
         }
     }
 

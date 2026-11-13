@@ -6,7 +6,7 @@
 
 use crate::rust::RustExpr;
 use smelt_hir::Type;
-use smelt_mir::{Mir, MirGlobalInit};
+use smelt_mir::{Constant, Mir, MirGlobalInit};
 
 use crate::emitter::{self, EmitContext, FunctionEmitter};
 use crate::rust::CodeWriter;
@@ -35,10 +35,10 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
         // — and that timing is exactly JavaScript's "module state is
         // initialized before any consumer runs", per generated test thread.
         let init = match &global.init {
-            MirGlobalInit::Constant(constant) => emitter::literals::constant_expr(
-                constant,
-                !matches!(mir.types.get(global.ty), Some(Type::PyStr)),
-            ),
+            MirGlobalInit::Constant(constant) => nullish_constant_at_type(constant, mir.types.get(global.ty), context)?
+                .unwrap_or_else(|| {
+                    emitter::literals::constant_expr(constant, !matches!(mir.types.get(global.ty), Some(Type::PyStr)))
+                }),
             MirGlobalInit::Call(func_id) => {
                 let function = mir
                     .functions
@@ -108,6 +108,34 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
         emit_module_init_failed(&mut writer);
     }
     Ok(writer.finish())
+}
+
+/// The initial value of a cell that starts nullish (`static x: T;`, which
+/// JavaScript defines as `undefined`), spelled at the cell's own type: `None`
+/// for an optional cell, the carrier's `undefined`/`null` for an erased one
+/// (`static x;` is `any`). `None` for any other constant, which renders on
+/// its own.
+fn nullish_constant_at_type(
+    constant: &Constant,
+    ty: Option<&Type>,
+    context: &EmitContext,
+) -> Result<Option<RustExpr>, EmitError> {
+    if !matches!(constant, Constant::Undefined | Constant::None) {
+        return Ok(None);
+    }
+    Ok(match ty {
+        Some(Type::Optional(_)) => Some(RustExpr::path("None")),
+        Some(Type::Unknown) => {
+            context.demand().carrier()?;
+            context.note_carrier_use();
+            Some(RustExpr::path(if matches!(constant, Constant::Undefined) {
+                "SmeltUnknown::Undefined"
+            } else {
+                "SmeltUnknown::Null"
+            }))
+        }
+        _ => None,
+    })
 }
 
 /// Emit `smelt_module_init_failed`, the report for a module global whose

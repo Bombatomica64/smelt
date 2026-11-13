@@ -7894,7 +7894,15 @@ function run(message: string) {
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "run", "run(message: String) -> None")?;
-    ensure!(crate_has_new(&ctx, "ValidationError"), "no construction of `ValidationError`");
+    // Corrected requirement. This used to assert a nominal `New` of a class
+    // named `ValidationError`, which no module declares: codegen built a
+    // placeholder object `{ __class: "ValidationError" }` and never ran the
+    // constructor, so the thrown error had no `message`. In JavaScript the
+    // binding holds whatever constructor `errors.ValidationError` is, and
+    // `new` runs ITS [[Construct]]; a module binding that holds a value
+    // therefore constructs through that value at run time.
+    ensure!(!crate_has_new(&ctx, "ValidationError"), "constructed a class nothing declares");
+    ensure!(crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::Construct { .. })), "no construction through the binding's value");
     ensure!(crate_has_field(&ctx, "validation_error"), "no read of field `validation_error`");
     Ok(())
 }

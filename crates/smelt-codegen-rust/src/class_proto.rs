@@ -327,6 +327,22 @@ fn erased_callable_adapter(
     let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()
+    } else if matches!(
+        mir.types.get(function.return_ty),
+        Some(Type::Class { name: returned, args: returned_args }) if returned_args.is_empty()
+            && crate::classes::find_class(mir, *returned).is_some_and(|returned_class| returned_class.type_params.is_empty())
+    ) {
+        // A (non-generic) class instance crosses as an instance: with its
+        // class marker and its prototype-carried methods, as every other
+        // erasure of it does (`FunctionEmitter::erase`). The record
+        // projection alone dropped them, so `K.build(1).describe()` through
+        // an erased class value found no method. A generic class keeps the
+        // projection: its inline erasure needs the caller's render scope.
+        let emitter = match &method_emitter {
+            Some(emitter) => emitter,
+            None => method_emitter.insert(crate::emitter::FunctionEmitter::new(mir, context, function)?),
+        };
+        emitter.erased_value_text(&RustExpr::path("smelt_result"), function.return_ty)?.into_string()
     } else {
         record_field_unknown_expr(mir, &RustExpr::path("smelt_result"), function.return_ty)?.into_string()
     };

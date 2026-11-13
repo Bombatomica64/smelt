@@ -921,6 +921,15 @@ struct ModuleBuilder<'ctx> {
     /// A static METHOD does not set this: its `this` is the receiver of the
     /// call, which may be a subclass.
     static_initializer_class: Option<String>,
+    /// The per-evaluation statics of each class declared in this module that
+    /// needs them, by owner class (`decls::evaluation_statics`).
+    evaluation_statics: HashMap<smelt_hir::Symbol, decls::evaluation_statics::EvaluationStatics>,
+    /// Each statics frame class of this module, to its owner class.
+    evaluation_frames: HashMap<smelt_hir::Symbol, smelt_hir::Symbol>,
+    /// The per-evaluation class whose members are being lowered, if any: its
+    /// constructor takes the frame, its methods and its frame's methods bind
+    /// the class name to it.
+    lowering_evaluation_statics: Option<decls::evaluation_statics::EvaluationStatics>,
     /// The context of the function body being lowered: async-ness, return
     /// type, generator types, `arguments` arity, statement sink, postfix-update
     /// mode and specialization receiver.

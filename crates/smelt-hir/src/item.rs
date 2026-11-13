@@ -202,6 +202,18 @@ pub struct Class {
     pub implements: Vec<InterfaceHeritage>,
     /// Source-language class protocols with statically typed Rust mappings.
     pub protocols: Vec<ClassProtocol>,
+    /// For a synthesized *statics frame*, the class whose static members it
+    /// holds; `None` for every source class.
+    ///
+    /// A class declared inside a function whose static initializers read
+    /// that function's locals is a new class at every evaluation of its
+    /// declaration, with its own static fields. Its statics are then not
+    /// module globals but the fields of one frame instance per evaluation
+    /// (a reference class, so every holder shares it): the class value of
+    /// that evaluation IS its frame, its static methods are the frame's
+    /// methods, and each instance carries the frame it was constructed by.
+    #[serde(default)]
+    pub statics_of: Option<Symbol>,
 }
 
 /// A source-language class protocol selected for typed backend lowering.

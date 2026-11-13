@@ -458,6 +458,13 @@ pub mod markers {
     /// The static method keys a class value holds as (non-enumerable) own
     /// properties.
     pub const SMELT_CLASS_METHODS: &str = "__smelt_class_methods";
+    /// A per-evaluation class's statics-frame identity.
+    ///
+    /// Carried by its class value and by each of its erased instances, under
+    /// the [`SMELT_METHOD`] prefix (`__smelt_method:__smelt_class_frame`),
+    /// which every enumeration, copy and serialization of an erased object
+    /// already skips.
+    pub const SMELT_CLASS_FRAME: &str = "__smelt_class_frame";
     /// `__smelt_crypto_key`.
     pub const SMELT_CRYPTO_KEY: &str = "__smelt_crypto_key";
     /// `__smelt_databasesync`.
@@ -640,6 +647,7 @@ pub mod markers {
         SMELT_CLASS_VALUE,
         SMELT_CLASS_FIELDS,
         SMELT_CLASS_METHODS,
+        SMELT_CLASS_FRAME,
         SMELT_CRYPTO_KEY,
         SMELT_DATABASESYNC,
         SMELT_DATAVIEW,

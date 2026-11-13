@@ -462,7 +462,10 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
             seen.push(*name);
             let serializable =
                 if let Some(class) = crate::classes::find_class(mir, *name) {
-                    effective_class_fields(mir, class)
+                    // A statics frame is a class value, not data: its handle
+                    // has no serde form, so an instance holding one
+                    // serializes through its erased view.
+                    class.statics_of.is_none() && effective_class_fields(mir, class)
                         .iter()
                         .all(|field| type_is_json_serializable(mir, field.ty, seen))
                 } else if let Some(interface) = mir

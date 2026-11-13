@@ -182,6 +182,7 @@ mod rvalue;
 #[cfg(debug_assertions)]
 mod seam_assertions;
 mod static_call_args;
+mod statics_frame;
 mod set;
 mod sqlite;
 mod string_units;

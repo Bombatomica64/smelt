@@ -312,6 +312,7 @@ fn a_repeated_class_name_is_rejected() {
         abstract_methods: Vec::new(),
         implements: Vec::new(),
         protocols: Vec::new(),
+        statics_of: None,
     };
     let mut mir = program();
     mir.classes = vec![class(Symbol(1)), class(Symbol(2))];
@@ -352,6 +353,7 @@ fn globals_and_member_ids_are_range_checked() {
         abstract_methods: Vec::new(),
         implements: Vec::new(),
         protocols: Vec::new(),
+        statics_of: None,
     });
     assert!(reports(&with_class, "method references unknown function FuncId(4)"));
 }

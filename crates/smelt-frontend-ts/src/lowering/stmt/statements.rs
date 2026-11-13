@@ -188,6 +188,7 @@ impl ModuleBuilder<'_> {
                 if !self.conditional_class_declaration(class)? {
                     let item = self.class_declaration(class)?;
                     self.touch_class_static_initializers(item, body, block);
+                    self.evaluate_class_statics(item, class, body)?;
                 }
                 Ok(())
             }
@@ -789,7 +790,7 @@ impl ModuleBuilder<'_> {
         // `Foo.prototype.x = …` assignments for a constructor function were
         // folded into the synthesized class during the block prepass, so the
         // assignment statement itself is dropped.
-        if self.is_synthesized_prototype_assignment(expression)
+        if self.is_synthesized_prototype_assignment(expression, body)
             || self.inline_runtime_lifecycle_setup(expression, body, block)?
             || self.is_test_framework_statement(expression)
             || Self::is_vitest_mock_statement(expression)

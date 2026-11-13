@@ -516,6 +516,13 @@ impl RuntimeDemand {
         if !mir.accessor_fields.is_empty() {
             self.add(Need::Accessors);
         }
+        // A per-evaluation class's statics frame erases to a class value
+        // (`emitter::statics_frame`), whose static hooks, enumerable view and
+        // `instanceof` need the class-value runtime.
+        if mir.classes.iter().any(|class| class.statics_of.is_some()) {
+            self.add(Need::ClassValue);
+            self.add(Need::InstanceOfValue);
+        }
         // A generic class, interface or function emits `IntoSmeltUnknown +
         // SmeltFromUnknown` bounds on its type parameters, so the erasure traits
         // must exist even with no erased value in the program.
