@@ -1435,15 +1435,20 @@ export function useSink(): number {
 /// program names that instantiation. Declarations come from the type table,
 /// ahead of every body, so `inherited_types` must put the substituted union
 /// there; without it the copy names an enum nothing declares (E0412).
+///
+/// The union is the `value` field's own `T | string`. The program used to get
+/// it for free: the anonymous record lowered to `Dict<String, T | String>`,
+/// merging its field types. It is now a generic struct
+/// (`decls::anonymous_record`), so the union has to be spelled.
 #[test]
 fn a_union_only_an_inherited_copy_spells_is_declared() {
     let source = source_for(
         r#"
-type ParseResult<T> = { value: T; rest: string } | null;
+type ParseResult<T> = { value: T | string; rest: string } | null;
 class ValueSetter<T> {
-  value: T;
+  value: T | string;
   priority: number;
-  constructor(value: T, priority: number) { this.value = value; this.priority = priority; }
+  constructor(value: T | string, priority: number) { this.value = value; this.priority = priority; }
 }
 abstract class Parser<T> {
   abstract priority: number;
@@ -1469,4 +1474,50 @@ console.log(new YearParser().priority);
     for name in names {
         assert!(source.contains(&format!("enum {name}")), "{name} is not declared: {source}");
     }
+}
+
+/// A generic alias over a union with an object arm keeps its types.
+///
+/// `type ParseResult<V> = { value: V; rest: string } | null` is an optional of
+/// a generic record: `ParseResult<number>` is `Option<SmeltRecord…<f64>>`, and
+/// `mapValue<A, B>` keeps both parameters as Rust generics. Three rules hold
+/// this together, and dropping any one erases the helper or the alias:
+/// the literal's record declares the parameters it mentions
+/// (`decls::anonymous_record`), an alias whose type is `Optional` resolves to
+/// that type rather than to a nominal record named after the alias, and
+/// `if (!result) return result;` returns the narrowed `null` (`Option<B>`'s
+/// `None`) instead of the `Option<Record<A>>` local. The call site's callback
+/// typing needs the checker, which this harness does not run; the node-parity
+/// test `generic_record_result_alias` checks it on a real build.
+#[test]
+fn a_generic_result_alias_and_its_mapper_stay_generic() {
+    let source = source_for(
+        r#"
+type ParseResult<V> = { value: V; rest: string } | null;
+function mapValue<A, B>(result: ParseResult<A>, mapFn: (value: A) => B): ParseResult<B> {
+  if (!result) return result;
+  return { value: mapFn(result.value), rest: result.rest };
+}
+function digits(s: string): ParseResult<number> {
+  return s ? { value: s.length, rest: s } : null;
+}
+console.log(mapValue(digits("ab"), (n) => n * 2)?.value);
+"#,
+    );
+    let signature = |name: &str| {
+        source
+            .lines()
+            .find(|line| line.contains(&format!("fn {name}")))
+            .unwrap_or_else(|| panic!("no fn {name}: {source}"))
+            .to_owned()
+    };
+    let map_value = signature("map_value<");
+    assert!(map_value.contains("(result: Option<SmeltRecord"), "{map_value}");
+    assert!(map_value.contains("<A>>, map_fn"), "{map_value}");
+    assert!(map_value.contains("-> Option<SmeltRecord"), "{map_value}");
+    assert!(map_value.ends_with("<B>> {"), "{map_value}");
+    let digits = signature("digits(");
+    assert!(digits.contains("-> Option<SmeltRecord") && digits.ends_with("<f64>> {"), "{digits}");
+    let erased = |text: &str| text.contains("<SmeltUnknown") || text.contains(": SmeltUnknown") || text.contains("-> SmeltUnknown");
+    assert!(!erased(&map_value) && !erased(&digits), "{map_value}\n{digits}");
 }
