@@ -29,6 +29,10 @@ type TypeScriptResolver = ResolverGeneric<SoundOverlay>;
 pub(crate) struct ManifestSource {
     /// Original manifest entry resolved against the manifest directory.
     pub(crate) path: PathBuf,
+    /// Whether this source is a program entry (a `[sources] entries` file, or
+    /// the file a single-file command names) rather than a module reached only
+    /// by import or test discovery. Python runs an entry as `__main__`.
+    pub(crate) is_entry: bool,
     /// Source text read while scanning imports.
     pub(crate) source: String,
     /// Source language inferred from the file extension.
@@ -139,6 +143,7 @@ pub(crate) fn read_manifest_source(
     })?;
     Ok(ManifestSource {
         path,
+        is_entry: false,
         source,
         lang,
         imports,
@@ -177,6 +182,7 @@ fn read_collected_source(
     })?;
     Ok(ManifestSource {
         path,
+        is_entry: false,
         source,
         lang,
         imports,

@@ -388,7 +388,7 @@ impl RuntimeDemand {
             Rvalue::PyStr { .. } => {
                 self.add(Need::PyRepr);
             }
-            Rvalue::PyRepr { .. } => {
+            Rvalue::PyRepr { .. } | Rvalue::PyJsonDumps { .. } => {
                 self.add(Need::PyRepr);
             }
             Rvalue::PyExceptionArgs { .. } => {

@@ -246,3 +246,18 @@ fn builtins_and_sequences() -> TestResult {
 fn class_inheritance() -> TestResult {
     verify_python_parity("class_inheritance")
 }
+
+/// `json.dumps` with CPython's default separators, float repr and
+/// `ensure_ascii`, called from a function a module-level statement calls,
+/// whose output prints once.
+#[test]
+fn json_dumps_defaults() -> TestResult {
+    verify_python_parity("json_dumps_defaults")
+}
+
+/// The entry module's `__name__` is `"__main__"`, and output a decorator wrote
+/// at definition time prints once, where its statement stands.
+#[test]
+fn module_entry_and_definition_output() -> TestResult {
+    verify_python_parity("module_entry_and_definition_output")
+}

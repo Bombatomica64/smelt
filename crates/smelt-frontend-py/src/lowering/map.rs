@@ -316,6 +316,7 @@ impl ModuleBuilder<'_> {
     fn module_dunder_value(&self, name: &str) -> Option<String> {
         match name {
             "__file__" => Some(self.path.clone()),
+            "__name__" if self.is_entry => Some("__main__".to_owned()),
             "__name__" => Some(module_name_from_path(&self.path)),
             _ => None,
         }

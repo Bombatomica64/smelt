@@ -522,6 +522,17 @@ pub enum EffectReplay {
         stderr: bool,
         /// Captured deterministic text.
         text: String,
+        /// The source module whose top-level statement was executing when the
+        /// text was written (its resolved path, as [`ModuleRecord::path`]).
+        /// `None` when the write ran outside any project module's top level.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        /// The 1-based line, in [`Self::Output::path`], of that top-level
+        /// statement. A frontend replays the text only where it does not run
+        /// the statement itself: a statement it lowers to run-time code prints
+        /// its own output, and replaying it too printed it twice.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        line: Option<u32>,
     },
     /// Invoke a lifted source initializer.
     Initializer {

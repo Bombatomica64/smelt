@@ -49,8 +49,23 @@ pub(crate) struct SpecializationData {
     values: Vec<smelt_specialize::GraphValue>,
     /// Opaque behavior that requires explicit adapters.
     required_adapters: Vec<smelt_specialize::AdapterRequirement>,
-    /// Ordered deterministic effects replayed once by the first manifest module.
-    effects: Vec<smelt_specialize::EffectReplay>,
+    /// Output captured while this module was imported at definition time, in
+    /// write order (see [`OutputReplay`]).
+    outputs: Vec<OutputReplay>,
+}
+
+/// One write captured during definition-time execution, placed in the module.
+#[derive(Debug, Clone)]
+pub(crate) struct OutputReplay {
+    /// Whether the text went to standard error.
+    stderr: bool,
+    /// The captured text.
+    text: String,
+    /// Byte offset, in this module's source, of the line of the top-level
+    /// statement that wrote it; `None` when the write is not attributed to one
+    /// (an older guest, or a write outside any top-level statement), which
+    /// replays at the start of the module body.
+    offset: Option<u32>,
 }
 
 /// A module-level type alias and the parameters it is generic over.
@@ -87,6 +102,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path used for module metadata and diagnostics.
     path: String,
+    /// Whether this module is the program entry (`__name__ == "__main__"`).
+    pub(crate) is_entry: bool,
     /// Shared HIR context being populated.
     ctx: &'ctx mut HirCtx,
     /// State owned by the function body being lowered; swapped wholesale by
@@ -349,6 +366,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             file_id,
             pytest_mode: test_support::is_pytest_file(&path),
             path,
+            is_entry: false,
             ctx,
             scope: FnScope::default(),
             items,
@@ -425,7 +443,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         {
             return Err(vec![SmeltError::specialization_required(span, name)]);
         }
-        self.replay_specialization_output(&mut body);
+        self.replay_unattributed_output(&mut body);
         self.collect_exception_classes(module);
 
         // Pass 1 — collect top-level function/class declarations so later
@@ -447,9 +465,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for (stmt, is_declared) in module.body.iter().zip(declared) {
             if is_declared {
                 // A constructed binding Pass 1 lifted to a module global is
-                // touched here, so its initializer runs in source order.
+                // touched here, so its initializer runs in source order (and
+                // prints its own output). Any other declared statement is
+                // materialized, not run, so what it printed at definition time
+                // is replayed in its place.
                 if let Some(touch) = self.module_global_touch(stmt, &mut body) {
                     body.push_stmt(HirStmt::Expr(touch));
+                } else {
+                    self.replay_statement_output(stmt.range(), &mut body);
                 }
                 continue;
             }

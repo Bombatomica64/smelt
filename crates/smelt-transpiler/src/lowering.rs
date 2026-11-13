@@ -123,7 +123,7 @@ impl ManifestLowering {
                 .map(read_manifest_source)
                 .collect::<Result<Vec<_>, _>>()
         })?;
-        let sources = timing::measure("manifest.dependency_closure", || {
+        let mut sources = timing::measure("manifest.dependency_closure", || {
             let packages = crate::package_sources::resolve_packages(config, manifest_dir)?;
             dependency_closure(
                 root_sources,
@@ -133,6 +133,7 @@ impl ManifestLowering {
                 Some(sound_settings(config, manifest_dir)),
             )
         })?;
+        mark_entries(&mut sources, config.entries().iter().map(|path| resolve_manifest_path(manifest_dir, path)));
         // Ordering cannot fail (import cycles are cut deliberately).
         let Ok(sources) = timing::measure("manifest.order_sources", || {
             Ok::<_, std::convert::Infallible>(in_dependency_order(sources))
@@ -169,7 +170,9 @@ impl ManifestLowering {
     pub(crate) fn for_file(file: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let target = PathBuf::from(file);
         let root = read_manifest_source(target.clone())?;
-        let sources = in_dependency_order(dependency_closure(vec![root], &[], Path::new("."), &[], None)?);
+        let mut sources = dependency_closure(vec![root], &[], Path::new("."), &[], None)?;
+        mark_entries(&mut sources, std::iter::once(target.clone()));
+        let sources = in_dependency_order(sources);
         let focus = sources.iter().position(|source| source.path == target);
         let ordered = sources.iter().collect::<Vec<_>>();
         let module_names = manifest_module_names(&ordered, |source| {
@@ -519,6 +522,18 @@ fn sound_settings(config: &crate::config::Config, manifest_dir: &Path) -> SoundS
     SoundSettings {
         root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
         defines: config.defines(),
+    }
+}
+
+/// Marks every source whose path is one of `entries` as a program entry.
+///
+/// Paths compare canonicalized when both exist, so a manifest spelling and the
+/// closure's resolved path of the same file agree.
+fn mark_entries(sources: &mut [ManifestSource], entries: impl Iterator<Item = PathBuf>) {
+    let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let entries: HashSet<PathBuf> = entries.map(|path| canonical(&path)).collect();
+    for source in sources {
+        source.is_entry = entries.contains(&canonical(&source.path));
     }
 }
 

@@ -312,6 +312,11 @@ impl SmeltError {
 pub struct FrontendOptions<'manifest> {
     /// Optional build-time specialization manifest.
     pub specialization: Option<&'manifest smelt_specialize::SpecializationManifest>,
+    /// Whether the module is the program's entry, which Python runs as
+    /// `__main__`: its `__name__` reads `"__main__"`, so an
+    /// `if __name__ == "__main__":` guard runs. Any other module reads its own
+    /// module name, as an imported module does.
+    pub is_entry: bool,
 }
 
 /// Reusable lowering context — one per crate, shared across files.
@@ -423,7 +428,7 @@ pub fn to_hir_with_options(
         )));
     }
     let module_ast = parse_module(source, file_id)?;
-    let specialization = lowering::specialization_for_path(path, options.specialization);
+    let specialization = lowering::specialization_for_path(path, source, options.specialization);
     // Resolve Python types via `ty` (no-op unless the `ty` feature is enabled).
     // The stem only names `ty`'s temporary module; lookups are keyed by offset.
     let stem = Path::new(path)
@@ -434,6 +439,7 @@ pub fn to_hir_with_options(
     let analysis = lowering::ModuleAnalysis::new(resolved_types, &module_ast);
     let mut builder =
         ModuleBuilder::new(file_id, path.to_owned(), ctx, specialization, analysis);
+    builder.is_entry = options.is_entry;
     builder.module(&module_ast)
 }
 

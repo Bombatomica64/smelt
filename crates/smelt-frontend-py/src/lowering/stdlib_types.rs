@@ -17,6 +17,17 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether a set appears anywhere in the JSON-compatible type `ty`.
+    fn contains_set_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Set(_)) => true,
+            Some(Type::List(item) | Type::Optional(item)) => self.contains_set_type(*item),
+            Some(Type::Tuple(items)) => items.iter().any(|item| self.contains_set_type(*item)),
+            Some(Type::Dict(_, value)) => self.contains_set_type(*value),
+            _ => false,
+        }
+    }
+
     /// Lower primitive Python conversion builtins for bool, int, float, and string values.
     pub(super) fn primitive_cast_call_expression(
         &mut self,
