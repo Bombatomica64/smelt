@@ -165,8 +165,8 @@ impl FunctionEmitter<'_> {
         let carrier = self.carrier()?;
         let fields_text = enumerable
             .iter()
-            .map(|(key, own)| {
-                format!("SmeltUnknown::Array(vec![SmeltUnknown::String({key:?}.into()), SmeltUnknown::Bool({own})].into())")
+            .map(|(key, is_own)| {
+                format!("SmeltUnknown::Array(vec![SmeltUnknown::String({key:?}.into()), SmeltUnknown::Bool({is_own})].into())")
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -188,8 +188,8 @@ impl FunctionEmitter<'_> {
         let key_text = "let smelt_static_key = match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_key.to_string(), _ => return Ok(SmeltUnknown::Undefined) };";
         let mut get_arms = String::new();
         for (key, read, ty) in &readable {
-            let read = self.erase_rendered(read, *ty)?;
-            get_arms.push_str(&format!("{key:?} => {}, ", read.delimited()));
+            let erased_read = self.erase_rendered(read, *ty)?;
+            get_arms.push_str(&format!("{key:?} => {}, ", erased_read.delimited()));
         }
         let mut set_arms = String::new();
         for (key, global, ty) in &writable {
