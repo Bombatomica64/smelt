@@ -222,6 +222,12 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // `this` in a static field initializer is the class being defined.
+        if name == "this"
+            && let Some(class) = self.static_initializer_this()
+        {
+            return self.class_value_expression(&class, start, end, body);
+        }
         // One resolver decides what the name is, lexical scope first: a local
         // `const Item = xs[0]` beside a module `class Item`, or a local named
         // `Date`, is the local.

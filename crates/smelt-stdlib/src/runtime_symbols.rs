@@ -452,6 +452,12 @@ pub mod markers {
     pub const SMELT_UNMODELED: &str = "__smelt_unmodeled";
     /// `__smelt_class_value`.
     pub const SMELT_CLASS_VALUE: &str = "__smelt_class_value";
+    /// A class value's static data fields in enumeration order, as
+    /// `[key, own]` pairs.
+    pub const SMELT_CLASS_FIELDS: &str = "__smelt_class_fields";
+    /// The static method keys a class value holds as (non-enumerable) own
+    /// properties.
+    pub const SMELT_CLASS_METHODS: &str = "__smelt_class_methods";
     /// `__smelt_crypto_key`.
     pub const SMELT_CRYPTO_KEY: &str = "__smelt_crypto_key";
     /// `__smelt_databasesync`.
@@ -632,6 +638,8 @@ pub mod markers {
         SMELT_CLASS,
         SMELT_UNMODELED,
         SMELT_CLASS_VALUE,
+        SMELT_CLASS_FIELDS,
+        SMELT_CLASS_METHODS,
         SMELT_CRYPTO_KEY,
         SMELT_DATABASESYNC,
         SMELT_DATAVIEW,

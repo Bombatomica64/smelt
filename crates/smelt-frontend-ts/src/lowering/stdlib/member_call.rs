@@ -817,14 +817,12 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        let Expression::Identifier(object) = &member.object else {
+        // The receiver must be a bare class name not shadowed by a local, or
+        // `this` in a static field initializer (the class itself).
+        let Some(object) = self.static_method_receiver_class(&member.object) else {
             return Ok(None);
         };
-        // The receiver must be a bare class name and not shadowed by a local.
-        if self.scope.is_bound(object.name.as_str()) {
-            return Ok(None);
-        }
-        let Some(class_item) = self.classes.item(object.name.as_str()) else {
+        let Some(class_item) = self.classes.item(&object) else {
             return Ok(None);
         };
         let Item::Class(class) = self.item_ref(class_item) else {
@@ -896,13 +894,10 @@ impl ModuleBuilder<'_> {
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> bool {
-        let Expression::Identifier(object) = &member.object else {
+        let Some(object) = self.static_method_receiver_class(&member.object) else {
             return false;
         };
-        if self.scope.is_bound(object.name.as_str()) {
-            return false;
-        }
-        let Some(class_item) = self.classes.item(object.name.as_str()) else {
+        let Some(class_item) = self.classes.item(&object) else {
             return false;
         };
         let Item::Class(class) = self.item_ref(class_item) else {
@@ -910,6 +905,19 @@ impl ModuleBuilder<'_> {
         };
         self.resolve_class_static_method(&self.static_methods_through_chain(class), member.property.name.as_str())
             .is_some()
+    }
+
+    /// The class a `Class.staticMethod(..)` receiver names: a bare class
+    /// identifier no local shadows, or `this` inside a static field
+    /// initializer (`ModuleBuilder::static_initializer_this`).
+    fn static_method_receiver_class(&self, object: &Expression<'_>) -> Option<String> {
+        match object {
+            Expression::Identifier(object) => {
+                (!self.scope.is_bound(object.name.as_str())).then(|| object.name.to_string())
+            }
+            Expression::ThisExpression(_) => self.static_initializer_this(),
+            _ => None,
+        }
     }
 
     /// The static methods `class` declares, then those of each ancestor: a

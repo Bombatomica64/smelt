@@ -512,6 +512,28 @@ impl ModuleBuilder<'_> {
             this.expression_with_hint(init, &mut init_body, Some(global_ty))
         })?;
         init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
+        self.install_global_initializer(item, name, init_body, global_ty, span);
+        Ok(())
+    }
+
+    /// Make `init_body` (a body returning the global's value) mutable global
+    /// `item`'s lazy initializer.
+    ///
+    /// The body becomes a synthesized nullary function item and the global's
+    /// `init` becomes `Initializer(item)`. Going through a real function item
+    /// means the expression reaches codegen by the ordinary function path —
+    /// MIR assigns it a `FuncId`, the emitter emits its body — and the cell's
+    /// lazy initializer only has to call it. Shared by module bindings
+    /// ([`Self::lower_pending_mutable_global_init`]) and static class fields
+    /// (`ModuleBuilder::lower_static_field_initializer`).
+    pub(in crate::lowering) fn install_global_initializer(
+        &mut self,
+        item: smelt_hir::ItemId,
+        name: &str,
+        init_body: Body,
+        global_ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+    ) {
         let body_id = self.ctx.krate.push_body(init_body);
         // The synthesized name is derived from the binding and the global's own
         // HIR item index, so two modules' same-named globals get distinct
@@ -549,7 +571,6 @@ impl ModuleBuilder<'_> {
         {
             global.init = smelt_hir::MutableGlobalInit::Initializer(init_item);
         }
-        Ok(())
     }
 
     /// Evaluate a module slot's expression initializer at its own declaration.

@@ -186,7 +186,8 @@ impl ModuleBuilder<'_> {
             Statement::ClassDeclaration(class) => {
                 self.shadow_outer_class(class);
                 if !self.conditional_class_declaration(class)? {
-                    self.class_declaration(class)?;
+                    let item = self.class_declaration(class)?;
+                    self.touch_class_static_initializers(item, body, block);
                 }
                 Ok(())
             }

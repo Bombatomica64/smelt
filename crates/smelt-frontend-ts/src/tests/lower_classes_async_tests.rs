@@ -425,9 +425,10 @@ fn lowers_generic_classes() -> Result<(), String> {
 
 #[test]
 fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), String> {
-    // A `static` field without a concrete literal initializer is still rejected:
-    // there is no materializable value to resolve `Class.role` to (issue #98
-    // lowers only literal-initialized static constants).
+    // A `static` field WITHOUT an initializer is still rejected: its value is
+    // `undefined` whatever its declared type says. A field with any
+    // initializer lowers: a literal one inline, an expression one evaluated
+    // once at class definition (`class_static_expression_field`).
     let mut field_ctx = HirCtx::new();
     let field_errors = lowering_errors(
         ts!("class User {
@@ -437,7 +438,7 @@ fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), 
 "),
         &mut field_ctx,
     )?;
-    assert_unsupported_ts(&field_errors, "static fields require a concrete literal initializer")?;
+    assert_unsupported_ts(&field_errors, "static fields without an initializer are not lowered yet")?;
 
     // A literal-initialized `static` constant and a `static` method now lower
     // successfully: the constant becomes a materialized static field
