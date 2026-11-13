@@ -774,6 +774,17 @@ impl LoweringCtx<'_> {
         })?;
         let operand = Operand::Copy(Place::Local(local_id));
         let local_ty = self.mir_local(local_id)?.ty;
+        // A read narrowed to `None` (`if (!r) return r;` with `r: T | null`
+        // and `T` always truthy, or `if (r === null)`) can only see the
+        // absent value, so it IS that constant. Copying the `Option<T>`
+        // local instead kept the payload type `T` in the read: returned where
+        // `Option<U>` is declared, it needed a `T` -> `U` conversion that a
+        // generic `T`/`U` cannot have.
+        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(_)))
+            && matches!(self.krate.types.get(expr.ty), Some(Type::None))
+        {
+            return Ok(Operand::Const(lower_literal(&smelt_hir::Literal::None)));
+        }
         if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty) {
             let dest = self.push_temp(expr.ty, expr.span);
             self.block_mut()?.statements.push(Statement::Assign {

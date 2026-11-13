@@ -418,9 +418,14 @@ impl ModuleBuilder<'_> {
                         &lowered_args,
                         self.span(reference.span.start, reference.span.end),
                     )?;
+                    // `T | null` / `T | undefined` lowers to `Optional<T>`:
+                    // it is a union too, so the fields of its object arm
+                    // (recorded as the alias's fields) do not make it a
+                    // record of its own. Resolving it to a nominal record
+                    // named after the alias, which no struct backs, erased it.
                     let alias_is_union = matches!(
                         self.ctx.krate.types.get(alias.ty),
-                        Some(Type::Union(_))
+                        Some(Type::Union(_) | Type::Optional(_))
                     );
                     let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
                     let reference_span = self.span(reference.span.start, reference.span.end);

@@ -58,8 +58,10 @@ impl ModuleBuilder<'_> {
             let ty = match (&param.pattern, ty) {
                 (BindingPattern::BindingIdentifier(binding), contextual)
                     if param.type_annotation.is_none()
-                        && contextual
-                            .is_none_or(|contextual_ty| matches!(self.ctx.krate.types.get(contextual_ty), Some(Type::Unknown))) =>
+                        && contextual.is_none_or(|contextual_ty| {
+                            matches!(self.ctx.krate.types.get(contextual_ty), Some(Type::Unknown))
+                                || self.names_type_param_out_of_scope(contextual_ty)
+                        }) =>
                 {
                     let checked = self.checker_binding_type(binding.span.start, binding.span.end);
                     checked.unwrap_or_else(|| {
@@ -200,6 +202,39 @@ impl ModuleBuilder<'_> {
             params.push(ty);
         }
         Ok(params)
+    }
+
+    /// Whether `ty` names a type parameter no enclosing declaration of the
+    /// code being lowered declares.
+    ///
+    /// A callback's contextual signature comes from its callee's declaration:
+    /// `mapValue<A, B>(r: R<A>, f: (a: A) => B)` hands `(n) => n * 2` the
+    /// parameter type `A`, which is `mapValue`'s own parameter, uninstantiated.
+    /// At the call site `A` is `number` (TypeScript inferred it from `r`), but
+    /// the lowered closure kept the bare `A`: a name nothing in its scope
+    /// binds, so the backend erased it, and the erased callback then poisoned
+    /// the call's binding of `A` (`F0: Fn(&A) -> B` met `Fn(&SmeltUnknown)`,
+    /// E0631). Such a type is the callee's signature, not a fact about this
+    /// binding, so the checker's instantiated type for the binding answers.
+    /// A parameter of an enclosing generic (`function outer<T>() { f((x: T)
+    /// => ..) }`) is in scope and stays.
+    fn names_type_param_out_of_scope(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::TypeParam { name }) => {
+                let in_scope = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(*name)
+                    .and_then(|text| self.types.param_type(text))
+                    .is_some_and(|scoped| scoped == ty);
+                !in_scope
+            }
+            Some(other) => other
+                .children()
+                .any(|child| self.names_type_param_out_of_scope(child)),
+            None => false,
+        }
     }
 
     /// Resolve the contextual type for a *fixed* arrow parameter at `index`
