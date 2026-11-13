@@ -58,7 +58,8 @@ IGNORED = (
     ".github/workflows/pages.yml",
     ".github/workflows/publish-crates.yml",
     ".github/workflows/publish-smelt.yml",
-    ".github/workflows/runtime-tiers.yml",
+    ".github/workflows/coverage.yml",
+    ".github/workflows/regressions-label.yml",
     ".github/workflows/shape-grid.yml",
 )
 

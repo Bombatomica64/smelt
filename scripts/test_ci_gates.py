@@ -13,6 +13,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import check_ci_gates
+import ci_test_shard
 import ci_pin
 import publish_order
 import check_clippy_ratchet
@@ -184,24 +185,41 @@ class ClippyRatchet(unittest.TestCase):
 
 GOOD_CI = """on: push
 jobs:
-  clippy:
+  build:
     steps:
+      - run: cargo nextest archive --workspace --archive-file t.tar.zst
       - run: cargo clippy --workspace --all-targets > c.json; python3 scripts/check_clippy_ratchet.py
+      - run: cargo test --doc --workspace
   sandbox:
     env: {SMELT_REQUIRE_SANDBOX: "1"}
   test:
     env: {SMELT_REQUIRE_SANDBOX: "1"}
-  coverage:
-    env: {SMELT_REQUIRE_SANDBOX: "1"}
+    steps:
+      - run: cargo nextest run $NEXTEST_META -E "$(python3 scripts/ci_test_shard.py filter)"
+      - run: python3 scripts/ci_test_shard.py serial --shard 1 --total 4
+  runtime-tiers:
+    steps:
+      - run: cargo nextest run $NEXTEST_META --run-ignored only -E 'binary(/_runtime$/)'
   package:
     steps:
       - run: scripts/publish-crates.sh
   es-toolkit-regression:
     steps:
+      - name: Generated tests compile (cargo test --no-run)
+        run: |
+          RUSTFLAGS=-Awarnings cargo test --no-run \\
+            --manifest-path dist/Cargo.toml
+          echo "cargo test exit status"
       - run: python3 scripts/check_library_gate.py runtime-ratchet
   hono:
     steps:
       - run: python3 scripts/check_library_gate.py compile-pin
+"""
+
+GOOD_COVERAGE = """on: push
+jobs:
+  coverage:
+    env: {SMELT_REQUIRE_SANDBOX: "1"}
 """
 
 
@@ -289,11 +307,30 @@ class CiGates(unittest.TestCase):
     def test_removing_strict_mode_from_a_job_is_refused(self):
         text = GOOD_CI.replace('  test:\n    env: {SMELT_REQUIRE_SANDBOX: "1"}\n', "  test:\n    env: {}\n")
         self.assertEqual(len(check_ci_gates.workflow_violations("ci.yml", text)), 1)
+        self.assertEqual(check_ci_gates.workflow_violations("coverage.yml", GOOD_COVERAGE), [])
+        self.assertEqual(len(check_ci_gates.workflow_violations(
+            "coverage.yml", GOOD_COVERAGE.replace('{SMELT_REQUIRE_SANDBOX: "1"}', "{}"))), 1)
 
     def test_removing_a_gate_step_is_refused(self):
-        for gate in ("check_clippy_ratchet.py", "publish-crates.sh", "runtime-ratchet", "compile-pin"):
-            found = check_ci_gates.workflow_violations("ci.yml", GOOD_CI.replace(gate, "echo"))
+        for gate in ("check_clippy_ratchet.py", "publish-crates.sh", "runtime-ratchet", "compile-pin",
+                     "cargo test --doc", "ci_test_shard.py serial"):
+            found = check_ci_gates.workflow_violations("ci.yml", GOOD_CI.replace(gate, "true"))
             self.assertEqual(len(found), 1, (gate, found))
+
+    def test_a_second_workspace_compile_is_refused(self):
+        for command in ("cargo build --bin smelt", "cargo test -p smelt-codegen-rust",
+                        "cargo +nightly clippy --workspace", "cargo check"):
+            text = GOOD_CI.replace("      - run: scripts/publish-crates.sh",
+                                   f"      - run: {command}\n      - run: scripts/publish-crates.sh")
+            found = check_ci_gates.workflow_violations("ci.yml", text)
+            self.assertEqual(len(found), 1, (command, found))
+            self.assertIn("job `package` compiles the workspace", found[0])
+
+    def test_a_nextest_run_outside_the_archive_is_refused(self):
+        text = GOOD_CI.replace("--run-ignored only", "").replace("run $NEXTEST_META", "run", 1)
+        found = check_ci_gates.workflow_violations("ci.yml", text)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("without the archive", found[0])
 
     def test_literal_pins_are_refused(self):
         for text in ("run: npm install --global typescript@5.9.3\n",
@@ -304,16 +341,13 @@ class CiGates(unittest.TestCase):
         self.assertEqual(check_ci_gates.pin_violations(
             "x.yml", "node-version: ${{ steps.pins.outputs.node }}\n"), [])
 
-    def test_a_tier_nothing_runs_is_refused(self):
-        matrix = "jobs:\n  # c_runtime runs elsewhere.\n  tests: >-\n    a_runtime b_runtime\n"
-        ci = "cargo test --test c_runtime -- --ignored\n"
+    def test_every_tier_runs_by_pattern(self):
         tiers = check_ci_gates.tier_violations
-        self.assertEqual(tiers(["a_runtime", "b_runtime", "c_runtime"], matrix, ci), [])
-        self.assertIn("run by no job", tiers(["a_runtime", "b_runtime", "c_runtime", "new_runtime"],
-                                             matrix, ci)[0])
-        self.assertIn("no test file", tiers(["a_runtime", "c_runtime"], matrix, ci)[0])
-        self.assertIn("named twice", tiers(["a_runtime", "b_runtime", "c_runtime"],
-                                           matrix + "    a_runtime\n", ci)[0])
+        self.assertEqual(tiers(["a_runtime", "new_runtime"], GOOD_CI), [])
+        for broken in (GOOD_CI.replace("binary(/_runtime$/)", "binary(a_runtime)"),
+                       GOOD_CI.replace("--run-ignored only", ""),
+                       GOOD_CI.replace("  runtime-tiers:", "  tiers:")):
+            self.assertIn("no longer runs every", tiers(["a_runtime"], broken)[0])
 
     def test_silent_skips_are_found(self):
         for source in (
@@ -328,6 +362,40 @@ class CiGates(unittest.TestCase):
         source = ('    if !node_runs_typescript() {\n'
                   '        return missing_prerequisite("t", "node");\n    }\n')
         self.assertEqual(check_ci_gates.test_source_violations("t.rs", source), [])
+
+
+class TestShards(unittest.TestCase):
+    """`ci_test_shard.py`."""
+
+    def test_example_slices_cover_every_example_once(self):
+        names = [f"{index:03}_x" for index in range(169)]
+        for total in (1, 2, 3, 4, 7):
+            slices = [ci_test_shard.example_slice(names, shard, total) for shard in range(1, total + 1)]
+            self.assertEqual(sorted(name for part in slices for name in part), names)
+            self.assertTrue(all(slices), total)
+
+    def test_every_process_binary_has_exactly_one_shard(self):
+        for total in (1, 2, 4):
+            assigned = [binary for shard in range(1, total + 1)
+                        for binary in ci_test_shard.assigned_binaries(shard, total)]
+            self.assertEqual(sorted(assigned), sorted(ci_test_shard.PROCESS_BINARIES))
+
+    def test_the_filter_excludes_exactly_the_process_binaries(self):
+        found = ci_test_shard.nextest_filter()
+        self.assertTrue(found.startswith("not ("))
+        for binary in ci_test_shard.PROCESS_BINARIES:
+            self.assertIn(f"binary_id({binary})", found)
+
+    def test_a_missing_binary_of_an_archived_package_stops(self):
+        archived = {"smelt-transpiler::other_tests": "/x"}
+        with self.assertRaises(SystemExit):
+            quietly(ci_test_shard.present, "smelt-transpiler::cross_language_matrix_tests", archived)
+        self.assertFalse(quietly(ci_test_shard.present, "smelt-codegen-rust::compile_scaling", archived))
+
+    def test_the_real_corpus_is_sliced(self):
+        names = ci_test_shard.example_names()
+        self.assertGreater(len(names), 100)
+        self.assertIn("01_number", names)
 
 
 if __name__ == "__main__":

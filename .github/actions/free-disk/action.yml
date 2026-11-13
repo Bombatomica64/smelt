@@ -1,11 +1,25 @@
 name: Free runner disk
 description: Remove the preinstalled Android SDK, .NET and GHC images, about 20 GB.
 
+inputs:
+  background:
+    description: >-
+      Delete in the background instead of waiting (~80 s). The space frees up
+      while the job's next steps run; use it only when the disk-heavy work
+      starts a few minutes later.
+    default: "false"
+
 runs:
   using: composite
   steps:
     - name: Free runner disk
       shell: bash
+      env:
+        BACKGROUND: ${{ inputs.background }}
       run: |
-        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+        if [ "$BACKGROUND" = "true" ]; then
+          nohup sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc > /dev/null 2>&1 &
+        else
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+        fi
         df -h /

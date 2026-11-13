@@ -4,12 +4,14 @@
 
 ## Regression gates
 
-The Remeda / Radash / es-toolkit / Hono regression jobs are **opt-in on pull requests**.
-They run automatically on pushes to `main`, but a PR only runs them if it carries
-the **`run-regressions`** label.
+A pull request push runs only `build` (compile once, clippy, doctests) and the
+sharded `test` jobs. The slow gates (Remeda / Radash / es-toolkit / Hono /
+ts-pattern / date-fns regressions, runtime tiers, corpus, sandbox, package) run
+on every push to `main`, nightly, and on a PR only when it carries the
+**`run-regressions`** label (applying it starts a full run on the PR head).
 
 - [ ] This PR does **not** touch transpilation behaviour (docs, CI, comments only), **or**
-- [ ] I added the **`run-regressions`** label and the four regression jobs passed.
+- [ ] I added the **`run-regressions`** label and the full run passed.
 
 Add the label if you touched any of:
 

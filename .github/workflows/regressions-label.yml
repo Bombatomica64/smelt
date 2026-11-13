@@ -1,0 +1,32 @@
+name: Regressions on label
+
+# Applying `run-regressions` to a pull request starts a FULL CI run (every slow
+# gate: library regressions, runtime tiers, corpus, sandbox, package) on the PR
+# head, through ci.yml's workflow_dispatch. That run lands in the same
+# concurrency group as the PR's own CI run (`ci-<branch>`), so it supersedes the
+# QUICK run of the same head rather than adding a second status set beside it.
+# Later pushes to a labelled PR run FULL mode directly (ci.yml reads the label).
+#
+# Any other label starts nothing: this job is skipped and ci.yml does not
+# listen to `labeled` at all.
+on:
+  pull_request:
+    types: [ labeled ]
+
+permissions:
+  actions: write
+
+jobs:
+  dispatch:
+    # A fork's branch cannot be dispatched in this repository, and its token
+    # is read-only anyway; such a PR gets FULL mode on its next push instead.
+    if: >-
+      ${{ github.event.label.name == 'run-regressions'
+          && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch a full CI run on the PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF"
