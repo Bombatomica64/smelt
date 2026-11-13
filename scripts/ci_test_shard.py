@@ -13,7 +13,7 @@ them (see PROCESS_BINARIES for each reason). Their work is spread over the
 shards too:
 
 * the end-to-end example loop (`END_TO_END_TEST`, ~10 minutes alone) runs on
-  every shard, narrowed through `SMELT_EXAMPLE_ONLY` to a round-robin slice of
+  every shard, narrowed through `SMELT_EXAMPLE_ONLY` to a weighted round-robin slice of
   `examples/typescript/end-to-end/`. Every name the test's list holds is one of
   those directories (`example_dir` resolves it there), so the slices together
   cover the whole list by construction;
@@ -66,9 +66,26 @@ def example_names(directory: Path = EXAMPLES_DIR) -> list[str]:
     return sorted(entry.name for entry in directory.iterdir() if entry.is_dir())
 
 
+def example_deck(total: int) -> list[int]:
+    """The shard of each position in one round of the example deal.
+
+    Every shard takes two examples per round, except the shard that also runs
+    the other tests of the end-to-end binary (~2 minutes, sequential with its
+    slice: the two must share one process), which takes one. Measured on CI:
+    a quarter of the examples is ~3.5 minutes, so an even deal left that shard
+    ~2 minutes behind the rest.
+    """
+    heavy = next(
+        (shard for shard in range(1, total + 1) if END_TO_END_BINARY in assigned_binaries(shard, total)),
+        None,
+    )
+    return [shard for shard in range(1, total + 1) for _ in range(1 if shard == heavy and total > 1 else 2)]
+
+
 def example_slice(names: list[str], shard: int, total: int) -> list[str]:
-    """Shard `shard` (1-based) of `total`: a round-robin slice of `names`."""
-    return [name for index, name in enumerate(names) if index % total == shard - 1]
+    """Shard `shard` (1-based) of `total`: its cards of `names` dealt round-robin over `example_deck`."""
+    deck = example_deck(total)
+    return [name for index, name in enumerate(names) if deck[index % len(deck)] == shard]
 
 
 def assigned_binaries(shard: int, total: int) -> list[str]:

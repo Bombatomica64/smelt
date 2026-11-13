@@ -392,6 +392,11 @@ class TestShards(unittest.TestCase):
             quietly(ci_test_shard.present, "smelt-transpiler::cross_language_matrix_tests", archived)
         self.assertFalse(quietly(ci_test_shard.present, "smelt-codegen-rust::compile_scaling", archived))
 
+    def test_the_shard_with_the_other_end_to_end_tests_gets_fewer_examples(self):
+        names = [f"{index:03}_x" for index in range(169)]
+        sizes = [len(ci_test_shard.example_slice(names, shard, 4)) for shard in range(1, 5)]
+        self.assertLess(sizes[0], min(sizes[1:]))
+
     def test_the_real_corpus_is_sliced(self):
         names = ci_test_shard.example_names()
         self.assertGreater(len(names), 100)
