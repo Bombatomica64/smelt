@@ -3852,7 +3852,7 @@ pub(crate) fn forward_order(items: SmeltList<JsString>) -> JsString {
 }
 
 pub(crate) fn last_minus_rest(values: SmeltList<f64>) -> f64 {
-    let _smelt_tmp_2: f64 = { let smelt_reduce_items = values.borrow(); let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate().rev(); let (_, smelt_first) = smelt_reduce_items.next().expect("reduce of empty array with no initial value"); smelt_reduce_items.fold(smelt_first.clone(), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
+    let _smelt_tmp_2: f64 = { let smelt_reduce_items = values.borrow(); let mut smelt_reduce_items = smelt_reduce_items.iter().enumerate().rev(); let (_, smelt_first) = smelt_reduce_items.next().expect("Reduce of empty array with no initial value"); smelt_reduce_items.fold(smelt_first.clone(), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
     let _smelt_tmp_2: f64 = closure_arg_0 - closure_arg_1;
     _smelt_tmp_2
     }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } }) };
