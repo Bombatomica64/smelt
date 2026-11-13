@@ -850,6 +850,61 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// The arguments of a `Set`/`Map` construction, with a literal `undefined`
+    /// or `null` iterable dropped: the constructors treat it as no iterable,
+    /// so `new Set(undefined)` is `new Set()`. Neither literal has an effect
+    /// to keep.
+    fn constructor_iterable_arguments<'a, 'b>(
+        new_expr: &'b oxc::ast::ast::NewExpression<'a>,
+    ) -> &'b [Argument<'a>] {
+        match new_expr.arguments.as_slice() {
+            [Argument::NullLiteral(_)] => &[],
+            [Argument::Identifier(identifier)] if identifier.name == "undefined" => &[],
+            arguments => arguments,
+        }
+    }
+
+    /// `iterable ?? <empty>` for an optional iterable argument of a collection
+    /// constructor, or `None` when `iterable` is not optional.
+    ///
+    /// The `Set` and `Map` constructors treat an `undefined` or `null`
+    /// iterable as no iterable at all (ECMA-262 `Set ( [ iterable ] )`, step
+    /// 5), so the absent arm is the empty value of the present type: an empty
+    /// array, map, set or string. The result has the present type, so the
+    /// element type is never widened or erased. Asserting the optional to its
+    /// present type instead panicked on the absent value.
+    fn absent_iterable_as_empty(
+        &self,
+        iterable: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Some(Type::Optional(present_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, iterable)).cloned()
+        else {
+            return None;
+        };
+        let viewed_ty = self.type_param_constraint_or_self(present_ty);
+        let empty = match self.ctx.krate.types.get(viewed_ty)? {
+            Type::List(_) => ExprKind::ListLit(Vec::new()),
+            Type::Dict(..) | Type::JsMap(..) => ExprKind::DictLit(Vec::new()),
+            Type::Set(_) => ExprKind::SetLit(Vec::new()),
+            Type::String => ExprKind::Literal(smelt_hir::Literal::String(String::new())),
+            _ => return None,
+        };
+        let hir_span = self.span(span.start, span.end);
+        let fallback = body.push_expr(Expr { kind: empty, ty: viewed_ty, span: hir_span });
+        let fallback = if viewed_ty == present_ty {
+            fallback
+        } else {
+            body.push_expr(Expr { kind: ExprKind::TypeAssert { value: fallback }, ty: present_ty, span: hir_span })
+        };
+        Some(body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce { optional: iterable, fallback },
+            ty: present_ty,
+            span: hir_span,
+        }))
+    }
+
     /// Lower `new Set(...)` from an array literal or annotated empty constructor.
     pub(in crate::lowering) fn set_constructor_expression(
         &mut self,
@@ -861,7 +916,7 @@ impl ModuleBuilder<'_> {
         if !Self::is_ts_stdlib_class_name(host.name(), smelt_stdlib::StdlibClass::Set) {
             return Ok(None);
         }
-        let (items, ty) = match new_expr.arguments.as_slice() {
+        let (items, ty) = match Self::constructor_iterable_arguments(new_expr) {
             [] => {
                 // Prefer an explicit `new Set<T>()` argument, then the element
                 // type recovered from the contextual type hint (including hints
@@ -944,32 +999,28 @@ impl ModuleBuilder<'_> {
                 (items, ty)
             }
             [argument] => {
-                let mut list = self.argument(argument, body)?;
-                let raw_ty = Self::expr_ty(body, list);
-                let list_ty = self.type_param_constraint_or_self(raw_ty);
-                // `new Set(iterable)` accepts arrays directly. Optional arrays are
-                // asserted to their inner list, an existing Set is copied, and
+                let argument_value = self.argument(argument, body)?;
+                let argument_raw_ty = Self::expr_ty(body, argument_value);
+                let argument_ty = self.type_param_constraint_or_self(argument_raw_ty);
+                // `new Set(iterable)` accepts arrays directly. Optional iterables
+                // default to their empty value, an existing Set is copied, and
                 // erased/union surfaces (e.g. a generic helper return
                 // typed `unknown`) are asserted to `List<Unknown>` so the
                 // list-to-set conversion can proceed instead of being rejected.
+                // An absent iterable (`undefined` or `null`) builds an empty
+                // set, as `new Set(undefined)` does in JavaScript: the optional
+                // argument coalesces to the empty value of its present type,
+                // which then converts like any other argument.
+                let (mut list, raw_ty, list_ty) =
+                    self.absent_iterable_as_empty(argument_value, argument.span(), body).map_or(
+                        (argument_value, argument_raw_ty, argument_ty),
+                        |present| {
+                            let present_ty = Self::expr_ty(body, present);
+                            (present, present_ty, self.type_param_constraint_or_self(present_ty))
+                        },
+                    );
                 let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
                     Some(Type::List(item_ty)) => item_ty,
-                    Some(Type::Optional(inner)) => {
-                        if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(inner).cloned()
-                        {
-                            list = body.push_expr(Expr {
-                                kind: ExprKind::TypeAssert { value: list },
-                                ty: inner,
-                                span: self.span(argument.span().start, argument.span().end),
-                            });
-                            item_ty
-                        } else {
-                            return Err(SmeltError::unsupported(
-                                self.span(argument.span().start, argument.span().end),
-                                "new Set(iterable) currently requires an array argument",
-                            ));
-                        }
-                    }
                     // `new Set(otherSet)` builds a NEW set holding the other's
                     // members in its insertion order: a distinct identity that
                     // later `add`/`delete` on either set leave unchanged.
@@ -1091,7 +1142,7 @@ impl ModuleBuilder<'_> {
         if !Self::is_ts_stdlib_class_name(host.name(), smelt_stdlib::StdlibClass::Map) {
             return Ok(None);
         }
-        let (entries, ty) = match new_expr.arguments.as_slice() {
+        let (entries, ty) = match Self::constructor_iterable_arguments(new_expr) {
             [] => {
                 // `new Map()` always produces a `Type::JsMap` so erasure can
                 // stamp the `__smelt_map` marker. Explicit `new Map<K, V>()`
@@ -1216,6 +1267,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let hir_span = self.span(span.start, span.end);
+        // `new Map(undefined)` is an empty map, like `new Set(undefined)`.
+        let value = self.absent_iterable_as_empty(value, span, body).unwrap_or(value);
         let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
         let (list, key_ty, value_item_ty) = match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::Dict(key_ty, item_ty) | Type::JsMap(key_ty, item_ty)) => {

@@ -1003,3 +1003,10 @@ fn emission_rules_behaviour() -> TestResult {
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
 }
+
+/// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
+/// empty collection at the present type, as JavaScript's constructors do.
+#[test]
+fn absent_iterable_constructors() -> TestResult {
+    verify_node_parity("absent_iterable_constructors")
+}
