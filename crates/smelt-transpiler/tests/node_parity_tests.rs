@@ -99,6 +99,15 @@ fn bigint_boundaries() -> TestResult {
     verify_node_parity("bigint_boundaries")
 }
 
+/// Destructuring defaults: a default replaces `undefined` only (a present
+/// `null`, `0`, `false` or `""` is kept), an `unknown` source keeps its
+/// binding `unknown` instead of taking the default's type, and the default is
+/// evaluated only when it applies.
+#[test]
+fn destructuring_defaults() -> TestResult {
+    verify_node_parity("destructuring_defaults")
+}
+
 /// `console.log` renders lists, records and class instances as `util.inspect` does.
 #[test]
 fn console_inspect_shapes() -> TestResult {
