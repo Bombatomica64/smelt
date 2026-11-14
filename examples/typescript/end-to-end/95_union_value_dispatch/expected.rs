@@ -1665,10 +1665,10 @@ impl SmeltObject {
     #[inline]
     fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
     #[inline]
-    fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| { self.store.borrow().get(key).cloned() }) }
+    fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<SmeltUnknown> { self.get(key) }
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); self.store.borrow_mut().insert(key, value) }
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { self.store.borrow_mut().insert(key.into(), value) }
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow_mut().remove(key)) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
     fn keys(&self) -> Vec<JsString> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
