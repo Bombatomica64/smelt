@@ -952,10 +952,104 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Expression::Identifier(callee_ident) = &call.callee {
             return self.identifier_call(call, callee_ident, body);
         }
+        if let Some(expr) = self.computed_value_callee_call(call, body)? {
+            return Ok(expr);
+        }
         Err(SmeltError::unsupported(
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Call a callee that is a computed VALUE: a conditional (`c ? f : g`), a
+    /// comma sequence (`(0, f)`) or a logical (`f || g`, `f ?? g`) expression,
+    /// or a parenthesized member (`(a.m)(x)`).
+    ///
+    /// None of these is a reference, so JavaScript calls the value it yields
+    /// with `this = undefined` even when that value was read off an object:
+    /// `(c ? a.map : b.map)(f)` and `(0, a.map)(f)` throw. The callee is
+    /// lowered as an ordinary value and called; the emitter installs
+    /// `undefined` for a callee that is not a member read (see codegen's
+    /// `erased_call_receiver`). `None` for any other callee.
+    fn computed_value_callee_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // A PARENTHESIZED member (`(a.map)(f)`) is still a reference, so it
+        // keeps its receiver: lowered as a value, its member read is the
+        // callee's one assignment, which the emitter treats as a member call.
+        let parenthesized_member = matches!(&call.callee, Expression::ParenthesizedExpression(_))
+            && matches!(
+                peel(&call.callee, Wrappers::Parens),
+                Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+            );
+        if !parenthesized_member
+            && !matches!(
+                peel(&call.callee, Wrappers::Parens),
+                Expression::ConditionalExpression(_)
+                    | Expression::SequenceExpression(_)
+                    | Expression::LogicalExpression(_)
+            )
+        {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let mut callee = self.expression(&call.callee, body)?;
+        let callee_ty = Self::expr_ty(body, callee);
+        // A conditional, comma or logical callee yields a VALUE, not a
+        // reference: bound to its own local, the call goes through a binding,
+        // which the emitter calls with `this = undefined`, whatever expression
+        // produced the value (`(0, a.map)` ends in a member read).
+        if !parenthesized_member {
+            let temp = body.push_local(smelt_hir::LocalDecl {
+                name: Some(self.intern_synthesized_name("smelt_callee_value")),
+                ty: callee_ty,
+                mutable: false,
+                span,
+            });
+            let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
+            self.push_stmt_to_sink(
+                body,
+                smelt_hir::Stmt::Let {
+                    pat,
+                    ty: callee_ty,
+                    value: Some(callee),
+                },
+            );
+            callee = body.push_expr(Expr {
+                kind: ExprKind::Local(temp),
+                ty: callee_ty,
+                span,
+            });
+        }
+        let function = match self.ctx.krate.types.get(callee_ty).cloned() {
+            Some(Type::Function(function)) => Some(function),
+            _ => None,
+        };
+        if Self::call_has_spread_arguments(call) {
+            return Err(SmeltError::unsupported(
+                span,
+                "a spread argument to a computed callee is not lowered yet",
+            ));
+        }
+        let mut args = Vec::with_capacity(call.arguments.len());
+        for (index, argument) in call.arguments.iter().enumerate() {
+            let hint = function
+                .as_ref()
+                .and_then(|function| function.params.get(index).copied());
+            args.push(self.argument_with_hint(argument, body, hint)?);
+        }
+        // not a new erasure: a callee value with no function type is already erased
+        let ty = function.as_ref().map_or_else(
+            || self.unknown_type(crate::lowering::erasure::NotNewErasure::ErasedUpstream),
+            |function| function.return_ty,
+        );
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty,
+            span,
+        })))
     }
 
     /// The contextual type of an object-literal argument passed where the

@@ -1465,3 +1465,12 @@ fn python_entry_runs_imported_module_body() -> TestResult {
 fn optional_erased_calls() -> TestResult {
     verify_node_parity("optional_erased_calls")
 }
+
+/// A conditional, comma or logical callee is a value, so it is called with
+/// `this` undefined (a member read inside it loses its receiver); a
+/// parenthesized member keeps its receiver; comma expressions evaluate every
+/// operand and yield the last.
+#[test]
+fn callee_value_calls() -> TestResult {
+    verify_node_parity("callee_value_calls")
+}

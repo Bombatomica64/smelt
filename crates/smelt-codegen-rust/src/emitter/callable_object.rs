@@ -591,10 +591,10 @@ impl FunctionEmitter<'_> {
     /// Followed through forwarding copies and receiver binds: a member read
     /// off an erased value is a member call (`Snapshot`), a chain ending at a
     /// user binding, a parameter, or any other single value (a call's result,
-    /// a closure) is a plain call. A temporary assigned more than once (a join
-    /// of branches) or a member read off a TYPED object is left `Unresolved`:
-    /// the first may hold a member read from one branch, and the second is a
-    /// typed method call that installs its own receiver (`BindThis`).
+    /// a closure) is a plain call, and so is a temporary assigned in more than
+    /// one branch (a conditional, comma or logical callee, none of which is a
+    /// reference). A member read off a TYPED object is left `Unresolved`: it
+    /// is a typed method call that installs its own receiver (`BindThis`).
     fn temp_call_receiver(&self, local: LocalId, depth: usize) -> ErasedCallReceiver {
         const MAX_DEPTH: usize = 8;
         if depth >= MAX_DEPTH {
@@ -604,6 +604,11 @@ impl FunctionEmitter<'_> {
             return ErasedCallReceiver::Snapshot(local);
         }
         match self.single_assigned_temp_value(local) {
+            // A JOIN of branches: the value of a conditional, comma or logical
+            // callee (`(c ? a.map : b.map)(f)`), none of which is a reference,
+            // so JavaScript calls it with `this = undefined`. A member call's
+            // callee is never a join: its member read is the one assignment.
+            None if self.temp_assignment_count(local) > 1 => ErasedCallReceiver::Plain,
             None => ErasedCallReceiver::Unresolved,
             Some(
                 Rvalue::Use(
@@ -629,6 +634,18 @@ impl FunctionEmitter<'_> {
             ) => ErasedCallReceiver::Unresolved,
             Some(_) => ErasedCallReceiver::Plain,
         }
+    }
+
+    /// How many statements of the body assign `local`.
+    fn temp_assignment_count(&self, local: LocalId) -> usize {
+        self.function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter(
+                |statement| matches!(statement, Statement::Assign { dest, .. } if *dest == local),
+            )
+            .count()
     }
 
     /// The one rvalue a compiler temporary is assigned, if it is assigned once.
