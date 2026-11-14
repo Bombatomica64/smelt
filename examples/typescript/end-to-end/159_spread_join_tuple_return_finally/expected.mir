@@ -128,8 +128,7 @@ async fn caught (FuncId(6)) -> String
     goto bb2
   bb7:
     %9 = external_new28("multiple times", "")
-    %10 = regex_search move %9, copy %2.field1
-    %8 = move %10
+    %8 = regex_search move %9, copy %2.field1
     goto bb9
   bb8:
     %8 = false

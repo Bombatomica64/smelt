@@ -218,7 +218,7 @@ impl FunctionEmitter<'_> {
                 && !function.may_throw
             {
                 let source_closure = self.mir_closure(id)?;
-                let params = source_closure
+                let mut params = source_closure
                     .params
                     .iter()
                     .map(|param| {
@@ -231,9 +231,22 @@ impl FunctionEmitter<'_> {
                             .ok_or_else(|| EmitError::new("closure param has no local declaration"))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?;
+                // A closure with fewer parameters than the erased-rest
+                // destination was rendered with the destination's own trailing
+                // parameters added (`_argN`, see `closure_value_expr`): the
+                // variadic rewrite of `function (...args)` leaves the closure
+                // itself none. The arguments the adapter passes follow that
+                // rendered signature, rest list included.
+                let mut rest = source_closure.rest;
+                if params.len() < function.params.len() {
+                    if rest.is_none() {
+                        rest = function.rest.filter(|index| *index >= params.len());
+                    }
+                    params.extend(function.params.iter().skip(params.len()).copied());
+                }
                 let source_function = FunctionType {
                     params,
-                    rest: source_closure.rest,
+                    rest,
                     required_params: source_closure.required_params,
                     mutable_params: Vec::new(),
                     return_ty: source_closure.return_ty,
@@ -689,6 +702,24 @@ impl FunctionEmitter<'_> {
             // `async move`/generator branches already open with `{{ ` and take the
             // prelude as-is. An empty prelude leaves both spellings byte-identical to
             // what they emitted before the by-reference ABI existed.
+            // The frame takes (or discards) its receiver when CALLED: this
+            // prelude runs before any `async move` or generator producer. A
+            // function item's value wrapper (`ClosureThis::Forwarded`) is not a
+            // JavaScript frame -- the item IS the function -- so it forwards
+            // the receiver untouched to the item, whose own frame takes it.
+            // An arrow's enclosing receiver is cloned per call, so an `async
+            // move` or generator body owns its copy and the closure stays `Fn`.
+            if self.closure_needs_frame_this(id) {
+                owned_param_prelude.push_str("let smelt_frame_this = smelt_frame_this.clone(); ");
+            }
+            if closure.this_binding != smelt_hir::ClosureThis::Forwarded
+                && let Some(prologue) = emitter.this_frame_prologue_for(
+                    closure.this_binding == smelt_hir::ClosureThis::Lexical,
+                )
+            {
+                owned_param_prelude.push_str(prologue);
+                owned_param_prelude.push(' ');
+            }
             let owned_param_prelude_block = if owned_param_prelude.is_empty() {
                 String::new()
             } else {
@@ -950,7 +981,11 @@ impl FunctionEmitter<'_> {
                 format!("|{params_text}| {{{owned_param_prelude_block}\n{body_text}    }}")
             }
         };
-        let capture_prefix = if closure.escapes
+        // An arrow reading its enclosing frame's `this` carries that receiver
+        // in, as a clone of the frame's `smelt_frame_this` (see `this_frame`).
+        let needs_frame_this = self.closure_needs_frame_this(id);
+        let capture_prefix = if needs_frame_this
+            || closure.escapes
             || matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
             || !closure.captures.is_empty()
             || closure.captures.iter().any(|capture| {
@@ -970,7 +1005,7 @@ impl FunctionEmitter<'_> {
             });
         }
         let mut cloned_captures = HashSet::new();
-        let capture_prelude = closure
+        let mut capture_prelude = closure
             .captures
             .iter()
             .filter_map(|capture| {
@@ -1056,6 +1091,9 @@ impl FunctionEmitter<'_> {
                 })
             })
             .collect::<Vec<_>>();
+        if needs_frame_this {
+            capture_prelude.push("let smelt_frame_this = smelt_frame_this.clone();".to_owned());
+        }
         let text = if capture_prelude.is_empty() {
             format!("{capture_prefix}{body}")
         } else {

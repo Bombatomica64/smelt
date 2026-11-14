@@ -1236,8 +1236,19 @@ impl ModuleBuilder<'_> {
                     }
                     _ => None,
                 };
+                // A hint that is no map (the `unknown` or type-parameter
+                // parameter the map is passed to) says nothing about its
+                // entries: the map is built from them, as with no hint, and
+                // the slot takes it as it takes any value. Refusing it
+                // rejected `match(new Map([..]))`.
                 let type_hint = type_hint
                     .map(|hint| self.map_arm_of_hint(hint))
+                    .filter(|hint| {
+                        matches!(
+                            self.ctx.krate.types.get(*hint),
+                            Some(Type::Dict(..) | Type::JsMap(..))
+                        )
+                    })
                     .or(explicit);
                 let ty = if let Some(hint) = type_hint {
                     let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =

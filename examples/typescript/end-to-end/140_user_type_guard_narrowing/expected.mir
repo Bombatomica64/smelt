@@ -116,8 +116,7 @@ fn length_or (FuncId(5)) -> Float
   bb5:
     %5 = unknown_cast copy %0 as t4
     %6 = len move %5
-    %7 = move %6 > 2.0
-    %4 = move %7
+    %4 = move %6 > 2.0
     goto bb7
   bb6:
     %4 = false

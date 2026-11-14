@@ -145,8 +145,11 @@ impl FunctionEmitter<'_> {
                 // `value`, which is the commonest name in a generic helper) had
                 // its arm binding shadow it and the `Function` fallbacks passed
                 // `&&SmeltObject` where a `&SmeltUnknown` was expected (E0308).
+                // A `Map` or `Set` behind the carrier counts its entries: a
+                // count read off one is its `size` (`length` is no member of
+                // either, so TypeScript only lets `size` reach here).
                 self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(smelt_value) => {string_len}, SmeltUnknown::Array(smelt_value) => smelt_value.len(), SmeltUnknown::Object(smelt_value) => match smelt_get_object_field(smelt_value, \"length\") {{ SmeltUnknown::Number(smelt_value) => smelt_value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
+                    "{{ let smelt_length_receiver = &{receiver_text}; match smelt_length_receiver {{ SmeltUnknown::String(smelt_value) => {string_len}, SmeltUnknown::Array(smelt_value) => smelt_value.len(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"__smelt_map\") || smelt_value.contains_key(\"__smelt_set\") => match smelt_get_unknown_field(smelt_length_receiver, \"size\") {{ SmeltUnknown::Number(smelt_value) => smelt_value as usize, _ => 0 }}, SmeltUnknown::Object(smelt_value) => match smelt_get_object_field(smelt_value, \"length\") {{ SmeltUnknown::Number(smelt_value) => smelt_value as usize, _ => {function_length}(smelt_length_receiver) as usize }}, SmeltUnknown::Function(_) => {function_length}(smelt_length_receiver) as usize, _ => 0 }} }}",
                     function_length = smelt_stdlib::runtime_symbols::function_length::READ,
                     string_len = self.string_len_text("smelt_value"), receiver_text = receiver_text.tight(),
                 ))

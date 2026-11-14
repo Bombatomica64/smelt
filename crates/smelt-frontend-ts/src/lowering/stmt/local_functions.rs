@@ -483,6 +483,12 @@ impl ModuleBuilder<'_> {
             saved_locals.push((id.name.as_str().to_owned(), Some(outer_local)));
             this.scope.bind(id.name.as_str().to_owned(), outer_local);
 
+            // A local function has its own `this` (its frame takes it), never
+            // the enclosing one: it is not a capture, and the enclosing binding
+            // is shadowed for its body (`own_this`), restored with the rest.
+            param_names.insert("this".to_owned());
+            let prior_this = this.shadow_enclosing_this();
+            saved_locals.push(("this".to_owned(), prior_this));
             let mut capture_names = Vec::new();
             for statement in &function_body.statements {
                 this.collect_statement_capture_names(statement, &param_names, &mut capture_names);
@@ -615,6 +621,7 @@ impl ModuleBuilder<'_> {
                     captures,
                     body: body_id,
                     function_item: None,
+                    this_binding: smelt_hir::ClosureThis::Own,
                     span: this.span(function.span.start, function.span.end),
                 }),
                 ty: fn_ty,

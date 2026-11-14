@@ -285,6 +285,7 @@ fn erased_class_prototype_slot_is_a_boundary() {
         "    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {",
         "        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();",
         "        smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries());",
+        "    pub(crate) fn __smelt_prototype_methods() -> Vec<(String, SmeltUnknown)> {",
     ] {
         assert_eq!(
             classify_line(line, false),
@@ -347,6 +348,7 @@ fn this_receiver_channel_is_a_boundary() {
     // the tag.
     for line in [
         "    let _smelt_tmp_1: SmeltUnknown = smelt_this();",
+        "    let _smelt_tmp_2: SmeltUnknown = smelt_frame_this.clone();",
         "    let _smelt_tmp_4 = capped.smelt_bind_this(SmeltUnknown::Object(left.clone()));",
         "    let _smelt_tmp_5 = capped.smelt_bind_this(SmeltUnknown::Object(right.clone()));",
         "        let _smelt_this_guard = smelt_push_this(receiver.clone());",

@@ -2,8 +2,8 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8361,
-      "generic": 140,
+      "concrete": 8292,
+      "generic": 139,
       "erased": 56
     },
     "reads": {
@@ -394,7 +394,7 @@
     },
     "examples/typescript/end-to-end/115_transitive_closure_captures/input.ts": {
       "values": {
-        "concrete": 83,
+        "concrete": 82,
         "generic": 0,
         "erased": 0
       },
@@ -513,7 +513,7 @@
     },
     "examples/typescript/end-to-end/121_callback_into_union_function_arm/input.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 32,
         "generic": 0,
         "erased": 0
       },
@@ -564,7 +564,7 @@
     },
     "examples/typescript/end-to-end/124_optional_argument_and_receiver/input.ts": {
       "values": {
-        "concrete": 73,
+        "concrete": 69,
         "generic": 0,
         "erased": 0
       },
@@ -581,7 +581,7 @@
     },
     "examples/typescript/end-to-end/125_module_const_state_and_record_union/input.ts": {
       "values": {
-        "concrete": 53,
+        "concrete": 52,
         "generic": 0,
         "erased": 0
       },
@@ -632,7 +632,7 @@
     },
     "examples/typescript/end-to-end/128_match_array_groups/input.ts": {
       "values": {
-        "concrete": 119,
+        "concrete": 117,
         "generic": 0,
         "erased": 0
       },
@@ -734,7 +734,7 @@
     },
     "examples/typescript/end-to-end/133_presence_rules/input.ts": {
       "values": {
-        "concrete": 99,
+        "concrete": 97,
         "generic": 0,
         "erased": 0
       },
@@ -751,7 +751,7 @@
     },
     "examples/typescript/end-to-end/134_absence_and_host_boundaries/input.ts": {
       "values": {
-        "concrete": 111,
+        "concrete": 110,
         "generic": 0,
         "erased": 0
       },
@@ -785,7 +785,7 @@
     },
     "examples/typescript/end-to-end/140_user_type_guard_narrowing/input.ts": {
       "values": {
-        "concrete": 110,
+        "concrete": 109,
         "generic": 0,
         "erased": 2
       },
@@ -819,7 +819,7 @@
     },
     "examples/typescript/end-to-end/143_module_arrows_are_items/input.ts": {
       "values": {
-        "concrete": 106,
+        "concrete": 101,
         "generic": 0,
         "erased": 0
       },
@@ -853,7 +853,7 @@
     },
     "examples/typescript/end-to-end/151_derived_constructor_runs_on_instance/input.ts": {
       "values": {
-        "concrete": 107,
+        "concrete": 105,
         "generic": 12,
         "erased": 0
       },
@@ -870,7 +870,7 @@
     },
     "examples/typescript/end-to-end/152_callable_interface_fields/input.ts": {
       "values": {
-        "concrete": 81,
+        "concrete": 83,
         "generic": 0,
         "erased": 0
       },
@@ -904,7 +904,7 @@
     },
     "examples/typescript/end-to-end/154_getter_receivers_in_closures/input.ts": {
       "values": {
-        "concrete": 72,
+        "concrete": 70,
         "generic": 0,
         "erased": 0
       },
@@ -938,7 +938,7 @@
     },
     "examples/typescript/end-to-end/156_runtime_shape_behind_static_types/input.ts": {
       "values": {
-        "concrete": 55,
+        "concrete": 53,
         "generic": 0,
         "erased": 0
       },
@@ -972,7 +972,7 @@
     },
     "examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts": {
       "values": {
-        "concrete": 70,
+        "concrete": 67,
         "generic": 0,
         "erased": 0
       },
@@ -989,7 +989,7 @@
     },
     "examples/typescript/end-to-end/159_spread_join_tuple_return_finally/input.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 66,
         "generic": 0,
         "erased": 3
       },
@@ -1159,7 +1159,7 @@
     },
     "examples/typescript/end-to-end/170_bigint_arbitrary_precision/input.ts": {
       "values": {
-        "concrete": 191,
+        "concrete": 190,
         "generic": 3,
         "erased": 0
       },
@@ -1227,7 +1227,7 @@
     },
     "examples/typescript/end-to-end/174_union_narrowing_exits_and_writes/input.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 66,
         "generic": 0,
         "erased": 0
       },
@@ -1244,7 +1244,7 @@
     },
     "examples/typescript/end-to-end/175_rest_arrow_into_fixed_arity_slot/input.ts": {
       "values": {
-        "concrete": 45,
+        "concrete": 43,
         "generic": 0,
         "erased": 0
       },
@@ -1312,7 +1312,7 @@
     },
     "examples/typescript/end-to-end/179_inherited_members_of_generic_bases/input.ts": {
       "values": {
-        "concrete": 54,
+        "concrete": 52,
         "generic": 20,
         "erased": 0
       },
@@ -1346,8 +1346,8 @@
     },
     "examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_spreads/input.ts": {
       "values": {
-        "concrete": 123,
-        "generic": 14,
+        "concrete": 121,
+        "generic": 13,
         "erased": 0
       },
       "reads": {
@@ -1363,7 +1363,7 @@
     },
     "examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts": {
       "values": {
-        "concrete": 100,
+        "concrete": 99,
         "generic": 0,
         "erased": 2
       },
@@ -1465,7 +1465,7 @@
     },
     "examples/typescript/end-to-end/188_nested_function_parameter_defaults/input.ts": {
       "values": {
-        "concrete": 63,
+        "concrete": 62,
         "generic": 0,
         "erased": 0
       },
@@ -1805,7 +1805,7 @@
     },
     "examples/typescript/end-to-end/34_optional_field_interface_literal/input.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 30,
         "generic": 0,
         "erased": 0
       },
@@ -1856,7 +1856,7 @@
     },
     "examples/typescript/end-to-end/38_interface_literal_key_spellings/input.ts": {
       "values": {
-        "concrete": 37,
+        "concrete": 35,
         "generic": 0,
         "erased": 0
       },
@@ -1873,7 +1873,7 @@
     },
     "examples/typescript/end-to-end/39_module_scope_reassignment/input.ts": {
       "values": {
-        "concrete": 83,
+        "concrete": 73,
         "generic": 0,
         "erased": 0
       },
@@ -1958,7 +1958,7 @@
     },
     "examples/typescript/end-to-end/44_node_http_echo/input.ts": {
       "values": {
-        "concrete": 72,
+        "concrete": 71,
         "generic": 0,
         "erased": 0
       },
@@ -2247,7 +2247,7 @@
     },
     "examples/typescript/end-to-end/63_generic_init_union_arm/input.ts": {
       "values": {
-        "concrete": 52,
+        "concrete": 49,
         "generic": 0,
         "erased": 0
       },
@@ -2315,7 +2315,7 @@
     },
     "examples/typescript/end-to-end/67_compound_bitwise_assignment/input.ts": {
       "values": {
-        "concrete": 55,
+        "concrete": 53,
         "generic": 0,
         "erased": 0
       },
@@ -2553,7 +2553,7 @@
     },
     "examples/typescript/end-to-end/81_receiver_capture_in_callback/input.ts": {
       "values": {
-        "concrete": 39,
+        "concrete": 38,
         "generic": 0,
         "erased": 0
       },
@@ -2570,7 +2570,7 @@
     },
     "examples/typescript/end-to-end/82_data_view_shared_buffer/input.ts": {
       "values": {
-        "concrete": 82,
+        "concrete": 80,
         "generic": 0,
         "erased": 0
       },
@@ -2638,7 +2638,7 @@
     },
     "examples/typescript/end-to-end/86_literal_into_union_arm/input.ts": {
       "values": {
-        "concrete": 65,
+        "concrete": 64,
         "generic": 0,
         "erased": 0
       },
@@ -2757,7 +2757,7 @@
     },
     "examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/input.ts": {
       "values": {
-        "concrete": 81,
+        "concrete": 79,
         "generic": 0,
         "erased": 0
       },

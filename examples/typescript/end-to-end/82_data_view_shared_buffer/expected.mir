@@ -211,12 +211,10 @@ fn main (FuncId(0)) -> None throws
     %85 = instanceof copy %5, class11
     switch move %85 ? bb40 : bb41
   bb40:
-    %87 = byte_array_byte_length move %5
-    %86 = move %87
+    %86 = byte_array_byte_length move %5
     goto bb42
   bb41:
-    %88 = -1.0
-    %86 = move %88
+    %86 = -1.0
     goto bb42
   bb42:
     %89 = call @console_log(move %86) -> bb43

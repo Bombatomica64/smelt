@@ -91,6 +91,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Blank("unknown"),
     Entry::Blank("unknown"),
     Entry::Item("SMELT_OBJECT_PROTOTYPES"),
+    Entry::Item("smelt_class_prototype"),
+    Entry::Item("smelt_set_prototype_of"),
     Entry::Item("smelt_define_properties"),
     Entry::Item("smelt_prototype_sentinel"),
     Entry::Item("smelt_function_property_lookup"),

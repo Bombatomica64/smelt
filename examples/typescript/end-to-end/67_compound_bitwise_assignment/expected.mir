@@ -45,8 +45,7 @@ fn constant_time_equal_string (FuncId(0)) -> Bool
     %23 = move %5 == 0.0
     return move %23
   bb5:
-    %16 = string_char_code_at copy %0, copy %6
-    %15 = move %16
+    %15 = string_char_code_at copy %0, copy %6
     goto bb7
   bb6:
     %15 = 0.0
@@ -56,8 +55,7 @@ fn constant_time_equal_string (FuncId(0)) -> Bool
     %17 = copy %6 < copy %3
     switch move %17 ? bb8 : bb9
   bb8:
-    %19 = string_char_code_at copy %1, copy %6
-    %18 = move %19
+    %18 = string_char_code_at copy %1, copy %6
     goto bb10
   bb9:
     %18 = 0.0

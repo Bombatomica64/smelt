@@ -22,7 +22,8 @@
 //!
 //! * `t` is a compiler temporary defined exactly once and read exactly once
 //!   (by the move), so no other statement observes it.
-//! * `u` has exactly one initializer (the move), so writing it one statement
+//! * `u` has exactly one initializer (the move), or is a compiler temporary
+//!   (a branch join assigned once per arm), so writing it one statement
 //!   earlier changes no other read: the only statement in between is the move
 //!   itself. A later source reassignment is a whole-local `AssignPlace`, which
 //!   leaves the `let mut u = rv` binding intact and does not count.
@@ -166,8 +167,13 @@ fn elidable_pair(
         reads
     };
     let is_function = |ty| matches!(facts.types.get(ty), Some(Type::Function(_)));
+    // A compiler-temporary `u` may be the JOIN of several branches (one
+    // assignment per arm of a conditional); writing it one statement early in
+    // this arm changes no other read either, and it has no `let` binding of
+    // its own to keep single.
+    let user_is_temp = matches!(user_decl.kind, crate::LocalKind::Temp);
     (facts.single_use.contains(&temp)
-        && facts.initializers.get(&user) == Some(&1)
+        && (facts.initializers.get(&user) == Some(&1) || user_is_temp)
         && !reads_user
         && temp_decl.ty == user_decl.ty
         && !is_function(temp_decl.ty))
@@ -503,6 +509,7 @@ mod tests {
             can_throw: false,
             is_generator: false,
             function_item_key: None,
+            this_binding: smelt_hir::ClosureThis::Own,
             language: smelt_hir::Language::TypeScript,
         });
         mir

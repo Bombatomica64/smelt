@@ -52,12 +52,15 @@ fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.ge
 //~ and that branch decides by identity (`a === b`), so two classes compare
 //~ unequal and two instances of one class compare equal — without recursing
 //~ into the constructor's own `.constructor`, which an object value would do.
-//~ Calling it yields a fresh instance carrying the same class marker, which is
+//~ Calling it builds through the class's erased constructor when an instance
+//~ recorded one (`smelt_note_class_builder`), stamping the class tag a
+//~ reference class's own erasure leaves out; otherwise it yields a fresh
+//~ instance carrying the same class marker, which is
 //~ what `new obj.constructor()` means.
 thread_local! { static SMELT_CLASS_CONSTRUCTORS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 /// One interned constructor value per class name, for `instance.constructor`.
-fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
+fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(build)) = smelt_class_builder(&marker) { let built = build(args)?; if let SmeltUnknown::Object(object) = &built && object.get("__smelt_class").is_none() { object.insert("__smelt_class", SmeltUnknown::String(marker.as_str().into())); } return Ok(built); } let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
 
 /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
 //~ Class instances carry a hidden `__smelt_class` marker and map to a distinct
@@ -83,7 +86,7 @@ fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CON
 //~ `None` for plain objects, arrays and class instances, which keep their
 //~ opaque `"__smelt_proto:*"` string sentinels.
 fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
-    let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
+    let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
     if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name.to_string_lossy()).is_some() { return Some(name.to_string_lossy()); } }
     Some(class.to_owned())
 }
@@ -128,19 +131,22 @@ fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> Sme
     }
 }
 //~ Emit the cached per-class prototype object.
-//~ One cached prototype object per reflected class, so
+//~ One prototype object per reflected class, so
 //~ `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two values
-//~ of the same class (`SmeltObject` `===` compares the stable `id`). Its
-//~ `constructor` slot is the interned constructor value, so it is both callable
-//~ and `===` the bare global reference.
-thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
-fn smelt_reflected_prototype(class: String) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(class.clone()).or_insert_with(|| { let ctor = smelt_builtin_namespace(&class); SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), ctor)]))) }).clone()) }
+//~ of the same class (`SmeltObject` `===` compares the stable `id`), and it is
+//~ the class's own `X.prototype` (`smelt_builtin_prototype_object`), whose
+//~ `constructor` read answers the interned constructor value.
+fn smelt_reflected_prototype(class: String) -> SmeltUnknown { smelt_builtin_prototype_object(&class) }
 //~ Emit the interned per-name global constructor / namespace value.
 /// The kind a global constructor name constructs, when it names a modeled host
 /// identity.
 //~ `None` for pure namespaces (`Math`, `JSON`), which are not callable.
 fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Int8Array", "int8array"), ("Uint8Array", "uint8array"), ("Uint8ClampedArray", "uint8clampedarray"), ("Int16Array", "int16array"), ("Uint16Array", "uint16array"), ("Int32Array", "int32array"), ("Uint32Array", "uint32array"), ("Float32Array", "float32array"), ("Float64Array", "float64array"), ("BigInt64Array", "bigint64array"), ("BigUint64Array", "biguint64array"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "Error"), ("EvalError", "EvalError"), ("RangeError", "RangeError"), ("ReferenceError", "ReferenceError"), ("SyntaxError", "SyntaxError"), ("TypeError", "TypeError"), ("URIError", "URIError"), ("AggregateError", "AggregateError")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
 /// The interned value for a global builtin *name* used as a value.
+//~ A `Host.prototype` path (`ExprKind::BuiltinNamespace` for a host
+//~ constructor's `prototype` read) is the host's one prototype object.
+//~ A `Host.prototype` path (`ExprKind::BuiltinNamespace` for a host
+//~ constructor's `prototype` read) is the host's one prototype object.
 //~
 //~ JavaScript exposes one object per global name, so `Blob === Blob` and
 //~ `blob.constructor === Blob` both hold. A record mints its identity on
@@ -149,5 +155,5 @@ fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBu
 //~ a modeled host constructor get a `__smelt_call` slot, so `new Ctor(...)`
 //~ through a captured reference constructs instead of answering `null`.
 thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
-fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
+fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { if let Some(class) = name.strip_suffix(".prototype") { return smelt_builtin_prototype_object(class); } SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
 // @smelt:item-end

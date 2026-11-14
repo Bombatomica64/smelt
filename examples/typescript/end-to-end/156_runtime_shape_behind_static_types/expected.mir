@@ -164,12 +164,10 @@ closure ClosureId(3) -> None
   bb0:
     switch copy %1 ? bb1 : bb2
   bb1:
-    %3 = closure_call copy %0(1.0)
-    %2 = copy %3
+    %2 = closure_call copy %0(1.0)
     goto bb3
   bb2:
-    %4 = closure_call copy %0(undefined)
-    %2 = copy %4
+    %2 = closure_call copy %0(undefined)
     goto bb3
   bb3:
     return copy %2

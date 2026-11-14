@@ -109,8 +109,7 @@ closure ClosureId(1) -> String
     %4 = copy %3[copy %0] == true
     switch copy %4 ? bb1 : bb2
   bb1:
-    %6 = copy %0 + copy %1
-    %5 = copy %6
+    %5 = copy %0 + copy %1
     goto bb3
   bb2:
     %5 = copy %0

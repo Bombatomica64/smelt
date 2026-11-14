@@ -1,0 +1,10 @@
+conditional members TypeError Array.prototype.map called on null or undefined
+comma member TypeError Array.prototype.map called on null or undefined
+logical member TypeError Array.prototype.map called on null or undefined
+nullish member TypeError Array.prototype.map called on null or undefined
+parenthesized member [ 5, 10 ]
+conditional functions 11
+comma function [ 8, 1 ]
+comma value 3
+conditional call method [ 2 ]
+comma inside method TypeError Array.prototype.map called on null or undefined
