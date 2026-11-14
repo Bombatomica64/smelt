@@ -865,6 +865,8 @@ fn generic_record_result_alias() -> TestResult {
         )?;
     }
     Ok(())
+}
+
 /// An integer-valued expression fills a union's `number` arm, and
 /// `String.prototype.match` with an absent pattern matches the empty pattern.
 #[test]
