@@ -437,14 +437,23 @@ impl ModuleBuilder<'_> {
                         return true;
                     }
                 }
-                self.json_class_fields(name, &args).is_some_and(|fields| {
-                    seen.push(name);
-                    let serializable = fields
-                        .iter()
-                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true, bigint_ok));
-                    seen.pop();
-                    serializable
-                })
+                // A name with no declaration lowered YET is not judged here.
+                // Modules lower in value-import order, and a module imported
+                // only for its types (date-fns' `types.ts`, whose `Duration` is
+                // an interface of optional numbers) can lower after the module
+                // that serializes one of its interfaces. The backend repeats
+                // this check over the whole program
+                // (`FunctionEmitter::json_stringify_expr`) and refuses a shape
+                // that is really not serializable, at this call's site.
+                let Some(fields) = self.json_class_fields(name, &args) else {
+                    return true;
+                };
+                seen.push(name);
+                let serializable = fields
+                    .iter()
+                    .all(|field| self.is_json_serializable_type_inner(field.ty, seen, true, bigint_ok));
+                seen.pop();
+                serializable
             }
             Type::None => true,
             // A FUNCTION-valued member is serializable: `JSON.stringify` drops
