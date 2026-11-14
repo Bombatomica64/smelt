@@ -1,0 +1,8 @@
+2024-3 era=1 stamped=false rest=[x]
+invalid at abc
+1999-1 era=1 stamped=false rest=[]
+rejected 12
+999-1 era=0 stamped=true rest=[]
+10 true [2024]
+130 none
+true

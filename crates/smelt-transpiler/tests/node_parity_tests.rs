@@ -789,6 +789,22 @@ fn member_narrowing_scope() -> TestResult {
     verify_node_parity("member_narrowing_scope")
 }
 
+/// An abstract generic parser hierarchy (date-fns' `parse` shape): inherited
+/// and overridden members reach the base's `run` through their slots, a
+/// mutating setter slot takes its state `&mut`, and a callback the base hands
+/// to a generic class at its own `Value` passes without an erased adapter.
+#[test]
+fn abstract_parser_slots() -> TestResult {
+    verify_node_parity("abstract_parser_slots")
+}
+
+/// An integer-valued expression fills a union's `number` arm, and
+/// `String.prototype.match` with an absent pattern matches the empty pattern.
+#[test]
+fn number_union_and_optional_pattern() -> TestResult {
+    verify_node_parity("number_union_and_optional_pattern")
+}
+
 /// A class value carries its static methods, so a computed-key call finds
 /// them, and a block-local class used as a value constructs that class, not
 /// another class of the same name.
