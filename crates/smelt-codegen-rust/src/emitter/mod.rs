@@ -168,6 +168,7 @@ mod operand;
 mod optional_access;
 mod place;
 mod place_type;
+mod polymorphic_cast;
 mod post_dominance;
 mod primitive_cast;
 mod py_exception;
@@ -312,6 +313,10 @@ pub(crate) struct EmitContext {
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
+    /// Reference classes with reference subclasses, emitted as polymorphic
+    /// handles over shared storage, computed once by
+    /// [`crate::class_polymorphism::polymorphic_classes`].
+    polymorphic_classes: HashSet<Symbol>,
     /// Closures stored on the instance they capture, which capture it weakly
     /// (see [`weak_receiver`]).
     weak_receivers: weak_receiver::WeakReceiverPlan,
@@ -384,6 +389,8 @@ impl EmitContext {
             .transpose()?
             .ok_or_else(|| EmitError::new("MIR is missing the None type"))?;
         let reference_classes = crate::classify::reference_classes(mir);
+        let polymorphic_classes =
+            crate::class_polymorphism::polymorphic_classes(mir, &reference_classes);
         // Every declared item's Rust name, decided once by identity; see
         // `crate::names`. Declarations and references both read it.
         let mut names = crate::names::RustNames::plan(mir, none_ty, &reference_classes)?;
@@ -440,8 +447,16 @@ impl EmitContext {
             generic_functions: RefCell::new(HashSet::new()),
             generic_reads: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &reference_classes),
+            identity_classes: crate::class_identity::identity_classes(mir)
+                .into_iter()
+                .filter(|class| !polymorphic_classes.contains(class))
+                .filter(|class| {
+                    crate::class_polymorphism::nested_base(mir, &polymorphic_classes, *class)
+                        .is_none()
+                })
+                .collect(),
+            polymorphic_classes,
             reference_classes,
-            identity_classes: crate::class_identity::identity_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
@@ -554,6 +569,17 @@ impl EmitContext {
     /// mutability; value classes keep the current by-value struct emission.
     pub(crate) fn is_reference_class(&self, symbol: Symbol) -> bool {
         self.reference_classes.contains(&symbol)
+    }
+
+    /// Return whether the class named `symbol` is a polymorphic handle over
+    /// shared storage ([`crate::class_polymorphism`]).
+    pub(crate) fn is_polymorphic_class(&self, symbol: Symbol) -> bool {
+        self.polymorphic_classes.contains(&symbol)
+    }
+
+    /// The polymorphic classes ([`crate::class_polymorphism`]).
+    pub(crate) fn polymorphic_classes(&self) -> &HashSet<Symbol> {
+        &self.polymorphic_classes
     }
 
     /// Return whether instances of the class named `symbol` carry the hidden

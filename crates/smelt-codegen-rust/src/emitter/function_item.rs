@@ -588,6 +588,9 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!(
                     "    fn {name}{generics}({rendered_params}) -> {return_text} {{\n"
                 ));
+                // A generic method a subclass overrides forwards to the
+                // override first (`crate::class_polymorphism`).
+                out.push_str(&self.generic_override_dispatch_prologue()?);
             }
             HirOrigin::ClassStaticMethod { .. } => {
                 // A static method takes no receiver: emit every parameter and no
@@ -637,6 +640,12 @@ impl FunctionEmitter<'_> {
         }
         out.push_str("    }\n");
         Ok(())
+    }
+
+    /// Whether this method declares Rust generics of its own: its own
+    /// generics list (`""` when it does not).
+    pub(super) fn method_own_generics_declared(&self) -> String {
+        self.method_own_generics_text().unwrap_or_default()
     }
 
     /// The generic parameter list of a method that declares its own type

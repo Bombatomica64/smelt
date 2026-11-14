@@ -39,6 +39,29 @@ impl ModuleBuilder<'_> {
         Ok(methods)
     }
 
+    /// The instance methods among `elements` that declare their own type
+    /// parameters and have a body (`map<U>(f: (x: T) => U): U[] { .. }`).
+    pub(in crate::lowering) fn generic_method_names(
+        &mut self,
+        elements: &[ClassElement<'_>],
+    ) -> Result<std::collections::HashSet<smelt_hir::Symbol>, SmeltError> {
+        let mut names = std::collections::HashSet::new();
+        for element in elements {
+            let ClassElement::MethodDefinition(method) = element else {
+                continue;
+            };
+            if method.kind != MethodDefinitionKind::Method
+                || method.r#static
+                || method.value.body.is_none()
+                || method.value.type_parameters.is_none()
+            {
+                continue;
+            }
+            names.insert(self.property_key_symbol(&method.key)?);
+        }
+        Ok(names)
+    }
+
     /// Return whether a bodyless class overload has a matching runtime method.
     ///
     /// Matching includes the static/instance side, method kind, and fully

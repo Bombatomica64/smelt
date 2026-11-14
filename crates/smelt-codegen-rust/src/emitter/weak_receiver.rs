@@ -430,7 +430,7 @@ fn only_use_is_field_store(
 /// text pasted into each generated crate stays short.
 const PRELUDE: &str = r#"/// A reference-class handle seen through its shared cell (see `SmeltWeakReceiver`).
 trait SmeltReferenceHandle: Clone + 'static {
-    type Cell;
+    type Cell: ?Sized;
     fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell>;
     fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self;
 }
@@ -563,10 +563,17 @@ pub(crate) fn drop_impl_text(
     )
 }
 
-/// The `SmeltReferenceHandle` impl of one reference class with weak fields.
-pub(crate) fn handle_impl_text(name: &str, impl_generics: &str, type_args: &str) -> String {
+/// The `SmeltReferenceHandle` impl of one reference class with weak fields;
+/// `cell` is the type its `Rc` holds (`RefCell<NameInner>`, or the cell trait
+/// object of a polymorphic class, see `crate::class_polymorphism`).
+pub(crate) fn handle_impl_text(
+    name: &str,
+    impl_generics: &str,
+    type_args: &str,
+    cell: &str,
+) -> String {
     format!(
-        "impl{impl_generics} SmeltReferenceHandle for {name}{type_args} {{ type Cell = ::std::cell::RefCell<{name}Inner{type_args}>; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> {{ &self.0 }} fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self {{ Self(cell) }} }}"
+        "impl{impl_generics} SmeltReferenceHandle for {name}{type_args} {{ type Cell = {cell}; fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell> {{ &self.0 }} fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self {{ Self(cell) }} }}"
     )
 }
 

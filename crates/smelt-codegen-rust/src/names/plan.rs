@@ -96,7 +96,8 @@ impl RustNames {
     ///
     /// `none_ty` identifies the binary's entry point (a nullary `main` that
     /// returns nothing), whose name is `main` itself. `reference_classes` own a
-    /// companion `<Name>Inner` struct, which is claimed with them.
+    /// companion `<Name>Inner` struct and `<Name>SmeltCell` trait
+    /// (`crate::class_polymorphism`), which are claimed with them.
     pub(crate) fn plan(
         mir: &Mir,
         none_ty: TypeId,
@@ -108,7 +109,11 @@ impl RustNames {
             let symbol = decl.name();
             let spelling = symbol_text(mir, symbol)?;
             let name = if reference_classes.contains(&symbol) {
-                claim_with_companion(&mut types_scope, spelling, "Inner")
+                claim_with_companions(
+                    &mut types_scope,
+                    spelling,
+                    crate::class_polymorphism::REFERENCE_COMPANIONS,
+                )
             } else {
                 types_scope.claim(spelling)
             };
@@ -212,20 +217,25 @@ fn symbol_text(mir: &Mir, symbol: Symbol) -> Result<Spelling<'_>, EmitError> {
     Spelling::of(mir, symbol).ok_or_else(|| EmitError::new("declaration has an unknown symbol"))
 }
 
-/// Claim `spelling` such that `<name><companion>` is free too, and hold it.
+/// Claim `spelling` such that every `<name><companion>` is free too, and hold them.
 ///
 /// A candidate whose companion is taken stays claimed (and unused), so the
 /// next claim moves on to the next suffix.
-fn claim_with_companion(
+fn claim_with_companions(
     scope: &mut NameScope,
     spelling: Spelling<'_>,
-    companion: &str,
+    companions: &[&str],
 ) -> RustName {
     loop {
         let name = scope.claim(spelling);
-        let companion_name = format!("{name}{companion}");
-        if !scope.is_taken(&companion_name) {
-            scope.hold(&companion_name);
+        let companion_names: Vec<String> = companions
+            .iter()
+            .map(|companion| format!("{name}{companion}"))
+            .collect();
+        if companion_names.iter().all(|companion| !scope.is_taken(companion)) {
+            for companion in &companion_names {
+                scope.hold(companion);
+            }
             return name;
         }
     }

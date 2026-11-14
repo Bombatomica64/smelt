@@ -75,48 +75,78 @@ impl ModuleBuilder<'_> {
         fields
     }
 
-    /// Add callable slots to a base class when a subclass overrides its method.
+    /// Add callable slots to the ancestors whose methods a subclass overrides.
     ///
-    /// A value stored as the base type must keep the concrete override for
-    /// later `baseRef.method()` calls. This pass runs when the subclass is
-    /// seen, because that is the point where override usage is known.
+    /// A value stored as an ancestor type must keep the concrete override for
+    /// later `ancestorRef.method()` calls. This pass runs when the subclass is
+    /// seen, because that is the point where override usage is known. Every
+    /// ancestor is visited, not only the direct base: `class Square extends
+    /// Rect` overriding `describe` that `Shape` declares (and `Rect` only
+    /// inherits) needs the slot on `Shape`, or a `Shape`-typed call ran
+    /// `Shape`'s body on a `Square`.
     pub(in crate::lowering) fn add_overridden_base_method_fields(
         &mut self,
         base: Option<smelt_hir::Symbol>,
         subclass_methods: &[MethodSig],
     ) {
-        let Some(base) = base else {
-            return;
-        };
-        let Some(base_name) = self.ctx.krate.symbols.get(base).map(str::to_owned) else {
-            return;
-        };
-        let Some(base_methods) = self.classes.methods(&base_name).cloned() else {
+        let mut current = base;
+        let mut seen = HashSet::new();
+        while let Some(ancestor) = current {
+            if !seen.insert(ancestor) {
+                break;
+            }
+            let Some(ancestor_name) = self.ctx.krate.symbols.get(ancestor).map(str::to_owned)
+            else {
+                break;
+            };
+            self.add_overridden_method_fields_to(ancestor, &ancestor_name, subclass_methods);
+            // Only the bases this module recorded by symbol continue the walk
+            // (`ClassRegistry::base_of_symbol`): a by-name lookup can answer
+            // for another module's class of the same spelling.
+            current = self
+                .classes
+                .base_of_symbol(ancestor)
+                .map(|(base_symbol, _)| *base_symbol);
+        }
+    }
+
+    /// Add callable slots to the class `base` (named `base_name`) for each of
+    /// its own methods that `subclass_methods` overrides.
+    fn add_overridden_method_fields_to(
+        &mut self,
+        base: smelt_hir::Symbol,
+        base_name: &str,
+        subclass_methods: &[MethodSig],
+    ) {
+        let Some(base_methods) = self.classes.methods(base_name).cloned() else {
             return;
         };
         let base_method_names = base_methods
             .iter()
             .map(|method| method.name)
             .collect::<HashSet<_>>();
+        // A generic method dispatches through the polymorphic handle instead
+        // (see `generic_method_names`).
         let overridden_methods = subclass_methods
             .iter()
             .filter_map(|method| {
-                base_method_names
-                    .contains(&method.name)
-                    .then_some(method.name)
+                (base_method_names.contains(&method.name)
+                    && !self.classes.is_generic_method(base_name, method.name))
+                .then_some(method.name)
             })
             .collect::<HashSet<_>>();
         if overridden_methods.is_empty() {
             return;
         }
 
-        let existing_fields = self.classes.fields(&base_name).cloned().unwrap_or_default();
+        let existing_fields = self.classes.fields(base_name).cloned().unwrap_or_default();
         let new_fields =
             self.virtual_class_method_fields(&existing_fields, &base_methods, &overridden_methods);
         if new_fields.is_empty() {
             return;
         }
-        self.classes.extend_fields(base_name, new_fields.clone());
+        self.classes
+            .extend_fields(base_name.to_owned(), new_fields.clone());
         if let Some(Item::Class(class)) = self
             .ctx
             .krate

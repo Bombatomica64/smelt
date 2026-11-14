@@ -71,6 +71,7 @@ pub(crate) fn emit_reference_class_storage(
             declared_name: class.name,
             has_proto_entries: class_proto::class_has_proto_entries(mir, context, class),
             has_field_setter: field_setter_host(mir, context, class).is_some(),
+            layout: crate::class_polymorphism::class_layout(mir, context, class)?,
         },
         needs_unknown,
     )
@@ -121,6 +122,10 @@ pub(crate) struct ReferenceRecordShape<'a> {
     /// Whether the type emits the erased-view write-through setter (see
     /// `emitter::view_write_through`); always `false` for a shape.
     pub(crate) has_field_setter: bool,
+    /// The polymorphic layout of a class in a polymorphic hierarchy (see
+    /// [`crate::class_polymorphism`]); `None` for a shape and for every other
+    /// class.
+    pub(crate) layout: Option<crate::class_polymorphism::ClassLayout>,
 }
 
 /// Emit the handle newtype, inner record, and identity impls for one record type.
@@ -144,8 +149,18 @@ pub(crate) fn emit_reference_record_storage(
         declared_name,
         has_proto_entries,
         has_field_setter,
+        layout,
     } = shape;
     let inner_name = format!("{name}Inner");
+    let polymorphic = layout.as_ref().is_some_and(|layout| layout.polymorphic);
+    let nested_base_type = layout
+        .as_ref()
+        .and_then(|layout| layout.nested_base_type.clone());
+    // The fields this level's inner record declares: a nested record keeps
+    // its base's fields inside its base record (`crate::class_polymorphism`).
+    let level_fields: &[smelt_mir::MirField] = layout
+        .as_ref()
+        .map_or(fields.as_slice(), |layout| layout.level_fields.as_slice());
     // The runtime class tag (`crate::class_identity`), on a class that carries it.
     let identity = context
         .carries_class_identity(*declared_name)
@@ -163,10 +178,16 @@ pub(crate) fn emit_reference_record_storage(
         .map(|field| field.name)
         .collect();
     if !weak_fields.is_empty() {
+        let cell = if polymorphic {
+            format!("dyn {}{type_args}", crate::class_polymorphism::cell_trait_name(name))
+        } else {
+            format!("::std::cell::RefCell<{inner_name}{type_args}>")
+        };
         writer.line(emitter::weak_receiver::handle_impl_text(
             name,
             impl_generics,
             type_args,
+            &cell,
         ));
         let checked = fields
             .iter()
@@ -208,9 +229,18 @@ pub(crate) fn emit_reference_record_storage(
     // clone would require `Inner: Clone` and clone the cell contents. We hand-
     // write `Rc::clone` below so a clone shares identity.
     writer.line("#[allow(dead_code)]");
-    writer.line(format!(
-        "struct {name}{type_params}(::std::rc::Rc<::std::cell::RefCell<{inner_name}{type_args}>>);"
-    ));
+    if polymorphic {
+        // Any instance of the class or of a subclass: one shared cell whose
+        // concrete type is the constructed class (`crate::class_polymorphism`).
+        writer.line(format!(
+            "struct {name}{type_params}(::std::rc::Rc<dyn {}{type_args}>);",
+            crate::class_polymorphism::cell_trait_name(name)
+        ));
+    } else {
+        writer.line(format!(
+            "struct {name}{type_params}(::std::rc::Rc<::std::cell::RefCell<{inner_name}{type_args}>>);"
+        ));
+    }
 
     // The inner record. `Debug`/`Default` are derived only when the record is
     // NON-GENERIC and no callback field blocks the derives.
@@ -241,7 +271,8 @@ pub(crate) fn emit_reference_record_storage(
                     block_writer,
                     mir,
                     context,
-                    fields,
+                    level_fields,
+                    nested_base_type.as_deref(),
                     &scoped_type_params,
                     &phantom_args,
                     identity.is_some(),
@@ -279,10 +310,11 @@ pub(crate) fn emit_reference_record_storage(
             &inner_name,
             &default_generics,
             type_args,
-            fields,
+            level_fields,
             &phantom_args,
             &scoped_type_params,
             identity.as_deref(),
+            nested_base_type.is_some(),
         )?;
         emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {
@@ -295,13 +327,62 @@ pub(crate) fn emit_reference_record_storage(
                     block_writer,
                     mir,
                     context,
-                    fields,
+                    level_fields,
+                    nested_base_type.as_deref(),
                     &scoped_type_params,
                     &phantom_args,
                     false,
                 );
             },
         );
+    }
+
+    // The polymorphic layout (`crate::class_polymorphism`): a nested record
+    // answers its base's fields, a polymorphic class declares its cell trait,
+    // and this class's concrete cell implements its own trait and every
+    // polymorphic ancestor's.
+    if let Some(layout) = layout {
+        let inner_type = format!("{inner_name}{type_args}");
+        if let Some(base_type) = &nested_base_type {
+            writer.line(crate::class_polymorphism::deref_impls_text(
+                type_params,
+                &inner_type,
+                base_type,
+            ));
+        }
+        if layout.polymorphic {
+            let Some(class) = classes::find_class(mir, *declared_name) else {
+                return Err(EmitError::new("a polymorphic class is not declared"));
+            };
+            writer.line(crate::class_polymorphism::cell_trait_declaration(
+                mir,
+                context,
+                class,
+                type_params,
+                type_args,
+                needs_unknown,
+            )?);
+        }
+        let turbofish = if type_args.is_empty() {
+            String::new()
+        } else {
+            format!("::{type_args}")
+        };
+        let erase = needs_unknown.then(|| {
+            format!(
+                "{name}{turbofish}(self).{}()",
+                crate::class_polymorphism::OWN_ERASURE_METHOD
+            )
+        });
+        for cell_impl in &layout.cell_impls {
+            writer.line(crate::class_polymorphism::cell_impl_text(
+                cell_impl,
+                impl_generics,
+                &inner_type,
+                &layout.class_name_literal,
+                erase.as_deref(),
+            ));
+        }
     }
 
     // Hand-written identity `Clone`: share the SAME cell.
@@ -322,7 +403,9 @@ pub(crate) fn emit_reference_record_storage(
         format!("impl{impl_generics} PartialEq for {name}{type_args}"),
         |impl_writer| {
             impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
-                fn_writer.line("::std::rc::Rc::ptr_eq(&self.0, &other.0)");
+                // The address alone: a polymorphic handle's `Rc<dyn ..>` also
+                // carries a vtable, which is no part of identity.
+                fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
             });
         },
     );
@@ -419,8 +502,15 @@ pub(crate) fn emit_reference_record_storage(
                     context.program_reads_this(),
                     fields,
                 ),
+            polymorphic,
         )?;
         // The inbound half restores the live handle (see `reference_origin`).
+        let subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
+            (Some(layout), Some(class)) if layout.polymorphic => {
+                crate::class_polymorphism::subclass_origins(mir, context, class)?
+            }
+            _ => Vec::new(),
+        };
         reference_origin::emit_reference_from_smelt_unknown_impl(
             writer,
             mir,
@@ -429,6 +519,7 @@ pub(crate) fn emit_reference_record_storage(
             impl_generics,
             type_args,
             fields,
+            &subclass_origins,
         );
     }
     writer.blank_line();
@@ -465,10 +556,19 @@ fn emit_reference_inner_fields(
     mir: &Mir,
     context: &EmitContext,
     fields: &[smelt_mir::MirField],
+    nested_base_type: Option<&str>,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     phantom_args: &str,
     identity: bool,
 ) {
+    // A nested record holds its base's record first
+    // (`crate::class_polymorphism`).
+    if let Some(base_type) = nested_base_type {
+        block_writer.line(format!(
+            "{}: {base_type},",
+            crate::class_polymorphism::BASE_FIELD
+        ));
+    }
     for field in fields {
         let field_name = context.names().field(mir, field.name).into_string();
         let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
@@ -507,13 +607,39 @@ fn emit_reference_class_into_smelt_unknown_impl(
     has_proto_entries: bool,
     has_field_setter: bool,
     has_live_reads: bool,
+    polymorphic: bool,
 ) -> Result<(), EmitError> {
+    // A polymorphic handle may hold an instance of a subclass, which erases as
+    // that subclass (its own fields, its own class marker): the trait impl
+    // dispatches to the concrete cell, and this class's own projection becomes
+    // the inherent method its own cell's `smelt_erase` calls
+    // (`crate::class_polymorphism`).
+    let (impl_header, fn_header) = if polymorphic {
+        writer.block(
+            format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
+            |impl_writer| {
+                impl_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown { self.0.smelt_erase() }");
+            },
+        );
+        (
+            format!("impl{impl_generics} {name}{type_args}"),
+            format!(
+                "fn {}(self) -> SmeltUnknown",
+                crate::class_polymorphism::PROJECTED_ERASURE_METHOD
+            ),
+        )
+    } else {
+        (
+            format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
+            "fn into_smelt_unknown(self) -> SmeltUnknown".to_owned(),
+        )
+    };
     // Genuine dynamic boundary: this impl IS the typed-to-erased crossing, so
     // `smelt-unknown-report` counts its body as a boundary, not as erasure.
     writer.block(
-        format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
+        impl_header,
         |impl_writer| {
-            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+            impl_writer.block(fn_header, |fn_writer| {
                 // One shared cell is one JavaScript object, so the erased id is
                 // derived from the cell address rather than minted fresh; see
                 // `smelt_reference_object_identity` in the prelude.

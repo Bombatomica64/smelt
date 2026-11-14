@@ -92,6 +92,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     phantom_args: &str,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     identity: Option<&str>,
+    nested_base: bool,
 ) -> Result<(), EmitError> {
     // Each field's default expression is computed ONCE and used twice: for the
     // body, and to decide the impl's `where` clause.
@@ -168,6 +169,14 @@ pub(crate) fn emit_default_impl_for_storage_type(
         |impl_writer| {
             impl_writer.block("fn default() -> Self", |fn_writer| {
                 fn_writer.block("Self", |self_writer| {
+                    // A nested record's base part is its base's own default
+                    // (`crate::class_polymorphism`).
+                    if nested_base {
+                        self_writer.line(format!(
+                            "{}: ::std::default::Default::default(),",
+                            crate::class_polymorphism::BASE_FIELD
+                        ));
+                    }
                     for (field_name, _, default_value, _) in &field_defaults {
                         self_writer.line(format!(
                             "{field_name}: {default_value},",

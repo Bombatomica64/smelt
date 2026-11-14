@@ -418,6 +418,22 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
             {
                 out.push_str(&methods);
             }
+            // A class of a polymorphic hierarchy erases itself through one
+            // inherent method its cell's `smelt_erase` calls
+            // (`crate::class_polymorphism`).
+            if needs_unknown
+                && (context.is_polymorphic_class(class.name)
+                    || crate::class_polymorphism::nested_base(
+                        mir,
+                        context.polymorphic_classes(),
+                        class.name,
+                    )
+                    .is_some())
+            {
+                out.push_str(&crate::class_polymorphism::own_erasure_method(
+                    mir, context, class,
+                )?);
+            }
             if needs_unknown && let Some(host) = field_setter_host(mir, context, class) {
                 let emitter = FunctionEmitter::new(mir, context, host)?;
                 out.push_str(

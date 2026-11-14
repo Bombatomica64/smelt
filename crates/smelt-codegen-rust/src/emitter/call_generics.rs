@@ -370,6 +370,26 @@ impl FunctionEmitter<'_> {
             actual.push(Some(self.operand_ty(arg)?));
         }
 
+        // A method's parameters may also spell its CLASS's type parameters
+        // (`class Box<T> { wrap<U>(f: (v: T) => U): U }`), which the receiver
+        // pins: its Rust type is already `Box<f64>`. Binding them too (from
+        // the receiver seen as an instance of the declaring class, so an
+        // inherited copy on `Sub extends Box<number>` binds `T = number`) lets
+        // `f` be checked and rendered at `(v: f64) => U` instead of demoting
+        // the whole call to the erased signature (E0631 against `&dyn Fn(&T)`).
+        let mut type_params = type_params;
+        if let HirOrigin::ClassMethod { .. } = function.origin
+            && let Some(Some(receiver_ty)) = actual.first().copied()
+            && let Some(instance) = self.declaring_class_instantiation(function, receiver_ty)
+        {
+            let class_params = self.callee_class_type_param_names(function);
+            if !class_params.is_empty() {
+                type_params.extend(class_params);
+                if let Some(first) = actual.first_mut() {
+                    *first = Some(instance);
+                }
+            }
+        }
         let bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
             self.mir,
             &type_params,

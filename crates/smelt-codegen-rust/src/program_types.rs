@@ -139,6 +139,7 @@ fn emit_interface_type(
                 // An object shape has no method bodies to bind.
                 has_proto_entries: false,
                 has_field_setter: false,
+                layout: None,
             },
             needs_unknown,
         )?;
@@ -256,6 +257,7 @@ fn emit_interface_type(
             &phantom_args,
             &scoped_type_params,
             None,
+            false,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &impl_generics, &type_params);
     }
@@ -276,6 +278,7 @@ fn emit_interface_type(
             &phantom_args,
             &scoped_type_params,
             None,
+            false,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &type_params, &type_params);
         let field_names = fields
@@ -500,6 +503,7 @@ fn emit_class_type(
             &phantom_args,
             &scoped_type_params,
             identity.as_deref(),
+            false,
         )?;
         // `Debug` names the struct and stops, so it needs no bound at all.
         // A class that only lost its derived `Default` to the tag keeps its

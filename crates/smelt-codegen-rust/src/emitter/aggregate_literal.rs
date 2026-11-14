@@ -465,9 +465,10 @@ impl FunctionEmitter<'_> {
         // Identity lives in the `Rc`, so the constructor mints one cell;
         // aliasing later clones the handle (`Rc::clone`), sharing it.
         if self.context.is_reference_class(class) {
+            let inner =
+                crate::class_polymorphism::inner_literal(self.mir, self.context, class, &parts)?;
             let allocated = RustExpr::atom(class_name.clone()).postfix(format!(
-                "(::std::rc::Rc::new(::std::cell::RefCell::new({class_name}Inner {{ {} }})))",
-                parts.join(", ")
+                "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ));
             // The class's own constructor allocates its instance here;
             // bind its virtual method slots before any statement of the
@@ -651,9 +652,10 @@ impl FunctionEmitter<'_> {
         // inner record inside a fresh shared cell, exactly as the structural
         // adapter does; a bare `Name { .. }` against the newtype is E0560.
         if self.is_reference_class_type(dest_ty) {
+            let inner =
+                crate::class_polymorphism::inner_literal(self.mir, self.context, *name, &field_text)?;
             return Ok(Some(RustExpr::atom(type_name.clone()).postfix(format!(
-                "(::std::rc::Rc::new(::std::cell::RefCell::new({type_name}Inner {{ {} }})))",
-                field_text.join(", ")
+                "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ))));
         }
         Ok(Some(RustExpr::loose(format!(

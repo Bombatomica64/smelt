@@ -866,6 +866,31 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
         };
+        // A polymorphic handle may hold an instance of a subclass, which erases
+        // as that subclass: its generated `IntoSmeltUnknown` dispatches to the
+        // concrete cell (`crate::class_polymorphism`).
+        if self.context.is_polymorphic_class(*name) {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                value_text.cloned_value().delimited()
+            )));
+        }
+        self.concrete_class_unknown_object_expr(value_text, target)
+    }
+
+    /// The erased object of the class instance `value_text` of type `target`
+    /// projected as an instance of exactly that class (the field-wise
+    /// projection [`Self::class_unknown_object_expr`] answers for every class
+    /// but a polymorphic handle, and the one a polymorphic hierarchy's
+    /// concrete cell erases through, see `crate::class_polymorphism`).
+    pub(in crate::emitter) fn concrete_class_unknown_object_expr(
+        &self,
+        value_text: &RustExpr,
+        target: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
+        };
         let conversion_entry =
             helper_reservation::push_entry(&self.conversions.record_conversion_stack, target);
         // Field types at the value's own type arguments: `LazyMany<R>` stores

@@ -817,6 +817,17 @@ impl FunctionEmitter<'_> {
                             .function_parameter_requires_owned_in(function, param)
                             .unwrap_or(true)
                     {
+                        // A monomorphized call renders the callback as a
+                        // free function's: at the DECLARED type (whose
+                        // by-reference parameters, `&dyn Fn(&T)`, are the
+                        // callee's ABI) under the call's bindings.
+                        if let Some(pinned) = own_monomorphization.as_ref() {
+                            return self.borrowed_function_argument_expr(
+                                arg,
+                                declared_ty,
+                                Some(&pinned.bindings),
+                            );
+                        }
                         let callback_ty = self.method_argument_substituted_target(
                             arg,
                             target_ty,

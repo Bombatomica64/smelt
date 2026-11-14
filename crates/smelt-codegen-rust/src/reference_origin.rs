@@ -35,7 +35,7 @@
 //!   ([`with_origin_expr`]);
 //! * narrowing an erased value to a reference record downcasts the slot to the
 //!   target handle type first, and only rebuilds from the snapshot when the
-//!   value did not come from an erasure of that type ([`restore_or_rebuild_expr`]).
+//!   value did not come from an erasure of that type ([`restore_subclass_or_rebuild_expr`]).
 //!
 //! The slot is strong on purpose. A JavaScript reference keeps its object
 //! alive, so an erased view must too: `const x: unknown = new C()` drops the
@@ -79,11 +79,27 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 ///
 /// The handle type is inferred from `rebuild`'s type — both arms of the match
 /// must agree — so a generic record needs no spelled type arguments here.
-pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> RustExpr {
+///
+/// A polymorphic record type also takes back an erased instance of a subclass
+/// as the same object: each pair of `subclass_origins` is a subclass handle
+/// type and the upcast of the recovered `origin`
+/// (`crate::class_polymorphism::subclass_origins_at`); empty for every other
+/// record type.
+pub(crate) fn restore_subclass_or_rebuild_expr(
+    record: &RustExpr,
+    rebuild: &RustExpr,
+    subclass_origins: &[(String, String)],
+) -> RustExpr {
+    let mut fallback = rebuild.delimited().to_string();
+    for (subclass, upcast) in subclass_origins.iter().rev() {
+        fallback = format!(
+            "match {record}.smelt_origin::<{subclass}>() {{ Some(origin) => {upcast}, None => {fallback} }}",
+            record = record.parenthesized_if_needed(),
+        );
+    }
     RustExpr::atom(format!(
-        "match {}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {rebuild} }}",
+        "match {}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {fallback} }}",
         record.parenthesized_if_needed(),
-        rebuild = rebuild.delimited()
     ))
 }
 
@@ -104,6 +120,9 @@ pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> 
 ///
 /// Fields are rebuilt under the same whitelist as the value-record recovery
 /// (`type_supports_from_unknown`); anything else keeps its `Default`.
+///
+/// `subclass_origins` pairs each subclass handle type a polymorphic handle can
+/// recover (`Sub`) with the upcast of the recovered `origin` into `Self`.
 pub(crate) fn emit_reference_from_smelt_unknown_impl(
     writer: &mut crate::rust::CodeWriter,
     mir: &smelt_mir::Mir,
@@ -112,6 +131,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    subclass_origins: &[(String, String)],
 ) {
     let mut assigns = Vec::new();
     for field in fields {
@@ -149,6 +169,13 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
             impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
                 fn_writer.line(format!("let SmeltUnknown::Object(smelt_object) = value.clone() else {{ smelt_throw_not_a_record({name:?}, &value) }};"));
                 fn_writer.line("if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }");
+                // A polymorphic handle also takes back an erased instance of a
+                // subclass, as the same object (`crate::class_polymorphism`).
+                for (subclass, upcast) in subclass_origins {
+                    fn_writer.line(format!(
+                        "if let Some(origin) = smelt_object.smelt_origin::<{subclass}>() {{ return {upcast}; }}"
+                    ));
+                }
                 fn_writer.line("let result = Self::default();");
                 for assign in &assigns {
                     fn_writer.line(assign);
