@@ -25,7 +25,7 @@ use std::process::Command;
 
 use common::{
     PYTHON_ORACLE, SharedDepsCrate, TempProject, TestResult, cargo_run_shared, ensure_eq,
-    node_runs_typescript, node_typescript_stdout, python_runs_corpus, smelt, utf8_path,
+    node_runs_typescript, node_typescript_stdout, output_within, program_run_limit, python_runs_corpus, smelt, utf8_path,
     workspace_root,
 };
 use smelt_specialize::prereq::missing_prerequisite;
@@ -83,7 +83,7 @@ fn python_stdout(files: &[(String, String)]) -> TestResult<String> {
     if let Some(path) = std::env::var_os("PATH") {
         command.env("PATH", path);
     }
-    let output = command.output()?;
+    let output = output_within(&mut command, program_run_limit(), "python3 on the oracle")?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "python3 failed on the oracle\nstderr:\n{}",

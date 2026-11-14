@@ -24,7 +24,7 @@ impl ModuleBuilder<'_> {
         }
         let ty = *list_element_ty;
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListPop { list },
+            kind: ExprKind::ListPop { list, raises_when_empty: true },
             ty,
             span: self.span(call.range()),
         })))

@@ -8,26 +8,26 @@ use super::*;
 /// Shared with sibling whole-output snapshot modules (`snapshot_tests_*`) so the
 /// emitted module is always the asserted surface rather than a guessed fragment.
 pub(super) fn assert_emitted_source_snapshot(name: &str, source: &str, case_start: Option<&str>) {
-    let emitted = source_for(source);
-    assert_no_legacy_callback_fallbacks(&emitted);
+    let full = source_for(source);
+    assert_no_legacy_callback_fallbacks(&full);
     let emitted = match case_start {
-        Some(case_start) => {
+        Some(start) => {
             // The case starts in the program, so the search begins past the
             // runtime prelude, whose items can spell the same name (`fn add`
             // is `JsString`'s `Add` impl).
-            let program = emitted.find("@smelt:prelude-end").map_or(emitted.as_str(), |marker| &emitted[marker..]);
-            let case_text = program.find(case_start).map_or_else(
-                || panic!("missing case-specific module start `{case_start}`"),
+            let program = full.find("@smelt:prelude-end").map_or(full.as_str(), |marker| &full[marker..]);
+            let case_text = program.find(start).map_or_else(
+                || panic!("missing case-specific module start `{start}`"),
                 |offset| &program[offset..],
             );
             format!(
                 "{}\n\n// ... shared generated runtime prelude omitted from selective snapshot ...\n\n{}",
-                emitted.lines().take(2).collect::<Vec<_>>().join("\n"),
+                full.lines().take(2).collect::<Vec<_>>().join("\n"),
                 case_text
             )
         }
         // No case marker: snapshot the whole emitted module as-is.
-        None => emitted,
+        None => full,
     };
     assert!(
         emitted.lines().count() <= 450,

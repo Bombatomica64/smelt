@@ -1280,6 +1280,7 @@ impl<'builder> ModuleBuilder<'builder> {
             kind: ExprKind::OptionalIndex {
                 receiver: index_receiver,
                 index: static_index,
+                from_end: false,
             },
             ty,
             span: expr.span,

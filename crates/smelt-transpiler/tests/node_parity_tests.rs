@@ -215,6 +215,11 @@ fn uncaught_throw_exits_one_with_its_message() -> TestResult {
             "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
             "RangeError: nope 1",
         ),
+        (
+            "floating rejection",
+            "async function fail(): Promise<void> { throw new Error('floating'); }\nfail();\nsetTimeout(() => console.log('never'), 50);\n",
+            "Error: floating",
+        ),
     ];
     for (name, source, message) in programs {
         let project = TempProject::new()?;
@@ -247,6 +252,13 @@ build = false
         ensure_eq(&stderr.contains(message), &true, format!("{name}: stderr was {stderr}"))?;
     }
     Ok(())
+}
+
+/// The rest of a Proxy's observable behaviour: `deleteProperty`, a bare read that
+/// runs its `get` trap, and enumeration following direct writes to the target.
+#[test]
+fn proxy_completion() -> TestResult {
+    verify_node_parity("proxy_completion")
 }
 
 /// A copy keeps its value when a closure writes the source afterwards, whether the
@@ -918,6 +930,18 @@ fn classes_behaviour() -> TestResult {
 #[test]
 fn generics_behaviour() -> TestResult {
     verify_node_parity("generics_behaviour")
+}
+
+/// `Array.prototype.pop` on an empty array answers `undefined` for every element shape.
+#[test]
+fn list_pop_empty() -> TestResult {
+    verify_node_parity("list_pop_empty")
+}
+
+/// Loop shapes, JSON, host values and global numeric helpers behave like Node.
+#[test]
+fn json_loops_and_globals() -> TestResult {
+    verify_node_parity("json_loops_and_globals")
 }
 
 /// Callbacks, optional parameters and the builtin calls reached from them behave like TypeScript.

@@ -1,0 +1,4 @@
+IndexError: pop from empty list 5
+IndexError a
+IndexError [1, 2]
+6

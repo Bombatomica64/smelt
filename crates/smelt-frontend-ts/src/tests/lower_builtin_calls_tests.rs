@@ -1511,7 +1511,7 @@ const item = values.pop();
     let pops = body
         .exprs
         .iter()
-        .filter(|expr| matches!(expr.kind, ExprKind::ListPop { .. }))
+        .filter(|expr| matches!(expr.kind, ExprKind::ListPop { raises_when_empty: false, .. }))
         .count();
     ensure_eq!(pops, 2);
     Ok(())

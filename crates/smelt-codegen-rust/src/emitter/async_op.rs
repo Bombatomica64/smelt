@@ -59,7 +59,7 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_expr(future)?;
                 Ok(RustExpr::atom(format!(
-                    "{{ {spawn_promise_task}(Box::pin(async move {{ let _ = {future_text}.await; }})); () }}",
+                    "{{ {spawn_promise_task}(Box::pin(async move {{ if let Err(smelt_error) = {future_text}.await {{ smelt_report_unhandled_rejection(&*smelt_error); }} }})); () }}",
                     spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK, future_text = future_text.tight(),
                 )))
             }

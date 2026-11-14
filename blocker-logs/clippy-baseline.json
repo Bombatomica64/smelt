@@ -6,20 +6,20 @@
       "clippy::as_conversions": 2,
       "clippy::collapsible_if": 2,
       "clippy::exhaustive_enums": 2,
-      "clippy::expect_used": 94,
+      "clippy::expect_used": 54,
       "clippy::indexing_slicing": 12,
       "clippy::missing_docs_in_private_items": 1,
-      "clippy::shadow_reuse": 87,
+      "clippy::shadow_reuse": 84,
       "clippy::shadow_same": 17,
-      "clippy::shadow_unrelated": 12,
-      "clippy::unwrap_used": 11,
+      "clippy::shadow_unrelated": 11,
+      "clippy::unwrap_used": 8,
       "clippy::wildcard_enum_match_arm": 1,
-      "unused_qualifications": 8
+      "unused_qualifications": 7
     },
     "smelt-frontend-py": {
       "clippy::as_conversions": 2,
       "clippy::collapsible_if": 4,
-      "clippy::shadow_reuse": 26,
+      "clippy::shadow_reuse": 25,
       "clippy::shadow_unrelated": 27,
       "unfulfilled_lint_expectations": 1
     },

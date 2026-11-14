@@ -3,321 +3,6 @@
 use super::*;
 
 #[test]
-fn emits_typescript_number_to_string_method() {
-    let source = source_for(
-        r"
-const value = 42;
-const text = value.toString();
-",
-    );
-
-    // `Number.prototype.toString` is JavaScript's own rule, not Rust's
-    // `Display`: they part company at `1e21` and `1e-7`.
-    assert!(source.contains("smelt_number_to_string(value)"));
-}
-
-#[test]
-fn emits_invalid_date_to_string_as_invalid_date_text() {
-    let source = source_for(
-        r"
-function stringify(result: Date): string {
-  return result.toString();
-}
-",
-    );
-
-    assert!(source.contains("\"Invalid Date\".to_owned()"), "{source}");
-    assert!(source.contains("timestamp_ms.is_finite()"), "{source}");
-}
-
-#[test]
-fn emits_typescript_number_parse_float() {
-    let source = source_for(
-        r#"
-const value = Number.parseFloat("42.5");
-"#,
-    );
-
-    assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
-}
-
-#[test]
-fn emits_parse_float_string_coercion_for_erased_inputs() {
-    let source = source_for(
-        r"
-function parseValue(value: any): number {
-  return parseFloat(value);
-}
-",
-    );
-    let program = source
-        .split_once(PRELUDE_END_MARKER)
-        .map_or(source.as_str(), |(_, program)| program);
-
-    assert!(
-        program.contains("SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value)"),
-        "expected erased input to pass through JavaScript string coercion: {program}"
-    );
-    assert!(
-        program.contains("smelt_parse_float(&"),
-        "expected the coerced string to feed parseFloat: {program}"
-    );
-}
-
-#[test]
-fn emits_typescript_number_parse_int() {
-    let source = source_for(
-        r#"
-const value = Number.parseInt("42");
-"#,
-    );
-
-    assert!(source.contains("fn smelt_parse_int(text: &(impl SmeltHostText + ?Sized), radix: f64) -> f64"), "{source}");
-    assert!(source.contains("smelt_parse_int(&JsString::from(\"42\"), (0 as f64).trunc())"), "{source}");
-}
-
-#[test]
-fn optional_arrow_parameter_is_nullable_for_undefined_comparison() {
-    // An optional arrow parameter (`arg2?: number`) has type `number | undefined`
-    // inside the body, so it must lower to `Option<f64>` and an `arg2 === undefined`
-    // guard must compare against `None` rather than constant-folding to `false`
-    // (which is what happened when the optional marker was dropped).
-    let source = source_for(
-        r"
-const isMissing = (_: number, arg2?: number): boolean => arg2 === undefined;
-const result = isMissing(1);
-",
-    );
-
-    assert!(
-        source.contains("Option<f64>"),
-        "expected optional arrow parameter to lower as Option<f64>: {source}"
-    );
-}
-
-#[test]
-fn extracts_borrowed_predicate_argument_from_dynamic_spread_dispatch() {
-    // A borrowed `&dyn Fn(..) -> bool` parameter fed from a dynamic `SmeltUnknown`
-    // (here a `...args` rest element forwarded by spread) must recover the real
-    // callable and reborrow it, instead of substituting a no-op default predicate
-    // that always returns `false`.
-    let source = source_for(
-        r"
-const impl = (
-  data: number,
-  predicate: (value: number) => boolean,
-  ...rest: readonly number[]
-): number => (predicate(data) ? data : rest[0]);
-
-function dispatch(...args: readonly unknown[]): unknown {
-  // @ts-expect-error -- exercises dynamic dispatch through erased arguments
-  return impl(...args);
-}
-",
-    );
-
-    // The narrowed callable's source value is hoisted into a
-    // `let smelt_source_value = ..` binding (so a callable object can be
-    // recovered on re-erasure) before the callable is matched and reborrowed.
-    assert!(
-        source.contains("&*({ let smelt_source_value =")
-            && source.contains("let smelt_function = match smelt_source_value"),
-        "expected borrowed predicate argument to reborrow an extracted callable: {source}"
-    );
-    assert!(
-        source.contains("smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(f64) -> bool>>"),
-        "expected the dynamic predicate to be extracted to a typed bool callback: {source}"
-    );
-}
-
-#[test]
-fn emits_typescript_infinity_identifier() {
-    let source = source_for(
-        r"
-const upper = Infinity;
-const lower = -Infinity;
-const missing = NaN;
-",
-    );
-
-    assert!(source.contains("f64::INFINITY"));
-    assert!(source.contains("f64::NAN"));
-}
-
-#[test]
-fn emits_typescript_instanceof_as_class_check() {
-    let source = source_for(
-        r"
-class Box {
-  constructor() {}
-}
-class Other {
-  constructor() {}
-}
-const value = new Box();
-const yes = value instanceof Box;
-const no = value instanceof Other;
-",
-    );
-
-    assert!(source.contains("true"));
-    assert!(source.contains("false"));
-}
-
-#[test]
-fn emits_typescript_global_numeric_parse_calls() {
-    let source = source_for(
-        r#"
-const intValue = parseInt("42");
-const floatValue = parseFloat("42.5");
-"#,
-    );
-
-    assert!(source.contains("smelt_parse_int(&JsString::from(\"42\"), (0 as f64).trunc())"), "{source}");
-    assert!(source.contains("smelt_parse_float(&JsString::from(\"42.5\"))"), "{source}");
-}
-
-#[test]
-fn parse_int_with_radix_accepts_an_optional_string_match_element() {
-    // `m[0]` of a regexp match is `Optional<String>` in Smelt. JavaScript's
-    // `parseInt` runs `ToString` on its operand, so an absent element parses
-    // the text "undefined" (NaN in radix 10). The emitter used to reject the
-    // whole program instead (date-fns `parse/_lib/utils.ts`).
-    let source = source_for(
-        r"
-export function leadingNumber(pattern: RegExp, text: string): number {
-  const match = text.match(pattern);
-  if (!match) return -1;
-  return parseInt(match[0], 10);
-}
-",
-    );
-
-    assert!(source.contains("Some(smelt_present) => smelt_parse_int(&smelt_present, "), "{source}");
-    assert!(source.contains("None => smelt_parse_int(&\"undefined\".to_owned(), "), "{source}");
-}
-
-#[test]
-fn emits_number_predicate_calls() {
-    let source = source_for(
-        r"
-const value = 4;
-const finite = Number.isFinite(value);
-const nan = Number.isNaN(value);
-",
-    );
-
-    assert!(source.contains(".is_finite();"));
-    assert!(source.contains(".is_nan();"));
-}
-
-#[test]
-fn emits_nan_predicate_for_erased_date_numeric_getter() {
-    let source = source_for(
-        r"
-function invalid<ResultDate extends Date>(value: ResultDate): boolean {
-  return isNaN(value.getTime());
-}
-",
-    );
-
-    // Scope the negative assertion to the generated program: a bounded generic
-    // free function now emits the `SmeltUnknown` prelude (whose `for...in`
-    // helpers legitimately contain `return false;`), so the assertion must look
-    // only at the emitted `invalid` body, not the runtime prelude.
-    let program = source
-        .split_once(PRELUDE_END_MARKER)
-        .map_or(source.as_str(), |(_, program)| program);
-    assert!(program.contains(".is_nan()"), "{source}");
-    assert!(!program.contains("return false;"), "{source}");
-}
-
-#[test]
-fn emits_nan_predicate_for_optional_numeric_and_date_values() {
-    let source = source_for(
-        r"
-function numeric(value: number | undefined): boolean {
-  return value != null && isNaN(value);
-}
-
-function optionalResult(): number | undefined {
-  return undefined;
-}
-
-function numericResult(): boolean {
-  const value = optionalResult();
-  return value != null && isNaN(value);
-}
-
-function dateValue(value: Date | undefined): boolean {
-  return value instanceof Date && isNaN(value.getTime());
-}
-",
-    );
-
-    // Asked of the program body, not the whole crate: the `unwrap_or(f64::NAN)`
-    // this once required (the optional numeric's read) had stopped appearing in
-    // the body once `!= null` narrowing began reading the present value with
-    // `expect`, and the check kept passing only on the runtime prelude's old
-    // inline string parse. The body's own reads are what the test is about.
-    let program = source
-        .split_once(PRELUDE_END_MARKER)
-        .map_or(source.as_str(), |(_, program)| program);
-    assert!(
-        program.contains(".expect(\"optional value was absent after narrowing\")"),
-        "{source}"
-    );
-    assert!(program.contains(".map_or(f64::NAN"), "{source}");
-    assert!(program.contains(".is_nan()"), "{source}");
-    assert!(program.contains("if "), "{source}");
-}
-
-#[test]
-fn emits_runtime_date_identity_for_unknown_instanceof_guard() {
-    let source = source_for(
-        r"
-function isDate(value: unknown): boolean {
-  return value instanceof Date;
-}
-
-const candidate = new Date(NaN);
-const date = isDate(candidate);
-const number = isDate(1);
-",
-    );
-
-    assert!(source.contains("\"__smelt_date\".to_owned()"), "{source}");
-    assert!(
-        source.contains("value.contains_key(\"__smelt_date\")"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_runtime_blob_identity_for_unknown_instanceof_guard() {
-    let source = source_for(
-        r#"
-function isBlob(value: unknown): boolean {
-  if (typeof Blob === "undefined") {
-    return false;
-  }
-  return value instanceof Blob;
-}
-
-const candidate = new Blob(["content"], { type: "text/plain" });
-const yes = isBlob(candidate);
-const no = isBlob(1);
-"#,
-    );
-
-    assert!(source.contains("\"__smelt_blob\".to_owned()"), "{source}");
-    assert!(
-        source.contains("value.contains_key(\"__smelt_blob\")"),
-        "{source}"
-    );
-}
-
-#[test]
 fn file_construction_is_concrete_and_answers_both_identities_statically() {
     let source = source_for(
         r#"
@@ -328,19 +13,14 @@ const isBlob = file instanceof Blob;
     );
 
     // Construction is the concrete `SmeltBlob`, and the string parts keep their
-    // type: `BlobPart` is `Blob | BufferSource | string`, and the two modeled
-    // arms reach their own typed constructors rather than the erased walk.
+    // type through the typed constructor for `BlobPart`'s string arm.
     assert!(source.contains("SmeltBlob::from_string_parts("), "{source}");
     assert!(source.contains("pub struct SmeltBlob"), "{source}");
     // Both identities are then STATIC facts about a concretely-typed receiver:
     // a blob always is a `Blob`, and it is a `File` exactly when its optional
     // name is present. Neither needs the erased marker probe.
     // `is_file()` is the static answer for `instanceof File` on a concrete
-    // receiver, and `true` for `instanceof Blob`. Asserted positively rather
-    // than by the absence of a marker probe: `contains_key("__smelt_file")`
-    // also appears in the shared runtime prelude (the `toStringTag` table, the
-    // host-marker filters), so a negative string assertion would be testing the
-    // prelude rather than the call site.
+    // receiver, and `true` for `instanceof Blob`.
     assert!(source.contains(".is_file()"), "{source}");
     // The user binding holds the static answer directly (no temporary).
     assert!(source.contains("let is_blob: bool = true;"), "{source}");
@@ -357,27 +37,13 @@ fn omits_blob_record_helper_without_blob_construction() {
         !source.contains("smelt_blob_record_from_parts"),
         "the Blob/File record helper must stay gated behind actual Blob/File construction: {source}"
     );
-}
-
-#[test]
-fn emits_runtime_boxed_number_identity_for_unknown_instanceof_guard() {
-    let source = source_for(
-        r"
-function isBoxedNumber(value: unknown): boolean {
-  return value instanceof Number;
-}
-
-const boxed = new Number(42);
-const yes = isBoxedNumber(boxed);
-const no = isBoxedNumber(42);
-",
+    let erased = source_for(
+        r#"
+const blob: unknown = new Blob(["a"]);
+console.log(blob);
+"#,
     );
-
-    assert!(source.contains("JsString::from(\"__smelt_number\")"), "{source}");
-    assert!(
-        source.contains("value.contains_key(\"__smelt_number\")"),
-        "{source}"
-    );
+    assert!(erased.contains("smelt_blob_record_from_parts"), "{erased}");
 }
 
 #[test]
@@ -413,60 +79,10 @@ const context = tz("Asia/Singapore");
 }
 
 #[test]
-fn emits_optional_date_type_parameter_or_nan_as_selected_value() {
-    let source = source_for(
-        r"
-function select<ResultDate extends Date>(
-  result: ResultDate | undefined,
-): unknown {
-  return result || NaN;
-}
-",
-    );
-
-    assert!(source.contains(".map_or_else("), "{source}");
-    assert!(source.contains("f64::NAN"), "{source}");
-    assert!(!source.contains("let _smelt_tmp_1: bool"), "{source}");
-}
-
-#[test]
-fn emits_negated_optional_date_type_parameter_as_presence_check() {
-    let source = source_for(
-        r"
-function absent<ResultDate extends Date>(
-  result: ResultDate | undefined,
-): boolean {
-  return !result;
-}
-",
-    );
-
-    // Scope assertions to the generated program: a bounded generic free
-    // function now emits the `SmeltUnknown` prelude, whose match arms mention
-    // `Some(SmeltUnknown::Number(value))`, so the negative assertion must look
-    // only at the emitted `absent` body rather than the runtime prelude.
-    let program = source
-        .split_once(PRELUDE_END_MARKER)
-        .map_or(source.as_str(), |(_, program)| program);
-    assert!(
-        program.contains(
-            "result.clone().as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Null | SmeltUnknown::Undefined))"
-        ),
-        "{source}"
-    );
-    assert!(
-        !program.contains("Some(SmeltUnknown::Number(value))"),
-        "{source}"
-    );
-}
-
-#[test]
 fn list_slice_borrows_its_receiver_instead_of_cloning_it() {
     // A slice reads its receiver only through `&self` methods (`.len()`, `.iter()`),
-    // so the receiver must be borrowed, not cloned. Cloning it copied the whole
-    // backing `Vec` up to three times per slice; inside a loop over the same list --
-    // remeda's `chunk` is the real-world case -- that makes a linear algorithm
-    // quadratic. See `benchmarks/FINDINGS.md`.
+    // so the receiver is borrowed, not cloned: a clone inside a loop over the same
+    // list turns a linear algorithm quadratic. See `benchmarks/FINDINGS.md`.
     let source = source_for(
         r"
 export function chunkNumbers(data: number[], size: number): number[][] {
@@ -484,7 +100,7 @@ export function chunkNumbers(data: number[], size: number): number[][] {
     // The slice still lowers to the same borrow-based iterator pipeline...
     assert!(source.contains("data.borrow().iter().skip("));
     assert!(source.contains("let smelt_len = data.len() as i64"));
-    // ...and no longer copies the receiver to get there.
+    // ...and takes no copy of the receiver to get there.
     assert!(
         !source.contains("data.clone().iter()"),
         "slice receiver was cloned for an `.iter()` borrow:\n{source}"
@@ -496,200 +112,14 @@ export function chunkNumbers(data: number[], size: number): number[][] {
 }
 
 #[test]
-fn emits_python_tuple_index_and_slice() {
-    let source = source_for_py(
-        r#"
-pair: tuple[str, int] = ("Ada", 1)
-name: str = pair[0]
-rank: int = pair[-1]
-tail: tuple[int] = pair[1:]
-empty: tuple[()] = pair[:0]
-"#,
-    );
-
-    assert!(source.contains(".0.clone()"));
-    assert!(source.contains(".1.clone()"));
-    assert!(source.contains(".1.clone(),)"));
-    assert!(source.contains(": () = ();"));
-}
-
-#[test]
-fn emits_typescript_tuple_index() {
-    let source = source_for(
-        r#"
-const pair: [string, number] = ["Ada", 1];
-const name = pair[0];
-const count = pair[1];
-"#,
-    );
-
-    assert!(source.contains(".0.clone();"));
-    assert!(source.contains(".1.clone();"));
-}
-
-#[test]
-fn emits_python_list_pop_method() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2]
-item: int = values.pop()
-",
-    );
-
-    assert!(source.contains("let mut"));
-    assert!(source.contains(".pop().expect(\"pop from empty list\")"));
-}
-
-#[test]
-fn emits_missing_class_record_reads_as_optional_values() {
-    let source = source_for(
-        r"
-class Parser {
-  run(): number { return 1; }
-}
-function read(parsers: Record<string, Parser>, key: string): number {
-  const parser = parsers[key];
-  if (parser) {
-    return parser.run();
-  }
-  return 0;
-}
-",
-    );
-
-    assert!(source.contains(".get(&key.clone());"), "{source}");
-    assert!(
-        !source.contains("expect(\"index out of bounds\")"),
-        "{source}"
-    );
-    assert!(
-        source.contains("expect(\"optional value was absent after narrowing\")"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_nullable_module_array_reads_without_negative_index_panics() {
-    let source = source_for(
-        r"
-const daysInMonths = [31, null, 31];
-function read(month: number): number | undefined {
-  return daysInMonths[month];
-}
-",
-    );
-
-    assert!(
-        source.contains("vec![Some(31.0), None::<f64>, Some(31.0)]"),
-        "{source}"
-    );
-    assert!(
-        source.contains("usize::try_from(smelt_normalized).ok()"),
-        "{source}"
-    );
-    assert!(!source.contains("negative index out of bounds"), "{source}");
-}
-
-#[test]
-fn emits_array_at_as_optional_index_without_negative_index_panics() {
-    let source = source_for(
-        r"
-function last<T>(values: readonly T[]): T | undefined {
-  return values.at(-1);
-}
-",
-    );
-
-    assert!(
-        source.contains("usize::try_from(smelt_normalized).ok()"),
-        "{source}"
-    );
-    assert!(!source.contains("negative index out of bounds"), "{source}");
-    assert!(source.contains(".and_then(|smelt_index|"), "{source}");
-}
-
-#[test]
-fn guards_callback_function_table_calls_selected_through_a_local() {
-    let source = source_for(
-        r"
-type Formatter = (value: string) => string;
-const lower: Formatter = (value) => value.toLowerCase();
-export const table: Record<string, Formatter> = { a: lower };
-export function apply(values: string[]): string[] {
-  return values.map((value) => {
-    const key = value[0];
-    const formatter = table[key];
-    if (formatter) {
-      return formatter(value);
-    }
-    return value;
-  });
-}
-",
-    );
-
-    // `table[key]` is an ordinary keyed read that can be absent, and the guard is
-    // an ordinary truthiness test of it: no key decides anything at compile time.
-    assert!(source.contains("let formatter: Option<"), "{source}");
-    assert!(source.contains("if "), "{source}");
-}
-
-#[test]
-fn emits_encode_uri_helper_for_encode_uri_usage() {
-    let source = source_for(
-        r#"
-const encoded = encodeURI("https://ex.com/a b?x=1&y=2#frag");
-const asValue = encodeURI;
-"#,
-    );
-
-    // Both the direct call and the first-class value form route through the
-    // shared percent-encoding runtime helper; the direct call goes through its
-    // throwing adapter, since a lone surrogate is a `URIError`.
-    assert!(source.contains("fn smelt_encode_uri("), "{source}");
-    assert!(source.contains("smelt_encode_uri_throwing(&"), "{source}");
-}
-
-#[test]
 fn omits_encode_uri_helper_without_usage() {
     let source = source_for("const value: number = 1;");
     assert!(
         !source.contains("smelt_encode_uri"),
         "the encodeURI helper must stay gated behind actual encodeURI usage: {source}"
     );
-}
-
-#[test]
-fn emits_object_to_string_tag_probe_for_prototype_to_string_call() {
-    let source = source_for(
-        r"
-export function tag(value: unknown): string {
-  return Object.prototype.toString.call(value);
-}
-",
-    );
-
-    // The classic `"[object Tag]"` probe resolves through the runtime helper
-    // (variant plus host identity markers), not through field reads on the
-    // prototype sentinel.
-    assert!(source.contains("fn smelt_object_to_string_tag("), "{source}");
-    assert!(source.contains("= smelt_abort_signal_object(&object); match method.as_str() { \"abort\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_reason_argument(&args)); } Ok(SmeltUnknown::Undefined) } \"dispatchEvent\" => { if let Some(signal) = signal { smelt_abort_signal_fire(&signal, smelt_abort_default_reason()); } Ok(SmeltUnknown::Bool(true)) } \"throwIfAborted\" => { if let Some(signal) = signal { if matches!(signal.get(\"aborted\"), Some(SmeltUnknown::Bool(true))) { return Err(smelt_throw(signal.get(\"reason\").unwrap_or(SmeltUnknown::Undefined))); } } Ok(SmeltUnknown::Undefined) } \"addEventListener\" => { if let Some(signal) = signal { let event_type = match args.first() { Some(SmeltUnknown::String(value)) => value.to_string(), _ => String::new() }; if event_type == \"abort\" { if let Some(listener @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let mut listeners = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }; listeners.push(listener); signal.insert(\"__smelt_abort_listeners\".to_owned(), SmeltUnknown::Array(listeners.into())); } } } Ok(SmeltUnknown::Undefined) } \"removeEventListener\" => { if let Some(signal) = signal { if let Some(target @ SmeltUnknown::Function(_)) = args.get(1).cloned() { let listeners: Vec<SmeltUnknown> = match signal.get(\"__smelt_abort_listeners\") { Some(SmeltUnknown::Array(values)) => values.into_vec(), _ => Vec::new() }.into_iter().filter(|listener| !listener.js_strict_eq(&target)).collect("), "{source}");
-}
-
-#[test]
-fn emits_structured_clone_deep_copy_for_erased_value() {
-    let source = source_for(
-        r"
-export function copy(value: unknown): unknown {
-  return structuredClone(value);
-}
-",
-    );
-
-    // `structuredClone` on an erased value routes through the runtime deep-clone
-    // helper (fresh identities, markers preserved), not an identity pass-through.
-    assert!(source.contains("fn smelt_structured_clone("), "{source}");
-    assert!(source.contains("smelt_structured_clone("), "{source}");
+    let used = source_for(r#"console.log(encodeURI("a b"));"#);
+    assert!(used.contains("fn smelt_encode_uri("), "{used}");
 }
 
 #[test]
@@ -714,68 +144,6 @@ export function copy(value: Point): Point {
 }
 
 #[test]
-fn emits_reflected_constructor_prototype_for_host_markers() {
-    let source = source_for(
-        r"
-export function proto(value: unknown): unknown {
-  return Object.getPrototypeOf(value);
-}
-",
-    );
-
-    // Host-marker objects (Date/Map/Set/RegExp/Error/...) expose a cached
-    // per-class prototype whose `constructor` slot is a real callable, so
-    // es-toolkit `clone`'s `new Constructor(obj)` rebuilds the value. The
-    // discriminator answers the CLASS name (it was the kind before error
-    // subclasses needed their own constructors), so the prototype's
-    // `constructor` slot can be the interned global of that same name.
-    assert!(source.contains("fn smelt_reflected_prototype("), "{source}");
-    assert!(source.contains("fn smelt_reflected_construct("), "{source}");
-    assert!(source.contains("fn smelt_reflected_marker_class("), "{source}");
-}
-
-#[test]
-fn map_carries_identity_marker_across_erasure_boundary() {
-    // A `Map` erased to `unknown` must keep its Map-ness: no concrete type,
-    // union, or scoped generic can carry the `[object Map]` identity across the
-    // dynamic boundary, so the erasure adapter stamps a `__smelt_map` marker
-    // object that the runtime tag helper and `SmeltFromUnknown` round-trip read.
-    let source = source_for(
-        r"
-export function erase(): unknown {
-  const m = new Map<string, number>([['a', 1]]);
-  return m;
-}
-",
-    );
-
-    // The Map erasure adapter stamps the marker (identity boundary).
-    assert!(
-        source.contains("IntoSmeltUnknown for SmeltJsMap")
-            && source.contains("\"__smelt_map\".to_owned()"),
-        "Map must erase to a __smelt_map marker object: {source}"
-    );
-    // The tag helper reports [object Map]/[object Set] off the markers.
-    assert!(
-        source.contains("if map.contains_key(\"__smelt_map\") { return \"[object Map]\".to_owned(); }")
-            && source.contains(
-                "if map.contains_key(\"__smelt_set\") { return \"[object Set]\".to_owned(); }"
-            ),
-        "toStringTag must have Map/Set marker arms: {source}"
-    );
-    // The un-erase adapter restores entries and identity from the marker.
-    assert!(
-        source.contains("if let Some(SmeltUnknown::Array(pairs)) = object.get(\"__smelt_map\")"),
-        "SmeltFromUnknown must round-trip the __smelt_map marker: {source}"
-    );
-    // The marker key stays hidden from for...in / Object.keys enumeration.
-    assert!(
-        source.contains("key != \"__smelt_map\" && key != \"__smelt_set\""),
-        "for-in filter must hide the Map/Set markers: {source}"
-    );
-}
-
-#[test]
 fn emits_timer_prelude_for_set_timeout_value_form() {
     let source = source_for(
         r"
@@ -789,32 +157,9 @@ const id = scheduled(() => {}, 4);
     assert!(source.contains("fn smelt_set_timeout("), "{source}");
 }
 
-#[test]
-fn emits_error_record_with_cause_and_aggregate_errors() {
-    let source = source_for(
-        r#"
-const error = new Error("boom", { cause: "root" });
-const aggregate = new AggregateError([new Error("a")], "many");
-const cause = error.cause;
-"#,
-    );
-
-    // The ES2022 options form retains `cause` (and AggregateError's `errors`)
-    // on the marker-bearing error record.
-    assert!(source.contains("\"__smelt_error\""), "{source}");
-    assert!(source.contains("\"cause\""), "{source}");
-    assert!(source.contains("\"errors\""), "{source}");
-}
-
 
 /// A module-level `const` holding a modeled host value, read from a FUNCTION,
 /// reaches a module-global slot rather than the declared type's default.
-///
-/// The read used to fabricate an empty erased record cast to the class: the
-/// initializer's value was silently gone, AND for `Headers` the cast was
-/// emitted at the record type rather than at `SmeltUnknown`, so the generated
-/// crate did not compile. See
-/// `blocker-logs/standards-module-const-host-value.md`.
 #[test]
 fn module_const_host_value_reaches_a_slot_when_read_from_a_function() {
     let source = source_for(
@@ -874,12 +219,10 @@ export function contentType(): string {
 }
 
 /// A slot whose initializer can THROW gets a `Result` from its synthesized
-/// function, which a `thread_local!` initializer cannot propagate: the call
-/// used to be emitted bare, so the generated crate did not compile
-/// (`expected f64, found Result<..>`). A throw during module evaluation is
-/// always uncaught, so the slot reports it as `main`'s `Result` return would
-/// and exits 1; an infallible initializer keeps the bare call and the crate
-/// gets no reporter at all.
+/// function, which a `thread_local!` initializer cannot propagate. A throw
+/// during module evaluation is always uncaught, so the slot reports it as
+/// `main`'s `Result` return would and exits 1; an infallible initializer keeps
+/// the bare call and the crate gets no reporter at all.
 #[test]
 fn module_slot_with_a_throwing_initializer_reports_like_main() {
     let source = source_for(
@@ -931,8 +274,7 @@ export function encoded(text: string): number {
 }
 
 /// A module-level binding used ONLY in the module body keeps its ordinary
-/// module-body local, so the slot machinery is confined to the shape that was
-/// broken and no existing lowering moves.
+/// module-body local; slots are for bindings a function reads.
 #[test]
 fn module_const_host_value_used_only_in_the_module_body_stays_a_local() {
     let source = source_for(
@@ -947,11 +289,8 @@ console.log(headers.get("content-type") ?? "none");
 }
 /// `x instanceof <concrete host class>` narrows an ERASED `x` in the true
 /// branch, so the member read that follows is a concrete typed read rather
-/// than an erased field probe that answers `undefined`.
-///
-/// See `blocker-logs/standards-instanceof-narrowing.md`: the equivalent user
-/// type predicate (`x is Headers`) already narrowed and emitted exactly this
-/// checked cast, so only the inline `instanceof` form was wrong.
+/// than an erased field probe that answers `undefined`, the same checked cast
+/// a user type predicate (`x is Headers`) narrows through.
 #[test]
 fn instanceof_a_host_class_narrows_an_erased_local() {
     let source = source_for(
@@ -973,7 +312,7 @@ if (direct instanceof Headers) {
         source.contains("<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(direct"),
         "{source}"
     );
-    // The erased field read that used to answer `undefined` is gone.
+    // The narrowed read is typed, so no erased field probe is emitted.
     assert!(
         !source.contains("smelt_get_unknown_field(&direct.clone(), \"get\")"),
         "the erased member path must not be reached after narrowing\n{source}"
@@ -981,13 +320,9 @@ if (direct instanceof Headers) {
 }
 
 
-/// The six modeled classes whose state is not a record now erase through their
-/// own adapter, carrying a registry identity marker.
-///
-/// Before this, erasing one fell through to the generic struct path — which
-/// reads declared fields and stamps `__smelt_class`, and a prelude type has no
-/// declared fields — so the erased value carried no host identity and
-/// `instanceof` on it could not be answered at all.
+/// A modeled class whose state is not a record erases through its own adapter,
+/// carrying a registry identity marker, so `instanceof` on the erased value is
+/// answered from that marker and not the generic struct path.
 #[test]
 fn host_value_erasure_stamps_the_registry_marker() {
     let source = source_for(
@@ -1017,7 +352,7 @@ console.log(enc instanceof TextEncoder);
         source.contains("let smelt_host_origin = self.clone(); smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(smelt_id,"),
         "{source}"
     );
-    // The check is the shared marker probe, no longer a folded `false`.
+    // The check is the shared marker probe.
     assert!(
         source.contains("value.contains_key(\"__smelt_textencoder\")"),
         "{source}"
@@ -1067,8 +402,7 @@ console.log(erased instanceof Server);
 ///
 /// Only the classes whose state is not a record retain their live value (in the
 /// erased record's origin slot), so a program that erases none of them must not
-/// carry the helpers — sixteen example goldens grew by them before the gate was
-/// added.
+/// carry the helpers.
 #[test]
 fn the_host_origin_registry_is_pay_for_use() {
     let without = source_for(

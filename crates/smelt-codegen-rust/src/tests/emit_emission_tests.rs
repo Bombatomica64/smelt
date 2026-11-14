@@ -850,8 +850,8 @@ return model.src_smelt_get_value();
 
     mir.classes
         .iter_mut()
-        .find(|class| class.name == class_name)
-        .and_then(|class| class.descriptors.first_mut())
+        .find(|model_class| model_class.name == class_name)
+        .and_then(|model_class| model_class.descriptors.first_mut())
         .expect("Model descriptor")
         .data_descriptor = false;
     let shadowing = emit_source(&mir).expect("non-data descriptor Rust source");

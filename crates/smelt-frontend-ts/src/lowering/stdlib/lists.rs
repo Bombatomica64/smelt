@@ -74,7 +74,7 @@ impl ModuleBuilder<'_> {
         };
         let ty = self.ctx.krate.types.intern(Type::Optional(*element_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListPop { list },
+            kind: ExprKind::ListPop { list, raises_when_empty: false },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

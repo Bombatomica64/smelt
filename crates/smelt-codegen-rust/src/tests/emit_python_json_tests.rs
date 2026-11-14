@@ -3,120 +3,6 @@
 use super::*;
 
 #[test]
-fn emits_python_sum_builtin() {
-    let source = source_for_py(
-        r"
-ints: list[int] = [1, 2]
-int_total: int = sum(ints)
-floats: list[float] = [1.0, 2.0]
-float_total: float = sum(floats)
-",
-    );
-
-    assert!(source.contains(".iter().copied().sum::<i64>()"));
-    assert!(source.contains(".iter().copied().sum::<f64>()"));
-}
-
-#[test]
-fn emits_python_all_any_builtins() {
-    let source = source_for_py(
-        r"
-values: list[bool] = [True, False]
-all_values: bool = all(values)
-any_values: bool = any(values)
-",
-    );
-
-    assert!(source.contains(".iter().copied().all(|smelt_value| smelt_value)"));
-    assert!(source.contains(".iter().copied().any(|smelt_value| smelt_value)"));
-}
-
-#[test]
-fn emits_python_map_filter_lambda_callbacks() {
-    let source = source_for_py(
-        r"
-def run() -> None:
-    factor: int = 2
-    values: list[int] = [1, 2, 3]
-    scaled: list[int] = list(map(lambda value: value * factor, values))
-    filtered: list[int] = list(filter(lambda value: value > factor, values))
-",
-    );
-
-    assert!(source.contains(".iter().enumerate().map("));
-    assert!(source.contains("* factor"));
-    assert!(source.contains(".iter().enumerate().filter_map("));
-    assert!(source.contains("> factor"));
-}
-
-#[test]
-fn emits_python_first_class_closure_values() {
-    let source = source_for_py(
-        r"
-from typing import Callable
-
-def apply(value: int, fn: Callable[[int], int]) -> int:
-    return fn(value)
-
-def make_adder(base: int) -> Callable[[int], int]:
-    add: Callable[[int], int] = lambda value: value + base
-    return add
-
-def run() -> None:
-    offset: int = 2
-    add_offset: Callable[[int], int] = lambda value: value + offset
-
-    direct: int = add_offset(3)
-    passed: int = apply(4, add_offset)
-    adder: Callable[[int], int] = make_adder(5)
-    returned: int = adder(6)
-",
-    );
-
-    assert!(source.contains("Rc<dyn Fn(i64) -> i64>"));
-    assert!(source.contains("(3)"));
-    assert!(source.contains("apply(4,"));
-    assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(adder)(6)"));
-    assert!(source.contains("move |"));
-}
-
-#[test]
-fn emits_nested_loop_inside_loop_branch_as_structured_loop() {
-    let source = source_for(
-        r"
-export function collect(values: number[], flags: boolean[]): number {
-  let total = 0;
-  let index = 0;
-
-  while (index < flags.length) {
-    if (flags[index]) {
-      index = index + 1;
-      continue;
-    }
-
-    for (const value of values) {
-      if (value > 2) {
-        break;
-      }
-      total = total + value;
-    }
-
-    index = index + 1;
-  }
-
-  return total;
-}
-",
-    );
-
-    assert!(
-        source.matches("loop {").count() >= 2,
-        "expected outer while and nested for-of to both emit structured loops:\n{source}"
-    );
-}
-
-#[test]
 fn keeps_continuation_after_short_circuit_call_guard() {
     let source = source_for(
         r"
@@ -136,159 +22,36 @@ export function count(a: boolean, b: boolean): number {
 ",
     );
 
-    assert!(source.contains("return f64::NAN;"), "{source}");
     // `result` is a counter proven to stay in `0..=1`, so integer range
-    // analysis makes it an integer and the step is the integer `+ 1`.
-    assert!(source.contains("result + 1;"), "{source}");
-    // The `number` result is the counter's exact conversion.
-    assert!(source.contains("= result as f64;"), "{source}");
+    // analysis makes it an integer, and the `number` result is its exact conversion.
+    assert_eq!(rust_fn(&source, "count"), r"fn count(a: bool, b: bool) -> f64 {
+let mut result: usize;
+let _smelt_tmp_4: bool;
+let mut _smelt_tmp_5: bool;
+let _smelt_tmp_7: bool;
+let _smelt_tmp_8: usize;
+let _smelt_tmp_9: f64;
+let _smelt_tmp_3: bool = valid(a);
+_smelt_tmp_4 = !(_smelt_tmp_3);
+if _smelt_tmp_4 {
+_smelt_tmp_5 = true;
+} else {
+let _smelt_tmp_6: bool = valid(b);
+_smelt_tmp_7 = !(_smelt_tmp_6);
+_smelt_tmp_5 = _smelt_tmp_7;
 }
-
-#[test]
-fn emits_postfix_index_update_inside_while_loop_body() {
-    let source = source_for(
-        r"
-export function read(values: number[]): number[] {
-  const result: number[] = [];
-  let index = 0;
-  while (index < values.length) {
-    const value = values[index++];
-    result.push(value);
-  }
-  return result;
+if _smelt_tmp_5 {
+return f64::NAN;
+} else {
+result = 0;
+if a {
+_smelt_tmp_8 = result + 1;
+result = _smelt_tmp_8;
 }
-",
-    );
-
-    let loop_start = source.find("loop {").expect("expected emitted loop");
-    let increment = source[loop_start..]
-        .find("index = ")
-        .map(|offset| loop_start + offset)
-        .expect("expected postfix increment in loop");
-    let value_binding = source[loop_start..]
-        .find("value = values.borrow().get")
-        .map(|offset| loop_start + offset)
-        .expect("expected indexed value binding in loop");
-    assert!(
-        !source[..loop_start].contains("index = ")
-            && increment > value_binding
-            && increment > loop_start,
-        "postfix update escaped the loop body:\n{source}"
-    );
+_smelt_tmp_9 = result as f64;
+return _smelt_tmp_9;
 }
-
-#[test]
-fn emits_do_while_value_iteration_without_defaulting_after_recursive_expansion() {
-    let source = source_for(
-        r"
-export function firstOutside(value: number): number {
-  let previous = value;
-  let current = value;
-  do {
-    previous = current;
-    current = current - 1;
-  } while (current > 0);
-  return previous;
-}
-",
-    );
-
-    assert!(source.contains("loop {"), "{source}");
-    assert!(
-        !source
-            .contains("Smelt could not structurally emit this recursive control-flow region yet"),
-        "{source}"
-    );
-    assert!(!source.contains("return Default::default()"), "{source}");
-}
-
-#[test]
-fn emits_python_default_lambda_closure_values() {
-    let source = source_for_py(
-        r"
-from typing import Callable
-
-bump: Callable[[int], int] = lambda value=1: value + 1
-defaulted: int = bump()
-explicit: int = bump(4)
-",
-    );
-
-    assert!(source.contains("(1)"));
-    assert!(source.contains("(4)"));
-}
-
-#[test]
-fn emits_python_nested_def_closure_values() {
-    let source = source_for_py(
-        r"
-from typing import Callable
-
-def make_adder(base: int) -> Callable[[int], int]:
-    def add(value: int) -> int:
-        return value + base
-    return add
-
-def run() -> None:
-    adder: Callable[[int], int] = make_adder(5)
-    result: int = adder(6)
-",
-    );
-
-    assert!(source.contains("move |"));
-    assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(adder)(6)"));
-}
-
-#[test]
-fn emits_python_vararg_lambda_closure_values() {
-    let source = source_for_py(
-        r"
-from typing import Callable
-
-sum_two: Callable[[int, int], int] = lambda *values: values[0] + values[1]
-result: int = sum_two(2, 3)
-",
-    );
-
-    assert!(source.contains("|closure_arg_0: i64, closure_arg_1: i64|"));
-    assert!(source.contains("vec![closure_arg_0, closure_arg_1]"));
-    // An element read past either end raises `IndexError`.
-    assert!(source.contains("smelt_py_list_read(&"));
-    assert!(source.contains("(2, 3)"));
-}
-
-#[test]
-fn emits_python_nested_def_vararg_and_kwarg_closure_values() {
-    let source = source_for_py(
-        r#"
-def run() -> int:
-    def sum_values(*values: int) -> int:
-        return values[0] + values[1]
-
-    def pick(**kwargs: int) -> int:
-        return kwargs["value"] + kwargs["bonus"]
-
-    total: int = sum_values(2, 3, 4)
-    extras: dict[str, int] = {"bonus": 6}
-    chosen: int = pick(value=5, **extras)
-    return total + chosen
-"#,
-    );
-
-    // A list-typed callback parameter is passed by shared reference; the body here
-    // only reads `values[0]`/`values[1]`.
-    assert!(source.contains("|closure_arg_0: &SmeltList<i64>|"));
-    // An element read past either end raises `IndexError`.
-    assert!(source.contains("smelt_py_list_read(&"));
-    assert!(source.contains("vec![2, 3, 4]"));
-    assert!(
-        source.contains(
-            "closure_arg_0.get(&\"value\".to_owned()).ok_or_else(|| smelt_py_key_error("
-        )
-    );
-    assert!(source.contains("SmeltRecord::from([(\"value\".to_owned(), 5)])"));
-    assert!(source.contains(".extend("));
+}");
 }
 
 #[test]
@@ -307,161 +70,11 @@ chosen: int = pick(value=5, **extras)
 "#,
     );
 
-    // `values[0]` can raise `IndexError`, so the function can fail.
-    assert!(source.contains("fn sum_values(values: SmeltList<i64>) -> Result<i64,"));
-    assert!(source.contains("vec![2, 3, 4]"));
-    // `kwargs["value"]` can raise `KeyError`, so the function can fail.
-    assert!(source.contains("fn pick(kwargs: SmeltRecord<String, i64>) -> Result<i64,"));
-    assert!(source.contains("SmeltRecord::from([(\"value\".to_owned(), 5)])"));
-    assert!(source.contains(".extend("));
-}
+    // `values[0]` raises `IndexError` and `kwargs["value"]` raises `KeyError`, so
+    // both functions can fail, and the collected parameters keep their element types.
+    assert_eq!(rust_items(&source, &["sig sum_values", "sig pick"]), r"fn sum_values(values: SmeltList<i64>) -> Result<i64, Box<dyn std::error::Error>>
 
-#[test]
-fn emits_python_sorted_builtin() {
-    let source = source_for_py(
-        r"
-ints: list[int] = [2, 1]
-ordered_ints: list[int] = sorted(ints)
-floats: list[float] = [2.0, 1.0]
-ordered_floats: list[float] = sorted(floats)
-",
-    );
-
-    assert!(source.contains(".clone(); smelt_sorted.sort(); smelt_sorted"));
-    assert!(source.contains(
-        ".clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"sorted incomparable float\")); smelt_sorted"
-    ));
-}
-
-#[test]
-fn emits_python_sorted_key_and_reverse() {
-    let source = source_for_py(
-        r"
-bias: int = 10
-values: list[int] = [2, 1]
-ordered: list[int] = sorted(values, key=lambda value: value + bias, reverse=True)
-",
-    );
-
-    assert!(source.contains("let mut smelt_sort_key ="));
-    assert!(source.contains("let smelt_left_key = (smelt_sort_key)"));
-    assert!(source.contains("smelt_right_key.cmp(&smelt_left_key)"));
-}
-
-#[test]
-fn emits_python_list_sort_key() {
-    let source = source_for_py(
-        r"
-values: list[int] = [2, 1]
-ordered: None = values.sort(key=lambda value: value * 2)
-",
-    );
-
-    assert!(source.contains("let mut smelt_sort_key ="));
-    assert!(source.contains(".sort_by(|smelt_left, smelt_right|"));
-    assert!(source.contains("smelt_left_key.cmp(&smelt_right_key)"));
-}
-
-#[test]
-fn emits_python_reversed_builtin() {
-    let source = source_for_py(
-        r"
-values: list[int] = [1, 2]
-flipped: list[int] = reversed(values)
-",
-    );
-
-    assert!(source.contains(".iter().rev().cloned().collect::<Vec<_>>()"));
-}
-
-#[test]
-fn emits_python_enumerate_builtin() {
-    let source = source_for_py(
-        r#"
-values: list[str] = ["a", "b"]
-pairs: list[tuple[int, str]] = enumerate(values)
-names: dict[str, int] = {"Ada": 1}
-name_pairs: list[tuple[int, str]] = enumerate(names)
-items: set[int] = {1, 2}
-item_pairs: list[tuple[int, int]] = enumerate(items)
-"#,
-    );
-
-    assert!(source.contains(".iter().cloned().enumerate()"));
-    assert!(source.contains("idx as i64"));
-    assert!(
-        source.contains(
-            ".keys().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(source.contains(".iter().collect::<Vec<_>>()"));
-}
-
-#[test]
-fn emits_python_zip_builtin() {
-    let source = source_for_py(
-        r#"
-names: list[str] = ["Ada", "Linus"]
-scores: list[int] = [1, 2]
-pairs: list[tuple[str, int]] = zip(names, scores)
-lookup: dict[str, int] = {"Ada": 1}
-items: set[int] = {1, 2}
-mixed: list[tuple[str, int]] = zip(lookup, items)
-"#,
-    );
-
-    assert!(source.contains(".iter().cloned().zip("));
-    assert!(
-        source.contains(
-            ".keys().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(source.contains(".iter().collect::<Vec<_>>()"));
-}
-
-#[test]
-fn emits_python_primitive_conversions() {
-    let source = source_for_py(
-        r#"
-flag: bool = True
-digits: str = "42"
-ratio_text: str = "2.5"
-as_text: str = str(flag)
-as_int: int = int(3.8)
-parsed_int: int = int(digits)
-as_float: float = float(7)
-parsed_float: float = float(ratio_text)
-as_bool: bool = bool("")
-"#,
-    );
-
-    assert!(source.contains("\"True\".to_owned()"));
-    assert!(source.contains(".trunc() as i64"));
-    assert!(source.contains(".parse::<i64>().expect(\"int() parse failed\")"));
-    assert!(source.contains("as f64"));
-    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
-    assert!(source.contains(".is_empty()"));
-}
-
-#[test]
-fn emits_python_range_builtin() {
-    let source = source_for_py(
-        r"
-first: list[int] = range(3)
-middle: list[int] = range(1, 4)
-stepped: list[int] = range(5, 1, -2)
-total: int = 0
-for value in range(3):
-    total = total + value
-",
-    );
-
-    assert!(source.contains("let mut smelt_values = Vec::new();"));
-    assert!(source.contains("while smelt_current < smelt_end"));
-    assert!(source.contains("while smelt_current > smelt_end"));
-    assert!(source.contains("panic!(\"range() arg 3 must not be zero\")"));
+fn pick(kwargs: SmeltRecord<String, i64>) -> Result<i64, Box<dyn std::error::Error>>");
 }
 
 #[test]
@@ -484,25 +97,6 @@ text: str = json.dumps(values)
     assert!(py_source.contains("smelt_json_stringify(&"));
     assert!(ts_source.contains(".expect(\"JSON serialization failed\")"));
     assert!(py_source.contains(".expect(\"JSON serialization failed\")"));
-}
-
-/// JSON serialization supports typed records whose values contain typed lists,
-/// matching `JSON.stringify({ args })` without erasing the record or its list.
-#[test]
-fn emits_json_stringify_for_records_with_list_values() {
-    let source = source_for(
-        r"
-export function key(args: unknown[]): string {
-  return JSON.stringify({ args });
-}
-",
-    );
-
-    assert!(
-        source.contains("serde::Serialize for SmeltRecord<K, V>"),
-        "{source}"
-    );
-    assert!(source.contains("smelt_json_stringify(&"), "{source}");
 }
 
 #[test]
@@ -716,9 +310,9 @@ const order: Order = JSON.parse("{}");
 /// A property smelt already stores as a dynamic value (an intersection alias
 /// names no generated struct) is passed through unchecked, so it does not
 /// switch the checks off for the rest of the object; the same alias as the
-/// WHOLE target keeps the dynamic parse. (A plain object-literal alias used to
-/// be that shape; it now lowers to an interface struct, so the fixture spells
-/// the dynamic record as an intersection.)
+/// WHOLE target keeps the dynamic parse. A plain object-literal alias lowers
+/// to an interface struct, so the fixture spells the dynamic record as an
+/// intersection.
 #[test]
 fn passes_dynamically_stored_properties_through_unchecked() {
     let ts_source = source_for(
@@ -774,91 +368,6 @@ values: list[int] = json.loads("[1]")
 }
 
 #[test]
-fn emits_regex_match_calls() {
-    let ts_source = source_for(
-        r#"
-const text = "abc123";
-const pattern = "\\d+";
-const hasDigits = new RegExp(pattern).test(text);
-const alsoHasDigits = RegExp(pattern).test(text);
-const literalHasDigits = /\d+/.test(text);
-"#,
-    );
-    let py_source = source_for_py(
-        r#"
-import re
-text: str = "abc123"
-pattern: str = "\\d+"
-found: bool = re.search(pattern, text)
-starts: bool = re.match(pattern, text)
-full: bool = re.fullmatch(pattern, text)
-"#,
-    );
-
-    assert!(ts_source.contains("SmeltRegExp::new("));
-    assert!(ts_source.contains(".is_match(&"));
-    assert!(py_source.contains(".is_match(&"));
-    assert!(py_source.contains(".find(&"));
-    assert!(py_source.contains("m.start() == 0"));
-    assert!(py_source.contains("m.end() =="));
-}
-
-#[test]
-fn emits_string_includes_method() {
-    let source = source_for(
-        r#"
-const word = "Smelt";
-const has = word.includes("mel");
-"#,
-    );
-
-    assert!(source.contains(".contains(&JsString::from(\"mel\"));"));
-}
-
-#[test]
-fn emits_string_includes_method_with_position() {
-    let source = source_for(
-        r"
-export function containsFrom(haystack: string, needle: string, from: number): boolean {
-  return haystack.includes(needle, from);
-}
-",
-    );
-
-    // The `position` argument is truncated toward zero, clamped to `[0, len]`,
-    // then the search starts from that UTF-16 offset (past a surrogate pair it
-    // falls inside) over the remaining suffix. A position past the end only
-    // ever matches the empty needle.
-    assert!(
-        source.contains("let smelt_from = (") && source.contains("as i64).max(0) as usize"),
-        "{source}"
-    );
-    assert!(
-        source.contains("smelt_haystack.index_of(&"),
-        "{source}"
-    );
-    assert!(
-        source.contains(", smelt_from).is_some()"),
-        "{source}"
-    );
-}
-
-#[test]
-fn emits_array_includes_method() {
-    let source = source_for(
-        r"
-const values: number[] = [1, 2, 3];
-const has = values.includes(2);
-",
-    );
-
-    assert!(
-        source.contains("item.is_nan() && smelt_needle.is_nan()"),
-        "{source}"
-    );
-}
-
-#[test]
 fn emits_set_constructor_and_has_method() {
     let source = source_for(
         r"
@@ -870,7 +379,7 @@ const fromSource = new Set(source);
 ",
     );
 
-    // Both set backings are insertion-ordered (H52): a `Set<number>` (f64
+    // Both set backings are insertion-ordered: a `Set<number>` (f64
     // elements, no Rust `Eq`/`Hash`) uses `SmeltJsSet` with SameValueZero
     // membership, and a `Set<string>` uses `SmeltPrimSet`, which hashes the
     // values directly and so does not drag in the erased-value carrier.
@@ -879,28 +388,6 @@ const fromSource = new Set(source);
     assert!(source.contains(".contains(&2.0)"));
     assert!(source.contains("SmeltPrimSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
-}
-
-#[test]
-fn emits_smelt_js_set_container() {
-    // A `Set<number>` cannot use `HashSet` (`f64` has no `Eq`/`Hash`), so it
-    // routes through the `SmeltJsSet` runtime container with SameValueZero
-    // membership and insertion order. The dedup-from-array shape (`[...new
-    // Set(array)]`) collects into `SmeltJsSet` too.
-    let source = source_for(
-        r"
-const values: Set<number> = new Set([1, 2, 3]);
-const source: number[] = [1, 2, 3];
-const deduped = new Set(source);
-",
-    );
-
-    assert!(source.contains("SmeltJsSet<f64>"), "{source}");
-    assert!(source.contains("SmeltJsSet::from(["), "{source}");
-    assert!(
-        source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"),
-        "{source}"
-    );
 }
 
 #[test]
@@ -924,78 +411,6 @@ const hits = values.filter((value) => selected.has(value));
 }
 
 #[test]
-fn emits_set_for_of_iteration() {
-    let source = source_for(
-        r"
-const values: Set<number> = new Set([1, 2]);
-let total = 0;
-for (let item: number of values) {
-  total = total + item;
-}
-",
-    );
-
-    assert!(source.contains(".iter().collect::<Vec<_>>()"));
-    assert!(source.contains("loop {"));
-    assert!(source.contains("total ="));
-}
-
-#[test]
-fn emits_map_for_of_iteration() {
-    let source = source_for(
-        r#"
-const mapping: Map<string, number> = new Map([["a", 1], ["b", 2]]);
-let last: [string, number] = ["", 0];
-for (const entry: [string, number] of mapping) {
-  last = entry;
-}
-"#,
-    );
-
-    // A source `Map` backs onto `SmeltJsMap`, whose `iter()` yields owned
-    // entries, so the entries projection collects them directly with no
-    // per-entry `.clone()`.
-    assert!(
-        source.contains(
-            ".iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"__smelt_symbol\") && !smelt_key.starts_with(\"__smelt_proto:\") && !smelt_key.starts_with(\"__smelt_method:\") && smelt_key != \"__smelt_class\").collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(source.contains("loop {"));
-    assert!(source.contains("entry ="));
-}
-
-#[test]
-fn emits_python_set_and_dict_for_loops() {
-    let source = source_for_py(
-        r#"
-def run() -> None:
-    items: set[int] = {1, 2}
-    total: int = 0
-    for item in items:
-        total = total + item
-    names: dict[str, int] = {"Ada": 1}
-    last: str = ""
-    for name in names:
-        last = name
-"#,
-    );
-
-    assert!(source.contains(".iter().collect::<Vec<_>>()"));
-    assert!(
-        source.contains(
-            ".keys().collect::<Vec<_>>()"
-        ),
-        "{source}"
-    );
-    assert!(source.matches("loop {").count() >= 2);
-    assert!(source.contains("total ="));
-    // `name` holds an owned key string that is dead after the assignment, so
-    // move-on-last-use moves it into `last` instead of cloning.
-    assert!(source.contains("last = name;"));
-}
-
-#[test]
 fn emits_python_pytest_function_as_rust_test() {
     let source = source_for_py_path(
         r"
@@ -1005,11 +420,15 @@ def test_truth():
         "tests/test_truth.py",
     );
 
-    assert!(
-        source.contains("#[test]\nfn test_truth() -> Result<(), Box<dyn std::error::Error>> {")
-    );
-    assert!(source.contains("return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new"));
-    assert!(source.contains("return Ok(());"));
+    assert!(source.contains("#[test]\nfn test_truth()"), "{source}");
+    assert_eq!(rust_fn(&source, "test_truth"), r#"fn test_truth() -> Result<(), Box<dyn std::error::Error>> {
+let _smelt_tmp_0: bool = !(true);
+if _smelt_tmp_0 {
+return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "assertion failed".to_owned())).into());
+} else {
+return Ok(());
+}
+}"#);
 }
 
 #[test]
@@ -1030,45 +449,20 @@ export function build(total: number): number[] {
 ",
     );
 
-    // The `result` list is constructed (not a leaked `Array(...)` call) and is
-    // grown by the subsequent indexed write.
-    assert!(
-        source.contains("let mut result: SmeltList<f64>"),
-        "bare Array(total) should construct a typed list: {source}"
-    );
-    assert!(
-        source.contains("result.borrow_mut()[smelt_assign_index] = smelt_assign_value"),
-        "indexed writes should fill the list built by Array(total): {source}"
-    );
+    assert_eq!(rust_fn(&source, "build"), r#"fn build(total: f64) -> SmeltList<f64> {
+let mut _smelt_tmp_4: bool;
+let mut _smelt_tmp_5: f64;
+let mut result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (total as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| 0.0).collect::<Vec<_>>() });
+let mut i: f64 = 0.0;
+loop {
+_smelt_tmp_4 = i < total;
+if !(_smelt_tmp_4) { break; }
+{ let smelt_assign_index = { let smelt_normalized = i as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = i; if smelt_assign_index >= result.len() { result.borrow_mut().resize(smelt_assign_index.saturating_add(1), 0.0); } result.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
+_smelt_tmp_5 = i + 1.0;
+i = _smelt_tmp_5;
 }
-
-#[test]
-fn array_length_allocation_emits_holes_not_an_empty_vec() {
-    // `Array(n)` / `new Array(n)` allocate LENGTH `n` in JavaScript: `.length`
-    // is `n` and every slot reads `undefined`. Both used to lower to `vec![]`,
-    // which dropped the length and made every `.length`-driven loop over the
-    // result (`fill`, `zip`, `zipWith`, `unzip`) run zero iterations.
-    let source = source_for(
-        r"
-export function bare(n: number): unknown[] {
-  return Array(n);
-}
-export function constructed(n: number): unknown[] {
-  return new Array(n);
-}
-",
-    );
-
-    // Each slot evaluates the hole expression once rather than cloning one hole
-    // `n` times: a Smelt reference value clones by SHARING, so `vec![hole; n]`
-    // gave every slot one buffer and one identity. See `list_from_length_expr`.
-    assert_eq!(
-        source
-            .matches("(0..smelt_array_from_length).map(|_| SmeltUnknown::Undefined)")
-            .count(),
-        2,
-        "both Array(n) spellings must allocate n holes: {source}"
-    );
+return result;
+}"#);
 }
 
 #[test]
@@ -1090,113 +484,12 @@ export function strings(n: number): string[] {
 ",
     );
 
-    assert!(
-        source.contains("(0..smelt_array_from_length).map(|_| 0.0)"),
-        "a number[] allocation must hold f64 holes: {source}"
-    );
-    assert!(
-        source.contains("(0..smelt_array_from_length).map(|_| JsString::new())"),
-        "a string[] allocation must hold String holes: {source}"
-    );
-    assert!(
-        !source.contains("map(|_| SmeltUnknown::Undefined)"),
-        "a concretely typed allocation must not erase its holes: {source}"
-    );
-}
-
-#[test]
-fn array_arguments_that_are_not_a_length_build_elements() {
-    // ECMAScript splits `Array(...)` on the ARGUMENT LIST, not the callee:
-    // exactly one numeric argument is a length, and any other argument list is
-    // an element list. `Array('a')` was rejected as a non-numeric length and
-    // `Array(1, 2, 3)` as "at most one length argument"; both are ordinary
-    // array construction.
-    let source = source_for(
-        r"
-export function single(): string[] {
-  return Array('a');
-}
-export function several(): number[] {
-  return Array(1, 2, 3);
-}
-",
-    );
-
-    assert!(
-        source.contains(r#"vec![JsString::from("a")]"#),
-        "a single non-numeric argument is one element: {source}"
-    );
-    assert!(
-        source.contains("vec![1.0, 2.0, 3.0]"),
-        "several arguments are the elements: {source}"
-    );
-}
-
-#[test]
-fn lowers_bare_array_call_with_array_literal_argument() {
-    // A single array-literal argument builds that literal directly, matching the
-    // `new Array([...])` lowering.
-    let source = source_for(
-        r"
-export function pair(): number[] {
-  return Array([1, 2, 3]);
-}
-",
-    );
-
-    assert!(
-        source.contains("vec![") || source.contains("Vec::from"),
-        "Array([...]) should build the array literal: {source}"
-    );
-}
-
-#[test]
-fn smelt_js_set_supports_clear() {
-    // `Set.prototype.clear` must resolve on the `SmeltJsSet` runtime container
-    // (numeric elements route through it), mirroring `SmeltJsMap::clear`
-    // (was E0599: no method `clear` on `SmeltJsSet`).
-    let source = source_for(
-        r"
-const values: Set<number> = new Set([1, 2, 3]);
-values.clear();
-",
-    );
-    // `clear` replaces the whole store — members and hash index together —
-    // inside the SHARED cell, so every handle of the set sees it empty and the
-    // index never points at slots that no longer exist.
-    assert!(
-        source.contains(
-            "fn clear(&mut self) { *self.store.borrow_mut() = SmeltJsSetStore::new(); }"
-        ),
-        "SmeltJsSet prelude must define clear: {source}"
-    );
-    assert!(source.contains(".clear()"), "clear call should be emitted: {source}");
-}
-
-#[test]
-fn smelt_record_implements_js_key_eq() {
-    // A record/object used as a collection key resolves `SmeltJsKeyEq` by
-    // reference identity, so a generic container bounded by `SmeltJsKeyEq` can
-    // hold a concrete `SmeltRecord` key without erasing (was E0599: unsatisfied
-    // `SmeltJsKeyEq` bound).
-    let source = source_for(
-        r"
-const values: Set<number> = new Set([1]);
-",
-    );
-    assert!(
-        source.contains(
-            "impl<K, V> SmeltJsKeyEq for SmeltRecord<K, V> { fn same_js_key(&self, other: &Self) -> bool { self.id == other.id } fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&self.id)) } }"
-        ),
-        "prelude must implement SmeltJsKeyEq for SmeltRecord: {source}"
-    );
-    // The hash side must agree with the equality side or the key index loses
-    // entries: `same_js_key` compares only the stable object `id`, so the hash
-    // has to be taken over that same `id` and nothing else. Hashing the record's
-    // contents instead would move a key out of its bucket as soon as the object
-    // it names is mutated.
-    assert!(
-        !source.contains("fn js_key_hash(&self) -> Option<u64> { Some(smelt_js_hash_one(&self.entries)) }"),
-        "a record key must hash by identity, never by contents: {source}"
-    );
+    assert_eq!(rust_fn(&source, "numbers"), r"fn numbers(n: f64) -> SmeltList<f64> {
+let result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (n as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| 0.0).collect::<Vec<_>>() });
+return result;
+}");
+    assert_eq!(rust_fn(&source, "strings"), r"fn strings(n: f64) -> SmeltList<JsString> {
+let result: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (n as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| JsString::new()).collect::<Vec<_>>() });
+return result;
+}");
 }

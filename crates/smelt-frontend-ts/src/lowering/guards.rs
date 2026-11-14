@@ -118,7 +118,10 @@ impl ModuleBuilder<'_> {
                 span: self.span(span.start, span.end),
             }));
         }
+        // An optional value can be absent, and `undefined instanceof Date` is `false`,
+        // so only a value that is always present folds.
         if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
+            && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_)))
             && self.expression_is_known_date_value(value, body)
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);

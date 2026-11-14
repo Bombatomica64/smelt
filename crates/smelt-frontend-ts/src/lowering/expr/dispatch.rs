@@ -520,6 +520,7 @@ impl ModuleBuilder<'_> {
                 self.expression_with_hint(&parenthesized.expression, body, type_hint)
             }
             Expression::NewExpression(new_expr) => {
+                self.reject_proxy_into_typed_record(new_expr, type_hint)?;
                 let value = self.new_expression_with_hint(new_expr, body, type_hint)?;
                 Ok(self.adopt_contextual_list_allocation_type(value, type_hint, body))
             }

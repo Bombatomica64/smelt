@@ -11,8 +11,8 @@ use std::fs;
 use std::process::Command;
 
 use common::{
-    PYTHON_ORACLE, TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq,
-    python_runs_corpus, smelt_in, workspace_root,
+    PYTHON_ORACLE, TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, output_within,
+    program_run_limit, python_runs_corpus, smelt_in, workspace_root,
 };
 use smelt_specialize::prereq::missing_prerequisite;
 
@@ -22,7 +22,11 @@ fn verify_python_parity(name: &str) -> TestResult {
     let script = fixtures.join(format!("{name}.py"));
     let expected = fs::read_to_string(fixtures.join(format!("{name}.stdout")))?;
     if python_runs_corpus() {
-        let output = Command::new("python3").arg("-I").arg(&script).output()?;
+        let output = output_within(
+            Command::new("python3").arg("-I").arg(&script),
+            program_run_limit(),
+            &format!("python3 on {name}"),
+        )?;
         let python_stdout = String::from_utf8(output.stdout)?;
         ensure(
             python_stdout == expected,
@@ -223,6 +227,18 @@ fn sequence_operations() -> TestResult {
 #[test]
 fn frontend_lowering_shapes() -> TestResult {
     verify_python_parity("frontend_lowering_shapes")
+}
+
+/// `list.pop()` on an empty list raises a catchable `IndexError`.
+#[test]
+fn list_pop_empty() -> TestResult {
+    verify_python_parity("list_pop_empty")
+}
+
+/// Builtins, closures, JSON, regex and sequence operations behave like Python.
+#[test]
+fn builtins_and_sequences() -> TestResult {
+    verify_python_parity("builtins_and_sequences")
 }
 
 /// Inherited methods, overrides, `super()` chains, properties and static members run as Python runs them.

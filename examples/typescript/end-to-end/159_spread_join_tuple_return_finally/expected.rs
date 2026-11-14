@@ -1796,7 +1796,7 @@ fn smelt_is_for_in_shape_key_text(shape: SmeltForInShape, key: &str) -> bool { !
 /// Return whether an object key is visible to JavaScript `for...in` iteration.
 fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { smelt_is_for_in_shape_key_text(smelt_for_in_object_shape(object), key) }
 /// Return whether a record key is visible to JavaScript `for...in` iteration.
-fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<JsString, V>, key: &JsStr) -> bool { if smelt_record_has_host_marker(record) { return false; } if !key.eq_str_prefix("__smelt") && !record.store.borrow().has_internal_keys() { return true; } let key = &*key.to_string_lossy(); !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_call" && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && !(record.has_text_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.has_text_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.has_text_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<JsString, V>, key: &JsStr) -> bool { if smelt_record_has_host_marker(record) { return false; } if !key.eq_str_prefix("__smelt") && !record.store.borrow().has_internal_keys() { return true; } let key = &*key.to_string_lossy(); !key.starts_with("__smelt_symbol") && !key.starts_with("__smelt_proto:") && !key.starts_with("__smelt_method:") && key != "__smelt_call" && key != "__smelt_date" && key != "__smelt_timezone" && key != "__smelt_class" && key != "__smelt_map" && key != "__smelt_set" && !(record.has_text_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags" | "lastIndex")) && !(record.has_text_key("__smelt_error") && matches!(key, "__smelt_error" | "message" | "cause" | "errors" | "stack")) && !(record.has_text_key("__smelt_arguments") && matches!(key, "__smelt_arguments" | "length")) }
 /// Every key JavaScript `for...in` yields for an erased object, prototype chain included.
 fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<JsString> { let mut keys = Vec::new(); let mut seen = ::std::collections::HashSet::new(); let shape = smelt_for_in_object_shape(map); for key in map.keys() { if key.eq_str_prefix("__smelt_proto:") { continue; } if smelt_is_for_in_shape_key(shape, &key) && seen.insert(key.clone()) { keys.push(key); } } for key in map.keys() { if let Some(inherited) = key.strip_str_prefix("__smelt_proto:") { let inherited = inherited.to_owned(); if seen.insert(inherited.clone()) { keys.push(inherited); } } } keys }
 
@@ -2957,6 +2957,12 @@ fn smelt_noop_waker() -> ::std::task::Waker {
     unsafe fn drop(_: *const ()) {}
     fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
     unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
+}
+
+#[allow(dead_code)]
+fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
+    eprintln!("{error:?}");
+    if !cfg!(test) { ::std::process::exit(1); }
 }
 
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
@@ -4248,7 +4254,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     _smelt_tmp_17 = ({ let smelt_bit_lhs = { let smelt_bit_v = ((match smelt_get_unknown_field(&_smelt_tmp_16.clone(), "maxAge").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_15), smelt_console_number(_smelt_tmp_17)); };
     let _smelt_tmp_19 = finally_then_catch();
-    _smelt_tmp_20 = { smelt_spawn_promise_task(Box::pin(async move { let _ = _smelt_tmp_19.await; })); () };
+    _smelt_tmp_20 = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_19.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
     let _smelt_tmp_21: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
     _smelt_tmp_22 = _smelt_tmp_21.await?;
     return Ok(());
