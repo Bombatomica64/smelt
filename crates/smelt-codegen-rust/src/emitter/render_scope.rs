@@ -20,7 +20,7 @@
 //! position. When the three disagreed the generated Rust did not compile, and no
 //! choice of rule for any ONE of them could satisfy the others — that is H42 in
 //! `blocker-logs/hono-campaign-plan.md` (§D2), and
-//! `blocker-logs/hono-h42-erasure-substitution.md` records the fix.
+//! `hono-h42-erasure-substitution.md` (in git history) records the fix.
 //!
 //! [`RenderScope`] is what makes the answer a property of the *render position*
 //! rather than of the call depth: the outermost value-render entry point builds

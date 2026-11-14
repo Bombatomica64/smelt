@@ -506,7 +506,7 @@ impl ModuleBuilder<'_> {
     /// (`union_member_is_concrete`), one such alias inside a union erased the
     /// union entirely: Hono's `ResponseHeadersInit` reached `new Headers(init)`
     /// as `SmeltUnknown` for exactly this reason, with no diagnostic naming the
-    /// alias. See `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    /// alias. See `standards-generic-arm-and-typeof-indexed-alias.md` (in git history).
     ///
     /// A query naming something with no resolvable value type still answers
     /// `Unknown`: `typeof SomeClass` is the CONSTRUCTOR, not an instance, and

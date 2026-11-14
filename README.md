@@ -253,7 +253,7 @@ JSON Schema in [`smelt-schema.json`](smelt-schema.json)). Every command takes
 | `smelt rust-test-report` | Run generated tests (`--focus`, `--guard`, `--full`) and write a compact Markdown investigation report. |
 | `smelt typedness-report <path>` | Measure concrete/generic/erased counts; `--baseline`, `--fail-on-regression`, `--update-baseline`. |
 | `smelt smelt-unknown-report <src>` | Classify `SmeltUnknown` in generated Rust; same baseline flags. |
-| `smelt ts7-parity-report <path>...` | Compare Smelt's TypeScript types with the TypeScript 7 checker's. |
+| `smelt ts7-parity-report <path>...` | Compare Smelt's TypeScript types with the TypeScript 7 checker's. Method: [`blocker-logs/ts7-parity.md`](blocker-logs/ts7-parity.md). |
 | `smelt list-escape-report <Smelt.toml>` | Classify list-typed MIR locals as escaping, aliased or frame-local. |
 | `smelt dump-ast` / `dump-hir` / `dump-mir <file>` | Print an intermediate form of one file. |
 | `smelt dump-schema` | Print the JSON Schema for `Smelt.toml`. |
@@ -289,7 +289,7 @@ Repository layout outside `crates/`:
 | `examples/` | End-to-end programs with golden HIR/Rust (`typescript/end-to-end`, `python/end-to-end`) and sample projects such as `hono_crud`. |
 | `specs/` | Design documents and milestone specs. |
 | `docs/` | Current design notes (metaprogramming, erasure reasons, specialization). |
-| `blocker-logs/` | Investigation reports, CI baselines and report methodologies. |
+| `blocker-logs/` | CI baselines, report methodologies and current-status reports, see [`blocker-logs/README.md`](blocker-logs/README.md). Investigation reports are temporary. |
 | `benchmarks/` | Hand-written TypeScript vs generated Rust, see [`benchmarks/README.md`](benchmarks/README.md). |
 | `scripts/` | CI gate scripts, publishing, regeneration helpers. |
 | `skills/` | Agent skills (debug workflow, dev log). |
@@ -349,25 +349,26 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 78.92% |
-| Lines | 81.54% |
-| Regions | 74.48% |
-| Branches | 69.40% |
+| Functions | 78.93% |
+| Lines | 81.56% |
+| Regions | 74.51% |
+| Branches | 69.44% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 90.92% | 84.97% | 71.73% |
+| `smelt-codegen-rust` | 90.95% | 85.02% | 71.85% |
 | `smelt-frontend-py` | 87.04% | 79.92% | 71.78% |
-| `smelt-frontend-ts` | 90.17% | 83.19% | 72.28% |
+| `smelt-frontend-ts` | 90.17% | 83.20% | 72.29% |
 | `smelt-hir` | 84.69% | 80.21% | 72.19% |
 | `smelt-mir` | 92.27% | 91.32% | 76.86% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
-| `smelt-runtime` | 27.49% | 31.90% | 29.31% |
+| `smelt-runtime` | 27.45% | 31.86% | 29.31% |
 | `smelt-specialize` | 70.02% | 78.90% | 62.31% |
 | `smelt-stdlib` | 88.11% | 85.54% | 92.07% |
 | `smelt-transpiler` | 82.79% | 81.84% | 70.86% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 85.94% | 90.58% | 84.72% |
 <!-- COVERAGE:END -->
+

@@ -47,7 +47,7 @@ impl ModuleBuilder<'_> {
     /// lowering at all, so there is no concrete type, union, or scoped generic
     /// that could carry the forwarded argument, and a call-compatible erased
     /// slot is the only shape that keeps `new Subclass(x)` from becoming a
-    /// blocker. See `blocker-logs/hono-h68-class-expression-binding.md` (H69).
+    /// blocker. See `hono-h68-class-expression-binding.md` (in git history) (H69).
     pub(in crate::lowering) fn synthesize_default_class_constructor(
         &mut self,
         class_text: &str,

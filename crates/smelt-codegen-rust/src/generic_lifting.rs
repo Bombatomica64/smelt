@@ -1084,7 +1084,7 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &Operand) ->
 /// by [`type_param_inferable_through_callback`] to each parameter and the
 /// return of a callback that will be emitted as an `F{n}: Fn(..) + ?Sized`
 /// bound. Writing a second enumeration for the callback half would let the two
-/// drift; §4.3 of `blocker-logs/estk-callback-generics-plan.md` is really
+/// drift; §4.3 of `estk-callback-generics-plan.md` (in git history) is really
 /// guarding against that drift, so the callback half reuses this walk verbatim
 /// and inherits its exclusions for free.
 ///
@@ -1233,7 +1233,7 @@ fn type_param_inferable_through_callback(
 /// Return whether every callback occurrence of `name` in `function`'s parameter
 /// list sits in a position the current callback representation can express.
 ///
-/// §4.4 of `blocker-logs/estk-callback-generics-plan.md` scopes callback-borne
+/// §4.4 of `estk-callback-generics-plan.md` (in git history) scopes callback-borne
 /// generics to a **direct, required, borrowed, non-rest** `Type::Function`
 /// parameter. A parameter that mentions `name` inside a function type in any
 /// other shape demotes the whole function to erasure, because the callee

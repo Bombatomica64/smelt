@@ -44,6 +44,7 @@ replace this with unconditional `fs::write`; do not touch or regenerate generate
   (sorted by count: start with the biggest class)
 - Runtime-compatibility failures: `skills/smelt-debug-workflow/SKILL.md` and `smelt rust-test-report`, not
   repeated hand-run test/diagnostics commands. Report to `blocker-logs/<name>.md`; load raw context only for the selected failure family.
+- Reports in `blocker-logs/` are temporary: delete yours in the PR that closes the investigation, durable conclusions go to `docs/` (`blocker-logs/README.md`).
 
 ## Code rules
 - Put docstrings in modules and functions.
@@ -83,6 +84,7 @@ replace this with unconditional `fs::write`; do not touch or regenerate generate
 | `smelt-unknown-baseline.json` | examples | hard invariant: stays 0 | blocking, `--fail-on-regression` |
 | `smelt-unknown-baseline-es-toolkit.json` | es-toolkit | ratchet: may only stay equal or fall | blocking, `--fail-on-regression` |
 | `smelt-unknown-baseline-remeda.json` | remeda | advisory, a diff reference | never blocks |
+| `smelt-unknown-baseline-hono.json` | hono | advisory, a diff reference | never blocks |
 
 - An avoidable rise blocks merge unless the PR (1) documents the boundary at the emit site and (2) adds the
   regression test; then reclassify via `classify_line` (`crates/smelt-transpiler/src/unknown_report/classify.rs`)

@@ -1,6 +1,6 @@
 # Hono's demand on the standards stream
 
-Owner of everything below: `blocker-logs/standards-tier-plan.md`. The Hono
+Owner of everything below: `standards-tier-plan.md` (in git history). The Hono
 stream does not model any of it (campaign plan §6); this file records what the
 pinned checkout actually uses, with counts, so the demand is evidence rather
 than a guess.

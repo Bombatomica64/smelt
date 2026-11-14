@@ -13,7 +13,7 @@
 // (`src/router/reg-exp-router/node.ts`) is the `this` shape, and its erasure
 // surfaced two frames later as `list unshift item must match the list element
 // type` with nothing about where. That is H54;
-// `blocker-logs/hono-h54-callback-return-erasure.md` has the bisection.
+// `hono-h54-callback-return-erasure.md` (in git history) has the bisection.
 //
 // The rule is to read the body's own returns and join them the way a ternary's
 // arms are joined, keeping the caller's fallback only when there is nothing to
@@ -28,7 +28,7 @@
 // captures the method receiver and the emitter renders that as
 // `let self = self.clone()`, which is not valid Rust. That is pre-existing —
 // it fails identically without this fix — and recorded as
-// `blocker-logs/hono-h57-closure-this-capture-name.md`.
+// `hono-h57-closure-this-capture-name.md` (in git history).
 
 // A loop: the compact IR has no loops, so this is the fallback path.
 function joined(keys: string[]): string[] {
@@ -109,7 +109,7 @@ console.log(fifth.reduce((total, value) => total + value, 0));
 // (An expression body whose whole value is a stdlib METHOD CALL —
 // `key.toUpperCase()` — still types as `unknown`, for a reason that is not this
 // rule and predates it: see
-// `blocker-logs/hono-h58-callback-method-call-return.md`. The control here uses
+// `hono-h58-callback-method-call-return.md` (in git history). The control here uses
 // a concatenation so it asserts the shape this fixture is about.)
 const sixth = ["a", "b"].map((key) => key + "-");
 sixth.unshift("start");
