@@ -592,7 +592,10 @@ export function read(): number {
     // argument it binds (`crate::class_polymorphism`: a subclass of a
     // polymorphic base nests `ParserInner<f64>` instead of flattening a copy
     // of the slot into its own record).
-    assert!(source.contains("__smelt_base: ParserInner<f64>,"), "{source}");
+    assert!(
+        source.contains("__smelt_base: ParserInner<f64>,"),
+        "{source}"
+    );
     // The inherited `run` copy in `impl YearParser` spells `T` as `f64`: the
     // impl does not declare `T` (was E0425).
     assert!(

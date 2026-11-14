@@ -50,9 +50,9 @@
 )]
 
 use crate::rust::RustExpr;
-use std::collections::HashSet;
 use smelt_hir::{FunctionType, Type, TypeId};
 use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
+use std::collections::HashSet;
 
 use crate::emitter::{EmitContext, method_mutates_this};
 use crate::{
@@ -385,7 +385,10 @@ fn erased_callable_adapter(
     // The receiver class leads a receiver-generic static method's arguments
     // and generics; the generic is inferred from the argument.
     if let MethodReceiver::Static(_, Some(receiver)) = receiver {
-        args.insert(0, RustExpr::atom(crate::static_receiver::receiver_argument(receiver)));
+        args.insert(
+            0,
+            RustExpr::atom(crate::static_receiver::receiver_argument(receiver)),
+        );
         if let Some(rest) = turbofish.strip_prefix("::<") {
             turbofish = format!("::<_, {rest}");
         }

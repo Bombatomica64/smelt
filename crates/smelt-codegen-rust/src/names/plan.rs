@@ -235,7 +235,10 @@ fn claim_with_companions(
             .iter()
             .map(|companion| format!("{name}{companion}"))
             .collect();
-        if companion_names.iter().all(|companion| !scope.is_taken(companion)) {
+        if companion_names
+            .iter()
+            .all(|companion| !scope.is_taken(companion))
+        {
             for companion in &companion_names {
                 scope.hold(companion);
             }

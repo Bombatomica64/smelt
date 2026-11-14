@@ -119,9 +119,12 @@ impl FunctionEmitter<'_> {
                     if !own {
                         continue;
                     }
-                    let read =
-                        crate::classes::inherited_static_read_text(self.mir, self.context, declared)
-                            .ok_or_else(|| EmitError::new("inherited static has no getter"))?;
+                    let read = crate::classes::inherited_static_read_text(
+                        self.mir,
+                        self.context,
+                        declared,
+                    )
+                    .ok_or_else(|| EmitError::new("inherited static has no getter"))?;
                     return Ok(Some(StaticFieldAccess {
                         read: RustExpr::chain(read),
                         store: Some(StaticStoreTarget::Inherited(declared.clone())),
@@ -166,7 +169,11 @@ impl FunctionEmitter<'_> {
                 })?;
                 let ty_text = self.rendered_type(access.ty)?.as_str().to_owned();
                 let (name, params, param_tys) = if matches!(member, StaticMember::Get(_)) {
-                    (format!("__smelt_static_get_{}", field_text(field)), Vec::new(), Vec::new())
+                    (
+                        format!("__smelt_static_get_{}", field_text(field)),
+                        Vec::new(),
+                        Vec::new(),
+                    )
                 } else {
                     (
                         format!("__smelt_static_set_{}", field_text(field)),
@@ -192,10 +199,15 @@ impl FunctionEmitter<'_> {
                 self.function_member_signature("__smelt_static_construct".to_owned(), constructor)
             }
             StaticMember::Call(method) => {
-                let target = self.implementing_static_method(class, method).ok_or_else(|| {
-                    EmitError::new("a static method called through `this` is not declared")
-                })?;
-                let name = format!("__smelt_static_call_{}", static_method_rust_name(self.context, target.id)?);
+                let target = self
+                    .implementing_static_method(class, method)
+                    .ok_or_else(|| {
+                        EmitError::new("a static method called through `this` is not declared")
+                    })?;
+                let name = format!(
+                    "__smelt_static_call_{}",
+                    static_method_rust_name(self.context, target.id)?
+                );
                 self.function_member_signature(name, target)
             }
             StaticMember::ClassValue => Ok(MemberSignature {
@@ -229,7 +241,10 @@ impl FunctionEmitter<'_> {
             ));
             param_tys.push(emitter.function_local_decl(function, *param)?.ty);
         }
-        let ret_text = emitter.rendered_type(function.return_ty)?.as_str().to_owned();
+        let ret_text = emitter
+            .rendered_type(function.return_ty)?
+            .as_str()
+            .to_owned();
         Ok(MemberSignature {
             name,
             generics,
@@ -353,7 +368,10 @@ impl FunctionEmitter<'_> {
                     .and_then(|found| found.constructor)
                     .and_then(|id| self.function_by_id(id));
                 let Some(constructor) = constructor else {
-                    return Ok(format!("Ok({})", self.default_value(signature.ret_ty)?.delimited()));
+                    return Ok(format!(
+                        "Ok({})",
+                        self.default_value(signature.ret_ty)?.delimited()
+                    ));
                 };
                 // Arguments by position, as JavaScript passes them: an
                 // argument the receiver's constructor does not declare is
@@ -361,14 +379,25 @@ impl FunctionEmitter<'_> {
                 let mut args = Vec::new();
                 for (index, param) in constructor.params.iter().enumerate() {
                     let param_ty = self.function_local_decl(constructor, *param)?.ty;
-                    args.push(match (arg_names.get(index), signature.param_tys.get(index)) {
-                        (Some(name), Some(arg_ty)) => self
-                            .rendered_at_type(&RustExpr::path(name.clone()), *arg_ty, param_ty, &scope)?
-                            .into_string(),
-                        _ => self.missing_argument_value(param_ty)?.into_string(),
-                    });
+                    args.push(
+                        match (arg_names.get(index), signature.param_tys.get(index)) {
+                            (Some(name), Some(arg_ty)) => self
+                                .rendered_at_type(
+                                    &RustExpr::path(name.clone()),
+                                    *arg_ty,
+                                    param_ty,
+                                    &scope,
+                                )?
+                                .into_string(),
+                            _ => self.missing_argument_value(param_ty)?.into_string(),
+                        },
+                    );
                 }
-                let throwing = if self.call_is_throwing(constructor) { "?" } else { "" };
+                let throwing = if self.call_is_throwing(constructor) {
+                    "?"
+                } else {
+                    ""
+                };
                 let built = RustExpr::atom(format!(
                     "{}::new({}){throwing}",
                     self.type_rust_name(receiver)?,
@@ -382,18 +411,26 @@ impl FunctionEmitter<'_> {
                         args: Vec::new(),
                     })
                     .unwrap_or(constructor.return_ty);
-                let converted = self.rendered_at_type(&built, built_ty, signature.ret_ty, &scope)?;
+                let converted =
+                    self.rendered_at_type(&built, built_ty, signature.ret_ty, &scope)?;
                 format!("Ok({})", converted.delimited())
             }
             StaticMember::Call(method) => {
-                let target = self.implementing_static_method(receiver, method).ok_or_else(|| {
-                    EmitError::new("a static method called through `this` is not declared")
-                })?;
+                let target = self
+                    .implementing_static_method(receiver, method)
+                    .ok_or_else(|| {
+                        EmitError::new("a static method called through `this` is not declared")
+                    })?;
                 let HirOrigin::ClassStaticMethod { class: owner, .. } = target.origin else {
                     return Err(EmitError::new("a static method is not a static method"));
                 };
                 let mut args = Vec::new();
-                if self.context.static_receivers().receiver_class(target.id).is_some() {
+                if self
+                    .context
+                    .static_receivers()
+                    .receiver_class(target.id)
+                    .is_some()
+                {
                     args.push(receiver_argument(&self.type_rust_name(receiver)?));
                 }
                 args.extend(arg_names.iter().cloned());
@@ -429,9 +466,11 @@ impl FunctionEmitter<'_> {
                     "a static member other than a call is reached through a named class",
                 ));
             };
-            let target = self.implementing_static_method(receiver, method).ok_or_else(|| {
-                EmitError::new("a static method called through a class is not declared")
-            })?;
+            let target = self
+                .implementing_static_method(receiver, method)
+                .ok_or_else(|| {
+                    EmitError::new("a static method called through a class is not declared")
+                })?;
             let HirOrigin::ClassStaticMethod { class: owner, .. } = target.origin else {
                 return Err(EmitError::new("a static method is not a static method"));
             };
@@ -449,9 +488,13 @@ impl FunctionEmitter<'_> {
         if !self.context.static_receivers().has_trait(class) {
             return match member {
                 StaticMember::Call(method) => {
-                    let target = self.implementing_static_method(class, method).ok_or_else(|| {
-                        EmitError::new("a static method called through `this` is not declared")
-                    })?;
+                    let target =
+                        self.implementing_static_method(class, method)
+                            .ok_or_else(|| {
+                                EmitError::new(
+                                    "a static method called through `this` is not declared",
+                                )
+                            })?;
                     let HirOrigin::ClassStaticMethod { class: owner, .. } = target.origin else {
                         return Err(EmitError::new("a static method is not a static method"));
                     };
@@ -466,7 +509,10 @@ impl FunctionEmitter<'_> {
                         .and_then(|found| found.constructor)
                         .and_then(|id| self.function_by_id(id))
                         .ok_or_else(|| EmitError::new("`new this()` needs a constructor"))?;
-                    Ok((self.static_call(constructor.id, args)?, constructor.return_ty))
+                    Ok((
+                        self.static_call(constructor.id, args)?,
+                        constructor.return_ty,
+                    ))
                 }
                 _ => Err(EmitError::new(
                     "a static field or class value reached the fallible dispatch path",
@@ -482,14 +528,12 @@ impl FunctionEmitter<'_> {
             rendered.join(", ")
         ));
         let source_ty = match member {
-            StaticMember::Call(method) => {
-                match self.implementing_static_method(class, method) {
-                    Some(target) => self
-                        .static_call_monomorphization(target, args)?
-                        .map_or(signature.ret_ty, |pinned| pinned.return_ty),
-                    None => signature.ret_ty,
-                }
-            }
+            StaticMember::Call(method) => match self.implementing_static_method(class, method) {
+                Some(target) => self
+                    .static_call_monomorphization(target, args)?
+                    .map_or(signature.ret_ty, |pinned| pinned.return_ty),
+                None => signature.ret_ty,
+            },
             _ => signature.ret_ty,
         };
         Ok((RenderedCall::propagating(call), source_ty))
@@ -565,7 +609,10 @@ impl FunctionEmitter<'_> {
                         let store = match access.store {
                             Some(StaticStoreTarget::Global(global)) => format!(
                                 "{};",
-                                self.global_store_text(global, &RustExpr::path("smelt_value").cloned_value())?
+                                self.global_store_text(
+                                    global,
+                                    &RustExpr::path("smelt_value").cloned_value()
+                                )?
                             ),
                             Some(StaticStoreTarget::Inherited(entry)) => format!(
                                 "let _ = {};",
@@ -588,7 +635,9 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 }
-                StaticMember::ClassValue => (self.class_value(class, None)?, self.type_id(Type::Unknown)?),
+                StaticMember::ClassValue => {
+                    (self.class_value(class, None)?, self.type_id(Type::Unknown)?)
+                }
                 StaticMember::Construct | StaticMember::Call(_) => {
                     return Err(EmitError::new(
                         "a static construction or call reached the assignment path",

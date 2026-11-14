@@ -652,8 +652,12 @@ impl FunctionEmitter<'_> {
         // inner record inside a fresh shared cell, exactly as the structural
         // adapter does; a bare `Name { .. }` against the newtype is E0560.
         if self.is_reference_class_type(dest_ty) {
-            let inner =
-                crate::class_polymorphism::inner_literal(self.mir, self.context, *name, &field_text)?;
+            let inner = crate::class_polymorphism::inner_literal(
+                self.mir,
+                self.context,
+                *name,
+                &field_text,
+            )?;
             return Ok(Some(RustExpr::atom(type_name.clone()).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ))));

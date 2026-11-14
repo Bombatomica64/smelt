@@ -203,8 +203,7 @@ fn created_closures(mir: &Mir, blocks: &[BasicBlock]) -> Vec<usize> {
                 else {
                     continue;
                 };
-                let Some(index) = mir.closures.iter().position(|closure| closure.id == *id)
-                else {
+                let Some(index) = mir.closures.iter().position(|closure| closure.id == *id) else {
                     continue;
                 };
                 if !seen.insert(index) {

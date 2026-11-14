@@ -396,7 +396,6 @@ fn class_expressions_returned_from_functions_construct() -> TestResult {
     )
 }
 
-
 /// Instances of a class hierarchy held at a base type: identity, writes
 /// through either handle, virtual dispatch, arrays of the base type,
 /// `instanceof` narrowing with subclass field writes, an erased round trip,
@@ -504,12 +503,18 @@ fn upcasts_share_one_object() -> TestResult {
             "struct Square(::std::rc::Rc<::std::cell::RefCell<SquareInner>>);",
             "a leaf class stays a concrete cell",
         ),
-        ("__smelt_base: RectInner,", "`Square` nests `Rect`'s typed record"),
+        (
+            "__smelt_base: RectInner,",
+            "`Square` nests `Rect`'s typed record",
+        ),
         (
             "struct Box_<T>(::std::rc::Rc<dyn Box_SmeltCell<T>>);",
             "a generic base keeps its type parameter",
         ),
-        ("__smelt_base: Box_Inner<f64>,", "`NumBox` nests `Box<number>`'s record"),
+        (
+            "__smelt_base: Box_Inner<f64>,",
+            "`NumBox` nests `Box<number>`'s record",
+        ),
         (
             "__smelt_base: Box_Inner<SmeltList<U>>,",
             "`ListBox<U>` nests `Box<U[]>`'s record",
@@ -563,7 +568,8 @@ console.log(bx.wrap(v => v * 3), bx.wrap(v => "x" + v));
 "#;
 
 /// What Node prints for [`OVERRIDE_GENERICS_TS`].
-const OVERRIDE_GENERICS_OUTPUT: &str = "A 2,3 s1,s2 p 7\nB 11,21 s10,s20 r 9\nB 11,21 s10,s20 q 8\n2 20,40\n15 x5\n";
+const OVERRIDE_GENERICS_OUTPUT: &str =
+    "A 2,3 s1,s2 p 7\nB 11,21 s10,s20 r 9\nB 11,21 s10,s20 q 8\n2 20,40\n15 x5\n";
 
 /// An overridden generic method stays a Rust generic and dispatches to the
 /// override.
@@ -669,7 +675,11 @@ const STATIC_RECEIVER_MAIN_OUTPUT: &str = "User User Model true true\n1 1 2\nmod
 /// receiver-class generic.
 #[test]
 fn static_methods_take_their_receiver_class() -> TestResult {
-    let all = agrees_with_node(STATIC_RECEIVER_TS, STATIC_RECEIVER_OUTPUT, "static receivers")?;
+    let all = agrees_with_node(
+        STATIC_RECEIVER_TS,
+        STATIC_RECEIVER_OUTPUT,
+        "static receivers",
+    )?;
     // Type preservation: the receiver is a type parameter bounded by the
     // statics trait; the inherited statics stay typed (`f64`).
     for (needle, what) in [
@@ -681,7 +691,10 @@ fn static_methods_take_their_receiver_class() -> TestResult {
             "Base::bump(::std::marker::PhantomData::<Sub>)",
             "`Sub.bump()` passes `Sub`",
         ),
-        ("impl BaseSmeltStatics for Sub {", "`Sub` implements the statics trait"),
+        (
+            "impl BaseSmeltStatics for Sub {",
+            "`Sub` implements the statics trait",
+        ),
         (
             "fn __smelt_static_get_count() -> f64",
             "the receiver's `count` is read as `f64`",
@@ -689,7 +702,10 @@ fn static_methods_take_their_receiver_class() -> TestResult {
     ] {
         ensure(all.contains(needle), what)?;
     }
-    let sources = [("base.ts", STATIC_RECEIVER_BASE_TS), ("main.ts", STATIC_RECEIVER_MAIN_TS)];
+    let sources = [
+        ("base.ts", STATIC_RECEIVER_BASE_TS),
+        ("main.ts", STATIC_RECEIVER_MAIN_TS),
+    ];
     let across = agrees_with_node_in(
         &sources,
         "main.ts",
@@ -837,7 +853,8 @@ console.log(ab.pick(1), ab.pick("s"));
 "#;
 
 /// What Node prints for [`ADJACENT_HIERARCHY_TS`].
-const ADJACENT_HIERARCHY_OUTPUT: &str = "7\n9\nFModel FModel true\nsub 2 5\n{\"v\":5} sub 3\n2017\n1 s\n";
+const ADJACENT_HIERARCHY_OUTPUT: &str =
+    "7\n9\nFModel FModel true\nsub 2 5\n{\"v\":5} sub 3\n2017\n1 s\n";
 
 /// Narrowed writes, field-less upcasts, generic erasure and `any`-typed slots.
 #[test]

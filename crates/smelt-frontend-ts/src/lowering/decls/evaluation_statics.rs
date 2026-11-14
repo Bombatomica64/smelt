@@ -490,19 +490,22 @@ impl ModuleBuilder<'_> {
         // ("Captures"): the frame is `this` in a frame (static) method, the
         // frame parameter in the constructor, and `this`'s hidden frame field
         // in an instance member.
-        let bind_captures = |this: &mut Self, base: smelt_hir::LocalId, via: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>| {
-            for capture in &evaluation.captures {
-                this.scope.bind_alias(
-                    capture.name.clone(),
-                    crate::lowering::state::local_scope::FrameAlias {
-                        base,
-                        via,
-                        field: capture.field,
-                        ty: capture.ty,
-                    },
-                );
-            }
-        };
+        let bind_captures =
+            |this: &mut Self,
+             base: smelt_hir::LocalId,
+             via: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>| {
+                for capture in &evaluation.captures {
+                    this.scope.bind_alias(
+                        capture.name.clone(),
+                        crate::lowering::state::local_scope::FrameAlias {
+                            base,
+                            via,
+                            field: capture.field,
+                            ty: capture.ty,
+                        },
+                    );
+                }
+            };
         if class_name == evaluation.frame {
             bind_captures(self, this_local, None);
             // A static method runs with `this` = the class it was called on,
@@ -1557,7 +1560,8 @@ impl ModuleBuilder<'_> {
         // enclosing body reads and writes the field, so it and the class's
         // members share one variable.
         for capture in &evaluation.captures {
-            let value = self.identifier_expression(&capture.name, class.span.start, class.span.end, body)?;
+            let value =
+                self.identifier_expression(&capture.name, class.span.start, class.span.end, body)?;
             let receiver = body.push_expr(Expr {
                 kind: ExprKind::Local(frame_local),
                 ty: evaluation.frame_ty,

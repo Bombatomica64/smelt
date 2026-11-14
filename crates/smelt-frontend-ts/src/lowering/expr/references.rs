@@ -510,7 +510,12 @@ impl ModuleBuilder<'_> {
         // AND a write of a subclass member (`s.h = 7`) address the
         // subclass's field instead of a field the base type does not have.
         if ty != base_ty
-            && let (Some(Type::Class { name: base_class, .. }), Some(Type::Class { name, .. })) = (
+            && let (
+                Some(Type::Class {
+                    name: base_class, ..
+                }),
+                Some(Type::Class { name, .. }),
+            ) = (
                 self.ctx.krate.types.get(base_ty),
                 self.ctx.krate.types.get(ty),
             )

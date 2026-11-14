@@ -321,11 +321,14 @@ impl FunctionEmitter<'_> {
         // subclass that adds no members); it copies the members into a new
         // instance.
         if self.is_reference_class_type(target) {
-            let inner =
-                crate::class_polymorphism::inner_literal(self.mir, self.context, *name, &field_text)?;
-            let copied = format!(
-                "{target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
-            );
+            let inner = crate::class_polymorphism::inner_literal(
+                self.mir,
+                self.context,
+                *name,
+                &field_text,
+            )?;
+            let copied =
+                format!("{target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))");
             // A downcast checks whether the instance IS one of the target's
             // classes first and keeps it when it is; the field-wise copy is
             // only the answer for an instance of another class.

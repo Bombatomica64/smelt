@@ -692,7 +692,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// A direct call of a function this program defines.
-    pub(super) fn static_call(&self, func: FuncId, args: &[Operand]) -> Result<RenderedCall, EmitError> {
+    pub(super) fn static_call(
+        &self,
+        func: FuncId,
+        args: &[Operand],
+    ) -> Result<RenderedCall, EmitError> {
         let function = self
             .mir
             .functions

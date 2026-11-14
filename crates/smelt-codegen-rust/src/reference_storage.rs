@@ -186,7 +186,10 @@ pub(crate) fn emit_reference_record_storage(
         .collect();
     if !weak_fields.is_empty() {
         let cell = if polymorphic {
-            format!("dyn {}{type_args}", crate::class_polymorphism::cell_trait_name(name))
+            format!(
+                "dyn {}{type_args}",
+                crate::class_polymorphism::cell_trait_name(name)
+            )
         } else {
             format!("::std::cell::RefCell<{inner_name}{type_args}>")
         };

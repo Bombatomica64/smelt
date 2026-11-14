@@ -550,7 +550,12 @@ impl FunctionEmitter<'_> {
             let erased = self.erase_rendered(&adjusted_call, source_return_ty)?;
             self.extract_rendered(&erased, function_ty.return_ty, &scope)?
         } else {
-            self.rendered_at_type(&adjusted_call, source_return_ty, function_ty.return_ty, &scope)?
+            self.rendered_at_type(
+                &adjusted_call,
+                source_return_ty,
+                function_ty.return_ty,
+                &scope,
+            )?
         };
         let return_ty = if function_ty.may_throw {
             format!(

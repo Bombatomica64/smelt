@@ -256,10 +256,12 @@ fn implementing_method(mir: &Mir, class: Symbol, method: Symbol) -> Option<FuncI
 impl FunctionEmitter<'_> {
     /// The class whose `impl` this method emitter renders into.
     fn method_impl_owner(&self) -> Option<Symbol> {
-        self.role.inherited_impl_owner().or(match self.function.origin {
-            HirOrigin::ClassMethod { class, .. } => Some(class),
-            _ => None,
-        })
+        self.role
+            .inherited_impl_owner()
+            .or(match self.function.origin {
+                HirOrigin::ClassMethod { class, .. } => Some(class),
+                _ => None,
+            })
     }
 
     /// The dispatch prologue of a method of a polymorphic class
@@ -367,7 +369,11 @@ impl FunctionEmitter<'_> {
             let concrete_class = crate::classes::find_class(self.mir, concrete);
             let mut substitution = std::collections::HashMap::new();
             if let Some(concrete_class) = concrete_class {
-                for (param, source) in concrete_class.type_params.iter().zip(&binding.param_sources) {
+                for (param, source) in concrete_class
+                    .type_params
+                    .iter()
+                    .zip(&binding.param_sources)
+                {
                     if let Some(owner_param) = owner_params.get(*source)
                         && let Some(owner_ty) =
                             self.existing_type_id(Type::TypeParam { name: *owner_param })
@@ -416,8 +422,9 @@ impl FunctionEmitter<'_> {
         substitution: &std::collections::HashMap<Symbol, TypeId>,
         scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
-        let in_owner_scope =
-            |ty: TypeId| crate::generic_bindings::substitute_existing_type(self.mir, ty, substitution);
+        let in_owner_scope = |ty: TypeId| {
+            crate::generic_bindings::substitute_existing_type(self.mir, ty, substitution)
+        };
         let Some(target) = self.function_by_id(implementation) else {
             return Ok(None);
         };
@@ -453,7 +460,10 @@ impl FunctionEmitter<'_> {
                 || matches!(self.mir.types.get(own_ty), Some(Type::Function(_)))
             {
                 args.push(name);
-            } else if own_params_mentioned.iter().any(|param| scope.spells(*param)) {
+            } else if own_params_mentioned
+                .iter()
+                .any(|param| scope.spells(*param))
+            {
                 // A value typed at the owner's own parameters (`x: T` where
                 // the override takes `string`) is that type only at run time:
                 // it crosses as an erased value and is recovered at the
@@ -461,7 +471,10 @@ impl FunctionEmitter<'_> {
                 let erased = RustExpr::atom(format!(
                     "IntoSmeltUnknown::into_smelt_unknown({name}.clone())"
                 ));
-                args.push(self.extract_rendered(&erased, target_ty, scope)?.into_string());
+                args.push(
+                    self.extract_rendered(&erased, target_ty, scope)?
+                        .into_string(),
+                );
             } else {
                 args.push(
                     self.rendered_at_type(&RustExpr::path(name), own_ty, target_ty, scope)?

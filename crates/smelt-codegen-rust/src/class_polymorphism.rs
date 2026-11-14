@@ -160,7 +160,10 @@ fn hierarchy_root(mir: &Mir, class: Symbol) -> Symbol {
 
 /// The substitution from `base`'s type parameters to the arguments `derived`
 /// passes it, both in `derived`'s scope.
-pub(crate) fn base_arg_substitution(derived: &MirClass, base: &MirClass) -> HashMap<Symbol, smelt_hir::TypeId> {
+pub(crate) fn base_arg_substitution(
+    derived: &MirClass,
+    base: &MirClass,
+) -> HashMap<Symbol, smelt_hir::TypeId> {
     base.type_params
         .iter()
         .zip(&derived.base_args)
@@ -202,7 +205,12 @@ fn fixes_slot_parameter(mir: &Mir, derived: &MirClass, base: &MirClass) -> bool 
         .type_params
         .iter()
         .zip(&derived.base_args)
-        .filter(|(_, arg)| !matches!(mir.types.get(**arg), Some(smelt_hir::Type::TypeParam { .. })))
+        .filter(|(_, arg)| {
+            !matches!(
+                mir.types.get(**arg),
+                Some(smelt_hir::Type::TypeParam { .. })
+            )
+        })
         .map(|(param, _)| param.name)
         .collect();
     if fixed.is_empty() {
@@ -245,7 +253,8 @@ pub(crate) fn level_fields(
     class: &MirClass,
 ) -> Vec<MirField> {
     let effective = effective_class_fields(mir, class);
-    let Some(base) = nested_base(mir, polymorphic, class.name).and_then(|base| find_class(mir, base))
+    let Some(base) =
+        nested_base(mir, polymorphic, class.name).and_then(|base| find_class(mir, base))
     else {
         return effective;
     };
@@ -280,7 +289,11 @@ pub(crate) fn polymorphic_ancestors(
 
 /// `class` and every instance class below it, in declaration order: the
 /// concrete cell types a handle of `class` can hold.
-pub(crate) fn concrete_classes(mir: &Mir, polymorphic: &HashSet<Symbol>, class: Symbol) -> Vec<Symbol> {
+pub(crate) fn concrete_classes(
+    mir: &Mir,
+    polymorphic: &HashSet<Symbol>,
+    class: Symbol,
+) -> Vec<Symbol> {
     mir.classes
         .iter()
         .filter(|candidate| is_instance_class(candidate))
@@ -291,7 +304,6 @@ pub(crate) fn concrete_classes(mir: &Mir, polymorphic: &HashSet<Symbol>, class: 
         .map(|candidate| candidate.name)
         .collect()
 }
-
 
 /// How one class's reference storage is laid out under polymorphism.
 pub(crate) struct ClassLayout {
@@ -346,14 +358,18 @@ fn ancestor_args_text(
                 "a polymorphic ancestor's type parameter has no argument in a subclass",
             ));
         };
-        args.push(crate::emitter::FunctionEmitter::type_text_for_with_scoped_type_params(
-            mir,
-            context,
-            *ty,
-            &crate::type_substitution::TypeSubstitution::lexical(scoped),
-        )?);
+        args.push(
+            crate::emitter::FunctionEmitter::type_text_for_with_scoped_type_params(
+                mir,
+                context,
+                *ty,
+                &crate::type_substitution::TypeSubstitution::lexical(scoped),
+            )?,
+        );
     }
-    let args = context.type_param_elision().retain_carried(ancestor.name, args);
+    let args = context
+        .type_param_elision()
+        .retain_carried(ancestor.name, args);
     Ok(if args.is_empty() {
         String::new()
     } else {
@@ -454,12 +470,14 @@ pub(crate) fn cell_trait_declaration(
         format!(
             "fn try_borrow(&self) -> Result<::std::cell::Ref<'_, {inner}>, ::std::cell::BorrowError>;"
         ),
-        "fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>;"
-            .to_owned(),
+        "fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>;".to_owned(),
         "fn smelt_class_name(&self) -> &'static str;".to_owned(),
     ];
     if needs_unknown {
-        methods.push("fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown;".to_owned());
+        methods.push(
+            "fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown;"
+                .to_owned(),
+        );
     }
     let scoped: HashSet<Symbol> = class.type_params.iter().map(|param| param.name).collect();
     for upper in polymorphic_ancestors(mir, context.polymorphic_classes(), class.name) {
@@ -721,7 +739,11 @@ pub(crate) fn inner_literal(
     };
     let polymorphic = context.polymorphic_classes();
     if nested_base(mir, polymorphic, class).is_none() {
-        return Ok(format!("{}Inner {{ {} }}", type_name(class)?, parts.join(", ")));
+        return Ok(format!(
+            "{}Inner {{ {} }}",
+            type_name(class)?,
+            parts.join(", ")
+        ));
     }
     // Levels from the class itself up to the topmost nested base.
     let mut levels = vec![class];

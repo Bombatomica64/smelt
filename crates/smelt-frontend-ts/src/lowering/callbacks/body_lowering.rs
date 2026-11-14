@@ -833,8 +833,9 @@ impl ModuleBuilder<'_> {
             let Some(alias) = self.scope.alias(name.as_str()) else {
                 continue;
             };
-            let body_base = if let Some((_, inner)) =
-                captured_frames.iter().find(|(outer, _)| *outer == alias.base)
+            let body_base = if let Some((_, inner)) = captured_frames
+                .iter()
+                .find(|(outer, _)| *outer == alias.base)
             {
                 *inner
             } else {

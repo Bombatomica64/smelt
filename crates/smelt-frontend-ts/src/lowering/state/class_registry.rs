@@ -357,7 +357,11 @@ impl ClassRegistry {
     }
 
     /// Record which instance methods of the class named `name` are generic.
-    pub(in crate::lowering) fn set_generic_methods(&mut self, name: String, methods: HashSet<Symbol>) {
+    pub(in crate::lowering) fn set_generic_methods(
+        &mut self,
+        name: String,
+        methods: HashSet<Symbol>,
+    ) {
         self.generic_methods.insert(name, methods);
     }
 
