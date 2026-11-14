@@ -694,7 +694,7 @@ impl FunctionEmitter<'_> {
             // stands alone.
             let call_text = if split_args.is_some() {
                 RustExpr::atom(format!(
-                    "{{ let smelt_spread_args = {args_text}; {inner_call} }}",
+                    "{{ let smelt_spread_args: Vec<SmeltUnknown> = ::std::iter::IntoIterator::into_iter({args_text}).collect(); {inner_call} }}",
                     args_text = args_text.delimited(),
                     inner_call = inner_call.delimited()
                 ))
@@ -802,9 +802,10 @@ impl FunctionEmitter<'_> {
     /// parameters before its rest (`(data: T, ...rest: U[]) => …`, i.e. `rest`
     /// starts after index 0), the packed list must be redistributed: the first
     /// `rest` elements fill the positional parameters and the remainder becomes
-    /// the rest `SmeltList`. Returns `None` when the callee has no leading
-    /// positional before the rest (index-0 rest is handled by the plain spread
-    /// path) or when the shape does not match `[positionals…, rest_list]`.
+    /// the rest `SmeltList`. A callee with NO rest reads every parameter by
+    /// index. Returns `None` when the rest starts at index 0 (handled by the
+    /// plain spread path) or when the shape does not match
+    /// `[positionals…, rest_list]`.
     ///
     /// The returned string is the comma-separated argument list that reads from
     /// an in-scope `smelt_spread_args` binding; the caller wraps the whole call
@@ -813,8 +814,31 @@ impl FunctionEmitter<'_> {
         &self,
         function: &FunctionType,
     ) -> Result<Option<RustExpr>, EmitError> {
+        // A FIXED-arity callee (no rest parameter, possibly no parameters at
+        // all) takes its parameters from the list by index and nothing else:
+        // `f.apply(this, [])` on a `() => void` is a zero-argument call, and
+        // `g.apply(this, xs)` on `(a, b) => ..` reads `xs[0]`, `xs[1]`.
+        // Handing it the packed list as ONE argument does not type-check.
         let Some(rest_index) = function.rest else {
-            return Ok(None);
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            let mut rendered = Vec::with_capacity(function.params.len());
+            for (index, param) in function.params.iter().enumerate() {
+                let element = RustExpr::chain(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                    ),
+                ));
+                let coerced =
+                    self.rendered_at_type(&element, unknown_ty, *param, &self.render_scope())?;
+                rendered.push(self.callback_call_arg_expr(
+                    function,
+                    index,
+                    *param,
+                    coerced.into_string(),
+                ));
+            }
+            return Ok(Some(RustExpr::from(rendered.join(", "))));
         };
         if rest_index == 0 {
             return Ok(None);

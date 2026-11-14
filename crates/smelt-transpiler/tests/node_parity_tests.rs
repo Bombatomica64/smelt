@@ -1495,3 +1495,12 @@ fn optional_erased_calls() -> TestResult {
 fn callee_value_calls() -> TestResult {
     verify_node_parity("callee_value_calls")
 }
+
+/// `fn.apply(thisArg, list)` on a typed callee: a fixed-arity callee reads its
+/// parameters from the list by index (`apply(x, [])` on `() => T` is a
+/// zero-argument call), a leading-positional callee splits the list into its
+/// positionals and its rest, and the leading operand is the receiver.
+#[test]
+fn apply_argument_lists() -> TestResult {
+    verify_node_parity("apply_argument_lists")
+}
