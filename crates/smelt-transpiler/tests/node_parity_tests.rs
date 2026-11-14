@@ -1018,3 +1018,4 @@ fn class_inheritance_behaviour() -> TestResult {
 #[test]
 fn absent_iterable_constructors() -> TestResult {
     verify_node_parity("absent_iterable_constructors")
+}
