@@ -210,37 +210,38 @@ impl FunctionEmitter<'_> {
         })
     }
 
-    /// The dispatch prologue of a GENERIC method of a polymorphic class
+    /// The dispatch prologue of a method of a polymorphic class
     /// (`crate::class_polymorphism`) that a subclass overrides.
     ///
-    /// A `dyn` trait method cannot be generic over the method's own type
-    /// parameters, so a generic override is not a cell-trait method or a
-    /// callable slot (which erased it to `SmeltUnknown`): the base method
-    /// instead checks the cell's concrete class and forwards to the
-    /// override, monomorphized at the caller's own instantiation
-    /// (`return Sub(cell).map(f)` inside `fn map<U>(&self, f) -> SmeltList<U>`).
-    /// The body that follows is the class's own implementation.
+    /// The method checks the shared cell's concrete class and forwards to
+    /// the override (`return Sub(cell).area()`), so a call through the base
+    /// type reaches it however the call was lowered: through a base declared
+    /// in another module (which gets no callable slot), as a plain method call
+    /// on `this`, or to a GENERIC method, which a `dyn Fn` slot would erase to
+    /// `SmeltUnknown` and a `dyn` trait method cannot carry: the forward is
+    /// monomorphized at the caller's own instantiation (`return
+    /// Sub(cell).map(f)` inside `fn map<U>(&self, f) -> SmeltList<U>`). The body
+    /// that follows is the class's own implementation.
     ///
     /// An override is forwarded to when its class's type arguments follow
     /// from the owner's (`descendant_binding`); one that fixes them to a
     /// concrete type is forwarded to only when the method's signature does not
     /// mention the owner's type parameters, since the forwarded arguments are
     /// typed at the owner's parameters. Empty when nothing is forwarded.
-    pub(super) fn generic_override_dispatch_prologue(&self) -> Result<String, EmitError> {
+    pub(super) fn override_dispatch_prologue(&self) -> Result<String, EmitError> {
         let HirOrigin::ClassMethod { method, .. } = self.function.origin else {
             return Ok(String::new());
         };
         let Some(owner) = self.method_impl_owner() else {
             return Ok(String::new());
         };
-        if self.function.type_params.is_empty()
-            || self.function.is_async
+        if self.function.is_async
             || self.function.is_generator
             || !self.context.is_polymorphic_class(owner)
-            || self.method_own_generics_declared().is_empty()
         {
             return Ok(String::new());
         }
+        let own_generic = !self.method_own_generics_declared().is_empty();
         let Some(owner_class) = crate::classes::find_class(self.mir, owner) else {
             return Ok(String::new());
         };
@@ -279,14 +280,8 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let args = self
-            .function
-            .params
-            .iter()
-            .skip(1)
-            .map(|param| self.local_name(*param))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
+        let own_throws = self.call_is_throwing(self.function);
+        let scope = self.render_scope();
         let method_name = self.method_rust_name(method)?;
         let polymorphic = self.context.polymorphic_classes();
         let mut arms = String::new();
@@ -298,7 +293,10 @@ impl FunctionEmitter<'_> {
                 continue;
             };
             if Some(implementation) == own_implementation
-                || !self.context.is_generic_function(implementation)
+                || self.context.is_generic_function(implementation) != own_generic
+                || self
+                    .function_by_id(implementation)
+                    .is_none_or(|function| function.is_async || function.is_generator)
             {
                 continue;
             }
@@ -331,8 +329,13 @@ impl FunctionEmitter<'_> {
             } else {
                 format!("::{generics}")
             };
+            let Some(forward) =
+                self.override_forward_expr(implementation, &format!("{concrete_type}{turbofish}(smelt_cell).{method_name}"), own_throws, &scope)?
+            else {
+                continue;
+            };
             arms.push_str(&format!(
-                "        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<{concrete_type}Inner{generics}>>() {{ Ok(smelt_cell) => return {concrete_type}{turbofish}(smelt_cell).{method_name}({args}), Err(smelt_other) => smelt_other }};\n"
+                "        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<{concrete_type}Inner{generics}>>() {{ Ok(smelt_cell) => return {forward}, Err(smelt_other) => smelt_other }};\n"
             ));
         }
         if arms.is_empty() {
@@ -341,5 +344,81 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "    {{\n        let smelt_any = self.0.clone().smelt_any();\n{arms}        let _ = smelt_any;\n    }}\n"
         ))
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// The call forwarding this method's own arguments to the override
+    /// `implementation` (`callee` is its receiver-bound path), with its answer
+    /// converted to this method's return type; `None` when the two ABIs
+    /// cannot meet (one takes a parameter by mutable reference the other takes
+    /// by value, or only the override can throw).
+    ///
+    /// JavaScript passes arguments by position: an argument the override does
+    /// not declare is dropped, a parameter it adds takes its default.
+    fn override_forward_expr(
+        &self,
+        implementation: FuncId,
+        callee: &str,
+        own_throws: bool,
+        scope: &RenderScope,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(target) = self.function_by_id(implementation) else {
+            return Ok(None);
+        };
+        let target_throws = self.call_is_throwing(target);
+        if target_throws && !own_throws {
+            return Ok(None);
+        }
+        let own_params = self.function.params.get(1..).unwrap_or_default();
+        let mut args = Vec::new();
+        for (index, param) in target.params.iter().skip(1).enumerate() {
+            let target_ty = self.function_local_decl(target, *param)?.ty;
+            let target_mut = self.parameter_needs_mutable_reference_in(target, *param);
+            let Some(own) = own_params.get(index) else {
+                if target_mut {
+                    return Ok(None);
+                }
+                args.push(self.missing_argument_value(target_ty)?.into_string());
+                continue;
+            };
+            let own_ty = self.function_local_decl(self.function, *own)?.ty;
+            if self.parameter_needs_mutable_reference_in(self.function, *own) != target_mut {
+                return Ok(None);
+            }
+            let name = self.local_name(*own)?.into_owned();
+            if own_ty == target_ty
+                || target_mut
+                || matches!(self.mir.types.get(own_ty), Some(Type::Function(_)))
+            {
+                args.push(name);
+            } else {
+                args.push(
+                    self.rendered_at_type(&RustExpr::path(name), own_ty, target_ty, scope)?
+                        .into_string(),
+                );
+            }
+        }
+        let call = format!(
+            "{callee}({}){}",
+            args.join(", "),
+            if target_throws { "?" } else { "" }
+        );
+        let value = if target.return_ty == self.function.return_ty {
+            call
+        } else {
+            self.rendered_at_type(
+                &RustExpr::atom(call),
+                target.return_ty,
+                self.function.return_ty,
+                scope,
+            )?
+            .into_string()
+        };
+        Ok(Some(if own_throws {
+            format!("Ok({value})")
+        } else {
+            value
+        }))
     }
 }

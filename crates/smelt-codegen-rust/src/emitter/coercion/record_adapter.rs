@@ -91,7 +91,17 @@ impl FunctionEmitter<'_> {
         let source_fields = self.structural_record_fields(source)?;
         let target_fields = self.structural_record_fields(target)?;
         if target_fields.is_empty() {
-            return None;
+            // A field-less base class is still a distinct struct, and an
+            // instance of a class extending it converts to it (`function
+            // f(): Model { return new User(); }` with neither declaring a
+            // field): nothing to pair, but the value must be rebuilt as the
+            // base or the result is `expected Model, found User`.
+            let subclass_of_target = matches!(
+                (self.mir.types.get(source), self.mir.types.get(target)),
+                (Some(Type::Class { name: from, .. }), Some(Type::Class { name: to, .. }))
+                    if crate::classes::class_chain_contains(self.mir, *from, *to)
+            );
+            return subclass_of_target.then(Vec::new);
         }
         let field_key =
             |field: &MirField| Some(self.context.names().field_text(self.mir, field.name));

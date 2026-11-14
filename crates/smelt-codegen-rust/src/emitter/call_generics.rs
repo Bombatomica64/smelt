@@ -759,7 +759,7 @@ pub(super) struct CallMonomorphization {
     /// carries the type *after* the surrounding conversion (`last<T>(xs): T |
     /// undefined` called on a `number[][]` produces `Option<SmeltList<f64>>`
     /// into a `SmeltList<f64>` destination).
-    return_ty: TypeId,
+    pub(super) return_ty: TypeId,
 }
 
 /// Whether both types are functions and the actual callback returns exactly

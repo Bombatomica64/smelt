@@ -362,8 +362,15 @@ impl FunctionEmitter<'_> {
                     self.type_rust_name(receiver)?,
                     args.join(", ")
                 ));
-                let converted =
-                    self.rendered_at_type(&built, constructor.return_ty, signature.ret_ty, &scope)?;
+                // The receiver's own instance type: a class without its own
+                // constructor shares its base's, whose return type is the base.
+                let built_ty = self
+                    .existing_type_id(Type::Class {
+                        name: receiver,
+                        args: Vec::new(),
+                    })
+                    .unwrap_or(constructor.return_ty);
+                let converted = self.rendered_at_type(&built, built_ty, signature.ret_ty, &scope)?;
                 format!("Ok({})", converted.delimited())
             }
             StaticMember::Call(method) => {
@@ -419,7 +426,12 @@ impl FunctionEmitter<'_> {
                 return Err(EmitError::new("a static method is not a static method"));
             };
             let call = self.class_static_method_call(target, owner, args, Some(receiver))?;
-            return Ok((call, target.return_ty));
+            // A static method with its own generics answers its type at this
+            // call's instantiation, as a direct call does.
+            let source_ty = self
+                .static_call_monomorphization(target, args)?
+                .map_or(target.return_ty, |pinned| pinned.return_ty);
+            return Ok((call, source_ty));
         }
         let signature = self.member_signature(class, member)?;
         let mut rendered = Vec::new();
@@ -448,6 +460,17 @@ impl FunctionEmitter<'_> {
             signature.name,
             rendered.join(", ")
         ));
-        Ok((RenderedCall::propagating(call), signature.ret_ty))
+        let source_ty = match member {
+            StaticMember::Call(method) => {
+                match self.implementing_static_method(class, method) {
+                    Some(target) => self
+                        .static_call_monomorphization(target, args)?
+                        .map_or(signature.ret_ty, |pinned| pinned.return_ty),
+                    None => signature.ret_ty,
+                }
+            }
+            _ => signature.ret_ty,
+        };
+        Ok((RenderedCall::propagating(call), source_ty))
     }
 }

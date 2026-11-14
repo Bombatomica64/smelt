@@ -588,9 +588,9 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!(
                     "    fn {name}{generics}({rendered_params}) -> {return_text} {{\n"
                 ));
-                // A generic method a subclass overrides forwards to the
-                // override first (`crate::class_polymorphism`).
-                out.push_str(&self.generic_override_dispatch_prologue()?);
+                // A method a subclass overrides forwards to the override
+                // first (`crate::class_polymorphism`).
+                out.push_str(&self.override_dispatch_prologue()?);
             }
             HirOrigin::ClassStaticMethod { .. } => {
                 // A static method takes no receiver: emit every parameter and no

@@ -32,8 +32,8 @@
 //! - a collection method mutates one of its instance fields in place (see
 //!   [`collect_field_mutation_triggers`]), or
 //! - it stores a virtual method SLOT (see [`collect_virtual_slot_triggers`]), or
-//! - it overrides a GENERIC method of an ancestor (see
-//!   [`collect_generic_override_triggers`]), or
+//! - it overrides a method of an ancestor (see
+//!   [`collect_override_triggers`]), or
 //! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
 //! - it contains itself by value, directly or through other shapes (see
 //!   [`collect_by_value_cycle_triggers`]), or
@@ -86,7 +86,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     collect_bound_receiver_triggers(mir, &mut references);
     collect_identity_comparison_triggers(mir, &mut references);
     collect_virtual_slot_triggers(mir, &mut references);
-    collect_generic_override_triggers(mir, &mut references);
+    collect_override_triggers(mir, &mut references);
     collect_thrown_class_triggers(mir, &mut references);
     // After every other trigger, so a shape those already lifted counts as the
     // indirection it is; before the heritage closure, so a lifted class's
@@ -127,15 +127,18 @@ fn collect_virtual_slot_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
     }
 }
 
-/// A class overriding a generic method (`map<U>(..)`) an ancestor declares.
+/// A class overriding a method an ancestor declares.
 ///
-/// A generic method cannot live in a `dyn Fn` slot, so its override is
-/// reached through the polymorphic class handle instead
-/// (`crate::class_polymorphism`: the base method checks the shared cell's
-/// concrete class and forwards to the override). Only a reference hierarchy
-/// has that handle; a by-value base struct built from a subclass would run the
-/// base body. The heritage closure lifts the whole chain.
-fn collect_generic_override_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+/// A base-typed value may hold an instance of the overriding class, and a call
+/// through it must reach the override. Only a reference hierarchy keeps one
+/// object behind both static types (`crate::class_polymorphism`): a by-value
+/// base struct built from a subclass instance would run the base body. The
+/// override is reached through the polymorphic handle (the base method checks
+/// the shared cell's concrete class and forwards), which also serves a
+/// generic method, which no `dyn Fn` slot can carry, and an override of a
+/// base declared in another module, which gets no slot. The heritage closure
+/// lifts the whole chain.
+fn collect_override_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
     for class in &mir.classes {
         let Some(base) = class.base else { continue };
         for method_id in &class.methods {
@@ -148,9 +151,6 @@ fn collect_generic_override_triggers(mir: &Mir, references: &mut HashSet<Symbol>
             let HirOrigin::ClassMethod { method, .. } = function.origin else {
                 continue;
             };
-            if function.type_params.is_empty() {
-                continue;
-            }
             if class_chain_declares_method(mir, base, method) {
                 references.insert(class.name);
             }
