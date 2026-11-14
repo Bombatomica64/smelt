@@ -1,13 +1,13 @@
 //! Runtime tests as expressions: `instanceof`, `typeof`, nullish comparisons and
 //! type assertions.
 
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::peel::{Wrappers, peel};
-use crate::lowering::resolve::HostGlobal;
 use super::new_expr::HostConstructor;
 use super::{ModuleBuilder, ambient_globals, unknown_kind_from_typeof};
 use crate::SmeltError;
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
+use crate::lowering::peel::{Wrappers, peel};
+use crate::lowering::resolve::HostGlobal;
 use oxc::ast::ast::{Expression, TSType, TSTypeName};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, UnaryOperator};
@@ -27,7 +27,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(binary.span.start, binary.span.end);
         if let Some(selected) =
-            self.conditional_class_select(Some(&binary.right), span, body, |this, body| this.instanceof_expression(binary, body))?
+            self.conditional_class_select(Some(&binary.right), span, body, |this, body| {
+                this.instanceof_expression(binary, body)
+            })?
         {
             return Ok(selected);
         }
@@ -65,7 +67,17 @@ impl ModuleBuilder<'_> {
             }));
         }
         // A constructor read from a value (`pair.errorClass`) is only known at
-        // run time, so the prototype-chain walk runs there too.
+        // run time, so the prototype-chain walk runs there too. So is a class
+        // with per-evaluation statics: which evaluation's class an instance
+        // belongs to is a run-time fact, answered by frame identity.
+        if let Some((target, _)) = self.statics_frame_value(target, body)? {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::InstanceOfValue { value, target },
+                ty,
+                span: self.span(span.start, span.end),
+            }));
+        }
         let Expression::Identifier(class_ident) = target else {
             let target = self.expression(target, body)?;
             let ty = self.ctx.krate.types.intern(Type::Bool);
@@ -204,11 +216,16 @@ impl ModuleBuilder<'_> {
             // resolves to a local binding or function item can only be a
             // function value, never a nominal class; the nominal path below
             // keeps its compile-time marker probe.
+            // A module-scope value binding (`const A = make()`) holds whatever
+            // constructor it was given at run time, a class value included.
             let target_is_function_value = self.scope.is_bound(class_text)
-                || self
-                    .items
-                    .get(class_text)
-                    .is_some_and(|&item| matches!(self.item_ref(item), smelt_hir::Item::Function(_)));
+                || self.items.get(class_text).is_some_and(|&item| {
+                    matches!(self.item_ref(item), smelt_hir::Item::Function(_))
+                })
+                || matches!(
+                    self.resolve_value(class_text),
+                    super::resolve::ValueBinding::Module
+                );
             // The one shape that cannot be lowered: `this instanceof wrapper`
             // read from INSIDE `wrapper`'s own body (the JS new-detection idiom
             // in lodash-compat `curry`/`curryRight`). The constructor value is
@@ -294,7 +311,9 @@ impl ModuleBuilder<'_> {
     /// (a parameter named `Blob` is the parameter).
     pub(super) fn is_known_defined_global_constructor(host: HostGlobal<'_>) -> bool {
         let name = host.name();
-        HostConstructor::of(name).and_then(|kind| kind.overridable(name)).is_some()
+        HostConstructor::of(name)
+            .and_then(|kind| kind.overridable(name))
+            .is_some()
     }
 
     /// Answer a `typeof x === '…'` / `!==` comparison from its equality-form
@@ -494,7 +513,12 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span: self.span(binary.span.start, binary.span.end),
                 });
-                return Ok(Some(self.typeof_comparison_result(binary.operator, check, binary.span, body)));
+                return Ok(Some(self.typeof_comparison_result(
+                    binary.operator,
+                    check,
+                    binary.span,
+                    body,
+                )));
             }
             // A statically *erased* operand has no known `typeof` answer, so the
             // presence question has to survive to runtime. `type_matches_typeof`
@@ -515,7 +539,12 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span: self.span(binary.span.start, binary.span.end),
                 });
-                return Ok(Some(self.typeof_comparison_result(binary.operator, check, binary.span, body)));
+                return Ok(Some(self.typeof_comparison_result(
+                    binary.operator,
+                    check,
+                    binary.span,
+                    body,
+                )));
             }
             let matches_kind = self.type_matches_typeof(value_ty, "undefined");
             let result = if matches!(
@@ -587,7 +616,12 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span: self.span(binary.span.start, binary.span.end),
         });
-        Ok(Some(self.typeof_comparison_result(binary.operator, check, binary.span, body)))
+        Ok(Some(self.typeof_comparison_result(
+            binary.operator,
+            check,
+            binary.span,
+            body,
+        )))
     }
 
     /// Fold a `typeof <global-alias> ===/!== "<kind>"` feature probe to a literal.
@@ -719,10 +753,9 @@ impl ModuleBuilder<'_> {
     /// falls through to ordinary lowering.
     pub(super) fn typeof_operand_is_absent_global(&self, operand: &Expression<'_>) -> bool {
         match operand {
-            Expression::Identifier(identifier) => {
-                self.host_global_named(identifier.name.as_str())
-                    .is_some_and(|host| Self::is_absent_ambient_global(host.name()))
-            }
+            Expression::Identifier(identifier) => self
+                .host_global_named(identifier.name.as_str())
+                .is_some_and(|host| Self::is_absent_ambient_global(host.name())),
             Expression::StaticMemberExpression(member) if !member.optional => {
                 self.expr_is_global_alias(&member.object)
                     && Self::is_absent_ambient_global(member.property.name.as_str())
@@ -759,8 +792,7 @@ impl ModuleBuilder<'_> {
     /// the AST is what lets [`Self::logical_expression`] short-circuit before any
     /// of the value-shape helpers lower the right operand.
     pub(super) fn static_guard_value(&self, expression: &Expression<'_>) -> Option<bool> {
-        let Expression::BinaryExpression(binary) = peel(expression, Wrappers::Parens)
-        else {
+        let Expression::BinaryExpression(binary) = peel(expression, Wrappers::Parens) else {
             return None;
         };
         if !matches!(
@@ -838,7 +870,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a static `typeof` comparison result when all runtime variants agree.
-    pub(super) fn static_typeof_match(&self, ty: smelt_hir::TypeId, expected: &str) -> Option<bool> {
+    pub(super) fn static_typeof_match(
+        &self,
+        ty: smelt_hir::TypeId,
+        expected: &str,
+    ) -> Option<bool> {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(resolved_ty).cloned() {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Future(_)) => None,
@@ -868,6 +904,11 @@ impl ModuleBuilder<'_> {
     /// `"undefined"`, present it is its value's. A future is not folded either
     /// (`static_typeof_match` declines it too). Both stay a runtime `typeof`.
     pub(super) fn typeof_type_name(&self, ty: smelt_hir::TypeId) -> Option<&'static str> {
+        // A statics frame is the class value of a per-evaluation class
+        // (`decls::evaluation_statics`), and a class is a function.
+        if self.statics_frame_owner(ty).is_some() {
+            return Some("function");
+        }
         match self.ctx.krate.types.get(ty) {
             Some(Type::None) => Some("undefined"),
             Some(Type::Optional(_) | Type::Future(_)) | None => None,
@@ -901,8 +942,7 @@ impl ModuleBuilder<'_> {
             BinaryOperator::StrictEquality | BinaryOperator::StrictInequality
         );
         let value = self.expression(value_expr, body)?;
-        let Some(value_expression) = body.expr_at(value)
-        else {
+        let Some(value_expression) = body.expr_at(value) else {
             return Ok(None);
         };
         let value = match &value_expression.kind {
@@ -922,7 +962,10 @@ impl ModuleBuilder<'_> {
         // (`lowering::null_absent`).
         if is_strict
             && is_undefined_comparison
-            && matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Optional(_)))
+            && matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, value)),
+                Some(Type::Optional(_))
+            )
             && self.checker_absent_is_null(value_expr.span().start, value_expr.span().end)
         {
             return Ok(Some(body.push_expr(Expr {
@@ -1047,8 +1090,12 @@ impl ModuleBuilder<'_> {
     /// literal `null` or `undefined`.
     fn asserted_operand_is_nullish(expression: &Expression<'_>) -> bool {
         match expression.without_parentheses() {
-            Expression::TSAsExpression(inner) => Self::asserted_operand_is_nullish(&inner.expression),
-            Expression::TSTypeAssertion(inner) => Self::asserted_operand_is_nullish(&inner.expression),
+            Expression::TSAsExpression(inner) => {
+                Self::asserted_operand_is_nullish(&inner.expression)
+            }
+            Expression::TSTypeAssertion(inner) => {
+                Self::asserted_operand_is_nullish(&inner.expression)
+            }
             Expression::NullLiteral(_) => true,
             Expression::Identifier(identifier) => identifier.name == "undefined",
             _ => false,
@@ -1076,9 +1123,7 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if self.fn_ctx.preserve_receiver
-            && matches!(expression, Expression::ThisExpression(_))
-        {
+        if self.fn_ctx.preserve_receiver && matches!(expression, Expression::ThisExpression(_)) {
             return self.expression(expression, body);
         }
         if Self::is_const_type_assertion(annotation) {
@@ -1114,8 +1159,10 @@ impl ModuleBuilder<'_> {
         // `null as unknown as Options` is still `null` at runtime, and a record
         // struct cannot hold it: the value keeps its absence as `Option`.
         let target = if Self::asserted_operand_is_nullish(expression)
-            && matches!(self.ctx.krate.types.get(asserted), Some(Type::Class { .. } | Type::Dict(..)))
-        {
+            && matches!(
+                self.ctx.krate.types.get(asserted),
+                Some(Type::Class { .. } | Type::Dict(..))
+            ) {
             self.ctx.krate.types.intern(Type::Optional(asserted))
         } else {
             asserted
@@ -1154,12 +1201,13 @@ impl ModuleBuilder<'_> {
         // symbol`, which Smelt lowers to `string`). A target that has no
         // place for a symbol keeps the symbol; every consumer converts it to
         // the slot it fills (a key through `ToPropertyKey`).
-        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Symbol))
-            && matches!(
-                self.ctx.krate.types.get(target),
-                Some(Type::String | Type::Float | Type::Int | Type::Bool | Type::BigInt)
-            )
-        {
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Symbol)
+        ) && matches!(
+            self.ctx.krate.types.get(target),
+            Some(Type::String | Type::Float | Type::Int | Type::Bool | Type::BigInt)
+        ) {
             return Ok(value);
         }
         // A TypeScript tuple assertion applied to a list-typed value

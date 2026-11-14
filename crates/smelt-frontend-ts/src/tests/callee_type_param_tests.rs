@@ -179,8 +179,7 @@ export function tally<T>(first: T): T {
 }
 
 #[test]
-fn a_callers_parameter_flowing_into_a_same_named_callee_parameter_binds_it()
--> Result<(), String> {
+fn a_callers_parameter_flowing_into_a_same_named_callee_parameter_binds_it() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -207,7 +206,8 @@ export function tally<T>(first: T): T[] {
 }
 
 #[test]
-fn defaults_do_not_and_primitive_constraints_do_instantiate_an_unbound_parameter() -> Result<(), String> {
+fn defaults_do_not_and_primitive_constraints_do_instantiate_an_unbound_parameter()
+-> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"

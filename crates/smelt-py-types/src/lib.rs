@@ -349,7 +349,10 @@ impl<'db> FunctionReturnVisitor<'_, 'db> {
             return Some("None".to_owned());
         }
         // Any unrepresentable return makes the whole return type unresolved.
-        let spellings = self.spellings.into_iter().collect::<Option<Vec<String>>>()?;
+        let spellings = self
+            .spellings
+            .into_iter()
+            .collect::<Option<Vec<String>>>()?;
         let mut unique: Vec<String> = Vec::new();
         for spelling in spellings {
             if !unique.contains(&spelling) {
@@ -542,6 +545,9 @@ mod tests {
         assert_eq!(normalize_spelling("Unknown"), None);
         assert_eq!(normalize_spelling("int | Unknown"), None);
         assert_eq!(normalize_spelling("int"), Some("int".to_owned()));
-        assert_eq!(normalize_spelling("str | None"), Some("str | None".to_owned()));
+        assert_eq!(
+            normalize_spelling("str | None"),
+            Some("str | None".to_owned())
+        );
     }
 }

@@ -87,9 +87,19 @@ impl FunctionEmitter<'_> {
         // container is in play.
         let guarded = self.dict_uses_js_key_map(key_ty) || self.dict_uses_smelt_record(key_ty);
         let accessor = if guarded {
-            format!("{base_text}.entry_or_insert({key_text}, || {default_text})", base_text = base_text.tight(), key_text = key_text.delimited(), default_text = default_text.delimited())
+            format!(
+                "{base_text}.entry_or_insert({key_text}, || {default_text})",
+                base_text = base_text.tight(),
+                key_text = key_text.delimited(),
+                default_text = default_text.delimited()
+            )
         } else {
-            format!("{base_text}.entry({key_text}).or_insert_with(|| {default_text})", base_text = base_text.tight(), key_text = key_text.delimited(), default_text = default_text.delimited())
+            format!(
+                "{base_text}.entry({key_text}).or_insert_with(|| {default_text})",
+                base_text = base_text.tight(),
+                key_text = key_text.delimited(),
+                default_text = default_text.delimited()
+            )
         };
         // A `RefMut<V>` needs a mutable binding to be assigned THROUGH (its
         // `DerefMut` takes `&mut self`); a `&mut V` does not, and marking it

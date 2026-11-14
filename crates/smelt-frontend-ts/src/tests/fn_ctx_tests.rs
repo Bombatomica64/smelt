@@ -30,21 +30,24 @@ fn index(id: u32) -> usize {
 /// Whether some body assigns `name` (an update's store) in any of its blocks.
 fn some_body_assigns_local_named(ctx: &HirCtx, name: &str) -> bool {
     ctx.krate.bodies.iter().any(|body| {
-        body.blocks.iter().flat_map(|block| &block.stmts).any(|stmt| {
-            let Some(Stmt::Assign { target, .. }) = body.stmts.get(index(stmt.0)) else {
-                return false;
-            };
-            let Some(ExprKind::Local(local)) =
-                body.exprs.get(index(target.0)).map(|expr| &expr.kind)
-            else {
-                return false;
-            };
-            body.locals
-                .get(index(local.0))
-                .and_then(|decl| decl.name)
-                .and_then(|symbol| ctx.krate.symbols.get(symbol))
-                == Some(name)
-        })
+        body.blocks
+            .iter()
+            .flat_map(|block| &block.stmts)
+            .any(|stmt| {
+                let Some(Stmt::Assign { target, .. }) = body.stmts.get(index(stmt.0)) else {
+                    return false;
+                };
+                let Some(ExprKind::Local(local)) =
+                    body.exprs.get(index(target.0)).map(|expr| &expr.kind)
+                else {
+                    return false;
+                };
+                body.locals
+                    .get(index(local.0))
+                    .and_then(|decl| decl.name)
+                    .and_then(|symbol| ctx.krate.symbols.get(symbol))
+                    == Some(name)
+            })
     })
 }
 
@@ -187,28 +190,32 @@ console.log(outer(1));
 /// body that owns the local.
 fn every_declaring_body_assigns(ctx: &HirCtx, name: &str) -> bool {
     let declaring = ctx.krate.bodies.iter().filter(|body| {
-        body.locals.iter().any(|decl| {
-            decl.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name)
-        })
+        body.locals
+            .iter()
+            .any(|decl| decl.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
     });
     let mut any = false;
     for body in declaring {
         any = true;
-        let assigns = body.blocks.iter().flat_map(|block| &block.stmts).any(|stmt| {
-            let Some(Stmt::Assign { target, .. }) = body.stmts.get(index(stmt.0)) else {
-                return false;
-            };
-            let Some(ExprKind::Local(local)) =
-                body.exprs.get(index(target.0)).map(|expr| &expr.kind)
-            else {
-                return false;
-            };
-            body.locals
-                .get(index(local.0))
-                .and_then(|decl| decl.name)
-                .and_then(|symbol| ctx.krate.symbols.get(symbol))
-                == Some(name)
-        });
+        let assigns = body
+            .blocks
+            .iter()
+            .flat_map(|block| &block.stmts)
+            .any(|stmt| {
+                let Some(Stmt::Assign { target, .. }) = body.stmts.get(index(stmt.0)) else {
+                    return false;
+                };
+                let Some(ExprKind::Local(local)) =
+                    body.exprs.get(index(target.0)).map(|expr| &expr.kind)
+                else {
+                    return false;
+                };
+                body.locals
+                    .get(index(local.0))
+                    .and_then(|decl| decl.name)
+                    .and_then(|symbol| ctx.krate.symbols.get(symbol))
+                    == Some(name)
+            });
         if !assigns {
             return false;
         }
@@ -233,8 +240,14 @@ function outer(): string {
 }
 console.log(outer());
 "))?;
-    ensure!(every_declaring_body_assigns(&ctx, "a"), "`a++` left the arrow body");
-    ensure!(every_declaring_body_assigns(&ctx, "b"), "`b++` left the function body");
+    ensure!(
+        every_declaring_body_assigns(&ctx, "a"),
+        "`a++` left the arrow body"
+    );
+    ensure!(
+        every_declaring_body_assigns(&ctx, "b"),
+        "`b++` left the function body"
+    );
     ensure!(every_declaring_body_assigns(&ctx, "i"));
     Ok(())
 }

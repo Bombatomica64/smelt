@@ -5,9 +5,9 @@
 //! `smelt-runtime`'s `crypto.rs` emits. Nothing here holds state, because `crypto`
 //! has none — see that module's `Why no SmeltCrypto type`.
 
-use crate::rust::RustExpr;
-use super::*;
 use super::union::union_name;
+use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emit one `WebCrypto` call.
@@ -28,7 +28,12 @@ impl FunctionEmitter<'_> {
             // form, so the formatting is not respelled here.
             smelt_hir::CryptoOp::RandomUuid => {
                 let string_ty = self.type_id(Type::String)?;
-                self.rendered_at_type(&RustExpr::atom("uuid::Uuid::new_v4().to_string()"), string_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(
+                    &RustExpr::atom("uuid::Uuid::new_v4().to_string()"),
+                    string_ty,
+                    dest_ty,
+                    &self.render_scope(),
+                )
             }
             // The argument is passed BY REFERENCE: the helper fills the view
             // through its shared byte storage and hands back a value sharing
@@ -74,7 +79,9 @@ impl FunctionEmitter<'_> {
                 let algorithm_text = self.value_at_type(algorithm, string_ty)?;
                 let data_text = self.crypto_bytes_expr(data)?;
                 Ok(RustExpr::atom(format!(
-                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}", algorithm_text = algorithm_text.delimited(), data_text = data_text.delimited()
+                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_digest(&smelt_algorithm, &smelt_data) }})) }}",
+                    algorithm_text = algorithm_text.delimited(),
+                    data_text = data_text.delimited()
                 )))
             }
             // `importKey`: the format, key bytes, algorithm name and hash are
@@ -82,7 +89,9 @@ impl FunctionEmitter<'_> {
             // handed back as an already-resolved future, as `digest` is.
             smelt_hir::CryptoOp::ImportKey => {
                 let [format, key_data, name, hash, extractable, usages] = args else {
-                    return Err(EmitError::new("crypto.subtle.importKey requires six normalized arguments"));
+                    return Err(EmitError::new(
+                        "crypto.subtle.importKey requires six normalized arguments",
+                    ));
                 };
                 let string_ty = self.type_id(Type::String)?;
                 let bool_ty = self.type_id(Type::Bool)?;
@@ -93,24 +102,37 @@ impl FunctionEmitter<'_> {
                 let key_text = self.crypto_bytes_expr(key_data)?;
                 let usages_text = self.crypto_usages_expr(usages)?;
                 Ok(RustExpr::atom(format!(
-                    "{{ let smelt_format = ({format_text}).clone(); let smelt_key = {key_text}; let smelt_name = ({name_text}).clone(); let smelt_hash = ({hash_text}).clone(); let smelt_extractable = {extractable_text}; let smelt_usages = {usages_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_import_key(&smelt_format, smelt_key, &smelt_name, &smelt_hash, smelt_extractable, smelt_usages) }})) }}", format_text = format_text.delimited(), key_text = key_text.delimited(), name_text = name_text.delimited(), hash_text = hash_text.delimited(), extractable_text = extractable_text.delimited(), usages_text = usages_text.delimited()
+                    "{{ let smelt_format = ({format_text}).clone(); let smelt_key = {key_text}; let smelt_name = ({name_text}).clone(); let smelt_hash = ({hash_text}).clone(); let smelt_extractable = {extractable_text}; let smelt_usages = {usages_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_import_key(&smelt_format, smelt_key, &smelt_name, &smelt_hash, smelt_extractable, smelt_usages) }})) }}",
+                    format_text = format_text.delimited(),
+                    key_text = key_text.delimited(),
+                    name_text = name_text.delimited(),
+                    hash_text = hash_text.delimited(),
+                    extractable_text = extractable_text.delimited(),
+                    usages_text = usages_text.delimited()
                 )))
             }
             smelt_hir::CryptoOp::Sign => {
                 let [algorithm, key, data] = args else {
-                    return Err(EmitError::new("crypto.subtle.sign requires an algorithm, a key and data"));
+                    return Err(EmitError::new(
+                        "crypto.subtle.sign requires an algorithm, a key and data",
+                    ));
                 };
                 let string_ty = self.type_id(Type::String)?;
                 let algorithm_text = self.value_at_type(algorithm, string_ty)?;
                 let key_text = self.crypto_key_expr(key)?;
                 let data_text = self.crypto_bytes_expr(data)?;
                 Ok(RustExpr::atom(format!(
-                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_key = {key_text}; let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) }})) }}", algorithm_text = algorithm_text.delimited(), key_text = key_text.delimited(), data_text = data_text.delimited()
+                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_key = {key_text}; let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_sign(&smelt_algorithm, &smelt_key, &smelt_data) }})) }}",
+                    algorithm_text = algorithm_text.delimited(),
+                    key_text = key_text.delimited(),
+                    data_text = data_text.delimited()
                 )))
             }
             smelt_hir::CryptoOp::Verify => {
                 let [algorithm, key, signature, data] = args else {
-                    return Err(EmitError::new("crypto.subtle.verify requires an algorithm, a key, a signature and data"));
+                    return Err(EmitError::new(
+                        "crypto.subtle.verify requires an algorithm, a key, a signature and data",
+                    ));
                 };
                 let string_ty = self.type_id(Type::String)?;
                 let algorithm_text = self.value_at_type(algorithm, string_ty)?;
@@ -118,7 +140,11 @@ impl FunctionEmitter<'_> {
                 let signature_text = self.crypto_bytes_expr(signature)?;
                 let data_text = self.crypto_bytes_expr(data)?;
                 Ok(RustExpr::atom(format!(
-                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_key = {key_text}; let smelt_signature = {signature_text}; let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_verify(&smelt_algorithm, &smelt_key, &smelt_signature, &smelt_data) }})) }}", algorithm_text = algorithm_text.delimited(), key_text = key_text.delimited(), signature_text = signature_text.delimited(), data_text = data_text.delimited()
+                    "{{ let smelt_algorithm = ({algorithm_text}).clone(); let smelt_key = {key_text}; let smelt_signature = {signature_text}; let smelt_data = {data_text}; SmeltFuture::from_future(Box::pin(async move {{ smelt_crypto_verify(&smelt_algorithm, &smelt_key, &smelt_signature, &smelt_data) }})) }}",
+                    algorithm_text = algorithm_text.delimited(),
+                    key_text = key_text.delimited(),
+                    signature_text = signature_text.delimited(),
+                    data_text = data_text.delimited()
                 )))
             }
         }
@@ -133,17 +159,23 @@ impl FunctionEmitter<'_> {
     fn crypto_bytes_expr(&self, data: &Operand) -> Result<RustExpr, EmitError> {
         let data_ty = self.operand_ty(data)?;
         if self.is_typed_array_view_class_type(data_ty)? || self.operand_is_array_buffer(data)? {
-            return Ok(RustExpr::atom(format!("({}).to_bytes()", self.operand_expr(data)?.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "({}).to_bytes()",
+                self.operand_expr(data)?.delimited()
+            )));
         }
         if let Some(bytes_text) =
             self.byte_source_union_bytes_expr(&self.operand_expr(data)?, data_ty)?
         {
             return Ok(bytes_text);
         }
-        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-            "SmeltTypedArray::smelt_from_unknown({}).to_bytes()",
-            self.erase(data)?.delimited()
-        ))))
+        Ok(RustExpr::atom(self.carrier_format(
+            self.carrier()?,
+            format_args!(
+                "SmeltTypedArray::smelt_from_unknown({}).to_bytes()",
+                self.erase(data)?.delimited()
+            ),
+        )))
     }
 
     /// A `CryptoKey` operand as a `SmeltCryptoKey` value: the concrete key, or
@@ -155,7 +187,13 @@ impl FunctionEmitter<'_> {
         {
             return Ok(self.operand_expr(key)?.cloned_value());
         }
-        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltCryptoKey::smelt_from_unknown({})", self.erase(key)?.delimited()))))
+        Ok(RustExpr::atom(self.carrier_format(
+            self.carrier()?,
+            format_args!(
+                "SmeltCryptoKey::smelt_from_unknown({})",
+                self.erase(key)?.delimited()
+            ),
+        )))
     }
 
     /// `importKey`'s usages as a `Vec<String>`: a string list is copied, and
@@ -165,7 +203,10 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(usages_ty), Some(Type::List(item))
             if matches!(self.mir.types.get(*item), Some(Type::String | Type::PyStr)))
         {
-            return Ok(self.operand_expr(usages)?.postfix(".borrow()").cloned_value());
+            return Ok(self
+                .operand_expr(usages)?
+                .postfix(".borrow()")
+                .cloned_value());
         }
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
             "match {} {{ SmeltUnknown::Array(smelt_items) => smelt_items.into_vec().into_iter().filter_map(|smelt_item| match smelt_item {{ SmeltUnknown::String(smelt_text) => Some(smelt_text.to_string()), _ => None }}).collect::<Vec<String>>(), _ => Vec::new() }}",
@@ -208,6 +249,10 @@ impl FunctionEmitter<'_> {
         let arms = (0..members.len())
             .map(|index| format!("{union_enum_name}::M{index}(value) => value.to_bytes()"))
             .collect::<Vec<_>>();
-        Ok(Some(RustExpr::atom(format!("match &({value_text}) {{ {} }}", arms.join(", "), value_text = value_text.delimited()))))
+        Ok(Some(RustExpr::atom(format!(
+            "match &({value_text}) {{ {} }}",
+            arms.join(", "),
+            value_text = value_text.delimited()
+        ))))
     }
 }

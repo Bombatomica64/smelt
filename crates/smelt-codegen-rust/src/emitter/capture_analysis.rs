@@ -1,7 +1,7 @@
 //! Parameter and closure-capture ownership analysis: which parameters need mutable-reference ABI, which captured bindings must use shared (RefCell) storage, and the closure-body write detection behind those decisions.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -147,7 +147,7 @@ impl FunctionEmitter<'_> {
                                     arg,
                                     local,
                                     &mut Vec::new(),
-                                ) && callback_ty.mutable_params.contains(&index)
+                                ) && self.param_passed_by_mut_ref(callback_ty, index)
                             })
                         })
                     }
@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
             return false;
         };
         args.iter().enumerate().any(|(index, arg)| {
-            function_ty.mutable_params.contains(&index)
+            self.param_passed_by_mut_ref(function_ty, index)
                 && Self::operand_originates_from_local(function, arg, local, &mut Vec::new())
         })
     }
@@ -459,7 +459,10 @@ impl FunctionEmitter<'_> {
                 "{place_expr}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<SmeltList<_>>()", place_expr = place_expr.tight()
             ))));
         }
-        Ok(place_expr.postfix(self.carrier_format(self.carrier()?, format_args!(".clone().into_smelt_unknown()"))))
+        Ok(place_expr.postfix(self.carrier_format(
+            self.carrier()?,
+            format_args!(".clone().into_smelt_unknown()"),
+        )))
     }
 
     /// Returns whether a non-escaping capture must share outer storage.
@@ -610,7 +613,11 @@ impl FunctionEmitter<'_> {
             block.statements.iter().any(|statement| {
                 let Statement::Assign {
                     dest,
-                    value: Rvalue::Use(Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source))),
+                    value:
+                        Rvalue::Use(
+                            Operand::Copy(Place::Local(source))
+                            | Operand::Move(Place::Local(source)),
+                        ),
                     ..
                 } = statement
                 else {
@@ -777,7 +784,7 @@ impl FunctionEmitter<'_> {
                     return false;
                 };
                 args.iter().enumerate().any(|(index, arg)| {
-                    function_ty.mutable_params.contains(&index)
+                    self.param_passed_by_mut_ref(function_ty, index)
                         && Self::operand_originates_from_local_in_blocks(
                             &closure.blocks,
                             arg,
@@ -808,7 +815,7 @@ impl FunctionEmitter<'_> {
             return false;
         };
         args.iter().enumerate().any(|(index, arg)| {
-            function_ty.mutable_params.contains(&index)
+            self.param_passed_by_mut_ref(function_ty, index)
                 && Self::operand_originates_from_local_in_blocks(
                     &closure.blocks,
                     arg,
@@ -852,7 +859,6 @@ impl FunctionEmitter<'_> {
             _ => None,
         }
     }
-
 }
 
 /// Whether parameter `local` of `function` is emitted `&mut`, for callers outside

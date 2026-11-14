@@ -29,6 +29,10 @@ type TypeScriptResolver = ResolverGeneric<SoundOverlay>;
 pub(crate) struct ManifestSource {
     /// Original manifest entry resolved against the manifest directory.
     pub(crate) path: PathBuf,
+    /// Whether this source is a program entry (a `[sources] entries` file, or
+    /// the file a single-file command names) rather than a module reached only
+    /// by import or test discovery. Python runs an entry as `__main__`.
+    pub(crate) is_entry: bool,
     /// Source text read while scanning imports.
     pub(crate) source: String,
     /// Source language inferred from the file extension.
@@ -139,6 +143,7 @@ pub(crate) fn read_manifest_source(
     })?;
     Ok(ManifestSource {
         path,
+        is_entry: false,
         source,
         lang,
         imports,
@@ -177,6 +182,7 @@ fn read_collected_source(
     })?;
     Ok(ManifestSource {
         path,
+        is_entry: false,
         source,
         lang,
         imports,
@@ -345,7 +351,11 @@ impl DependencyCollector {
     /// leave the dependency path ABSOLUTE after the prefix strip, which no
     /// manifest-relative glob can match.
     fn excluded_target(&self, path: &Path) -> bool {
-        if self.packages.iter().any(|package| package.excludes_path(path)) {
+        if self
+            .packages
+            .iter()
+            .any(|package| package.excludes_path(path))
+        {
             return true;
         }
         if self.excludes.is_empty() {
@@ -387,8 +397,7 @@ impl DependencyCollector {
         let mut excluded_imports = Vec::new();
         let mut unresolved_packages = Vec::new();
         for import in &imports {
-            let resolved =
-                self.resolve_import_to_existing_sources(&source_path, lang, import)?;
+            let resolved = self.resolve_import_to_existing_sources(&source_path, lang, import)?;
 
             let (included, excluded): (Vec<PathBuf>, Vec<PathBuf>) = resolved
                 .into_iter()
@@ -403,9 +412,15 @@ impl DependencyCollector {
                 value_dependencies.extend(included.iter().cloned());
             }
             if let Some(target) = included.first() {
-                resolved_imports.push(ResolvedImport { specifier: import.module.clone(), target: target.clone() });
+                resolved_imports.push(ResolvedImport {
+                    specifier: import.module.clone(),
+                    target: target.clone(),
+                });
             } else if let Some(target) = excluded.first() {
-                excluded_targets.push(ResolvedImport { specifier: import.module.clone(), target: target.clone() });
+                excluded_targets.push(ResolvedImport {
+                    specifier: import.module.clone(),
+                    target: target.clone(),
+                });
             } else if lang.is_typescript()
                 && is_bare_package_specifier(&import.module)
                 && !smelt_stdlib::is_host_module(&import.module)
@@ -445,7 +460,9 @@ impl DependencyCollector {
         }
 
         // `import math` is the interpreter's `math`, whatever the project holds.
-        if import.python_relative_level.is_none() && crate::python::is_unshadowable_module(&import.module) {
+        if import.python_relative_level.is_none()
+            && crate::python::is_unshadowable_module(&import.module)
+        {
             return Ok(Vec::new());
         }
         let base = python_import_base(importer_path, import);
@@ -494,7 +511,10 @@ impl DependencyCollector {
             return Ok(Vec::new());
         }
         let package_name = bare_package_name(&import.module);
-        if let Some(package) = self.packages.iter().find(|package| package.name == package_name)
+        if let Some(package) = self
+            .packages
+            .iter()
+            .find(|package| package.name == package_name)
             && let Some(base) = package.module_base(&import.module)
         {
             return self.resolve_declared_package_module(&base, import);
@@ -536,9 +556,13 @@ impl DependencyCollector {
         base: &Path,
         import: &ManifestImport,
     ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-        let Some(entry) = manifest_import_candidates(base).into_iter().find(|candidate| {
-            candidate.is_file() && SourceLang::from_path(&candidate.display().to_string()).is_ok()
-        }) else {
+        let Some(entry) = manifest_import_candidates(base)
+            .into_iter()
+            .find(|candidate| {
+                candidate.is_file()
+                    && SourceLang::from_path(&candidate.display().to_string()).is_ok()
+            })
+        else {
             return Ok(Vec::new());
         };
         let package_import = ManifestImport {
@@ -638,11 +662,14 @@ fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
 /// Builds the resolver used for TypeScript manifest dependency discovery, over
 /// the typed-version layer `overlay`.
 fn typescript_resolver(overlay: SoundOverlay) -> TypeScriptResolver {
-    TypeScriptResolver::new_with_file_system(overlay, ResolveOptions {
-        extensions: RESOLVER_EXTENSIONS.map(str::to_owned).to_vec(),
-        main_files: vec!["index".into(), "__init__".into()],
-        ..ResolveOptions::default()
-    })
+    TypeScriptResolver::new_with_file_system(
+        overlay,
+        ResolveOptions {
+            extensions: RESOLVER_EXTENSIONS.map(str::to_owned).to_vec(),
+            main_files: vec!["index".into(), "__init__".into()],
+            ..ResolveOptions::default()
+        },
+    )
 }
 
 /// Resolves one TypeScript module specifier and returns supported Smelt sources.
@@ -819,7 +846,8 @@ pub(crate) fn bare_package_name(module: &str) -> String {
 /// relative paths whose last ancestor is the EMPTY path, and choosing it as the
 /// root made `read_dir("")` fail and every workspace package "unresolved".
 fn workspace_search_root(importer_path: &Path) -> PathBuf {
-    let absolute = std::path::absolute(importer_path).unwrap_or_else(|_| importer_path.to_path_buf());
+    let absolute =
+        std::path::absolute(importer_path).unwrap_or_else(|_| importer_path.to_path_buf());
     let importer_path = absolute.as_path();
     let mut candidate = importer_path
         .parent()
@@ -965,8 +993,23 @@ fn barrel_export_name_from_module(module: &str) -> Option<String> {
 
 /// Normalizes a path key without requiring the path to already exist.
 fn normalize_path_key(path: &Path) -> PathBuf {
+    // An existing file is keyed by its canonical path, so the spellings that
+    // reach the closure for ONE file agree: an entry joined onto a relative
+    // manifest directory (`src/types.ts`), an import resolved to an absolute
+    // path, a path through a symlinked directory. Lexical normalization alone
+    // keyed them apart, the file was lowered once per spelling with its own
+    // copy of every type, and which copy a reader got depended on the working
+    // directory `smelt` ran in.
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    let absolute = if path.is_relative() {
+        std::env::current_dir().map_or_else(|_| path.to_path_buf(), |dir| dir.join(path))
+    } else {
+        path.to_path_buf()
+    };
     let mut normalized = PathBuf::new();
-    for component in path.components() {
+    for component in absolute.components() {
         match component {
             std::path::Component::CurDir => {}
             std::path::Component::ParentDir => {
@@ -1056,7 +1099,10 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
             if trimmed.ends_with(';') || statement_has_module_specifier(buffer) {
                 statements.push(buffer.trim_end_matches(';').trim().to_owned());
                 current = None;
-            } else if buffer.starts_with("export") && trimmed.contains('}') && !trimmed.contains("from") {
+            } else if buffer.starts_with("export")
+                && trimmed.contains('}')
+                && !trimmed.contains("from")
+            {
                 // A multi-line LOCAL export list (`export {\n a,\n b\n}`)
                 // closes without naming a module: it is no dependency edge,
                 // and buffering on would swallow the following statements.
@@ -1166,7 +1212,10 @@ fn is_bare_package_specifier(specifier: &str) -> bool {
 fn is_installed_package(importer: &Path, specifier: &str) -> bool {
     let name = bare_package_name(specifier);
     let from = importer.parent().unwrap_or(importer);
-    let types_name = format!("@types/{}", name.trim_start_matches('@').replacen('/', "__", 1));
+    let types_name = format!(
+        "@types/{}",
+        name.trim_start_matches('@').replacen('/', "__", 1)
+    );
     crate::sound::installed_package_dir(from, &name).is_some()
         || crate::sound::installed_package_dir(from, &types_name).is_some()
 }
@@ -1270,7 +1319,12 @@ mod tests {
 
         assert_eq!(
             modules,
-            vec![("./array", false), ("./async", true), ("./curry", false), ("./x", false)],
+            vec![
+                ("./array", false),
+                ("./async", true),
+                ("./curry", false),
+                ("./x", false)
+            ],
             "multi-line re-exports are edges; a local export list is not and swallows nothing"
         );
     }
@@ -1288,9 +1342,21 @@ mod tests {
         let first = root.join("a.ts");
         let second = root.join("b.ts");
         let third = root.join("c.ts");
-        fs::write(&first, "import { b } from './b';\nexport const a = 1;\nb;\n").expect("write a");
-        fs::write(&second, "import { c } from './c';\nexport const b = 2;\nc;\n").expect("write b");
-        fs::write(&third, "import { a } from './a';\nexport const c = 3;\na;\n").expect("write c");
+        fs::write(
+            &first,
+            "import { b } from './b';\nexport const a = 1;\nb;\n",
+        )
+        .expect("write a");
+        fs::write(
+            &second,
+            "import { c } from './c';\nexport const b = 2;\nc;\n",
+        )
+        .expect("write b");
+        fs::write(
+            &third,
+            "import { a } from './a';\nexport const c = 3;\na;\n",
+        )
+        .expect("write c");
 
         let roots = vec![read_manifest_source(first.clone()).expect("read a")];
         let sources =
@@ -1303,7 +1369,11 @@ mod tests {
 
         assert_eq!(
             ordered,
-            vec![normalize_path_key(&third), normalize_path_key(&second), normalize_path_key(&first)],
+            vec![
+                normalize_path_key(&third),
+                normalize_path_key(&second),
+                normalize_path_key(&first)
+            ],
             "a -> b -> c -> a is cut at c -> a, so c lowers first and each module once"
         );
     }
@@ -1335,7 +1405,8 @@ mod tests {
         fs::write(&helper, "export const ALL_TYPES_DATA_PROVIDER = [];\n").expect("write helper");
 
         let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
-        let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
+        let sources =
+            dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
         let ordered = order_manifest_sources(&sources);
         let ordered_paths = ordered
             .into_iter()
@@ -1392,15 +1463,18 @@ mod tests {
         fs::write(&dependency, "export const createApp = () => 1;\n").expect("write dependency");
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
-        let sources = dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
+        let sources =
+            dependency_closure(roots, &[], Path::new("."), &[], None).expect("collect closure");
 
         assert!(
             sources
                 .iter()
-                .any(|source| normalize_path_key(&source.path)
-                    == normalize_path_key(&dependency)),
+                .any(|source| normalize_path_key(&source.path) == normalize_path_key(&dependency)),
             "`./app.js` should resolve to app.ts, got {:?}",
-            sources.iter().map(|source| source.path.clone()).collect::<Vec<_>>()
+            sources
+                .iter()
+                .map(|source| source.path.clone())
+                .collect::<Vec<_>>()
         );
 
         drop(fs::remove_dir_all(root));
@@ -1430,7 +1504,8 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
-        let sources = dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
+        let sources =
+            dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
 
         assert_eq!(sources.len(), 1, "excluded module should not be collected");
         assert_eq!(
@@ -1460,13 +1535,15 @@ mod tests {
 
         let roots = vec![read_manifest_source(importer).expect("read importer")];
         let excludes = vec!["src/client/**".to_owned()];
-        let sources = dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
+        let sources =
+            dependency_closure(roots, &excludes, root, &[], None).expect("collect closure");
 
         assert_eq!(sources.len(), 2, "included dependency should be collected");
         assert!(
-            sources.iter().all(|source| source.excluded_imports.is_empty()),
+            sources
+                .iter()
+                .all(|source| source.excluded_imports.is_empty()),
             "no specifier should be recorded as excluded"
         );
     }
 }
-

@@ -66,7 +66,11 @@ impl FunctionRegistry {
         name: String,
         signature: OverloadSignature,
     ) {
-        self.overloads.write().entry(name).or_default().push(signature);
+        self.overloads
+            .write()
+            .entry(name)
+            .or_default()
+            .push(signature);
     }
 
     /// Return every overload signature recorded for `name`.
@@ -79,7 +83,9 @@ impl FunctionRegistry {
     /// An unannotated implementation infers its return type from this end of the
     /// list, which is why the ordering rule lives here.
     pub(in crate::lowering) fn last_overload(&self, name: &str) -> Option<&OverloadSignature> {
-        self.overloads.get(name).and_then(|signatures| signatures.last())
+        self.overloads
+            .get(name)
+            .and_then(|signatures| signatures.last())
     }
 
     /// Return whether `name` carries overload signatures.
@@ -102,10 +108,7 @@ impl FunctionRegistry {
     /// removed, so a later lookup sees "declared here, no overloads" instead of
     /// falling back to the imported surface.
     pub(in crate::lowering) fn shadow_implementations(&mut self, implemented: &HashSet<String>) {
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "keyed inserts of one value"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "keyed inserts of one value")]
         for name in implemented {
             self.overloads.write().insert(name.clone(), Vec::new());
         }
@@ -122,7 +125,12 @@ impl FunctionRegistry {
     }
 
     /// Record the forward-visible signature of a hoisted function declaration.
-    pub(in crate::lowering) fn set_forward_type(&mut self, name: String, symbol: Symbol, ty: TypeId) {
+    pub(in crate::lowering) fn set_forward_type(
+        &mut self,
+        name: String,
+        symbol: Symbol,
+        ty: TypeId,
+    ) {
         self.forward_types.insert(name, (symbol, ty));
     }
 
@@ -224,7 +232,9 @@ mod tests {
 
         assert_eq!(functions.overloads("f").map(Vec::len), Some(2));
         assert_eq!(
-            functions.last_overload("f").map(|signature| signature.return_ty),
+            functions
+                .last_overload("f")
+                .map(|signature| signature.return_ty),
             Some(TypeId(2))
         );
     }

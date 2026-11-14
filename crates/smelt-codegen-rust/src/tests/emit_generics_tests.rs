@@ -21,7 +21,9 @@ fn erased_generic_list_arguments_and_returns_do_not_copy_elements() {
             "an already-erased array must share storage rather than copy every element: {body}"
         );
         assert!(
-            body.contains(&format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}(")),
+            body.contains(&format!(
+                "SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}("
+            )),
             "the alias goes through the named boundary helper the SmeltUnknown report keys on: {body}"
         );
     }
@@ -121,9 +123,18 @@ const withArg = new StringBox("value");
 "#,
     );
 
-    assert!(source.contains("fn new(value: JsString) -> Self"), "{source}");
-    assert!(source.contains("Self::__smelt_init_Box_(this, "), "`Box` is renamed `Box_` so it does not shadow Rust's `Box`:\n{source}");
-    assert!(!source.contains("Self::__smelt_init_Box_(this, SmeltUnknown"), "the argument stays at the bound `JsString`:\n{source}");
+    assert!(
+        source.contains("fn new(value: JsString) -> Self"),
+        "{source}"
+    );
+    assert!(
+        source.contains("Self::__smelt_init_Box_(this, "),
+        "`Box` is renamed `Box_` so it does not shadow Rust's `Box`:\n{source}"
+    );
+    assert!(
+        !source.contains("Self::__smelt_init_Box_(this, SmeltUnknown"),
+        "the argument stays at the bound `JsString`:\n{source}"
+    );
 }
 
 #[test]
@@ -138,10 +149,13 @@ const copied: Boxed<number> = boxed;
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Boxed<T>"]), r"struct Boxed<T> {
+    assert_eq!(
+        rust_items(&source, &["struct Boxed<T>"]),
+        r"struct Boxed<T> {
 value: T,
 _smelt_phantom: ::std::marker::PhantomData<(T)>,
-}");
+}"
+    );
     assert!(source.contains("boxed: Boxed<f64>"), "{source}");
 }
 
@@ -162,7 +176,8 @@ function copy<T>(value: T): unknown[] {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate()"),
+        source
+            .contains("SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate()"),
         "{source}"
     );
     assert!(
@@ -182,7 +197,10 @@ function first<S extends string>(value: S): string {
     );
 
     assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
-    assert!(source.contains("smelt_value.char_at(smelt_position)"), "{source}");
+    assert!(
+        source.contains("smelt_value.char_at(smelt_position)"),
+        "{source}"
+    );
     assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
@@ -306,11 +324,17 @@ export function genericKey<T extends object>(object: T, key: string): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig index_present", "sig key_present", "sig generic_key"]), r"fn index_present(arr: SmeltList<f64>, i: f64) -> bool
+    assert_eq!(
+        rust_items(
+            &source,
+            &["sig index_present", "sig key_present", "sig generic_key"]
+        ),
+        r"fn index_present(arr: SmeltList<f64>, i: f64) -> bool
 
 fn key_present(obj: Option<SmeltRecord<JsString, f64>>, key: Option<JsString>) -> bool
 
-fn generic_key(object: SmeltUnknown, key: JsString) -> bool");
+fn generic_key(object: SmeltUnknown, key: JsString) -> bool"
+    );
 }
 
 #[test]
@@ -329,7 +353,10 @@ export function keysOf<T>(object: T): string[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig keys_of"]), r"fn keys_of(object: SmeltUnknown) -> SmeltList<JsString>");
+    assert_eq!(
+        rust_items(&source, &["sig keys_of"]),
+        r"fn keys_of(object: SmeltUnknown) -> SmeltList<JsString>"
+    );
 }
 
 #[test]
@@ -352,8 +379,14 @@ export function makeCurried(): CurriedFunction1<number, string> {
     );
 
     let body = rust_fn(&source, "make_curried");
-    assert!(body.contains("__smelt_call: SmeltErasedFunction"), "an overloaded callable interface's slot is the erased variadic callable, leaving no interface type argument to fall out of scope: {body}");
-    assert!(!body.contains("CurriedFunction1<T1"), "a non-generic caller never spells the interface's own `T1`: {body}");
+    assert!(
+        body.contains("__smelt_call: SmeltErasedFunction"),
+        "an overloaded callable interface's slot is the erased variadic callable, leaving no interface type argument to fall out of scope: {body}"
+    );
+    assert!(
+        !body.contains("CurriedFunction1<T1"),
+        "a non-generic caller never spells the interface's own `T1`: {body}"
+    );
 }
 
 #[test]
@@ -381,10 +414,21 @@ export function useStrs(): string[] {
 "#,
     );
 
-    assert!(rust_items(&source, &["sig push_typed"]).starts_with("fn push_typed<T"), "the forwarding function must stay generic: {source}");
+    assert!(
+        rust_items(&source, &["sig push_typed"]).starts_with("fn push_typed<T"),
+        "the forwarding function must stay generic: {source}"
+    );
     let body = rust_fn(&source, "push_typed");
-    assert!(body.contains("smelt_mut_arg_0") && body.contains("into_smelt_unknown") && body.contains("smelt_from_unknown"), "the forwarded &mut list must be adapted in place through erase/un-erase: {body}");
-    assert!(rust_fn(&source, "use_nums").contains("push_typed(&mut xs, 4.0)"), "the value argument binds `T` at its own type, like the list beside it:\n{source}");
+    assert!(
+        body.contains("smelt_mut_arg_0")
+            && body.contains("into_smelt_unknown")
+            && body.contains("smelt_from_unknown"),
+        "the forwarded &mut list must be adapted in place through erase/un-erase: {body}"
+    );
+    assert!(
+        rust_fn(&source, "use_nums").contains("push_typed(&mut xs, 4.0)"),
+        "the value argument binds `T` at its own type, like the list beside it:\n{source}"
+    );
 }
 
 #[test]
@@ -410,7 +454,12 @@ export function useDropStrings(): string[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig drop_first", "fn use_drop", "fn use_drop_strings"]), r#"fn drop_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
+    assert_eq!(
+        rust_items(
+            &source,
+            &["sig drop_first", "fn use_drop", "fn use_drop_strings"]
+        ),
+        r#"fn drop_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
 
 fn use_drop() -> SmeltList<f64> {
 let mut xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
@@ -422,7 +471,8 @@ fn use_drop_strings() -> SmeltList<JsString> {
 let mut ys: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
 let _smelt_tmp_2: SmeltList<JsString> = { let smelt_mut_call_result = drop_first(&mut ys); smelt_mut_call_result };
 return ys;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -448,7 +498,9 @@ export function useTake(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig take_held", "fn use_take"]), r"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
+    assert_eq!(
+        rust_items(&source, &["sig take_held", "fn use_take"]),
+        r"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
 
 fn use_take() -> f64 {
 let held: Holder<f64>;
@@ -460,7 +512,8 @@ held = _smelt_tmp_3;
 _smelt_tmp_4 = ys.len() as f64;
 _smelt_tmp_5 = held.value + _smelt_tmp_4;
 return _smelt_tmp_5;
-}");
+}"
+    );
 }
 
 /// A generic base's constructor runs over the derived instance. No base value is built, so
@@ -486,8 +539,14 @@ console.log(new App<number>().handle('/x'));
 ",
     );
 
-    assert!(source.contains("Self::__smelt_init_AppBase(this, JsString::from(\"app\"))"), "{source}");
-    assert!(source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: JsString)"), "{source}");
+    assert!(
+        source.contains("Self::__smelt_init_AppBase(this, JsString::from(\"app\"))"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn __smelt_init_AppBase(smelt_receiver: Self, label: JsString)"),
+        "{source}"
+    );
 }
 
 /// An unannotated arrow passed to a generic function is contextually typed from the
@@ -511,9 +570,18 @@ const doubled = mapArr(nums, (x) => x * 2);
         .split("fn main()")
         .nth(1)
         .unwrap_or_else(|| panic!("expected a generated `main`:\n{source}"));
-    assert!(!main_body.contains("SmeltUnknown"), "the call site must stay concrete, with no erasure round-trip:\n{source}");
-    assert!(main_body.contains("closure_arg_0: f64"), "the arrow parameter must be contextually typed as `f64`:\n{source}");
-    assert!(main_body.contains("SmeltList<f64>"), "the concrete argument must not be re-erased to call the instantiation:\n{source}");
+    assert!(
+        !main_body.contains("SmeltUnknown"),
+        "the call site must stay concrete, with no erasure round-trip:\n{source}"
+    );
+    assert!(
+        main_body.contains("closure_arg_0: f64"),
+        "the arrow parameter must be contextually typed as `f64`:\n{source}"
+    );
+    assert!(
+        main_body.contains("SmeltList<f64>"),
+        "the concrete argument must not be re-erased to call the instantiation:\n{source}"
+    );
 }
 
 /// A constrained type parameter erases only itself; an unconstrained sibling still lifts to
@@ -531,7 +599,10 @@ const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pick_first"]), r"fn pick_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(arr: SmeltList<T>, key: &F0, fallback: T) -> T");
+    assert_eq!(
+        rust_items(&source, &["sig pick_first"]),
+        r"fn pick_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(arr: SmeltList<T>, key: &F0, fallback: T) -> T"
+    );
 }
 
 /// A type parameter inspected inside a closure body does not lift even when the enclosing
@@ -552,7 +623,10 @@ const r = scan(['a', 'b'], (s) => 'k');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig scan"]), r"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
+    assert_eq!(
+        rust_items(&source, &["sig scan"]),
+        r"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 /// A type parameter moved into a differently-typed container does not lift: moving a `T`
@@ -575,7 +649,10 @@ const r = collect([[1, 2]], (v) => 'k');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig collect"]), r"fn collect(rows: SmeltList<SmeltList<SmeltUnknown>>, key: &dyn Fn(&SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
+    assert_eq!(
+        rust_items(&source, &["sig collect"]),
+        r"fn collect(rows: SmeltList<SmeltList<SmeltUnknown>>, key: &dyn Fn(&SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 /// A generic call signature stores its callable at the CONSTRAINT of each of
@@ -631,10 +708,24 @@ export function hold<T>(trunk: Trunk<T>): Trunk<T> {
 ",
     );
 
-    assert!(source.contains("struct Trunk<T>"), "the fixture must produce a generic class: {source}");
-    assert!(!source.contains("#[derive(Clone, Debug, Default, PartialEq)]\n#[allow(dead_code)]\nstruct Trunk<T>"), "a generic value class must not rely on the derives: {source}");
-    for spelled in ["impl<T> Clone for Trunk<T>", "impl<T> PartialEq for Trunk<T>"] {
-        assert!(source.contains(spelled), "expected a spelled-out `{spelled}` impl: {source}");
+    assert!(
+        source.contains("struct Trunk<T>"),
+        "the fixture must produce a generic class: {source}"
+    );
+    assert!(
+        !source.contains(
+            "#[derive(Clone, Debug, Default, PartialEq)]\n#[allow(dead_code)]\nstruct Trunk<T>"
+        ),
+        "a generic value class must not rely on the derives: {source}"
+    );
+    for spelled in [
+        "impl<T> Clone for Trunk<T>",
+        "impl<T> PartialEq for Trunk<T>",
+    ] {
+        assert!(
+            source.contains(spelled),
+            "expected a spelled-out `{spelled}` impl: {source}"
+        );
     }
     assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Trunk<T>"), "a generic value class takes the generated bound set on `Default`: {source}");
 }
@@ -650,7 +741,9 @@ export function repeat<T>(x: T, n: number): T { return n > 0 ? repeat(x, n - 1) 
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn repeat"]), r"fn repeat<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T, n: f64) -> T {
+    assert_eq!(
+        rust_items(&source, &["fn repeat"]),
+        r"fn repeat<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T, n: f64) -> T {
 let mut _smelt_tmp_3: T;
 let _smelt_tmp_4: f64;
 let _smelt_tmp_2: bool = n > 0.0;
@@ -662,5 +755,6 @@ _smelt_tmp_3 = _smelt_tmp_5;
 _smelt_tmp_3 = x.clone();
 }
 return _smelt_tmp_3;
-}");
+}"
+    );
 }

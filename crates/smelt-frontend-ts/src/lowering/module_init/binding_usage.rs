@@ -2,9 +2,9 @@
 //! hoisted item body, or called, as the AST visitors find them. These facts decide
 //! which bindings become module slots.
 
-use std::collections::HashSet;
-use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
 use super::super::ModuleBuilder;
+use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Collect the names of every binding reassigned or updated inside a
@@ -159,10 +159,7 @@ impl ModuleBuilder<'_> {
                     bound: HashSet::new(),
                 };
                 collector.visit_expression(init);
-                #[expect(
-                    clippy::iter_over_hash_type,
-                    reason = "set union"
-                )]
+                #[expect(clippy::iter_over_hash_type, reason = "set union")]
                 for free in collector.into_free_names() {
                     changed |= reads.insert(free);
                 }
@@ -276,7 +273,9 @@ impl ModuleBuilder<'_> {
                 oxc::ast_visit::walk::walk_call_expression(self, call);
             }
         }
-        let mut collector = CalledNames { names: HashSet::new() };
+        let mut collector = CalledNames {
+            names: HashSet::new(),
+        };
         collector.visit_program(program);
         collector.names
     }
@@ -442,10 +441,7 @@ impl ReadNameCollector {
 
 impl<'a> oxc::ast_visit::Visit<'a> for ReadNameCollector {
     /// Records the name of each identifier reference.
-    fn visit_identifier_reference(
-        &mut self,
-        identifier: &oxc::ast::ast::IdentifierReference<'a>,
-    ) {
+    fn visit_identifier_reference(&mut self, identifier: &oxc::ast::ast::IdentifierReference<'a>) {
         self.names.insert(identifier.name.as_str().to_owned());
     }
 
@@ -505,11 +501,7 @@ struct MutatedNameCollector {
 impl MutatedNameCollector {
     /// Record the root identifier of a member/index assignment target's object,
     /// unwrapping the type-level wrappers that never change the value.
-    fn record_write_through_base(
-        &mut self,
-        object: &Expression<'_>,
-        direct: bool,
-    ) {
+    fn record_write_through_base(&mut self, object: &Expression<'_>, direct: bool) {
         match object {
             Expression::Identifier(identifier) => {
                 let name = identifier.name.as_str().to_owned();

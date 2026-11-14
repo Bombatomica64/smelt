@@ -21,6 +21,7 @@ pub enum Entry {
 /// Every runtime item, in emission order.
 pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_number_to_string"),
+    Entry::Item("smelt_number_format_checked"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltAccessor_T"),
     Entry::Item("SmeltAccessor"),
     Entry::Item("smelt_py_float_repr"),
@@ -41,6 +42,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_py_floor_div_int"),
     Entry::Item("smelt_py_list_read"),
     Entry::Item("smelt_py_key_error"),
+    Entry::Item("SmeltBinding"),
+    Entry::Item("smelt_py_unbound_local_error"),
     Entry::Item("SmeltHostOverride"),
     Entry::Item("SMELT_NEXT_CAPTURE_SCOPE"),
     Entry::Item("smelt_next_capture_scope"),
@@ -110,6 +113,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_body_host_method"),
     Entry::Item("SmeltUnknown"),
     Entry::Item("smelt_bigint_range_error"),
+    Entry::Item("smelt_number_range_error"),
     Entry::Blank("erased_function"),
     Entry::Item("SmeltErasedFunction"),
     Entry::Blank("this_channel"),
@@ -150,6 +154,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_json_parse"),
     Entry::Blank("uri_decode"),
     Entry::Item("smelt_decode_uri_throwing"),
+    Entry::Item("smelt_js_tdz_error"),
     Entry::Blank("data_view_access"),
     Entry::Item("smelt_data_view_byte_index"),
     Entry::Item("smelt_data_view_get_bigint_throwing"),
@@ -181,6 +186,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("impl_Default_for_SmeltRegExp"),
     Entry::Item("SmeltMatch"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltMatch"),
+    Entry::Item("smelt_erased_pattern_call"),
     Entry::Item("SmeltHeaders"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltHeaders"),
     Entry::Item("SmeltUrlSearchParams"),
@@ -241,4 +247,5 @@ pub const CONSOLE_INSPECT: &[Entry] = &[
     Entry::Item("impl_SmeltInspect_for_SmeltPrimSet"),
     Entry::Item("impl_SmeltInspect_for_BigInt"),
     Entry::Item("impl_SmeltInspect_for_SmeltRecord"),
+    Entry::Item("impl_SmeltInspect_for_SmeltMatch"),
 ];

@@ -40,7 +40,10 @@ impl ModuleBuilder<'_> {
         // list would throw away its element types (`typeof p === 'object'`
         // leaves only the `[keyof T, unknown]` arm, then `Array.isArray(p)`).
         if let Some(ty) = local_ty
-            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+            && matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::List(_) | Type::Tuple(_))
+            )
         {
             return Some((name.to_owned(), ty));
         }

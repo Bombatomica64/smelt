@@ -230,7 +230,6 @@ test("a resolving promise fails a rejects matcher", async () => {{
     expect_generated_tests_fail(&source, "smelt_vitest_rejects_no_rejection");
 }
 
-
 // ---------------------------------------------------------------------------
 // Matcher-model coverage (`TestMatcher` and the mock-call matchers).
 //

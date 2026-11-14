@@ -2,10 +2,9 @@
 //! field and parameter-property initializers, and the error marker fields of
 //! `Error` subclasses.
 
-use std::collections::HashMap;
+use super::classes::ClassFieldInit;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use super::classes::ClassFieldInit;
 use crate::lowering::decls::super_call;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
@@ -13,6 +12,7 @@ use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, Field, Function, FunctionOwner, Item, LocalDecl, Param,
     Span, Stmt, Type,
 };
+use std::collections::HashMap;
 
 impl ModuleBuilder<'_> {
     /// Synthesize the implicit constructor for a TypeScript class.
@@ -54,12 +54,17 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
         has_base: bool,
-        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            ClassFieldInit<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
         span: Span,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
-        let scope = ScopeGroups::BINDINGS;
+        let scope = ScopeGroups::MEMBER_BODY;
         let lowered = self.with_nested_body(ctx, scope, |this, _| {
             let mut body = Body::new(None, span);
             let this_symbol = this.ctx.krate.symbols.intern("this");
@@ -70,6 +75,11 @@ impl ModuleBuilder<'_> {
                 span,
             });
             this.scope.bind("this".to_owned(), this_local);
+            // A per-evaluation class's constructor takes its frame first
+            // (`decls::evaluation_statics`).
+            let frame_param = this.bind_evaluation_frame(
+                class_name, class_ty, this_local, true, false, span, &mut body,
+            );
             let forwarded = if has_base {
                 this.reproducible_base_constructor_signature(class_text)
             } else {
@@ -114,7 +124,9 @@ impl ModuleBuilder<'_> {
                     &mut body,
                 );
                 (params, forwarded.required_params)
-            } else if let Some(base_name) = this.error_like_base_name(class_text).filter(|_| has_base) {
+            } else if let Some(base_name) =
+                this.error_like_base_name(class_text).filter(|_| has_base)
+            {
                 // `class E extends Error {}`: the implicit constructor forwards to
                 // the builtin `Error(message?: string)`, whose signature IS known,
                 // so the forwarded message is a typed optional string and runs the
@@ -159,7 +171,11 @@ impl ModuleBuilder<'_> {
                 // the forwarded argument is a genuine dynamic boundary here.
                 let unknown_ty = this.erase(ErasureReason::UnmodeledType);
                 let arg_ty = this.ctx.krate.types.intern(Type::Optional(unknown_ty));
-                let arg_symbol = this.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("_smelt_super_arg"));
+                let arg_symbol = this
+                    .ctx
+                    .krate
+                    .symbols
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new("_smelt_super_arg"));
                 let arg_local = body.push_local(LocalDecl {
                     name: Some(arg_symbol),
                     ty: arg_ty,
@@ -179,7 +195,19 @@ impl ModuleBuilder<'_> {
             } else {
                 (Vec::new(), None)
             };
-            this.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+            this.emit_class_field_initializers(
+                this_local,
+                class_ty,
+                field_initializers,
+                &mut body,
+            )?;
+            let (params, required_params) = match frame_param {
+                Some(frame_param) => (
+                    std::iter::once(frame_param).chain(params).collect(),
+                    required_params.map(|required| required + 1),
+                ),
+                None => (params, required_params),
+            };
             Ok((body, params, required_params))
         });
         self.current_class = saved_class;
@@ -272,7 +300,12 @@ impl ModuleBuilder<'_> {
             .collect::<HashMap<_, _>>();
         let parameters = parameters
             .into_iter()
-            .map(|param| (param.name, self.substitute_type_params(param.ty, &substitutions)))
+            .map(|param| {
+                (
+                    param.name,
+                    self.substitute_type_params(param.ty, &substitutions),
+                )
+            })
             .collect();
         Some(ForwardedBaseConstructor {
             base,
@@ -291,7 +324,12 @@ impl ModuleBuilder<'_> {
         &mut self,
         this_local: smelt_hir::LocalId,
         class_ty: smelt_hir::TypeId,
-        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            ClassFieldInit<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         for (field, initializer, field_ty, span) in field_initializers {

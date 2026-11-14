@@ -60,10 +60,12 @@ pub const ERASED_ARRAY_PROTOTYPE_METHODS: &[&str] = &[
 
 /// Every `String.prototype` method an erased string answers.
 ///
-/// The pattern-taking methods (`split`, `replace`, `match`, `search`) are
-/// absent on purpose: their argument may be a `RegExp`, which the erased
-/// runtime has no matcher for, so they keep their static string lowering
-/// rather than a runtime arm that would silently stringify the pattern.
+/// The pattern-taking methods are absent: their argument may be a `RegExp`,
+/// whose matcher is only linked into a program that demands it. `match` and
+/// `search` on an erased receiver have their own op instead
+/// (`ExprKind::ErasedPatternCall`), which demands the regex runtime and
+/// dispatches on the receiver's run-time value; `split` and `replace` keep
+/// their static string lowering.
 pub const ERASED_STRING_PROTOTYPE_METHODS: &[&str] = &[
     "at",
     "charAt",
@@ -102,8 +104,8 @@ pub const ERASED_STRING_PROTOTYPE_METHODS: &[&str] = &[
 #[must_use]
 pub fn prototype_method_max_arguments(name: &str) -> Option<usize> {
     match name {
-        "pop" | "shift" | "reverse" | "keys" | "values" | "entries" | "toString" | "toLowerCase"
-        | "toUpperCase" | "trim" | "trimEnd" | "trimStart" => Some(0),
+        "pop" | "shift" | "reverse" | "keys" | "values" | "entries" | "toString"
+        | "toLowerCase" | "toUpperCase" | "trim" | "trimEnd" | "trimStart" => Some(0),
         "join" | "at" | "flat" | "sort" | "charAt" | "charCodeAt" | "codePointAt" | "repeat" => {
             Some(1)
         }
@@ -181,14 +183,18 @@ pub fn is_erased_prototype_method(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS, erased_array_prototype_method,
-        is_erased_prototype_call, is_erased_prototype_method, prototype_method_max_arguments,
+        ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS,
+        erased_array_prototype_method, is_erased_prototype_call, is_erased_prototype_method,
+        prototype_method_max_arguments,
     };
 
     /// No table lists a method twice, so a lookup has one answer.
     #[test]
     fn tables_have_unique_names() {
-        for table in [ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS] {
+        for table in [
+            ERASED_ARRAY_PROTOTYPE_METHODS,
+            ERASED_STRING_PROTOTYPE_METHODS,
+        ] {
             for (index, name) in table.iter().enumerate() {
                 assert!(
                     table.iter().skip(index + 1).all(|other| other != name),
@@ -201,7 +207,10 @@ mod tests {
     /// A lookup answers only the prototype's own methods.
     #[test]
     fn array_lookup_answers_array_methods_only() {
-        assert_eq!(erased_array_prototype_method("reduceRight"), Some("reduceRight"));
+        assert_eq!(
+            erased_array_prototype_method("reduceRight"),
+            Some("reduceRight")
+        );
         assert_eq!(erased_array_prototype_method("toUpperCase"), None);
     }
 
@@ -210,7 +219,14 @@ mod tests {
     /// names neither table models.
     #[test]
     fn runtime_resolution_covers_both_tables_except_non_guessing_lowerings() {
-        for name in ["includes", "at", "map", "reduceRight", "unshift", "toUpperCase"] {
+        for name in [
+            "includes",
+            "at",
+            "map",
+            "reduceRight",
+            "unshift",
+            "toUpperCase",
+        ] {
             assert!(is_erased_prototype_method(name), "{name}");
         }
         for name in ["toString", "slice", "split", "replace", "then"] {
@@ -224,7 +240,10 @@ mod tests {
     #[test]
     fn over_long_argument_lists_are_not_prototype_calls() {
         let variadic = ["concat", "push", "unshift", "splice"];
-        for table in [ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS] {
+        for table in [
+            ERASED_ARRAY_PROTOTYPE_METHODS,
+            ERASED_STRING_PROTOTYPE_METHODS,
+        ] {
             for &name in table {
                 assert!(
                     prototype_method_max_arguments(name).is_some() || variadic.contains(&name),

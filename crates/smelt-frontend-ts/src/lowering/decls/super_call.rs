@@ -31,9 +31,7 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, Expression, Statement};
-use smelt_hir::{
-    Body, ErasureReason, Expr, ExprKind, Field, Literal, Span, Stmt, Type,
-};
+use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Field, Literal, Span, Stmt, Type};
 
 /// The instance slots every JavaScript `Error` subclass inherits from its base,
 /// paired with the HIR type each one carries.
@@ -175,13 +173,7 @@ impl ModuleBuilder<'_> {
         let Some((base, _)) = self.classes.base(class_text).cloned() else {
             return Ok(());
         };
-        let Some(base_name) = self
-            .ctx
-            .krate
-            .symbols
-            .get(base)
-            .map(ToOwned::to_owned)
-        else {
+        let Some(base_name) = self.ctx.krate.symbols.get(base).map(ToOwned::to_owned) else {
             return Ok(());
         };
         // The base kind is decided before any argument is lowered: an unsupported
@@ -205,13 +197,7 @@ impl ModuleBuilder<'_> {
         }
         if error_base {
             self.lower_error_base_super_call(
-                &base_name,
-                &arguments,
-                this_local,
-                class_ty,
-                class_text,
-                span,
-                body,
+                &base_name, &arguments, this_local, class_ty, class_text, span, body,
             );
         } else {
             Self::lower_base_constructor_init(base, &arguments, this_local, class_ty, span, body);
@@ -309,26 +295,27 @@ impl ModuleBuilder<'_> {
         // argument is written to and the type that slot was declared with
         // cannot drift. `None` means the constructor supplied nothing for the
         // slot, and the slot's own spec default (if it has one) answers it.
-        let supplied = [
-            None,
-            arguments.first().copied(),
-            None,
-            cause_value,
-        ];
+        let supplied = [None, arguments.first().copied(), None, cause_value];
         for (marker, supplied) in ERROR_MARKER_FIELDS.into_iter().zip(supplied) {
             let field = self.ctx.krate.symbols.intern(marker.name);
             let field_ty = self
                 .declared_class_field_ty(class_text, field)
                 .unwrap_or_else(|| self.error_marker_shape_ty(marker.shape));
             let value = match supplied {
-                Some(value) => {
-                    self.error_slot_value(value, field_ty, marker.spec_default, base_name, span, body)
+                Some(value) => self.error_slot_value(
+                    value,
+                    field_ty,
+                    marker.spec_default,
+                    base_name,
+                    span,
+                    body,
+                ),
+                None => {
+                    match self.error_spec_default_expr(marker.spec_default, base_name, span, body) {
+                        Some(default) => default,
+                        None => continue,
+                    }
                 }
-                None => match self.error_spec_default_expr(marker.spec_default, base_name, span, body)
-                {
-                    Some(default) => default,
-                    None => continue,
-                },
             };
             let receiver = body.push_expr(Expr {
                 kind: ExprKind::Local(this_local),
@@ -336,10 +323,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let target = body.push_expr(Expr {
-                kind: ExprKind::Field {
-                    receiver,
-                    field,
-                },
+                kind: ExprKind::Field { receiver, field },
                 ty: field_ty,
                 span,
             });
@@ -370,18 +354,15 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let value_ty = Self::expr_ty(body, value);
-        let value_is_optional = matches!(
-            self.ctx.krate.types.get(value_ty),
-            Some(Type::Optional(_))
-        );
-        let slot_is_optional = matches!(
-            self.ctx.krate.types.get(field_ty),
-            Some(Type::Optional(_))
-        );
+        let value_is_optional =
+            matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_)));
+        let slot_is_optional =
+            matches!(self.ctx.krate.types.get(field_ty), Some(Type::Optional(_)));
         if !value_is_optional || slot_is_optional {
             return value;
         }
-        let Some(fallback) = self.error_spec_default_expr(spec_default, base_name, span, body) else {
+        let Some(fallback) = self.error_spec_default_expr(spec_default, base_name, span, body)
+        else {
             return value;
         };
         body.push_expr(Expr {
@@ -446,7 +427,8 @@ impl ModuleBuilder<'_> {
         class_text: &str,
         field: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        self.classes.fields(class_text)?
+        self.classes
+            .fields(class_text)?
             .iter()
             .find(|declared| declared.name == field)
             .map(|declared| declared.ty)

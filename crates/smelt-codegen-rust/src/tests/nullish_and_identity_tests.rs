@@ -31,13 +31,16 @@ export function useDropFirst(): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "use_drop_first"), r"fn use_drop_first() -> f64 {
+    assert_eq!(
+        rust_fn(&source, "use_drop_first"),
+        r"fn use_drop_first() -> f64 {
 let _smelt_tmp_3: f64;
 let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Number(1.0 as f64), SmeltUnknown::Number(2.0 as f64), SmeltUnknown::Number(3.0 as f64)]; smelt_list_items }));
 let _ = { let smelt_mut_call_result = drop_first(&mut values); smelt_mut_call_result };
 _smelt_tmp_3 = values.len() as f64;
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 /// `value as string` is a type assertion, so absence reaching a `String` slot
@@ -51,10 +54,13 @@ export function readString(value: unknown): string {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "read_string"), r#"fn read_string(value: SmeltUnknown) -> JsString {
+    assert_eq!(
+        rust_fn(&source, "read_string"),
+        r#"fn read_string(value: SmeltUnknown) -> JsString {
 let _smelt_tmp_1: JsString = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) };
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 /// `null` and `undefined` share MIR `Type::None`, so only the defining
@@ -69,10 +75,13 @@ export function erase(): unknown {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "erase"), r#"fn erase() -> SmeltUnknown {
+    assert_eq!(
+        rust_fn(&source, "erase"),
+        r#"fn erase() -> SmeltUnknown {
 let holder: SmeltRecord<JsString, SmeltUnknown> = SmeltRecord::from([(JsString::from("a"), SmeltUnknown::Undefined)]);
 return SmeltUnknown::Object(SmeltObject::from_unknown_record(holder.clone()));
-}"#);
+}"#
+    );
 }
 
 /// The other direction of the same recovery: a `null` literal keeps its tag.
@@ -86,10 +95,13 @@ export function erase(): unknown {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "erase"), r#"fn erase() -> SmeltUnknown {
+    assert_eq!(
+        rust_fn(&source, "erase"),
+        r#"fn erase() -> SmeltUnknown {
 let holder: SmeltRecord<JsString, ()> = SmeltRecord::from([(JsString::from("a"), ())]);
 return { let smelt_record = holder.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, { let _ = smelt_value; SmeltUnknown::Null })).collect())) };
-}"#);
+}"#
+    );
 }
 
 /// A method reference captures its receiver, so each read is a fresh `Rc`;
@@ -108,9 +120,12 @@ export function methodOf(greeter: Greeter): unknown {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "method_of"), r#"fn method_of(greeter: Greeter) -> SmeltUnknown {
+    assert_eq!(
+        rust_fn(&source, "method_of"),
+        r#"fn method_of(greeter: Greeter) -> SmeltUnknown {
 return ({ let smelt_receiver = greeter.clone(); let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String((smelt_receiver.greet()).into()))); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Greeter::greet")); SmeltUnknown::Function(smelt_method) }).clone();
-}"#);
+}"#
+    );
 }
 
 /// A keyed read that resolves to no property is `undefined`.
@@ -126,7 +141,9 @@ export function readMissing(holder: Holder): unknown {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "read_missing"), r#"fn read_missing(holder: Holder) -> SmeltUnknown {
+    assert_eq!(
+        rust_fn(&source, "read_missing"),
+        r#"fn read_missing(holder: Holder) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltUnknown = { let smelt_object_value = holder.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("value".to_owned(), SmeltUnknown::Number(smelt_object_value.value as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Holder".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) };
 return match _smelt_tmp_1.clone() {
 SmeltUnknown::String(smelt_value) => {
@@ -142,5 +159,6 @@ SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsS
 smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &JsString::from("nope").clone()),
 _ => SmeltUnknown::Undefined,
 };
-}"#);
+}"#
+    );
 }

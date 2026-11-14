@@ -31,7 +31,11 @@ def process(items: list[str], counts: dict[str, int]) -> bool:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
-    ensure_signature(&ctx, "process", "process(items: List<PyStr>, counts: Dict<PyStr, Int>) -> Bool")?;
+    ensure_signature(
+        &ctx,
+        "process",
+        "process(items: List<PyStr>, counts: Dict<PyStr, Int>) -> Bool",
+    )?;
     Ok(())
 }
 
@@ -97,7 +101,10 @@ fn pytest_suffix_test_function_without_return_annotation_lowers_to_none() -> Tes
     let mut ctx = HirCtx::new();
     lower_path_module(source, "tests/smoke_test.py", &mut ctx)?;
     ensure_signature(&ctx, "test_smoke", "test_smoke() -> None")?;
-    ensure(function_named(&ctx, "test_smoke")?.is_test, "the `_test.py` suffix marks a pytest module")?;
+    ensure(
+        function_named(&ctx, "test_smoke")?.is_test,
+        "the `_test.py` suffix marks a pytest module",
+    )?;
     Ok(())
 }
 
@@ -496,7 +503,13 @@ def test_uses_autouse():
         if let ExprKind::Item(callee) = &expr.kind
             && let Item::Function(fixture) = item(&ctx, *callee)?
         {
-            called.push(ctx.krate.symbols.get(fixture.name).unwrap_or_default().to_owned());
+            called.push(
+                ctx.krate
+                    .symbols
+                    .get(fixture.name)
+                    .unwrap_or_default()
+                    .to_owned(),
+            );
         }
     }
     let expected = ["zulu", "alpha", "papa", "kilo", "bravo", "mike"];

@@ -1,0 +1,29 @@
+name: Save sccache
+description: Print sccache statistics and, on main, save the disk cache for pull requests to restore.
+
+inputs:
+  save:
+    description: Whether this job writes the lane (one job per lane, on main only).
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: sccache statistics
+      shell: bash
+      run: sccache --show-stats || true
+
+    - name: Stop sccache
+      if: ${{ inputs.save == 'true' }}
+      shell: bash
+      run: sccache --stop-server || true
+
+    - name: Save sccache
+      if: ${{ inputs.save == 'true' }}
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.cache/sccache
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+        key: sccache-${{ env.SCCACHE_LANE }}-${{ runner.os }}-${{ github.run_id }}

@@ -14,8 +14,8 @@ use crate::krate::Crate;
 use call::expr_text;
 use control_flow::stmt_text;
 use list::{collection_text, expr_list_text};
-use literals::{literal_text, pattern_text};
 pub use literals::string_units_text;
+use literals::{literal_text, pattern_text};
 use map::dict_lit_text;
 use std::fmt::Write as _;
 use types::{expr_ref, item_ref, item_text, local_ref, type_ref, type_text};
@@ -58,19 +58,34 @@ pub fn function_signature(krate: &Crate, name: &str) -> Option<String> {
                 .map(|param| symbol(param.name))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let generics = if generics.is_empty() { generics } else { format!("<{generics}>") };
+            let generics = if generics.is_empty() {
+                generics
+            } else {
+                format!("<{generics}>")
+            };
             let params = function
                 .params
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    let rest = if function.rest == Some(index) { "..." } else { "" };
-                    format!("{rest}{}: {}", symbol(param.name), type_ref(krate, param.ty))
+                    let rest = if function.rest == Some(index) {
+                        "..."
+                    } else {
+                        ""
+                    };
+                    format!(
+                        "{rest}{}: {}",
+                        symbol(param.name),
+                        type_ref(krate, param.ty)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
             let prefix = if function.is_async { "async " } else { "" };
-            format!("{prefix}{name}{generics}({params}) -> {}", type_ref(krate, function.return_ty))
+            format!(
+                "{prefix}{name}{generics}({params}) -> {}",
+                type_ref(krate, function.return_ty)
+            )
         })
     })
 }

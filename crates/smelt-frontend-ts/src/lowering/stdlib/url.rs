@@ -22,8 +22,8 @@
 //!   stores is computed by the shared assignment rule, so `+=` and `||=` mean
 //!   what they mean everywhere else.
 
-use oxc::ast::ast::{Argument, Expression};
 use crate::SmeltError;
+use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, Type, UrlField, UrlOp};
 
@@ -239,7 +239,10 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::Url) {
+        if !self.is_modeled_class(
+            Self::expr_ty(body, receiver),
+            smelt_stdlib::StdlibClass::Url,
+        ) {
             return Ok(None);
         }
         let span = self.span(assign.span.start, assign.span.end);
@@ -305,8 +308,10 @@ impl ModuleBuilder<'_> {
             Some(Type::Optional(inner)) => *inner,
             _ => ty,
         };
-        !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown | Type::TypeParam { .. }))
-            && !self.is_modeled_class(ty, smelt_stdlib::StdlibClass::Url)
+        !matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) && !self.is_modeled_class(ty, smelt_stdlib::StdlibClass::Url)
     }
 
     /// Whether evaluating a receiver twice is evaluating it once: a binding or

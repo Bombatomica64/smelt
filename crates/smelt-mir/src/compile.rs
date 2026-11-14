@@ -4,8 +4,8 @@ use std::error::Error;
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use crate::{LowerError, Mir, ValidationError, lower_hir, opt, validate};
 use crate::opt::OptimizeError;
+use crate::{LowerError, Mir, ValidationError, lower_hir, opt, validate};
 
 /// Why [`compile`] produced no MIR.
 #[derive(Debug, Clone, PartialEq, Eq)]

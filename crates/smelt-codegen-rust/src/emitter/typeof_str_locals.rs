@@ -30,8 +30,7 @@ use std::collections::HashSet;
 
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{
-    Constant, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement,
-    Terminator,
+    Constant, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 /// Locals of `function` whose emitted Rust type can be `&'static str`.
@@ -129,7 +128,10 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
 /// type from MIR, and none of those are worth the risk for a value that is read
 /// once or twice.
 fn is_plain_string_temp(mir: &Mir, function: &MirFunction, local: LocalId) -> bool {
-    let Some(decl) = function.locals.get(usize::try_from(local.0).unwrap_or(usize::MAX)) else {
+    let Some(decl) = function
+        .locals
+        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
+    else {
         return false;
     };
     matches!(decl.kind, LocalKind::Temp) && is_string_ty(mir, decl.ty)

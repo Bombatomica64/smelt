@@ -56,15 +56,27 @@ fn getter_fields_store_accessors_only_on_their_record() {
         .and_then(|at| source.get(at..))
         .and_then(|rest| rest.get(..rest.find('}').unwrap_or(rest.len())))
         .unwrap_or_else(|| panic!("Counter is emitted:\n{source}"));
-    assert!(counter.contains("is_pending: SmeltAccessor<bool>"), "{counter}");
-    assert!(counter.contains("cached_value: SmeltAccessor<Option<f64>>"), "{counter}");
-    assert!(counter.contains("bump: ::std::rc::Rc<dyn Fn() -> ()>"), "{counter}");
+    assert!(
+        counter.contains("is_pending: SmeltAccessor<bool>"),
+        "{counter}"
+    );
+    assert!(
+        counter.contains("cached_value: SmeltAccessor<Option<f64>>"),
+        "{counter}"
+    );
+    assert!(
+        counter.contains("bump: ::std::rc::Rc<dyn Fn() -> ()>"),
+        "{counter}"
+    );
     let plain = source
         .find("struct Plain")
         .and_then(|at| source.get(at..))
         .and_then(|rest| rest.get(..rest.find('}').unwrap_or(rest.len())))
         .unwrap_or_else(|| panic!("Plain is emitted:\n{source}"));
-    assert!(plain.contains("count: f64") && !plain.contains("SmeltAccessor"), "{plain}");
+    assert!(
+        plain.contains("count: f64") && !plain.contains("SmeltAccessor"),
+        "{plain}"
+    );
     let make = emitted_function_body(&source, "fn make_counter(");
     assert!(make.contains("is_pending: SmeltAccessor::new("), "{make}");
     assert!(make.contains("cached_value: SmeltAccessor::new("), "{make}");
@@ -83,7 +95,8 @@ fn getter_fields_are_read_through_the_getter() {
         "no read takes the accessor itself: {main_body}"
     );
     assert!(
-        source.contains("self.is_pending.get()") || source.contains("smelt_object_value.is_pending.get()"),
+        source.contains("self.is_pending.get()")
+            || source.contains("smelt_object_value.is_pending.get()"),
         "the erased view reads the getter: {source}"
     );
 }
@@ -108,7 +121,10 @@ export function later(): unknown { return convert(); }
         .and_then(|at| source.get(at..))
         .and_then(|rest| rest.lines().next())
         .unwrap_or_else(|| panic!("convert is emitted:\n{source}"));
-    assert!(implementation.contains("data_or_options: Option<"), "{implementation}");
+    assert!(
+        implementation.contains("data_or_options: Option<"),
+        "{implementation}"
+    );
     let later = emitted_function_body(&source, "fn later(");
     assert!(later.contains("convert(None"), "{later}");
 }

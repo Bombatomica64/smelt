@@ -258,7 +258,9 @@ fn measure_body(
                 }
                 args.iter().for_each(&mut read);
             }
-            Some(Terminator::Await { future: operand, .. })
+            Some(Terminator::Await {
+                future: operand, ..
+            })
             | Some(Terminator::Switch { cond: operand, .. })
             | Some(Terminator::Match {
                 scrutinee: operand, ..
@@ -285,7 +287,8 @@ fn measure_body(
             {
                 let result =
                     local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
-                let through = receiver.local()
+                let through = receiver
+                    .local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty));
                 if matches!(value, Rvalue::BoundField { .. }) {
@@ -302,12 +305,15 @@ fn measure_body(
                     Rvalue::ClosureCall { callee, .. }
                     | Rvalue::ClosureCallSpread { callee, .. }
                     | Rvalue::ClosureCallRest { callee, .. }
-                    | Rvalue::ErasedFunctionMethodCall { receiver: callee, .. },
+                    | Rvalue::ErasedFunctionMethodCall {
+                        receiver: callee, ..
+                    },
             } = statement
             {
                 let result =
                     local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
-                let callee = callee.local()
+                let callee = callee
+                    .local()
                     .and_then(local_ty)
                     .map(|ty| emitter.typedness_of(ty))
                     .or_else(|| projected_read(emitter, callee, &local_ty))
@@ -320,7 +326,8 @@ fn measure_body(
         {
             let result = local_ty(*dest).map_or(Typedness::Erased, |ty| emitter.typedness_of(ty));
             let callee = match callee {
-                Callee::Indirect(operand) => operand.local()
+                Callee::Indirect(operand) => operand
+                    .local()
                     .and_then(local_ty)
                     .map_or(Typedness::Concrete, |ty| emitter.typedness_of(ty)),
                 Callee::Static(_) | Callee::Builtin(_) | Callee::Op(..) | Callee::BaseInit(_) => {
@@ -397,10 +404,10 @@ fn is_property_read(value: &Rvalue) -> bool {
     matches!(
         value,
         Rvalue::OptionalField { .. }
-        | Rvalue::OptionalIndex { .. }
-        | Rvalue::ListIndex { .. }
-        | Rvalue::TupleIndex { .. }
-        | Rvalue::DictGet { .. }
+            | Rvalue::OptionalIndex { .. }
+            | Rvalue::ListIndex { .. }
+            | Rvalue::TupleIndex { .. }
+            | Rvalue::DictGet { .. }
     )
 }
 
@@ -421,17 +428,20 @@ fn closure_owners(mir: &Mir) -> HashMap<ClosureId, usize> {
     /// The closures a body constructs.
     fn created(blocks: &[BasicBlock]) -> impl Iterator<Item = ClosureId> + '_ {
         blocks.iter().flat_map(|block| {
-            block.statements.iter().filter_map(|statement| match statement {
-                Statement::Assign {
-                    value: Rvalue::Closure { id, .. },
-                    ..
-                }
-                | Statement::AssignPlace {
-                    value: Rvalue::Closure { id, .. },
-                    ..
-                } => Some(*id),
-                _ => None,
-            })
+            block
+                .statements
+                .iter()
+                .filter_map(|statement| match statement {
+                    Statement::Assign {
+                        value: Rvalue::Closure { id, .. },
+                        ..
+                    }
+                    | Statement::AssignPlace {
+                        value: Rvalue::Closure { id, .. },
+                        ..
+                    } => Some(*id),
+                    _ => None,
+                })
         })
     }
     let mut owners = HashMap::new();
@@ -463,7 +473,11 @@ fn closure_owners(mir: &Mir) -> HashMap<ClosureId, usize> {
 impl FunctionEmitter<'_> {
     /// The type(s) a field (`Some(name)`) or element (`None`) read of a value
     /// of type `base` produces, when the type table answers it.
-    fn projected_type(&self, base: TypeId, field: Option<smelt_hir::Symbol>) -> Option<Vec<TypeId>> {
+    fn projected_type(
+        &self,
+        base: TypeId,
+        field: Option<smelt_hir::Symbol>,
+    ) -> Option<Vec<TypeId>> {
         let base = self.flatten_optional_inner(base);
         match (self.mir.types.get(base)?, field) {
             (Type::List(item) | Type::Set(item), None) => Some(vec![*item]),
@@ -523,7 +537,11 @@ impl FunctionEmitter<'_> {
             return false;
         }
         let next = depth.saturating_add(1);
-        let any = |items: &[TypeId]| items.iter().any(|item| self.type_mentions_param(*item, next));
+        let any = |items: &[TypeId]| {
+            items
+                .iter()
+                .any(|item| self.type_mentions_param(*item, next))
+        };
         match self.mir.types.get(ty) {
             Some(Type::TypeParam { .. }) => true,
             Some(

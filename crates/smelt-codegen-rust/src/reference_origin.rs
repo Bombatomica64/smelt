@@ -68,7 +68,6 @@
 
 use crate::rust::RustExpr;
 
-
 /// Stamp `handle` (an expression yielding the typed reference handle) as the
 /// origin of the erased object built by `object_ctor`.
 pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
@@ -83,7 +82,8 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> RustExpr {
     RustExpr::atom(format!(
         "match {}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {rebuild} }}",
-        record.parenthesized_if_needed(), rebuild = rebuild.delimited()
+        record.parenthesized_if_needed(),
+        rebuild = rebuild.delimited()
     ))
 }
 
@@ -133,8 +133,9 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
         } else {
             String::new()
         };
-        let absent = crate::emitter::record_coercion::missing_required_field_throw(mir, name, key, field.ty)
-            .map_or_else(String::new, |throw| format!(" else {{ {throw}; }}"));
+        let absent =
+            crate::emitter::record_coercion::missing_required_field_throw(mir, name, key, field.ty)
+                .map_or_else(String::new, |throw| format!(" else {{ {throw}; }}"));
         assigns.push(format!(
             "if let Some(smelt_field) = smelt_erased_member(&smelt_object, {key:?}) {{ {frame}result.0.borrow_mut().{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}{absent}"
         ));

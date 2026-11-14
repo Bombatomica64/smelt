@@ -14,7 +14,7 @@ use smelt_hir::FileId;
 use smelt_specialize::{
     BackendAvailability, HashInputs, LinuxBubblewrapBackend, PythonModule,
     PythonSpecializationRequest, PythonSpecializer, SandboxBackend, SandboxPolicyRecord,
-    prereq::missing_prerequisite,
+    SpecializationManifest, prereq::missing_prerequisite,
 };
 
 /// Result type shared by the parity fixtures and their helpers, defaulting to a
@@ -173,6 +173,39 @@ fn init_subclass_generated_method_matches_cpython_output() -> ParityResult {
     assert_specialized_parity(INIT_SUBCLASS_SOURCE, "init_subclass")
 }
 
+/// Lowers `source` with the specialization `manifest` and emits it as a
+/// program crate in `generated`.
+fn emit_specialized(
+    source: &str,
+    source_path: &Path,
+    manifest: &SpecializationManifest,
+    generated: &Path,
+    fixture_name: &str,
+) -> ParityResult {
+    let mut ctx = HirCtx::new();
+    to_hir_with_options(
+        source,
+        FileId(0),
+        source_path.to_string_lossy().as_ref(),
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(manifest),
+            ..FrontendOptions::default()
+        },
+    )
+    .map_err(|errors| format!("manifest-aware HIR lowering failed: {errors:?}"))?;
+    let mut mir =
+        smelt_mir::lower_hir(&ctx.krate).map_err(|errors| format!("MIR lowering: {errors:?}"))?;
+    smelt_mir::opt::optimize(&mut mir);
+    emit_crate(
+        &mir,
+        generated,
+        &EmitOptions::new(format!("python_specialization_{fixture_name}"))
+            .with_crate_kind(CrateKind::Program),
+    )?;
+    Ok(())
+}
+
 /// Specializes one fixture, generates Rust, and compares process stdout.
 fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
     let Some(python) = discovered_python() else {
@@ -191,7 +224,10 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
         python_executable: python,
         project_root: project.path().to_path_buf(),
         import_paths: Vec::new(),
-        modules: vec![PythonModule { name: "fixture".to_owned(), path: source_path.clone() }],
+        modules: vec![PythonModule {
+            name: "fixture".to_owned(),
+            path: source_path.clone(),
+        }],
         hashes: fixture_hashes(fixture_name),
         sandbox_policy: fixture_policy(project.path()),
     })?;
@@ -203,27 +239,8 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
         .into());
     }
 
-    let mut ctx = HirCtx::new();
-    to_hir_with_options(
-        source,
-        FileId(0),
-        source_path.to_string_lossy().as_ref(),
-        &mut ctx,
-        FrontendOptions {
-            specialization: Some(&manifest),
-        },
-    )
-    .map_err(|errors| format!("manifest-aware HIR lowering failed: {errors:?}"))?;
-    let mut mir =
-        smelt_mir::lower_hir(&ctx.krate).map_err(|errors| format!("MIR lowering: {errors:?}"))?;
-    smelt_mir::opt::optimize(&mut mir);
     let generated = project.path().join("generated");
-    emit_crate(
-        &mir,
-        &generated,
-        &EmitOptions::new(format!("python_specialization_{fixture_name}"))
-            .with_crate_kind(CrateKind::Program),
-    )?;
+    emit_specialized(source, &source_path, &manifest, &generated, fixture_name)?;
     let actual = run_generated(&generated.join("Cargo.toml"), project.path())?;
     if actual != expected {
         let generated_source =

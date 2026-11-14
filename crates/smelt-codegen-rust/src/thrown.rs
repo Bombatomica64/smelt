@@ -53,7 +53,6 @@
 use crate::rust::RustExpr;
 use smelt_stdlib::runtime_symbols::markers::SMELT_ERROR;
 
-
 /// The error type of every fallible generated function.
 pub(crate) const ERROR_BOX: &str = "Box<dyn std::error::Error>";
 
@@ -75,7 +74,10 @@ pub(crate) const THROWN_VALUE_FN: &str = "smelt_thrown_value";
 /// `value_text` must already be `SmeltUnknown`-typed; callers erase their
 /// operand first (see `FunctionEmitter::value_at_type`).
 pub(crate) fn throw_expr(value_text: &RustExpr) -> RustExpr {
-    RustExpr::atom(THROW_FN).postfix(format!("({value_text})", value_text = value_text.delimited()))
+    RustExpr::atom(THROW_FN).postfix(format!(
+        "({value_text})",
+        value_text = value_text.delimited()
+    ))
 }
 
 /// Renders the expression that recovers the original thrown payload.

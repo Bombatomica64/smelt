@@ -51,7 +51,9 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if !self.names_host(callee.name.as_str(), "createServer") || self.builtin_call_identifier_is_shadowed("createServer") {
+        if !self.names_host(callee.name.as_str(), "createServer")
+            || self.builtin_call_identifier_is_shadowed("createServer")
+        {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -93,7 +95,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if self.host_module_export_path(&call.callee)
-            != Some((smelt_stdlib::HostModuleId::HonoNodeServer, "serve".to_owned()))
+            != Some((
+                smelt_stdlib::HostModuleId::HonoNodeServer,
+                "serve".to_owned(),
+            ))
         {
             return Ok(None);
         }
@@ -125,7 +130,10 @@ impl ModuleBuilder<'_> {
                 ));
             };
             let Some(key) = property.key.static_name() else {
-                return Err(SmeltError::unsupported(span, "`serve` options are modeled with static keys"));
+                return Err(SmeltError::unsupported(
+                    span,
+                    "`serve` options are modeled with static keys",
+                ));
             };
             let value = self.expression(&property.value, body)?;
             match static_name_text(key).as_ref() {
@@ -135,16 +143,27 @@ impl ModuleBuilder<'_> {
                 other => {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("the `{other}` option of `serve` from @hono/node-server is not modeled; `fetch`, `port` and `hostname` are"),
+                        format!(
+                            "the `{other}` option of `serve` from @hono/node-server is not modeled; `fetch`, `port` and `hostname` are"
+                        ),
                     ));
                 }
             }
         }
         let Some(fetch) = fetch else {
-            return Err(SmeltError::unsupported(span, "`serve` from @hono/node-server needs a `fetch` handler"));
+            return Err(SmeltError::unsupported(
+                span,
+                "`serve` from @hono/node-server needs a `fetch` handler",
+            ));
         };
-        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, fetch)), Some(Type::Function(_))) {
-            return Err(SmeltError::unsupported(span, "the `fetch` option of `serve` must be a function"));
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, fetch)),
+            Some(Type::Function(_))
+        ) {
+            return Err(SmeltError::unsupported(
+                span,
+                "the `fetch` option of `serve` must be a function",
+            ));
         }
         let port = if let Some(port) = port {
             port
@@ -174,9 +193,7 @@ impl ModuleBuilder<'_> {
             // `listen` operation calls it without one, so only a callback that
             // declares no parameter is accepted rather than one silently fed
             // nothing.
-            if let Some(
-                Expression::ArrowFunctionExpression(function),
-            ) = on_listen.as_expression()
+            if let Some(Expression::ArrowFunctionExpression(function)) = on_listen.as_expression()
                 && !function.params.items.is_empty()
             {
                 return Err(SmeltError::unsupported(
@@ -297,9 +314,7 @@ impl ModuleBuilder<'_> {
             // decided by the LOWERED type below.
             let lowered = if matches!(
                 argument.as_expression(),
-                Some(
-                    Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-                )
+                Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
             ) {
                 let hint = self.http_listening_callback_type();
                 self.argument_with_hint(argument, body, Some(hint))?
@@ -325,9 +340,7 @@ impl ModuleBuilder<'_> {
         if let Some(callback) = callback {
             args.push(host.unwrap_or_else(|| {
                 body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(
-                        "127.0.0.1".to_owned(),
-                    )),
+                    kind: ExprKind::Literal(Literal::String("127.0.0.1".to_owned())),
                     ty: self.ctx.krate.types.intern(Type::String),
                     span,
                 })
@@ -443,7 +456,9 @@ impl ModuleBuilder<'_> {
                 span,
             })));
         }
-        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ServerResponse) && property == "statusCode" {
+        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ServerResponse)
+            && property == "statusCode"
+        {
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ServerResponseOp {
@@ -479,7 +494,10 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::ServerResponse) {
+        if !self.is_modeled_class(
+            Self::expr_ty(body, receiver),
+            smelt_stdlib::StdlibClass::ServerResponse,
+        ) {
             return Ok(None);
         }
         let span = self.span(assign.span.start, assign.span.end);
@@ -635,16 +653,20 @@ impl ModuleBuilder<'_> {
         let declaration_span = self.span(0, 0);
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let fields = [("address", string_ty), ("family", string_ty), ("port", float_ty)]
-            .into_iter()
-            .map(|(key, field_ty)| smelt_hir::Field {
-                name: self.intern_source_name(key),
-                ty: field_ty,
-                visibility: smelt_hir::Visibility::Public,
-                optional: false,
-                span: declaration_span,
-            })
-            .collect::<Vec<_>>();
+        let fields = [
+            ("address", string_ty),
+            ("family", string_ty),
+            ("port", float_ty),
+        ]
+        .into_iter()
+        .map(|(key, field_ty)| smelt_hir::Field {
+            name: self.intern_source_name(key),
+            ty: field_ty,
+            visibility: smelt_hir::Visibility::Public,
+            optional: false,
+            span: declaration_span,
+        })
+        .collect::<Vec<_>>();
         let item = self.ctx.krate.upsert_interface(smelt_hir::Interface {
             name,
             span: declaration_span,
@@ -678,7 +700,10 @@ impl ModuleBuilder<'_> {
             // `req.headers` is an object with lower-cased keys and no methods.
             IncomingMessageOp::Headers => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Dict(string_ty, string_ty))
             }
         }
     }
@@ -697,9 +722,9 @@ impl ModuleBuilder<'_> {
             ServerResponseOp::Write => self.ctx.krate.types.intern(Type::Bool),
             // `setHeader`, `writeHead` and `end` all answer the response, which
             // is what makes `res.writeHead(200, ..).end(body)` chain.
-            ServerResponseOp::SetHeader
-            | ServerResponseOp::WriteHead
-            | ServerResponseOp::End => self.server_response_type(),
+            ServerResponseOp::SetHeader | ServerResponseOp::WriteHead | ServerResponseOp::End => {
+                self.server_response_type()
+            }
         }
     }
 }

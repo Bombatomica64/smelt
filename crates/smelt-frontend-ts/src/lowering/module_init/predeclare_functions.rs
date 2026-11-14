@@ -2,12 +2,12 @@
 //! types and predeclared function items, so a body can call a function declared
 //! further down.
 
-use std::collections::HashSet;
+use super::super::support::is_implemented_overload_signature;
+use super::super::{AssertionNarrowing, ModuleBuilder, RestParam};
 use crate::{OverloadSignature, SmeltError};
 use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
 use smelt_hir::{ErasureReason, Function, FunctionOwner, FunctionType, Item, Param, Type};
-use super::super::{AssertionNarrowing, ModuleBuilder, RestParam};
-use super::super::support::is_implemented_overload_signature;
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Drop imported overloads shadowed by implementations in the current module.
@@ -16,7 +16,10 @@ impl ModuleBuilder<'_> {
     /// Because the builder carries visible items across files, a local helper
     /// with the same name as an imported overloaded function must not inherit
     /// that imported function's return surface.
-    pub(in crate::lowering) fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
+    pub(in crate::lowering) fn shadow_cross_module_overloads(
+        &mut self,
+        implemented_functions: &HashSet<String>,
+    ) {
         self.functions.shadow_implementations(implemented_functions);
     }
 
@@ -46,7 +49,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect one overload signature, skipping signatures outside the current type surface.
-    pub(in crate::lowering) fn collect_overload_signature(&mut self, function: &oxc::ast::ast::Function<'_>) {
+    pub(in crate::lowering) fn collect_overload_signature(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) {
         let Some(id) = &function.id else {
             return;
         };
@@ -56,7 +62,8 @@ impl ModuleBuilder<'_> {
             let key = self.export_key(id.name.as_str());
             self.ctx
                 .overloads
-                .write().entry(key)
+                .write()
+                .entry(key)
                 .or_default()
                 .push(signature);
         }
@@ -178,8 +185,7 @@ impl ModuleBuilder<'_> {
                     self.collect_forward_function_type(function);
                 }
                 Statement::ExportDeclaration(export) => {
-                    let Declaration::FunctionDeclaration(function) = &export.declaration
-                    else {
+                    let Declaration::FunctionDeclaration(function) = &export.declaration else {
                         continue;
                     };
                     if function.declare
@@ -195,7 +201,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collect one function declaration signature for hoisted callback references.
-    pub(in crate::lowering) fn collect_forward_function_type(&mut self, function: &oxc::ast::ast::Function<'_>) {
+    pub(in crate::lowering) fn collect_forward_function_type(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) {
         let Some(id) = &function.id else {
             return;
         };
@@ -240,15 +249,15 @@ impl ModuleBuilder<'_> {
                 params.extend(elements);
                 None
             } else {
-            let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
-                SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "rest function parameter type must be an array type",
-                )
-            })?;
-            let index = params.len();
-            params.push(ty);
-            Some(RestParam { index, item_ty })
+                let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
+                    SmeltError::unsupported(
+                        self.span(rest.span.start, rest.span.end),
+                        "rest function parameter type must be an array type",
+                    )
+                })?;
+                let index = params.len();
+                params.push(ty);
+                Some(RestParam { index, item_ty })
             }
         } else {
             None
@@ -315,10 +324,18 @@ impl ModuleBuilder<'_> {
         let returns = self
             .functions
             .overloads(name_text)
-            .map(|signatures| signatures.iter().map(|signature| signature.return_ty).collect::<Vec<_>>())
+            .map(|signatures| {
+                signatures
+                    .iter()
+                    .map(|signature| signature.return_ty)
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         let is_async = matches!(self.ctx.krate.types.get(last_return), Some(Type::Future(_)));
-        let shapes = returns.iter().filter_map(|ty| shape(self, *ty)).collect::<Vec<_>>();
+        let shapes = returns
+            .iter()
+            .filter_map(|ty| shape(self, *ty))
+            .collect::<Vec<_>>();
         if !(shapes.contains(&true) && shapes.contains(&false)) {
             return last_return;
         }
@@ -349,7 +366,9 @@ impl ModuleBuilder<'_> {
         }
         if let Some(signature) = self.functions.last_overload(name_text) {
             let last_return = signature.return_ty;
-            return Ok(Some(self.overload_implementation_return(name_text, last_return)));
+            return Ok(Some(
+                self.overload_implementation_return(name_text, last_return),
+            ));
         }
         Ok(None)
     }
@@ -374,8 +393,7 @@ impl ModuleBuilder<'_> {
                     }
                 }
                 Statement::ExportDeclaration(export) => {
-                    let Declaration::FunctionDeclaration(function) = &export.declaration
-                    else {
+                    let Declaration::FunctionDeclaration(function) = &export.declaration else {
                         continue;
                     };
                     if function.declare
@@ -520,23 +538,27 @@ impl ModuleBuilder<'_> {
                     });
                 }
             } else {
-            let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
-                SmeltError::unsupported(
-                    self.span(rest.span.start, rest.span.end),
-                    "rest function parameter type must be an array type",
-                )
-            })?;
-            let index = params.len();
-            rest_index = Some(index);
-            let rest_param = RestParam { index, item_ty };
-            self.functions.set_rest(name_text.to_owned(), rest_param);
-            self.publish_export(|ctx| &mut ctx.function_rests, name_text.to_owned(), rest_param);
-            params.push(Param {
-                name: self.intern_source_name(binding.name.as_str()),
-                local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
-                ty,
-                span: self.span(binding.span.start, binding.span.end),
-            });
+                let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
+                    SmeltError::unsupported(
+                        self.span(rest.span.start, rest.span.end),
+                        "rest function parameter type must be an array type",
+                    )
+                })?;
+                let index = params.len();
+                rest_index = Some(index);
+                let rest_param = RestParam { index, item_ty };
+                self.functions.set_rest(name_text.to_owned(), rest_param);
+                self.publish_export(
+                    |ctx| &mut ctx.function_rests,
+                    name_text.to_owned(),
+                    rest_param,
+                );
+                params.push(Param {
+                    name: self.intern_source_name(binding.name.as_str()),
+                    local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
+                    ty,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
             }
         }
         let return_ty = self
@@ -577,7 +599,10 @@ impl ModuleBuilder<'_> {
     /// is (a type-level wrapper around) a bare name bound to a function item,
     /// the const IS that function under a second name, so the alias is
     /// published as the item.
-    pub(super) fn alias_exported_function_consts(&mut self, variable: &oxc::ast::ast::VariableDeclaration<'_>) {
+    pub(super) fn alias_exported_function_consts(
+        &mut self,
+        variable: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) {
         if !matches!(variable.kind, oxc::ast::ast::VariableDeclarationKind::Const) {
             return;
         }

@@ -2,9 +2,9 @@
 //! type declarations, enum member literals, and type alias items, all collected
 //! before any body is lowered.
 
-use std::collections::HashSet;
-use oxc::ast::ast::{Declaration, Program, Statement};
 use super::super::ModuleBuilder;
+use oxc::ast::ast::{Declaration, Program, Statement};
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Collect class names declared in the current module before lowering eager arrow bodies.
@@ -49,7 +49,9 @@ impl ModuleBuilder<'_> {
     /// `export`. A `const Foo = class {}` binds only a VALUE, so it is not
     /// collected here even though `program_class_names` registers it as a class.
     /// Ambient `declare` forms bind the name just the same and are included.
-    pub(in crate::lowering) fn program_type_declaration_names(program: &Program<'_>) -> HashSet<String> {
+    pub(in crate::lowering) fn program_type_declaration_names(
+        program: &Program<'_>,
+    ) -> HashSet<String> {
         let mut names = HashSet::new();
         for statement in &program.body {
             let declaration = match statement {
@@ -95,8 +97,7 @@ impl ModuleBuilder<'_> {
                 let interface = match statement {
                     Statement::TSInterfaceDeclaration(interface) => interface,
                     Statement::ExportDeclaration(export) => {
-                        let Declaration::TSInterfaceDeclaration(interface) =
-                            &export.declaration
+                        let Declaration::TSInterfaceDeclaration(interface) = &export.declaration
                         else {
                             return None;
                         };
@@ -144,9 +145,7 @@ impl ModuleBuilder<'_> {
                         drop(self.type_namespace_declaration(module_decl));
                     }
                     Statement::ExportDeclaration(export) => {
-                        if let Declaration::TSTypeAliasDeclaration(alias) =
-                            &export.declaration
-                        {
+                        if let Declaration::TSTypeAliasDeclaration(alias) = &export.declaration {
                             drop(self.type_alias_declaration(alias));
                         } else if let Declaration::TSNamespaceDeclaration(module_decl) =
                             &export.declaration

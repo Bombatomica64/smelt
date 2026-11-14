@@ -33,9 +33,9 @@
 //! Requirements: see the behavioral and type-preservation statement on
 //! [`crate::console_inspect_prelude`].
 
+use super::union::union_name;
 use super::*;
 use crate::console_inspect_prelude::{self, InspectField};
-use super::union::union_name;
 
 /// A generated record struct, as the inspect impl needs to see it.
 struct InspectRecord {
@@ -80,19 +80,18 @@ impl FunctionEmitter<'_> {
                 | Type::Unknown
                 | Type::Union(_),
             ) => true,
-            Some(Type::Optional(inner)) => {
-                !matches!(
-                    self.mir.types.get(self.flatten_optional_inner(*inner)),
-                    Some(
-                        Type::Bool
-                            | Type::Int
-                            | Type::Float
-                            | Type::String | Type::PyStr
-                            | Type::Unknown
-                            | Type::None
-                    )
+            Some(Type::Optional(inner)) => !matches!(
+                self.mir.types.get(self.flatten_optional_inner(*inner)),
+                Some(
+                    Type::Bool
+                        | Type::Int
+                        | Type::Float
+                        | Type::String
+                        | Type::PyStr
+                        | Type::Unknown
+                        | Type::None
                 )
-            }
+            ),
             _ => false,
         };
         let inspectable = composite && self.type_is_console_inspectable(ty);
@@ -123,9 +122,15 @@ impl FunctionEmitter<'_> {
         }
         let needs_unknown = self.context.demand().has(Need::Unknown);
         let result = match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::BigInt | Type::String | Type::PyStr | Type::None) => {
-                true
-            }
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::BigInt
+                | Type::String
+                | Type::PyStr
+                | Type::None,
+            ) => true,
             Some(Type::Unknown) => needs_unknown,
             // A type parameter this body renders as the erased carrier holds what
             // the carrier holds; one kept as a Rust generic has no `SmeltInspect`.
@@ -156,14 +161,20 @@ impl FunctionEmitter<'_> {
             // a `HashMap` or a `SmeltJsMap`-backed record has no faithful
             // object rendering.
             Some(Type::Dict(key, value)) => {
-                self.dict_uses_smelt_record(*key)
-                    && self.inspectable_in(*value, records, visiting)
+                self.dict_uses_smelt_record(*key) && self.inspectable_in(*value, records, visiting)
             }
             Some(Type::Tuple(items)) => {
                 (1..=console_inspect_prelude::MAX_TUPLE_ARITY).contains(&items.len())
                     && items
                         .iter()
                         .all(|item| self.inspectable_in(*item, records, visiting))
+            }
+            // A regex match inspects through its erasure (the runtime's
+            // `impl SmeltInspect for SmeltMatch`), as Node prints a match array.
+            Some(Type::Class { name, .. })
+                if self.match_class_kind(*name).ok().flatten().is_some() =>
+            {
+                needs_unknown && self.context.demand().has(Need::DepRegress)
             }
             Some(Type::Class { name, args }) => {
                 args.is_empty()
@@ -195,7 +206,8 @@ impl FunctionEmitter<'_> {
             return false;
         };
         let members = member_slice.to_vec();
-        self.union_type_params(ty).is_ok_and(|params| params.is_empty())
+        self.union_type_params(ty)
+            .is_ok_and(|params| params.is_empty())
             && members.iter().all(|member| {
                 !matches!(self.mir.types.get(*member), Some(Type::Generator { .. }))
                     && self.inspectable_in(*member, records, visiting)
@@ -287,18 +299,26 @@ pub(crate) fn emit_console_inspect_support(
     };
     let emitter = FunctionEmitter::new(mir, context, function)?;
     let mut writer = crate::rust::CodeWriter::new();
-    crate::runtime_prelude::emit_entries(&mut writer, smelt_runtime::order::CONSOLE_INSPECT, mir, context)?;
+    crate::runtime_prelude::emit_entries(
+        &mut writer,
+        smelt_runtime::order::CONSOLE_INSPECT,
+        mir,
+        context,
+    )?;
     let mut text = writer.finish();
     let records = inspect_records(mir, context);
     let mut ordered = records.iter().collect::<Vec<_>>();
     ordered.sort_by(|left, right| left.1.rust_name.cmp(&right.1.rust_name));
     for (symbol, record) in ordered {
-        let Some(record_index) = mir.types.all().iter().position(|ty| {
-            matches!(ty, Type::Class { name, args } if name == symbol && args.is_empty())
-        }) else {
+        let Some(record_index) = mir.types.all().iter().position(
+            |ty| matches!(ty, Type::Class { name, args } if name == symbol && args.is_empty()),
+        ) else {
             continue;
         };
-        let record_ty = TypeId(compact_index(record_index, "record type index does not fit u32")?);
+        let record_ty = TypeId(compact_index(
+            record_index,
+            "record type index does not fit u32",
+        )?);
         if !emitter.inspectable_in(record_ty, &records, &mut HashSet::new()) {
             continue;
         }
@@ -350,15 +370,23 @@ impl FunctionEmitter<'_> {
     /// hash-map dicts and primitive sets of such values.
     pub(super) fn type_has_py_repr(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None) => true,
+            Some(
+                Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None,
+            ) => true,
             Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
-            Some(Type::Tuple(items)) => !items.is_empty() && items.len() <= 6 && items.iter().all(|item| self.type_has_py_repr(*item)),
+            Some(Type::Tuple(items)) => {
+                !items.is_empty()
+                    && items.len() <= 6
+                    && items.iter().all(|item| self.type_has_py_repr(*item))
+            }
             Some(Type::Dict(key, value)) => {
                 !self.dict_uses_js_key_map(*key)
                     && self.type_has_py_repr(*key)
                     && self.type_has_py_repr(*value)
             }
-            Some(Type::Set(item)) => self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item),
+            Some(Type::Set(item)) => {
+                self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item)
+            }
             _ => self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty),
         }
     }
@@ -369,25 +397,37 @@ impl FunctionEmitter<'_> {
     fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         let item = RustExpr::path("smelt_item");
         Some(match self.mir.types.get(ty)? {
-            Type::String | Type::PyStr => RustExpr::chain(format!("smelt_py_str_repr({reference})", reference = reference.delimited())),
-            Type::Int => RustExpr::chain(format!("({reference}).to_string()", reference = reference.delimited())),
+            Type::String | Type::PyStr => RustExpr::chain(format!(
+                "smelt_py_str_repr({reference})",
+                reference = reference.delimited()
+            )),
+            Type::Int => RustExpr::chain(format!(
+                "({reference}).to_string()",
+                reference = reference.delimited()
+            )),
             Type::Float => RustExpr::chain(format!(
                 "{}({reference})",
-                smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN, reference = reference.delimited()
+                smelt_stdlib::runtime_symbols::number_text::PY_FLOAT_REPR_FN,
+                reference = reference.delimited()
             )),
             Type::Bool => RustExpr::atom(format!(
-                "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()", reference = reference.tight()
+                "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()",
+                reference = reference.tight()
             )),
             Type::Optional(inner) => {
                 let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::atom(format!(
-                    "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}", reference = reference.delimited(), inner_repr = inner_repr.delimited()
+                    "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}",
+                    reference = reference.delimited(),
+                    inner_repr = inner_repr.delimited()
                 ))
             }
             Type::List(inner) => {
                 let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::chain(format!(
-                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner_repr}).collect::<Vec<String>>().join(\", \"))", reference = reference.delimited(), inner_repr = inner_repr.delimited()
+                    "format!(\"[{{}}]\", ({reference}).borrow().iter().map(|smelt_item| {inner_repr}).collect::<Vec<String>>().join(\", \"))",
+                    reference = reference.delimited(),
+                    inner_repr = inner_repr.delimited()
                 ))
             }
             Type::Tuple(members) => {
@@ -395,8 +435,14 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, member)| {
-                        self.python_repr_expr(&RustExpr::atom(format!("&({reference}).{index}", reference = reference.delimited())), *member)
-                            .map(RustExpr::into_string)
+                        self.python_repr_expr(
+                            &RustExpr::atom(format!(
+                                "&({reference}).{index}",
+                                reference = reference.delimited()
+                            )),
+                            *member,
+                        )
+                        .map(RustExpr::into_string)
                     })
                     .collect::<Option<Vec<_>>>()?;
                 let trailing = if parts.len() == 1 { "," } else { "" };
@@ -450,7 +496,10 @@ impl FunctionEmitter<'_> {
             // `Debug` (`["a", true, ()]`).
             Ok((
                 "{}",
-                format!("SmeltPyRepr::py_repr(&{})", self.operand_expr(operand)?.tight()),
+                format!(
+                    "SmeltPyRepr::py_repr(&{})",
+                    self.operand_expr(operand)?.tight()
+                ),
             ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's
@@ -506,7 +555,10 @@ impl FunctionEmitter<'_> {
             ))
         } else if absent == AbsentSpelling::None
             && matches!(self.mir.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
-            && let Some(repr) = self.python_repr_expr(&RustExpr::atom(format!("&{}", self.operand_expr(operand)?.tight())), ty)
+            && let Some(repr) = self.python_repr_expr(
+                &RustExpr::atom(format!("&{}", self.operand_expr(operand)?.tight())),
+                ty,
+            )
         {
             Ok(("{}", repr.into_string()))
         } else if matches!(
@@ -518,12 +570,16 @@ impl FunctionEmitter<'_> {
             // An `Optional<T>` prints the value INSIDE it, never the Rust
             // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
             // program output, which is a shape no JavaScript runtime prints.
-            Ok(("{}", self.console_optional_expr(operand, absent)?.into_string()))
+            Ok((
+                "{}",
+                self.console_optional_expr(operand, absent)?.into_string(),
+            ))
         } else if matches!(self.mir.types.get(ty), Some(Type::BigInt)) {
             // `console.log(10n)` prints `10n`: the console shows a bigint with
             // its suffix, where `String(10n)` (and a template) is `"10"`.
             Ok(("{}n", self.operand_expr(operand)?.into_string()))
-        } else if absent == AbsentSpelling::None && matches!(self.mir.types.get(ty), Some(Type::Int))
+        } else if absent == AbsentSpelling::None
+            && matches!(self.mir.types.get(ty), Some(Type::Int))
         {
             // Python's `int` is an integer, not a JavaScript number: `print`
             // writes its decimal digits, exactly (no `f64` round trip).
@@ -559,7 +615,10 @@ impl FunctionEmitter<'_> {
                     fn_name = smelt_stdlib::runtime_symbols::number_text::CONSOLE_NUMBER_FN,
                 ),
             ))
-        } else if matches!(self.mir.types.get(ty), Some(Type::Bool | Type::String | Type::PyStr | Type::Unknown)) {
+        } else if matches!(
+            self.mir.types.get(ty),
+            Some(Type::Bool | Type::String | Type::PyStr | Type::Unknown)
+        ) {
             // These render through their own `Display` impl, which matches
             // JavaScript: a bool and a string print as themselves, and
             // `Display for SmeltUnknown` routes its number tag through the
@@ -585,7 +644,11 @@ impl FunctionEmitter<'_> {
             // the text here is not always a `SmeltUnknown` (a typed-array
             // element read is an `f64`), and none of the shapes that reach this
             // arm is a number needing the `-0` spelling.
-            Ok(("{}", self.erase_rendered(&self.operand_expr(operand)?, ty)?.into_string()))
+            Ok((
+                "{}",
+                self.erase_rendered(&self.operand_expr(operand)?, ty)?
+                    .into_string(),
+            ))
         }
     }
 
@@ -632,7 +695,8 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "match &{} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
             self.operand_expr(operand)?.tight(),
-            absent.text(), present = present.delimited()
+            absent.text(),
+            present = present.delimited()
         )))
     }
 
@@ -654,13 +718,19 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(ty),
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
         ) {
-            return Ok(RustExpr::atom(format!("format!(\"{{:?}}\", {value_text})", value_text = value_text.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "format!(\"{{:?}}\", {value_text})",
+                value_text = value_text.delimited()
+            )));
         }
         if matches!(
             self.mir.types.get(ty),
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown)
         ) {
-            return Ok(RustExpr::atom(format!("format!(\"{{}}\", {value_text})", value_text = value_text.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "format!(\"{{}}\", {value_text})",
+                value_text = value_text.delimited()
+            )));
         }
         // A nested optional recurses, so `Array<string | undefined>`'s element
         // prints its own inner value rather than a wrapper.
@@ -668,12 +738,17 @@ impl FunctionEmitter<'_> {
             let present = self.console_value(value_text, inner, absent)?;
             return Ok(RustExpr::atom(format!(
                 "match {value_text} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
-                absent.text(), value_text = value_text.delimited(), present = present.delimited()
+                absent.text(),
+                value_text = value_text.delimited(),
+                present = present.delimited()
             )));
         }
         // Every remaining non-`Display` type takes the same erasure route the
         // top-level argument takes.
         let erased = self.erase_rendered(&value_text.cloned_value(), ty)?;
-        Ok(RustExpr::atom(format!("format!(\"{{}}\", {erased})", erased = erased.delimited())))
+        Ok(RustExpr::atom(format!(
+            "format!(\"{{}}\", {erased})",
+            erased = erased.delimited()
+        )))
     }
 }

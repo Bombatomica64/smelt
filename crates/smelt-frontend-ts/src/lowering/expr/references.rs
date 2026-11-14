@@ -1,17 +1,18 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::peel::{Wrappers, peel};
-use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
 use crate::lowering::resolve::{HostGlobal, ValueBinding};
+use crate::lowering::{ConstCollectionItem, ConstCollectionValue, ModuleBuilder, ambient_globals};
 use crate::{SmeltError, camel_to_snake};
 use oxc::ast::ast::{Expression, Statement};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
-    AsyncOp, Body, ConstItem, ErasureReason, Expr, ExprKind, FileId, Function, FunctionOwner, FunctionType, Item,
-    Literal, LocalDecl, NumericPredicateOp, Param, PrimitiveCastOp, Span, Stmt, Type,
+    AsyncOp, Body, ConstItem, ErasureReason, Expr, ExprKind, FileId, Function, FunctionOwner,
+    FunctionType, Item, Literal, LocalDecl, NumericPredicateOp, Param, PrimitiveCastOp, Span, Stmt,
+    Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -49,11 +50,10 @@ impl ModuleBuilder<'_> {
     /// generator keeps its reserved `smelt` spelling, which it moves a SOURCE
     /// name of the same text out of, so the two never meet.
     pub(in crate::lowering) fn intern_synthesized_name(&mut self, name: &str) -> smelt_hir::Symbol {
-        let symbol = self
-            .ctx
-            .krate
-            .symbols
-            .intern_synthesized_rendered(&smelt_hir::SynthesizedName::new(name), &camel_to_snake(name));
+        let symbol = self.ctx.krate.symbols.intern_synthesized_rendered(
+            &smelt_hir::SynthesizedName::new(name),
+            &camel_to_snake(name),
+        );
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
@@ -381,10 +381,7 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.node_process_value_expression(name, start, end, body) {
                 return Ok(expr);
             }
-            if matches!(
-                name,
-                "AbortSignal" | "process" | "require"
-            ) {
+            if matches!(name, "AbortSignal" | "process" | "require") {
                 let ty = self.erase_with(ErasureReason::ByName, "ambient global");
                 return self.module_global_expression(name, ty, start, end, body);
             }
@@ -516,7 +513,13 @@ impl ModuleBuilder<'_> {
             && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
             && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
         {
-            return Ok(Self::projected_optional_arm(local, inner, ty, self.span(start, end), body));
+            return Ok(Self::projected_optional_arm(
+                local,
+                inner,
+                ty,
+                self.span(start, end),
+                body,
+            ));
         }
         Ok(local_expr)
     }
@@ -530,8 +533,19 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let payload = body.push_expr(Expr { kind: ExprKind::Local(local), ty: inner, span });
-        body.push_expr(Expr { kind: ExprKind::UnknownCast { value: payload, target: ty }, ty, span })
+        let payload = body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty: inner,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: payload,
+                target: ty,
+            },
+            ty,
+            span,
+        })
     }
 
     /// The list a method reads: `receiver`, or the arm a narrowing proved when
@@ -545,27 +559,38 @@ impl ModuleBuilder<'_> {
         receiver: smelt_hir::ExprId,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let Some((local, ty, span)) = body.expr_at(receiver)
-            .and_then(|expr| match expr.kind {
-                ExprKind::Local(local) => Some((local, expr.ty, expr.span)),
-                _ => None,
-            })
-        else {
+        let Some((local, ty, span)) = body.expr_at(receiver).and_then(|expr| match expr.kind {
+            ExprKind::Local(local) => Some((local, expr.ty, expr.span)),
+            _ => None,
+        }) else {
             return receiver;
         };
         let base_ty = Self::local_ty(body, local);
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
-            && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_) | Type::Unknown))
-            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
+            && matches!(
+                self.ctx.krate.types.get(inner),
+                Some(Type::Union(_) | Type::Unknown)
+            )
+            && matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::List(_) | Type::Tuple(_))
+            )
         {
             return Self::projected_optional_arm(local, inner, ty, span, body);
         }
         // A type parameter narrowed to a list: the method takes the list, not `T`.
-        if matches!(self.ctx.krate.types.get(base_ty), Some(Type::TypeParam { .. }))
-            && matches!(self.ctx.krate.types.get(ty), Some(Type::List(_) | Type::Tuple(_)))
-        {
+        if matches!(
+            self.ctx.krate.types.get(base_ty),
+            Some(Type::TypeParam { .. })
+        ) && matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::List(_) | Type::Tuple(_))
+        ) {
             return body.push_expr(Expr {
-                kind: ExprKind::UnknownCast { value: receiver, target: ty },
+                kind: ExprKind::UnknownCast {
+                    value: receiver,
+                    target: ty,
+                },
                 ty,
                 span,
             });
@@ -607,10 +632,7 @@ impl ModuleBuilder<'_> {
         // `body.params` is the positional parameters, optionally followed by the
         // rest parameter, so exactly one of these two lengths belongs to the
         // function that owns this `arguments`.
-        if matches!(
-            body.params.len().checked_sub(argument_count),
-            Some(0 | 1)
-        ) {
+        if matches!(body.params.len().checked_sub(argument_count), Some(0 | 1)) {
             let has_rest = body.params.len() > argument_count;
             let param_locals = body.params.clone();
             let mut fixed = Vec::with_capacity(argument_count);
@@ -818,7 +840,23 @@ impl ModuleBuilder<'_> {
             // `AsyncOp::SetTimeout` the direct-call lowering emits, so the value
             // form schedules on the shared virtual-time timer queue and returns
             // the timer id.
-            "setTimeout" => self.builtin_set_timeout_value_closure_expression(span, outer_body),
+            "setTimeout" => {
+                self.builtin_timer_value_closure_expression(AsyncOp::SetTimeout, span, outer_body)
+            }
+            // The other timer functions escape the same way (`const every =
+            // setInterval`), each as a closure over the op its direct call
+            // lowers to.
+            "setInterval" => {
+                self.builtin_timer_value_closure_expression(AsyncOp::SetInterval, span, outer_body)
+            }
+            "clearTimeout" => {
+                self.builtin_timer_value_closure_expression(AsyncOp::ClearTimeout, span, outer_body)
+            }
+            "clearInterval" => self.builtin_timer_value_closure_expression(
+                AsyncOp::ClearInterval,
+                span,
+                outer_body,
+            ),
             _ => return None,
         })
     }
@@ -925,86 +963,79 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Build the `(callback, delayMs) => setTimeout(callback, delayMs)` closure
-    /// used when `setTimeout` escapes as a first-class value.
+    /// Build the closure a timer function escapes as when it is used as a
+    /// value: `(callback, delayMs) => setTimeout(callback, delayMs)` for
+    /// `setTimeout`/`setInterval`, `(timer) => clearTimeout(timer)` for
+    /// `clearTimeout`/`clearInterval`.
     ///
-    /// The closure body runs the same `AsyncOp::SetTimeout` the direct-call
-    /// timer lowering produces, so a call through the value registers on the
-    /// shared virtual-time timer queue and returns the erased timer id. The
-    /// callback parameter is `unknown` (the timer emitter dispatches erased
-    /// callables), and the delay parameter is a concrete number.
-    fn builtin_set_timeout_value_closure_expression(
+    /// The closure body runs the same `AsyncOp` the direct call lowers to, so
+    /// a call through the value registers on (or cancels from) the shared
+    /// virtual-time timer queue, and the module schedules its exit drain for
+    /// it. The callback and the timer id are `unknown` (the timer emitter
+    /// dispatches erased callables and handles), and the delay is a number.
+    fn builtin_timer_value_closure_expression(
         &mut self,
+        op: AsyncOp,
         span: Span,
         outer_body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let unknown_ty = self.erase_with(ErasureReason::ByName, "setTimeout value");
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "timer function value");
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback_name = self.intern_source_name("callback");
-        let delay_name = self.intern_source_name("delayMs");
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let arms = matches!(op, AsyncOp::SetTimeout | AsyncOp::SetInterval);
+        let declared: Vec<(&str, smelt_hir::TypeId)> = if arms {
+            vec![("callback", unknown_ty), ("delayMs", float_ty)]
+        } else {
+            vec![("timer", unknown_ty)]
+        };
+        let return_ty = if arms { unknown_ty } else { none_ty };
         let mut closure_body = Body::new(None, span);
-        let callback_local = closure_body.push_local(LocalDecl {
-            name: Some(callback_name),
-            ty: unknown_ty,
-            mutable: false,
-            span,
-        });
-        let delay_local = closure_body.push_local(LocalDecl {
-            name: Some(delay_name),
-            ty: float_ty,
-            mutable: false,
-            span,
-        });
-        closure_body.params.push(callback_local);
-        closure_body.params.push(delay_local);
-        let callback_expr = closure_body.push_expr(Expr {
-            kind: ExprKind::Local(callback_local),
-            ty: unknown_ty,
-            span,
-        });
-        let delay_expr = closure_body.push_expr(Expr {
-            kind: ExprKind::Local(delay_local),
-            ty: float_ty,
-            span,
-        });
+        let mut params = Vec::with_capacity(declared.len());
+        let mut args = Vec::with_capacity(declared.len());
+        for (name, ty) in declared {
+            let name = self.intern_source_name(name);
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(name),
+                ty,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            args.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span,
+            }));
+            params.push(Param {
+                name,
+                local,
+                ty,
+                span,
+            });
+        }
+        let param_tys = params.iter().map(|param| param.ty).collect();
         let result = closure_body.push_expr(Expr {
-            kind: ExprKind::AsyncOp {
-                op: AsyncOp::SetTimeout,
-                args: vec![callback_expr, delay_expr],
-            },
-            ty: unknown_ty,
+            kind: ExprKind::AsyncOp { op, args },
+            ty: return_ty,
             span,
         });
         closure_body.push_stmt(Stmt::Return(Some(result)));
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![unknown_ty, float_ty],
+            params: param_tys,
             rest: None,
             required_params: None,
             mutable_params: Vec::new(),
-            return_ty: unknown_ty,
+            return_ty,
             is_async: false,
             may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
-                params: vec![
-                    Param {
-                        name: callback_name,
-                        local: callback_local,
-                        ty: unknown_ty,
-                        span,
-                    },
-                    Param {
-                        name: delay_name,
-                        local: delay_local,
-                        ty: float_ty,
-                        span,
-                    },
-                ],
+                params,
                 rest: None,
                 required_params: None,
-                return_ty: unknown_ty,
+                return_ty,
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
@@ -1118,10 +1149,7 @@ impl ModuleBuilder<'_> {
     /// the qualified one (`globalThis.crypto.subtle`). A name the module
     /// declares or imports shadows the global and answers `None`, so a local
     /// `const crypto = …` keeps its own meaning.
-    fn builtin_namespace_receiver_name(
-        &self,
-        receiver: &Expression<'_>,
-    ) -> Option<String> {
+    fn builtin_namespace_receiver_name(&self, receiver: &Expression<'_>) -> Option<String> {
         match receiver {
             Expression::Identifier(identifier) => {
                 let name = identifier.name.as_str();
@@ -1209,7 +1237,8 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         });
-        let version_entry = string_entry("version", smelt_stdlib::NODE_PROFILE_VERSION_STRING, body);
+        let version_entry =
+            string_entry("version", smelt_stdlib::NODE_PROFILE_VERSION_STRING, body);
         let object = body.push_expr(Expr {
             kind: ExprKind::DictLit(vec![version_entry, (versions_key, versions)]),
             ty: dict_ty,
@@ -1322,8 +1351,7 @@ impl ModuleBuilder<'_> {
         &self,
         expression: &Expression<'_>,
     ) -> bool {
-        let Expression::LogicalExpression(clause) = peel(expression, Wrappers::Parens)
-        else {
+        let Expression::LogicalExpression(clause) = peel(expression, Wrappers::Parens) else {
             return false;
         };
         if clause.operator != LogicalOperator::And {
@@ -1334,8 +1362,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         // Left operand must be `typeof <same-alias> === 'object'`.
-        let Expression::BinaryExpression(guard) = peel(&clause.left, Wrappers::Parens)
-        else {
+        let Expression::BinaryExpression(guard) = peel(&clause.left, Wrappers::Parens) else {
             return false;
         };
         if !matches!(
@@ -1493,21 +1520,33 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let extra: &[(&str, smelt_hir::TypeId)] = if with_radix { &[("radix", float_ty)] } else { &[] };
+        let extra: &[(&str, smelt_hir::TypeId)] = if with_radix {
+            &[("radix", float_ty)]
+        } else {
+            &[]
+        };
         let int_ty = self.ctx.krate.types.intern(Type::Int);
-        self.builtin_closure_expression(("value", string_ty), extra, float_ty, span, outer_body, false, |body, value, extra_reads| {
-            let radix = extra_reads.first().copied().unwrap_or_else(|| {
-                body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::Int(0)),
-                    ty: int_ty,
-                    span,
-                })
-            });
-            ExprKind::ParseIntRadix {
-                operand: value,
-                radix,
-            }
-        })
+        self.builtin_closure_expression(
+            ("value", string_ty),
+            extra,
+            float_ty,
+            span,
+            outer_body,
+            false,
+            |body, value, extra_reads| {
+                let radix = extra_reads.first().copied().unwrap_or_else(|| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Int(0)),
+                        ty: int_ty,
+                        span,
+                    })
+                });
+                ExprKind::ParseIntRadix {
+                    operand: value,
+                    radix,
+                }
+            },
+        )
     }
 
     /// Build a `(value) => <NumericPredicate op>(value)` closure value.
@@ -1592,30 +1631,35 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let mut closure_body = Body::new(None, span);
         let mut closure_params = Vec::with_capacity(extra.len() + 1);
-        let mut push_param = |this: &mut Self, param_body: &mut Body, (source_name, ty): (&str, smelt_hir::TypeId)| {
-            let name = this.intern_source_name(source_name);
-            let local = param_body.push_local(LocalDecl {
-                name: Some(name),
-                ty,
-                mutable: false,
-                span,
-            });
-            param_body.params.push(local);
-            closure_params.push(Param {
-                name,
-                local,
-                ty,
-                span,
-            });
-            param_body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span,
-            })
-        };
+        let mut push_param =
+            |this: &mut Self,
+             param_body: &mut Body,
+             (source_name, ty): (&str, smelt_hir::TypeId)| {
+                let name = this.intern_source_name(source_name);
+                let local = param_body.push_local(LocalDecl {
+                    name: Some(name),
+                    ty,
+                    mutable: false,
+                    span,
+                });
+                param_body.params.push(local);
+                closure_params.push(Param {
+                    name,
+                    local,
+                    ty,
+                    span,
+                });
+                param_body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty,
+                    span,
+                })
+            };
         let first_read = push_param(self, &mut closure_body, first);
-        let extra_reads: Vec<smelt_hir::ExprId> =
-            extra.iter().map(|&param| push_param(self, &mut closure_body, param)).collect();
+        let extra_reads: Vec<smelt_hir::ExprId> = extra
+            .iter()
+            .map(|&param| push_param(self, &mut closure_body, param))
+            .collect();
         let kind = make_body(&mut closure_body, first_read, &extra_reads);
         let result = closure_body.push_expr(Expr {
             kind,
@@ -1625,7 +1669,10 @@ impl ModuleBuilder<'_> {
         closure_body.push_stmt(Stmt::Return(Some(result)));
         let body = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: std::iter::once(first).chain(extra.iter().copied()).map(|(_, ty)| ty).collect(),
+            params: std::iter::once(first)
+                .chain(extra.iter().copied())
+                .map(|(_, ty)| ty)
+                .collect(),
             rest: None,
             required_params: None,
             mutable_params: Vec::new(),
@@ -1866,7 +1913,9 @@ impl ModuleBuilder<'_> {
         // INTERSECTION ALIAS (`type C = A & B` lowers to a nominal class), for
         // which the empty record is the existing representation and changing it
         // is not what this fixes.
-        if let Some(Type::Class { name: class_name, .. }) = self.ctx.krate.types.get(ty)
+        if let Some(Type::Class {
+            name: class_name, ..
+        }) = self.ctx.krate.types.get(ty)
             && self.stdlib_class_of_type(ty).is_some()
             && !self.ambient_value_declarations.contains(name)
         {
@@ -2252,15 +2301,14 @@ impl ModuleBuilder<'_> {
         expr_id: smelt_hir::ExprId,
         target_body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let expr = source_body.expr_at(expr_id)
-            .cloned()
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    source_body.block_at(source_body.root)
-                        .map_or(Span::new(FileId(0), 0, 0), |block| block.span),
-                    "const expression is missing",
-                )
-            })?;
+        let expr = source_body.expr_at(expr_id).cloned().ok_or_else(|| {
+            SmeltError::unsupported(
+                source_body
+                    .block_at(source_body.root)
+                    .map_or(Span::new(FileId(0), 0, 0), |block| block.span),
+                "const expression is missing",
+            )
+        })?;
         if matches!(expr.kind, ExprKind::Local(_) | ExprKind::Block(_)) {
             return Err(SmeltError::unsupported(
                 expr.span,

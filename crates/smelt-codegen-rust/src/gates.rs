@@ -17,7 +17,9 @@ use crate::runtime_symbols_check;
 /// scan of text the emitter has just produced.
 ///
 /// [`runtime_demand`]: crate::runtime_demand
-pub(crate) fn assert_runtime_symbols_defined<'a>(sources: impl IntoIterator<Item = &'a str>) -> Result<(), EmitError> {
+pub(crate) fn assert_runtime_symbols_defined<'a>(
+    sources: impl IntoIterator<Item = &'a str>,
+) -> Result<(), EmitError> {
     let undefined = runtime_symbols_check::undefined_runtime_symbols(sources);
     if undefined.is_empty() {
         return Ok(());

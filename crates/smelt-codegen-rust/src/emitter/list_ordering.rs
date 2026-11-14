@@ -1,7 +1,7 @@
 //! List ordering and slicing emission helpers.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Converts a list sorted-copy operation to Rust text.
@@ -38,15 +38,20 @@ impl FunctionEmitter<'_> {
         if key.is_some() || reverse {
             let (prefix, closure) = self.list_sort_by(key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
-                "{{ {prefix}let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by({closure}); smelt_sorted }}", list_text = list_text.tight()
+                "{{ {prefix}let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by({closure}); smelt_sorted }}",
+                list_text = list_text.tight()
             )));
         }
         match self.mir.types.get(element_ty) {
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
-                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort(); smelt_sorted }}", list_text = list_text.tight()
-            ))),
+            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+                Ok(RustExpr::atom(format!(
+                    "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort(); smelt_sorted }}",
+                    list_text = list_text.tight()
+                )))
+            }
             Some(Type::Float) => Ok(RustExpr::atom(format!(
-                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"sorted incomparable float\")); smelt_sorted }}", list_text = list_text.tight()
+                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"sorted incomparable float\")); smelt_sorted }}",
+                list_text = list_text.tight()
             ))),
             _ => Err(EmitError::new(
                 "sorted() supports bool, int, float, and string lists",
@@ -82,8 +87,18 @@ impl FunctionEmitter<'_> {
                 ""
             };
             let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
-            let left_arg = self.rendered_at_type(&RustExpr::path("smelt_left").cloned_value(), element_ty, param_ty, &self.render_scope())?;
-            let right_arg = self.rendered_at_type(&RustExpr::path("smelt_right").cloned_value(), element_ty, param_ty, &self.render_scope())?;
+            let left_arg = self.rendered_at_type(
+                &RustExpr::path("smelt_left").cloned_value(),
+                element_ty,
+                param_ty,
+                &self.render_scope(),
+            )?;
+            let right_arg = self.rendered_at_type(
+                &RustExpr::path("smelt_right").cloned_value(),
+                element_ty,
+                param_ty,
+                &self.render_scope(),
+            )?;
             let closure_expr = match self.closure_operand_expr_for_declared_type(key_operand) {
                 Ok(closure_expr) => closure_expr,
                 Err(_) => self.operand_expr(key_operand)?,
@@ -97,16 +112,23 @@ impl FunctionEmitter<'_> {
                 Some(Type::Float) => format!(
                     "{first}.partial_cmp(&{second}).expect(\"sort key incomparable float\")"
                 ),
-                Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => format!("{first}.cmp(&{second})"),
+                Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+                    format!("{first}.cmp(&{second})")
+                }
                 _ => {
                     return Err(EmitError::new(
                         "sort key must return bool, int, float, or string",
                     ));
                 }
             };
-            let prefix = format!("let mut smelt_sort_key = {closure_expr}; ", closure_expr = closure_expr.delimited());
+            let prefix = format!(
+                "let mut smelt_sort_key = {closure_expr}; ",
+                closure_expr = closure_expr.delimited()
+            );
             let closure = format!(
-                "|smelt_left, smelt_right| {{ let smelt_left_key = (smelt_sort_key)({left_arg}){unwrap_throw}; let smelt_right_key = (smelt_sort_key)({right_arg}){unwrap_throw}; {comparison} }}", left_arg = left_arg.delimited(), right_arg = right_arg.delimited()
+                "|smelt_left, smelt_right| {{ let smelt_left_key = (smelt_sort_key)({left_arg}){unwrap_throw}; let smelt_right_key = (smelt_sort_key)({right_arg}){unwrap_throw}; {comparison} }}",
+                left_arg = left_arg.delimited(),
+                right_arg = right_arg.delimited()
             );
             return Ok((prefix, closure));
         }
@@ -119,14 +141,19 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => {
                 format!("{first}.partial_cmp({second}).expect(\"sort incomparable float\")")
             }
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => format!("{first}.cmp({second})"),
+            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+                format!("{first}.cmp({second})")
+            }
             _ => {
                 return Err(EmitError::new(
                     "sort supports bool, int, float, and string items",
                 ));
             }
         };
-        Ok((String::new(), format!("|smelt_left, smelt_right| {comparison}")))
+        Ok((
+            String::new(),
+            format!("|smelt_left, smelt_right| {comparison}"),
+        ))
     }
 
     /// Converts a reversed-copy list operation to Rust text.
@@ -147,7 +174,16 @@ impl FunctionEmitter<'_> {
                 "reversed() destination must match the input list type",
             ));
         }
-        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().rev().cloned().collect::<Vec<_>>()", receiver = receiver.tight())) })
+        Ok({
+            let receiver = list_read_expr(&self.operand_expr(list)?);
+            RustExpr::atom_on(
+                &receiver,
+                format!(
+                    "{receiver}.iter().rev().cloned().collect::<Vec<_>>()",
+                    receiver = receiver.tight()
+                ),
+            )
+        })
     }
 
     /// Converts list enumeration materialization to Rust text.
@@ -182,7 +218,11 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            let item_text = self.extract_rendered(&RustExpr::path("smelt_item"), *value_ty, &self.render_scope())?;
+            let item_text = self.extract_rendered(
+                &RustExpr::path("smelt_item"),
+                *value_ty,
+                &self.render_scope(),
+            )?;
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "match {}.clone() {{ SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_idx, smelt_item)| (smelt_idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
                 self.operand_expr(list)?.tight(), item_text = item_text.delimited()
@@ -196,7 +236,16 @@ impl FunctionEmitter<'_> {
                 "enumerate() destination must contain (int, item) tuples",
             ));
         }
-        Ok({ let receiver = list_read_expr(&self.operand_expr(list)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().cloned().enumerate().map(|(smelt_idx, smelt_item)| (smelt_idx as i64, smelt_item)).collect::<Vec<_>>()", receiver = receiver.tight())) })
+        Ok({
+            let receiver = list_read_expr(&self.operand_expr(list)?);
+            RustExpr::atom_on(
+                &receiver,
+                format!(
+                    "{receiver}.iter().cloned().enumerate().map(|(smelt_idx, smelt_item)| (smelt_idx as i64, smelt_item)).collect::<Vec<_>>()",
+                    receiver = receiver.tight()
+                ),
+            )
+        })
     }
 
     /// Converts Python `zip(left, right)` materialization to Rust text.
@@ -231,7 +280,17 @@ impl FunctionEmitter<'_> {
                 "zip() destination tuple items must match argument item types",
             ));
         }
-        Ok({ let receiver = list_read_expr(&self.operand_expr(left)?); RustExpr::atom_on(&receiver, format!("{receiver}.iter().cloned().zip({}.iter().cloned()).collect::<Vec<_>>()", list_read_expr(&self.operand_expr(right)?).tight(), receiver = receiver.tight())) })
+        Ok({
+            let receiver = list_read_expr(&self.operand_expr(left)?);
+            RustExpr::atom_on(
+                &receiver,
+                format!(
+                    "{receiver}.iter().cloned().zip({}.iter().cloned()).collect::<Vec<_>>()",
+                    list_read_expr(&self.operand_expr(right)?).tight(),
+                    receiver = receiver.tight()
+                ),
+            )
+        })
     }
 
     /// Converts a Python `range(...)` materialization to Rust text.
@@ -286,7 +345,8 @@ impl FunctionEmitter<'_> {
         // caller's list out of its binding.
         let list_text = self.operand_borrow_expr(list)?;
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_choice_items = &{list_text}; if smelt_choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} smelt_choice_items.borrow()[rand::random_range(0..smelt_choice_items.len())].clone() }}", list_text = list_text.tight()
+            "{{ let smelt_choice_items = &{list_text}; if smelt_choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} smelt_choice_items.borrow()[rand::random_range(0..smelt_choice_items.len())].clone() }}",
+            list_text = list_text.tight()
         )))
     }
 
@@ -313,7 +373,9 @@ impl FunctionEmitter<'_> {
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
                 return Ok(RustExpr::atom(format!(
-                    "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\")) }}", item_text = item_text.delimited(), list_text = list_text.tight()
+                    "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\")) }}",
+                    item_text = item_text.delimited(),
+                    list_text = list_text.tight()
                 )));
             }
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
@@ -321,7 +383,9 @@ impl FunctionEmitter<'_> {
             ))));
         }
         Ok(RustExpr::opaque(format!(
-            "{list_text}.iter().position(|smelt_item| smelt_item == &{item_text}).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\"))", list_text = list_text.tight(), item_text = item_text.tight()
+            "{list_text}.iter().position(|smelt_item| smelt_item == &{item_text}).map(|smelt_found| smelt_found as i64).ok_or_else(|| smelt_py_value_error(\"list.index(x): x not in list\"))",
+            list_text = list_text.tight(),
+            item_text = item_text.tight()
         )))
     }
 
@@ -372,7 +436,13 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         maybe_start.map_or_else(
             || Ok(RustExpr::chain("0usize")),
-            |bound| self.normalized_slice_bound_expr_with_default(bound, len_expr, &RustExpr::path("0.0")),
+            |bound| {
+                self.normalized_slice_bound_expr_with_default(
+                    bound,
+                    len_expr,
+                    &RustExpr::path("0.0"),
+                )
+            },
         )
     }
 
@@ -402,11 +472,17 @@ impl FunctionEmitter<'_> {
             Some(bound) => self.normalized_slice_bound_expr_with_default(
                 bound,
                 len_source,
-                &RustExpr::cast(format!("{len_source} as f64", len_source = len_source.as_cast_operand())),
+                &RustExpr::cast(format!(
+                    "{len_source} as f64",
+                    len_source = len_source.as_cast_operand()
+                )),
             )?,
             None => len_source.clone(),
         };
-        Ok(end_text.postfix(format!(".saturating_sub({start_text})", start_text = start_text.delimited())))
+        Ok(end_text.postfix(format!(
+            ".saturating_sub({start_text})",
+            start_text = start_text.delimited()
+        )))
     }
 
     /// Converts a possibly optional slice bound to a clamped Rust `usize` expression.
@@ -420,14 +496,24 @@ impl FunctionEmitter<'_> {
         let bound_ty = self.operand_ty(bound)?;
         let index_text = match self.mir.types.get(bound_ty) {
             Some(&Type::Optional(item)) => match self.mir.types.get(item) {
-                Some(Type::Int | Type::Float) => format!("{bound_text}.unwrap_or({default_text})", bound_text = bound_text.tight(), default_text = default_text.delimited()),
+                Some(Type::Int | Type::Float) => format!(
+                    "{bound_text}.unwrap_or({default_text})",
+                    bound_text = bound_text.tight(),
+                    default_text = default_text.delimited()
+                ),
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                     // A concrete-union `Option` payload projects each present
                     // value back to `SmeltUnknown` before the erased number match.
                     let unwrapped = if self.concrete_union_members(item).is_some() {
                         self.carrier_format(self.carrier()?, format_args!("{bound_text}.map(|smelt_value| smelt_value.into_smelt_unknown()).unwrap_or(SmeltUnknown::Null)", bound_text = bound_text.tight()))
                     } else {
-                        self.carrier_format(self.carrier()?, format_args!("{bound_text}.unwrap_or(SmeltUnknown::Null)", bound_text = bound_text.tight()))
+                        self.carrier_format(
+                            self.carrier()?,
+                            format_args!(
+                                "{bound_text}.unwrap_or(SmeltUnknown::Null)",
+                                bound_text = bound_text.tight()
+                            ),
+                        )
                     };
                     self.carrier_format(self.carrier()?, format_args!(
                         "match {unwrapped} {{ SmeltUnknown::Number(smelt_value) => smelt_value, _ => {default_text} }}", default_text = default_text.delimited()
@@ -444,7 +530,8 @@ impl FunctionEmitter<'_> {
             _ => bound_text.into_string(),
         };
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; if smelt_index < 0 {{ (smelt_len + smelt_index).clamp(0, smelt_len) as usize }} else {{ smelt_index.clamp(0, smelt_len) as usize }} }}", len_expr = len_expr.as_cast_operand()
+            "{{ let smelt_len = {len_expr} as i64; let smelt_index = {index_text} as i64; if smelt_index < 0 {{ (smelt_len + smelt_index).clamp(0, smelt_len) as usize }} else {{ smelt_index.clamp(0, smelt_len) as usize }} }}",
+            len_expr = len_expr.as_cast_operand()
         )))
     }
 

@@ -79,9 +79,13 @@ fn unknown_index_signature_is_open_layout() -> Result<(), String> {
 /// with any other member keeps its record shape.
 #[test]
 fn object_prototype_surface_is_open_layout() -> Result<(), String> {
-    let source = ts!("function f(a: { valueOf: () => number }): void {\n  console.log(a);\n}\nf(new Date());\n");
+    let source = ts!(
+        "function f(a: { valueOf: () => number }): void {\n  console.log(a);\n}\nf(new Date());\n"
+    );
     assert_recorded(source, ErasureReason::OpenLayout, 1, 15)?;
-    let typed = ts!("function g(a: { valueOf(): number; label: string }): void {\n  console.log(a);\n}\ng({ valueOf: () => 1, label: 'x' });\n");
+    let typed = ts!(
+        "function g(a: { valueOf(): number; label: string }): void {\n  console.log(a);\n}\ng({ valueOf: () => 1, label: 'x' });\n"
+    );
     assert_not_recorded(typed, ErasureReason::OpenLayout)
 }
 
@@ -121,7 +125,10 @@ fn symbol_keyword_is_a_modeled_type() -> Result<(), String> {
         "function f(s: symbol, k: PropertyKey): void {\n  console.log(typeof s, typeof k);\n}\nf(Symbol('x'), Symbol.for('y'));\n"
     );
     let found = records(source)?;
-    ensure!(found.is_empty(), "a symbol program must record no erasure, recorded {found:?}");
+    ensure!(
+        found.is_empty(),
+        "a symbol program must record no erasure, recorded {found:?}"
+    );
     Ok(())
 }
 
@@ -133,7 +140,9 @@ fn conditional_type_is_type_level() -> Result<(), String> {
     );
     let found = records(source)?;
     ensure!(
-        found.iter().any(|(reason, ..)| *reason == ErasureReason::TypeLevel),
+        found
+            .iter()
+            .any(|(reason, ..)| *reason == ErasureReason::TypeLevel),
         "expected a TypeLevel record, recorded {found:?}"
     );
     Ok(())
@@ -184,7 +193,6 @@ fn as_any_is_explicit_any() -> Result<(), String> {
     assert_recorded(source, ErasureReason::ExplicitAny, 1, 55)
 }
 
-
 /// A join that drops a concrete arm's shape is a recorded decision (audit
 /// finding A12): `c ? n : x` with `n: number` and `x: unknown` erases the
 /// number arm, which used to widen without a record.
@@ -195,11 +203,11 @@ fn a_join_that_erases_a_concrete_arm_is_recorded() -> Result<(), String> {
     );
     let found = records(source)?;
     ensure!(
-        found
-            .iter()
-            .any(|(reason, line, _, detail)| *reason == ErasureReason::DynamicOperator
+        found.iter().any(
+            |(reason, line, _, detail)| *reason == ErasureReason::DynamicOperator
                 && *line == 2
-                && detail == "join with an erased operand"),
+                && detail == "join with an erased operand"
+        ),
         "expected the join to record DynamicOperator on line 2, recorded {found:?}"
     );
     Ok(())

@@ -20,7 +20,9 @@ export function callVoid(): unknown {
     );
 
     assert!(
-        source.contains("; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }"),
+        source.contains(
+            "; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Undefined) }"
+        ),
         "void callback erasure must yield SmeltUnknown::Undefined, not Null"
     );
 }
@@ -187,7 +189,9 @@ export function erase(value: Alpha): unknown {
     // Threading the name through the sentinel is the remaining half of class
     // identity and is tracked separately.
     assert!(
-        !source.contains("smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))"),
+        !source.contains(
+            "smelt_object_entries.insert(\"__smelt_class\".to_owned(), SmeltUnknown::Bool(true))"
+        ),
         "the erased-instance class marker must not be a nameless boolean: {source}"
     );
     // Interned by name, so two reads for one class are `===` and two classes are not.
@@ -238,7 +242,10 @@ console.log(result);
         source.contains("_smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: JsString| {"),
         "{source}"
     );
-    assert!(source.contains("match closure_arg_0.to_string_lossy().as_str() {"), "{source}");
+    assert!(
+        source.contains("match closure_arg_0.to_string_lossy().as_str() {"),
+        "{source}"
+    );
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("JsString::from(\"Waiting\")"));
     assert!(source.contains("_ => {"));
@@ -398,13 +405,12 @@ fn injects_genawaiter_dependency_for_generator_emission() {
         "genawaiter emission must also emit the generator runtime prelude: {source}"
     );
 
-    let manifest =
-        deps::cargo_toml(
-            &EmitOptions::default().crate_name,
-            &generated_deps(&RuntimeDemand::of(&mir)),
-            GeneratedAllocator::System,
-            &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
-        );
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &generated_deps(&RuntimeDemand::of(&mir)),
+        GeneratedAllocator::System,
+        &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
+    );
     assert!(
         manifest.contains("genawaiter = \"0.99.1\""),
         "a crate that emits genawaiter bodies must declare the dependency: {manifest}"
@@ -475,7 +481,7 @@ fn generator_in_erased_slot_erases_through_into_smelt_unknown() {
         "erased-slot generator must erase through IntoSmeltUnknown: {source}"
     );
     assert!(
-        source.contains("impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N>"),
+        source.contains("impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + Default + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N>"),
         "prelude must define the generator boundary adapter: {source}"
     );
     // Consumers of an erased iterable must drain the iterator protocol the
@@ -495,9 +501,11 @@ fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
     // into a process abort, so the manifest must never carry it -- in any
     // profile, under any allocator or release-profile combination.
     for allocator in [GeneratedAllocator::System, GeneratedAllocator::Mimalloc] {
-        for release_profile in
-            [ReleaseProfile::Default, ReleaseProfile::Optimized, ReleaseProfile::WholeProgram]
-        {
+        for release_profile in [
+            ReleaseProfile::Default,
+            ReleaseProfile::Optimized,
+            ReleaseProfile::WholeProgram,
+        ] {
             let manifest = deps::cargo_toml(
                 &EmitOptions::default().crate_name,
                 &[GeneratedDep::Tokio, GeneratedDep::Genawaiter],
@@ -527,9 +535,15 @@ fn release_profiles_emit_their_lto_mode() {
         )
     };
     let optimized = manifest(ReleaseProfile::Optimized);
-    assert!(optimized.contains("[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n"), "{optimized}");
+    assert!(
+        optimized.contains("[profile.release]\nlto = \"thin\"\ncodegen-units = 1\n"),
+        "{optimized}"
+    );
     let whole_program = manifest(ReleaseProfile::WholeProgram);
-    assert!(whole_program.contains("[profile.release]\nlto = \"fat\"\ncodegen-units = 1\n"), "{whole_program}");
+    assert!(
+        whole_program.contains("[profile.release]\nlto = \"fat\"\ncodegen-units = 1\n"),
+        "{whole_program}"
+    );
     let stock = manifest(ReleaseProfile::Default);
     assert!(!stock.contains("[profile.release]"), "{stock}");
 }
@@ -604,4 +618,3 @@ export function outer(cb: (x: number) => number): number { return inner(cb); }
         "outer's callback param should be owned: {outer_sig}"
     );
 }
-

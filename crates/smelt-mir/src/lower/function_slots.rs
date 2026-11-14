@@ -69,7 +69,11 @@ impl FunctionSlots {
                 ))),
             }
         }
-        if errors.is_empty() { Ok(functions) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(functions)
+        } else {
+            Err(errors)
+        }
     }
 }
 
@@ -78,11 +82,17 @@ type FinishedTable = Result<Vec<MirFunction>, Vec<LowerError>>;
 
 /// A spanless lowering error about the function table.
 const fn slot_error(message: String) -> LowerError {
-    LowerError { message, span: None }
+    LowerError {
+        message,
+        span: None,
+    }
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used, reason = "test fixtures unwrap and index their own known-good shapes")]
+#[expect(
+    clippy::expect_used,
+    reason = "test fixtures unwrap and index their own known-good shapes"
+)]
 mod tests {
     //! The slot table refuses every way an id could stop matching a position.
 

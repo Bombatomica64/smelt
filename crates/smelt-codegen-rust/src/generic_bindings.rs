@@ -259,7 +259,10 @@ pub(crate) fn collect_bindings_from_types_in_scope(
 ) -> CalleeTypeParamBindings {
     let mut bindings = unbound_bindings(type_params);
     let own_params = type_params.iter().copied().collect::<HashSet<_>>();
-    let scope = MatchScope { own_params: &own_params, caller_generics };
+    let scope = MatchScope {
+        own_params: &own_params,
+        caller_generics,
+    };
     for (index, declared_ty) in declared.iter().enumerate() {
         let Some(Some(actual_ty)) = actual.get(index).copied() else {
             continue;
@@ -492,7 +495,9 @@ pub(crate) fn substitution_matches(
             .params
             .iter()
             .zip(&callback.params)
-            .all(|(slot_param, param)| substituted_type_id(mir, *slot_param, bindings) == Some(*param))
+            .all(|(slot_param, param)| {
+                substituted_type_id(mir, *slot_param, bindings) == Some(*param)
+            })
         && substituted_type_id(mir, slot.return_ty, bindings) == Some(callback.return_ty)
 }
 
@@ -504,13 +509,19 @@ pub(crate) fn substitution_matches(
 /// rest parameter (positions would stop corresponding), sync/async and
 /// throwing must agree, and a mutable (`&mut`) position must agree on every
 /// parameter the callback declares.
-pub(crate) fn callback_accepts_fewer_params(declared: &FunctionType, actual: &FunctionType) -> bool {
+pub(crate) fn callback_accepts_fewer_params(
+    declared: &FunctionType,
+    actual: &FunctionType,
+) -> bool {
     actual.params.len() < declared.params.len()
         && declared.rest.is_none()
         && actual.rest.is_none()
         && declared.is_async == actual.is_async
         && declared.may_throw == actual.may_throw
-        && actual.mutable_params.iter().all(|index| declared.mutable_params.contains(index))
+        && actual
+            .mutable_params
+            .iter()
+            .all(|index| declared.mutable_params.contains(index))
         && declared
             .mutable_params
             .iter()
@@ -540,9 +551,8 @@ pub(crate) fn operand_type(
         | Operand::Move(Place::Field { .. } | Place::Index { .. } | Place::Global { .. }) => {
             Err(BindingUnsupportedReason::ProjectedOperand)
         }
-        Operand::Const(constant) => {
-            literal_type(mir, caller.language, constant).ok_or(BindingUnsupportedReason::MissingLiteralType)
-        }
+        Operand::Const(constant) => literal_type(mir, caller.language, constant)
+            .ok_or(BindingUnsupportedReason::MissingLiteralType),
     }
 }
 
@@ -605,7 +615,10 @@ fn match_types(
     bindings: &mut CalleeTypeParamBindings,
 ) {
     let caller_generics = HashSet::new();
-    let scope = MatchScope { own_params, caller_generics: &caller_generics };
+    let scope = MatchScope {
+        own_params,
+        caller_generics: &caller_generics,
+    };
     match_types_in(mir, declared, actual, &scope, bindings);
 }
 
@@ -750,7 +763,10 @@ fn match_function_types(
     bindings: &mut CalleeTypeParamBindings,
 ) {
     if callback_accepts_fewer_params(declared, actual) {
-        let used = declared.params.get(..actual.params.len()).unwrap_or_default();
+        let used = declared
+            .params
+            .get(..actual.params.len())
+            .unwrap_or_default();
         match_type_slices(mir, used, &actual.params, scope, bindings);
         match_types_in(mir, declared.return_ty, actual.return_ty, scope, bindings);
         return;
@@ -784,7 +800,9 @@ fn match_function_types(
 fn visit_type_params(mir: &Mir, ty: TypeId, visit: &mut dyn FnMut(Symbol) -> bool) -> bool {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name }) => visit(*name),
-        Some(other) => other.children().any(|child| visit_type_params(mir, child, visit)),
+        Some(other) => other
+            .children()
+            .any(|child| visit_type_params(mir, child, visit)),
         None => false,
     }
 }
@@ -854,6 +872,7 @@ mod tests {
                     ty: *ty,
                     kind: LocalKind::Param { symbol: None },
                     span: span(),
+                    init: smelt_mir::LocalInit::Definite,
                 })
                 .collect(),
             blocks: Vec::new(),
@@ -1004,17 +1023,40 @@ mod tests {
         let symbol_ty = types.intern(Type::Symbol);
         let mir = mir_with_types(types);
 
-        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Bool(true)), Some(bool_ty));
-        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Int(1)), Some(int_ty));
-        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Float(1.0)), Some(float_ty));
         assert_eq!(
-            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::String("value".to_owned())),
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Bool(true)),
+            Some(bool_ty)
+        );
+        assert_eq!(
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Int(1)),
+            Some(int_ty)
+        );
+        assert_eq!(
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Float(1.0)),
+            Some(float_ty)
+        );
+        assert_eq!(
+            literal_type(
+                &mir,
+                smelt_hir::Language::TypeScript,
+                &Constant::String("value".to_owned())
+            ),
             Some(string_ty)
         );
-        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::None), Some(none_ty));
-        assert_eq!(literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Undefined), Some(none_ty));
         assert_eq!(
-            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Symbol("key".to_owned())),
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::None),
+            Some(none_ty)
+        );
+        assert_eq!(
+            literal_type(&mir, smelt_hir::Language::TypeScript, &Constant::Undefined),
+            Some(none_ty)
+        );
+        assert_eq!(
+            literal_type(
+                &mir,
+                smelt_hir::Language::TypeScript,
+                &Constant::Symbol("key".to_owned())
+            ),
             Some(symbol_ty)
         );
     }
@@ -1117,7 +1159,10 @@ mod tests {
 
         match_types(&mir, declared, actual, &own, &mut bindings);
 
-        assert_eq!(bindings.get(Symbol(0)), Some(TypeParamBinding::Concrete(string)));
+        assert_eq!(
+            bindings.get(Symbol(0)),
+            Some(TypeParamBinding::Concrete(string))
+        );
         assert!(substitution_matches(&mir, declared, actual, &bindings));
     }
 
@@ -1456,7 +1501,9 @@ mod tests {
 
         // Different constructor, different element, different class, different
         // arity: none of these is `List<T>` with `T = f64`.
-        assert!(!substitution_matches(&mir, list_param, set_float, &bindings));
+        assert!(!substitution_matches(
+            &mir, list_param, set_float, &bindings
+        ));
         assert!(!substitution_matches(
             &mir,
             list_param,
@@ -1558,10 +1605,7 @@ mod tests {
             };
             assert_eq!(substituted_type_id(&mir, list_param, &bindings), None);
             assert!(!substitution_matches(
-                &mir,
-                list_param,
-                list_float,
-                &bindings
+                &mir, list_param, list_float, &bindings
             ));
         }
 
@@ -1606,7 +1650,10 @@ mod tests {
         let mir = mir_with_types(types);
 
         let bound = bind_class_type_params(&mir, &[Symbol(0)], receiver);
-        assert_eq!(bound.get(Symbol(0)), Some(TypeParamBinding::Concrete(float)));
+        assert_eq!(
+            bound.get(Symbol(0)),
+            Some(TypeParamBinding::Concrete(float))
+        );
         assert!(bound.all_concrete());
 
         assert_eq!(
@@ -1644,5 +1691,4 @@ mod tests {
         assert_eq!(omitted.get(Symbol(0)), Some(TypeParamBinding::Unbound));
         assert!(!omitted.all_concrete());
     }
-
 }

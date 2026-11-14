@@ -10,9 +10,9 @@ use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
-    AssignmentTarget, BindingPattern, Body, Class, Declaration, Expression, Field,
-    Function, FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig,
-    Program, SmeltError, Span, Statement, Type, Visibility,
+    AssignmentTarget, BindingPattern, Body, Class, Declaration, Expression, Field, Function,
+    FunctionOwner, HashSet, Item, LocalDecl, MethodSig, ModuleBuilder, Param, ParamSig, Program,
+    SmeltError, Span, Statement, Type, Visibility,
 };
 use smelt_hir::ErasureReason;
 
@@ -57,7 +57,8 @@ impl ModuleBuilder<'_> {
         let mut constructed = HashSet::new();
         for statement in &program.body {
             constructed.extend(
-                crate::lowering::scoped_references::statement_name_uses(statement, &candidates).constructed,
+                crate::lowering::scoped_references::statement_name_uses(statement, &candidates)
+                    .constructed,
             );
         }
         constructed
@@ -69,9 +70,10 @@ impl ModuleBuilder<'_> {
         &self,
         function: &oxc::ast::ast::Function<'_>,
     ) -> bool {
-        function.id.as_ref().is_some_and(|id| {
-            self.classes.is_constructor_function(id.name.as_str())
-        })
+        function
+            .id
+            .as_ref()
+            .is_some_and(|id| self.classes.is_constructor_function(id.name.as_str()))
     }
 
     /// Iterate module top-level function declarations, including exported ones.
@@ -87,7 +89,6 @@ impl ModuleBuilder<'_> {
             _ => None,
         })
     }
-
 
     /// Collect `this.<name>` members assigned anywhere in a constructor body.
     ///
@@ -207,7 +208,11 @@ impl ModuleBuilder<'_> {
                 match self.infer_with_pinned_reads(value, reads, assumed) {
                     Some(ty) => all.push(ty),
                     None => {
-                        return self.erase_at(ErasureReason::MissingAnnotation, span, "constructor-function field");
+                        return self.erase_at(
+                            ErasureReason::MissingAnnotation,
+                            span,
+                            "constructor-function field",
+                        );
                     }
                 }
             }
@@ -217,7 +222,11 @@ impl ModuleBuilder<'_> {
             }
             assumed = joined;
         }
-        self.erase_at(ErasureReason::MissingAnnotation, span, "constructor-function field")
+        self.erase_at(
+            ErasureReason::MissingAnnotation,
+            span,
+            "constructor-function field",
+        )
     }
 
     /// The type `value` evaluates to with every node in `reads` read as a
@@ -238,8 +247,11 @@ impl ModuleBuilder<'_> {
             span: self.expression_span(value),
         });
         let pinned = self.pinned_nodes.len();
-        self.pinned_nodes.extend(reads.iter().map(|node| (*node, temp, assumed)));
-        let result = self.expression_with_hint(value, &mut body, None).map(|expr| Self::expr_ty(&body, expr));
+        self.pinned_nodes
+            .extend(reads.iter().map(|node| (*node, temp, assumed)));
+        let result = self
+            .expression_with_hint(value, &mut body, None)
+            .map(|expr| Self::expr_ty(&body, expr));
         self.pinned_nodes.truncate(pinned);
         self.roll_back_to(mark, &mut body);
         result.ok().filter(|ty| !self.type_contains_unknown(*ty))
@@ -271,6 +283,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_synthesized_prototype_assignment(
         &self,
         expression: &Expression<'_>,
+        body: &Body,
     ) -> bool {
         let Expression::AssignmentExpression(assign) = expression else {
             return false;
@@ -278,12 +291,22 @@ impl ModuleBuilder<'_> {
         let AssignmentTarget::StaticMemberExpression(member) = &assign.left else {
             return false;
         };
+        // The receiver must name the class, not the statics frame a
+        // per-evaluation class's name is bound to: a write through a frame is
+        // a real store into this evaluation's static field.
+        let names_class = |object: &str| {
+            self.classes.contains(object)
+                && self.scope.lookup(object).is_none_or(|local| {
+                    self.statics_frame_owner(Self::local_ty(body, local))
+                        .is_none()
+                })
+        };
         // `Foo.prototype.x = …`: receiver is `Foo.prototype`.
         if let Expression::StaticMemberExpression(prototype) = &member.object
             && prototype.property.name == "prototype"
             && matches!(
                 &prototype.object,
-                Expression::Identifier(object) if self.classes.contains(object.name.as_str())
+                Expression::Identifier(object) if names_class(object.name.as_str())
             )
         {
             return true;
@@ -297,7 +320,7 @@ impl ModuleBuilder<'_> {
         }
         matches!(
             &member.object,
-            Expression::Identifier(object) if self.classes.contains(object.name.as_str())
+            Expression::Identifier(object) if names_class(object.name.as_str())
         )
     }
 
@@ -342,8 +365,7 @@ impl ModuleBuilder<'_> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return None;
         };
-        let Expression::ClassExpression(class) =
-            peel(declarator.init.as_ref()?, Wrappers::Casts)
+        let Expression::ClassExpression(class) = peel(declarator.init.as_ref()?, Wrappers::Casts)
         else {
             return None;
         };
@@ -445,13 +467,15 @@ impl ModuleBuilder<'_> {
             let Some(id) = &function.id else {
                 continue;
             };
-            if self.classes.contains(id.name.as_str())
-                || self.scope.is_bound(id.name.as_str())
-            {
+            if self.classes.contains(id.name.as_str()) || self.scope.is_bound(id.name.as_str()) {
                 continue;
             }
             let used_in_setup = setup.iter().any(|setup_statement| {
-                crate::lowering::scoped_references::statement_uses(setup_statement, id.name.as_str()).constructed
+                crate::lowering::scoped_references::statement_uses(
+                    setup_statement,
+                    id.name.as_str(),
+                )
+                .constructed
             });
             let used_in_body =
                 Self::statements_use_function_as_constructor(id.name.as_str(), body_statements);
@@ -491,10 +515,8 @@ impl ModuleBuilder<'_> {
         let Some(id) = &function.id else {
             return Ok(());
         };
-        let prototype_methods = Self::collect_prototype_member_functions(
-            id.name.as_str(),
-            siblings.iter().copied(),
-        );
+        let prototype_methods =
+            Self::collect_prototype_member_functions(id.name.as_str(), siblings.iter().copied());
         let name = id.name.to_string();
         self.synthesize_named_constructor_function_class(&name, function, prototype_methods)
     }
@@ -530,7 +552,8 @@ impl ModuleBuilder<'_> {
         if let Some((item, existing)) = self.class_item_lowered_at(span) {
             if self.intern_type_name(class_text.as_str()) != existing {
                 self.classes.open_shadow(class_text.as_str());
-                self.classes.bind_scoped_type_name(class_text.clone(), existing);
+                self.classes
+                    .bind_scoped_type_name(class_text.clone(), existing);
             }
             self.classes.register(class_text, item);
             return Ok(());
@@ -540,7 +563,8 @@ impl ModuleBuilder<'_> {
         if source_symbol != class_name {
             self.ctx.krate.names.record(class_name, class_text.as_str());
             self.classes.open_shadow(class_text.as_str());
-            self.classes.bind_scoped_type_name(class_text.clone(), class_name);
+            self.classes
+                .bind_scoped_type_name(class_text.clone(), class_name);
         }
         let class_ty = self.ctx.krate.types.intern(Type::Class {
             name: class_name,
@@ -631,6 +655,7 @@ impl ModuleBuilder<'_> {
             implements: Vec::new(),
             protocols: Vec::new(),
             static_fields: Vec::new(),
+            statics_of: None,
             descriptors: Vec::new(),
         }));
         self.classes.register(class_text, item);
@@ -731,7 +756,7 @@ impl ModuleBuilder<'_> {
         };
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
-        let scope = ScopeGroups::BINDINGS;
+        let scope = ScopeGroups::MEMBER_BODY;
         let (body, params, errors) = self.with_nested_body(ctx, scope, |this, _| {
             let mut body = Body::new(None, span);
             let this_symbol = this.ctx.krate.symbols.intern("this");
@@ -742,6 +767,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             this.scope.bind("this".to_owned(), this_local);
+            this.fn_ctx.constructor_this = Some(this_local);
 
             let mut params = Vec::new();
             let mut errors = Vec::new();
@@ -795,7 +821,9 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
-            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+            for statement in
+                crate::lowering::hoisting::hoisted_statements(&function_body.statements)
+            {
                 if let Err(error) = this.statement(statement, &mut body) {
                     errors.push(error);
                 }
@@ -856,7 +884,7 @@ impl ModuleBuilder<'_> {
 
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(return_ty));
-        let scope = ScopeGroups::BINDINGS;
+        let scope = ScopeGroups::MEMBER_BODY;
         let (body, params, param_sigs, errors) = self.with_nested_body(ctx, scope, |this, _| {
             let mut body = Body::new(None, span);
             let this_symbol = this.ctx.krate.symbols.intern("this");
@@ -931,7 +959,9 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
-            for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+            for statement in
+                crate::lowering::hoisting::hoisted_statements(&function_body.statements)
+            {
                 if let Err(error) = this.statement(statement, &mut body) {
                     errors.push(error);
                 }
@@ -943,9 +973,7 @@ impl ModuleBuilder<'_> {
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
-        let resolved_return_ty = self
-            .last_return_type(&body)
-            .unwrap_or(return_ty);
+        let resolved_return_ty = self.last_return_type(&body).unwrap_or(return_ty);
         let body_id = self.ctx.krate.push_body(body);
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name: method_symbol,
@@ -1001,8 +1029,18 @@ fn nested_statements<'b, 'c>(statement: &'b Statement<'c>) -> Vec<&'b Statement<
             .block
             .body
             .iter()
-            .chain(statement.handler.iter().flat_map(|handler| handler.body.body.iter()))
-            .chain(statement.finalizer.iter().flat_map(|finalizer| finalizer.body.iter()))
+            .chain(
+                statement
+                    .handler
+                    .iter()
+                    .flat_map(|handler| handler.body.body.iter()),
+            )
+            .chain(
+                statement
+                    .finalizer
+                    .iter()
+                    .flat_map(|finalizer| finalizer.body.iter()),
+            )
             .collect(),
         Statement::SwitchStatement(statement) => statement
             .cases
@@ -1039,7 +1077,10 @@ fn this_field_reads(value: &Expression<'_>, field: &str) -> Vec<usize> {
         }
     }
 
-    let mut reads = ThisFieldReads { field, nodes: Vec::new() };
+    let mut reads = ThisFieldReads {
+        field,
+        nodes: Vec::new(),
+    };
     reads.visit_expression(value);
     reads.nodes
 }

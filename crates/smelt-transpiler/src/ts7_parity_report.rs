@@ -88,7 +88,10 @@ impl Counts {
 
     /// Statically typed expressions: the parity denominator.
     const fn typed(&self) -> usize {
-        self.agree.saturating_add(self.smelt_erased).saturating_add(self.wider).saturating_add(self.mismatch)
+        self.agree
+            .saturating_add(self.smelt_erased)
+            .saturating_add(self.wider)
+            .saturating_add(self.mismatch)
     }
 
     /// Parity in percent, or `None` with nothing typed.
@@ -155,7 +158,10 @@ struct Groups {
 ///
 /// Returns an error when an input cannot be lowered or the checker fails.
 pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<String> {
-    let mut report = ParityReport { typescript: "7.1.0-beta", ..ParityReport::default() };
+    let mut report = ParityReport {
+        typescript: "7.1.0-beta",
+        ..ParityReport::default()
+    };
     let mut groups = Groups::default();
     for input in options.inputs {
         report.inputs.push(input.display().to_string());
@@ -164,8 +170,15 @@ pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<
         let krate = match lower_input(input, options.defines) {
             Ok(krate) => krate,
             Err(error) => {
-                let first_line: String = error.to_string().lines().take(12).collect::<Vec<_>>().join(" ");
-                report.refused.push((input.display().to_string(), first_line));
+                let first_line: String = error
+                    .to_string()
+                    .lines()
+                    .take(12)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                report
+                    .refused
+                    .push((input.display().to_string(), first_line));
                 continue;
             }
         };
@@ -183,7 +196,12 @@ pub(crate) fn ts7_parity_report(options: &ParityReportOptions<'_>) -> CliResult<
                 .collect(),
         )?;
         record_checker_errors(&facts, &mut report.checker_errors);
-        let mut measure = Measure { krate: &krate, facts: &facts, sources: &sources, report: &mut report };
+        let mut measure = Measure {
+            krate: &krate,
+            facts: &facts,
+            sources: &sources,
+            report: &mut report,
+        };
         measure.walk(&mut groups);
     }
     report.erased = top_groups(groups.erased);
@@ -200,10 +218,18 @@ fn lower_input(input: &Path, defines: &[(String, String)]) -> CliResult<Crate> {
     if input.file_name().is_some_and(|name| name == "Smelt.toml") {
         let mut config = config_parser::parse_path(input)?;
         config.extend_defines(defines.iter().cloned());
-        return Ok(lowering::ManifestLowering::for_manifest(&config, input)?.check()?.into_measured().lower()?.krate);
+        return Ok(lowering::ManifestLowering::for_manifest(&config, input)?
+            .check()?
+            .into_measured()
+            .lower()?
+            .krate);
     }
     let file = input.to_str().ok_or("input path contains invalid UTF-8")?;
-    Ok(lowering::ManifestLowering::for_file(file)?.check()?.into_measured().lower()?.krate)
+    Ok(lowering::ManifestLowering::for_file(file)?
+        .check()?
+        .into_measured()
+        .lower()?
+        .krate)
 }
 
 /// One TypeScript source of the lowered crate.
@@ -223,13 +249,21 @@ fn typescript_sources(krate: &Crate, input: &Path) -> HashMap<FileId, Source> {
     let mut sources = HashMap::new();
     let mut seen = HashSet::new();
     for module in &krate.modules {
-        if module.source.language != Language::TypeScript || !seen.insert(module.source.path.clone()) {
+        if module.source.language != Language::TypeScript
+            || !seen.insert(module.source.path.clone())
+        {
             continue;
         }
         let path = &module.source.path;
         let read = fs::read_to_string(path).or_else(|_| fs::read_to_string(base.join(path)));
         if let Ok(text) = read {
-            sources.insert(module.source.file, Source { path: path.clone(), text });
+            sources.insert(
+                module.source.file,
+                Source {
+                    path: path.clone(),
+                    text,
+                },
+            );
         }
     }
     sources
@@ -237,8 +271,14 @@ fn typescript_sources(krate: &Crate, input: &Path) -> HashMap<FileId, Source> {
 
 /// Adds the checker's errors to the per-code tally.
 fn record_checker_errors(facts: &TsTypeFacts, errors: &mut BTreeMap<String, (usize, String)>) {
-    for diagnostic in facts.diagnostics.iter().filter(|diagnostic| diagnostic.category == TsDiagnosticCategory::Error) {
-        let entry = errors.entry(format!("TS{}", diagnostic.code)).or_insert_with(|| (0, diagnostic.message.clone()));
+    for diagnostic in facts
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.category == TsDiagnosticCategory::Error)
+    {
+        let entry = errors
+            .entry(format!("TS{}", diagnostic.code))
+            .or_insert_with(|| (0, diagnostic.message.clone()));
         entry.0 = entry.0.saturating_add(1);
     }
 }
@@ -271,8 +311,14 @@ impl Measure<'_> {
             let callees = direct_callees(body);
             for (index, expr) in body.exprs.iter().enumerate() {
                 let span = expr.span;
-                if !callees.contains(&index) && span.start < span.end && self.sources.contains_key(&span.file) {
-                    by_span.entry((span.file, span.start, span.end)).or_default().push(expr.ty);
+                if !callees.contains(&index)
+                    && span.start < span.end
+                    && self.sources.contains_key(&span.file)
+                {
+                    by_span
+                        .entry((span.file, span.start, span.end))
+                        .or_default()
+                        .push(expr.ty);
                 }
             }
         }
@@ -299,7 +345,8 @@ impl Measure<'_> {
         let file_counts = self.report.files.entry(source.path.clone()).or_default();
         let Some(ts) = self.facts.type_id_at(&source.path, start, end) else {
             file_counts.no_checker_node = file_counts.no_checker_node.saturating_add(1);
-            self.report.totals.no_checker_node = self.report.totals.no_checker_node.saturating_add(1);
+            self.report.totals.no_checker_node =
+                self.report.totals.no_checker_node.saturating_add(1);
             return;
         };
         let Some((verdict, hir)) = types
@@ -317,7 +364,11 @@ impl Measure<'_> {
             Verdict::Mismatch => &mut groups.mismatches,
             Verdict::Agree | Verdict::TsDynamic | Verdict::TsDeferred => return,
         };
-        let group = format!("{} ← {}", ts7_parity::hir_shape(self.krate, hir), ts7_parity::ts_shape(self.facts, ts));
+        let group = format!(
+            "{} ← {}",
+            ts7_parity::hir_shape(self.krate, hir),
+            ts7_parity::ts_shape(self.facts, ts)
+        );
         let example = self.example(source, start, ts, erasure_reasons.get(&key).copied());
         let entry = target.entry(group).or_insert_with(|| (0, example));
         entry.0 = entry.0.saturating_add(1);
@@ -328,15 +379,33 @@ impl Measure<'_> {
         self.krate
             .erasures
             .iter()
-            .map(|record| ((record.span.file, record.span.start, record.span.end), record.reason.name()))
+            .map(|record| {
+                (
+                    (record.span.file, record.span.start, record.span.end),
+                    record.reason.name(),
+                )
+            })
             .collect()
     }
 
     /// `path:line:col` plus the checker spelling and erasure reason.
-    fn example(&self, source: &Source, start: u32, ts: smelt_ts_types::TsTypeId, reason: Option<&str>) -> String {
+    fn example(
+        &self,
+        source: &Source,
+        start: u32,
+        ts: smelt_ts_types::TsTypeId,
+        reason: Option<&str>,
+    ) -> String {
         let (line, column) = line_column(&source.text, start);
-        let spelling: String =
-            self.facts.types.get(ts).and_then(|ty| ty.display.as_deref()).unwrap_or("?").chars().take(80).collect();
+        let spelling: String = self
+            .facts
+            .types
+            .get(ts)
+            .and_then(|ty| ty.display.as_deref())
+            .unwrap_or("?")
+            .chars()
+            .take(80)
+            .collect();
         let erasure = reason.map_or_else(String::new, |name| format!(" (erasure: {name})"));
         format!("{}:{line}:{column} `{spelling}`{erasure}", source.path)
     }
@@ -358,18 +427,35 @@ fn direct_callees(body: &smelt_hir::Body) -> HashSet<usize> {
 
 /// 1-based line and column of byte offset `offset`.
 fn line_column(text: &str, offset: u32) -> (usize, usize) {
-    let byte = usize::try_from(offset).unwrap_or(usize::MAX).min(text.len());
+    let byte = usize::try_from(offset)
+        .unwrap_or(usize::MAX)
+        .min(text.len());
     let before = text.get(..byte).unwrap_or(text);
     let line = before.matches('\n').count().saturating_add(1);
-    let column = before.rsplit('\n').next().map_or(0, |tail| tail.chars().count()).saturating_add(1);
+    let column = before
+        .rsplit('\n')
+        .next()
+        .map_or(0, |tail| tail.chars().count())
+        .saturating_add(1);
     (line, column)
 }
 
 /// The largest groups, by count then key.
 fn top_groups(groups: GroupMap) -> Vec<Group> {
-    let mut rows: Vec<Group> =
-        groups.into_iter().map(|(key, (count, example))| Group { key, count, example }).collect();
-    rows.sort_by(|left, right| right.count.cmp(&left.count).then_with(|| left.key.cmp(&right.key)));
+    let mut rows: Vec<Group> = groups
+        .into_iter()
+        .map(|(key, (count, example))| Group {
+            key,
+            count,
+            example,
+        })
+        .collect();
+    rows.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.key.cmp(&right.key))
+    });
     rows.truncate(TOP_GROUPS);
     rows
 }
@@ -377,17 +463,30 @@ fn top_groups(groups: GroupMap) -> Vec<Group> {
 /// Renders the Markdown report.
 fn render_markdown(report: &ParityReport) -> String {
     let mut out = String::new();
-    push_fmt(&mut out, format_args!("# TypeScript {} type parity\n\n", report.typescript));
-    push_fmt(&mut out, format_args!("Inputs: {}\n\n", report.inputs.join(", ")));
+    push_fmt(
+        &mut out,
+        format_args!("# TypeScript {} type parity\n\n", report.typescript),
+    );
+    push_fmt(
+        &mut out,
+        format_args!("Inputs: {}\n\n", report.inputs.join(", ")),
+    );
     let totals = &report.totals;
-    let parity = totals.parity_percent().map_or_else(|| "n/a".to_owned(), |percent| format!("{percent:.1}%"));
+    let parity = totals
+        .parity_percent()
+        .map_or_else(|| "n/a".to_owned(), |percent| format!("{percent:.1}%"));
     push_fmt(
         &mut out,
         format_args!(
-            "**Parity: {parity}** ({} of {} statically typed expressions agree)\n\n", totals.agree, totals.typed()
+            "**Parity: {parity}** ({} of {} statically typed expressions agree)\n\n",
+            totals.agree,
+            totals.typed()
         ),
     );
-    push_fmt(&mut out, format_args!("| verdict | count |\n| --- | ---: |\n"));
+    push_fmt(
+        &mut out,
+        format_args!("| verdict | count |\n| --- | ---: |\n"),
+    );
     for (name, count) in [
         ("agree", totals.agree),
         ("smelt-erased", totals.smelt_erased),
@@ -399,9 +498,21 @@ fn render_markdown(report: &ParityReport) -> String {
     ] {
         push_fmt(&mut out, format_args!("| {name} | {count} |\n"));
     }
-    render_groups(&mut out, "Smelt-erased families (HIR ← TypeScript)", &report.erased);
-    render_groups(&mut out, "Wider-type families (HIR ← TypeScript)", &report.wider);
-    render_groups(&mut out, "Mismatch families (HIR ← TypeScript)", &report.mismatches);
+    render_groups(
+        &mut out,
+        "Smelt-erased families (HIR ← TypeScript)",
+        &report.erased,
+    );
+    render_groups(
+        &mut out,
+        "Wider-type families (HIR ← TypeScript)",
+        &report.wider,
+    );
+    render_groups(
+        &mut out,
+        "Mismatch families (HIR ← TypeScript)",
+        &report.mismatches,
+    );
     render_files(&mut out, &report.files);
     render_refused(&mut out, &report.refused);
     render_checker_errors(&mut out, &report.checker_errors);
@@ -415,12 +526,18 @@ fn render_groups(out: &mut String, title: &str, groups: &[Group]) {
         push_fmt(out, format_args!("None.\n"));
         return;
     }
-    push_fmt(out, format_args!("| count | shape | first example |\n| ---: | --- | --- |\n"));
+    push_fmt(
+        out,
+        format_args!("| count | shape | first example |\n| ---: | --- | --- |\n"),
+    );
     for group in groups {
         push_fmt(
             out,
             format_args!(
-                "| {} | `{}` | {} |\n", group.count, group.key.replace('|', "\\|"), group.example.replace('|', "\\|")
+                "| {} | `{}` | {} |\n",
+                group.count,
+                group.key.replace('|', "\\|"),
+                group.example.replace('|', "\\|")
             ),
         );
     }
@@ -435,11 +552,16 @@ fn render_files(out: &mut String, files: &BTreeMap<String, Counts>) {
             "| file | parity | agree | erased | wider | mismatch | dynamic |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n"
         ),
     );
-    let mut rows: Vec<(&String, &Counts)> = files.iter().filter(|(_, counts)| counts.typed() > 0).collect();
+    let mut rows: Vec<(&String, &Counts)> = files
+        .iter()
+        .filter(|(_, counts)| counts.typed() > 0)
+        .collect();
     rows.sort_by(|left, right| {
         let left_parity = left.1.parity_percent().unwrap_or(100.0_f64);
         let right_parity = right.1.parity_percent().unwrap_or(100.0_f64);
-        left_parity.total_cmp(&right_parity).then_with(|| left.0.cmp(right.0))
+        left_parity
+            .total_cmp(&right_parity)
+            .then_with(|| left.0.cmp(right.0))
     });
     for (file, counts) in rows.into_iter().take(TOP_GROUPS) {
         let parity = counts.parity_percent().unwrap_or(100.0_f64);
@@ -458,10 +580,16 @@ fn render_refused(out: &mut String, refused: &[(String, String)]) {
     if refused.is_empty() {
         return;
     }
-    push_fmt(out, format_args!("\n## Refused inputs (Smelt could not lower them)\n\n"));
+    push_fmt(
+        out,
+        format_args!("\n## Refused inputs (Smelt could not lower them)\n\n"),
+    );
     for (input, error) in refused {
         let short: String = error.chars().take(400).collect();
-        push_fmt(out, format_args!("- `{input}`: {}\n", short.replace('|', "\\|")));
+        push_fmt(
+            out,
+            format_args!("- `{input}`: {}\n", short.replace('|', "\\|")),
+        );
     }
 }
 
@@ -469,12 +597,22 @@ fn render_refused(out: &mut String, refused: &[(String, String)]) {
 fn render_checker_errors(out: &mut String, errors: &BTreeMap<String, (usize, String)>) {
     push_fmt(out, format_args!("\n## TypeScript checker errors\n\n"));
     if errors.is_empty() {
-        push_fmt(out, format_args!("None: every input type-checks under TypeScript 7.\n"));
+        push_fmt(
+            out,
+            format_args!("None: every input type-checks under TypeScript 7.\n"),
+        );
         return;
     }
-    push_fmt(out, format_args!("| code | count | first message |\n| --- | ---: | --- |\n"));
+    push_fmt(
+        out,
+        format_args!("| code | count | first message |\n| --- | ---: | --- |\n"),
+    );
     for (code, (count, message)) in errors {
-        let first_line = message.lines().next().unwrap_or_default().replace('|', "\\|");
+        let first_line = message
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .replace('|', "\\|");
         push_fmt(out, format_args!("| {code} | {count} | {first_line} |\n"));
     }
 }

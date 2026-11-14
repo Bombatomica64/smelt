@@ -48,7 +48,11 @@ impl TypeDecl<'_> {
 /// own name index does. Two symbols that RENDER alike are a different case,
 /// and [`NameScope`] renames them apart.
 pub(crate) fn type_claim_order(mir: &Mir) -> Vec<TypeDecl<'_>> {
-    let class_names = mir.classes.iter().map(|class| class.name).collect::<HashSet<_>>();
+    let class_names = mir
+        .classes
+        .iter()
+        .map(|class| class.name)
+        .collect::<HashSet<_>>();
     let mut seen = HashSet::new();
     let mut order = Vec::with_capacity(mir.interfaces.len().saturating_add(mir.classes.len()));
     for interface in &mir.interfaces {
@@ -124,7 +128,16 @@ impl RustNames {
             .map(|name| name.as_str().to_owned())
             .collect();
         let fields = plan_fields(mir)?;
-        Ok(Self { types_scope, types, functions, functions_by_name, methods, statics, body_visible, fields })
+        Ok(Self {
+            types_scope,
+            types,
+            functions,
+            functions_by_name,
+            methods,
+            statics,
+            body_visible,
+            fields,
+        })
     }
 
     /// The Rust name of the declared type `symbol`.
@@ -170,10 +183,7 @@ impl RustNames {
         if let Some(planned) = self.fields.get(&symbol) {
             return planned.clone();
         }
-        Spelling::of(mir, symbol).map_or_else(
-            || RustIdent("field".to_owned()),
-            super::lone_field,
-        )
+        Spelling::of(mir, symbol).map_or_else(|| RustIdent("field".to_owned()), super::lone_field)
     }
 
     /// [`Self::field`] as text, for the field spellings composed into code.
@@ -206,7 +216,11 @@ fn symbol_text(mir: &Mir, symbol: Symbol) -> Result<Spelling<'_>, EmitError> {
 ///
 /// A candidate whose companion is taken stays claimed (and unused), so the
 /// next claim moves on to the next suffix.
-fn claim_with_companion(scope: &mut NameScope, spelling: Spelling<'_>, companion: &str) -> RustName {
+fn claim_with_companion(
+    scope: &mut NameScope,
+    spelling: Spelling<'_>,
+    companion: &str,
+) -> RustName {
     loop {
         let name = scope.claim(spelling);
         let companion_name = format!("{name}{companion}");
@@ -228,26 +242,35 @@ const fn is_free_function(function: &MirFunction) -> bool {
 /// suffix, as does every module body (`__smelt_module_*`), so a name stays
 /// stable when an unrelated declaration is added. The binary's entry point is
 /// `main` itself.
-fn plan_free_functions(
-    mir: &Mir,
-    none_ty: TypeId,
-) -> Result<HashMap<FuncId, RustName>, EmitError> {
+fn plan_free_functions(mir: &Mir, none_ty: TypeId) -> Result<HashMap<FuncId, RustName>, EmitError> {
     let mut scope = NameScope::new(NameSpace::Values);
     let mut renderings = HashMap::<String, usize>::new();
-    for function in mir.functions.iter().filter(|function| is_free_function(function)) {
+    for function in mir
+        .functions
+        .iter()
+        .filter(|function| is_free_function(function))
+    {
         let rendering = render(symbol_text(mir, function.name)?, NameSpace::Values);
         let count = renderings.entry(rendering).or_insert(0);
         *count = count.saturating_add(1);
     }
     let mut names = HashMap::new();
     // The entry point first: nothing may take `main` from it.
-    for function in mir.functions.iter().filter(|function| is_entry_point(mir, function, none_ty)) {
+    for function in mir
+        .functions
+        .iter()
+        .filter(|function| is_entry_point(mir, function, none_ty))
+    {
         let name = scope
             .claim_emitter_name("main")
             .map_err(|clash| EmitError::new(format!("binary entry point: {clash}")))?;
         names.insert(function.id, name);
     }
-    for function in mir.functions.iter().filter(|function| is_free_function(function)) {
+    for function in mir
+        .functions
+        .iter()
+        .filter(|function| is_free_function(function))
+    {
         if names.contains_key(&function.id) {
             continue;
         }
@@ -305,22 +328,32 @@ fn plan_static_methods(
         let mut scope = NameScope::new(NameSpace::Members);
         scope.hold("new");
         for method in crate::classes::effective_class_methods(mir, class) {
-            let Some(function) = usize::try_from(method.0).ok().and_then(|index| mir.functions.get(index)) else {
+            let Some(function) = usize::try_from(method.0)
+                .ok()
+                .and_then(|index| mir.functions.get(index))
+            else {
                 continue;
             };
-            if let HirOrigin::ClassMethod { method: inherited, .. } = function.origin
+            if let HirOrigin::ClassMethod {
+                method: inherited, ..
+            } = function.origin
                 && let Some(name) = methods.get(&inherited)
             {
                 scope.hold(name.as_str());
             }
         }
         for static_method in &class.static_methods {
-            let Some(function) = usize::try_from(static_method.0).ok().and_then(|index| mir.functions.get(index))
+            let Some(function) = usize::try_from(static_method.0)
+                .ok()
+                .and_then(|index| mir.functions.get(index))
             else {
                 continue;
             };
             if let HirOrigin::ClassStaticMethod { method, .. } = function.origin {
-                names.insert(function.id, scope.claim_salted(symbol_text(mir, method)?, function.id.0));
+                names.insert(
+                    function.id,
+                    scope.claim_salted(symbol_text(mir, method)?, function.id.0),
+                );
             }
         }
     }
@@ -346,9 +379,14 @@ fn plan_fields(mir: &Mir) -> Result<HashMap<Symbol, RustIdent>, EmitError> {
         .map(|decl| {
             let fields = match decl {
                 TypeDecl::Class(class) => crate::classes::effective_class_fields(mir, class),
-                TypeDecl::Interface(interface) => crate::classes::effective_interface_fields(mir, interface),
+                TypeDecl::Interface(interface) => {
+                    crate::classes::effective_interface_fields(mir, interface)
+                }
             };
-            fields.into_iter().map(|field| field.name).collect::<Vec<_>>()
+            fields
+                .into_iter()
+                .map(|field| field.name)
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     let mut names = HashMap::<Symbol, String>::new();
@@ -375,7 +413,10 @@ fn plan_fields(mir: &Mir) -> Result<HashMap<Symbol, RustIdent>, EmitError> {
             }
         }
         if !changed {
-            return Ok(names.into_iter().map(|(symbol, name)| (symbol, RustIdent(name))).collect());
+            return Ok(names
+                .into_iter()
+                .map(|(symbol, name)| (symbol, RustIdent(name)))
+                .collect());
         }
     }
     Err(EmitError::new("struct field names did not settle"))

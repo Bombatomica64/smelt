@@ -102,7 +102,9 @@ export function firstEntry(values: string[]): string | undefined {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn first_entry"]), r#"fn first_entry(values: SmeltList<JsString>) -> Option<JsString> {
+    assert_eq!(
+        rust_items(&source, &["fn first_entry"]),
+        r#"fn first_entry(values: SmeltList<JsString>) -> Option<JsString> {
 let mut _smelt_tmp_5: bool;
 let _smelt_tmp_6: bool;
 let _smelt_tmp_7: Option<(i64, JsString)>;
@@ -120,7 +122,8 @@ _smelt_tmp_8 = _smelt_tmp_7.clone().expect("optional value was absent after narr
 _smelt_tmp_9 = _smelt_tmp_8.1.clone();
 return Some(_smelt_tmp_9);
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -140,11 +143,14 @@ export function run(): string {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn run"]), r#"fn run() -> JsString {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r#"fn run() -> JsString {
 let _smelt_tmp_0: Options = Options { width: Some(JsString::from("short")) };
 let _smelt_tmp_1: JsString = format(_smelt_tmp_0);
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -168,10 +174,13 @@ export function build(): Shape {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn build"]), r#"fn build() -> Shape {
+    assert_eq!(
+        rust_items(&source, &["fn build"]),
+        r#"fn build() -> Shape {
 let _smelt_tmp_0: Shape = Shape { plain: Some(1.0), camel_case: Some(JsString::from("a")), snake_case: Some(JsString::from("b")) };
 return _smelt_tmp_0;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -196,11 +205,14 @@ export function build(): Outer {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn build"]), r#"fn build() -> Outer {
+    assert_eq!(
+        rust_items(&source, &["fn build"]),
+        r#"fn build() -> Outer {
 let _smelt_tmp_0: Inner = Inner { camel_case: Some(JsString::from("deep")), count: Some(2.0) };
 let _smelt_tmp_1: Outer = Outer { inner_shape: Some(_smelt_tmp_0) };
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -220,11 +232,14 @@ export function run(formatLong: FormatLong): string {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn run"]), r#"fn run(format_long: FormatLong) -> Result<JsString, Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r#"fn run(format_long: FormatLong) -> Result<JsString, Box<dyn std::error::Error>> {
 let _smelt_tmp_1: SmeltRecord<JsString, JsString> = SmeltRecord::from([(JsString::from("width"), JsString::from("short"))]);
 let _smelt_tmp_2: JsString = (format_long.date.clone())({ let smelt_record_map = _smelt_tmp_1.clone(); Options { width: smelt_record_map.get_text("width").cloned().map(|smelt_value| smelt_value) } });
 return Ok(_smelt_tmp_2);
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -241,10 +256,13 @@ export function make(): Duration {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn make"]), r"fn make() -> Duration {
+    assert_eq!(
+        rust_items(&source, &["fn make"]),
+        r"fn make() -> Duration {
 let _smelt_tmp_0: Duration = Duration { years: None::<f64>, months: None::<f64> };
 return _smelt_tmp_0;
-}");
+}"
+    );
 }
 
 #[test]
@@ -271,9 +289,12 @@ function readEra(): number {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["struct Flags", "sig set_era"]), r"struct Flags(::std::rc::Rc<::std::cell::RefCell<FlagsInner>>);
+    assert_eq!(
+        rust_items(&source, &["struct Flags", "sig set_era"]),
+        r"struct Flags(::std::rc::Rc<::std::cell::RefCell<FlagsInner>>);
 
-fn set_era(mut flags: Flags, value: f64) -> ()");
+fn set_era(mut flags: Flags, value: f64) -> ()"
+    );
 }
 
 #[test]
@@ -312,10 +333,13 @@ fn emits_unknown_record_literals_with_tagged_values() {
 const value: Record<string, unknown> = { done: false, name: "skip" };
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn main"]), r#"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r#"fn main() {
 let value: SmeltRecord<JsString, SmeltUnknown> = SmeltRecord::from([(JsString::from("done"), SmeltUnknown::Bool(false)), (JsString::from("name"), SmeltUnknown::String("skip".into()))]);
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -327,9 +351,12 @@ function widen(values: string[]): unknown[] {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn widen"]), r"fn widen(values: SmeltList<JsString>) -> SmeltList<SmeltUnknown> {
+    assert_eq!(
+        rust_items(&source, &["fn widen"]),
+        r"fn widen(values: SmeltList<JsString>) -> SmeltList<SmeltUnknown> {
 return { let smelt_l: SmeltList<_> = values.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>()) };
-}");
+}"
+    );
 }
 
 #[test]
@@ -341,10 +368,13 @@ function chars(value: string): unknown[] {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn chars"]), r"fn chars(value: JsString) -> SmeltList<SmeltUnknown> {
+    assert_eq!(
+        rust_items(&source, &["fn chars"]),
+        r"fn chars(value: JsString) -> SmeltList<SmeltUnknown> {
 let _smelt_tmp_1: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(value.clone().code_point_strings().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>());
 return _smelt_tmp_1;
-}");
+}"
+    );
 }
 
 #[test]
@@ -384,11 +414,14 @@ export function getDefaultOptions(): DefaultOptions {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn get_default_options"]), r#"fn get_default_options() -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn get_default_options"]),
+        r#"fn get_default_options() -> SmeltUnknown {
 let _smelt_tmp_0: SmeltUnknown = smelt_global_object();
 let _smelt_tmp_1: SmeltUnknown = smelt_get_unknown_field(&_smelt_tmp_0.clone(), "defaultOptions").clone();
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -454,8 +487,9 @@ function wrap<T>(
     // being iterated.
     assert!(
         source.contains("__smelt_spread.borrow().get(")
-            && source
-                .contains("SmeltUnknown::Array(smelt_values) => SmeltList::with_storage(smelt_values.id,"),
+            && source.contains(
+                "SmeltUnknown::Array(smelt_values) => SmeltList::with_storage(smelt_values.id,"
+            ),
         "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
     );
     assert!(
@@ -482,12 +516,15 @@ export function collect(value: number, key: string): Array<[number, string]> {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn collect"]), r"fn collect(value: f64, key: JsString) -> SmeltList<(f64, JsString)> {
+    assert_eq!(
+        rust_items(&source, &["fn collect"]),
+        r"fn collect(value: f64, key: JsString) -> SmeltList<(f64, JsString)> {
 let mut result: SmeltList<(f64, JsString)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(f64, JsString)> = vec![]; smelt_list_items }));
 let _smelt_tmp_4: (f64, JsString) = (value, key.clone());
 let _smelt_tmp_5: f64 = { let smelt_push_item = _smelt_tmp_4; result.borrow_mut().push(smelt_push_item); result.len() as f64 };
 return result;
-}");
+}"
+    );
 }
 
 /// `String.prototype.match` emits the typed `Option<SmeltMatch>` value and an
@@ -503,7 +540,9 @@ function marker(path: string): number {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn marker"]), r#"fn marker(path: JsString) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn marker"]),
+        r#"fn marker(path: JsString) -> f64 {
 let _smelt_tmp_5: f64;
 let _smelt_tmp_6: SmeltMatch;
 let _smelt_tmp_7: SmeltList<Option<JsString>>;
@@ -520,7 +559,8 @@ _smelt_tmp_7 = Into::<SmeltList<_>>::into((_smelt_tmp_6).to_array_view());
 _smelt_tmp_8 = { let smelt_needle = Some(JsString::new()); let smelt_predicate = |smelt_item: &Option<JsString>| *smelt_item == smelt_needle; let smelt_list = &_smelt_tmp_7.borrow(); let smelt_len = smelt_list.len() as i64; let smelt_raw = 1.0 as i64; let smelt_start = if smelt_raw < 0 { (smelt_len + smelt_raw).max(0) } else { smelt_raw } as usize; smelt_list.iter().enumerate().skip(smelt_start).find(|(_, smelt_item)| smelt_predicate(*smelt_item)).map_or(-1.0, |(smelt_idx, _)| smelt_idx as f64) };
 return _smelt_tmp_8;
 }
-}"#);
+}"#
+    );
 }
 
 /// A match passed where `string[]` is expected is converted through its array
@@ -536,7 +576,9 @@ function count(text: string): number {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn count"]), r#"fn count(text: JsString) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn count"]),
+        r#"fn count(text: JsString) -> f64 {
 let mut _smelt_tmp_5: f64;
 let _smelt_tmp_6: SmeltMatch;
 let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("(a)(b)?"), JsString::new());
@@ -550,7 +592,8 @@ _smelt_tmp_5 = _smelt_tmp_7;
 _smelt_tmp_5 = 0.0;
 }
 return _smelt_tmp_5;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -565,10 +608,13 @@ function invoke(
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn invoke"]), r"fn invoke(values: SmeltList<SmeltUnknown>, callback: &dyn Fn((SmeltUnknown, SmeltUnknown)) -> SmeltUnknown) -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn invoke"]),
+        r"fn invoke(values: SmeltList<SmeltUnknown>, callback: &dyn Fn((SmeltUnknown, SmeltUnknown)) -> SmeltUnknown) -> SmeltUnknown {
 let _smelt_tmp_2: SmeltUnknown = callback({ let smelt_tuple_values = values.clone().to_vec(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -581,10 +627,13 @@ def read(values: dict[str, Optional[int]]) -> Optional[int]:
     return values.get("x")
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn read"]), r#"fn read(values: SmeltRecord<String, Option<i64>>) -> Option<i64> {
+    assert_eq!(
+        rust_items(&source, &["fn read"]),
+        r#"fn read(values: SmeltRecord<String, Option<i64>>) -> Option<i64> {
 let _smelt_tmp_1: Option<i64> = values.get(&"x".to_owned()).flatten();
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -596,10 +645,13 @@ function read(values: Array<number | undefined>, index: number): number | undefi
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn read"]), r"fn read(values: SmeltList<Option<f64>>, index: f64) -> Option<f64> {
+    assert_eq!(
+        rust_items(&source, &["fn read"]),
+        r"fn read(values: SmeltList<Option<f64>>, index: f64) -> Option<f64> {
 let _smelt_tmp_2: Option<f64> = (usize::try_from(index as i64).ok()).and_then(|smelt_index| values.clone().borrow().get(smelt_index).cloned().flatten());
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 /// The private host-marker array builder emits every registry marker plus the
@@ -703,7 +755,10 @@ export function sum(values: number[]): number {
 
     assert!(source.contains("let smelt_array = &mapped;"), "{source}");
     assert!(!source.contains("let smelt_array = mapped;"), "{source}");
-    assert!(!source.contains("let smelt_array = mapped.clone();"), "{source}");
+    assert!(
+        !source.contains("let smelt_array = mapped.clone();"),
+        "{source}"
+    );
 }
 
 /// Seedless reduce has the same ownership requirement after extracting its first
@@ -722,7 +777,10 @@ export function sum(values: number[]): number {
 
     assert!(source.contains("let smelt_array = &reversed;"), "{source}");
     assert!(!source.contains("let smelt_array = reversed;"), "{source}");
-    assert!(!source.contains("let smelt_array = reversed.clone();"), "{source}");
+    assert!(
+        !source.contains("let smelt_array = reversed.clone();"),
+        "{source}"
+    );
 }
 
 /// A module const whose initializer is an array spread (es-toolkit's
@@ -741,11 +799,14 @@ export function describeViews(): string {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn describe_views"]), r#"fn describe_views() -> JsString {
+    assert_eq!(
+        rust_items(&source, &["fn describe_views"]),
+        r#"fn describe_views() -> JsString {
 let names: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("Float32Array"), JsString::from("Int8Array"), JsString::from("Uint8Array"), JsString::from("DataView")]; smelt_list_items }));
 let _smelt_tmp_2: JsString = JsString::join(names.borrow().iter(), &JsString::from(","));
 return _smelt_tmp_2;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -760,10 +821,13 @@ export function pairLength(pair: [string, number]): number {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn pair_length"]), r"fn pair_length(pair: (JsString, f64)) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn pair_length"]),
+        r"fn pair_length(pair: (JsString, f64)) -> f64 {
 let _smelt_tmp_1: f64 = 2 as f64;
 return _smelt_tmp_1;
-}");
+}"
+    );
 }
 
 #[test]
@@ -781,7 +845,9 @@ export function pickList(xs: unknown[]): unknown[] {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn pick_list"]), r"fn pick_list(xs: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
+    assert_eq!(
+        rust_items(&source, &["fn pick_list"]),
+        r"fn pick_list(xs: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
 let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, _arg0: i64, _arg1: &SmeltList<SmeltUnknown>| {
 let _smelt_tmp_1: bool = matches!(closure_arg_0.clone(), SmeltUnknown::Null);
 let _smelt_tmp_2: bool = matches!(closure_arg_0.clone(), SmeltUnknown::Undefined);
@@ -797,7 +863,8 @@ let _smelt_tmp_4: bool = !(_smelt_tmp_3);
 _smelt_tmp_4
 }); let smelt_array = xs.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item, smelt_index as i64, &smelt_array) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>(); smelt_value });
 return ys;
-}");
+}"
+    );
 }
 
 /// Slicing a typed list into an erased (`SmeltUnknown`) destination must
@@ -848,11 +915,14 @@ export function run(inputs: number[][]): unknown {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn run"]), r#"fn run(inputs: SmeltList<SmeltList<f64>>) -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r#"fn run(inputs: SmeltList<SmeltList<f64>>) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltList<SmeltList<SmeltUnknown>> = Into::<SmeltList<_>>::into({ let smelt_l: SmeltList<_> = inputs.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| { let smelt_l: SmeltList<_> = smelt_value.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect::<Vec<_>>()) }).collect::<Vec<_>>()) });
 let _smelt_tmp_2: SmeltList<SmeltList<f64>> = { let smelt_l: SmeltList<_> = cartesian_product(_smelt_tmp_1).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| { let smelt_l: SmeltList<_> = smelt_value.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()) }).collect::<Vec<_>>()) };
 return { let smelt_l = _smelt_tmp_2; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| { let smelt_l = smelt_value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect::<Vec<_>>())) }).collect::<Vec<_>>())) };
-}"#);
+}"#
+    );
 }
 
 /// A read-only collection capture in a callback prelude is cloned into a plain,
@@ -866,7 +936,9 @@ export function useCapture(values: number[], extra: number[]): number[] {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn use_capture"]), r"fn use_capture(values: SmeltList<f64>, extra: SmeltList<f64>) -> SmeltList<f64> {
+    assert_eq!(
+        rust_items(&source, &["fn use_capture"]),
+        r"fn use_capture(values: SmeltList<f64>, extra: SmeltList<f64>) -> SmeltList<f64> {
 let _smelt_tmp_2 = ::std::rc::Rc::new({
 let extra = extra.clone();
 move |closure_arg_0: f64, _arg0: i64, _arg1: &SmeltList<f64>| {
@@ -884,7 +956,8 @@ _smelt_tmp_3
 }
 }); let smelt_array = values.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 /// A captured collection that the enclosing
@@ -901,7 +974,9 @@ export function f(items: number[]): number {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn f"]), r"fn f(items: SmeltList<f64>) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn f"]),
+        r"fn f(items: SmeltList<f64>) -> f64 {
 let mut acc: SmeltList<f64> = Into::<SmeltList<_>>::into(items.clone());
 acc = Into::<SmeltList<_>>::into(items.clone());
 let _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
@@ -923,7 +998,8 @@ _smelt_tmp_3
 }); let smelt_array = _smelt_tmp_2; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
 let _smelt_tmp_5: f64 = _smelt_tmp_4.len() as f64;
 return _smelt_tmp_5;
-}");
+}"
+    );
 }
 
 /// A captured collection that the closure
@@ -942,7 +1018,9 @@ export function g(): number[] {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn g"]), r"fn g() -> SmeltList<f64> {
+    assert_eq!(
+        rust_items(&source, &["fn g"]),
+        r"fn g() -> SmeltList<f64> {
 let smelt_capture_store: ::std::rc::Rc<::std::cell::RefCell<SmeltList<f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }))));
 let _smelt_tmp_3 = ::std::rc::Rc::new({
 let smelt_capture_store = smelt_capture_store.clone();
@@ -961,7 +1039,8 @@ let _smelt_tmp_2: f64 = { let smelt_push_item = closure_arg_0; (*smelt_capture_s
 }
 }); _smelt_tmp_4.borrow().iter().enumerate().for_each(|(smelt_index, smelt_item)| { let _ = (smelt_callback)(smelt_item.clone()); }); () };
 return ((*smelt_capture_store.borrow())).clone();
-}");
+}"
+    );
 }
 
 #[test]
@@ -1089,7 +1168,9 @@ export function build(label: string, flag: boolean): Triple | null {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn build"]), r"fn build(label: JsString, flag: bool) -> Option<(JsString, SmeltList<f64>, bool)> {
+    assert_eq!(
+        rust_items(&source, &["fn build"]),
+        r"fn build(label: JsString, flag: bool) -> Option<(JsString, SmeltList<f64>, bool)> {
 let _smelt_tmp_3: SmeltList<f64>;
 let _smelt_tmp_4: Option<(JsString, SmeltList<f64>, bool)>;
 let _smelt_tmp_2: bool = !(flag);
@@ -1100,7 +1181,8 @@ _smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items
 _smelt_tmp_4 = Some((label.clone(), _smelt_tmp_3.clone(), flag));
 return _smelt_tmp_4;
 }
-}");
+}"
+    );
 }
 
 /// The same conversion declines when the source exposes no members at all.
@@ -1125,11 +1207,14 @@ export function run(formatLong: FormatLong): string {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn run"]), r#"fn run(format_long: FormatLong) -> Result<JsString, Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r#"fn run(format_long: FormatLong) -> Result<JsString, Box<dyn std::error::Error>> {
 let _smelt_tmp_1: SmeltRecord<JsString, JsString> = SmeltRecord::from([(JsString::from("width"), JsString::from("short"))]);
 let _smelt_tmp_2: JsString = (format_long.date.clone())({ let smelt_record_map = _smelt_tmp_1.clone(); Options { width: smelt_record_map.get_text("width").cloned().map(|smelt_value| smelt_value) } });
 return Ok(_smelt_tmp_2);
-}"#);
+}"#
+    );
 }
 
 /// An indexed read on a typed-array view is already an `f64`, so a `Number(..)`
@@ -1149,7 +1234,9 @@ export function hex(bytes: Uint8Array): string {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn hex"]), r"fn hex(bytes: SmeltTypedArray) -> JsString {
+    assert_eq!(
+        rust_items(&source, &["fn hex"]),
+        r"fn hex(bytes: SmeltTypedArray) -> JsString {
 let mut _smelt_tmp_3: f64;
 let mut _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: f64;
@@ -1163,14 +1250,15 @@ _smelt_tmp_3 = bytes.clone().length();
 _smelt_tmp_4 = index < _smelt_tmp_3;
 if !(_smelt_tmp_4) { break; }
 _smelt_tmp_5 = bytes.get(index).unwrap_or(0.0);
-_smelt_tmp_6 = JsString::from({ let smelt_value = (_smelt_tmp_5 as f64).trunc() as i128; let smelt_radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let smelt_negative = smelt_value < 0; let mut smelt_n = smelt_value.unsigned_abs(); let mut smelt_digits = Vec::new(); if smelt_n == 0 { smelt_digits.push('0'); } while smelt_n > 0 { let smelt_digit = (smelt_n % u128::from(smelt_radix)) as u8; smelt_digits.push(if smelt_digit < 10 { (b'0' + smelt_digit) as char } else { (b'a' + smelt_digit - 10) as char }); smelt_n /= u128::from(smelt_radix); } if smelt_negative { smelt_digits.push('-'); } smelt_digits.iter().rev().collect::<String>() });
+_smelt_tmp_6 = JsString::from(smelt_number_to_string_radix(_smelt_tmp_5, 16.0 as u32));
 _smelt_tmp_7 = out + &_smelt_tmp_6;
 out = _smelt_tmp_7;
 _smelt_tmp_8 = index + 1.0;
 index = _smelt_tmp_8;
 }
 return out;
-}");
+}"
+    );
 }
 
 #[test]
@@ -1186,11 +1274,13 @@ export function merge(base: Options, options: Partial<Options>): Options {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["struct PartialOptions", "sig merge"]), r"struct PartialOptions {
+    assert_eq!(
+        rust_items(&source, &["struct PartialOptions", "sig merge"]),
+        r"struct PartialOptions {
 origin: Option<JsString>,
 max_age: Option<f64>,
 }
 
-fn merge(base: Options, options: PartialOptions) -> Options");
+fn merge(base: Options, options: PartialOptions) -> Options"
+    );
 }
-

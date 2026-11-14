@@ -111,7 +111,9 @@ impl ModuleBuilder<'_> {
                 }
                 Ok(true)
             }
-            TSType::TSTypeReference(reference) => self.collect_named_surface_arm(reference, members),
+            TSType::TSTypeReference(reference) => {
+                self.collect_named_surface_arm(reference, members)
+            }
             _ => Ok(false),
         }
     }
@@ -137,7 +139,8 @@ impl ModuleBuilder<'_> {
         reference: &oxc::ast::ast::TSTypeReference<'_>,
         members: &mut StructuralMembers,
     ) -> Result<bool, SmeltError> {
-        let oxc::ast::ast::TSTypeName::IdentifierReference(identifier) = &reference.type_name else {
+        let oxc::ast::ast::TSTypeName::IdentifierReference(identifier) = &reference.type_name
+        else {
             return Ok(false);
         };
         let name_text = identifier.name.as_str();
@@ -169,7 +172,11 @@ impl ModuleBuilder<'_> {
             &args,
             self.span(reference.span.start, reference.span.end),
         )?;
-        let call_slot = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_call"));
+        let call_slot = self
+            .ctx
+            .krate
+            .symbols
+            .intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_call"));
         let inherited = interface
             .fields
             .iter()
@@ -258,14 +265,19 @@ impl ModuleBuilder<'_> {
         self.ctx.interface_extends.write().insert(name, Vec::new());
         self.ctx
             .interface_call_signatures
-            .write().insert(name, call_signatures);
+            .write()
+            .insert(name, call_signatures);
         if !construct_signatures.is_empty() {
             self.ctx
                 .interface_construct_signatures
-                .write().insert(name, construct_signatures);
+                .write()
+                .insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.ctx.interface_index_values.write().insert(name, index_value_ty);
+            self.ctx
+                .interface_index_values
+                .write()
+                .insert(name, index_value_ty);
         }
         item
     }
@@ -322,8 +334,13 @@ impl ModuleBuilder<'_> {
         let name_text = minted.as_str().to_owned();
         if self.find_interface(name).is_none() {
             let span = self.span(0, 0);
-            let item =
-                self.register_callable_object_interface(name, &name_text, Vec::new(), members, span);
+            let item = self.register_callable_object_interface(
+                name,
+                &name_text,
+                Vec::new(),
+                members,
+                span,
+            );
             self.items.insert(name_text, item);
         }
         Some(self.ctx.krate.types.intern(Type::Class {
@@ -339,7 +356,10 @@ impl ModuleBuilder<'_> {
     /// one build and identical shapes deduplicate onto one struct. The
     /// `SmeltCallableObject` prefix cannot collide with a source type name,
     /// which TypeScript would have had to declare to reach this path.
-    fn anonymous_callable_object_name(&self, members: &StructuralMembers) -> smelt_hir::SynthesizedName {
+    fn anonymous_callable_object_name(
+        &self,
+        members: &StructuralMembers,
+    ) -> smelt_hir::SynthesizedName {
         let mut hasher = DefaultHasher::new();
         for field in &members.fields {
             self.ctx.krate.symbols.get(field.name).hash(&mut hasher);
@@ -395,10 +415,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { .. }) => true,
             Some(
-                Type::List(inner)
-                | Type::Set(inner)
-                | Type::Optional(inner)
-                | Type::Future(inner),
+                Type::List(inner) | Type::Set(inner) | Type::Optional(inner) | Type::Future(inner),
             ) => self.type_mentions_type_param(*inner),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_mentions_type_param(*key) || self.type_mentions_type_param(*value)

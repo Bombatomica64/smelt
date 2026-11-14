@@ -413,7 +413,10 @@ fn spellings(module: &str, name: &str) -> [(String, String); 4] {
         (format!("import {module}"), format!("{module}.{name}")),
         (format!("import {module} as m"), format!("m.{name}")),
         (format!("from {module} import {name}"), name.to_owned()),
-        (format!("from {module} import {name} as Alias"), "Alias".to_owned()),
+        (
+            format!("from {module} import {name} as Alias"),
+            "Alias".to_owned(),
+        ),
     ]
 }
 
@@ -424,7 +427,8 @@ fn dataclass_decorator_lowers_for_every_import_spelling() -> TestResult {
             (spelled.clone(), false),
             (format!("{spelled}(frozen=True)"), true),
         ] {
-            let source = format!("{import}\n\n@{decorator}\nclass Point:\n    x: int\n    y: str\n");
+            let source =
+                format!("{import}\n\n@{decorator}\nclass Point:\n    x: int\n    y: str\n");
             let mut ctx = HirCtx::new();
             lower_module(&source, &mut ctx)?;
             let class = class_named(&ctx, "Point")?;
@@ -566,7 +570,9 @@ fn foreign_or_class_shadowed_abstractmethod_is_not_abstract() -> TestResult {
         let error = first_error(&errors)?;
         ensure_eq(&error.code, &"smelt::unsupported-py", source)?;
         ensure(
-            error.message.contains("decorator '@abstractmethod' is not supported"),
+            error
+                .message
+                .contains("decorator '@abstractmethod' is not supported"),
             format!("unexpected message: {}", error.message),
         )?;
     }
@@ -612,10 +618,16 @@ fn int_enum_base_lowers_members_for_every_import_spelling() -> TestResult {
             &Some("IntEnum".to_owned()),
             "IntEnum base is recorded under its own name",
         )?;
-        let members = ctx.enum_members.get("Color").ok_or("missing enum members")?;
+        let members = ctx
+            .enum_members
+            .get("Color")
+            .ok_or("missing enum members")?;
         ensure_eq(&members.get("RED"), &Some(&1), &source)?;
         ensure_eq(&members.get("GREEN"), &Some(&2), &source)?;
-        ensure(class.static_fields.is_empty(), "members are not class variables")?;
+        ensure(
+            class.static_fields.is_empty(),
+            "members are not class variables",
+        )?;
     }
     Ok(())
 }
@@ -667,8 +679,10 @@ fn protocol_base_lowers_as_an_interface_for_every_import_spelling() -> TestResul
             .ok_or_else(|| format!("expected an interface for: {source}"))?;
         ensure_eq(&interface.methods.len(), &1, &source)?;
         ensure(
-            !ctx.krate.items.iter().any(|item| matches!(item, Item::Class(class)
-                if ctx.krate.symbols.get(class.name) == Some("HasArea"))),
+            !ctx.krate.items.iter().any(|item| {
+                matches!(item, Item::Class(class)
+                if ctx.krate.symbols.get(class.name) == Some("HasArea"))
+            }),
             format!("a protocol must not also lower as a class: {source}"),
         )?;
     }
@@ -724,7 +738,8 @@ class Shape(ABC):
     let error = first_error(&errors)?;
     ensure_eq(&error.code, &"smelt::ambiguous-binding", "error code")?;
     ensure(
-        error.message.contains("'abc.ABC'") && error.message.contains("a definition in this module"),
+        error.message.contains("'abc.ABC'")
+            && error.message.contains("a definition in this module"),
         format!("message should list the candidates: {}", error.message),
     )?;
     ensure_eq(
@@ -808,11 +823,11 @@ fn nested_class_statement_runs_in_the_enclosing_class_body() -> TestResult {
     )
 }
 
-/// Whether lowering `source` produced a JSON-to-text expression.
-fn lowers_to_json_stringify(source: &str) -> Result<bool, String> {
+/// Whether lowering `source` produced the `json.dumps` expression.
+fn lowers_to_json_dumps(source: &str) -> Result<bool, String> {
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
-    Ok(format!("{:?}", ctx.krate.bodies).contains("JsonStringify"))
+    Ok(format!("{:?}", ctx.krate.bodies).contains("PyJsonDumps"))
 }
 
 #[test]
@@ -823,7 +838,10 @@ fn stdlib_call_is_recognized_through_an_import_alias() -> TestResult {
         py!("from json import dumps as encode\ntext: str = encode(1)\n"),
         py!("import json\ntext: str = json.dumps(1)\n"),
     ] {
-        ensure(lowers_to_json_stringify(source)?, format!("expected a rule for {source}"))?;
+        ensure(
+            lowers_to_json_dumps(source)?,
+            format!("expected a rule for {source}"),
+        )?;
     }
     Ok(())
 }
@@ -840,7 +858,10 @@ class Encoder:
 def encode(json: Encoder) -> str:
     return json.dumps(1)
 ");
-    ensure(!lowers_to_json_stringify(source)?, "a parameter `json` must not reach the rule")?;
+    ensure(
+        !lowers_to_json_dumps(source)?,
+        "a parameter `json` must not reach the rule",
+    )?;
     Ok(())
 }
 

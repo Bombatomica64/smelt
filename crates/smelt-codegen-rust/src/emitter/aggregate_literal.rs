@@ -7,8 +7,17 @@ use crate::rust::RustExpr;
 impl FunctionEmitter<'_> {
     /// Add the phantom field to a record literal's `fields` when `class`, carrying
     /// `type_arg_count` arguments, declares one for type parameters no field spells.
-    pub(super) fn push_phantom_field(&self, fields: &mut Vec<String>, class: Symbol, type_arg_count: usize) {
-        if self.context.type_param_elision().emits_phantom(class, type_arg_count) {
+    pub(super) fn push_phantom_field(
+        &self,
+        fields: &mut Vec<String>,
+        class: Symbol,
+        type_arg_count: usize,
+    ) {
+        if self
+            .context
+            .type_param_elision()
+            .emits_phantom(class, type_arg_count)
+        {
             fields.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
     }
@@ -26,18 +35,26 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Tuple(target_items)) = self.mir.types.get(dest_ty)
             && target_items.len() == items.len()
         {
-            let items_text = RustExpr::from(items
-                .iter()
-                .zip(target_items)
-                .map(|(item, target_ty)| {
-                    self.value_at_type(&self.list_literal_operand(item), *target_ty)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "));
+            let items_text = RustExpr::from(
+                items
+                    .iter()
+                    .zip(target_items)
+                    .map(|(item, target_ty)| {
+                        self.value_at_type(&self.list_literal_operand(item), *target_ty)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", "),
+            );
             return if target_items.len() == 1 {
-                Ok(RustExpr::atom(format!("({items_text},)", items_text = items_text.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "({items_text},)",
+                    items_text = items_text.delimited()
+                )))
             } else {
-                Ok(RustExpr::atom(format!("({items_text})", items_text = items_text.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "({items_text})",
+                    items_text = items_text.delimited()
+                )))
             };
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
@@ -64,7 +81,10 @@ impl FunctionEmitter<'_> {
             ) || self.is_erased_class_type(*inner)
             {
                 let inner_text = self.rvalue_expr_for_dest(value, *inner)?;
-                return Ok(RustExpr::chain(format!("Some({inner_text})", inner_text = inner_text.delimited())));
+                return Ok(RustExpr::chain(format!(
+                    "Some({inner_text})",
+                    inner_text = inner_text.delimited()
+                )));
             }
         }
         // A list literal whose destination is a UNION belongs in the
@@ -90,43 +110,62 @@ impl FunctionEmitter<'_> {
             let inner = self.rvalue_expr_for_dest(value, arm_ty)?;
             return Ok(RustExpr::opaque(format!(
                 "{}::M{index}({inner})",
-                union::union_name(dest_ty), inner = inner.delimited()
+                union::union_name(dest_ty),
+                inner = inner.delimited()
             )));
         }
-        if self.has_dynamic_shape(dest_ty)
-        {
-            let items_text = RustExpr::from(items
-                .iter()
-                .map(|item| self.erase(&self.list_literal_operand(item)))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "));
+        if self.has_dynamic_shape(dest_ty) {
+            let items_text = RustExpr::from(
+                items
+                    .iter()
+                    .map(|item| self.erase(&self.list_literal_operand(item)))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", "),
+            );
             let erased = self.erase_array_expr(&items_text)?;
             // A concrete-union destination rebuilds the tagged union from
             // the erased array.
             if self.concrete_union_members(dest_ty).is_some() {
-                return Ok({ let receiver = union::union_name(dest_ty); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({erased})", erased = erased.delimited())) });
+                return Ok({
+                    let receiver = union::union_name(dest_ty);
+                    RustExpr::atom_on(
+                        &receiver,
+                        format!(
+                            "{receiver}::from_smelt_unknown({erased})",
+                            erased = erased.delimited()
+                        ),
+                    )
+                });
             }
             return Ok(erased);
         }
         if let Some(&Type::List(item_ty)) = self.mir.types.get(dest_ty) {
-            let items_text = RustExpr::from(items
-                .iter()
-                .map(|item| self.value_at_type(&self.list_literal_operand(item), item_ty))
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "));
+            let items_text = RustExpr::from(
+                items
+                    .iter()
+                    .map(|item| self.value_at_type(&self.list_literal_operand(item), item_ty))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", "),
+            );
             // Annotate the backing Vec with the element type so heterogeneous
             // closures coerce to the shared `Rc<dyn Fn>` element.
             let elem_text = self.rendered_type(item_ty)?;
             return Ok(RustExpr::atom(format!(
-                "SmeltList::from({{ let smelt_list_items: Vec<{elem_text}> = vec![{items_text}]; smelt_list_items }})", items_text = items_text.delimited()
+                "SmeltList::from({{ let smelt_list_items: Vec<{elem_text}> = vec![{items_text}]; smelt_list_items }})",
+                items_text = items_text.delimited()
             )));
         }
-        let items_text = RustExpr::from(items
-            .iter()
-            .map(|item| self.operand_expr(&self.list_literal_operand(item)))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", "));
-        Ok(RustExpr::atom(format!("vec![{items_text}]", items_text = items_text.delimited())))
+        let items_text = RustExpr::from(
+            items
+                .iter()
+                .map(|item| self.operand_expr(&self.list_literal_operand(item)))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", "),
+        );
+        Ok(RustExpr::atom(format!(
+            "vec![{items_text}]",
+            items_text = items_text.delimited()
+        )))
     }
 
     /// A set literal at its destination.
@@ -141,23 +180,32 @@ impl FunctionEmitter<'_> {
         };
         // A destination that is not a `Set` keeps the hashed
         // container, as it always has.
-        let container =
-            item_ty.map_or("SmeltPrimSet", |set_item_ty| self.set_container_name(set_item_ty));
+        let container = item_ty.map_or("SmeltPrimSet", |set_item_ty| {
+            self.set_container_name(set_item_ty)
+        });
         if items.is_empty() {
             return Ok(RustExpr::atom_on(&container, format!("{container}::new()")));
         }
-        let items_text = RustExpr::from(items
-            .iter()
-            .map(|item| {
-                if let Some(set_item_ty) = item_ty {
-                    self.value_at_type(item, set_item_ty)
-                } else {
-                    self.operand_expr(item)
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", "));
-        Ok(RustExpr::atom_on(&container, format!("{container}::from([{items_text}])", items_text = items_text.delimited())))
+        let items_text = RustExpr::from(
+            items
+                .iter()
+                .map(|item| {
+                    if let Some(set_item_ty) = item_ty {
+                        self.value_at_type(item, set_item_ty)
+                    } else {
+                        self.operand_expr(item)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", "),
+        );
+        Ok(RustExpr::atom_on(
+            &container,
+            format!(
+                "{container}::from([{items_text}])",
+                items_text = items_text.delimited()
+            ),
+        ))
     }
 
     /// A dict literal at its destination.
@@ -169,19 +217,21 @@ impl FunctionEmitter<'_> {
         if let Some(record_text) = self.record_literal_expr_for_dest(entries, dest_ty)? {
             return Ok(record_text);
         }
-        if self.has_dynamic_shape(dest_ty)
-        {
-            let entries_text = RustExpr::from(entries
-                .iter()
-                .map(|(key, entry_value)| {
-                    Ok(format!(
-                        "({}, {})",
-                        self.value_at_type(key, self.type_id(self.text_type())?)?.delimited(),
-                        self.erase(entry_value)?.delimited()
-                    ))
-                })
-                .collect::<Result<Vec<_>, EmitError>>()?
-                .join(", "));
+        if self.has_dynamic_shape(dest_ty) {
+            let entries_text = RustExpr::from(
+                entries
+                    .iter()
+                    .map(|(key, entry_value)| {
+                        Ok(format!(
+                            "({}, {})",
+                            self.value_at_type(key, self.type_id(self.text_type())?)?
+                                .delimited(),
+                            self.erase(entry_value)?.delimited()
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", "),
+            );
             return Ok(self.erase_object_expr(&entries_text)?);
         }
         // A source-spelled `Map` dest and a plain `Dict`/record dest share
@@ -195,56 +245,87 @@ impl FunctionEmitter<'_> {
             }
             _ => None,
         };
-        let entries_text = RustExpr::from(entries
-            .iter()
-            .map(|(key, entry_value)| {
-                let key_text = if let Some((key_ty, _)) = dict_types {
-                    if self.mir.types.get(key_ty).is_some_and(Type::is_text)
-                        && self.mir.types.get(self.operand_ty(key)?).is_none_or(|candidate| !candidate.is_text())
-                    {
-                        self.property_key_to_string_expr(
-                            &self.operand_expr(key)?,
-                            self.operand_ty(key)?,
-                        )?
+        let entries_text = RustExpr::from(
+            entries
+                .iter()
+                .map(|(key, entry_value)| {
+                    let key_text = if let Some((key_ty, _)) = dict_types {
+                        if self.mir.types.get(key_ty).is_some_and(Type::is_text)
+                            && self
+                                .mir
+                                .types
+                                .get(self.operand_ty(key)?)
+                                .is_none_or(|candidate| !candidate.is_text())
+                        {
+                            self.property_key_to_string_expr(
+                                &self.operand_expr(key)?,
+                                self.operand_ty(key)?,
+                            )?
+                        } else {
+                            self.value_at_type(key, key_ty)?
+                        }
                     } else {
-                        self.value_at_type(key, key_ty)?
-                    }
-                } else {
-                    self.operand_expr(key)?
-                };
-                let value_text = if let Some((_, value_ty)) = dict_types {
-                    if matches!(self.mir.types.get(value_ty), Some(Type::Function(_))) {
-                        format!(
-                            "{{ let smelt_fn: {} = {}; smelt_fn }}",
-                            self.rendered_type(value_ty)?,
-                            self.value_at_type(entry_value, value_ty)?.delimited()
-                        )
+                        self.operand_expr(key)?
+                    };
+                    let value_text = if let Some((_, value_ty)) = dict_types {
+                        if matches!(self.mir.types.get(value_ty), Some(Type::Function(_))) {
+                            format!(
+                                "{{ let smelt_fn: {} = {}; smelt_fn }}",
+                                self.rendered_type(value_ty)?,
+                                self.value_at_type(entry_value, value_ty)?.delimited()
+                            )
+                        } else {
+                            self.value_at_type(entry_value, value_ty)?.into_string()
+                        }
                     } else {
-                        self.value_at_type(entry_value, value_ty)?.into_string()
-                    }
-                } else {
-                    self.operand_expr(entry_value)?.into_string()
-                };
-                Ok(format!("({key_text}, {value_text})", key_text = key_text.delimited()))
-            })
-            .collect::<Result<Vec<_>, EmitError>>()?
-            .join(", "));
+                        self.operand_expr(entry_value)?.into_string()
+                    };
+                    Ok(format!(
+                        "({key_text}, {value_text})",
+                        key_text = key_text.delimited()
+                    ))
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", "),
+        );
         if dest_is_js_map {
-            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap::from([{entries_text}])", entries_text = entries_text.delimited()))));
+            return Ok(RustExpr::atom(self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "SmeltJsMap::from([{entries_text}])",
+                    entries_text = entries_text.delimited()
+                ),
+            )));
         }
         if let Some((key_ty, _)) = dict_types {
             if self.dict_uses_smelt_record(key_ty) {
-                return Ok(RustExpr::atom(format!("SmeltRecord::from([{entries_text}])", entries_text = entries_text.delimited())));
+                return Ok(RustExpr::atom(format!(
+                    "SmeltRecord::from([{entries_text}])",
+                    entries_text = entries_text.delimited()
+                )));
             }
             if self.is_prop_key_record_key(key_ty) {
-                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltPropKeyRecord::from([{entries_text}])", entries_text = entries_text.delimited()))));
+                return Ok(RustExpr::atom(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "SmeltPropKeyRecord::from([{entries_text}])",
+                        entries_text = entries_text.delimited()
+                    ),
+                )));
             }
             if self.dict_uses_js_key_map(key_ty) {
-                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap::from([{entries_text}])", entries_text = entries_text.delimited()))));
+                return Ok(RustExpr::atom(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "SmeltJsMap::from([{entries_text}])",
+                        entries_text = entries_text.delimited()
+                    ),
+                )));
             }
         }
         Ok(RustExpr::loose(format!(
-            "::indexmap::IndexMap::from([{entries_text}])", entries_text = entries_text.delimited()
+            "::indexmap::IndexMap::from([{entries_text}])",
+            entries_text = entries_text.delimited()
         )))
     }
 
@@ -256,37 +337,53 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if let Some(Type::Tuple(target_items)) = self.mir.types.get(dest_ty) {
             let offset = items.len().saturating_sub(target_items.len());
-            let items_text = RustExpr::from(target_items
-                .iter()
-                .enumerate()
-                .map(|(index, target_item)| {
-                    let item_index = index
-                        .checked_add(offset)
-                        .ok_or_else(|| EmitError::new("tuple item index overflowed"))?;
-                    let item = items.get(item_index).ok_or_else(|| {
-                        EmitError::new("tuple destination has more items than literal")
-                    })?;
-                    self.value_at_type(item, *target_item)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .join(", "));
+            let items_text = RustExpr::from(
+                target_items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, target_item)| {
+                        let item_index = index
+                            .checked_add(offset)
+                            .ok_or_else(|| EmitError::new("tuple item index overflowed"))?;
+                        let item = items.get(item_index).ok_or_else(|| {
+                            EmitError::new("tuple destination has more items than literal")
+                        })?;
+                        self.value_at_type(item, *target_item)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", "),
+            );
             return if target_items.len() == 1 {
-                Ok(RustExpr::atom(format!("({items_text},)", items_text = items_text.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "({items_text},)",
+                    items_text = items_text.delimited()
+                )))
             } else {
-                Ok(RustExpr::atom(format!("({items_text})", items_text = items_text.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "({items_text})",
+                    items_text = items_text.delimited()
+                )))
             };
         }
-        let items_text = RustExpr::from(items
-            .iter()
-            .map(|item| self.operand_expr(item))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", "));
+        let items_text = RustExpr::from(
+            items
+                .iter()
+                .map(|item| self.operand_expr(item))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", "),
+        );
         if items.is_empty() {
             Ok(RustExpr::unit())
         } else if items.len() == 1 {
-            Ok(RustExpr::atom(format!("({items_text},)", items_text = items_text.delimited())))
+            Ok(RustExpr::atom(format!(
+                "({items_text},)",
+                items_text = items_text.delimited()
+            )))
         } else {
-            Ok(RustExpr::atom(format!("({items_text})", items_text = items_text.delimited())))
+            Ok(RustExpr::atom(format!(
+                "({items_text})",
+                items_text = items_text.delimited()
+            )))
         }
     }
 
@@ -315,14 +412,20 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .find(|(field_name, _)| *field_name == field.name)
             {
-                parts.push(format!("{name}: {}", self.operand_expr(field_value)?.delimited()));
+                let value = self.record_field_value_at_slot_abi(
+                    self.operand_expr(field_value)?.into_string(),
+                    dest_ty,
+                    &field,
+                )?;
+                parts.push(format!("{name}: {}", value.delimited()));
             } else {
                 parts.push(format!(
                     "{name}: {}",
                     self.default_value_with_scoped_type_params(
                         field.ty,
                         &TypeSubstitution::lexical(&scoped_type_params),
-                    )?.delimited()
+                    )?
+                    .delimited()
                 ));
             }
         }
@@ -346,12 +449,17 @@ impl FunctionEmitter<'_> {
                     self.bind_own_virtual_slots_expr(mir_class, dest_ty, "smelt_instance")?
             {
                 return Ok(RustExpr::atom(format!(
-                    "{{ let smelt_instance = {allocated}; {bindings} smelt_instance }}", allocated = allocated.delimited(), bindings = bindings.delimited()
+                    "{{ let smelt_instance = {allocated}; {bindings} smelt_instance }}",
+                    allocated = allocated.delimited(),
+                    bindings = bindings.delimited()
                 )));
             }
             return Ok(allocated);
         }
-        Ok(RustExpr::loose(format!("{class_name} {{ {} }}", parts.join(", "))))
+        Ok(RustExpr::loose(format!(
+            "{class_name} {{ {} }}",
+            parts.join(", ")
+        )))
     }
 
     /// An imported class instance at its destination.
@@ -363,7 +471,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let text = self.external_class_instance_expr(class, args)?;
         if self.is_regexp_class_symbol(class)?
-            && matches!(self.mir.types.get(dest_ty), Some(Type::String | Type::PyStr))
+            && matches!(
+                self.mir.types.get(dest_ty),
+                Some(Type::String | Type::PyStr)
+            )
         {
             Ok(Self::regexp_literal_expr(&text))
         } else {
@@ -395,12 +506,15 @@ impl FunctionEmitter<'_> {
         if depth >= MAX_DEPTH || !matches!(self.local_decl(local).ok()?.kind, LocalKind::Temp) {
             return None;
         }
-        let mut assigned = self.function.blocks.iter().flat_map(|block| &block.statements).filter_map(
-            |statement| match statement {
+        let mut assigned = self
+            .function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter_map(|statement| match statement {
                 Statement::Assign { dest, value } if *dest == local => Some(value),
                 _ => None,
-            },
-        );
+            });
         let value = assigned.next()?;
         if assigned.next().is_some() {
             return None;
@@ -430,9 +544,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(dest_ty) else {
             return Ok(None);
         };
-        if !self.is_interface_record_type(dest_ty)
-            && !self.mir.has_class(*name)
-        {
+        if !self.is_interface_record_type(dest_ty) && !self.mir.has_class(*name) {
             return Ok(None);
         }
         let Some(fields) = self.structural_record_fields(dest_ty) else {
@@ -473,13 +585,27 @@ impl FunctionEmitter<'_> {
                 {
                     crate::accessor_prelude::getter_expr(&self.operand_expr(entry_value)?)
                 } else if accessor {
-                    crate::accessor_prelude::constant_expr(&self.value_at_type(entry_value, field.ty)?)
+                    crate::accessor_prelude::constant_expr(
+                        &self.value_at_type(entry_value, field.ty)?,
+                    )
                 } else {
-                    self.value_at_type(entry_value, field.ty)?
+                    // A callable at a generic record's field takes the slot's
+                    // DECLARED ABI (`&T` for a type parameter), which the
+                    // substituted field type renders by value; see
+                    // `record_slot_abi`. Inert where the ABI did not move.
+                    self.record_field_value_at_slot_abi(
+                        self.value_at_type(entry_value, field.ty)?.into_string(),
+                        dest_ty,
+                        &field,
+                    )?
                 }
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
                 let default = self.default_value(field.ty)?;
-                if accessor { crate::accessor_prelude::constant_expr(&default) } else { default }
+                if accessor {
+                    crate::accessor_prelude::constant_expr(&default)
+                } else {
+                    default
+                }
             } else {
                 return Ok(None);
             };
@@ -498,6 +624,9 @@ impl FunctionEmitter<'_> {
                 field_text.join(", ")
             ))));
         }
-        Ok(Some(RustExpr::loose(format!("{type_name} {{ {} }}", field_text.join(", ")))))
+        Ok(Some(RustExpr::loose(format!(
+            "{type_name} {{ {} }}",
+            field_text.join(", ")
+        ))))
     }
 }

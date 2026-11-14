@@ -22,9 +22,10 @@ use super::*;
 
 /// Whether the crate performs the given primitive cast anywhere.
 fn crate_has_cast(ctx: &HirCtx, op: PrimitiveCastOp) -> bool {
-    crate_has_expr(ctx, |kind| {
-        matches!(kind, ExprKind::PrimitiveCast { op: found, .. } if *found == op)
-    })
+    crate_has_expr(
+        ctx,
+        |kind| matches!(kind, ExprKind::PrimitiveCast { op: found, .. } if *found == op),
+    )
 }
 
 #[test]

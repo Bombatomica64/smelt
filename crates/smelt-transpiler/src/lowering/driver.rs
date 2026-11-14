@@ -26,8 +26,8 @@ use std::{
 use smelt_hir::{FileId, ModuleId};
 
 use super::{
-    ManifestDiagnostic, SourceLang, manifest_diagnostics, manifest_module_identities,
-    manifest_declared_type_names, manifest_type_renames, scan_written_host_globals,
+    ManifestDiagnostic, SourceLang, manifest_declared_type_names, manifest_diagnostics,
+    manifest_module_identities, manifest_type_renames, scan_written_host_globals,
 };
 use crate::manifest::ManifestSource;
 use crate::python::{PyEnumMembers, PyModuleNamespaces};
@@ -143,7 +143,10 @@ impl SeededLowering {
                 })?;
             }
         }
-        Ok(PredeclaredLowering { ts: self.ts, py: PyLoweringState::default() })
+        Ok(PredeclaredLowering {
+            ts: self.ts,
+            py: PyLoweringState::default(),
+        })
     }
 }
 
@@ -238,9 +241,13 @@ impl PredeclaredLowering {
                         file_id,
                         &file_string,
                         inputs.specialization.python(),
+                        source.is_entry,
                     );
                 self.ts.krate = krate;
-                self.py = PyLoweringState { module_namespaces, enum_members };
+                self.py = PyLoweringState {
+                    module_namespaces,
+                    enum_members,
+                };
                 outcome
             }
         }
@@ -308,7 +315,10 @@ mod tests {
     fn a_laid_js_source_predeclares_its_unique_symbols() -> Result<(), Box<dyn std::error::Error>> {
         let directory = tempfile::tempdir()?;
         let written = directory.path().join("index.ts");
-        std::fs::write(&written, "export const tag: unique symbol = Symbol(\"tag\");\n")?;
+        std::fs::write(
+            &written,
+            "export const tag: unique symbol = Symbol(\"tag\");\n",
+        )?;
         let mut laid = read_manifest_source(written)?;
         laid.path = directory.path().join("index.js");
 

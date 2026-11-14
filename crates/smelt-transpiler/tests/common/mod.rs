@@ -33,7 +33,10 @@ pub(crate) type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 /// The missing tool goes through [`missing_prerequisite`], so `Ok(true)` is a
 /// reported skip and strict mode makes it an error instead.
 pub(crate) fn tool_missing(test: &str, tools: &[&str]) -> TestResult<bool> {
-    let Some(tool) = tools.iter().find(|tool| locate_executable(tool, &[]).is_none()) else {
+    let Some(tool) = tools
+        .iter()
+        .find(|tool| locate_executable(tool, &[]).is_none())
+    else {
         return Ok(false);
     };
     missing_prerequisite::<Box<dyn Error>>(test, tool)?;
@@ -106,8 +109,10 @@ impl TempProject {
         let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
         Ok(Self {
-            path: std::env::temp_dir()
-                .join(format!("smelt-cli-test-{}-{sequence}-{nonce}", std::process::id())),
+            path: std::env::temp_dir().join(format!(
+                "smelt-cli-test-{}-{sequence}-{nonce}",
+                std::process::id()
+            )),
         })
     }
 
@@ -164,7 +169,9 @@ impl SharedDepsCrate {
             .get_or_init(Default::default)
             .lock()
             .map_err(|poisoned| {
-                io::Error::other(format!("shared crate-name registry is poisoned: {poisoned}"))
+                io::Error::other(format!(
+                    "shared crate-name registry is poisoned: {poisoned}"
+                ))
             })?
             .insert(crate_name.clone());
         if !newly_claimed {
@@ -309,7 +316,11 @@ fn drain<R: io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHand
 /// Both pipes are drained on their own threads while the child runs, so a
 /// child that fills a pipe buffer cannot deadlock against the wait, and the
 /// output it printed before it was killed is part of the error.
-pub(crate) fn output_within(command: &mut Command, limit: Duration, what: &str) -> TestResult<Output> {
+pub(crate) fn output_within(
+    command: &mut Command,
+    limit: Duration,
+    what: &str,
+) -> TestResult<Output> {
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -347,7 +358,11 @@ pub(crate) fn output_within(command: &mut Command, limit: Duration, what: &str) 
         ))
         .into());
     };
-    Ok(Output { status, stdout, stderr })
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 /// Builds a generated crate with `command` (a `cargo` command, possibly with
@@ -358,12 +373,21 @@ pub(crate) fn output_within(command: &mut Command, limit: Duration, what: &str) 
 fn build_generated_crate(command: &mut Command, manifest: &Path) -> TestResult<PathBuf> {
     build_generated_artifacts(command.arg("build"), manifest)?
         .pop()
-        .ok_or_else(|| io::Error::other(format!("cargo built {} but reported no binary", manifest.display())).into())
+        .ok_or_else(|| {
+            io::Error::other(format!(
+                "cargo built {} but reported no binary",
+                manifest.display()
+            ))
+            .into()
+        })
 }
 
 /// Compiles a generated crate's test harness with `command` (a `cargo`
 /// command) and returns the paths of its test binaries, unrun.
-pub(crate) fn build_generated_tests(command: &mut Command, manifest: &Path) -> TestResult<Vec<PathBuf>> {
+pub(crate) fn build_generated_tests(
+    command: &mut Command,
+    manifest: &Path,
+) -> TestResult<Vec<PathBuf>> {
     build_generated_artifacts(command.arg("test").arg("--no-run"), manifest)
 }
 
@@ -418,7 +442,9 @@ fn build_generated_artifacts(command: &mut Command, manifest: &Path) -> TestResu
             continue;
         };
         if message.get("reason").and_then(serde_json::Value::as_str) == Some("compiler-artifact")
-            && let Some(path) = message.get("executable").and_then(serde_json::Value::as_str)
+            && let Some(path) = message
+                .get("executable")
+                .and_then(serde_json::Value::as_str)
         {
             executables.push(PathBuf::from(path));
         }
@@ -469,7 +495,10 @@ const NODE_TRANSFORM_TYPES_MIN: (u32, u32) = (22, 7);
 /// `eprintln` note rather than failing it. CI installs a pinned Node (see the
 /// `actions/setup-node` steps in `.github/workflows/ci.yml`), so there the
 /// oracle always runs.
-#[expect(clippy::print_stderr, reason = "a skipped oracle check must say so in the test output")]
+#[expect(
+    clippy::print_stderr,
+    reason = "a skipped oracle check must say so in the test output"
+)]
 pub(crate) fn node_runs_typescript() -> bool {
     static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *PROBE.get_or_init(|| {
@@ -502,7 +531,10 @@ pub(crate) const NODE_ORACLE: &str = "a `node` that runs TypeScript";
 /// Needed only by an oracle program with npm dependencies (see
 /// [`node_typescript_stdout`]); without it that program's oracle check is
 /// skipped with one note, like a missing `node`.
-#[expect(clippy::print_stderr, reason = "a skipped oracle check must say so in the test output")]
+#[expect(
+    clippy::print_stderr,
+    reason = "a skipped oracle check must say so in the test output"
+)]
 pub(crate) fn npm_available() -> bool {
     static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *PROBE.get_or_init(|| {
@@ -551,10 +583,19 @@ pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> Tes
         }
         fs::write(path, source)?;
     }
-    if files.iter().any(|(relative, _)| *relative == "package.json") {
+    if files
+        .iter()
+        .any(|(relative, _)| *relative == "package.json")
+    {
         let output = Command::new("npm")
             .current_dir(&root)
-            .args(["install", "--no-audit", "--no-fund", "--ignore-scripts", "--loglevel=error"])
+            .args([
+                "install",
+                "--no-audit",
+                "--no-fund",
+                "--ignore-scripts",
+                "--loglevel=error",
+            ])
             .output()?;
         if !output.status.success() {
             return Err(io::Error::other(format!(
@@ -576,7 +617,11 @@ pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> Tes
     if let Some(path) = std::env::var_os("PATH") {
         command.env("PATH", path);
     }
-    let output = output_within(&mut command, program_run_limit(), &format!("node on {entry}"))?;
+    let output = output_within(
+        &mut command,
+        program_run_limit(),
+        &format!("node on {entry}"),
+    )?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
             "node failed on {entry}\nstdout:\n{}\nstderr:\n{}",
@@ -608,7 +653,11 @@ pub(crate) fn ensure_node_agrees(
     if !node_runs_typescript() {
         return missing_prerequisite(name, NODE_ORACLE);
     }
-    if files.iter().any(|(relative, _)| *relative == "package.json") && !npm_available() {
+    if files
+        .iter()
+        .any(|(relative, _)| *relative == "package.json")
+        && !npm_available()
+    {
         return missing_prerequisite(name, "npm");
     }
     let node_stdout = node_typescript_stdout(files, entry)?;
@@ -729,8 +778,20 @@ pub(crate) fn verify_example_dumps(name: &str, example: &Path, input: &Path) -> 
     let input_path = input.strip_prefix(workspace_root)?;
     let input_arg = utf8_path(input_path)?;
 
-    ensure_dump_matches("HIR", name, &example.join("expected.hir"), "dump-hir", &input_arg)?;
-    ensure_dump_matches("MIR", name, &example.join("expected.mir"), "dump-mir", &input_arg)?;
+    ensure_dump_matches(
+        "HIR",
+        name,
+        &example.join("expected.hir"),
+        "dump-hir",
+        &input_arg,
+    )?;
+    ensure_dump_matches(
+        "MIR",
+        name,
+        &example.join("expected.mir"),
+        "dump-mir",
+        &input_arg,
+    )?;
 
     Ok(())
 }
@@ -808,7 +869,9 @@ clone-strategy = "aggressive"
     let actual_stdout = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
     ensure(
         actual_stdout == expected_stdout,
-        format!("{name}: runtime stdout mismatch\n--- generated\n{actual_stdout}--- golden\n{expected_stdout}"),
+        format!(
+            "{name}: runtime stdout mismatch\n--- generated\n{actual_stdout}--- golden\n{expected_stdout}"
+        ),
     )?;
     ensure_python_agrees(&source, &expected_stdout, name)
 }
@@ -824,7 +887,10 @@ pub(crate) const PYTHON_ORACLE: &str = "a `python3` able to run the corpus";
 ///
 /// Skip-if-absent, like [`node_runs_typescript`]: a missing or too-old
 /// interpreter skips the oracle half of the check with one note.
-#[expect(clippy::print_stderr, reason = "a skipped oracle check must say so in the test output")]
+#[expect(
+    clippy::print_stderr,
+    reason = "a skipped oracle check must say so in the test output"
+)]
 pub(crate) fn python_runs_corpus() -> bool {
     static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *PROBE.get_or_init(|| {
@@ -863,7 +929,10 @@ pub(crate) fn ensure_python_agrees(source: &str, expected_stdout: &str, name: &s
     fs::create_dir_all(&root)?;
     fs::write(root.join("main.py"), source)?;
     let output = output_within(
-        Command::new("python3").current_dir(&root).arg("-I").arg("main.py"),
+        Command::new("python3")
+            .current_dir(&root)
+            .arg("-I")
+            .arg("main.py"),
         program_run_limit(),
         &format!("python3 on {name}"),
     )?;
@@ -911,8 +980,9 @@ fn update_example_rust() -> bool {
 ///
 /// Unset means every example, which is what `cargo test` always wants.
 pub(crate) fn example_is_selected(name: &str) -> bool {
-    std::env::var(EXAMPLE_ONLY_VAR)
-        .map_or(true, |only| only.split(',').any(|selected| selected.trim() == name))
+    std::env::var(EXAMPLE_ONLY_VAR).map_or(true, |only| {
+        only.split(',').any(|selected| selected.trim() == name)
+    })
 }
 
 /// Concatenate every generated `.rs` file under `dist_src` into one text.

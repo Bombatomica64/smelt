@@ -14,9 +14,14 @@ use super::context::LoweringCtx;
 
 /// Lowers one op field from its HIR form to its MIR form.
 macro_rules! lower_op_field {
-    ($ctx:ident, one, $field:ident) => { $ctx.lower_expr(*$field)? };
+    ($ctx:ident, one, $field:ident) => {
+        $ctx.lower_expr(*$field)?
+    };
     ($ctx:ident, opt, $field:ident) => {
-        $field.as_ref().map(|child| $ctx.lower_expr(*child)).transpose()?
+        $field
+            .as_ref()
+            .map(|child| $ctx.lower_expr(*child))
+            .transpose()?
     };
     ($ctx:ident, many, $field:ident) => {
         $field
@@ -35,16 +40,24 @@ macro_rules! lower_op_field {
             })
             .collect::<Result<Vec<_>, LowerError>>()?
     };
-    ($ctx:ident, symbol_pairs, $field:ident) => { lower_op_field!($ctx, { _ }, $field) };
+    ($ctx:ident, symbol_pairs, $field:ident) => {
+        lower_op_field!($ctx, { _ }, $field)
+    };
     ($ctx:ident, { $key:ty }, $field:ident) => {
         $field
             .iter()
             .map(|(key, value)| Ok((key.clone(), $ctx.lower_expr(*value)?)))
             .collect::<Result<Vec<_>, LowerError>>()?
     };
-    ($ctx:ident, [$data:ty], $field:ident) => { $field.clone() };
-    ($ctx:ident, (sym $label:literal), $field:ident) => { *$field };
-    ($ctx:ident, (ty), $field:ident) => { *$field };
+    ($ctx:ident, [$data:ty], $field:ident) => {
+        $field.clone()
+    };
+    ($ctx:ident, (sym $label:literal), $field:ident) => {
+        *$field
+    };
+    ($ctx:ident, (ty), $field:ident) => {
+        *$field
+    };
 }
 
 /// Expands, in pattern position, to every transcribed [`ExprKind`] variant.
@@ -213,8 +226,14 @@ impl LoweringCtx<'_> {
         value.reads(|operand| {
             takes_function |= operand
                 .local()
-                .and_then(|local| self.function.locals.get(usize::try_from(local.0).unwrap_or(usize::MAX)))
-                .is_some_and(|decl| matches!(self.krate.types.get(decl.ty), Some(Type::Function(_))));
+                .and_then(|local| {
+                    self.function
+                        .locals
+                        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
+                })
+                .is_some_and(|decl| {
+                    matches!(self.krate.types.get(decl.ty), Some(Type::Function(_)))
+                });
         });
         takes_function
     }

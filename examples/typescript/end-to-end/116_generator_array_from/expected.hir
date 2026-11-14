@@ -13,7 +13,7 @@ module examples/typescript/end-to-end/116_generator_array_from/input.ts (ModuleI
     #1: Float = 5.0
     #2: fn(Float, Float, Optional<Float>) -> Generator<Float, None, None> = @0(range)
     #3: Generator<Float, None, None> = call #2(#0, #1)
-    #4: List<Float> = unknown_cast #3 as List<Float>
+    #4: List<Float> = generator_collect #3
     #5: List<Float> = %0
     #6: Float = len #5
     #7: List<Float> = %0
@@ -29,7 +29,7 @@ module examples/typescript/end-to-end/116_generator_array_from/input.ts (ModuleI
     #17: Float = 5.0
     #18: fn(Float, Float, Optional<Float>) -> Generator<Float, None, None> = @0(range)
     #19: Generator<Float, None, None> = call #18(#15, #16, #17)
-    #20: List<Float> = unknown_cast #19 as List<Float>
+    #20: List<Float> = generator_collect #19
     #21: List<Float> = %1
     #22: String = ","
     #23: String = string_join #21, #22
@@ -38,7 +38,7 @@ module examples/typescript/end-to-end/116_generator_array_from/input.ts (ModuleI
     #26: Float = 3.0
     #27: fn(Float) -> Generator<String, None, None> = @1(labels)
     #28: Generator<String, None, None> = call #27(#26)
-    #29: List<String> = unknown_cast #28 as List<String>
+    #29: List<String> = generator_collect #28
     #30: List<String> = %2
     #31: String = " "
     #32: String = string_join #30, #31
@@ -48,7 +48,7 @@ module examples/typescript/end-to-end/116_generator_array_from/input.ts (ModuleI
     #36: Float = 3.0
     #37: fn(Float, Float, Optional<Float>) -> Generator<Float, None, None> = @0(range)
     #38: Generator<Float, None, None> = call #37(#35, #36)
-    #39: List<Float> = unknown_cast #38 as List<Float>
+    #39: List<Float> = generator_collect #38
     #40: List<Float> = %3
     #41: Float = len #40
     #42: List<Float> = %3

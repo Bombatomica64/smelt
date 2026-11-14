@@ -4,11 +4,11 @@
 
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{
-    Argument, Body, Expr, ExprKind, Expression, FunctionType, ListCallbackOp,
-    Literal, ModuleBuilder, SmeltError, Type,
+    Argument, Body, Expr, ExprKind, Expression, FunctionType, ListCallbackOp, Literal,
+    ModuleBuilder, SmeltError, Type,
 };
-use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
+use smelt_hir::ErasureReason;
 
 impl ModuleBuilder<'_> {
     /// Finish array concat lowering after the receiver and the list of
@@ -66,8 +66,11 @@ impl ModuleBuilder<'_> {
                     )
                 }) =>
             {
-                let item_ty =
-                    self.callback_erase_unless_unknown(ty, ErasureReason::ByName, "concat receiver");
+                let item_ty = self.callback_erase_unless_unknown(
+                    ty,
+                    ErasureReason::ByName,
+                    "concat receiver",
+                );
                 ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
@@ -77,8 +80,11 @@ impl ModuleBuilder<'_> {
                 item_ty
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) | None => {
-                let item_ty =
-                    self.callback_erase_unless_unknown(ty, ErasureReason::ByName, "concat receiver");
+                let item_ty = self.callback_erase_unless_unknown(
+                    ty,
+                    ErasureReason::ByName,
+                    "concat receiver",
+                );
                 ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
@@ -359,7 +365,9 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<smelt_hir::TypeId> {
         let ty = match object {
-            Expression::Identifier(identifier) => self.binding_static_type(identifier.name.as_str(), body)?,
+            Expression::Identifier(identifier) => {
+                self.binding_static_type(identifier.name.as_str(), body)?
+            }
             Expression::ThisExpression(_) => self.binding_static_type("this", body)?,
             Expression::ParenthesizedExpression(paren) => {
                 self.static_receiver_type(&paren.expression, body)?
@@ -490,7 +498,10 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(inner) {
             Some(Type::List(_) | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. }) => true,
             Some(Type::Union(items)) => items.iter().any(|item| {
-                matches!(self.ctx.krate.types.get(*item), Some(Type::List(_) | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. }))
+                matches!(
+                    self.ctx.krate.types.get(*item),
+                    Some(Type::List(_) | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. })
+                )
             }),
             _ => false,
         }
@@ -539,10 +550,8 @@ impl ModuleBuilder<'_> {
                     ));
                 }
             };
-            let unknown_ty = self.erase_with(
-                ErasureReason::UntypedPackage,
-                member.property.name.as_str(),
-            );
+            let unknown_ty =
+                self.erase_with(ErasureReason::UntypedPackage, member.property.name.as_str());
             let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
             let return_ty = match op {
                 ListCallbackOp::Map | ListCallbackOp::Filter => list_ty,
@@ -672,6 +681,7 @@ impl ModuleBuilder<'_> {
             ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
         };
         let callback_param_tys = [element_ty, index_ty, list_ty];
+        self.type_rest_from_fixed_arguments(callback_argument, &callback_param_tys);
         let callback = if matches!(
             op,
             ListCallbackOp::Filter
@@ -780,7 +790,11 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
-        if self.receiver_statically_declares_method(&member.object, member.property.name.as_str(), body) {
+        if self.receiver_statically_declares_method(
+            &member.object,
+            member.property.name.as_str(),
+            body,
+        ) {
             return Ok(None);
         }
         if Self::is_static_reduce_utility_call(call) {
@@ -812,7 +826,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Check whether a `reduce` call is the utility form `ns.reduce(value, callback, initial?)`.
-    pub(in crate::lowering) fn is_static_reduce_utility_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(in crate::lowering) fn is_static_reduce_utility_call(
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> bool {
         match call.arguments.as_slice() {
             [first, _, _] => !Self::argument_is_callback_like(first),
             [first, second] => {
@@ -1053,7 +1069,12 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<smelt_hir::TypeId> {
         let ty = Self::expr_ty(body, callback_expr);
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::Function(function)) => function.params.first().copied(),
             _ => None,
         }

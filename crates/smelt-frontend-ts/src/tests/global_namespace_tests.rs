@@ -22,10 +22,12 @@ fn a_registry_namespace_lowers_to_a_host_namespace_value() -> Result<(), String>
         lower_ok(&source, &mut ctx)?;
         ensure!(
             ctx.krate.bodies.iter().any(|body| {
-                body.exprs.iter().any(|expr| matches!(
-                    &expr.kind,
-                    ExprKind::BuiltinNamespace { name: spelled } if spelled == name
-                ))
+                body.exprs.iter().any(|expr| {
+                    matches!(
+                        &expr.kind,
+                        ExprKind::BuiltinNamespace { name: spelled } if spelled == name
+                    )
+                })
             }),
             "{name} should lower to a host namespace value"
         );
@@ -45,10 +47,12 @@ fn a_namespace_valued_member_lowers_to_the_sub_namespace() -> Result<(), String>
         lower_ok(source, &mut ctx)?;
         ensure!(
             ctx.krate.bodies.iter().any(|body| {
-                body.exprs.iter().any(|expr| matches!(
-                    &expr.kind,
-                    ExprKind::BuiltinNamespace { name } if name == "crypto.subtle"
-                ))
+                body.exprs.iter().any(|expr| {
+                    matches!(
+                        &expr.kind,
+                        ExprKind::BuiltinNamespace { name } if name == "crypto.subtle"
+                    )
+                })
             }),
             "`crypto.subtle` should lower to a host namespace value: {source}"
         );
@@ -61,10 +65,12 @@ fn a_namespace_valued_member_lowers_to_the_sub_namespace() -> Result<(), String>
     lower_ok("export const held = crypto.notANamespace;\n", &mut ctx)?;
     ensure!(
         !ctx.krate.bodies.iter().any(|body| {
-            body.exprs.iter().any(|expr| matches!(
-                &expr.kind,
-                ExprKind::BuiltinNamespace { name } if name == "crypto.notANamespace"
-            ))
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::BuiltinNamespace { name } if name == "crypto.notANamespace"
+                )
+            })
         }),
         "an unlisted member must not become a namespace value"
     );

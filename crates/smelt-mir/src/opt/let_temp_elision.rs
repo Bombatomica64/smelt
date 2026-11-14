@@ -57,10 +57,19 @@ impl Pass for LetTempElision {
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
         for function in &mut mir.functions {
-            changed |= elide_body(&function.locals, &mut function.blocks, &HashSet::new(), &mir.types);
+            changed |= elide_body(
+                &function.locals,
+                &mut function.blocks,
+                &HashSet::new(),
+                &mir.types,
+            );
         }
         for closure in &mut mir.closures {
-            let captures = closure.captures.iter().filter_map(|capture| capture.target_local).collect();
+            let captures = closure
+                .captures
+                .iter()
+                .filter_map(|capture| capture.target_local)
+                .collect();
             changed |= elide_body(&closure.locals, &mut closure.blocks, &captures, &mir.types);
         }
         changed
@@ -130,11 +139,17 @@ fn elidable_pair(
     index: usize,
 ) -> Option<LocalId> {
     let statements = &body.blocks.get(block_index)?.statements;
-    let Statement::Assign { dest: temp_dest, value } = statements.get(index)? else {
+    let Statement::Assign {
+        dest: temp_dest,
+        value,
+    } = statements.get(index)?
+    else {
         return None;
     };
-    let Statement::Assign { dest: user_dest, value: Rvalue::Use(moved @ (Operand::Copy(_) | Operand::Move(_))) } =
-        statements.get(index.saturating_add(1))?
+    let Statement::Assign {
+        dest: user_dest,
+        value: Rvalue::Use(moved @ (Operand::Copy(_) | Operand::Move(_))),
+    } = statements.get(index.saturating_add(1))?
     else {
         return None;
     };
@@ -156,7 +171,7 @@ fn elidable_pair(
         && !reads_user
         && temp_decl.ty == user_decl.ty
         && !is_function(temp_decl.ty))
-        .then_some(user)
+    .then_some(user)
 }
 
 /// What the guards ask of a whole body, computed in one walk.
@@ -174,16 +189,28 @@ struct BodyFacts<'a> {
 
 impl<'a> BodyFacts<'a> {
     /// The facts of `body`.
-    fn of(body: Body<'_>, captures: &'a HashSet<LocalId>, types: &'a smelt_hir::TypeInterner) -> Self {
+    fn of(
+        body: Body<'_>,
+        captures: &'a HashSet<LocalId>,
+        types: &'a smelt_hir::TypeInterner,
+    ) -> Self {
         let mut initializers = body.assignment_counts();
         for statement in body.blocks.iter().flat_map(|block| &block.statements) {
-            if let Statement::AssignPlace { place: Place::Local(target), .. } = statement
+            if let Statement::AssignPlace {
+                place: Place::Local(target),
+                ..
+            } = statement
                 && let Some(count) = initializers.get_mut(target)
             {
                 *count = count.saturating_sub(1);
             }
         }
-        Self { captures, types, single_use: body.single_use_temps(), initializers }
+        Self {
+            captures,
+            types,
+            single_use: body.single_use_temps(),
+            initializers,
+        }
     }
 }
 
@@ -209,7 +236,9 @@ mod tests {
     //!
     //! and breaks exactly one guard.
 
-    use smelt_hir::{BinOp, BodyId, FileId, FunctionType, Span, Symbol, Type, TypeId, TypeInterner};
+    use smelt_hir::{
+        BinOp, BodyId, FileId, FunctionType, Span, Symbol, Type, TypeId, TypeInterner,
+    };
 
     use super::LetTempElision;
     use crate::opt::Pass;
@@ -235,10 +264,25 @@ mod tests {
     /// The fixture: one function whose locals have types `tys` (param, temp,
     /// user) and whose entry block runs `statements` then returns `copy %2`.
     fn mir(types: TypeInterner, tys: [TypeId; 3], statements: Vec<Statement>) -> Mir {
-        let mut function = MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), tys[2], span());
-        let kinds = [LocalKind::Param { symbol: None }, LocalKind::Temp, LocalKind::UserBinding(Symbol(1))];
+        let mut function = MirFunction::new(
+            FuncId(0),
+            Symbol(0),
+            HirOrigin::Body(BodyId(0)),
+            tys[2],
+            span(),
+        );
+        let kinds = [
+            LocalKind::Param { symbol: None },
+            LocalKind::Temp,
+            LocalKind::UserBinding(Symbol(1)),
+        ];
         for (ty, kind) in tys.into_iter().zip(kinds) {
-            function.push_local(LocalDecl { ty, kind, span: span() });
+            function.push_local(LocalDecl {
+                ty,
+                kind,
+                span: span(),
+                init: crate::LocalInit::Definite,
+            });
         }
         function.params = vec![PARAM];
         let entry = &mut function.blocks[0];
@@ -323,9 +367,15 @@ mod tests {
             panic!("{statements:?}");
         };
         assert_eq!(*dest, USER);
-        assert!(matches!(value, Rvalue::Binary { op: BinOp::Add, .. }), "{value:?}");
+        assert!(
+            matches!(value, Rvalue::Binary { op: BinOp::Add, .. }),
+            "{value:?}"
+        );
         // The user binding keeps its declared type.
-        assert_eq!(function.locals[USER.0 as usize].ty, function.locals[TEMP.0 as usize].ty);
+        assert_eq!(
+            function.locals[USER.0 as usize].ty,
+            function.locals[TEMP.0 as usize].ty
+        );
         // A fixpoint run finds nothing more to do.
         let mut again = mir;
         assert!(!LetTempElision.run(&mut again));
@@ -340,7 +390,11 @@ mod tests {
     /// `t` defined twice: the second definition would lose its destination.
     #[test]
     fn declines_when_temp_defined_twice() {
-        assert_declined(|mir| mir.functions[0].blocks[0].statements.insert(0, define_temp()));
+        assert_declined(|mir| {
+            mir.functions[0].blocks[0]
+                .statements
+                .insert(0, define_temp());
+        });
     }
 
     /// `t` read again after the move: that read would see no value.

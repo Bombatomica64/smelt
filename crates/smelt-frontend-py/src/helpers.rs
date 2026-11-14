@@ -180,9 +180,11 @@ fn expr_chain_contains_name(expr: &Expr, name: &str) -> bool {
 pub(crate) fn dotted_name(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Name(name) => Some(name.id.to_string()),
-        Expr::Attribute(attribute) => {
-            Some(format!("{}.{}", dotted_name(&attribute.value)?, attribute.attr))
-        }
+        Expr::Attribute(attribute) => Some(format!(
+            "{}.{}",
+            dotted_name(&attribute.value)?,
+            attribute.attr
+        )),
         _ => None,
     }
 }

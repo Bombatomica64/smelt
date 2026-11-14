@@ -20,8 +20,8 @@ mod list_ops;
 mod timer_wrapper;
 mod transforms;
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{ErasureReason, Type, TypeId};
 
 impl ModuleBuilder<'_> {

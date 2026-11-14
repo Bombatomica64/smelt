@@ -11,8 +11,15 @@ type RunOutcome = (bool, String, String);
 
 /// Runs `smelt` in `dir`.
 fn run(dir: &Path, args: &[&str]) -> TestResult<RunOutcome> {
-    let output = Command::new(env!("CARGO_BIN_EXE_smelt")).current_dir(dir).args(args).output()?;
-    Ok((output.status.success(), String::from_utf8(output.stdout)?, String::from_utf8(output.stderr)?))
+    let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
+        .current_dir(dir)
+        .args(args)
+        .output()?;
+    Ok((
+        output.status.success(),
+        String::from_utf8(output.stdout)?,
+        String::from_utf8(output.stderr)?,
+    ))
 }
 
 /// `smelt new` writes the layout specs/cli.md names, and the project builds and
@@ -28,11 +35,19 @@ fn new_scaffolds_a_typescript_project_that_runs() -> TestResult {
     for file in ["Smelt.toml", ".gitignore", "README.md", "src/main.ts"] {
         ensure(root.join(file).is_file(), format!("missing {file}"))?;
     }
-    ensure_eq(&fs::read_to_string(root.join(".gitignore"))?, &"dist/\n.smelt-cache/\n".to_owned(), ".gitignore")?;
+    ensure_eq(
+        &fs::read_to_string(root.join(".gitignore"))?,
+        &"dist/\n.smelt-cache/\n".to_owned(),
+        ".gitignore",
+    )?;
     let (built, _, build_errors) = run(&root, &["build"])?;
     ensure(built, build_errors)?;
     let greeting = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
-    ensure_eq(&greeting, &"Hello from hello-app!\n".to_owned(), "the scaffolded program's output")
+    ensure_eq(
+        &greeting,
+        &"Hello from hello-app!\n".to_owned(),
+        "the scaffolded program's output",
+    )
 }
 
 /// `--python` scaffolds `src/main.py` instead, and that project runs too.
@@ -43,11 +58,18 @@ fn new_python_scaffolds_a_python_project_that_runs() -> TestResult {
     let (created, _, failure) = run(temp.path(), &["new", "py_app", "--python"])?;
     ensure(created, failure)?;
     let root = temp.path().join("py_app");
-    ensure(root.join("src/main.py").is_file() && !root.join("src/main.ts").exists(), "wrong entry")?;
+    ensure(
+        root.join("src/main.py").is_file() && !root.join("src/main.ts").exists(),
+        "wrong entry",
+    )?;
     let (built, _, build_errors) = run(&root, &["build"])?;
     ensure(built, build_errors)?;
     let greeting = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
-    ensure_eq(&greeting, &"Hello from py_app!\n".to_owned(), "the scaffolded program's output")
+    ensure_eq(
+        &greeting,
+        &"Hello from py_app!\n".to_owned(),
+        "the scaffolded program's output",
+    )
 }
 
 /// An existing non-empty directory and an invalid name are refused, and
@@ -59,10 +81,16 @@ fn new_refuses_a_non_empty_directory_and_a_bad_name() -> TestResult {
     fs::write(temp.path().join("taken/keep.txt"), "mine")?;
     let (taken, _, taken_error) = run(temp.path(), &["new", "taken"])?;
     ensure(!taken && taken_error.contains("not empty"), taken_error)?;
-    ensure(!temp.path().join("taken/Smelt.toml").exists(), "wrote into a non-empty directory")?;
+    ensure(
+        !temp.path().join("taken/Smelt.toml").exists(),
+        "wrote into a non-empty directory",
+    )?;
 
     let (escaped, _, escape_error) = run(temp.path(), &["new", "../escape"])?;
-    ensure(!escaped && escape_error.contains("invalid project name"), escape_error)?;
+    ensure(
+        !escaped && escape_error.contains("invalid project name"),
+        escape_error,
+    )?;
 
     fs::create_dir_all(temp.path().join("empty"))?;
     let (filled, _, fill_error) = run(temp.path(), &["new", "empty"])?;
@@ -92,7 +120,10 @@ fn clean_removes_generated_output() -> TestResult {
     project_with_target(root, "./dist")?;
     let (built, _, build_errors) = run(root, &["build"])?;
     ensure(built, build_errors)?;
-    ensure(root.join("dist/src/main.rs").is_file(), "nothing was generated")?;
+    ensure(
+        root.join("dist/src/main.rs").is_file(),
+        "nothing was generated",
+    )?;
     let (cleaned, message, failure) = run(root, &["clean"])?;
     ensure(cleaned, failure)?;
     ensure(message.contains("Removed"), message)?;
@@ -114,8 +145,14 @@ fn clean_asks_before_removing_foreign_files() -> TestResult {
     fs::write(root.join("dist/notes.txt"), "mine")?;
     let (cleaned, _, refusal) = run(root, &["clean"])?;
     ensure(!cleaned, "foreign files were removed without confirmation")?;
-    ensure(refusal.contains("notes.txt") && refusal.contains("--force"), refusal)?;
-    ensure(root.join("dist/notes.txt").is_file(), "the foreign file is gone")?;
+    ensure(
+        refusal.contains("notes.txt") && refusal.contains("--force"),
+        refusal,
+    )?;
+    ensure(
+        root.join("dist/notes.txt").is_file(),
+        "the foreign file is gone",
+    )?;
     let (forced, _, force_error) = run(root, &["clean", "--force"])?;
     ensure(forced, force_error)?;
     ensure(!root.join("dist").exists(), "--force left dist")
@@ -131,8 +168,14 @@ fn clean_never_removes_the_project() -> TestResult {
     ensure(!cleaned && refusal.contains("holds the project"), refusal)?;
     project_with_target(&root, "..")?;
     let (outer, _, outer_refusal) = run(&root, &["clean", "--force"])?;
-    ensure(!outer && outer_refusal.contains("holds the project"), outer_refusal)?;
-    ensure(root.join("src/main.ts").is_file(), "the project was touched")
+    ensure(
+        !outer && outer_refusal.contains("holds the project"),
+        outer_refusal,
+    )?;
+    ensure(
+        root.join("src/main.ts").is_file(),
+        "the project was touched",
+    )
 }
 
 /// Manifest of a project whose only source is `file`, tested with vitest globs.
@@ -165,8 +208,14 @@ fn an_unmodelled_method_fails_a_non_test_file() -> TestResult {
     let project = TempProject::new()?;
     let root = project.path();
     fs::create_dir_all(root.join("src"))?;
-    fs::write(root.join("src/main.ts"), "const s: string = \"abc\";\nconsole.log(s.anchor(\"x\"));\n")?;
-    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    fs::write(
+        root.join("src/main.ts"),
+        "const s: string = \"abc\";\nconsole.log(s.anchor(\"x\"));\n",
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        unmodelled_method_manifest("main.ts"),
+    )?;
     let (ok, stdout, stderr) = run(root, &["build"])?;
     ensure(!ok, format!("build must fail\nstdout:\n{stdout}"))?;
     ensure(
@@ -196,9 +245,15 @@ it("does not reach it", () => {
 });
 "#,
     )?;
-    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("page.test.ts"))?;
+    fs::write(
+        root.join("Smelt.toml"),
+        unmodelled_method_manifest("page.test.ts"),
+    )?;
     let (ok, stdout, stderr) = run(root, &["build"])?;
-    ensure(ok, format!("build must succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    ensure(
+        ok,
+        format!("build must succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"),
+    )?;
     // A dedicated target directory: an inherited one is shared by every crate
     // that happens to be named alike.
     let output = Command::new("cargo")
@@ -212,8 +267,14 @@ it("does not reach it", () => {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    ensure(!output.status.success(), format!("the blocked test must fail:\n{text}"))?;
-    ensure(text.contains("1 passed; 1 failed"), format!("only one test is blocked:\n{text}"))?;
+    ensure(
+        !output.status.success(),
+        format!("the blocked test must fail:\n{text}"),
+    )?;
+    ensure(
+        text.contains("1 passed; 1 failed"),
+        format!("only one test is blocked:\n{text}"),
+    )?;
     ensure(
         text.contains("`String.prototype.anchor` is not modelled"),
         format!("the failure names the model:\n{text}"),
@@ -240,9 +301,15 @@ const called = pick({ keep: "b", gone: 1 } as Base, ["gone"]);
 console.log(literal.keep, called.gone);
 "#,
     )?;
-    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    fs::write(
+        root.join("Smelt.toml"),
+        unmodelled_method_manifest("main.ts"),
+    )?;
     let (ok, stdout, stderr) = run(root, &["build"])?;
-    ensure(ok, format!("build failed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    ensure(
+        ok,
+        format!("build failed\nstdout:\n{stdout}\nstderr:\n{stderr}"),
+    )?;
     let mut emitted = String::new();
     for entry in fs::read_dir(root.join("dist/src"))? {
         emitted.push_str(&fs::read_to_string(entry?.path())?);
@@ -253,9 +320,28 @@ console.log(literal.keep, called.gone);
         rest.get(..rest.find('}')?).map(str::to_owned)
     };
     let omitted = body("OmitBase").ok_or_else(|| format!("no OmitBase struct:\n{emitted}"))?;
-    ensure(omitted.contains("keep: JsString") && !omitted.contains("gone"), format!("OmitBase: {omitted}"))?;
+    ensure(
+        omitted.contains("keep: JsString") && !omitted.contains("gone"),
+        format!("OmitBase: {omitted}"),
+    )?;
     let picked = body("PickBase").ok_or_else(|| format!("no PickBase struct:\n{emitted}"))?;
-    ensure(picked.contains("gone: f64") && !picked.contains("keep"), format!("PickBase: {picked}"))
+    ensure(
+        picked.contains("gone: f64") && !picked.contains("keep"),
+        format!("PickBase: {picked}"),
+    )
+}
+
+/// Runs the built `dist` crate under `root` and returns its stdout, whatever
+/// its exit status, so a test can compare what it printed before a failure.
+fn dist_stdout(root: &Path) -> TestResult<String> {
+    let output = Command::new("cargo")
+        .arg("run")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(root.join("dist/Cargo.toml"))
+        .env("CARGO_TARGET_DIR", root.join("dist/target"))
+        .output()?;
+    Ok(String::from_utf8(output.stdout)?)
 }
 
 /// Deliberate divergence from JavaScript, which only misbehaves at the read: an
@@ -294,17 +380,16 @@ report("null", () => { const d = raw(null) as Data; console.log(d.name); });
 report("not-a-function", () => { const c = raw({ tag: 1 }) as { (): number; tag: number }; console.log(c()); });
 "#,
     )?;
-    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    fs::write(
+        root.join("Smelt.toml"),
+        unmodelled_method_manifest("main.ts"),
+    )?;
     let (ok, stdout, stderr) = run(root, &["build"])?;
-    ensure(ok, format!("build must succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
-    let output = Command::new("cargo")
-        .arg("run")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(root.join("dist/Cargo.toml"))
-        .env("CARGO_TARGET_DIR", root.join("dist/target"))
-        .output()?;
-    let printed = String::from_utf8(output.stdout)?;
+    ensure(
+        ok,
+        format!("build must succeed\nstdout:\n{stdout}\nstderr:\n{stderr}"),
+    )?;
+    let printed = dist_stdout(root)?;
     ensure_eq(
         &printed,
         &"cast true expected number, got undefined at Data.count\n\
@@ -338,13 +423,25 @@ function plain(options: Options): number { return options.times ?? 3; }
 console.log(tested({}), plain({}));
 ",
     )?;
-    fs::write(root.join("Smelt.toml"), unmodelled_method_manifest("main.ts"))?;
+    fs::write(
+        root.join("Smelt.toml"),
+        unmodelled_method_manifest("main.ts"),
+    )?;
     let (ok, stdout, stderr) = run(root, &["build"])?;
-    ensure(ok, format!("build failed\nstdout:\n{stdout}\nstderr:\n{stderr}"))?;
+    ensure(
+        ok,
+        format!("build failed\nstdout:\n{stdout}\nstderr:\n{stderr}"),
+    )?;
     let mut emitted = String::new();
     for entry in fs::read_dir(root.join("dist/src"))? {
         emitted.push_str(&fs::read_to_string(entry?.path())?);
     }
-    ensure(emitted.contains("fn tested(options: Option<Options>)"), format!("tested signature:\n{emitted}"))?;
-    ensure(emitted.contains("fn plain(options: Options)"), format!("plain signature:\n{emitted}"))
+    ensure(
+        emitted.contains("fn tested(options: Option<Options>)"),
+        format!("tested signature:\n{emitted}"),
+    )?;
+    ensure(
+        emitted.contains("fn plain(options: Options)"),
+        format!("plain signature:\n{emitted}"),
+    )
 }

@@ -1,20 +1,23 @@
 //! Test suites: `describe` blocks, hooks, table tests and the test functions they
 //! declare.
 
+use crate::SmeltError;
 use crate::lowering::js_text::js_str_text;
+use crate::lowering::state::class_registry::{ClassNameSnapshot, ClassScopeSnapshot};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
-use crate::SmeltError;
+use crate::lowering::support::arrow_block_statements;
 use crate::lowering::support::sanitize_test_name;
-use crate::lowering::state::class_registry::{ClassNameSnapshot, ClassScopeSnapshot};
 use crate::lowering::{ModuleBuilder, TableBindingValue};
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type, UnaryOp};
-use crate::lowering::support::arrow_block_statements;
+use smelt_hir::{
+    Body, Expr, ExprKind, Function, FunctionOwner, Item, LocalDecl, Pattern, Span, Stmt, Type,
+    UnaryOp,
+};
 use std::borrow::Cow;
 
 /// A test's run-time guard: `cond ? it : it.skip` runs the body only when
@@ -268,10 +271,7 @@ impl ModuleBuilder<'_> {
     /// lowering. This lets recursive annotations such as `friends: Person[]`
     /// resolve locally without collapsing same-named classes from sibling
     /// callbacks into one emitted Rust type.
-    fn enter_test_suite_class_scope(
-        &mut self,
-        statements: &[Statement<'_>],
-    ) -> ClassScopeSnapshot {
+    fn enter_test_suite_class_scope(&mut self, statements: &[Statement<'_>]) -> ClassScopeSnapshot {
         let scope = self.classes.snapshot_scope();
         for statement in statements {
             let Statement::ClassDeclaration(class) = statement else {
@@ -285,7 +285,8 @@ impl ModuleBuilder<'_> {
                 id.name, self.file_id.0, class.span.start,
             );
             let symbol = self.intern_type_name(&internal_name);
-            self.classes.bind_scoped_type_name(id.name.to_string(), symbol);
+            self.classes
+                .bind_scoped_type_name(id.name.to_string(), symbol);
         }
         scope
     }
@@ -648,11 +649,20 @@ impl ModuleBuilder<'_> {
                     && matches!(id.name.as_str(), "it" | "test"))
             .then_some(true)
         };
-        match (runs(&conditional.consequent)?, runs(&conditional.alternate)?) {
+        match (
+            runs(&conditional.consequent)?,
+            runs(&conditional.alternate)?,
+        ) {
             (true, true) => Some(ConditionalTestAlias::AlwaysRuns),
             (false, false) => None,
-            (true, false) => Some(ConditionalTestAlias::Guarded(TestRunGuard { condition: &conditional.test, run_when: true })),
-            (false, true) => Some(ConditionalTestAlias::Guarded(TestRunGuard { condition: &conditional.test, run_when: false })),
+            (true, false) => Some(ConditionalTestAlias::Guarded(TestRunGuard {
+                condition: &conditional.test,
+                run_when: true,
+            })),
+            (false, true) => Some(ConditionalTestAlias::Guarded(TestRunGuard {
+                condition: &conditional.test,
+                run_when: false,
+            })),
         }
     }
 
@@ -678,7 +688,10 @@ impl ModuleBuilder<'_> {
         let skip_when = if guard.run_when {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             body.push_expr(Expr {
-                kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: condition },
+                kind: ExprKind::UnaryOp {
+                    op: UnaryOp::Not,
+                    operand: condition,
+                },
                 ty,
                 span,
             })
@@ -687,7 +700,11 @@ impl ModuleBuilder<'_> {
         };
         let skip_block = body.push_block(span);
         body.push_stmt_to_block(skip_block, Stmt::Return(None));
-        body.push_stmt(Stmt::If { cond: skip_when, then_block: skip_block, else_block: None });
+        body.push_stmt(Stmt::If {
+            cond: skip_when,
+            then_block: skip_block,
+            else_block: None,
+        });
         Ok(())
     }
 
@@ -702,12 +719,21 @@ impl ModuleBuilder<'_> {
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         self.guarded_test_case_declaration(
-            call, group_name, setup, before_each, after_each, table_bindings, None,
+            call,
+            group_name,
+            setup,
+            before_each,
+            after_each,
+            table_bindings,
+            None,
         )
     }
 
     /// [`Self::test_case_declaration`] for a test that may skip itself at run time.
-    #[expect(clippy::too_many_arguments, reason = "the test_case_declaration signature plus its guard")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the test_case_declaration signature plus its guard"
+    )]
     pub(in crate::lowering) fn guarded_test_case_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -763,7 +789,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower one `test.prop(arbitraries)(name, predicate)` to a test function.
-    #[expect(clippy::too_many_arguments, reason = "mirrors test_case_declaration: each is one piece of the enclosing suite's state")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "mirrors test_case_declaration: each is one piece of the enclosing suite's state"
+    )]
     pub(in crate::lowering) fn property_test_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -775,10 +804,16 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let span = self.span(call.span.start, call.span.end);
         let Expression::CallExpression(prop_call) = &call.callee else {
-            return Err(SmeltError::unsupported(span, "test.prop requires a property call"));
+            return Err(SmeltError::unsupported(
+                span,
+                "test.prop requires a property call",
+            ));
         };
         let [name_arg, predicate, ..] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(span, "test.prop(...) requires a name and a property"));
+            return Err(SmeltError::unsupported(
+                span,
+                "test.prop(...) requires a name and a property",
+            ));
         };
         let test_name = self.test_case_name(name_arg, group_name, table_bindings, setup)?;
         let class_scope = self.test_case_class_scope();
@@ -837,7 +872,9 @@ impl ModuleBuilder<'_> {
     ) {
         if let Some(expression) = arrow.get_expression() {
             let block = body.root;
-            if let Err(error) = self.expression_statement(expression, expression.span(), body, block) {
+            if let Err(error) =
+                self.expression_statement(expression, expression.span(), body, block)
+            {
                 errors.push(error);
             }
             return;
@@ -909,12 +946,13 @@ impl ModuleBuilder<'_> {
             for hook in before_each {
                 this.test_arrow_body(hook, &mut body, &mut errors);
             }
-            if let Err(error) =
-                this.predeclare_local_function_declarations(arrow_block_statements(arrow), &mut body)
+            if let Err(error) = this
+                .predeclare_local_function_declarations(arrow_block_statements(arrow), &mut body)
             {
                 errors.push(error);
             }
-            if let Err(error) = this.predeclare_forward_referenced_locals(arrow_block_statements(arrow), &mut body)
+            if let Err(error) =
+                this.predeclare_forward_referenced_locals(arrow_block_statements(arrow), &mut body)
             {
                 errors.push(error);
             }

@@ -12,11 +12,11 @@ use std::{
 
 use sha2::{Digest as _, Sha256};
 use smelt_specialize::{
-    CacheKeyInput, HashInputs, HostLanguage, ModuleInput, NodeModule, ProjectRoot,
-    NodeSpecializationRequest, NodeSpecializer, PythonModule, PythonSpecializationRequest,
+    CacheKeyInput, HashInputs, HostLanguage, ModuleInput, NodeModule, NodeSpecializationRequest,
+    NodeSpecializer, OciSandboxBackend, ProjectRoot, PythonModule, PythonSpecializationRequest,
     PythonSpecializer, SandboxBackend, SandboxPolicyRecord, SpecializationArtifactStore,
-    OciSandboxBackend, SpecializationCacheKey, SpecializationManifest, platform_backend,
-    detect_specialization_modules,
+    SpecializationCacheKey, SpecializationManifest, detect_specialization_modules,
+    platform_backend,
 };
 
 use crate::{
@@ -62,7 +62,10 @@ pub(crate) struct PreparedSpecialization {
 impl PreparedSpecialization {
     /// Nothing to specialize: a run with no manifest to cache against.
     pub(crate) const fn none() -> Self {
-        Self { python: Batch::NotNeeded, typescript: Batch::NotNeeded }
+        Self {
+            python: Batch::NotNeeded,
+            typescript: Batch::NotNeeded,
+        }
     }
 
     /// The Python manifest, when the batch was needed.
@@ -85,14 +88,16 @@ pub(crate) fn prepare(
     let inputs = detection_inputs(sources);
     let detections = detect_specialization_modules(&inputs);
     if detections.is_empty() {
-        return Ok(PreparedSpecialization { python: Batch::NotNeeded, typescript: Batch::NotNeeded });
+        return Ok(PreparedSpecialization {
+            python: Batch::NotNeeded,
+            typescript: Batch::NotNeeded,
+        });
     }
 
     // `exclusion_base` rather than a bare `parent().canonicalize()?`: the
     // parent of a manifest named with no directory component is `""`, which
     // canonicalizes to an error and failed the whole pass.
-    let manifest_dir =
-        exclusion_base(manifest_path.parent().unwrap_or_else(|| Path::new(".")));
+    let manifest_dir = exclusion_base(manifest_path.parent().unwrap_or_else(|| Path::new(".")));
     let output_dir = resolve_manifest_path(&manifest_dir, config.output_target());
     let cache =
         SpecializationArtifactStore::new(manifest_dir.join(".smelt").join("specialization-cache"));
@@ -104,7 +109,10 @@ pub(crate) fn prepare(
         .collect::<BTreeSet<_>>();
     refuse_cross_language_candidates(sources, &candidate_paths)?;
 
-    let host = Host { project_root: &manifest_dir, fallback: oci_fallback(config) };
+    let host = Host {
+        project_root: &manifest_dir,
+        fallback: oci_fallback(config),
+    };
     let python_sources = candidates_for(HostLanguage::Python, sources, &candidate_paths);
     let typescript_sources = candidates_for(HostLanguage::TypeScript, sources, &candidate_paths);
 
@@ -128,16 +136,24 @@ fn refuse_cross_language_candidates(
     sources: &[&ManifestSource],
     candidates: &BTreeSet<(String, HostLanguage)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let by_path = sources.iter().map(|source| (normalized_path(&source.path), *source)).collect::<BTreeMap<_, _>>();
+    let by_path = sources
+        .iter()
+        .map(|source| (normalized_path(&source.path), *source))
+        .collect::<BTreeMap<_, _>>();
     for (path, language) in candidates {
-        let mut pending = by_path.get(path).map(|source| source.dependencies.clone()).unwrap_or_default();
+        let mut pending = by_path
+            .get(path)
+            .map(|source| source.dependencies.clone())
+            .unwrap_or_default();
         let mut seen = BTreeSet::new();
         while let Some(dependency) = pending.pop() {
             let key = normalized_path(&dependency);
             if !seen.insert(key.clone()) {
                 continue;
             }
-            let Some(source) = by_path.get(&key) else { continue };
+            let Some(source) = by_path.get(&key) else {
+                continue;
+            };
             if source_language(source.lang).is_some_and(|other| other != *language) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -213,7 +229,8 @@ fn oci_fallback(config: &Config) -> Option<OciSandboxBackend> {
         let resolved = if path.components().count() > 1 {
             path.to_path_buf()
         } else {
-            smelt_specialize::prereq::locate_executable(runtime, &[]).unwrap_or_else(|| path.to_path_buf())
+            smelt_specialize::prereq::locate_executable(runtime, &[])
+                .unwrap_or_else(|| path.to_path_buf())
         };
         OciSandboxBackend::new(resolved, image.to_owned())
     })
@@ -253,8 +270,8 @@ fn prepare_python(
             })
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-    let manifest = PythonSpecializer::new(host.backend()).specialize(
-        &PythonSpecializationRequest {
+    let manifest =
+        PythonSpecializer::new(host.backend()).specialize(&PythonSpecializationRequest {
             smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
             python_executable: python,
             project_root: project_root.to_path_buf(),
@@ -262,8 +279,7 @@ fn prepare_python(
             modules,
             hashes,
             sandbox_policy: policy,
-        },
-    )?;
+        })?;
     persist_artifact(cache, package, &key, &manifest)?;
     Ok(Batch::Fresh(manifest))
 }
@@ -329,18 +345,16 @@ fn prepare_typescript(
             })
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
-    let manifest = NodeSpecializer::new(host.backend()).specialize(
-        &NodeSpecializationRequest {
-            smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
-            node_executable: node,
-            project_root: project_root.to_path_buf(),
-            modules,
-            typescript_version,
-            decorators_revision: "2023-11".to_owned(),
-            hashes,
-            sandbox_policy: policy,
-        },
-    )?;
+    let manifest = NodeSpecializer::new(host.backend()).specialize(&NodeSpecializationRequest {
+        smelt_version: env!("CARGO_PKG_VERSION").to_owned(),
+        node_executable: node,
+        project_root: project_root.to_path_buf(),
+        modules,
+        typescript_version,
+        decorators_revision: "2023-11".to_owned(),
+        hashes,
+        sandbox_policy: policy,
+    })?;
     persist_artifact(cache, package, &key, &manifest)?;
     Ok(Batch::Fresh(manifest))
 }
@@ -425,16 +439,29 @@ fn invalidation_hashes(
     let root = project.path();
     let source = hash_sources(project, graph);
     let declared = project.hash_files(
-        ["package.json", "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt"]
-            .into_iter()
-            .map(|name| root.join(name)),
+        [
+            "package.json",
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt",
+        ]
+        .into_iter()
+        .map(|name| root.join(name)),
     )?;
     let installed = project.installed_packages_hash()?;
     let dependencies = hash_bytes(format!("{declared}\0{installed}").as_bytes());
     let lockfile = project.hash_files(
-        ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "uv.lock", "poetry.lock", "Pipfile.lock"]
-            .into_iter()
-            .map(|name| root.join(name)),
+        [
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "uv.lock",
+            "poetry.lock",
+            "Pipfile.lock",
+        ]
+        .into_iter()
+        .map(|name| root.join(name)),
     )?;
     let environment = hash_bytes(&serde_json::to_vec(&policy.environment)?);
     let policy_hash = hash_bytes(&serde_json::to_vec(policy)?);
@@ -456,7 +483,11 @@ fn invalidation_hashes(
 /// disk are not what is compiled. For every other source the text is the
 /// file's content, so the digest is the one re-reading the file gave.
 fn hash_sources(project: &ProjectRoot, graph: &[&ManifestSource]) -> String {
-    project.hash_texts(graph.iter().map(|source| (source.path.as_path(), source.source.as_bytes())))
+    project.hash_texts(
+        graph
+            .iter()
+            .map(|source| (source.path.as_path(), source.source.as_bytes())),
+    )
 }
 
 /// Hashes one in-memory byte sequence.
@@ -479,7 +510,10 @@ fn hash_bytes(bytes: &[u8]) -> String {
 /// already cover, so this only widens the policy where it has to.
 fn interpreter_read_only_root(executable: &Path) -> Option<PathBuf> {
     let canonical = executable.canonicalize().ok()?;
-    let install_root = canonical.parent()?.parent().unwrap_or_else(|| Path::new("/"));
+    let install_root = canonical
+        .parent()?
+        .parent()
+        .unwrap_or_else(|| Path::new("/"));
     if install_root == Path::new("/") {
         return None;
     }

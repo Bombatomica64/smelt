@@ -1,15 +1,17 @@
 //! Member calls: `receiver.method(..)`, computed method calls, class statics and
 //! private callable fields, and the receiver facts those calls are decided on.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::support::source_spelling;
 use crate::SmeltError;
-use crate::lowering::{ModuleBuilder, RestParam};
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::spread_arguments::CallArg;
+use crate::lowering::support::source_spelling;
+use crate::lowering::{ModuleBuilder, RestParam};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, Span, Stmt, Type};
+use smelt_hir::{
+    Body, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, Span, Stmt, Type,
+};
 
 impl ModuleBuilder<'_> {
     /// Lower a member call `object.property(args)` once the builtin, static and
@@ -51,7 +53,10 @@ impl ModuleBuilder<'_> {
                 // names on an `Optional` value is that value's own field.
                 let yield_ty = *item_ty;
                 let return_ty = self.ctx.krate.types.intern(Type::None);
-                let ty = self.ctx.krate.types.intern(Type::GeneratorResult { yield_ty, return_ty });
+                let ty = self.ctx.krate.types.intern(Type::GeneratorResult {
+                    yield_ty,
+                    return_ty,
+                });
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ListNext { list: receiver },
                     ty,
@@ -84,7 +89,8 @@ impl ModuleBuilder<'_> {
             Some(params) => self.distribute_trailing_list_spread(expanded, &params, body)?,
             None => expanded,
         };
-        let callback_param_hints = self.class_method_callback_param_hints(access_receiver_ty, method);
+        let callback_param_hints =
+            self.class_method_callback_param_hints(access_receiver_ty, method);
         let rest_signature = self.class_method_rest_signature(access_receiver_ty, method);
         let spread_positions = expanded
             .iter()
@@ -121,7 +127,8 @@ impl ModuleBuilder<'_> {
         // were already substituted from the receiver by `resolve_method`.
         if let Some((rest_index, params)) = rest_signature {
             let span = self.span(call.span.start, call.span.end);
-            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
+            args =
+                self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = if method_item.0 == u32::MAX {
             return_ty
@@ -131,7 +138,11 @@ impl ModuleBuilder<'_> {
         };
         if method_item.0 == u32::MAX
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
-            && !self.receiver_declares_in_progress_method(access_receiver_ty, method, member_span)?
+            && !self.receiver_declares_in_progress_method(
+                access_receiver_ty,
+                method,
+                member_span,
+            )?
         {
             // No declaration answers this method, so the value decides at run
             // time through the erased call ABI.
@@ -233,7 +244,8 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         });
-        let error = self.error_object_from_message(Some(text), "TypeError", span, &mut closure_body);
+        let error =
+            self.error_object_from_message(Some(text), "TypeError", span, &mut closure_body);
         closure_body.push_stmt(Stmt::Throw(error));
         let body_id = self.ctx.krate.push_body(closure_body);
         let function = FunctionType {
@@ -263,7 +275,10 @@ impl ModuleBuilder<'_> {
         // not a new erasure: the erased call this replaces answered `unknown`
         let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ClosureCall { callee, args: Vec::new() },
+            kind: ExprKind::ClosureCall {
+                callee,
+                args: Vec::new(),
+            },
             ty,
             span,
         })))
@@ -342,7 +357,10 @@ impl ModuleBuilder<'_> {
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
     ) -> Vec<Option<smelt_hir::TypeId>> {
-        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+        if !matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Class { .. })
+        ) {
             return Vec::new();
         }
         let Ok(method_ty) = self.class_field_type(receiver_ty, method) else {
@@ -371,7 +389,10 @@ impl ModuleBuilder<'_> {
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
     ) -> Option<(usize, Vec<smelt_hir::TypeId>)> {
-        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+        if !matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Class { .. })
+        ) {
             return None;
         }
         let method_ty = self.class_field_type(receiver_ty, method).ok()?;
@@ -470,7 +491,14 @@ impl ModuleBuilder<'_> {
         if !rest_is_list {
             return args;
         }
-        self.pack_rest_arguments(args, spread_positions, rest_index, &function.params, span, body)
+        self.pack_rest_arguments(
+            args,
+            spread_positions,
+            rest_index,
+            &function.params,
+            span,
+            body,
+        )
     }
 
     /// The parameter types of a class method with no rest parameter, or `None`
@@ -480,7 +508,10 @@ impl ModuleBuilder<'_> {
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
     ) -> Option<Vec<smelt_hir::TypeId>> {
-        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Class { .. })) {
+        if !matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Class { .. })
+        ) {
             return None;
         }
         let method_ty = self.class_field_type(receiver_ty, method).ok()?;
@@ -537,7 +568,8 @@ impl ModuleBuilder<'_> {
         {
             return false;
         }
-        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, receiver))
+        let Some(Type::Class { name, .. }) =
+            self.ctx.krate.types.get(Self::expr_ty(body, receiver))
         else {
             return false;
         };
@@ -698,7 +730,13 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
                 let method = function.name;
-                let source = self.ctx.krate.symbols.source(method).unwrap_or_default().to_owned();
+                let source = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .source(method)
+                    .unwrap_or_default()
+                    .to_owned();
                 if source.is_empty() {
                     return Ok(None);
                 }
@@ -839,7 +877,11 @@ impl ModuleBuilder<'_> {
         };
         let return_ty = function.return_ty;
         let rest = function.rest;
-        let params = function.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+        let params = function
+            .params
+            .iter()
+            .map(|param| param.ty)
+            .collect::<Vec<_>>();
         let method_type_params = self.callee_own_type_params(static_item);
         let span = self.span(call.span.start, call.span.end);
         // Arguments go through the shared spread rules (a tuple spread
@@ -866,7 +908,8 @@ impl ModuleBuilder<'_> {
             && rest_index < params.len()
         {
             let span = self.span(call.span.start, call.span.end);
-            args = self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
+            args =
+                self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = self.instantiate_generic_method_result(&method_type_params, return_ty);
         let callee = body.push_expr(Expr {
@@ -903,8 +946,11 @@ impl ModuleBuilder<'_> {
         let Item::Class(class) = self.item_ref(class_item) else {
             return false;
         };
-        self.resolve_class_static_method(&self.static_methods_through_chain(class), member.property.name.as_str())
-            .is_some()
+        self.resolve_class_static_method(
+            &self.static_methods_through_chain(class),
+            member.property.name.as_str(),
+        )
+        .is_some()
     }
 
     /// The class a `Class.staticMethod(..)` receiver names: a bare class
@@ -1013,8 +1059,8 @@ impl ModuleBuilder<'_> {
                 // every operand is the receiver-first case; anything else (an
                 // arity that only fits without the receiver, or a variadic callee,
                 // which declares no receiver slot to fill) drops it.
-                let receiver_is_positional = function.rest.is_none()
-                    && function.params.len() == call.arguments.len();
+                let receiver_is_positional =
+                    function.rest.is_none() && function.params.len() == call.arguments.len();
                 let span = self.span(call.span.start, call.span.end);
                 // A receiver-less callee still OBSERVES the leading operand as
                 // its `this`: it is dropped from the positional list, then bound
@@ -1149,7 +1195,10 @@ impl ModuleBuilder<'_> {
         // array, a number), would only throw at run time; see
         // `closed_prototype_missing`.
         if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
-            && let Some(Expr { kind: ExprKind::Field { receiver, .. }, .. }) = body.expr_at(callee)
+            && let Some(Expr {
+                kind: ExprKind::Field { receiver, .. },
+                ..
+            }) = body.expr_at(callee)
         {
             let receiver_ty = Self::expr_ty(body, *receiver);
             let span = self.span(call.span.start, call.span.end);
@@ -1226,8 +1275,7 @@ impl ModuleBuilder<'_> {
         // spread, so route it through the shared spread expansion helper.
         if has_spread
             && let Some(function_ty) = self.function_member_type(callee_ty)
-            && let Some(Type::Function(function)) =
-                self.ctx.krate.types.get(function_ty).cloned()
+            && let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
             && let Some(rest) = self.list_rest_param(&function)
         {
             let callable = if callee_ty == function_ty {
@@ -1280,7 +1328,8 @@ impl ModuleBuilder<'_> {
             && let Some(Type::Function(selected)) = self.ctx.krate.types.get(selected).cloned()
             && selected.rest.is_none()
         {
-            let distributed = self.distribute_trailing_list_spread(expanded, &selected.params, body)?;
+            let distributed =
+                self.distribute_trailing_list_spread(expanded, &selected.params, body)?;
             let count = distributed.len();
             (distributed, count)
         } else {
@@ -1300,7 +1349,10 @@ impl ModuleBuilder<'_> {
         // callee therefore stays erased, and the call takes the erased call ABI,
         // which invokes whatever callable the read produced or throws.
         if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
-            && smelt_stdlib::is_erased_prototype_call(member.property.name.as_str(), call.arguments.len())
+            && smelt_stdlib::is_erased_prototype_call(
+                member.property.name.as_str(),
+                call.arguments.len(),
+            )
             && self.receiver_is_statically_erased(&member.object, body)
         {
             let span = self.span(call.span.start, call.span.end);
@@ -1314,40 +1366,40 @@ impl ModuleBuilder<'_> {
         let (function_ty, function) = if let Some(function_ty) =
             self.function_member_type_for_args(callee_ty, Some(arg_count), &probed_arg_tys)
         {
-                let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
-                else {
-                    return Ok(None);
-                };
-                (function_ty, function)
-            } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
-                let unknown = if self.type_contains_unknown(callee_ty) {
-                    // not a new erasure: the callee already carries an erased type
-                    self.unknown_type(NotNewErasure::ErasedUpstream)
-                } else {
-                    self.erase(ErasureReason::ByName)
-                };
-                let params = args
-                    .iter()
-                    .map(|arg| Self::expr_ty(body, *arg))
-                    .collect::<Vec<_>>();
-                let function = FunctionType {
-                    params,
-                    rest: None,
-                    required_params: None,
-                    mutable_params: Vec::new(),
-                    return_ty: unknown,
-                    is_async: false,
-                    may_throw: false,
-                };
-                let function_ty = self
-                    .ctx
-                    .krate
-                    .types
-                    .intern(Type::Function(function.clone()));
-                (function_ty, function)
-            } else {
+            let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
+            else {
                 return Ok(None);
             };
+            (function_ty, function)
+        } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
+            let unknown = if self.type_contains_unknown(callee_ty) {
+                // not a new erasure: the callee already carries an erased type
+                self.unknown_type(NotNewErasure::ErasedUpstream)
+            } else {
+                self.erase(ErasureReason::ByName)
+            };
+            let params = args
+                .iter()
+                .map(|arg| Self::expr_ty(body, *arg))
+                .collect::<Vec<_>>();
+            let function = FunctionType {
+                params,
+                rest: None,
+                required_params: None,
+                mutable_params: Vec::new(),
+                return_ty: unknown,
+                is_async: false,
+                may_throw: false,
+            };
+            let function_ty = self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Function(function.clone()));
+            (function_ty, function)
+        } else {
+            return Ok(None);
+        };
         // The receiver is bound onto the member READ, before the call's own
         // coercion re-types it. A member read whose declared type is `unknown`
         // is coerced to a synthesized `Type::Function` built from the argument
@@ -1546,10 +1598,17 @@ impl ModuleBuilder<'_> {
             && function.rest.is_none()
         {
             let expanded = self.expanded_call_arguments(&call.arguments, body)?;
-            let expanded = self.distribute_trailing_list_spread(expanded, &function.params, body)?;
-            return expanded.into_iter().map(|argument| self.lower_call_arg(argument, None, body)).collect();
+            let expanded =
+                self.distribute_trailing_list_spread(expanded, &function.params, body)?;
+            return expanded
+                .into_iter()
+                .map(|argument| self.lower_call_arg(argument, None, body))
+                .collect();
         }
-        call.arguments.iter().map(|argument| self.argument(argument, body)).collect()
+        call.arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect()
     }
 
     /// Whether class `class_name` declares a field named `field`.
@@ -1609,8 +1668,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> smelt_hir::ExprId {
-        let Some(expr) = body.expr_at(callee)
-        else {
+        let Some(expr) = body.expr_at(callee) else {
             return callee;
         };
         let (ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. }) =
@@ -1653,14 +1711,14 @@ impl ModuleBuilder<'_> {
                 !function.is_async
                     && function.rest == Some(0)
                     && matches!(function.params.as_slice(), [param]
-                        if matches!(
-                            self.ctx.krate.types.get(*param),
-                            Some(Type::List(item))
-                                if matches!(
-                                    self.ctx.krate.types.get(*item),
-                                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
-                                )
-                        ))
+                    if matches!(
+                        self.ctx.krate.types.get(*param),
+                        Some(Type::List(item))
+                            if matches!(
+                                self.ctx.krate.types.get(*item),
+                                Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
+                            )
+                    ))
             }
             _ => false,
         };
@@ -1722,20 +1780,31 @@ impl ModuleBuilder<'_> {
             Some(Type::Unknown) => true,
             Some(Type::Optional(inner)) => {
                 matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
-                    && matches!(body.expr_at(receiver).map(|expr| &expr.kind), Some(ExprKind::Local(_)))
+                    && matches!(
+                        body.expr_at(receiver).map(|expr| &expr.kind),
+                        Some(ExprKind::Local(_))
+                    )
             }
             _ => false,
         };
         if !erased {
             return Ok(None);
         }
-        let args = call.arguments.iter().map(|argument| self.argument(argument, body)).collect::<Result<Vec<_>, _>>()?;
+        let args = call
+            .arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
         let method = self.intern_source_name(member.property.name.as_str());
         // not a new erasure: the receiver is already erased, and so is what
         // calling it answers.
         let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ErasedFunctionMethodCall { receiver, method, args },
+            kind: ExprKind::ErasedFunctionMethodCall {
+                receiver,
+                method,
+                args,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1748,8 +1817,7 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &Body,
     ) -> bool {
-        let Some(expr) = body.expr_at(callee)
-        else {
+        let Some(expr) = body.expr_at(callee) else {
             return false;
         };
         let (ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. }) =
@@ -1820,12 +1888,14 @@ impl ModuleBuilder<'_> {
         else {
             return false;
         };
-        let class_name = source_spelling(&self.ctx.krate, name)
-            .map(str::to_owned);
+        let class_name = source_spelling(&self.ctx.krate, name).map(str::to_owned);
         let is_callable_field = |fields: &[smelt_hir::Field]| {
-            fields.iter().find(|item| item.name == field).is_some_and(|item| {
-                matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_)))
-            })
+            fields
+                .iter()
+                .find(|item| item.name == field)
+                .is_some_and(|item| {
+                    matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_)))
+                })
         };
         if class_name
             .as_deref()

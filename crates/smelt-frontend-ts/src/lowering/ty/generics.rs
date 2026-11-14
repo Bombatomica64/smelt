@@ -8,8 +8,8 @@ use std::collections::HashMap;
 
 use oxc::ast::ast::{Declaration, Program, Statement};
 
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use smelt_hir::{ErasureReason, Field, FunctionType, MethodSig, Span, Type, TypeParamDef};
 
 impl ModuleBuilder<'_> {
@@ -179,7 +179,11 @@ impl ModuleBuilder<'_> {
                     constraints.insert(def.name, constraint);
                     constraint
                 }
-                None => self.ctx.krate.types.intern(Type::TypeParam { name: def.name }),
+                None => self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::TypeParam { name: def.name }),
             };
             scope.insert(param.name.name.to_string(), ty);
         }
@@ -219,14 +223,16 @@ impl ModuleBuilder<'_> {
         if left == right && renaming.is_empty() {
             return true;
         }
-        let (Some(left_ty), Some(right_ty)) =
-            (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right))
-        else {
+        let (Some(left_ty), Some(right_ty)) = (
+            self.ctx.krate.types.get(left),
+            self.ctx.krate.types.get(right),
+        ) else {
             return false;
         };
         match (left_ty, right_ty) {
             (Type::TypeParam { .. }, Type::TypeParam { .. }) => {
-                if !self.type_param_is_out_of_scope(left) || !self.type_param_is_out_of_scope(right) {
+                if !self.type_param_is_out_of_scope(left) || !self.type_param_is_out_of_scope(right)
+                {
                     return left == right;
                 }
                 // A bijection: each side's parameter maps to exactly one.
@@ -255,8 +261,14 @@ impl ModuleBuilder<'_> {
                 self.alpha_equivalent_slices(left_items, right_items, renaming)
             }
             (
-                Type::Class { name: left_name, args: left_args },
-                Type::Class { name: right_name, args: right_args },
+                Type::Class {
+                    name: left_name,
+                    args: left_args,
+                },
+                Type::Class {
+                    name: right_name,
+                    args: right_args,
+                },
             ) => {
                 left_name == right_name
                     && self.alpha_equivalent_slices(left_args, right_args, renaming)
@@ -290,8 +302,14 @@ impl ModuleBuilder<'_> {
                     && self.alpha_equivalent_under(*left_next, *right_next, renaming)
             }
             (
-                Type::GeneratorResult { yield_ty: left_yield, return_ty: left_return },
-                Type::GeneratorResult { yield_ty: right_yield, return_ty: right_return },
+                Type::GeneratorResult {
+                    yield_ty: left_yield,
+                    return_ty: left_return,
+                },
+                Type::GeneratorResult {
+                    yield_ty: right_yield,
+                    return_ty: right_return,
+                },
             ) => {
                 self.alpha_equivalent_under(*left_yield, *right_yield, renaming)
                     && self.alpha_equivalent_under(*left_return, *right_return, renaming)
@@ -309,10 +327,9 @@ impl ModuleBuilder<'_> {
         renaming: &mut HashMap<smelt_hir::TypeId, smelt_hir::TypeId>,
     ) -> bool {
         lefts.len() == rights.len()
-            && lefts
-                .iter()
-                .zip(rights)
-                .all(|(left_item, right_item)| self.alpha_equivalent_under(*left_item, *right_item, renaming))
+            && lefts.iter().zip(rights).all(|(left_item, right_item)| {
+                self.alpha_equivalent_under(*left_item, *right_item, renaming)
+            })
     }
 
     /// Push the type-parameter scope of a CLASS METHOD's own parameters
@@ -336,7 +353,10 @@ impl ModuleBuilder<'_> {
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
         let defs = self.push_closure_type_parameter_scope(params)?;
-        Ok(defs.into_iter().filter(|def| def.constraint.is_none()).collect())
+        Ok(defs
+            .into_iter()
+            .filter(|def| def.constraint.is_none())
+            .collect())
     }
 
     /// Record the type-parameter declarations of every class in this program.
@@ -399,13 +419,18 @@ impl ModuleBuilder<'_> {
                     )),
                     (Statement::TSTypeAliasDeclaration(alias), _)
                     | (_, Some(Declaration::TSTypeAliasDeclaration(alias)))
-                        if matches!(alias.type_annotation, oxc::ast::ast::TSType::TSTypeLiteral(_)) =>
+                        if matches!(
+                            alias.type_annotation,
+                            oxc::ast::ast::TSType::TSTypeLiteral(_)
+                        ) =>
                     {
                         Some((alias.id.name.as_str(), alias.type_parameters.as_deref()))
                     }
                     _ => None,
                 };
-            let Some((name, Some(params))) = declared else { continue };
+            let Some((name, Some(params))) = declared else {
+                continue;
+            };
             let Ok(lowered) = self.push_type_parameter_scope(Some(params)) else {
                 self.pop_type_parameter_scope();
                 continue;
@@ -443,7 +468,9 @@ impl ModuleBuilder<'_> {
                 },
                 _ => continue,
             };
-            let Some(id) = class.id.as_ref() else { continue };
+            let Some(id) = class.id.as_ref() else {
+                continue;
+            };
             let Some(constructor) = class.body.body.iter().find_map(|element| match element {
                 oxc::ast::ast::ClassElement::MethodDefinition(method)
                     if method.kind == oxc::ast::ast::MethodDefinitionKind::Constructor =>
@@ -481,7 +508,10 @@ impl ModuleBuilder<'_> {
             let symbol = self
                 .module_qualified_type_name(id.name.as_str())
                 .unwrap_or_else(|| self.intern_type_name(id.name.as_str()));
-            self.ctx.class_constructor_params.entry(symbol).or_insert(params);
+            self.ctx
+                .class_constructor_params
+                .entry(symbol)
+                .or_insert(params);
         }
     }
 
@@ -513,7 +543,10 @@ impl ModuleBuilder<'_> {
             } else if let Some(default) = param.default {
                 self.substitute_type_params(default, &substitutions)
             } else {
-                self.ctx.krate.types.intern(Type::TypeParam { name: param.name })
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::TypeParam { name: param.name })
             };
             substitutions.insert(param.name, actual);
         }
@@ -666,7 +699,14 @@ impl ModuleBuilder<'_> {
             Some(Type::Union(items)) => items.iter().all(|item| {
                 matches!(
                     self.ctx.krate.types.get(*item),
-                    Some(Type::String | Type::Float | Type::Int | Type::Bool | Type::BigInt | Type::Symbol)
+                    Some(
+                        Type::String
+                            | Type::Float
+                            | Type::Int
+                            | Type::Bool
+                            | Type::BigInt
+                            | Type::Symbol
+                    )
                 )
             }),
             _ => false,
@@ -721,12 +761,13 @@ impl ModuleBuilder<'_> {
         ) else {
             return;
         };
-        let walk = |pairs: Vec<(smelt_hir::TypeId, smelt_hir::TypeId)>,
-                    bindings: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>| {
-            for (declared_part, given_part) in pairs {
-                self.bind_identical_own_type_params(own, declared_part, given_part, bindings);
-            }
-        };
+        let walk =
+            |pairs: Vec<(smelt_hir::TypeId, smelt_hir::TypeId)>,
+             bindings: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>| {
+                for (declared_part, given_part) in pairs {
+                    self.bind_identical_own_type_params(own, declared_part, given_part, bindings);
+                }
+            };
         match (expected_ty, actual_ty) {
             (Type::TypeParam { name }, _) => {
                 if expected == actual
@@ -743,10 +784,7 @@ impl ModuleBuilder<'_> {
                 walk(vec![(declared, given)], substitutions);
             }
             (Type::Dict(declared_key, declared_value), Type::Dict(given_key, given_value))
-            | (
-                Type::JsMap(declared_key, declared_value),
-                Type::JsMap(given_key, given_value),
-            ) => {
+            | (Type::JsMap(declared_key, declared_value), Type::JsMap(given_key, given_value)) => {
                 walk(
                     vec![(declared_key, given_key), (declared_value, given_value)],
                     substitutions,

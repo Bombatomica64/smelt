@@ -25,8 +25,8 @@ use std::process::Command;
 
 use common::{
     PYTHON_ORACLE, SharedDepsCrate, TempProject, TestResult, cargo_run_shared, ensure_eq,
-    node_runs_typescript, node_typescript_stdout, output_within, program_run_limit, python_runs_corpus, smelt, utf8_path,
-    workspace_root,
+    node_runs_typescript, node_typescript_stdout, output_within, program_run_limit,
+    python_runs_corpus, smelt, utf8_path, workspace_root,
 };
 use smelt_specialize::prereq::missing_prerequisite;
 
@@ -79,7 +79,10 @@ fn python_stdout(files: &[(String, String)]) -> TestResult<String> {
     let root = project.path().join("python-oracle");
     write_files(&root, files)?;
     let mut command = Command::new("python3");
-    command.current_dir(&root).env_clear().args(["-E", "-s", "-B", "main.py"]);
+    command
+        .current_dir(&root)
+        .env_clear()
+        .args(["-E", "-s", "-B", "main.py"]);
     if let Some(path) = std::env::var_os("PATH") {
         command.env("PATH", path);
     }
@@ -113,7 +116,11 @@ fn ensure_oracle_agrees(case: &str, oracle: &Path, entry: &str, expected: &str) 
         }
         python_stdout(&files)?
     };
-    ensure_eq(&stdout, &expected.to_owned(), format!("{case}: the oracle's stdout is not the golden"))
+    ensure_eq(
+        &stdout,
+        &expected.to_owned(),
+        format!("{case}: the oracle's stdout is not the golden"),
+    )
 }
 
 /// Runs matrix case `case`: the oracle check, then the Smelt build and run.
@@ -269,7 +276,10 @@ fn write_project(
 /// import to the SOURCE again, never to the stub, and prints the same.
 #[test]
 fn a_second_build_resolves_sources_not_their_stubs() -> TestResult {
-    for (case, entry) in [("ts_imports_py_functions", "main.ts"), ("py_imports_ts_functions", "main.py")] {
+    for (case, entry) in [
+        ("ts_imports_py_functions", "main.ts"),
+        ("py_imports_ts_functions", "main.py"),
+    ] {
         let fixture = workspace_root()?
             .join("crates/smelt-transpiler/tests/fixtures/cross-language")
             .join(case);
@@ -281,7 +291,11 @@ fn a_second_build_resolves_sources_not_their_stubs() -> TestResult {
         smelt(&["--manifest-path", &manifest, "build"])?;
         smelt(&["--manifest-path", &manifest, "build"])?;
         let stdout = cargo_run_shared(&root.join("dist/Cargo.toml"), &shared)?;
-        ensure_eq(&stdout, &expected, format!("{case}: stdout after a second build"))?;
+        ensure_eq(
+            &stdout,
+            &expected,
+            format!("{case}: stdout after a second build"),
+        )?;
     }
     Ok(())
 }
@@ -292,11 +306,21 @@ fn a_second_build_resolves_sources_not_their_stubs() -> TestResult {
 #[test]
 fn a_project_module_never_shadows_a_builtin_stdlib_module() -> TestResult {
     let sources = vec![
-        ("math.py".to_owned(), "def sqrt(x: float) -> float:\n    return -1.0\n".to_owned()),
-        ("main.py".to_owned(), "import math\n\nprint(math.sqrt(16.0))\n".to_owned()),
+        (
+            "math.py".to_owned(),
+            "def sqrt(x: float) -> float:\n    return -1.0\n".to_owned(),
+        ),
+        (
+            "main.py".to_owned(),
+            "import math\n\nprint(math.sqrt(16.0))\n".to_owned(),
+        ),
     ];
     if python_runs_corpus() {
-        ensure_eq(&python_stdout(&sources)?, &"4.0\n".to_owned(), "python3 imports the builtin math")?;
+        ensure_eq(
+            &python_stdout(&sources)?,
+            &"4.0\n".to_owned(),
+            "python3 imports the builtin math",
+        )?;
     }
     let project = TempProject::new()?;
     let root = project.path();
@@ -304,5 +328,9 @@ fn a_project_module_never_shadows_a_builtin_stdlib_module() -> TestResult {
     let manifest = write_project(root, "main.py", &sources, &shared)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let stdout = cargo_run_shared(&root.join("dist/Cargo.toml"), &shared)?;
-    ensure_eq(&stdout, &"4.0\n".to_owned(), "generated Rust imports the builtin math")
+    ensure_eq(
+        &stdout,
+        &"4.0\n".to_owned(),
+        "generated Rust imports the builtin math",
+    )
 }

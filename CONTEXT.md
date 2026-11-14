@@ -40,6 +40,19 @@ Smelt lowers source through four stages, each behind a small interface:
 - **HIR** — high-level IR produced by a frontend (`to_hir`). Closest to source shape.
 - **MIR** — mid-level IR with an explicit CFG and a flat `Rvalue` algebra (`lower_hir`).
 - **codegen-rust** — emits Rust source text from MIR (`emit_source`).
+- **Definite assignment** — the per-edge dataflow over a MIR body
+  (`smelt_mir::definite_assignment`) that says which locals are assigned at
+  each point. No local is assumed assigned but the parameters and a closure's
+  initialized captures, and every block is reachable (`smelt_mir::reachability`
+  removes the rest), so the validator checks every read.
+- **MaybeUnbound binding** — a source binding a read, or a closure capturing
+  it, can reach before its first assignment (`LocalInit::MaybeUnbound`): a
+  Python name assigned on one path, a JavaScript `let` read in its temporal
+  dead zone, a recursive closure's own binding. Stored as `SmeltBinding<T>`;
+  every other binding keeps its plain `T`. A read the analysis cannot prove
+  assigned is preceded by a **binding check** (`Rvalue::BindingCheck`), which
+  raises the source language's error (`ReferenceError`, `UnboundLocalError`,
+  `NameError`) through the ordinary error channel.
 
 ## Frontend name resolution
 
@@ -75,6 +88,25 @@ Smelt lowers source through four stages, each behind a small interface:
   need), and the emitter writes a family's runtime text only with the proof the
   demand hands out (`RuntimeDemand::require`, `carrier()` for the erased
   carrier), so a use the scan did not predict fails at its emit site.
+
+## Class statics
+
+- **Static storage** — a mutable `static` field (or one with an expression or
+  no initializer) is live storage: one module global per field
+  (`StaticField::storage`), read and written directly and through the class
+  value's `__smelt_static_get`/`__smelt_static_set` hooks. A field declared
+  without an initializer is stored as `T | undefined` (`Option<T>`) and starts
+  at `undefined`.
+- **Statics frame** — the storage of a class with *per-evaluation statics*: a
+  class declared in a function whose static initializers read that function's
+  locals is a new class at every evaluation of its declaration. Its statics are
+  the fields of one frame per evaluation, a synthesized reference class
+  (`Class::statics_of`) whose methods are the static methods; the class name is
+  bound to the frame in its scope, each instance holds the frame it was
+  constructed by, and the frame IS the class value (erased, a class-value object
+  over the frame, told apart by `__smelt_class_frame` identity). Lives in
+  `crates/smelt-frontend-ts/src/lowering/decls/evaluation_statics.rs` and
+  `crates/smelt-codegen-rust/src/emitter/statics_frame.rs`.
 
 ## SmeltUnknown
 

@@ -3,10 +3,16 @@ description: Install the toolchain rust-toolchain.toml pins and restore the carg
 
 inputs:
   shared-key:
-    description: Cache lane.
-    required: true
+    description: Cache lane (ignored when `cache` is false).
+    default: ""
   save-if:
     description: Whether this job may write the lane.
+    default: "true"
+  cache:
+    description: >-
+      Restore the workspace target cache. Jobs that only run prebuilt test
+      binaries need the toolchain (tests spawn cargo on generated crates) but
+      compile nothing of the workspace, so they pass false.
     default: "true"
 
 runs:
@@ -22,6 +28,7 @@ runs:
         echo "CARGO_TERM_COLOR=always" >> "$GITHUB_ENV"
 
     - name: Cache cargo
+      if: ${{ inputs.cache == 'true' }}
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: ${{ inputs.shared-key }}

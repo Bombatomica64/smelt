@@ -154,7 +154,10 @@ impl Iterator for TypeChildren<'_> {
     type Item = TypeId;
 
     fn next(&mut self) -> Option<TypeId> {
-        self.list.next().copied().or_else(|| self.slots.by_ref().flatten().next())
+        self.list
+            .next()
+            .copied()
+            .or_else(|| self.slots.by_ref().flatten().next())
     }
 }
 
@@ -223,7 +226,10 @@ impl Type {
         mut rewrite: impl FnMut(TypeId) -> Option<TypeId>,
     ) -> Option<Self> {
         let rewrite_all = |items: &[TypeId], rewrite: &mut dyn FnMut(TypeId) -> Option<TypeId>| {
-            items.iter().map(|item| rewrite(*item)).collect::<Option<Vec<_>>>()
+            items
+                .iter()
+                .map(|item| rewrite(*item))
+                .collect::<Option<Vec<_>>>()
         };
         Some(match self {
             Self::Bool
@@ -441,7 +447,9 @@ impl TypeInterner {
             // table ever carry a duplicate.
             let mut index = std::collections::HashMap::with_capacity(self.types.len());
             for (idx, existing) in self.types.iter().enumerate() {
-                index.entry(existing.clone()).or_insert_with(|| TypeId(id_index(idx)));
+                index
+                    .entry(existing.clone())
+                    .or_insert_with(|| TypeId(id_index(idx)));
             }
             self.index = index;
         }
@@ -603,7 +611,10 @@ mod tests {
             object
         );
         assert_eq!(Type::List(float).runtime_kind(), Some(UnknownKind::Array));
-        assert_eq!(Type::Future(float).runtime_kind(), Some(UnknownKind::Promise));
+        assert_eq!(
+            Type::Future(float).runtime_kind(),
+            Some(UnknownKind::Promise)
+        );
         assert_eq!(Type::Int.runtime_kind(), Some(UnknownKind::Number));
         assert_eq!(Type::BigInt.runtime_kind(), Some(UnknownKind::BigInt));
         assert_eq!(Type::Union(vec![string, float]).runtime_kind(), None);
@@ -653,7 +664,10 @@ mod type_children_tests {
             is_async: false,
             may_throw: false,
         });
-        assert_eq!(function.children().collect::<Vec<_>>(), [id(1), id(2), id(3)]);
+        assert_eq!(
+            function.children().collect::<Vec<_>>(),
+            [id(1), id(2), id(3)]
+        );
     }
 
     #[test]
@@ -664,7 +678,10 @@ mod type_children_tests {
             return_ty: id(2),
             next_ty: id(3),
         };
-        assert_eq!(generator.children().collect::<Vec<_>>(), [id(1), id(2), id(3)]);
+        assert_eq!(
+            generator.children().collect::<Vec<_>>(),
+            [id(1), id(2), id(3)]
+        );
         assert_eq!(Type::Bool.children().count(), 0);
     }
 
@@ -691,6 +708,9 @@ mod type_children_tests {
     #[test]
     fn map_children_stops_when_a_child_is_declined() {
         let tuple = Type::Tuple(vec![id(1), id(2)]);
-        assert_eq!(tuple.try_map_children(|child| (child != id(2)).then_some(child)), None);
+        assert_eq!(
+            tuple.try_map_children(|child| (child != id(2)).then_some(child)),
+            None
+        );
     }
 }

@@ -334,10 +334,8 @@ const right = intersects([], null as unknown as never);
     ensure_eq!(calls.len(), 2);
     for args in calls {
         ensure!(args.iter().any(|argument| {
-            let Some(ExprKind::TypeAssert { value }) = body
-                .exprs
-                .get(argument.0 as usize)
-                .map(|expr| &expr.kind)
+            let Some(ExprKind::TypeAssert { value }) =
+                body.exprs.get(argument.0 as usize).map(|expr| &expr.kind)
             else {
                 return false;
             };
@@ -367,13 +365,20 @@ function values<Value extends string>(input: string[]): string[] {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "values", "values<Value>(input: List<String>) -> List<String>")?;
+    ensure_signature(
+        &ctx,
+        "values",
+        "values<Value>(input: List<String>) -> List<String>",
+    )?;
     ensure_exprs!(&ctx, TypeAssert);
     Ok(())
 }
 
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn exported_literal_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -396,17 +401,18 @@ export function quartersToMonths(quarters: number): number {
     let function = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, function)?;
 
-    ensure!(
-        body.exprs.iter().any(
-            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0_f64)
-        )
-    );
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0_f64)
+    ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn exported_foldable_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -439,7 +445,10 @@ const value = minTime + rounded;
 }
 
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn date_fns_constant_slice_folds_importable_numeric_consts() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -475,11 +484,9 @@ export function quartersToMonths(quarters: number): number {
     let function = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, function)?;
 
-    ensure!(
-        body.exprs.iter().any(
-            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0_f64)
-        )
-    );
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0_f64)
+    ));
     ensure!(body.exprs.iter().any(
         |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -8_640_000_000_000_000.0_f64)
     ));
@@ -540,7 +547,10 @@ export const WORD_SEPARATORS: ReadonlyArray<string> = separators;
 /// object resolves through the referenced const instead of being rejected by
 /// the well-known Number/Math member folder.
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn exported_const_from_module_const_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -570,7 +580,10 @@ export const UPPER_LIMIT = limits.upper;
 /// Well-known Number/Math numeric constants keep folding to literal consts
 /// (they must not be routed through the module-reference expression path).
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn exported_const_number_math_constants_still_fold() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -581,7 +594,10 @@ export const PI_VALUE = Math.PI;
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    for (name, expected) in [("MAX_INTEGER", f64::MAX), ("PI_VALUE", std::f64::consts::PI)] {
+    for (name, expected) in [
+        ("MAX_INTEGER", f64::MAX),
+        ("PI_VALUE", std::f64::consts::PI),
+    ] {
         let const_item = named_const_item(&ctx, module, name)?;
         let body = ctx
             .krate
@@ -620,7 +636,13 @@ export const numberProto = Number.prototype;
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    for name in ["arrayProto", "slice", "objectProto", "stringProto", "numberProto"] {
+    for name in [
+        "arrayProto",
+        "slice",
+        "objectProto",
+        "stringProto",
+        "numberProto",
+    ] {
         let const_item = named_const_item(&ctx, module, name)?;
         ensure!(
             matches!(ctx.krate.types.get(const_item.ty), Some(Type::Unknown)),
@@ -636,7 +658,10 @@ export const numberProto = Number.prototype;
 /// literal const while the prototype member routes to the general path — so the
 /// numeric folder is not disturbed by the new member routing.
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn exported_const_mixed_builtin_member_and_numeric_constant() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -853,8 +878,9 @@ export const MYSTERY = missingNamespace.someMember;
         &mut ctx,
     )?;
     ensure!(
-        errors.iter().any(|error| format!("{error:?}")
-            .contains("unresolved identifier `missingNamespace`")),
+        errors
+            .iter()
+            .any(|error| format!("{error:?}").contains("unresolved identifier `missingNamespace`")),
         "expected an unresolved-identifier error, got: {errors:?}"
     );
     Ok(())
@@ -2488,7 +2514,11 @@ function lookup<T>(value: T, refFrom: unknown[] = [], refTo: unknown[] = []): T 
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "lookup", "lookup<T>(value: T, ref_from: List<Unknown>, ref_to: List<Unknown>) -> T")?;
+    ensure_signature(
+        &ctx,
+        "lookup",
+        "lookup<T>(value: T, ref_from: List<Unknown>, ref_to: List<Unknown>) -> T",
+    )?;
     ensure_exprs!(&ctx, ListSearch, Index);
     Ok(())
 }
@@ -2508,7 +2538,11 @@ function copy(index: number, item: unknown): unknown[] {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "copy", "copy(index: Float, item: Unknown) -> List<Unknown>")?;
+    ensure_signature(
+        &ctx,
+        "copy",
+        "copy(index: Float, item: Unknown) -> List<Unknown>",
+    )?;
     ensure_exprs!(&ctx, Index);
     Ok(())
 }

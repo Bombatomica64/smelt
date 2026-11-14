@@ -91,15 +91,25 @@ impl ModuleBuilder<'_> {
             ));
         }
         let value = self.expression(&call.arguments.args[0], body)?;
-        if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
+        let value_ty = Self::expr_ty(body, value);
+        if !self.is_json_serializable_type(value_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
                 "json.dumps() value must be JSON-serializable",
             ));
         }
+        if self.contains_set_type(value_ty) {
+            // CPython raises `TypeError: Object of type set is not JSON
+            // serializable`; encoding it as an array printed a value CPython
+            // never produces.
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "json.dumps() of a set raises TypeError in CPython",
+            ));
+        }
         let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::JsonStringify { value },
+            kind: ExprKind::PyJsonDumps { value },
             ty,
             span: self.span(call.range()),
         })))

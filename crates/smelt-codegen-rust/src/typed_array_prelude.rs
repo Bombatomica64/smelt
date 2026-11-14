@@ -17,7 +17,6 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
-
 /// The `SmeltTypedArrayKind` variant expression for a source constructor name.
 ///
 /// `None` for a name that is not one of the eleven views — including
@@ -70,7 +69,10 @@ mod tests {
                 format!("Self::{variant} => \"{marker}\""),
                 format!("Self::{variant} => {}", element.byte_width()),
             ] {
-                assert!(text.contains(&arm), "{class_name}: the kind table has no `{arm}`");
+                assert!(
+                    text.contains(&arm),
+                    "{class_name}: the kind table has no `{arm}`"
+                );
             }
         }
     }

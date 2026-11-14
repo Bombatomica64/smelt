@@ -2,11 +2,11 @@
 //! private member, `console`, a constructed value, the result of another call, an
 //! asserted callee, or a name bound to a value rather than an item.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::ModuleBuilder;
-use crate::lowering::peel::{Wrappers, peel};
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::peel::{Wrappers, peel};
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Type};
@@ -69,7 +69,10 @@ impl ModuleBuilder<'_> {
             // (a number does not: `-0` prints as `-0`, `String(-0)` is `0`).
             let prints_as_its_string = match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
                 Some(Type::Optional(inner)) => {
-                    matches!(self.ctx.krate.types.get(*inner), Some(Type::String | Type::Bool))
+                    matches!(
+                        self.ctx.krate.types.get(*inner),
+                        Some(Type::String | Type::Bool)
+                    )
                 }
                 _ => false,
             };
@@ -142,8 +145,7 @@ impl ModuleBuilder<'_> {
             callee_ty,
             Some(call.arguments.len()),
             &probed_arg_tys,
-        ) && let Some(Type::Function(function)) =
-                self.ctx.krate.types.get(function_ty).cloned()
+        ) && let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
         {
             let args = if function.rest.is_some() {
                 self.value_call_arguments(&function, call, body)?
@@ -213,7 +215,9 @@ impl ModuleBuilder<'_> {
             let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
             let span = self.span(call.span.start, call.span.end);
             let fixed_return = match self.ctx.krate.types.get(callee_ty) {
-                Some(Type::Function(function)) if function.rest.is_none() => Some(function.return_ty),
+                Some(Type::Function(function)) if function.rest.is_none() => {
+                    Some(function.return_ty)
+                }
                 _ => None,
             };
             // A list cannot fill fixed parameters positionally at the Rust
@@ -236,7 +240,10 @@ impl ModuleBuilder<'_> {
                 span,
             });
             let result = body.push_expr(Expr {
-                kind: ExprKind::ClosureCallSpread { callee: erased_callee, args },
+                kind: ExprKind::ClosureCallSpread {
+                    callee: erased_callee,
+                    args,
+                },
                 ty: unknown_ty,
                 span,
             });
@@ -244,7 +251,10 @@ impl ModuleBuilder<'_> {
                 return Ok(result);
             }
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast { value: result, target: return_ty },
+                kind: ExprKind::UnknownCast {
+                    value: result,
+                    target: return_ty,
+                },
                 ty: return_ty,
                 span,
             }));
@@ -284,8 +294,7 @@ impl ModuleBuilder<'_> {
                 "call expression callee must return a function",
             ));
         };
-        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
-        else {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned() else {
             return Err(SmeltError::unsupported(
                 self.span(callee_call.span.start, callee_call.span.end),
                 "call expression callee must return a function",
@@ -339,8 +348,12 @@ impl ModuleBuilder<'_> {
         // Statically typed under-application: every omitted parameter is
         // optional or absorbed by the rest slot, so the call keeps its typed
         // ABI. Missing optional parameters become typed `None` values.
-        let args =
-            self.typed_under_applied_closure_arguments(&function, &call.arguments, call.span, body)?;
+        let args = self.typed_under_applied_closure_arguments(
+            &function,
+            &call.arguments,
+            call.span,
+            body,
+        )?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::ClosureCall { callee, args },
             ty: function.return_ty,
@@ -361,7 +374,11 @@ impl ModuleBuilder<'_> {
         if rest.is_some() && Self::call_has_spread_arguments(call) {
             return self.spread_closure_call_arguments(function, rest, call, body);
         }
-        let limit = if rest.is_some() { usize::MAX } else { function.params.len() };
+        let limit = if rest.is_some() {
+            usize::MAX
+        } else {
+            function.params.len()
+        };
         let args = call
             .arguments
             .iter()
@@ -389,7 +406,10 @@ impl ModuleBuilder<'_> {
         ) {
             let asserted = self.expression(&call.callee, body)?;
             let asserted_ty = Self::expr_ty(body, asserted);
-            if matches!(self.ctx.krate.types.get(asserted_ty), Some(Type::Function(_))) {
+            if matches!(
+                self.ctx.krate.types.get(asserted_ty),
+                Some(Type::Function(_))
+            ) {
                 callee = asserted;
                 callee_ty = asserted_ty;
             }
@@ -410,8 +430,7 @@ impl ModuleBuilder<'_> {
             callee = self.expression(&call.callee, body)?;
             callee_ty = Self::expr_ty(body, callee);
         }
-        let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
-        else {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
             if self.callable_through_erased_abi(callee_ty) {
                 return self.erased_value_call(callee, callee_expression.span(), call, body);
             }
@@ -430,7 +449,9 @@ impl ModuleBuilder<'_> {
             _ => None,
         };
         let ty = match item {
-            Some(item) => self.instantiated_item_value_call_result(item, &function, &args, call, body)?,
+            Some(item) => {
+                self.instantiated_item_value_call_result(item, &function, &args, call, body)?
+            }
             None => function.return_ty,
         };
         Ok(body.push_expr(Expr {
@@ -458,8 +479,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Optional(inner)) => *inner,
             _ => callee_ty,
         };
-        let Some(Type::Function(function)) = self.ctx.krate.types.get(callable_ty).cloned()
-        else {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(callable_ty).cloned() else {
             if self.erased_or_union_surface(callee_ty) {
                 // The same erased call `erased_value_call` lowers for any
                 // other callee shape.
@@ -524,17 +544,13 @@ impl ModuleBuilder<'_> {
         callee_ident: &oxc::ast::ast::IdentifierReference<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Some(callee_ty) =
-            self.module_globals.get(callee_ident.name.as_str()).copied()
-        {
+        if let Some(callee_ty) = self.module_globals.get(callee_ident.name.as_str()).copied() {
             let args = call
                 .arguments
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
-            if let Some(Type::Function(function)) =
-                self.ctx.krate.types.get(callee_ty).cloned()
-            {
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
                 let callee = self.identifier_expression(
                     callee_ident.name.as_str(),
                     callee_ident.span.start,

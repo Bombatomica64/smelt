@@ -18,9 +18,9 @@
 //! prelude's single `from_erased` boundary; every other spelling resolves
 //! statically and shares storage or copies exactly as the spec says.
 
-use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::call::RenderedCall;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emit a `new <view>(..)` / `new ArrayBuffer(..)` construction.
@@ -45,7 +45,9 @@ impl FunctionEmitter<'_> {
             return self.array_buffer_new_expr(class_name, args);
         };
         let Some(first) = args.first() else {
-            return Ok(RustExpr::atom(format!("SmeltTypedArray::with_length({kind}, 0)")));
+            return Ok(RustExpr::atom(format!(
+                "SmeltTypedArray::with_length({kind}, 0)"
+            )));
         };
         // `new View(buffer, byteOffset?, length?)`. Only the storage half takes
         // more than one argument, so a second argument is what identifies the
@@ -59,7 +61,8 @@ impl FunctionEmitter<'_> {
             // A LENGTH, in elements: the storage is `length * BYTES_PER_ELEMENT`
             // bytes of zero.
             Some(Type::Int | Type::Float) => Ok(RustExpr::atom(format!(
-                "SmeltTypedArray::with_length({kind}, (({first_text}) as f64).max(0.0) as usize)", first_text = first_text.delimited()
+                "SmeltTypedArray::with_length({kind}, (({first_text}) as f64).max(0.0) as usize)",
+                first_text = first_text.delimited()
             ))),
             // An element list converts per element at the view's own width and
             // signedness, so `new Uint8Array([256])` is `0` and
@@ -74,17 +77,24 @@ impl FunctionEmitter<'_> {
                 ) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec().into_iter().map(|smelt_element| smelt_element as f64).collect::<Vec<f64>>())", first_text = first_text.tight()
+                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec().into_iter().map(|smelt_element| smelt_element as f64).collect::<Vec<f64>>())",
+                    first_text = first_text.tight()
                 )))
             }
             // A bigint element list keeps every element's 64 bits: it goes
             // straight to bytes rather than through the `f64` element path.
-            Some(Type::List(item_ty)) if self.is_bigint_type(*item_ty) => Ok(RustExpr::atom(format!(
-                "SmeltTypedArray::with_bigint_elements({kind}, &{first_text}.to_vec())", first_text = first_text.tight()
-            ))),
-            Some(Type::List(item_ty)) if self.is_numeric_element_type(*item_ty) => Ok(RustExpr::atom(format!(
-                "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec())", first_text = first_text.tight()
-            ))),
+            Some(Type::List(item_ty)) if self.is_bigint_type(*item_ty) => {
+                Ok(RustExpr::atom(format!(
+                    "SmeltTypedArray::with_bigint_elements({kind}, &{first_text}.to_vec())",
+                    first_text = first_text.tight()
+                )))
+            }
+            Some(Type::List(item_ty)) if self.is_numeric_element_type(*item_ty) => {
+                Ok(RustExpr::atom(format!(
+                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_vec())",
+                    first_text = first_text.tight()
+                )))
+            }
             // Another VIEW converts element by element too — not byte by byte —
             // which is why `new Uint8Array(new Float64Array([1]))` is `[1]` and
             // not the eight bytes of a double.
@@ -93,7 +103,8 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::StdlibClass::TypedArray) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_elements())", first_text = first_text.tight()
+                    "SmeltTypedArray::with_elements({kind}, &{first_text}.to_elements())",
+                    first_text = first_text.tight()
                 )))
             }
             // The dynamic boundary: an argument whose type carries no shape.
@@ -102,7 +113,8 @@ impl FunctionEmitter<'_> {
             _ => {
                 let erased = self.erase_rendered(&first_text, first_ty)?;
                 Ok(RustExpr::atom(format!(
-                    "SmeltTypedArray::from_erased({kind}, &{erased})", erased = erased.tight()
+                    "SmeltTypedArray::from_erased({kind}, &{erased})",
+                    erased = erased.tight()
                 )))
             }
         }
@@ -123,7 +135,10 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| EmitError::new("internal: a buffer view needs its storage"))?;
         let buffer_text = self.array_buffer_operand_expr(buffer)?;
         let offset_text = match args.get(1) {
-            Some(offset) => format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_expr(offset)?.delimited()),
+            Some(offset) => format!(
+                "(({}) as f64).max(0.0) as usize",
+                self.numeric_operand_expr(offset)?.delimited()
+            ),
             None => "0".to_owned(),
         };
         let length_text = match args.get(2) {
@@ -134,7 +149,8 @@ impl FunctionEmitter<'_> {
             None => "None".to_owned(),
         };
         Ok(RustExpr::atom(format!(
-            "SmeltTypedArray::over_buffer({kind}, &{buffer_text}, {offset_text}, {length_text})", buffer_text = buffer_text.tight()
+            "SmeltTypedArray::over_buffer({kind}, &{buffer_text}, {offset_text}, {length_text})",
+            buffer_text = buffer_text.tight()
         )))
     }
 
@@ -164,7 +180,8 @@ impl FunctionEmitter<'_> {
             None => "None".to_owned(),
         };
         Ok(RustExpr::atom(format!(
-            "SmeltDataView::over_buffer(&{buffer_text}, {offset_text}, {length_text})", buffer_text = buffer_text.tight()
+            "SmeltDataView::over_buffer(&{buffer_text}, {offset_text}, {length_text})",
+            buffer_text = buffer_text.tight()
         )))
     }
 
@@ -196,10 +213,16 @@ impl FunctionEmitter<'_> {
             }
         };
         let byte_length = match args.first() {
-            Some(argument) => format!("(({}) as f64).max(0.0) as usize", self.numeric_operand_expr(argument)?.delimited()),
+            Some(argument) => format!(
+                "(({}) as f64).max(0.0) as usize",
+                self.numeric_operand_expr(argument)?.delimited()
+            ),
             None => "0".to_owned(),
         };
-        Ok(RustExpr::opaque(self.carrier_format(self.carrier()?, format_args!("SmeltArrayBuffer::{constructor}({byte_length})"))))
+        Ok(RustExpr::opaque(self.carrier_format(
+            self.carrier()?,
+            format_args!("SmeltArrayBuffer::{constructor}({byte_length})"),
+        )))
     }
 
     /// Emit a `DataView` accessor call: `getInt16(0)`, `setFloat64(0, x, true)`.
@@ -239,7 +262,10 @@ impl FunctionEmitter<'_> {
         // with a `RangeError`. A `max(0.0) as usize` here would answer byte 0
         // for `getInt16(-1)`, which Node throws on.
         let offset = match accessor_args.first() {
-            Some(offset) => format!("({}) as f64", self.numeric_operand_expr(offset)?.delimited()),
+            Some(offset) => format!(
+                "({}) as f64",
+                self.numeric_operand_expr(offset)?.delimited()
+            ),
             None => "0.0".to_owned(),
         };
         // A write takes the value between the offset and the flag, so the flag
@@ -248,7 +274,10 @@ impl FunctionEmitter<'_> {
             let value = match accessor_args.get(1) {
                 Some(value) if element.is_bigint() => self.bigint_ref_expr(value)?,
                 Some(value) => self.numeric_operand_expr(value)?,
-                None if element.is_bigint() => RustExpr::loose(format!("&{}::default()", crate::bigint_prelude::BIGINT_TYPE)),
+                None if element.is_bigint() => RustExpr::loose(format!(
+                    "&{}::default()",
+                    crate::bigint_prelude::BIGINT_TYPE
+                )),
                 None => RustExpr::path("0.0"),
             };
             (Some(value), 2)
@@ -263,15 +292,28 @@ impl FunctionEmitter<'_> {
         // `emit_throwing_call_terminator`, which renders the shape that binds
         // the caught `RangeError` and jumps to the handler's catch block.
         let (get_adapter, set_adapter) = if element.is_bigint() {
-            (crate::thrown::DATA_VIEW_GET_BIGINT_FN, crate::thrown::DATA_VIEW_SET_BIGINT_FN)
+            (
+                crate::thrown::DATA_VIEW_GET_BIGINT_FN,
+                crate::thrown::DATA_VIEW_SET_BIGINT_FN,
+            )
         } else {
-            (crate::thrown::DATA_VIEW_GET_FN, crate::thrown::DATA_VIEW_SET_FN)
+            (
+                crate::thrown::DATA_VIEW_GET_FN,
+                crate::thrown::DATA_VIEW_SET_FN,
+            )
         };
         Ok(RenderedCall::propagating(RustExpr::atom(match value {
             Some(value) => format!(
-                "{set_adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})", view_text = view_text.tight(), value = value.delimited(), little_endian = little_endian.delimited()
+                "{set_adapter}(&{view_text}, {kind}, {offset}, {value}, {little_endian})",
+                view_text = view_text.tight(),
+                value = value.delimited(),
+                little_endian = little_endian.delimited()
             ),
-            None => format!("{get_adapter}(&{view_text}, {kind}, {offset}, {little_endian})", view_text = view_text.tight(), little_endian = little_endian.delimited()),
+            None => format!(
+                "{get_adapter}(&{view_text}, {kind}, {offset}, {little_endian})",
+                view_text = view_text.tight(),
+                little_endian = little_endian.delimited()
+            ),
         })))
     }
 
@@ -287,7 +329,13 @@ impl FunctionEmitter<'_> {
         }
         let ty = self.operand_ty(operand)?;
         let erased = self.erase_rendered(&text, ty)?;
-        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("SmeltArrayBuffer::smelt_from_unknown({erased})", erased = erased.delimited()))))
+        Ok(RustExpr::atom(self.carrier_format(
+            self.carrier()?,
+            format_args!(
+                "SmeltArrayBuffer::smelt_from_unknown({erased})",
+                erased = erased.delimited()
+            ),
+        )))
     }
 
     /// Render an operand as an `f64`, coercing an erased one at the boundary.
@@ -321,11 +369,13 @@ impl FunctionEmitter<'_> {
         // A bigint view's element is a bigint, read exactly from its bytes.
         if self.is_bigint_view_class_type(base_ty)? {
             return Ok(Some(base_text.postfix(format!(
-                ".get_bigint({index_text}).unwrap_or_default()", index_text = index_text.delimited()
+                ".get_bigint({index_text}).unwrap_or_default()",
+                index_text = index_text.delimited()
             ))));
         }
         Ok(Some(base_text.postfix(format!(
-            ".get({index_text}).unwrap_or(0.0)", index_text = index_text.delimited()
+            ".get({index_text}).unwrap_or(0.0)",
+            index_text = index_text.delimited()
         ))))
     }
 
@@ -350,7 +400,10 @@ impl FunctionEmitter<'_> {
             let base_text = self.local_value(base)?;
             let index_text = self.numeric_operand_expr(index)?;
             return Ok(Some(format!(
-                "{base_text}.set_bigint({index_text}, &{rendered_value});", base_text = base_text.tight(), index_text = index_text.delimited(), rendered_value = rendered_value.tight()
+                "{base_text}.set_bigint({index_text}, &{rendered_value});",
+                base_text = base_text.tight(),
+                index_text = index_text.delimited(),
+                rendered_value = rendered_value.tight()
             )));
         }
         let float_ty = self.type_id(Type::Float)?;
@@ -358,7 +411,10 @@ impl FunctionEmitter<'_> {
         let base_text = self.local_value(base)?;
         let index_text = self.numeric_operand_expr(index)?;
         Ok(Some(format!(
-            "{base_text}.set_index({index_text}, {rendered_value});", base_text = base_text.tight(), index_text = index_text.delimited(), rendered_value = rendered_value.delimited()
+            "{base_text}.set_index({index_text}, {rendered_value});",
+            base_text = base_text.tight(),
+            index_text = index_text.delimited(),
+            rendered_value = rendered_value.delimited()
         )))
     }
 
@@ -378,7 +434,10 @@ impl FunctionEmitter<'_> {
         if self.is_typed_array_view_class_type(value_ty)? {
             if smelt_stdlib::is_typed_array_class_name(class_name) {
                 let text = self.operand_expr(value)?;
-                return Ok(Some(RustExpr::loose(format!("{text}.class_name() == {class_name:?}", text = text.tight()))));
+                return Ok(Some(RustExpr::loose(format!(
+                    "{text}.class_name() == {class_name:?}",
+                    text = text.tight()
+                ))));
             }
             return Ok(Some(RustExpr::path("false")));
         }
@@ -389,7 +448,9 @@ impl FunctionEmitter<'_> {
             // class answers false.
             let text = self.operand_expr(value)?;
             return Ok(Some(match class_name {
-                "ArrayBuffer" => RustExpr::loose(format!("!{text}.is_shared()", text = text.tight())),
+                "ArrayBuffer" => {
+                    RustExpr::loose(format!("!{text}.is_shared()", text = text.tight()))
+                }
                 "SharedArrayBuffer" => text.postfix(".is_shared()"),
                 _ => RustExpr::path("false"),
             }));

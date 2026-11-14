@@ -1,12 +1,12 @@
 //! Const collections: top-level `const` arrays and object-value lists whose
 //! elements are known literals, recorded so reads can fold them.
 
+use super::super::{ConstCollection, ConstCollectionItem, ConstCollectionValue, ModuleBuilder};
 use crate::lowering::erasure::NotNewErasure;
-use crate::{ObjectConst, ObjectConstValue};
 use crate::lowering::js_text::js_str_literal;
+use crate::{ObjectConst, ObjectConstValue};
 use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression, ObjectPropertyKind};
 use smelt_hir::{ErasureReason, ExprKind, Literal, Type};
-use super::super::{ConstCollection, ConstCollectionItem, ConstCollectionValue, ModuleBuilder};
 
 impl ModuleBuilder<'_> {
     /// Extract literal array and set constants that nested function bodies can inline.
@@ -22,7 +22,9 @@ impl ModuleBuilder<'_> {
                 is_set: false,
             }),
             Expression::NewExpression(new_expr)
-                if self.host_global(&new_expr.callee).is_some_and(|host| host.is("Set")) =>
+                if self
+                    .host_global(&new_expr.callee)
+                    .is_some_and(|host| host.is("Set")) =>
             {
                 let [Argument::ArrayExpression(array)] = new_expr.arguments.as_slice() else {
                     return None;
@@ -39,8 +41,9 @@ impl ModuleBuilder<'_> {
             }
             // `export const ALIAS = otherConst;` shares the referenced
             // module-level collection so nested bodies inline the alias too.
-            Expression::Identifier(identifier) => self.consts.collection(identifier.name.as_str())
-                .cloned(),
+            Expression::Identifier(identifier) => {
+                self.consts.collection(identifier.name.as_str()).cloned()
+            }
             Expression::TSAsExpression(as_expr) => {
                 self.const_collection_from_initializer(&as_expr.expression, ty)
             }
@@ -68,7 +71,9 @@ impl ModuleBuilder<'_> {
                 ArrayExpressionElement::StringLiteral(literal) => {
                     let ty = self.ctx.krate.types.intern(Type::String);
                     items.push(ConstCollectionItem {
-                        value: ConstCollectionValue::Expr(ExprKind::Literal(js_str_literal(literal.value))),
+                        value: ConstCollectionValue::Expr(ExprKind::Literal(js_str_literal(
+                            literal.value,
+                        ))),
                         ty,
                     });
                 }

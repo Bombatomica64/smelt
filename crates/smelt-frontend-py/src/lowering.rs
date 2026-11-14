@@ -20,22 +20,21 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CaptureMode, Class, ClassKind,
-    ClassProtocol,
-    ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
-    Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
-    LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp,
-    PropertyLookup, PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
-    TypeParamDef, UnaryOp, Visibility,
+    AsyncOp, BinOp, Body, CaptureMode, Class, ClassKind, ClassProtocol, ClosureCapture, ConstItem,
+    DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId, Function, FunctionOwner,
+    FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal, LocalDecl, MatchArm,
+    MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp, PropertyLookup,
+    PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt,
+    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Symbol, Type, TypeId, TypeParamDef, UnaryOp, Visibility,
 };
 use smelt_stdlib::RuleId;
 
 use crate::helpers::{
-    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name, is_stub_body,
-    expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, range_to_span,
-    stmt_kind_name, two_type_args,
+    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name,
+    expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, is_stub_body,
+    range_to_span, stmt_kind_name, two_type_args,
 };
 use crate::name_resolution::{EvalScope, ModuleBindings, StdlibMatch, StdlibName};
 use crate::{HirCtx, SmeltError, test_support};
@@ -49,8 +48,23 @@ pub(crate) struct SpecializationData {
     values: Vec<smelt_specialize::GraphValue>,
     /// Opaque behavior that requires explicit adapters.
     required_adapters: Vec<smelt_specialize::AdapterRequirement>,
-    /// Ordered deterministic effects replayed once by the first manifest module.
-    effects: Vec<smelt_specialize::EffectReplay>,
+    /// Output captured while this module was imported at definition time, in
+    /// write order (see [`OutputReplay`]).
+    outputs: Vec<OutputReplay>,
+}
+
+/// One write captured during definition-time execution, placed in the module.
+#[derive(Debug, Clone)]
+pub(crate) struct OutputReplay {
+    /// Whether the text went to standard error.
+    stderr: bool,
+    /// The captured text.
+    text: String,
+    /// Byte offset, in this module's source, of the line of the top-level
+    /// statement that wrote it; `None` when the write is not attributed to one
+    /// (an older guest, or a write outside any top-level statement), which
+    /// replays at the start of the module body.
+    offset: Option<u32>,
 }
 
 /// A module-level type alias and the parameters it is generic over.
@@ -73,7 +87,10 @@ pub(crate) struct ModuleAnalysis {
 
 impl ModuleAnalysis {
     /// Analyse `module`, whose `ty` resolution is `resolved_types`.
-    pub(crate) fn new(resolved_types: crate::ty_resolve::ResolvedTypes, module: &ModModule) -> Self {
+    pub(crate) fn new(
+        resolved_types: crate::ty_resolve::ResolvedTypes,
+        module: &ModModule,
+    ) -> Self {
         Self {
             resolved_types,
             bindings: ModuleBindings::collect(&module.body),
@@ -87,6 +104,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path used for module metadata and diagnostics.
     path: String,
+    /// Whether this module is the program entry (`__name__ == "__main__"`).
+    pub(crate) is_entry: bool,
     /// Shared HIR context being populated.
     ctx: &'ctx mut HirCtx,
     /// State owned by the function body being lowered; swapped wholesale by
@@ -349,6 +368,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             file_id,
             pytest_mode: test_support::is_pytest_file(&path),
             path,
+            is_entry: false,
             ctx,
             scope: FnScope::default(),
             items,
@@ -425,7 +445,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         {
             return Err(vec![SmeltError::specialization_required(span, name)]);
         }
-        self.replay_specialization_output(&mut body);
+        self.replay_unattributed_output(&mut body);
         self.collect_exception_classes(module);
 
         // Pass 1 — collect top-level function/class declarations so later
@@ -447,9 +467,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for (stmt, is_declared) in module.body.iter().zip(declared) {
             if is_declared {
                 // A constructed binding Pass 1 lifted to a module global is
-                // touched here, so its initializer runs in source order.
+                // touched here, so its initializer runs in source order (and
+                // prints its own output). Any other declared statement is
+                // materialized, not run, so what it printed at definition time
+                // is replayed in its place.
                 if let Some(touch) = self.module_global_touch(stmt, &mut body) {
                     body.push_stmt(HirStmt::Expr(touch));
+                } else {
+                    self.replay_statement_output(stmt.range(), &mut body);
                 }
                 continue;
             }

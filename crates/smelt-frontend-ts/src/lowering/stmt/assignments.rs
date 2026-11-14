@@ -1,9 +1,9 @@
 //! Assignments: targets, global writes, updates, logical assignment, properties
 //! assigned onto callable locals, and what an assignment does to narrowing.
 
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
 use oxc::ast::ast::{AssignmentTarget, Expression, SimpleAssignmentTarget};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let span = self.span(update.span.start, update.span.end);
-        let ty = match self.item_ref(item) {
+        let cell_ty = match self.item_ref(item) {
             Item::MutableGlobal(global_item) => global_item.ty,
             _ => self.erase_at(ErasureReason::ByName, span, name),
         };
@@ -119,13 +119,26 @@ impl ModuleBuilder<'_> {
             UpdateOperator::Increment => BinOp::Add,
             UpdateOperator::Decrement => BinOp::Sub,
         };
+        // A cell that may hold `undefined` (`static n: number;`) counts in
+        // `number`: `ToNumber(undefined)` is `NaN`, and the update evaluates
+        // to a number either way.
+        let ty = match self.ctx.krate.types.get(cell_ty) {
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float)) =>
+            {
+                *inner
+            }
+            _ => cell_ty,
+        };
         let step = self.unit_step_literal(ty);
+        let types = &self.ctx.krate.types;
         let build_set = |target_body: &mut Body| {
             let current = target_body.push_expr(Expr {
                 kind: ExprKind::GlobalGet { item },
-                ty,
+                ty: cell_ty,
                 span,
             });
+            let current = Self::optional_number_operand_in(types, current, target_body);
             let one = target_body.push_expr(Expr {
                 kind: ExprKind::Literal(step.clone()),
                 ty,
@@ -155,11 +168,17 @@ impl ModuleBuilder<'_> {
         // captured old value.
         let old = body.push_expr(Expr {
             kind: ExprKind::GlobalGet { item },
-            ty,
+            ty: cell_ty,
             span,
         });
+        let old = Self::optional_number_operand_in(&self.ctx.krate.types, old, body);
         let temp_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_global_old"))),
+            name: Some(
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_global_old")),
+            ),
             ty,
             mutable: false,
             span,
@@ -208,8 +227,19 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let target_ty = Self::expr_ty(body, target);
+        // A local narrowed to `null` (`if (!xs) { xs = []; .. }`) is a fact
+        // about what it holds now, not about what it may hold: the stored
+        // value is hinted by the local's declared storage. Hinting `[]` with
+        // the narrowed `None` typed the empty list as `()`.
+        let store_ty = match (
+            body.expr_at(target).map(|expr| &expr.kind),
+            self.ctx.krate.types.get(target_ty),
+        ) {
+            (Some(ExprKind::Local(local)), Some(Type::None)) => Self::local_ty(body, *local),
+            _ => target_ty,
+        };
         let right_ty_hint = match assign.operator {
-            AssignmentOperator::Assign => Some(target_ty),
+            AssignmentOperator::Assign => Some(store_ty),
             AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
             AssignmentOperator::LogicalOr | AssignmentOperator::LogicalAnd => Some(target_ty),
             _ => None,
@@ -284,8 +314,16 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let ty = Self::expr_ty(body, target);
                 let span = self.span(assign.span.start, assign.span.end);
+                let (target, right) = if self.binary_operands_are_numeric(op, target, right, body) {
+                    (
+                        self.optional_number_operand(target, body),
+                        self.optional_number_operand(right, body),
+                    )
+                } else {
+                    (target, right)
+                };
+                let ty = Self::expr_ty(body, target);
                 self.bigint_fallible_binary(op, target, right, span, body)
                     .unwrap_or_else(|| {
                         body.push_expr(Expr {
@@ -395,7 +433,12 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&assign.right, body)?;
         let value_ty = Self::expr_ty(body, value);
         let value_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_callable_prop"))),
+            name: Some(
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_callable_prop")),
+            ),
             ty: value_ty,
             mutable: false,
             span,
@@ -416,7 +459,8 @@ impl ModuleBuilder<'_> {
         });
         let prop = self.intern_source_name(member.property.name.as_str());
         // Last write wins, in source order: the registry method owns that rule.
-        self.scope.record_callable_prop(local, prop, value_read, span);
+        self.scope
+            .record_callable_prop(local, prop, value_read, span);
         Ok(true)
     }
 
@@ -509,9 +553,8 @@ impl ModuleBuilder<'_> {
             // in charge, exactly as before any write was collected.
             return Ok(None);
         }
-        let base_ty = Self::local_ty_checked(body, local).unwrap_or_else(|| {
-            self.erase_with(ErasureReason::MissingAnnotation, "callable local")
-        });
+        let base_ty = Self::local_ty_checked(body, local)
+            .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "callable local"));
         let callable = body.push_expr(Expr {
             kind: ExprKind::Local(local),
             ty: base_ty,
@@ -624,7 +667,12 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&assign.right, body)?;
         let value_ty = Self::expr_ty(body, value);
         let value_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_destructure"))),
+            name: Some(
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_destructure")),
+            ),
             ty: value_ty,
             mutable: false,
             span: self.span(assign.right.span().start, assign.right.span().end),
@@ -913,7 +961,12 @@ impl ModuleBuilder<'_> {
         // `target` read; prefix keeps the incremented `value`.
         let snapshot = if update.prefix { value } else { target };
         let temp_local = body.push_local(LocalDecl {
-            name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_update_tmp"))),
+            name: Some(
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_update_tmp")),
+            ),
             ty: result_ty,
             mutable: false,
             span,
@@ -971,7 +1024,11 @@ impl ModuleBuilder<'_> {
             entry.tail = Some(value);
         }
         let ty = Self::expr_ty(body, value);
-        body.push_expr(Expr { kind: ExprKind::Block(block), ty, span })
+        body.push_expr(Expr {
+            kind: ExprKind::Block(block),
+            ty,
+            span,
+        })
     }
 
     /// Whether an assignment operator is one of the three LOGICAL assignments,
@@ -1010,8 +1067,7 @@ impl ModuleBuilder<'_> {
         if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Optional(_))) {
             return target;
         }
-        let Some(target_expr) = body.expr_at(target)
-        else {
+        let Some(target_expr) = body.expr_at(target) else {
             return target;
         };
         let span = target_expr.span;
@@ -1134,12 +1190,12 @@ impl ModuleBuilder<'_> {
         // conditionally produced value (`let mut _smelt_tmp_N: T;`).
         let result_local = want_value.then(|| {
             body.push_local(LocalDecl {
-                name: Some(
-                    self.ctx
-                        .krate
-                        .symbols
-                        .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("__smelt_logical_{}", body.locals.len()))),
-                ),
+                name: Some(self.ctx.krate.symbols.intern_synthesized(
+                    &smelt_hir::SynthesizedName::new(format!(
+                        "__smelt_logical_{}",
+                        body.locals.len()
+                    )),
+                )),
                 ty: result_ty,
                 mutable: true,
                 span,
@@ -1154,12 +1210,12 @@ impl ModuleBuilder<'_> {
         // writing it to both the target and the result temporary would build it
         // twice.
         let right_local = body.push_local(LocalDecl {
-            name: Some(
-                self.ctx
-                    .krate
-                    .symbols
-                    .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("__smelt_logical_value_{}", body.locals.len()))),
-            ),
+            name: Some(self.ctx.krate.symbols.intern_synthesized(
+                &smelt_hir::SynthesizedName::new(format!(
+                    "__smelt_logical_value_{}",
+                    body.locals.len()
+                )),
+            )),
             ty: right_ty,
             mutable: false,
             span,

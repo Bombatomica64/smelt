@@ -2,14 +2,14 @@
 //! predicates, global-object aliases) and how an importer resolves the exports of
 //! a source module.
 
-use std::collections::HashMap;
-use std::path::Path;
+use super::super::support::item_name;
+use super::super::{AssertionNarrowing, ModuleBuilder};
+use super::phases::SignaturesDeclared;
 use crate::context::{ModuleKey, QualifiedExport};
 use crate::lowering::support::source_spelling;
 use smelt_hir::{Module, Type};
-use super::phases::SignaturesDeclared;
-use super::super::{AssertionNarrowing, ModuleBuilder};
-use super::super::support::item_name;
+use std::collections::HashMap;
+use std::path::Path;
 
 impl ModuleBuilder<'_> {
     /// Record item exports lowered from the current source path.
@@ -35,14 +35,23 @@ impl ModuleBuilder<'_> {
         let resolved = self
             .export_renames
             .iter()
-            .filter(|(exported, _)| !self.ctx.export_aliases.contains_key(&self.export_key(exported.as_str())))
+            .filter(|(exported, _)| {
+                !self
+                    .ctx
+                    .export_aliases
+                    .contains_key(&self.export_key(exported.as_str()))
+            })
             // A namespace import re-exported under a new name published its
             // members instead (`reexport_namespace_members`).
             .filter(|(_, local)| !self.imports.is_namespace(local))
             .filter_map(|(exported, local)| {
                 // Either registry can hold the declaration at this point: a class
                 // lives in the class registry, everything else in the item map.
-                let item = self.items.get(local).copied().or_else(|| self.classes.item(local))?;
+                let item = self
+                    .items
+                    .get(local)
+                    .copied()
+                    .or_else(|| self.classes.item(local))?;
                 Some((exported.clone(), item))
             })
             .collect::<Vec<_>>();
@@ -80,7 +89,9 @@ impl ModuleBuilder<'_> {
             .export_renames
             .iter()
             .filter(|(_, local)| !self.imports.is_namespace(local))
-            .filter_map(|(exported, local)| Some((exported.clone(), self.items.get(local).copied()?)))
+            .filter_map(|(exported, local)| {
+                Some((exported.clone(), self.items.get(local).copied()?))
+            })
             .collect::<Vec<_>>();
         for (exported, item_id) in own {
             exports.entry(exported).or_insert(item_id);
@@ -103,7 +114,10 @@ impl ModuleBuilder<'_> {
     /// The key this module publishes `name` under in the crate-wide export
     /// tables.
     pub(in crate::lowering) fn export_key(&self, name: impl Into<String>) -> QualifiedExport {
-        QualifiedExport { module: self.module_key.clone(), name: name.into() }
+        QualifiedExport {
+            module: self.module_key.clone(),
+            name: name.into(),
+        }
     }
 
     /// Publish `value` for this module's export `name` in one crate-wide
@@ -119,7 +133,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Publish `item` as this module's export `alias`.
-    pub(in crate::lowering) fn publish_export_alias(&mut self, alias: impl Into<String>, item: smelt_hir::ItemId) {
+    pub(in crate::lowering) fn publish_export_alias(
+        &mut self,
+        alias: impl Into<String>,
+        item: smelt_hir::ItemId,
+    ) {
         let key = self.export_key(alias);
         self.ctx.export_aliases.insert(key, item);
     }
@@ -142,17 +160,26 @@ impl ModuleBuilder<'_> {
     /// The tables are keyed by [`QualifiedExport`], so the facts are the
     /// exporting module's even when another module exports the same name
     ///.
-    pub(in crate::lowering) fn adopt_exported_facts(&mut self, source: &str, imported: &str, local: &str) {
+    pub(in crate::lowering) fn adopt_exported_facts(
+        &mut self,
+        source: &str,
+        imported: &str,
+        local: &str,
+    ) {
         let Some(module) = self.source_module_key(source) else {
             return;
         };
-        let key = QualifiedExport { module, name: imported.to_owned() };
+        let key = QualifiedExport {
+            module,
+            name: imported.to_owned(),
+        };
         let local = local.to_owned();
         if let Some(value) = self.ctx.object_consts.get(&key).cloned() {
             self.consts.set_object(local.clone(), value);
         }
         if let Some(value) = self.ctx.object_value_collections.get(&key).cloned() {
-            self.consts.set_object_value_collection(local.clone(), value);
+            self.consts
+                .set_object_value_collection(local.clone(), value);
         }
         if let Some(value) = self.ctx.const_collections.get(&key).cloned() {
             self.consts.set_collection(local.clone(), value);
@@ -161,7 +188,9 @@ impl ModuleBuilder<'_> {
             self.consts.set_enum_members(local.clone(), members);
         }
         if let Some(namespace) = self.ctx.object_namespaces.get(&key).cloned() {
-            self.object_namespaces.write().insert(local.clone(), namespace);
+            self.object_namespaces
+                .write()
+                .insert(local.clone(), namespace);
         }
         if let Some(overloads) = self.ctx.overloads.get(&key).cloned() {
             self.functions.set_overloads(local.clone(), overloads);
@@ -188,7 +217,11 @@ impl ModuleBuilder<'_> {
                 .functions
                 .predicate(local)
                 .map(|narrowing| (false, narrowing))
-                .or_else(|| self.functions.assertion(local).map(|narrowing| (true, narrowing)));
+                .or_else(|| {
+                    self.functions
+                        .assertion(local)
+                        .map(|narrowing| (true, narrowing))
+                });
             if let Some((is_assertion, narrowing)) = proof
                 && self.has_concrete_carrier(narrowing.target)
             {
@@ -231,7 +264,8 @@ impl ModuleBuilder<'_> {
         if predicate.is_assertion {
             self.functions.set_assertion(local.to_owned(), narrowing);
         } else {
-            self.functions.set_imported_predicate(local.to_owned(), narrowing);
+            self.functions
+                .set_imported_predicate(local.to_owned(), narrowing);
         }
     }
 
@@ -277,7 +311,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether `imported` is a global-object alias exported by `source`.
-    pub(in crate::lowering) fn source_exports_global_object_alias(&self, source: &str, imported: &str) -> bool {
+    pub(in crate::lowering) fn source_exports_global_object_alias(
+        &self,
+        source: &str,
+        imported: &str,
+    ) -> bool {
         self.resolved_module_export_keys(source)
             .into_iter()
             .any(|key| {
@@ -299,12 +337,16 @@ impl ModuleBuilder<'_> {
     /// (`export * as name from ..`): its exports hold `name.<member>` keys.
     pub(super) fn source_exports_namespace(&self, source: &str, name: &str) -> bool {
         let prefix = format!("{name}.");
-        self.source_module_exports(source)
-            .is_some_and(|exports| !exports.contains_key(name) && exports.keys().any(|key| key.starts_with(&prefix)))
+        self.source_module_exports(source).is_some_and(|exports| {
+            !exports.contains_key(name) && exports.keys().any(|key| key.starts_with(&prefix))
+        })
     }
 
     /// Return the exports for an import source resolved relative to this file.
-    pub(in crate::lowering) fn source_module_exports(&self, source: &str) -> Option<HashMap<String, smelt_hir::ItemId>> {
+    pub(in crate::lowering) fn source_module_exports(
+        &self,
+        source: &str,
+    ) -> Option<HashMap<String, smelt_hir::ItemId>> {
         self.resolved_module_export_keys(source)
             .into_iter()
             .find_map(|key| self.ctx.module_exports.get(&key).cloned())

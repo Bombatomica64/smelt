@@ -26,6 +26,9 @@ pub(super) struct SourceFacts {
     module_values: HashSet<String>,
     /// Named classes declared at any depth.
     classes: HashSet<String>,
+    /// Names a variable declarator binds to a class expression at any depth
+    /// (`const Foo = class { .. }`, a class named `Foo`).
+    class_expression_bindings: HashSet<String>,
     /// Named types declared at any depth: classes, interfaces, aliases, enums.
     types: HashSet<String>,
     /// Member names declared by classes, interfaces and object types.
@@ -54,11 +57,13 @@ impl SourceFacts {
         let declaration = match statement {
             Statement::ExportDeclaration(export) => &export.declaration,
             Statement::FunctionDeclaration(function) => {
-                self.module_values.extend(function.id.as_ref().map(|id| id.name.to_string()));
+                self.module_values
+                    .extend(function.id.as_ref().map(|id| id.name.to_string()));
                 return;
             }
             Statement::ClassDeclaration(class) => {
-                self.module_values.extend(class.id.as_ref().map(|id| id.name.to_string()));
+                self.module_values
+                    .extend(class.id.as_ref().map(|id| id.name.to_string()));
                 return;
             }
             Statement::VariableDeclaration(variable) => {
@@ -69,10 +74,12 @@ impl SourceFacts {
         };
         match declaration {
             Declaration::FunctionDeclaration(function) => {
-                self.module_values.extend(function.id.as_ref().map(|id| id.name.to_string()));
+                self.module_values
+                    .extend(function.id.as_ref().map(|id| id.name.to_string()));
             }
             Declaration::ClassDeclaration(class) => {
-                self.module_values.extend(class.id.as_ref().map(|id| id.name.to_string()));
+                self.module_values
+                    .extend(class.id.as_ref().map(|id| id.name.to_string()));
             }
             Declaration::VariableDeclaration(variable) => self.record_module_variables(variable),
             _ => {}
@@ -109,7 +116,8 @@ impl SourceFacts {
         if function.r#async || function.generator || function.type_parameters.is_some() {
             return;
         }
-        self.forward_callables.extend(function.id.as_ref().map(|id| id.name.to_string()));
+        self.forward_callables
+            .extend(function.id.as_ref().map(|id| id.name.to_string()));
     }
 
     /// Record the name of a `const` whose first binding is plain.
@@ -117,8 +125,10 @@ impl SourceFacts {
         if variable.kind != VariableDeclarationKind::Const {
             return;
         }
-        if let Some(BindingPattern::BindingIdentifier(binding)) =
-            variable.declarations.first().map(|declarator| &declarator.id)
+        if let Some(BindingPattern::BindingIdentifier(binding)) = variable
+            .declarations
+            .first()
+            .map(|declarator| &declarator.id)
         {
             self.forward_callables.insert(binding.name.to_string());
         }
@@ -132,6 +142,12 @@ impl SourceFacts {
     /// Whether the module level binds the value `name`.
     pub(super) fn declares_module_value(&self, name: &str) -> bool {
         self.module_values.contains(name)
+    }
+
+    /// Whether a variable is bound to a class expression under `name`, at
+    /// any depth.
+    pub(super) fn binds_class_expression(&self, name: &str) -> bool {
+        self.class_expression_bindings.contains(name)
     }
 
     /// Whether the module declares a class called `name`, at any depth.
@@ -152,7 +168,8 @@ impl SourceFacts {
     /// Record a statically named member.
     fn record_member(&mut self, key: &PropertyKey<'_>) {
         if let Some(name) = key.static_name() {
-            self.members.insert(crate::lowering::js_text::static_name_text(name).into_owned());
+            self.members
+                .insert(crate::lowering::js_text::static_name_text(name).into_owned());
         }
     }
 
@@ -160,7 +177,9 @@ impl SourceFacts {
     pub(super) fn mentions(&self, span: Span, name: &str) -> bool {
         self.references.get(name).is_some_and(|positions| {
             let first = positions.partition_point(|position| *position < span.start);
-            positions.get(first).is_some_and(|position| *position < span.end)
+            positions
+                .get(first)
+                .is_some_and(|position| *position < span.end)
         })
     }
 }
@@ -174,6 +193,23 @@ impl<'a> Visit<'a> for SourceFacts {
     fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
         self.record_function(function);
         walk::walk_function(self, function, flags);
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &oxc::ast::ast::VariableDeclarator<'a>) {
+        if let (
+            BindingPattern::BindingIdentifier(binding),
+            Some(oxc::ast::ast::Expression::ClassExpression(_)),
+        ) = (
+            &declarator.id,
+            declarator
+                .init
+                .as_ref()
+                .map(oxc::ast::ast::Expression::without_parentheses),
+        ) {
+            self.class_expression_bindings
+                .insert(binding.name.to_string());
+        }
+        walk::walk_variable_declarator(self, declarator);
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {

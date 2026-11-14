@@ -147,9 +147,7 @@ impl ImportScope {
 
     /// Return the blocker message for a value import with no runtime surface.
     pub(in crate::lowering) fn unresolved_value_import(&self, name: &str) -> Option<&str> {
-        self.unresolved_value_imports
-            .get(name)
-            .map(String::as_str)
+        self.unresolved_value_imports.get(name).map(String::as_str)
     }
 
     /// Record a local statically known to alias the ambient global object.

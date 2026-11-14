@@ -1,8 +1,8 @@
 //! Type-level test helpers: assertions that exist for the checker, such as
 //! `expectTypeOf`, which lower their value under test and erase the assertion.
 
-use crate::{SmeltError, test_support};
 use crate::lowering::ModuleBuilder;
+use crate::{SmeltError, test_support};
 use oxc::ast::ast::Expression;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Type};
 

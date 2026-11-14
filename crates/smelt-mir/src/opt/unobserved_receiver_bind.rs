@@ -68,13 +68,10 @@ impl Pass for UnobservedReceiverBind {
 /// once and read once, by a later call in the same block; anything else keeps
 /// the plain `Use` the caller installs.
 fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
-    
     // Decide every forwarding first (the use counts read the whole function),
     // then apply them block by block.
     let forwardable = |body: &crate::MirFunction, dest: crate::LocalId| {
-        body.is_temp(dest)
-            && body.assignment_count(dest) == 1
-            && body.read_count(dest) == 1
+        body.is_temp(dest) && body.assignment_count(dest) == 1 && body.read_count(dest) == 1
     };
     let candidates = function
         .blocks
@@ -100,7 +97,11 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
                 continue;
             };
             let Some(Statement::Assign {
-                value: Rvalue::BindThis { callee: bound_callee, .. },
+                value:
+                    Rvalue::BindThis {
+                        callee: bound_callee,
+                        ..
+                    },
                 ..
             }) = block.statements.get(bind_at).cloned()
             else {
@@ -112,7 +113,11 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
                 .skip(bind_at.saturating_add(1))
                 .find_map(|statement| match statement {
                     Statement::Assign {
-                        value: Rvalue::ClosureCall { callee: call_callee, .. },
+                        value:
+                            Rvalue::ClosureCall {
+                                callee: call_callee,
+                                ..
+                            },
                         ..
                     } if call_callee.local() == Some(*bound) => Some(call_callee),
                     Statement::Assign { .. }
@@ -136,7 +141,10 @@ fn program_reads_this(mir: &Mir) -> bool {
         .functions
         .iter()
         .flat_map(|function| function.blocks.iter());
-    let closure_blocks = mir.closures.iter().flat_map(|closure| closure.blocks.iter());
+    let closure_blocks = mir
+        .closures
+        .iter()
+        .flat_map(|closure| closure.blocks.iter());
     function_blocks
         .chain(closure_blocks)
         .flat_map(|block| block.statements.iter())

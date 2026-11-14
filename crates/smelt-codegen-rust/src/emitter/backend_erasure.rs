@@ -42,7 +42,8 @@ impl FunctionEmitter<'_> {
     pub(super) fn note_backend_erasure(&self, reason: ErasureReason, detail: String) {
         let span = self.backend_erasure_span();
         self.context
-            .minted.backend_erasures
+            .minted
+            .backend_erasures
             .borrow_mut()
             .push(ErasureRecord::new(reason, span, detail));
     }

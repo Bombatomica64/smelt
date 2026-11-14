@@ -162,13 +162,17 @@ fn net(time: Duration, baseline: Duration) -> Duration {
 /// parser and the lowering, and the default test-thread stack is sized for
 /// ordinary programs, not for the 4× size of a calibrated one.
 fn growth(shape: &str, start: usize, max_n: usize, generate: fn(usize) -> String) -> f64 {
-    let _guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let shape_name = shape.to_owned();
     let worker = std::thread::Builder::new()
         .stack_size(256 * 1024 * 1024)
         .spawn(move || measure_growth(&shape_name, start, max_n, generate))
         .expect("spawn the measuring thread");
-    worker.join().unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+    worker
+        .join()
+        .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
 }
 
 /// The body of [`growth`], on the large-stack thread.
@@ -183,9 +187,12 @@ fn measure_growth(shape: &str, start: usize, max_n: usize, generate: fn(usize) -
         small = measure(&generate(n));
     }
     let large = measure(&generate(n * SCALE));
-    let ratio = net(large.total(), baseline).as_secs_f64() / net(small.total(), baseline).as_secs_f64();
+    let ratio =
+        net(large.total(), baseline).as_secs_f64() / net(small.total(), baseline).as_secs_f64();
     let bytes = |phases: Phases| {
-        f64::from(u32::try_from(phases.emitted_bytes.saturating_sub(baseline_bytes)).unwrap_or(u32::MAX))
+        f64::from(
+            u32::try_from(phases.emitted_bytes.saturating_sub(baseline_bytes)).unwrap_or(u32::MAX),
+        )
     };
     let output_growth = bytes(large) / bytes(small).max(1.0);
     eprintln!(
@@ -234,7 +241,10 @@ fn assert_linear_up_to(shape: &str, start: usize, max_n: usize, generate: fn(usi
 fn interface_extends_chain(n: usize) -> String {
     let mut source = String::from("interface I0 { f0: number }\n");
     for k in 1..n {
-        source.push_str(&format!("interface I{k} extends I{} {{ f{k}: number }}\n", k - 1));
+        source.push_str(&format!(
+            "interface I{k} extends I{} {{ f{k}: number }}\n",
+            k - 1
+        ));
     }
     let last = n - 1;
     source.push_str(&format!(
@@ -261,7 +271,10 @@ fn class_extends_chain(n: usize) -> String {
 
 /// `type U = "a0" | "a1" | …` and a function over it.
 fn string_literal_union(n: usize) -> String {
-    let members = (0..n).map(|k| format!("\"a{k}\"")).collect::<Vec<_>>().join(" | ");
+    let members = (0..n)
+        .map(|k| format!("\"a{k}\""))
+        .collect::<Vec<_>>()
+        .join(" | ");
     format!(
         "type U = {members};\nfunction name(u: U): string {{ return u; }}\nconsole.log(name(\"a0\"));\n"
     )
@@ -277,9 +290,14 @@ fn string_literal_union(n: usize) -> String {
 fn discriminated_object_union(n: usize) -> String {
     let mut source = String::new();
     for k in 0..n {
-        source.push_str(&format!("interface K{k} {{ kind: \"k{k}\"; v{k}: number }}\n"));
+        source.push_str(&format!(
+            "interface K{k} {{ kind: \"k{k}\"; v{k}: number }}\n"
+        ));
     }
-    let members = (0..n).map(|k| format!("K{k}")).collect::<Vec<_>>().join(" | ");
+    let members = (0..n)
+        .map(|k| format!("K{k}"))
+        .collect::<Vec<_>>()
+        .join(" | ");
     let cases = (0..n)
         .map(|k| format!("    case \"k{k}\": return s.v{k};\n"))
         .collect::<String>();
@@ -301,8 +319,14 @@ fn long_intersection(size: usize) -> String {
     for k in 0..n {
         source.push_str(&format!("interface A{k} {{ f{k}: number }}\n"));
     }
-    let members = (0..n).map(|k| format!("A{k}")).collect::<Vec<_>>().join(" & ");
-    let fields = (0..n).map(|k| format!("f{k}: {k}")).collect::<Vec<_>>().join(", ");
+    let members = (0..n)
+        .map(|k| format!("A{k}"))
+        .collect::<Vec<_>>()
+        .join(" & ");
+    let fields = (0..n)
+        .map(|k| format!("f{k}: {k}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     source.push_str(&format!(
         "type X = {members};\nfunction first(x: X): number {{ return x.f0; }}\nconst value: X = {{ {fields} }};\nconsole.log(first(value));\n"
     ));
@@ -317,7 +341,9 @@ fn array_literal_lines(n: usize) -> String {
 
 /// An empty array filled by `n` `push` statements.
 fn array_push_statements(n: usize) -> String {
-    let pushes = (0..n).map(|k| format!("values.push({k});\n")).collect::<String>();
+    let pushes = (0..n)
+        .map(|k| format!("values.push({k});\n"))
+        .collect::<String>();
     format!("const values: number[] = [];\n{pushes}console.log(values.length);\n")
 }
 
@@ -431,7 +457,11 @@ fn long_intersection_scales_linearly() {
 
 #[test]
 fn array_literal_lines_scale_linearly() {
-    assert_linear("array literal, one element per line", 64, array_literal_lines);
+    assert_linear(
+        "array literal, one element per line",
+        64,
+        array_literal_lines,
+    );
 }
 
 #[test]
@@ -453,7 +483,12 @@ fn nested_generic_type_scales_linearly() {
 
 #[test]
 fn generic_call_chain_scales_linearly() {
-    assert_linear_up_to("nested generic call chain", 8, MAX_NESTING, generic_call_chain);
+    assert_linear_up_to(
+        "nested generic call chain",
+        8,
+        MAX_NESTING,
+        generic_call_chain,
+    );
 }
 
 #[test]

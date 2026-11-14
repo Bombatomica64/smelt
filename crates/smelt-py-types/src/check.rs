@@ -24,7 +24,10 @@ use crate::db::SmeltTyDb;
 
 /// One Python source of the program to check.
 #[derive(Debug, Clone, Copy)]
-#[expect(clippy::exhaustive_structs, reason = "a source is exactly its path and its text")]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "a source is exactly its path and its text"
+)]
 pub struct CheckSource<'source> {
     /// The path the build names the source by; diagnostics carry it back.
     pub path: &'source Path,
@@ -34,7 +37,10 @@ pub struct CheckSource<'source> {
 
 /// How bad one reported problem is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(clippy::exhaustive_enums, reason = "infos and hints are dropped; what is left is an error or a warning")]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "infos and hints are dropped; what is left is an error or a warning"
+)]
 pub enum CheckSeverity {
     /// ty would fail the check: the program is ill-typed.
     Error,
@@ -100,7 +106,8 @@ pub fn check_sources(
     let db = SmeltTyDb::with_roots(OsSystem::new(&system_root), roots)?;
     let mut diagnostics = Vec::new();
     for (source, location) in laid {
-        let file = system_path_to_file(&db, &utf8_path(location)?).context("resolve file in ty db")?;
+        let file =
+            system_path_to_file(&db, &utf8_path(location)?).context("resolve file in ty db")?;
         for diagnostic in db.check_file(file) {
             let severity = match diagnostic.severity() {
                 Severity::Error | Severity::Fatal => CheckSeverity::Error,
@@ -130,12 +137,17 @@ fn relative_location(path: &Path, base: &Path, index: usize) -> PathBuf {
     absolute
         .strip_prefix(base)
         .ok()
-        .filter(|relative| relative.components().all(|component| matches!(component, Component::Normal(_))))
+        .filter(|relative| {
+            relative
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)))
+        })
         .map_or_else(
             || {
-                Path::new("__smelt_external")
-                    .join(index.to_string())
-                    .join(path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("module.py")))
+                Path::new("__smelt_external").join(index.to_string()).join(
+                    path.file_name()
+                        .unwrap_or_else(|| std::ffi::OsStr::new("module.py")),
+                )
             },
             Path::to_path_buf,
         )
@@ -160,7 +172,8 @@ fn search_roots<'path>(
 
 /// `path` as ty's UTF-8 path type.
 fn utf8_path(path: PathBuf) -> Result<SystemPathBuf> {
-    SystemPathBuf::from_path_buf(path).map_err(|original| anyhow!("non-UTF-8 path: {}", original.display()))
+    SystemPathBuf::from_path_buf(path)
+        .map_err(|original| anyhow!("non-UTF-8 path: {}", original.display()))
 }
 
 #[cfg(test)]
@@ -175,7 +188,10 @@ mod tests {
     /// Check `(path, text)` sources under a fictitious project root.
     fn check(files: &[(&str, &str)]) -> Result<Vec<CheckDiagnostic>> {
         let root = Path::new("/smelt-check-project");
-        let paths = files.iter().map(|(path, _)| root.join(path)).collect::<Vec<_>>();
+        let paths = files
+            .iter()
+            .map(|(path, _)| root.join(path))
+            .collect::<Vec<_>>();
         let sources = paths
             .iter()
             .zip(files)
@@ -187,8 +203,16 @@ mod tests {
     /// A well-typed program reports no error.
     #[test]
     fn a_well_typed_program_has_no_error() -> Result<()> {
-        let diagnostics = check(&[("main.py", "def f(x: int) -> int:\n    return x + 1\n\nprint(f(2))\n")])?;
-        assert!(diagnostics.iter().all(|diagnostic| diagnostic.severity != CheckSeverity::Error), "{diagnostics:?}");
+        let diagnostics = check(&[(
+            "main.py",
+            "def f(x: int) -> int:\n    return x + 1\n\nprint(f(2))\n",
+        )])?;
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.severity != CheckSeverity::Error),
+            "{diagnostics:?}"
+        );
         Ok(())
     }
 
@@ -204,7 +228,10 @@ mod tests {
         assert_eq!(errors.len(), 1, "{diagnostics:?}");
         assert_eq!(errors[0].rule, "invalid-assignment");
         assert_eq!(errors[0].path, Path::new("/smelt-check-project/main.py"));
-        assert!(errors[0].offset.is_some_and(|offset| offset < 16), "{errors:?}");
+        assert!(
+            errors[0].offset.is_some_and(|offset| offset < 16),
+            "{errors:?}"
+        );
         Ok(())
     }
 
@@ -213,12 +240,26 @@ mod tests {
     #[test]
     fn sibling_modules_resolve_and_are_checked_together() -> Result<()> {
         let util = "def twice(x: int) -> int:\n    return x * 2\n";
-        let good = check(&[("src/util.py", util), ("src/main.py", "from util import twice\nprint(twice(2))\n")])?;
-        assert!(good.iter().all(|diagnostic| diagnostic.severity != CheckSeverity::Error), "{good:?}");
-        let bad = check(&[("src/util.py", util), ("src/main.py", "from util import twice\nprint(twice(\"2\"))\n")])?;
+        let good = check(&[
+            ("src/util.py", util),
+            ("src/main.py", "from util import twice\nprint(twice(2))\n"),
+        ])?;
         assert!(
-            bad.iter().any(|diagnostic| diagnostic.severity == CheckSeverity::Error
-                && diagnostic.path.ends_with("src/main.py")),
+            good.iter()
+                .all(|diagnostic| diagnostic.severity != CheckSeverity::Error),
+            "{good:?}"
+        );
+        let bad = check(&[
+            ("src/util.py", util),
+            (
+                "src/main.py",
+                "from util import twice\nprint(twice(\"2\"))\n",
+            ),
+        ])?;
+        assert!(
+            bad.iter()
+                .any(|diagnostic| diagnostic.severity == CheckSeverity::Error
+                    && diagnostic.path.ends_with("src/main.py")),
             "{bad:?}"
         );
         Ok(())

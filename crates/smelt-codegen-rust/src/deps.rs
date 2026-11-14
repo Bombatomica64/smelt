@@ -49,7 +49,11 @@ pub(crate) fn cargo_toml(
         }
         crate::ReleaseProfile::Default => "",
     };
-    let crate::PackageMetadata { version, edition, description } = &options.package;
+    let crate::PackageMetadata {
+        version,
+        edition,
+        description,
+    } = &options.package;
     let edition_text = edition.as_str();
 
     let description = description
@@ -72,7 +76,10 @@ const MIMALLOC: CrateRequirement = CrateRequirement::new("mimalloc", "0.1", fals
 /// allocator is installed before anything else runs. Then tokio, genawaiter
 /// and the backend crates in [`BackendDependency::ALL`] order, which keeps the
 /// manifest stable as new MIR rvalues start reporting existing dependencies.
-fn required_crates(deps_needed: &[GeneratedDep], allocator: crate::GeneratedAllocator) -> Vec<CrateRequirement> {
+fn required_crates(
+    deps_needed: &[GeneratedDep],
+    allocator: crate::GeneratedAllocator,
+) -> Vec<CrateRequirement> {
     let mut crates = Vec::new();
     if allocator == crate::GeneratedAllocator::Mimalloc {
         crates.push(MIMALLOC);
@@ -100,11 +107,16 @@ fn required_crates(deps_needed: &[GeneratedDep], allocator: crate::GeneratedAllo
 /// added to the ones it lists: the emitted runtime text calls those features'
 /// APIs, so an override that dropped them (`tokio = "1.40"` loses `rt` and
 /// `macros`) would leave the crate unable to compile. No key appears twice.
-fn with_declared_dependencies(required: &[CrateRequirement], declared: &[(String, String)]) -> String {
+fn with_declared_dependencies(
+    required: &[CrateRequirement],
+    declared: &[(String, String)],
+) -> String {
     let mut lines = Vec::new();
     for requirement in required {
         match declared.iter().find(|(name, _)| name == requirement.name) {
-            Some((name, value)) => lines.push(format!("{name} = {}", merged_override(requirement, value))),
+            Some((name, value)) => {
+                lines.push(format!("{name} = {}", merged_override(requirement, value)));
+            }
             None => lines.push(requirement.manifest_line().trim_end().to_owned()),
         }
     }
@@ -148,7 +160,11 @@ fn merged_override(requirement: &CrateRequirement, value: &str) -> String {
     let missing = requirement
         .features
         .iter()
-        .filter(|feature| !features.iter().any(|listed| listed.as_str() == Some(feature)))
+        .filter(|feature| {
+            !features
+                .iter()
+                .any(|listed| listed.as_str() == Some(feature))
+        })
         .map(|feature| toml::Value::String((*feature).to_owned()))
         .collect::<Vec<_>>();
     if missing.is_empty() {
@@ -177,7 +193,10 @@ fn inline_toml(value: &toml::Value) -> String {
             format!("{{ {} }}", entries.join(", "))
         }
         toml::Value::Array(items) => {
-            format!("[{}]", items.iter().map(inline_toml).collect::<Vec<_>>().join(", "))
+            format!(
+                "[{}]",
+                items.iter().map(inline_toml).collect::<Vec<_>>().join(", ")
+            )
         }
         other => other.to_string(),
     }
@@ -185,7 +204,11 @@ fn inline_toml(value: &toml::Value) -> String {
 
 /// `key` as a TOML key: bare when it can be, quoted otherwise.
 fn inline_key(key: &str) -> String {
-    if !key.is_empty() && key.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+    if !key.is_empty()
+        && key
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
         key.to_owned()
     } else {
         toml::Value::String(key.to_owned()).to_string()
@@ -204,7 +227,10 @@ mod tests {
     /// runtime text needs; its place in the table is the required crate's.
     #[test]
     fn a_version_override_keeps_the_required_features() {
-        let required = [TOKIO, smelt_stdlib::CrateRequirement::new("regex", "1", true, &[])];
+        let required = [
+            TOKIO,
+            smelt_stdlib::CrateRequirement::new("regex", "1", true, &[]),
+        ];
         let declared = vec![("tokio".to_owned(), "\"1.40\"".to_owned())];
         assert_eq!(
             with_declared_dependencies(&required, &declared),
@@ -218,21 +244,31 @@ mod tests {
     fn a_table_override_gains_only_missing_features() {
         let declared = vec![(
             "tokio".to_owned(),
-            "{ version = \"1.40\", default-features = false, features = [\"fs\", \"rt\"] }".to_owned(),
+            "{ version = \"1.40\", default-features = false, features = [\"fs\", \"rt\"] }"
+                .to_owned(),
         )];
         assert_eq!(
             with_declared_dependencies(&[TOKIO], &declared),
             "tokio = { version = \"1.40\", default-features = false, features = [\"fs\", \"rt\", \"macros\", \"time\", \"net\", \"sync\"] }\n"
         );
-        let complete = vec![("genawaiter".to_owned(), "{ path = \"../genawaiter\" }".to_owned())];
-        assert_eq!(with_declared_dependencies(&[GENAWAITER], &complete), "genawaiter = { path = \"../genawaiter\" }\n");
+        let complete = vec![(
+            "genawaiter".to_owned(),
+            "{ path = \"../genawaiter\" }".to_owned(),
+        )];
+        assert_eq!(
+            with_declared_dependencies(&[GENAWAITER], &complete),
+            "genawaiter = { path = \"../genawaiter\" }\n"
+        );
     }
 
     /// A declared crate the program does not require is appended as written.
     #[test]
     fn an_unrequired_declaration_is_appended() {
         let declared = vec![("anyhow".to_owned(), "\"1\"".to_owned())];
-        assert_eq!(with_declared_dependencies(&[], &declared), "anyhow = \"1\"\n");
+        assert_eq!(
+            with_declared_dependencies(&[], &declared),
+            "anyhow = \"1\"\n"
+        );
         assert_eq!(with_declared_dependencies(&[], &[]), "");
     }
 
@@ -244,9 +280,14 @@ mod tests {
     #[test]
     fn the_runtime_manifest_matches_the_generated_dependencies() {
         let manifest_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../smelt-runtime/Cargo.toml");
-        let Ok(text) = std::fs::read_to_string(manifest_path) else { panic!("smelt-runtime/Cargo.toml is readable") };
-        let Ok(manifest) = text.parse::<toml::Table>() else { panic!("smelt-runtime/Cargo.toml parses") };
-        let Some(runtime_deps) = manifest.get("dependencies").and_then(toml::Value::as_table) else {
+        let Ok(text) = std::fs::read_to_string(manifest_path) else {
+            panic!("smelt-runtime/Cargo.toml is readable")
+        };
+        let Ok(manifest) = text.parse::<toml::Table>() else {
+            panic!("smelt-runtime/Cargo.toml parses")
+        };
+        let Some(runtime_deps) = manifest.get("dependencies").and_then(toml::Value::as_table)
+        else {
             panic!("smelt-runtime declares [dependencies]")
         };
         let all = BackendDependency::ALL.map(GeneratedDep::Stdlib);
@@ -258,16 +299,43 @@ mod tests {
                 .get(requirement.name)
                 .unwrap_or_else(|| panic!("smelt-runtime does not declare `{}`", requirement.name));
             let field = |key: &str| entry.as_table().and_then(|table| table.get(key));
-            let version = entry.as_str().or_else(|| field("version").and_then(toml::Value::as_str));
-            assert_eq!(version, Some(requirement.version), "`{}` version", requirement.name);
-            let default_features = field("default-features").and_then(toml::Value::as_bool).unwrap_or(true);
-            assert_eq!(default_features, requirement.default_features, "`{}` default features", requirement.name);
+            let version = entry
+                .as_str()
+                .or_else(|| field("version").and_then(toml::Value::as_str));
+            assert_eq!(
+                version,
+                Some(requirement.version),
+                "`{}` version",
+                requirement.name
+            );
+            let default_features = field("default-features")
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(true);
+            assert_eq!(
+                default_features, requirement.default_features,
+                "`{}` default features",
+                requirement.name
+            );
             let features = field("features")
                 .and_then(toml::Value::as_array)
-                .map(|features| features.iter().filter_map(toml::Value::as_str).collect::<Vec<_>>())
+                .map(|features| {
+                    features
+                        .iter()
+                        .filter_map(toml::Value::as_str)
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
-            assert_eq!(features, requirement.features, "`{}` features", requirement.name);
-            assert_eq!(field("optional").and_then(toml::Value::as_bool), Some(true), "`{}` is optional", requirement.name);
+            assert_eq!(
+                features, requirement.features,
+                "`{}` features",
+                requirement.name
+            );
+            assert_eq!(
+                field("optional").and_then(toml::Value::as_bool),
+                Some(true),
+                "`{}` is optional",
+                requirement.name
+            );
         }
         for name in runtime_deps.keys() {
             assert!(

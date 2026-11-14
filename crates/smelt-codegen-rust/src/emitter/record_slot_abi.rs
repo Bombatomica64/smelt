@@ -36,12 +36,12 @@
 //! and the adapter exists purely because Rust distinguishes `T` from `&T` while
 //! TypeScript does not.
 
-use crate::rust::RustExpr;
 use super::FunctionEmitter;
+use super::types::MutablePrefix;
 use crate::EmitError;
 use crate::generic_bindings::{CalleeTypeParamBindings, bind_record_instantiation};
+use crate::rust::RustExpr;
 use crate::type_substitution::TypeSubstitution;
-use super::types::MutablePrefix;
 use smelt_hir::{FunctionType, Symbol, Type, TypeId};
 use smelt_mir::{MirField, Operand, Place};
 
@@ -218,7 +218,8 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .zip(right.params.iter())
                 .any(|(left_param, right_param)| {
-                    self.nested_slot_callables(*left_param, *right_param).is_some()
+                    self.nested_slot_callables(*left_param, *right_param)
+                        .is_some()
                 })
             || (!left.may_throw
                 && !right.may_throw
@@ -297,24 +298,28 @@ impl FunctionEmitter<'_> {
                         bridged.into_string()
                     });
                 }
-                Ok(match (abi.declared_is_reference, abi.rendered_is_reference) {
-                    // The slot hands the body a borrow, the wrapped callable
-                    // wants the value: copy it out, per call, only where the
-                    // two genuinely disagree.
-                    (true, false) => format!("smelt_arg{index}.clone()"),
-                    // The slot hands the body an owned value and the wrapped
-                    // callable takes a borrow of it; Rust extends the borrow to
-                    // the end of the statement, so naming it is enough.
-                    (false, true) => format!("&smelt_arg{index}"),
-                    _ => format!("smelt_arg{index}"),
-                })
+                Ok(
+                    match (abi.declared_is_reference, abi.rendered_is_reference) {
+                        // The slot hands the body a borrow, the wrapped callable
+                        // wants the value: copy it out, per call, only where the
+                        // two genuinely disagree.
+                        (true, false) => format!("smelt_arg{index}.clone()"),
+                        // The slot hands the body an owned value and the wrapped
+                        // callable takes a borrow of it; Rust extends the borrow to
+                        // the end of the statement, so naming it is enough.
+                        (false, true) => format!("&smelt_arg{index}"),
+                        _ => format!("smelt_arg{index}"),
+                    },
+                )
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
         let call = RustExpr::atom(format!("(smelt_slot_callback)({forwarded})"));
         let returned = if !from.may_throw
             && !to.may_throw
-            && self.nested_slot_callables(from.return_ty, to.return_ty).is_some()
+            && self
+                .nested_slot_callables(from.return_ty, to.return_ty)
+                .is_some()
         {
             self.slot_abi_bridge(&call, (from.return_ty, from_env), (to.return_ty, to_env))?
         } else {
@@ -323,7 +328,9 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "{{ let smelt_slot_callback = {value_text}; let smelt_slot_adapted: {slot_text} = \
              ::std::rc::Rc::new(move |{param_decls}| {returned}); \
-             smelt_slot_adapted }}", value_text = value_text.delimited(), returned = returned.delimited()
+             smelt_slot_adapted }}",
+            value_text = value_text.delimited(),
+            returned = returned.delimited()
         )))
     }
 

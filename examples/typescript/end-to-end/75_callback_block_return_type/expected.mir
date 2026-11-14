@@ -201,10 +201,6 @@ closure ClosureId(2) -> String
   bb1:
     %1 = copy %0 + "?"
     return copy %1
-  bb2:
-    return none
-  bb3:
-    return copy %0
 
 closure ClosureId(3) -> String
   locals
@@ -215,8 +211,6 @@ closure ClosureId(3) -> String
     return "A"
   bb2:
     return copy %0
-  bb3:
-    return none
 
 closure ClosureId(4) -> Float
   locals

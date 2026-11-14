@@ -17,8 +17,8 @@
 //!   dynamic member lookup on the erased carrier, converted to the bound's
 //!   declared result type.
 
-use crate::rust::RustType;
 use crate::rust::RustExpr;
+use crate::rust::RustType;
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{Mir, Operand};
 
@@ -58,10 +58,17 @@ fn member_signature(
     member: &crate::bound_traits::BoundMember,
 ) -> Result<String, EmitError> {
     match &member.kind {
-        BoundMemberKind::Method { params, ret, throws } => {
+        BoundMemberKind::Method {
+            params,
+            ret,
+            throws,
+        } => {
             let mut parts = vec!["&self".to_owned()];
             for (index, param) in params.iter().enumerate() {
-                parts.push(format!("smelt_arg_{index}: {}", crate_type(mir, context, *param)?));
+                parts.push(format!(
+                    "smelt_arg_{index}: {}",
+                    crate_type(mir, context, *param)?
+                ));
             }
             let value_text = crate_type(mir, context, *ret)?;
             let ret_text = if *throws {
@@ -69,7 +76,11 @@ fn member_signature(
             } else {
                 value_text.into_string()
             };
-            Ok(format!("fn {}({}) -> {ret_text}", member.rust_name, parts.join(", ")))
+            Ok(format!(
+                "fn {}({}) -> {ret_text}",
+                member.rust_name,
+                parts.join(", ")
+            ))
         }
         BoundMemberKind::Field { ty } => Ok(format!(
             "fn {}(&self) -> {}",
@@ -91,7 +102,10 @@ fn trait_text(mir: &Mir, context: &EmitContext, planned: &BoundTrait) -> Result<
         planned.trait_name
     );
     for member in &planned.members {
-        out.push_str(&format!("    {};\n", member_signature(mir, context, member)?));
+        out.push_str(&format!(
+            "    {};\n",
+            member_signature(mir, context, member)?
+        ));
     }
     out.push_str("}\n");
     for implementor in &planned.implementors {
@@ -199,7 +213,11 @@ impl FunctionEmitter<'_> {
         let receiver_ty = self.operand_ty(receiver)?;
         let receiver_text = self.bound_receiver_expr(receiver)?;
         if let Some(member) = self.bound_trait_member(receiver_ty, bound, method)
-            && let BoundMemberKind::Method { params, ret, throws } = &member.kind
+            && let BoundMemberKind::Method {
+                params,
+                ret,
+                throws,
+            } = &member.kind
         {
             let args_text = args
                 .iter()
@@ -208,7 +226,11 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let suffix = if *throws { "?" } else { "" };
-            let call = RustExpr::opaque(format!("{receiver_text}.{}({args_text}){suffix}", member.rust_name, receiver_text = receiver_text.tight()));
+            let call = RustExpr::opaque(format!(
+                "{receiver_text}.{}({args_text}){suffix}",
+                member.rust_name,
+                receiver_text = receiver_text.tight()
+            ));
             return self.rendered_at_type(&call, *ret, dest_ty, &self.render_scope());
         }
         // The parameter erased here: look the method up on the erased value,
@@ -251,7 +273,10 @@ impl FunctionEmitter<'_> {
             return self.rendered_at_type(&read, *ty, dest_ty, &self.render_scope());
         }
         let field_name = self.symbol_name(field)?;
-        let read = RustExpr::chain(format!("smelt_get_unknown_field(&{receiver_text}, {field_name:?})", receiver_text = receiver_text.tight()));
+        let read = RustExpr::chain(format!(
+            "smelt_get_unknown_field(&{receiver_text}, {field_name:?})",
+            receiver_text = receiver_text.tight()
+        ));
         let unknown_ty = self.type_id(Type::Unknown)?;
         self.rendered_at_type(&read, unknown_ty, dest_ty, &self.render_scope())
     }

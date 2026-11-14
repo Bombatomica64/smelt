@@ -28,12 +28,15 @@ impl ModuleBuilder<'_> {
     /// The body of `item` when it is a generic function whose declared return
     /// mentions its own type parameters, the only kind that can be recorded.
     fn generic_return_body(&self, item: ItemId) -> Option<BodyId> {
-        let Some(Item::Function(function)) = self.ctx.krate.items.get(usize::try_from(item.0).ok()?) else {
+        let Some(Item::Function(function)) =
+            self.ctx.krate.items.get(usize::try_from(item.0).ok()?)
+        else {
             return None;
         };
         let body = function.body?;
-        (!function.type_params.is_empty() && self.mentions_type_params(function.return_ty, &function.type_params))
-            .then_some(body)
+        (!function.type_params.is_empty()
+            && self.mentions_type_params(function.return_ty, &function.type_params))
+        .then_some(body)
     }
 
     /// Examine the top-level function `statement` declares, now that its body
@@ -44,7 +47,11 @@ impl ModuleBuilder<'_> {
     /// once; only when one is recorded are the module's other functions
     /// examined again (a wrapper above the helper it forwards to), which keeps
     /// a module of `n` functions linear.
-    pub(in crate::lowering) fn note_lowered_function(&mut self, statement: &Statement<'_>, module_items: &[ItemId]) {
+    pub(in crate::lowering) fn note_lowered_function(
+        &mut self,
+        statement: &Statement<'_>,
+        module_items: &[ItemId],
+    ) {
         let function: &oxc::ast::ast::Function<'_> = match statement {
             Statement::FunctionDeclaration(function) => function,
             Statement::ExportDeclaration(export) => match &export.declaration {
@@ -53,10 +60,16 @@ impl ModuleBuilder<'_> {
             },
             _ => return,
         };
-        let Some(item) = function.id.as_ref().and_then(|id| self.items.get(id.name.as_str()).copied()) else {
+        let Some(item) = function
+            .id
+            .as_ref()
+            .and_then(|id| self.items.get(id.name.as_str()).copied())
+        else {
             return;
         };
-        let recorded = self.generic_return_body(item).is_some_and(|body| self.body_returns_unchecked(body))
+        let recorded = self
+            .generic_return_body(item)
+            .is_some_and(|body| self.body_returns_unchecked(body))
             && self.ctx.unchecked_generic_returns.insert(item);
         if recorded {
             self.close_unchecked_generic_returns(module_items);
@@ -71,7 +84,10 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .copied()
                 .filter(|item| !self.ctx.unchecked_generic_returns.contains(item))
-                .filter(|&item| self.generic_return_body(item).is_some_and(|body| self.body_returns_unchecked(body)))
+                .filter(|&item| {
+                    self.generic_return_body(item)
+                        .is_some_and(|body| self.body_returns_unchecked(body))
+                })
                 .collect();
             if found.is_empty() {
                 break;
@@ -82,7 +98,12 @@ impl ModuleBuilder<'_> {
 
     /// Whether some `return` of `body` yields an unchecked value.
     fn body_returns_unchecked(&self, body: BodyId) -> bool {
-        let Some(body) = self.ctx.krate.bodies.get(usize::try_from(body.0).unwrap_or(usize::MAX)) else {
+        let Some(body) = self
+            .ctx
+            .krate
+            .bodies
+            .get(usize::try_from(body.0).unwrap_or(usize::MAX))
+        else {
             return false;
         };
         body.stmts.iter().any(|stmt| match stmt {
@@ -94,7 +115,11 @@ impl ModuleBuilder<'_> {
     /// The initializer of `local` in `body`, when a `let` binds it directly.
     fn local_initializer(body: &smelt_hir::Body, local: LocalId) -> Option<ExprId> {
         body.stmts.iter().find_map(|stmt| match stmt {
-            Stmt::Let { pat, value: Some(value), .. } => matches!(
+            Stmt::Let {
+                pat,
+                value: Some(value),
+                ..
+            } => matches!(
                 body.patterns.get(usize::try_from(pat.0).ok()?),
                 Some(Pattern::Binding(bound)) if *bound == local
             )
@@ -127,7 +152,9 @@ impl ModuleBuilder<'_> {
             ExprKind::ClosureCall { callee, .. } => {
                 let erased = match self.ctx.krate.types.get(node.ty) {
                     Some(Type::Unknown) => true,
-                    Some(Type::Optional(inner)) => self.ctx.krate.types.get(*inner) == Some(&Type::Unknown),
+                    Some(Type::Optional(inner)) => {
+                        self.ctx.krate.types.get(*inner) == Some(&Type::Unknown)
+                    }
                     _ => false,
                 };
                 erased && Self::is_parameter(body, *callee, 0)
@@ -140,7 +167,10 @@ impl ModuleBuilder<'_> {
                 let recorded = Self::expr_of(body, *callee).is_some_and(|callee| {
                     matches!(callee.kind, ExprKind::Item(item) if self.ctx.unchecked_generic_returns.contains(&item))
                 });
-                recorded && args.iter().any(|arg| self.forwards_callback_parameter(body, *arg))
+                recorded
+                    && args
+                        .iter()
+                        .any(|arg| self.forwards_callback_parameter(body, *arg))
             }
             _ => false,
         }
@@ -153,7 +183,9 @@ impl ModuleBuilder<'_> {
         };
         let callable = match self.ctx.krate.types.get(node.ty) {
             Some(Type::Function(_)) => true,
-            Some(Type::Optional(inner)) => matches!(self.ctx.krate.types.get(*inner), Some(Type::Function(_))),
+            Some(Type::Optional(inner)) => {
+                matches!(self.ctx.krate.types.get(*inner), Some(Type::Function(_)))
+            }
             _ => false,
         };
         callable && Self::is_parameter(body, arg, 0)

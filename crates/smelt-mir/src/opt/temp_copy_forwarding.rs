@@ -51,8 +51,8 @@ use std::collections::HashSet;
 
 use smelt_hir::{Type, TypeInterner};
 
-use super::shared_locals::SharedLocals;
 use super::Pass;
+use super::shared_locals::SharedLocals;
 use crate::{
     BasicBlock, Body, LocalDecl, LocalId, Mir, Operand, Place, Read, ReadMut, Rvalue, Statement,
     Terminator,
@@ -101,7 +101,11 @@ fn forward_body(
     // consideration with it, so the counts of the rest stay right, and recounting
     // per statement would make the pass quadratic in the size of the body.
     let single_use = Body { locals, blocks }.single_use_temps();
-    let facts = BodyFacts { shared, single_use: &single_use, types };
+    let facts = BodyFacts {
+        shared,
+        single_use: &single_use,
+        types,
+    };
     let mut changed = false;
     for block_index in 0..blocks.len() {
         let mut index: usize = 0;
@@ -158,8 +162,16 @@ fn forwardable(
     facts: &BodyFacts<'_>,
     at: usize,
 ) -> Option<Forward> {
-    let BodyFacts { shared, single_use, types } = *facts;
-    let Statement::Assign { dest, value: Rvalue::Use(source) } = block.statements.get(at)? else {
+    let BodyFacts {
+        shared,
+        single_use,
+        types,
+    } = *facts;
+    let Statement::Assign {
+        dest,
+        value: Rvalue::Use(source),
+    } = block.statements.get(at)?
+    else {
         return None;
     };
     let (temp, from) = (*dest, source.local()?);
@@ -208,7 +220,12 @@ fn forwardable(
     } else if !terminator_reads_bare(block.terminator.as_ref()?, temp) {
         return None;
     }
-    Some(Forward { at, temp, source: source.clone(), consumer })
+    Some(Forward {
+        at,
+        temp,
+        source: source.clone(),
+        consumer,
+    })
 }
 
 /// Whether `t = copy s` is the unwrap of an `unknown | undefined` local `s`
@@ -221,7 +238,11 @@ fn forwardable(
 /// default), so the unwrap in front of it is not a value of its own.
 /// `comparator = _comparator` after `typeof _comparator === "function"` in
 /// es-toolkit's `intersectionWith` reads the stored local.
-fn erased_unwrap(types: &TypeInterner, temp_ty: smelt_hir::TypeId, from_ty: smelt_hir::TypeId) -> bool {
+fn erased_unwrap(
+    types: &TypeInterner,
+    temp_ty: smelt_hir::TypeId,
+    from_ty: smelt_hir::TypeId,
+) -> bool {
     matches!(types.get(temp_ty), Some(Type::Unknown))
         && matches!(types.get(from_ty), Some(Type::Optional(inner)) if *inner == temp_ty)
 }
@@ -229,7 +250,10 @@ fn erased_unwrap(types: &TypeInterner, temp_ty: smelt_hir::TypeId, from_ty: smel
 /// Where in `block`, at or after `from`, `temp` is read.
 fn find_consumer(block: &BasicBlock, from: usize, temp: LocalId) -> Option<Consumer> {
     let statements = block.statements.get(from..)?;
-    if let Some(offset) = statements.iter().position(|statement| statement.reads_local(temp)) {
+    if let Some(offset) = statements
+        .iter()
+        .position(|statement| statement.reads_local(temp))
+    {
         return Some(Consumer::Statement(from.saturating_add(offset)));
     }
     block
@@ -245,13 +269,16 @@ fn writes(statement: &Statement, local: LocalId) -> bool {
         return true;
     }
     let mutates = |value: &Rvalue| {
-        value.mutated_receiver().is_some_and(|receiver| receiver.reads_local(local))
+        value
+            .mutated_receiver()
+            .is_some_and(|receiver| receiver.reads_local(local))
     };
     match statement {
         Statement::Assign { value, .. } => mutates(value),
-        Statement::AssignPlace { place: Place::Field { base, .. } | Place::Index { base, .. }, value } => {
-            *base == local || mutates(value)
-        }
+        Statement::AssignPlace {
+            place: Place::Field { base, .. } | Place::Index { base, .. },
+            value,
+        } => *base == local || mutates(value),
         Statement::AssignPlace { value, .. } => mutates(value),
         Statement::DictEntryUpdate { base, value, .. } => *base == local || mutates(value),
     }
@@ -302,7 +329,10 @@ fn accepts_forwarded_read(statement: &Statement, temp: LocalId) -> bool {
     if matches!(value, Rvalue::Closure { .. }) {
         return false;
     }
-    if value.mutated_receiver().is_some_and(|receiver| receiver.reads_local(temp)) {
+    if value
+        .mutated_receiver()
+        .is_some_and(|receiver| receiver.reads_local(temp))
+    {
         return false;
     }
     let mut bare = false;
@@ -367,7 +397,9 @@ mod tests {
     //! bb0: %1 = copy %0; %2 = neg copy %1; return copy %2
     //! ```
 
-    use smelt_hir::{BodyId, FileId, FunctionType, Span, Symbol, Type, TypeId, TypeInterner, UnaryOp};
+    use smelt_hir::{
+        BodyId, FileId, FunctionType, Span, Symbol, Type, TypeId, TypeInterner, UnaryOp,
+    };
 
     use super::TempCopyForwarding;
     use crate::opt::Pass;
@@ -393,14 +425,20 @@ mod tests {
 
     /// `%1 = copy %0`.
     fn define_temp() -> Statement {
-        Statement::Assign { dest: TEMP, value: Rvalue::Use(copy(SOURCE)) }
+        Statement::Assign {
+            dest: TEMP,
+            value: Rvalue::Use(copy(SOURCE)),
+        }
     }
 
     /// `%2 = neg copy %1`.
     fn consume_temp() -> Statement {
         Statement::Assign {
             dest: USER,
-            value: Rvalue::Unary { op: UnaryOp::Neg, operand: copy(TEMP) },
+            value: Rvalue::Unary {
+                op: UnaryOp::Neg,
+                operand: copy(TEMP),
+            },
         }
     }
 
@@ -417,7 +455,13 @@ mod tests {
     fn mir(statements: Vec<Statement>) -> Mir {
         let mut types = TypeInterner::default();
         let float = types.intern(Type::Float);
-        let mut function = MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), float, span());
+        let mut function = MirFunction::new(
+            FuncId(0),
+            Symbol(0),
+            HirOrigin::Body(BodyId(0)),
+            float,
+            span(),
+        );
         let kinds = [
             LocalKind::Param { symbol: None },
             LocalKind::Temp,
@@ -425,7 +469,12 @@ mod tests {
             LocalKind::Param { symbol: None },
         ];
         for kind in kinds {
-            function.push_local(LocalDecl { ty: float, kind, span: span() });
+            function.push_local(LocalDecl {
+                ty: float,
+                kind,
+                span: span(),
+                init: crate::LocalInit::Definite,
+            });
         }
         function.params = vec![SOURCE, OTHER];
         function.blocks[0].statements = statements;
@@ -462,7 +511,12 @@ mod tests {
             params: Vec::new(),
             rest: None,
             required_params: None,
-            locals: vec![LocalDecl { ty: float, kind: LocalKind::UserBinding(Symbol(2)), span: span() }],
+            locals: vec![LocalDecl {
+                ty: float,
+                kind: LocalKind::UserBinding(Symbol(2)),
+                span: span(),
+                init: crate::LocalInit::Definite,
+            }],
             captures: vec![MirClosureCapture {
                 source_local: SOURCE,
                 target_local: Some(LocalId(0)),
@@ -489,7 +543,10 @@ mod tests {
             0,
             Statement::Assign {
                 dest: OTHER,
-                value: Rvalue::Closure { id: ClosureId(0), captures: vec![copy(SOURCE)] },
+                value: Rvalue::Closure {
+                    id: ClosureId(0),
+                    captures: vec![copy(SOURCE)],
+                },
             },
         );
     }
@@ -501,12 +558,19 @@ mod tests {
         assert!(TempCopyForwarding.run(&mut mir));
         let statements = &mir.functions[0].blocks[0].statements;
         assert_eq!(statements.len(), 1, "{statements:?}");
-        let Statement::Assign { dest, value: Rvalue::Unary { operand, .. } } = &statements[0] else {
+        let Statement::Assign {
+            dest,
+            value: Rvalue::Unary { operand, .. },
+        } = &statements[0]
+        else {
             unreachable!("{statements:?}");
         };
         assert_eq!(*dest, USER);
         assert_eq!(operand.local(), Some(SOURCE));
-        assert!(!TempCopyForwarding.run(&mut mir), "a second run finds nothing");
+        assert!(
+            !TempCopyForwarding.run(&mut mir),
+            "a second run finds nothing"
+        );
     }
 
     /// A terminator is a consumer too.
@@ -543,7 +607,10 @@ mod tests {
     #[test]
     fn declines_across_a_field_write() {
         let store = Statement::AssignPlace {
-            place: Place::Field { base: SOURCE, field: Symbol(9) },
+            place: Place::Field {
+                base: SOURCE,
+                field: Symbol(9),
+            },
             value: Rvalue::Use(Operand::Const(crate::Constant::Float(1.0))),
         };
         assert_declined(mir(vec![define_temp(), store, consume_temp()]));
@@ -552,7 +619,10 @@ mod tests {
     /// An in-place collection operation changes its receiver.
     #[test]
     fn declines_across_a_receiver_mutation() {
-        let clear = Statement::Assign { dest: OTHER, value: Rvalue::ListClear { list: copy(SOURCE) } };
+        let clear = Statement::Assign {
+            dest: OTHER,
+            value: Rvalue::ListClear { list: copy(SOURCE) },
+        };
         assert_declined(mir(vec![define_temp(), clear, consume_temp()]));
     }
 
@@ -561,7 +631,10 @@ mod tests {
     fn declines_a_consumer_that_writes_the_source() {
         let push = Statement::Assign {
             dest: USER,
-            value: Rvalue::ListPush { list: copy(SOURCE), item: copy(TEMP) },
+            value: Rvalue::ListPush {
+                list: copy(SOURCE),
+                item: copy(TEMP),
+            },
         };
         assert_declined(mir(vec![define_temp(), push]));
     }
@@ -569,7 +642,10 @@ mod tests {
     /// `t.push(1)`: mutating the temporary is not a read of its value.
     #[test]
     fn declines_a_consumer_that_mutates_the_temp() {
-        let clear = Statement::Assign { dest: USER, value: Rvalue::ListClear { list: copy(TEMP) } };
+        let clear = Statement::Assign {
+            dest: USER,
+            value: Rvalue::ListClear { list: copy(TEMP) },
+        };
         assert_declined(mir(vec![define_temp(), clear]));
     }
 
@@ -578,7 +654,10 @@ mod tests {
     fn declines_a_shared_source_across_a_call() {
         let call = Statement::Assign {
             dest: OTHER,
-            value: Rvalue::ClosureCall { callee: copy(OTHER), args: Vec::new() },
+            value: Rvalue::ClosureCall {
+                callee: copy(OTHER),
+                args: Vec::new(),
+            },
         };
         let mut mir = mir(vec![define_temp(), call, consume_temp()]);
         share_source(&mut mir);
@@ -588,7 +667,10 @@ mod tests {
     /// A statement that runs no code leaves a shared source alone.
     #[test]
     fn forwards_a_shared_source_across_a_plain_copy() {
-        let plain = Statement::Assign { dest: OTHER, value: Rvalue::Use(copy(OTHER)) };
+        let plain = Statement::Assign {
+            dest: OTHER,
+            value: Rvalue::Use(copy(OTHER)),
+        };
         let mut mir = mir(vec![define_temp(), plain, consume_temp()]);
         share_source(&mut mir);
         assert!(TempCopyForwarding.run(&mut mir));
@@ -599,7 +681,10 @@ mod tests {
     fn declines_a_closure_capture() {
         let capture = Statement::Assign {
             dest: USER,
-            value: Rvalue::Closure { id: ClosureId(0), captures: vec![copy(TEMP)] },
+            value: Rvalue::Closure {
+                id: ClosureId(0),
+                captures: vec![copy(TEMP)],
+            },
         };
         assert_declined(mir(vec![define_temp(), capture]));
     }
@@ -647,7 +732,10 @@ mod tests {
     fn declines_a_projected_read() {
         let read = Statement::Assign {
             dest: USER,
-            value: Rvalue::Use(Operand::Copy(Place::Field { base: TEMP, field: Symbol(9) })),
+            value: Rvalue::Use(Operand::Copy(Place::Field {
+                base: TEMP,
+                field: Symbol(9),
+            })),
         };
         assert_declined(mir(vec![define_temp(), read]));
     }

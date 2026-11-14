@@ -45,7 +45,9 @@ pub(crate) fn emit_program_types(mir: &Mir, context: &EmitContext) -> Result<Str
             crate::names::TypeDecl::Interface(interface) => {
                 emit_interface_type(&mut writer, mir, context, interface)?;
             }
-            crate::names::TypeDecl::Class(class) => emit_class_type(&mut writer, mir, context, class)?,
+            crate::names::TypeDecl::Class(class) => {
+                emit_class_type(&mut writer, mir, context, class)?;
+            }
         }
     }
 
@@ -81,7 +83,11 @@ fn emit_interface_type(
     let demand = context.demand();
     let needs_serde_json = demand.has(Need::DepSerdeJson);
     let needs_unknown = demand.has(Need::Unknown);
-    let name = context.names().type_name(interface.name)?.as_str().to_owned();
+    let name = context
+        .names()
+        .type_name(interface.name)?
+        .as_str()
+        .to_owned();
     let type_params = interface_type_params_text(mir, context, interface)?;
     let impl_generics = interface_impl_generics_text(mir, context, interface)?;
     let fields = effective_interface_fields(mir, interface);
@@ -133,7 +139,11 @@ fn emit_interface_type(
         writer.line("#[derive(Clone)]");
         writer.line("#[allow(dead_code)]");
     } else if needs_serde_json
-        && interface_is_json_serializable(mir, interface)
+        && interface_is_json_serializable(
+            mir,
+            &|shape| context.is_reference_class(shape),
+            interface,
+        )
         && !fields
             .iter()
             .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
@@ -159,9 +169,7 @@ fn emit_interface_type(
                 mir.symbols
                     .get(param.name)
                     .map(|param_name| crate::names::type_param(param_name).into_string())
-                    .ok_or_else(|| {
-                        EmitError::new("interface type parameter has unknown symbol")
-                    })
+                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
             })
             .collect::<Result<Vec<_>, _>>()?,
     );
@@ -287,10 +295,14 @@ fn emit_class_type(
     // (`dyn Fn`) and promise fields (`SmeltPromise`, a `Clone`-only shared
     // future handle) are the two prelude shapes without `PartialEq`, so the
     // derive is gated on their absence.
-    let supports_partial_eq = fields.iter().all(|field| {
-        type_supports_partial_eq(mir, context, field.ty, &mut Vec::new())
-    });
-    let partial_eq_derive = if supports_partial_eq { ", PartialEq" } else { "" };
+    let supports_partial_eq = fields
+        .iter()
+        .all(|field| type_supports_partial_eq(mir, context, field.ty, &mut Vec::new()));
+    let partial_eq_derive = if supports_partial_eq {
+        ", PartialEq"
+    } else {
+        ""
+    };
     // A GENERIC value class cannot use these derives at all. Every one of
     // them generates an impl bounded by its own trait and nothing more
     // (`impl<T: Clone> Clone`, `impl<T: Default> Default`, …), which is not
@@ -316,12 +328,16 @@ fn emit_class_type(
         writer.line("#[allow(dead_code)]");
     } else if is_generic {
         writer.line("#[allow(dead_code)]");
-    } else if needs_serde_json && class_is_json_serializable(mir, class) {
+    } else if needs_serde_json
+        && class_is_json_serializable(mir, &|shape| context.is_reference_class(shape), class)
+    {
         writer.line(format!(
             "#[derive(Clone, Debug, Default{partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
         ));
     } else {
-        writer.line(format!("#[derive(Clone, Debug, Default{partial_eq_derive})]"));
+        writer.line(format!(
+            "#[derive(Clone, Debug, Default{partial_eq_derive})]"
+        ));
     }
     // The field types are kept as text as well: a hand-written `Clone` or
     // `PartialEq` bounds them in a `where` clause, which is the exact
@@ -358,10 +374,7 @@ fn emit_class_type(
         // and `classes::GENERATED_TYPE_PARAM_BOUNDS` for why the set is the
         // full one rather than the derive-equivalent `T: Default`.
         let default_generics = if is_generic {
-            derive_generics_text(
-                &class_param_idents,
-                classes::GENERATED_TYPE_PARAM_BOUNDS,
-            )
+            derive_generics_text(&class_param_idents, classes::GENERATED_TYPE_PARAM_BOUNDS)
         } else {
             impl_generics.clone()
         };
@@ -438,8 +451,17 @@ fn emit_class_type(
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                     // A mutable static's accessor reads its live storage.
                     let value = field.global.map_or_else(
-                        || materialized_static_value(field.value.as_ref(), mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr)),
-                        |global| crate::rust::RustExpr::chain(crate::globals::global_read_text(mir, global)),
+                        || {
+                            materialized_static_value(
+                                field.value.as_ref(),
+                                mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
+                            )
+                        },
+                        |global| {
+                            crate::rust::RustExpr::chain(crate::globals::global_read_text(
+                                mir, global,
+                            ))
+                        },
                     );
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),

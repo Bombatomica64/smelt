@@ -2,8 +2,8 @@
 //! void result holds before anything is written to it.
 
 use super::*;
-use smelt_hir::FunctionType;
 use crate::rust::RustExpr;
+use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
     /// The filler JavaScript leaves in an array hole when an index write grows it.
@@ -31,7 +31,11 @@ impl FunctionEmitter<'_> {
         {
             Type::Bool => Ok(RustExpr::path("false")),
             Type::Int | Type::FixedInt(_) => Ok(RustExpr::path("0")),
-            Type::BigInt => Ok(RustExpr::atom(format!("{}::default()", crate::bigint_prelude::BIGINT_TYPE)).delegating_default()),
+            Type::BigInt => Ok(RustExpr::atom(format!(
+                "{}::default()",
+                crate::bigint_prelude::BIGINT_TYPE
+            ))
+            .delegating_default()),
             Type::Float => Ok(RustExpr::path("0.0")),
             Type::String => Ok(RustExpr::atom("JsString::new()")),
             Type::PyStr => Ok(RustExpr::atom("String::new()")),
@@ -49,18 +53,24 @@ impl FunctionEmitter<'_> {
                 "SmeltList::new(Vec::<{}>::new())",
                 self.rendered_type(*item)?
             ))),
-            Type::Set(item) => Ok({ let receiver = self.set_container_name(*item); RustExpr::atom_on(&receiver, format!("{receiver}::new()")) }),
+            Type::Set(item) => Ok({
+                let receiver = self.set_container_name(*item);
+                RustExpr::atom_on(&receiver, format!("{receiver}::new()"))
+            }),
             Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
                 Ok(RustExpr::atom("SmeltRecord::new()"))
             }
-            Type::Dict(key, _) if self.is_prop_key_record_key(*key) => {
-                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltPropKeyRecord::new()")))
-            }
+            Type::Dict(key, _) if self.is_prop_key_record_key(*key) => Ok(self.carrier_expr(
+                self.carrier()?,
+                &RustExpr::atom("SmeltPropKeyRecord::new()"),
+            )),
             Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
                 Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()")))
             }
             Type::Dict(_, _) => Ok(RustExpr::loose("::indexmap::IndexMap::new()")),
-            Type::JsMap(_, _) => Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()"))),
+            Type::JsMap(_, _) => {
+                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()")))
+            }
             Type::Optional(inner) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
                 self.rendered_type(self.flatten_optional_inner(*inner))?
@@ -86,15 +96,20 @@ impl FunctionEmitter<'_> {
                     .first()
                     .ok_or_else(|| EmitError::new("concrete union has no members"))?;
                 let arm = self.default_value(first)?;
-                Ok(RustExpr::atom(format!("{}::M0({arm})", union::union_name(ty), arm = arm.delimited())).delegating_with([&arm]))
+                Ok(RustExpr::atom(format!(
+                    "{}::M0({arm})",
+                    union::union_name(ty),
+                    arm = arm.delimited()
+                ))
+                .delegating_with([&arm]))
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok(self.null_value()?),
             Type::Class { .. } if self.is_py_exception_type(ty) => {
                 Ok(RustExpr::atom("SmeltPyException::default()"))
             }
-            Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => {
-                Ok(RustExpr::atom("SmeltRegExp::new(String::new(), String::new())"))
-            }
+            Type::Class { name, .. } if self.is_regexp_class_symbol(*name)? => Ok(RustExpr::atom(
+                "SmeltRegExp::new(String::new(), String::new())",
+            )),
             Type::Class { name, .. }
                 if self.stdlib_class_of_symbol(*name)?
                     == Some(smelt_stdlib::StdlibClass::Headers) =>
@@ -218,7 +233,9 @@ impl FunctionEmitter<'_> {
                 // a request without a URL is not a value the type can hold.
                 // `about:blank` is the one URL the platform treats as "no
                 // document", so it is what an unreachable default uses.
-                Ok(RustExpr::atom("SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())"))
+                Ok(RustExpr::atom(
+                    "SmeltRequest::from_parts(\"about:blank\", \"GET\".to_owned(), SmeltHeaders::new(), SmeltBody::empty())",
+                ))
             }
             Type::Class { name, .. } if self.is_match_class_symbol(*name)? => {
                 Ok(RustExpr::atom("SmeltMatch::default()").delegating_default())
@@ -232,8 +249,11 @@ impl FunctionEmitter<'_> {
             // where they resolve to the dynamic carrier — which is what such a
             // value is used as: a class VALUE is the constructor, never an
             // instance, and every read of it goes through erasure.
-            Type::Class { name, args } if args.is_empty() && self.class_type_param_count(*name) > 0 => {
-                let placeholders = vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
+            Type::Class { name, args }
+                if args.is_empty() && self.class_type_param_count(*name) > 0 =>
+            {
+                let placeholders =
+                    vec!["SmeltUnknown"; self.class_type_param_count(*name)].join(", ");
                 Ok(RustExpr::atom(format!(
                     "{}::<{placeholders}>::default()",
                     self.type_rust_name(*name)?
@@ -244,11 +264,13 @@ impl FunctionEmitter<'_> {
             Type::Function(function) => self.function_default_value(function, ty),
             Type::Future(item) => {
                 let item_value = self.default_value(*item)?;
-                Ok(RustExpr::atom(format!("SmeltFuture::resolved({item_value})", item_value = item_value.delimited())).delegating_with([&item_value]))
+                Ok(RustExpr::atom(format!(
+                    "SmeltFuture::resolved({item_value})",
+                    item_value = item_value.delimited()
+                ))
+                .delegating_with([&item_value]))
             }
-            Type::Generator { .. } => Err(EmitError::new(
-                "a generator value has no eager default",
-            )),
+            Type::Generator { .. } => Err(EmitError::new("a generator value has no eager default")),
             Type::GeneratorResult { return_ty, .. } => Ok(RustExpr::atom(format!(
                 "SmeltGeneratorResult::Complete({})",
                 self.default_value(*return_ty)?.delimited()
@@ -327,7 +349,10 @@ impl FunctionEmitter<'_> {
                 let return_value =
                     self.default_value_with_scoped_type_params(function.return_ty, substitution)?;
                 let body = if function.may_throw {
-                    format!("Ok::<_, {ERROR_BOX}>({return_value})", return_value = return_value.delimited())
+                    format!(
+                        "Ok::<_, {ERROR_BOX}>({return_value})",
+                        return_value = return_value.delimited()
+                    )
                 } else {
                     return_value.into_string()
                 };
@@ -398,9 +423,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
-        let return_ty = if let Some(Type::Future(item)) =
-            self.mir.types.get(function.return_ty)
-        {
+        let return_ty = if let Some(Type::Future(item)) = self.mir.types.get(function.return_ty) {
             format!("SmeltFuture<{}>", self.rendered_type(*item)?)
         } else if function.may_throw {
             format!(
@@ -411,13 +434,17 @@ impl FunctionEmitter<'_> {
             self.rendered_type(function.return_ty)?.into_string()
         };
         let return_value = self.default_value(function.return_ty)?;
-        let return_text = if let Some(Type::Future(item)) =
-            self.mir.types.get(function.return_ty)
-        {
+        let return_text = if let Some(Type::Future(item)) = self.mir.types.get(function.return_ty) {
             let item_value = self.default_value(*item)?;
-            format!("SmeltFuture::resolved({item_value})", item_value = item_value.delimited())
+            format!(
+                "SmeltFuture::resolved({item_value})",
+                item_value = item_value.delimited()
+            )
         } else if function.may_throw {
-            format!("Ok::<_, {ERROR_BOX}>({return_value})", return_value = return_value.delimited())
+            format!(
+                "Ok::<_, {ERROR_BOX}>({return_value})",
+                return_value = return_value.delimited()
+            )
         } else {
             return_value.into_string()
         };

@@ -20,7 +20,10 @@ fn report(source: &str) -> TestResult<serde_json::Value> {
     let project = TempProject::new()?;
     fs::create_dir_all(project.path())?;
     fs::write(project.path().join("prog.ts"), source)?;
-    let stdout = smelt_in(project.path(), &["ts7-parity-report", "prog.ts", "--format", "json"])?;
+    let stdout = smelt_in(
+        project.path(),
+        &["ts7-parity-report", "prog.ts", "--format", "json"],
+    )?;
     Ok(serde_json::from_str(&stdout)?)
 }
 
@@ -38,7 +41,12 @@ fn group_keys(report: &serde_json::Value, family: &str) -> Vec<String> {
     report
         .get(family)
         .and_then(serde_json::Value::as_array)
-        .map(|groups| groups.iter().filter_map(|group| group["key"].as_str().map(str::to_owned)).collect())
+        .map(|groups| {
+            groups
+                .iter()
+                .filter_map(|group| group["key"].as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -54,12 +62,24 @@ const label: string = `n=${doubled.length}`;
 console.log(label, doubled[0] ?? 0);
 ",
     )?;
-    ensure(total(&report, "agree")? >= 15, "the program's expressions are compared")?;
+    ensure(
+        total(&report, "agree")? >= 15,
+        "the program's expressions are compared",
+    )?;
     for gap in ["smelt-erased", "wider", "mismatch", "ts-dynamic"] {
-        ensure_eq(&total(&report, gap)?, &0, format!("no `{gap}` rows in a fully typed program"))?;
+        ensure_eq(
+            &total(&report, gap)?,
+            &0,
+            format!("no `{gap}` rows in a fully typed program"),
+        )?;
     }
-    let checker_errors = report.get("checker_errors").and_then(serde_json::Value::as_object);
-    ensure(checker_errors.is_some_and(serde_json::Map::is_empty), "valid TypeScript 7")
+    let checker_errors = report
+        .get("checker_errors")
+        .and_then(serde_json::Value::as_object);
+    ensure(
+        checker_errors.is_some_and(serde_json::Map::is_empty),
+        "valid TypeScript 7",
+    )
 }
 
 #[test]
@@ -73,7 +93,10 @@ const words = probe("a");
 console.log(words);
 "#,
     )?;
-    ensure(total(&report, "smelt-erased")? > 0, "Smelt erases the conditional's instantiation")?;
+    ensure(
+        total(&report, "smelt-erased")? > 0,
+        "Smelt erases the conditional's instantiation",
+    )?;
     let erased = group_keys(&report, "erased");
     ensure(
         erased.iter().any(|key| key == "Unknown ← Array<string>"),
@@ -88,6 +111,13 @@ fn source_unknown_is_typescript_dynamic_not_a_gap() -> TestResult {
 console.log(typeof parsed);
 "#,
     )?;
-    ensure(total(&report, "ts-dynamic")? > 0, "the `unknown` binding is TypeScript-dynamic")?;
-    ensure_eq(&total(&report, "smelt-erased")?, &0, "a source `unknown` never counts as Smelt erasure")
+    ensure(
+        total(&report, "ts-dynamic")? > 0,
+        "the `unknown` binding is TypeScript-dynamic",
+    )?;
+    ensure_eq(
+        &total(&report, "smelt-erased")?,
+        &0,
+        "a source `unknown` never counts as Smelt erasure",
+    )
 }

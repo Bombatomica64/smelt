@@ -15,6 +15,5 @@ module examples/python/end-to-end/03_boolean/input.py (ModuleId(0))
     s1: #3
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Bool
+  t0 = Bool
+  t1 = None

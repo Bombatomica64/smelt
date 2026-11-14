@@ -147,7 +147,10 @@ impl ModuleBuilder<'_> {
         {
             return None;
         }
-        let arity = signatures.iter().map(|signature| signature.params.len()).max()?;
+        let arity = signatures
+            .iter()
+            .map(|signature| signature.params.len())
+            .max()?;
         let params = (0..arity)
             .map(|index| self.merged_overload_param(signatures, index))
             .collect::<Vec<_>>();

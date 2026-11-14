@@ -30,7 +30,9 @@ export function uniqueId(): number {
         "expected Cell get read, got:\n{source}"
     );
     assert!(
-        source.contains("SMELT_GLOBAL_ID_COUNTER_0.with(|smelt_value| smelt_value.set(smelt_global_value))"),
+        source.contains(
+            "SMELT_GLOBAL_ID_COUNTER_0.with(|smelt_value| smelt_value.set(smelt_global_value))"
+        ),
         "expected Cell set write returning the stored value, got:\n{source}"
     );
 }

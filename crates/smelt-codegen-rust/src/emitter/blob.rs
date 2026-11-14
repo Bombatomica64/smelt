@@ -5,8 +5,8 @@
 //! `await blob.text()` is a real future over the blob's bytes — no tagged
 //! record and no runtime member lookup in between.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emit `new Blob(parts?, options?)` / `new File(parts, name, options?)`.
@@ -42,7 +42,10 @@ impl FunctionEmitter<'_> {
             _ => None,
         };
         let name_text = match name {
-            Some(name_operand) => format!("Some(({}).clone())", self.operand_expr(name_operand)?.delimited()),
+            Some(name_operand) => format!(
+                "Some(({}).clone())",
+                self.operand_expr(name_operand)?.delimited()
+            ),
             None => "None::<String>".to_owned(),
         };
         let last_modified_text = match last_modified {
@@ -51,11 +54,15 @@ impl FunctionEmitter<'_> {
         };
         if let Some(constructor) = concrete_constructor {
             return Ok(RustExpr::opaque(format!(
-                "SmeltBlob::{constructor}(({parts_text}).clone().into(), ({rendered_type}).clone(), {name_text}, {last_modified_text})", parts_text = parts_text.delimited(), rendered_type = rendered_type.delimited()
+                "SmeltBlob::{constructor}(({parts_text}).clone().into(), ({rendered_type}).clone(), {name_text}, {last_modified_text})",
+                parts_text = parts_text.delimited(),
+                rendered_type = rendered_type.delimited()
             )));
         }
         Ok(RustExpr::atom(format!(
-            "SmeltBlob::from_parts_unknown(({parts_text}).clone(), ({rendered_type}).clone(), {name_text}, {last_modified_text})", parts_text = parts_text.delimited(), rendered_type = rendered_type.delimited()
+            "SmeltBlob::from_parts_unknown(({parts_text}).clone(), ({rendered_type}).clone(), {name_text}, {last_modified_text})",
+            parts_text = parts_text.delimited(),
+            rendered_type = rendered_type.delimited()
         )))
     }
 

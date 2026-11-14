@@ -13,7 +13,9 @@ use super::*;
 /// The four import spellings of `names` from `module`, as the import line and
 /// the expression each name is spelled with afterwards.
 fn spellings(module: &str, names: &[&str]) -> Vec<(String, Vec<String>)> {
-    let aliases: Vec<String> = (0..names.len()).map(|index| format!("Alias{index}")).collect();
+    let aliases: Vec<String> = (0..names.len())
+        .map(|index| format!("Alias{index}"))
+        .collect();
     let alias_imports: Vec<String> = names
         .iter()
         .zip(&aliases)
@@ -22,7 +24,10 @@ fn spellings(module: &str, names: &[&str]) -> Vec<(String, Vec<String>)> {
     vec![
         (
             format!("import {module}"),
-            names.iter().map(|name| format!("{module}.{name}")).collect(),
+            names
+                .iter()
+                .map(|name| format!("{module}.{name}"))
+                .collect(),
         ),
         (
             format!("import {module} as m"),

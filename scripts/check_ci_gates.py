@@ -16,8 +16,17 @@ ALLOWED_CONTINUE_ON_ERROR = {("compat.yml", "generated-tests")}
 
 STRICT_ENV = "SMELT_REQUIRE_SANDBOX"
 
-# Jobs that run tool-backed tests on a runner holding the tools.
-STRICT_JOBS = ("sandbox", "test", "coverage")
+# Jobs that run tool-backed tests on a runner holding the tools, per workflow.
+STRICT_JOBS = {"ci.yml": ("sandbox", "test"), "coverage.yml": ("coverage",)}
+
+# ci.yml compiles the workspace in exactly one job; every other job runs what it
+# built. A workspace compile anywhere else is the waste the layout removed, and
+# a `cargo nextest run` without the archive's metadata would quietly compile.
+BUILD_JOB = "build"
+WORKSPACE_COMPILE = re.compile(r"\bcargo (?:\+\S+ )?(?:build|check|clippy|test|nextest archive)\b")
+
+# The selector that makes every `*_runtime` binary a runtime tier.
+TIER_FILTER = "binary(/_runtime$/)"
 
 # Versions and commits that belong in .github/compat/libraries.json.
 LITERAL_PINS = (
@@ -71,16 +80,29 @@ def pin_violations(name, text):
     return found
 
 
-def tier_violations(on_disk, matrix_text, ci_text):
-    """Every runtime tier on disk is run exactly once, and every name exists."""
-    jobs = matrix_text.split("\njobs:\n", 1)[-1]
-    uncommented = "\n".join(line for line in jobs.splitlines() if not line.lstrip().startswith("#"))
-    matrix = re.findall(r"\b([a-z0-9_]+_runtime)\b", uncommented)
-    named = matrix + re.findall(r"--test ([a-z0-9_]+_runtime)\b", ci_text)
-    found = [f"runtime tier `{tier}` is run by no job" for tier in sorted(set(on_disk) - set(named))]
-    found += [f"runtime tier `{tier}` has no test file" for tier in sorted(set(named) - set(on_disk))]
-    found += [f"runtime tier `{tier}` is named twice" for tier in sorted({
-        tier for tier in named if named.count(tier) > 1})]
+def tier_violations(on_disk, ci_text):
+    """Every runtime tier on disk is run: ci.yml selects them all by name pattern."""
+    job = job_blocks(ci_text).get("runtime-tiers", "")
+    if TIER_FILTER in job and "--run-ignored only" in job:
+        return []
+    return [f"ci.yml: job `runtime-tiers` no longer runs every `*_runtime` tier "
+            f"(`--run-ignored only -E '{TIER_FILTER}'`); {len(on_disk)} tier(s) on disk"]
+
+
+def compile_violations(jobs):
+    """Workspace compiles outside ci.yml's build job, and nextest runs that would compile."""
+    found = []
+    for job, text in jobs.items():
+        joined = text.replace("\\\n", " ")
+        for line in joined.splitlines():
+            command = line.split("#", 1)[0]
+            if re.match(r"\s*(?:- )?name:", command) or re.search(r"\becho\b.*\bcargo\b", command):
+                continue
+            if job != BUILD_JOB and WORKSPACE_COMPILE.search(command) \
+                    and "--manifest-path" not in command:
+                found.append(f"ci.yml: job `{job}` compiles the workspace; only `{BUILD_JOB}` may")
+            if "cargo nextest run" in command and "$NEXTEST_META" not in command:
+                found.append(f"ci.yml: job `{job}` runs nextest without the archive ($NEXTEST_META)")
     return found
 
 
@@ -91,15 +113,22 @@ def workflow_violations(name, text):
         step = step_id_of(text, match.start())
         if (name, step) not in ALLOWED_CONTINUE_ON_ERROR:
             found.append(f"{name}: `continue-on-error` hides step `{step}`")
+    jobs = job_blocks(text)
+    for job in STRICT_JOBS.get(name, ()):
+        if f"{STRICT_ENV}:" not in jobs.get(job, ""):
+            found.append(f"{name}: job `{job}` runs tool-backed tests without {STRICT_ENV}")
     if name != "ci.yml":
         return found
-    jobs = job_blocks(text)
-    for job in STRICT_JOBS:
-        if f"{STRICT_ENV}:" not in jobs.get(job, ""):
-            found.append(f"ci.yml: job `{job}` runs tool-backed tests without {STRICT_ENV}")
-    clippy = jobs.get("clippy", "")
-    if "check_clippy_ratchet.py" not in clippy or "cargo clippy --workspace --all-targets" not in clippy:
-        found.append("ci.yml: job `clippy` no longer runs the clippy ratchet over every target")
+    build = jobs.get(BUILD_JOB, "")
+    if "check_clippy_ratchet.py" not in build or "cargo clippy --workspace --all-targets" not in build:
+        found.append("ci.yml: job `build` no longer runs the clippy ratchet over every target")
+    if "cargo test --doc" not in build:
+        found.append("ci.yml: job `build` no longer runs the doctests nextest skips")
+    test = jobs.get("test", "")
+    if "ci_test_shard.py serial" not in test or "ci_test_shard.py filter" not in test:
+        found.append("ci.yml: job `test` no longer runs the process-shared binaries it excludes")
+    if "cargo fmt --all -- --check" not in jobs.get("ci-gates", ""):
+        found.append("ci.yml: job `ci-gates` no longer checks formatting")
     if "scripts/publish-crates.sh" not in jobs.get("package", ""):
         found.append("ci.yml: job `package` no longer dry-runs packaging")
     gate = jobs.get("es-toolkit-regression", "")
@@ -107,6 +136,7 @@ def workflow_violations(name, text):
         found.append("ci.yml: job `es-toolkit-regression` no longer runs the runtime ratchet")
     if "compile-pin" not in jobs.get("hono", ""):
         found.append("ci.yml: job `hono` no longer pins its test build")
+    found += compile_violations(jobs)
     return found
 
 
@@ -130,10 +160,9 @@ def main():
         with open(path, encoding="utf-8") as handle:
             violations += pin_violations(os.path.relpath(path, root), handle.read())
     tiers = glob.glob(os.path.join(root, "crates/smelt-codegen-rust/tests/*_runtime.rs"))
-    with open(os.path.join(root, ".github/workflows/runtime-tiers.yml"), encoding="utf-8") as matrix, \
-            open(os.path.join(root, ".github/workflows/ci.yml"), encoding="utf-8") as ci:
+    with open(os.path.join(root, ".github/workflows/ci.yml"), encoding="utf-8") as ci:
         violations += tier_violations(
-            [os.path.basename(path)[:-len(".rs")] for path in tiers], matrix.read(), ci.read())
+            [os.path.basename(path)[:-len(".rs")] for path in tiers], ci.read())
     tests = glob.glob(os.path.join(root, "crates/*/tests/**/*.rs"), recursive=True)
     for path in sorted(tests):
         if "/fixtures/" in path:

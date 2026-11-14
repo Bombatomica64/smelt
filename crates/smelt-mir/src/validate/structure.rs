@@ -8,7 +8,7 @@
 //! delegated to [`super::operands`]; definite-assignment dataflow is delegated
 //! to [`super::assignment`].
 
-use crate::{MirBody, Mir, Statement, Terminator};
+use crate::{Mir, MirBody, Statement, Terminator};
 
 use super::operands::{
     validate_callee_exists, validate_operand_exists, validate_place_exists, validate_rvalue_exists,
@@ -22,6 +22,7 @@ use super::{ValidationError, assignment, block_index, error, local_index};
 pub(super) fn validate_body(
     mir: &Mir,
     body: MirBody<'_>,
+    captures: &crate::definite_assignment::CaptureInit,
     errors: &mut Vec<ValidationError>,
 ) {
     validate_entry(body, errors);
@@ -31,7 +32,7 @@ pub(super) fn validate_body(
     for &param in body.params {
         validate_local_exists(body, param, errors);
     }
-    assignment::validate_definite_assignment(mir, body, errors);
+    assignment::validate_definite_assignment(mir, body, captures, errors);
 }
 
 /// Check that the function's declared entry block exists.
@@ -66,7 +67,6 @@ fn validate_block(
             body.owner, block.id
         )));
     }
-
 
     for stmt in &block.statements {
         validate_statement(mir, body, stmt, errors);

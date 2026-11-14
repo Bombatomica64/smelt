@@ -20,8 +20,8 @@
 //! `Symbol('description')` call. Anything else keeps the existing path.
 
 use crate::HirCtx;
-use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::js_text::js_str_text;
 use crate::lowering::stdlib::symbols::unique_symbol_spelling;
 use oxc::ast::ast::{
     Argument, BindingPattern, Declaration, Expression, Program, Statement, VariableDeclarationKind,
@@ -108,7 +108,11 @@ pub(in crate::lowering) fn record_unique_symbol_consts(
         ctx.predeclared_unique_symbols
             .entry(key)
             .or_default()
-            .extend(bindings.iter().map(|(name, spelling)| (name.clone(), spelling.clone())));
+            .extend(
+                bindings
+                    .iter()
+                    .map(|(name, spelling)| (name.clone(), spelling.clone())),
+            );
     }
 }
 

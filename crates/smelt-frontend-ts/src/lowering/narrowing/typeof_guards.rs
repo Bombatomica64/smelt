@@ -173,7 +173,9 @@ impl ModuleBuilder<'_> {
                 // `ErasedFunctionMethodCall`.
                 let erased_payload = local_ty.and_then(|ty| match self.ctx.krate.types.get(ty) {
                     Some(Type::Unknown) => Some(ty),
-                    Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) => {
+                    Some(Type::Optional(inner))
+                        if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) =>
+                    {
                         Some(*inner)
                     }
                     _ => None,
@@ -216,11 +218,9 @@ impl ModuleBuilder<'_> {
             // A union with no object arm (or a non-union receiver) still
             // answers `Unknown`: there is nothing more precise to say, and a
             // tagged runtime value is the honest type for it.
-            "object" => self
-                .typeof_object_arms(name, body)
-                .unwrap_or_else(|| {
-                    self.erase_with(ErasureReason::RuntimeNarrowing, "typeof object")
-                }),
+            "object" => self.typeof_object_arms(name, body).unwrap_or_else(|| {
+                self.erase_with(ErasureReason::RuntimeNarrowing, "typeof object")
+            }),
             _ => return None,
         };
         Some((name.to_owned(), ty))
@@ -319,9 +319,10 @@ impl ModuleBuilder<'_> {
                     //
                     // A dynamic member is any kind at run time, so it stays.
                     !matches!(self.ctx.krate.types.get(*item), Some(Type::None))
-                        && (matches!(self.ctx.krate.types.get(*item), Some(Type::Unknown)) || kinds
-                            .iter()
-                            .any(|kind| self.type_matches_typeof(*item, kind)))
+                        && (matches!(self.ctx.krate.types.get(*item), Some(Type::Unknown))
+                            || kinds
+                                .iter()
+                                .any(|kind| self.type_matches_typeof(*item, kind)))
                 })
                 .collect::<Vec<_>>();
             if let Some(narrowed) = self.intern_filtered_union(retained) {

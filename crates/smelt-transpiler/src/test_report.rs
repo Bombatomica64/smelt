@@ -168,7 +168,12 @@ fn run_test(options: &RustTestReportOptions<'_>, filter: Option<&str>) -> CliRes
     } else {
         let lines = text.lines().collect::<Vec<_>>();
         let start = lines.len().saturating_sub(EXCERPT_LINES);
-        lines.get(start..).unwrap_or_default().iter().map(|line| (*line).to_owned()).collect()
+        lines
+            .get(start..)
+            .unwrap_or_default()
+            .iter()
+            .map(|line| (*line).to_owned())
+            .collect()
     };
     Ok(TestRun {
         label: filter.map_or_else(|| "full suite".to_owned(), ToOwned::to_owned),
@@ -213,10 +218,22 @@ fn full_suite(run: TestRun, baseline: Option<&Path>) -> CliResult<FullSuite> {
 /// Render `report` as Markdown.
 pub(crate) fn render_markdown(report: &TestReport) -> String {
     let mut text = String::from("# Generated Rust Test Report\n\n");
-    push_fmt(&mut text, format_args!("- Cargo manifest: `{}`\n", report.cargo_manifest.display()));
-    push_fmt(&mut text, format_args!("- Focused runs: `{}`\n", report.focus.len()));
-    push_fmt(&mut text, format_args!("- Guard runs: `{}`\n", report.guards.len()));
-    push_fmt(&mut text, format_args!("- Full suite executed: `{}`\n", report.full.is_some()));
+    push_fmt(
+        &mut text,
+        format_args!("- Cargo manifest: `{}`\n", report.cargo_manifest.display()),
+    );
+    push_fmt(
+        &mut text,
+        format_args!("- Focused runs: `{}`\n", report.focus.len()),
+    );
+    push_fmt(
+        &mut text,
+        format_args!("- Guard runs: `{}`\n", report.guards.len()),
+    );
+    push_fmt(
+        &mut text,
+        format_args!("- Full suite executed: `{}`\n", report.full.is_some()),
+    );
     render_runs(&mut text, "Focused Runs", &report.focus);
     render_runs(&mut text, "Guard Runs", &report.guards);
     if let Some(full) = &report.full {
@@ -314,7 +331,13 @@ impl SuiteTotals {
     /// The sum over every `test result:` line of `text`, or `None` when no
     /// binary ran (or a line cannot be read: a partial sum would be a lie).
     fn of(text: &str) -> Option<Self> {
-        let mut totals = Self { counts: TestCounts { passed: 0, failed: 0 }, binaries: 0 };
+        let mut totals = Self {
+            counts: TestCounts {
+                passed: 0,
+                failed: 0,
+            },
+            binaries: 0,
+        };
         for line in text.lines().filter(|line| line.contains("test result:")) {
             let counts = parse_test_counts(line)?;
             totals.counts.passed = totals.counts.passed.saturating_add(counts.passed);
@@ -381,7 +404,9 @@ mod tests {
         let tests = failed_tests(output);
         assert_eq!(tests.len(), 3, "all failed test paths should be retained");
         assert_eq!(
-            SuiteTotals::of(output).map(|totals| totals.to_string()).as_deref(),
+            SuiteTotals::of(output)
+                .map(|totals| totals.to_string())
+                .as_deref(),
             Some("1 passed; 3 failed across 1 test binary"),
             "the Cargo summary should be retained"
         );
@@ -395,7 +420,13 @@ mod tests {
                       test result: ok. 4 passed; 0 failed; 0 ignored;\n\
                       test result: ok. 0 passed; 0 failed; 0 ignored;\n";
         let totals = SuiteTotals::of(output).expect("three binaries");
-        assert_eq!(totals.counts, TestCounts { passed: 1772, failed: 21 });
+        assert_eq!(
+            totals.counts,
+            TestCounts {
+                passed: 1772,
+                failed: 21
+            }
+        );
         assert_eq!(totals.binaries, 3);
         assert_eq!(SuiteTotals::of("compile error\n"), None);
     }
@@ -423,11 +454,14 @@ mod tests {
             full: Some(full_suite(failing(&["a::fixed", "a::stays"]), None).expect("no baseline")),
             diagnostics: None,
         };
-        let directory = std::env::temp_dir().join(format!("smelt-test-report-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("smelt-test-report-{}", std::process::id()));
         std::fs::create_dir_all(&directory).expect("scratch directory");
         let path = directory.join("before.json");
-        std::fs::write(&path, serde_json::to_string(&earlier).expect("serializes")).expect("written");
-        let suite = full_suite(failing(&["a::stays", "b::new"]), Some(&path)).expect("reads the baseline");
+        std::fs::write(&path, serde_json::to_string(&earlier).expect("serializes"))
+            .expect("written");
+        let suite =
+            full_suite(failing(&["a::stays", "b::new"]), Some(&path)).expect("reads the baseline");
         std::fs::remove_dir_all(&directory).expect("scratch removed");
         let delta = suite.delta.expect("a baseline gives a delta");
         assert_eq!((delta.resolved, delta.newly_failing), (1, 1));
@@ -437,7 +471,13 @@ mod tests {
     #[test]
     fn counts_come_from_the_cargo_summary() {
         let counts = parse_test_counts("test result: FAILED. 1768 passed; 21 failed; 0 ignored;");
-        assert_eq!(counts, Some(TestCounts { passed: 1768, failed: 21 }));
+        assert_eq!(
+            counts,
+            Some(TestCounts {
+                passed: 1768,
+                failed: 21
+            })
+        );
         assert_eq!(parse_test_counts("no summary here"), None);
     }
 }

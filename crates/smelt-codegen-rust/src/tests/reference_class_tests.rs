@@ -92,7 +92,10 @@ function run(): number {
 }
 ",
     );
-    assert!(names.is_empty(), "value class must not be lifted: {names:?}");
+    assert!(
+        names.is_empty(),
+        "value class must not be lifted: {names:?}"
+    );
 }
 
 #[test]
@@ -247,7 +250,10 @@ function run(): number { const c = new Counter(); c.increment(); return c.value;
 ",
     );
     // The getter is a computed `&self` method; the read dispatches to it.
-    assert!(source.contains("fn __smelt_get_value(&self) -> f64"), "{source}");
+    assert!(
+        source.contains("fn __smelt_get_value(&self) -> f64"),
+        "{source}"
+    );
     assert!(source.contains(".__smelt_get_value()"), "{source}");
     // The getter is NOT a stored inner field.
     assert!(
@@ -513,13 +519,21 @@ function run(): boolean {
 }
 ",
     );
-    assert!(source.contains("origin: Option<Box<dyn ::std::any::Any>>"), "{source}");
-    assert!(source.contains(".smelt_with_origin("), "{source}");
     assert!(
-        source.contains("match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None =>"),
+        source.contains("origin: Option<Box<dyn ::std::any::Any>>"),
         "{source}"
     );
-    assert!(source.contains("::std::rc::Rc::as_ptr(&(back).0) as *const () as usize"), "{source}");
+    assert!(source.contains(".smelt_with_origin("), "{source}");
+    assert!(
+        source.contains(
+            "match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None =>"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains("::std::rc::Rc::as_ptr(&(back).0) as *const () as usize"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -534,5 +548,52 @@ function erase(p: Point): unknown { return p; }
 ",
     );
     assert!(!source.contains("smelt_with_origin"), "{source}");
-    assert!(!source.contains("origin: Option<Box<dyn ::std::any::Any>>"), "{source}");
+    assert!(
+        !source.contains("origin: Option<Box<dyn ::std::any::Any>>"),
+        "{source}"
+    );
+}
+
+// ---- Classification: by-value containment cycles --------------------------
+
+/// A shape that contains itself by value (directly, through `Option`, a union
+/// arm, or a by-value generic argument) is lifted, since a by-value Rust struct
+/// cannot hold itself (E0072). A shape that reaches itself only through a
+/// collection, which is already a shared handle, stays a value struct.
+#[test]
+fn classifies_by_value_cycles_as_reference_and_nothing_else() {
+    let names = reference_class_names(
+        r#"
+interface L { name: string; o?: O }
+interface O { id: number; l?: L }
+interface Tree { value: number; kids: Tree[]; parent?: Tree }
+interface Leaf { kind: "leaf"; n: number }
+interface Node { kind: "node"; left: Shape; right: Shape }
+type Shape = Leaf | Node;
+interface Link<T> { value: T; next?: Link<T> }
+interface Wrap<T> { inner: T }
+interface Doll { size: number; nested?: Wrap<Doll> }
+interface Holder<T> { items: T[] }
+interface Forest { name: string; trees: Holder<Forest> }
+interface Plain { kids: Plain[]; label: string }
+class Chain { constructor(public label: string, public prev?: Chain) {} }
+function run(): void {
+  const l: L = { name: "a" };
+  const t: Tree = { value: 1, kids: [] };
+  const s: Shape = { kind: "leaf", n: 1 };
+  const k: Link<string> = { value: "x" };
+  const d: Doll = { size: 1 };
+  const f: Forest = { name: "f", trees: { items: [] } };
+  const p: Plain = { kids: [], label: "p" };
+  const c = new Chain("c");
+}
+"#,
+    );
+    assert_eq!(
+        names,
+        ["Chain", "Doll", "L", "Link", "Node", "O", "Tree"]
+            .map(str::to_owned)
+            .to_vec(),
+        "cycle members are lifted; Forest/Holder/Plain (cycles through a list), Leaf and Wrap stay values"
+    );
 }

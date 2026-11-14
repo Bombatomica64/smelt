@@ -27,7 +27,10 @@ impl FunctionEmitter<'_> {
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
-            return Ok(RustExpr::atom(format!("Into::<SmeltList<_>>::into({text})", text = text.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "Into::<SmeltList<_>>::into({text})",
+                text = text.delimited()
+            )));
         }
         Ok(text)
     }
@@ -43,7 +46,11 @@ impl FunctionEmitter<'_> {
     /// function carries erased renders as that same carrier, so
     /// `defaultValue as TDefault` with `defaultValue?: TDefault` is
     /// `undefined` too (radash `get(null, 'a')`), not a panic.
-    fn use_expr(&self, operand: &Operand, dest_ty: TypeId) -> Result<RustExpr, EmitError> {
+    pub(super) fn use_expr(
+        &self,
+        operand: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
             || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
                 && self.renders_erased(dest_ty).unwrap_or(false))
@@ -69,7 +76,9 @@ impl FunctionEmitter<'_> {
             // whole optional twice (a regex match's captures, per request,
             // in Hono's router).
             let receiver = self.operand_borrow_expr(operand)?;
-            return Ok(receiver.postfix(".clone().expect(\"optional value was absent after narrowing\")"));
+            return Ok(
+                receiver.postfix(".clone().expect(\"optional value was absent after narrowing\")")
+            );
         }
         self.value_at_type(operand, dest_ty)
     }
@@ -98,14 +107,8 @@ impl FunctionEmitter<'_> {
                 unwind,
                 cleanup,
             } => self.generator_yield_expr(value, unwind.as_ref(), cleanup.as_ref()),
-            Rvalue::GeneratorNext {
-                generator,
-                value,
-                kind,
-            } => self.generator_next_expr(generator, value.as_ref(), *kind),
             Rvalue::GeneratorDone { result } => self.generator_done_expr(result),
             Rvalue::GeneratorValue { result } => self.generator_value_expr(result, dest_ty),
-            Rvalue::GeneratorDelegate { generator } => self.generator_delegate_expr(generator, dest_ty),
             Rvalue::List(items) => self.list_literal_expr(value, items, dest_ty),
             Rvalue::Set(items) => self.set_literal_expr(items, dest_ty),
             Rvalue::Dict(entries) => self.dict_literal_expr(entries, dest_ty),
@@ -165,6 +168,7 @@ impl FunctionEmitter<'_> {
             Rvalue::PyExceptionNew { classes, args } => self.py_exception_new_expr(classes, args),
             Rvalue::PyStr { value: text_of } => self.py_text_expr(text_of, "py_str"),
             Rvalue::PyRepr { value: text_of } => self.py_text_expr(text_of, "py_repr"),
+            Rvalue::PyJsonDumps { value: json_value } => self.py_json_dumps_expr(json_value),
             Rvalue::PyExceptionArgs { exception } => {
                 let exception_text = self.operand_expr(exception)?;
                 Ok(exception_text.postfix(".args()"))
@@ -175,11 +179,16 @@ impl FunctionEmitter<'_> {
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
             | Rvalue::PythonDictRead { .. }
+            | Rvalue::BindingCheck { .. }
             | Rvalue::DictPopItem { .. }
             | Rvalue::PythonSequenceRead { .. }
             | Rvalue::PythonStepSlice { .. }
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
+            | Rvalue::ErasedPatternCall { .. }
+            | Rvalue::GeneratorNext { .. }
+            | Rvalue::GeneratorCollect { .. }
+            | Rvalue::GeneratorDelegate { .. }
             | Rvalue::ListRemove { .. }
             | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
@@ -334,9 +343,12 @@ impl FunctionEmitter<'_> {
             Rvalue::NumericToStringRadix { operand, radix } => {
                 self.numeric_to_string_radix_expr(operand, radix)
             }
-            Rvalue::NumericToFixed { operand, digits } => {
-                self.numeric_to_fixed_expr(operand, digits)
-            }
+            Rvalue::NumericFormat {
+                method,
+                operand,
+                digits,
+                ..
+            } => self.numeric_format_expr(*method, operand, digits.as_ref()),
             Rvalue::ParseIntRadix { operand, radix } => self.parse_int_radix_expr(operand, radix),
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_expr(*op, operand, dest_ty)
@@ -726,7 +738,7 @@ fn rvalue_answers_host_text(value: &Rvalue) -> bool {
             | Rvalue::FileReadText { .. }
             | Rvalue::BlobOp { .. }
             | Rvalue::NumericToStringRadix { .. }
-            | Rvalue::NumericToFixed { .. }
+            | Rvalue::NumericFormat { .. }
             | Rvalue::ObjectToStringTag { .. }
             | Rvalue::DateToIsoString { .. }
             | Rvalue::DateToString { .. }
@@ -745,9 +757,14 @@ impl FunctionEmitter<'_> {
     /// alone.
     fn host_text_at_type(&self, text: RustExpr, dest_ty: TypeId) -> RustExpr {
         match self.mir.types.get(dest_ty) {
-            Some(Type::String) => RustExpr::chain(format!("JsString::from({text})", text = text.delimited())),
+            Some(Type::String) => {
+                RustExpr::chain(format!("JsString::from({text})", text = text.delimited()))
+            }
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
-                RustExpr::atom(format!("({text}).map(JsString::from)", text = text.delimited()))
+                RustExpr::atom(format!(
+                    "({text}).map(JsString::from)",
+                    text = text.delimited()
+                ))
             }
             _ => text,
         }

@@ -17,8 +17,8 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use crate::lowering::decls::types_iface::StructuralMembers;
+use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{Argument, CallExpression, Expression, TSType};
 use smelt_hir::{Field, FieldDecodeFacts, Item, Symbol, Type, TypeId, TypeParamDef, Visibility};
 use smelt_ts_model::{TsTypeId, TsTypeKind};
@@ -90,7 +90,10 @@ impl ModuleBuilder<'_> {
     /// that resolves to one (an alias, `keyof X`) is read from the checker. A
     /// `K` still free at this position answers `None`: the call site resolves
     /// it instead ([`Self::call_result_shaped_by_checker`]).
-    pub(in crate::lowering) fn literal_record_keys(&self, keys: &TSType<'_>) -> Option<Vec<String>> {
+    pub(in crate::lowering) fn literal_record_keys(
+        &self,
+        keys: &TSType<'_>,
+    ) -> Option<Vec<String>> {
         if let Some(found) = Self::static_pick_keys(keys) {
             return Some(found);
         }
@@ -117,9 +120,9 @@ impl ModuleBuilder<'_> {
                 true
             }
             Some(TsTypeKind::Never) => true,
-            Some(TsTypeKind::Union { members, .. }) => {
-                members.iter().all(|member| self.collect_literal_keys(*member, found))
-            }
+            Some(TsTypeKind::Union { members, .. }) => members
+                .iter()
+                .all(|member| self.collect_literal_keys(*member, found)),
             _ => false,
         }
     }
@@ -138,7 +141,9 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         span: smelt_hir::Span,
     ) -> Result<TypeId, SmeltError> {
-        let id = self.ts_facts.and_then(|facts| facts.type_id_at(&self.path, call.span.start, call.span.end));
+        let id = self
+            .ts_facts
+            .and_then(|facts| facts.type_id_at(&self.path, call.span.start, call.span.end));
         self.shaped_by_checker_type(result, id, &Self::literal_key_arguments(call), span)
     }
 
@@ -158,7 +163,9 @@ impl ModuleBuilder<'_> {
                     .elements
                     .iter()
                     .map(|element| match element.as_expression() {
-                        Some(Expression::StringLiteral(key)) if !has_lone_surrogate(key.value) => Some(js_str_text(key.value).into_owned()),
+                        Some(Expression::StringLiteral(key)) if !has_lone_surrogate(key.value) => {
+                            Some(js_str_text(key.value).into_owned())
+                        }
                         _ => None,
                     })
                     .collect()
@@ -177,7 +184,9 @@ impl ModuleBuilder<'_> {
         end: u32,
         span: smelt_hir::Span,
     ) -> Result<TypeId, SmeltError> {
-        let id = self.ts_facts.and_then(|facts| facts.type_node_id_at(&self.path, start, end));
+        let id = self
+            .ts_facts
+            .and_then(|facts| facts.type_node_id_at(&self.path, start, end));
         self.shaped_by_checker_type(alias_ty, id, &[], span)
     }
 
@@ -193,18 +202,24 @@ impl ModuleBuilder<'_> {
         let Some(facts) = self.ts_facts else {
             return Ok(result);
         };
-        let Some(TsTypeKind::Object(object)) = id.and_then(|id| facts.types.get(id)).map(|ty| &ty.kind) else {
+        let Some(TsTypeKind::Object(object)) =
+            id.and_then(|id| facts.types.get(id)).map(|ty| &ty.kind)
+        else {
             return Ok(result);
         };
-        let properties: HashMap<&str, bool> =
-            object.properties.iter().map(|property| (property.name.as_str(), property.optional)).collect();
+        let properties: HashMap<&str, bool> = object
+            .properties
+            .iter()
+            .map(|property| (property.name.as_str(), property.optional))
+            .collect();
         let count = properties.len();
         // `Omit<T, K>` has no base-typed lowering while `T` is free, so its
         // instantiation still names the utility: the record is its first argument.
         let base = match self.ctx.krate.types.get(result) {
             Some(Type::Class { name, args })
                 if self.ctx.krate.symbols.get(*name) == Some("Omit")
-                    && self.resolve_type_name("Omit") == crate::lowering::resolve::TypeBinding::Lib =>
+                    && self.resolve_type_name("Omit")
+                        == crate::lowering::resolve::TypeBinding::Lib =>
             {
                 args.first().copied().unwrap_or(result)
             }
@@ -222,7 +237,11 @@ impl ModuleBuilder<'_> {
             .fields
             .iter()
             .filter(|field| {
-                self.ctx.krate.symbols.get(field.name).is_some_and(|name| properties.contains_key(name))
+                self.ctx
+                    .krate
+                    .symbols
+                    .get(field.name)
+                    .is_some_and(|name| properties.contains_key(name))
             })
             .count();
         if known != count {
@@ -231,9 +250,10 @@ impl ModuleBuilder<'_> {
         let order = key_lists.iter().find(|keys| {
             keys.len() == count && keys.iter().all(|key| properties.contains_key(key.as_str()))
         });
-        let derived = self.derived_record(base, "Pick", span, order.map(Vec::as_slice), |name, _| {
-            properties.get(name).copied()
-        })?;
+        let derived =
+            self.derived_record(base, "Pick", span, order.map(Vec::as_slice), |name, _| {
+                properties.get(name).copied()
+            })?;
         Ok(derived.unwrap_or(result))
     }
 
@@ -272,7 +292,10 @@ impl ModuleBuilder<'_> {
         if let Some(order) = order {
             let position = |symbol: Symbol| {
                 let name = self.ctx.krate.symbols.get(symbol).unwrap_or_default();
-                order.iter().position(|key| key == name).unwrap_or(usize::MAX)
+                order
+                    .iter()
+                    .position(|key| key == name)
+                    .unwrap_or(usize::MAX)
             };
             let before: Vec<Symbol> = shape.iter().map(|entry| entry.0).collect();
             shape.sort_by_key(|entry| position(entry.0));
@@ -293,7 +316,11 @@ impl ModuleBuilder<'_> {
         let decode_facts = fields
             .iter()
             .map(|field| {
-                let declared = source.decode_facts.iter().find(|facts| facts.name == field.name).cloned();
+                let declared = source
+                    .decode_facts
+                    .iter()
+                    .find(|facts| facts.name == field.name)
+                    .cloned();
                 FieldDecodeFacts {
                     may_be_absent: field.optional,
                     ..declared.unwrap_or(FieldDecodeFacts {
@@ -308,7 +335,12 @@ impl ModuleBuilder<'_> {
         let type_params = self.type_params_mentioned(&fields, span);
         let args = type_params
             .iter()
-            .map(|param| self.ctx.krate.types.intern(Type::TypeParam { name: param.name }))
+            .map(|param| {
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::TypeParam { name: param.name })
+            })
             .collect();
         let mut name_text = format!("{label}{}", source.name);
         let mut ordinal = 1_usize;
@@ -317,9 +349,17 @@ impl ModuleBuilder<'_> {
             ordinal = ordinal.saturating_add(1);
         }
         let symbol = self.intern_type_name(&name_text);
-        let members = StructuralMembers { fields, decode_facts, ..Default::default() };
+        let members = StructuralMembers {
+            fields,
+            decode_facts,
+            ..Default::default()
+        };
         self.push_synthesized_interface(symbol, name_text, type_params, members, span);
-        let derived = self.ctx.krate.types.intern(Type::Class { name: symbol, args });
+        let derived = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Class { name: symbol, args });
         self.ctx.derived_records.insert(key, derived);
         Ok(Some(derived))
     }
@@ -328,7 +368,12 @@ impl ModuleBuilder<'_> {
     ///
     /// A property made required stops being `Option` unless the declaration
     /// admits `null` itself: `a?: T | null` under `Required` is still nullable.
-    fn with_optionality(&mut self, field: &Field, optional: bool, facts: &[FieldDecodeFacts]) -> Field {
+    fn with_optionality(
+        &mut self,
+        field: &Field,
+        optional: bool,
+        facts: &[FieldDecodeFacts],
+    ) -> Field {
         let inner = match self.ctx.krate.types.get(field.ty) {
             Some(Type::Optional(inner)) => Some(*inner),
             _ => None,
@@ -337,13 +382,19 @@ impl ModuleBuilder<'_> {
             (true, None) => self.ctx.krate.types.intern(Type::Optional(field.ty)),
             (false, Some(inner))
                 if field.optional
-                    && !facts.iter().any(|fact| fact.name == field.name && fact.admits_null) =>
+                    && !facts
+                        .iter()
+                        .any(|fact| fact.name == field.name && fact.admits_null) =>
             {
                 inner
             }
             _ => field.ty,
         };
-        Field { ty, optional, ..field.clone() }
+        Field {
+            ty,
+            optional,
+            ..field.clone()
+        }
     }
 
     /// The property table of `base`, when it is a class or interface record.
@@ -355,7 +406,13 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(base).cloned() else {
             return Ok(None);
         };
-        let text = self.ctx.krate.symbols.get(name).unwrap_or("Record").to_owned();
+        let text = self
+            .ctx
+            .krate
+            .symbols
+            .get(name)
+            .unwrap_or("Record")
+            .to_owned();
         if self.find_interface(name).is_some() {
             if self.interfaces.index_value(name).is_some() {
                 return Ok(None);
@@ -363,13 +420,21 @@ impl ModuleBuilder<'_> {
             let mut fields = Vec::new();
             let mut decode_facts = Vec::new();
             self.collect_interface_properties(name, &args, span, &mut fields, &mut decode_facts)?;
-            return Ok(Some(RecordSource { name: text, fields, decode_facts }));
+            return Ok(Some(RecordSource {
+                name: text,
+                fields,
+                decode_facts,
+            }));
         }
         if self.class_by_symbol(name).is_none() {
             return Ok(None);
         }
         let fields = self.class_properties(base, name)?;
-        Ok(Some(RecordSource { name: text, fields, decode_facts: Vec::new() }))
+        Ok(Some(RecordSource {
+            name: text,
+            fields,
+            decode_facts: Vec::new(),
+        }))
     }
 
     /// Append `name`'s properties, then those it inherits that it does not
@@ -398,7 +463,13 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .map(|arg| self.substitute_type_params(*arg, &substitutions))
                 .collect();
-            self.collect_interface_properties(parent.parent, &parent_args, span, fields, decode_facts)?;
+            self.collect_interface_properties(
+                parent.parent,
+                &parent_args,
+                span,
+                fields,
+                decode_facts,
+            )?;
         }
         Ok(())
     }
@@ -413,7 +484,9 @@ impl ModuleBuilder<'_> {
                 break;
             };
             for field in &class.fields {
-                if field.visibility == Visibility::Public && !members.iter().any(|member| member.0 == field.name) {
+                if field.visibility == Visibility::Public
+                    && !members.iter().any(|member| member.0 == field.name)
+                {
                     members.push((field.name, field.optional, field.span));
                 }
             }
@@ -430,21 +503,36 @@ impl ModuleBuilder<'_> {
             .into_iter()
             .map(|(member, optional, span)| {
                 let ty = self.class_field_type(base, member)?;
-                Ok(Field { name: member, ty, visibility: Visibility::Public, optional, span })
+                Ok(Field {
+                    name: member,
+                    ty,
+                    visibility: Visibility::Public,
+                    optional,
+                    span,
+                })
             })
             .collect()
     }
 
     /// The type parameters `fields` mention, in first-mention order, declared
     /// on the derived record so it stays a real Rust generic.
-    fn type_params_mentioned(&self, fields: &[Field], span: smelt_hir::Span) -> Vec<TypeParamDef> {
+    pub(in crate::lowering) fn type_params_mentioned(
+        &self,
+        fields: &[Field],
+        span: smelt_hir::Span,
+    ) -> Vec<TypeParamDef> {
         let mut names = Vec::new();
         for field in fields {
             self.collect_type_params(field.ty, &mut names);
         }
         names
             .into_iter()
-            .map(|name| TypeParamDef { name, constraint: None, default: None, span })
+            .map(|name| TypeParamDef {
+                name,
+                constraint: None,
+                default: None,
+                span,
+            })
             .collect()
     }
 

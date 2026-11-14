@@ -1,10 +1,10 @@
 //! `forEach` over lists, maps and sets, lowered as a loop over the receiver with the
 //! callback body inlined.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::support::arrow_block_statements;
 use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement};
 use oxc::span::GetSpan;
@@ -96,7 +96,12 @@ impl ModuleBuilder<'_> {
             return Ok(false);
         };
         // A parameter default only the closure-body path applies.
-        if arrow.params.items.iter().any(|param| param.initializer.is_some()) {
+        if arrow
+            .params
+            .items
+            .iter()
+            .any(|param| param.initializer.is_some())
+        {
             return Ok(false);
         }
         let mut iter = self.expression(&member.object, body)?;
@@ -271,7 +276,9 @@ impl ModuleBuilder<'_> {
             // its VALUES, the same answer the record arm below gives. Placed
             // before it because a host collection is a `Type::Class`, which no
             // structural arm matches.
-            Some(Type::Class { .. }) if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::FormData) => {
+            Some(Type::Class { .. })
+                if self.is_modeled_class(iter_ty, smelt_stdlib::StdlibClass::FormData) =>
+            {
                 let value_ty = self.form_data_value_type();
                 let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
                 iter = body.push_expr(Expr {
@@ -545,12 +552,10 @@ impl ModuleBuilder<'_> {
             return Ok(());
         }
         let (target, value) = self.assignment_parts(assign, body)?;
-        if let Some(local_decl) = body.expr_at(target)
-            .and_then(|expr| match expr.kind {
-                ExprKind::Local(local) => body.local_at(local),
-                _ => None,
-            })
-            && !local_decl.mutable
+        if let Some(local_decl) = body.expr_at(target).and_then(|expr| match expr.kind {
+            ExprKind::Local(local) => body.local_at(local),
+            _ => None,
+        }) && !local_decl.mutable
         {
             return Err(SmeltError::unsupported(
                 self.span(assign.span.start, assign.span.end),

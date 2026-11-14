@@ -120,21 +120,16 @@ impl InterfaceRegistry {
 
     /// Record the interface names the current module declares.
     pub(in crate::lowering) fn declare_module_scope(&mut self, declared: HashSet<String>) {
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "resets a field on every entry"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "resets a field on every entry")]
         for entry in self.names.values_mut() {
             entry.declared = false;
         }
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "keyed inserts of one value"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "keyed inserts of one value")]
         for name in declared {
             self.names.entry(name).or_default().declared = true;
         }
-        self.names.retain(|_, entry| entry.declared || entry.item.is_some());
+        self.names
+            .retain(|_, entry| entry.declared || entry.item.is_some());
     }
 
     /// Register a freshly lowered local interface with all of its sidecars.
@@ -157,7 +152,9 @@ impl InterfaceRegistry {
         self.extends.write().insert(name, extends);
         self.call_signatures.write().insert(name, call_signatures);
         if !construct_signatures.is_empty() {
-            self.construct_signatures.write().insert(name, construct_signatures);
+            self.construct_signatures
+                .write()
+                .insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
             self.index_values.write().insert(name, index_value_ty);
@@ -201,7 +198,9 @@ impl InterfaceRegistry {
     /// interface with no local structural definition, is opaque to the local
     /// interface validator and answers false.
     pub(in crate::lowering) fn resolves_locally(&self, local_name: &str, parent: Symbol) -> bool {
-        self.names.get(local_name).is_some_and(|entry| entry.declared)
+        self.names
+            .get(local_name)
+            .is_some_and(|entry| entry.declared)
             || self.lowered_local.contains(&parent)
     }
 

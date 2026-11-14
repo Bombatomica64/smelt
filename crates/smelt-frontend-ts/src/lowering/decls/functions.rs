@@ -4,11 +4,10 @@
 //! Function expressions, inferred result types and classes are sibling
 //! modules of `decls`.
 
-
 use crate::SmeltError;
-use crate::lowering::{AssertionNarrowing, ModuleBuilder, RestParam};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
+use crate::lowering::{AssertionNarrowing, ModuleBuilder, RestParam};
 use oxc::ast::ast::{BindingPattern, Expression, Statement};
 use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, LocalDecl,
@@ -508,7 +507,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a TypeScript formal parameter has a default value.
-    pub(in crate::lowering) fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
+    pub(in crate::lowering) fn formal_parameter_has_default(
+        param: &oxc::ast::ast::FormalParameter<'_>,
+    ) -> bool {
         param.initializer.is_some() || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
     }
 
@@ -588,7 +589,10 @@ impl ModuleBuilder<'_> {
     /// already synthesize exactly the defaulted value, so the parameter keeps
     /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
     /// threading for parameters that accumulate state across recursive calls.
-    pub(in crate::lowering) fn initializer_is_type_zero_default(&self, initializer: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn initializer_is_type_zero_default(
+        &self,
+        initializer: &Expression<'_>,
+    ) -> bool {
         match initializer {
             Expression::NumericLiteral(literal) => literal.value == 0.0,
             Expression::StringLiteral(literal) => literal.value.is_empty(),
@@ -720,16 +724,22 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::TypeId {
         // An erased parameter already carries `undefined` in its runtime tag.
         if param.initializer.is_some()
-            || matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_) | Type::Unknown))
+            || matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Optional(_) | Type::Unknown)
+            )
         {
             return ty;
         }
-        let omitted = self.functions.overloads(name_text).is_some_and(|overloads| {
-            overloads.iter().any(|overload| {
-                overload.rest.is_none()
-                    && overload.required_params.unwrap_or(overload.params.len()) <= index
-            })
-        });
+        let omitted = self
+            .functions
+            .overloads(name_text)
+            .is_some_and(|overloads| {
+                overloads.iter().any(|overload| {
+                    overload.rest.is_none()
+                        && overload.required_params.unwrap_or(overload.params.len()) <= index
+                })
+            });
         if omitted {
             self.ctx.krate.types.intern(Type::Optional(ty))
         } else {

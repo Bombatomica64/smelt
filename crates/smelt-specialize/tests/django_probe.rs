@@ -9,10 +9,9 @@ use std::{
 };
 
 use smelt_specialize::{
-    prereq::missing_prerequisite,
     BackendAvailability, Definition, GraphValueKind, HashInputs, LinuxBubblewrapBackend,
     PythonModule, PythonSpecializationRequest, PythonSpecializer, SandboxBackend,
-    SandboxPolicyRecord,
+    SandboxPolicyRecord, prereq::missing_prerequisite,
 };
 
 const DJANGO_PROBE_SOURCE: &str = r#"
@@ -71,9 +70,7 @@ fn real_django_model_exposes_fields_descriptors_managers_and_metadata() -> Resul
 }
 
 /// Verifies the materialized Book model's fields, descriptors, managers, and metadata.
-fn assert_book_model(
-    manifest: &smelt_specialize::SpecializationManifest,
-) -> Result<(), DynError> {
+fn assert_book_model(manifest: &smelt_specialize::SpecializationManifest) -> Result<(), DynError> {
     let module = manifest
         .modules
         .first()
@@ -156,7 +153,9 @@ for module in sorted(sys.modules.values(), key=lambda item: getattr(item, "__nam
     if filename and filename.endswith((".so", ".pyd", ".dylib")):
         print(pathlib.Path(filename).name)
 "#;
-    let output = Command::new(python).args(["-c", script, DJANGO_PROBE_SOURCE]).output()?;
+    let output = Command::new(python)
+        .args(["-c", script, DJANGO_PROBE_SOURCE])
+        .output()?;
     if output.status.code() == Some(3_i32) {
         return Ok(None);
     }

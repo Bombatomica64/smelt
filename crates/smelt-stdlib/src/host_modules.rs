@@ -176,8 +176,7 @@ const HTTP_CLIENT_REASON: &str =
     "the node:http client surface (request/get) is not implemented yet; use fetch";
 
 /// Reason text shared by the `node:sqlite` surface.
-const SQLITE_REASON: &str =
-    "only `DatabaseSync` (`exec`, `prepare`, `close`) and `StatementSync` (`all`, `get`, `run`) from node:sqlite are modeled";
+const SQLITE_REASON: &str = "only `DatabaseSync` (`exec`, `prepare`, `close`) and `StatementSync` (`all`, `get`, `run`) from node:sqlite are modeled";
 
 /// Reason text for the `@hono/node-server` exports beyond `serve`.
 const HONO_NODE_SERVER_REASON: &str =
@@ -211,8 +210,7 @@ const CRYPTO_NODE_REASON: &str =
 /// modeled with Node's own POSIX algorithms. `parse`/`format` answer and take a
 /// `ParsedPath` RECORD, and the `win32` flavour is a second path grammar; both
 /// stay declared so using one is a named blocker rather than a guess.
-const PATH_REASON: &str =
-    "the node:path parse/format/win32 surface is not implemented yet";
+const PATH_REASON: &str = "the node:path parse/format/win32 surface is not implemented yet";
 
 /// The `node:path` exports, shared by `node:path` and `node:path/posix`.
 ///
@@ -287,10 +285,7 @@ pub const HOST_MODULES: &[HostModule] = &[
     HostModule {
         id: HostModuleId::Events,
         specifiers: &["node:events", "events"],
-        exports: &[
-            modeled_class("EventEmitter"),
-            modeled_value("default"),
-        ],
+        exports: &[modeled_class("EventEmitter"), modeled_value("default")],
     },
     HostModule {
         id: HostModuleId::Http,
@@ -397,11 +392,7 @@ pub fn host_value_blocker(specifier: &str, name: &str) -> Option<String> {
             "unresolved package `{specifier}`: not a source file and not a modeled host module"
         ));
     };
-    let Some(export) = module
-        .exports
-        .iter()
-        .find(|export| export.name == name)
-    else {
+    let Some(export) = module.exports.iter().find(|export| export.name == name) else {
         return Some(format!(
             "modeled host module `{specifier}` does not model the export `{name}`"
         ));
@@ -429,9 +420,12 @@ mod tests {
     /// An unmodeled package reports the package, not a member name.
     #[test]
     fn unmodeled_package_blocks_by_package_name() {
-        let blocker = host_value_blocker("express", "default")
-            .expect("an unmodeled package must block");
-        assert!(blocker.contains("unresolved package `express`"), "{blocker}");
+        let blocker =
+            host_value_blocker("express", "default").expect("an unmodeled package must block");
+        assert!(
+            blocker.contains("unresolved package `express`"),
+            "{blocker}"
+        );
     }
 
     /// A declared-but-unimplemented export blocks with its module's reason.
@@ -474,9 +468,19 @@ mod tests {
     #[test]
     fn path_specifiers_share_one_modeled_surface() {
         for specifier in ["node:path", "path", "node:path/posix", "path/posix"] {
-            assert_eq!(host_module_id(specifier), Some(HostModuleId::Path), "{specifier}");
-            assert!(host_value_blocker(specifier, "join").is_none(), "{specifier}");
-            assert!(host_value_blocker(specifier, "sep").is_none(), "{specifier}");
+            assert_eq!(
+                host_module_id(specifier),
+                Some(HostModuleId::Path),
+                "{specifier}"
+            );
+            assert!(
+                host_value_blocker(specifier, "join").is_none(),
+                "{specifier}"
+            );
+            assert!(
+                host_value_blocker(specifier, "sep").is_none(),
+                "{specifier}"
+            );
         }
         assert!(host_value_blocker("node:path", "parse").is_some());
         assert!(host_value_blocker("node:path", "win32").is_some());

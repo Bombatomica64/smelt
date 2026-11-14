@@ -103,7 +103,9 @@
 
 use smelt_hir::{Type, TypeInterner, UnaryOp};
 
-use crate::{BasicBlock, BlockId, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
+use crate::{
+    BasicBlock, BlockId, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator,
+};
 
 use super::Pass;
 
@@ -212,7 +214,8 @@ fn elision_at(function: &MirFunction, types: &TypeInterner, guard: usize) -> Opt
         return None;
     }
     // Condition 4: both temps are single-assignment and single-read.
-    if !function.is_single_use_temp(condition_local) || !function.is_single_use_temp(contains_local) {
+    if !function.is_single_use_temp(condition_local) || !function.is_single_use_temp(contains_local)
+    {
         return None;
     }
     let shape = GuardShape {

@@ -51,7 +51,10 @@ impl ModuleBuilder<'_> {
         let Some(Type::Union(arms)) = self.ctx.krate.types.get(element_ty) else {
             return None;
         };
-        if !arms.iter().any(|arm| matches!(self.ctx.krate.types.get(*arm), Some(Type::List(_)))) {
+        if !arms
+            .iter()
+            .any(|arm| matches!(self.ctx.krate.types.get(*arm), Some(Type::List(_))))
+        {
             return None;
         }
         let members = match flat_depth(depth) {
@@ -95,7 +98,9 @@ impl ModuleBuilder<'_> {
 /// Reads the depth argument of a `flat` call.
 fn flat_depth(argument: Option<&Argument<'_>>) -> FlatDepth {
     argument.map_or(FlatDepth::Known(1), |argument| {
-        argument.as_expression().map_or(FlatDepth::Dynamic, flat_depth_of_expression)
+        argument
+            .as_expression()
+            .map_or(FlatDepth::Dynamic, flat_depth_of_expression)
     })
 }
 

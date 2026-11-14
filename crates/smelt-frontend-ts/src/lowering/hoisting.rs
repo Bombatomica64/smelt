@@ -91,12 +91,16 @@ impl<'a> oxc::ast_visit::Visit<'a> for DuplicateFunctions {
                 let function = match statement {
                     Statement::FunctionDeclaration(function) => Some(&**function),
                     Statement::ExportDeclaration(export) => match &export.declaration {
-                        oxc::ast::ast::Declaration::FunctionDeclaration(function) => Some(&**function),
+                        oxc::ast::ast::Declaration::FunctionDeclaration(function) => {
+                            Some(&**function)
+                        }
                         _ => None,
                     },
                     _ => None,
                 };
-                let Some((id, function)) = function.and_then(|function| Some((function.id.as_ref()?, function))) else {
+                let Some((id, function)) =
+                    function.and_then(|function| Some((function.id.as_ref()?, function)))
+                else {
                     continue;
                 };
                 if function.body.is_some() && !seen.insert(id.name.as_str()) {
@@ -136,7 +140,11 @@ fn sibling_declarations<'name>(statements: &'name [Statement<'_>]) -> Vec<Declar
             continue;
         };
         if seen.insert(id.name.as_str()) {
-            declarations.push(Declaration { index, name: id.name.as_str(), target: index });
+            declarations.push(Declaration {
+                index,
+                name: id.name.as_str(),
+                target: index,
+            });
         }
     }
     declarations
@@ -144,10 +152,19 @@ fn sibling_declarations<'name>(statements: &'name [Statement<'_>]) -> Vec<Declar
 
 /// For each statement, the sibling declarations (by position in
 /// `declarations`) it refers to: one scoped walk per statement.
-fn reference_graph(statements: &[Statement<'_>], declarations: &[Declaration<'_>]) -> Vec<Vec<usize>> {
-    let names: HashSet<&str> = declarations.iter().map(|declaration| declaration.name).collect();
-    let by_name: HashMap<&str, usize> =
-        declarations.iter().enumerate().map(|(d, declaration)| (declaration.name, d)).collect();
+fn reference_graph(
+    statements: &[Statement<'_>],
+    declarations: &[Declaration<'_>],
+) -> Vec<Vec<usize>> {
+    let names: HashSet<&str> = declarations
+        .iter()
+        .map(|declaration| declaration.name)
+        .collect();
+    let by_name: HashMap<&str, usize> = declarations
+        .iter()
+        .enumerate()
+        .map(|(d, declaration)| (declaration.name, d))
+        .collect();
     statements
         .iter()
         .map(|statement| {
@@ -176,8 +193,11 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
         return statements.iter().collect();
     }
     let refers = reference_graph(statements, &declarations);
-    let declaration_at: HashMap<usize, usize> =
-        declarations.iter().enumerate().map(|(d, declaration)| (declaration.index, d)).collect();
+    let declaration_at: HashMap<usize, usize> = declarations
+        .iter()
+        .enumerate()
+        .map(|(d, declaration)| (declaration.index, d))
+        .collect();
     // A plain statement is lowered where it stands, so it seeds the target of
     // every declaration it refers to; a declaration referring to another
     // passes on its own target, settled below.
@@ -191,8 +211,11 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
             }
         }
     }
-    let mut queue: BinaryHeap<Reverse<(usize, usize)>> =
-        declarations.iter().enumerate().map(|(d, declaration)| Reverse((declaration.target, d))).collect();
+    let mut queue: BinaryHeap<Reverse<(usize, usize)>> = declarations
+        .iter()
+        .enumerate()
+        .map(|(d, declaration)| Reverse((declaration.target, d)))
+        .collect();
     let mut settled = vec![false; declarations.len()];
     while let Some(Reverse((target, e))) = queue.pop() {
         if settled.get(e).copied().unwrap_or(true) {
@@ -216,7 +239,10 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
             }
         }
     }
-    if declarations.iter().all(|declaration| declaration.target == declaration.index) {
+    if declarations
+        .iter()
+        .all(|declaration| declaration.target == declaration.index)
+    {
         return statements.iter().collect();
     }
 
@@ -230,7 +256,10 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
     for (index, statement) in statements.iter().enumerate() {
         if let Some(group) = groups.get(&index) {
             for d in dependency_order(group, &declarations, &refers) {
-                if let Some(moved) = declarations.get(d).and_then(|declaration| statements.get(declaration.index)) {
+                if let Some(moved) = declarations
+                    .get(d)
+                    .and_then(|declaration| statements.get(declaration.index))
+                {
                     ordered.push(moved);
                 }
             }
@@ -249,7 +278,11 @@ pub(in crate::lowering) fn hoisted_statements<'a, 'src>(
 /// Order the declarations hoisted to one position so that one referring to
 /// another comes after it; ties and cycles keep source order. `group` is in
 /// source order.
-fn dependency_order(group: &[usize], declarations: &[Declaration<'_>], refers: &[Vec<usize>]) -> Vec<usize> {
+fn dependency_order(
+    group: &[usize],
+    declarations: &[Declaration<'_>],
+    refers: &[Vec<usize>],
+) -> Vec<usize> {
     let mut remaining = group.to_vec();
     let mut ordered = Vec::with_capacity(group.len());
     while !remaining.is_empty() {
@@ -262,14 +295,15 @@ fn dependency_order(group: &[usize], declarations: &[Declaration<'_>], refers: &
                     .get(d)
                     .and_then(|declaration| refers.get(declaration.index))
                     .map_or(&[][..], Vec::as_slice);
-                !remaining.iter().any(|&other| other != d && needs.binary_search(&other).is_ok())
+                !remaining
+                    .iter()
+                    .any(|&other| other != d && needs.binary_search(&other).is_ok())
             })
             .unwrap_or(0);
         ordered.push(remaining.remove(ready));
     }
     ordered
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -329,11 +363,28 @@ mod tests {
     /// are not duplicates.
     #[test]
     fn duplicate_implementations_are_found_and_overloads_are_not() {
-        assert_eq!(duplicate("function f() {} f(); function f() {}"), Some("f".to_owned()));
-        assert_eq!(duplicate("export function f() {} function f() {}"), Some("f".to_owned()));
-        assert_eq!(duplicate("function g() { function h() {} function h() {} }"), Some("h".to_owned()));
-        assert_eq!(duplicate("function f(a: string): void; function f(a: number): void; function f(a: any) {}"), None);
-        assert_eq!(duplicate("function f() {} function g() { function f() {} }"), None);
+        assert_eq!(
+            duplicate("function f() {} f(); function f() {}"),
+            Some("f".to_owned())
+        );
+        assert_eq!(
+            duplicate("export function f() {} function f() {}"),
+            Some("f".to_owned())
+        );
+        assert_eq!(
+            duplicate("function g() { function h() {} function h() {} }"),
+            Some("h".to_owned())
+        );
+        assert_eq!(
+            duplicate(
+                "function f(a: string): void; function f(a: number): void; function f(a: any) {}"
+            ),
+            None
+        );
+        assert_eq!(
+            duplicate("function f() {} function g() { function f() {} }"),
+            None
+        );
     }
 
     #[test]
@@ -347,7 +398,9 @@ mod tests {
     #[test]
     fn a_hoisted_declaration_brings_the_later_declarations_it_calls() {
         assert_eq!(
-            order("const r = f(2); function f(x: number) { return g(x) } function g(x: number) { return x } return r"),
+            order(
+                "const r = f(2); function f(x: number) { return g(x) } function g(x: number) { return x } return r"
+            ),
             vec![
                 "function g(x: number) { return x }",
                 "function f(x: number) { return g(x) }",
@@ -360,7 +413,9 @@ mod tests {
     #[test]
     fn a_parameter_named_like_a_later_declaration_does_not_hoist_it() {
         assert_eq!(
-            order("const apply = (g: number) => g * 2; const scale = 3; function g() { return scale } return apply(1) + g()"),
+            order(
+                "const apply = (g: number) => g * 2; const scale = 3; function g() { return scale } return apply(1) + g()"
+            ),
             vec![
                 "const apply = (g: number) => g * 2;",
                 "const scale = 3;",

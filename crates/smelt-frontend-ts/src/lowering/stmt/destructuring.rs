@@ -1,9 +1,9 @@
 //! Destructuring patterns: `let { a, b: [c] } = value` and parameter patterns,
 //! lowered to one local declaration per bound name.
 
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_literal};
 use oxc::ast::ast::{BindingPattern, PropertyKey};
 use oxc::span::GetSpan;
@@ -77,59 +77,75 @@ impl ModuleBuilder<'_> {
                     // reads by its exact runtime key, as a computed key does.
                     let keyed_at_runtime = property.computed
                         || matches!(&property.key, PropertyKey::StringLiteral(literal) if has_lone_surrogate(literal.value));
-                    let (ty, extracted, omitted_key) = if keyed_at_runtime {
-                        let index = self.property_key_index_expression(&property.key, body)?;
-                        let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
-                        (
-                            ty,
-                            body.push_expr(Expr {
-                                kind: ExprKind::Index { receiver, index },
+                    let (ty, extracted, omitted_key) =
+                        if keyed_at_runtime {
+                            let index = self.property_key_index_expression(&property.key, body)?;
+                            let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
+                            (
                                 ty,
-                                span: self.span(property.span.start, property.span.end),
-                            }),
-                            index,
-                        )
-                    } else {
-                        let field = self.property_key_symbol(&property.key)?;
-                        let omitted_key =
-                            self.object_destructuring_static_key_expr(&property.key, body)?;
-                        let receiver_ty = Self::expr_ty(body, receiver);
-                        let field_span = self.span(property.span.start, property.span.end);
-                        let field_name = self.ctx.krate.symbols.get(field).unwrap_or_default().to_owned();
-                        if let Some(extracted) =
-                            self.iterator_result_member(receiver, receiver_ty, &field_name, field_span, body)
-                        {
-                            omitted_keys.push(omitted_key);
-                            let ty = Self::expr_ty(body, extracted);
-                            self.binding_declaration(&property.value, Some(extracted), Some(ty), mutable, body, block)?;
-                            continue;
-                        }
-                        let is_element_count = self
-                            .ctx
-                            .krate
-                            .symbols
-                            .get(field)
-                            .is_some_and(|name| self.element_count_member(receiver_ty, name));
-                        let ty = if is_element_count {
-                            self.ctx.krate.types.intern(Type::Float)
+                                body.push_expr(Expr {
+                                    kind: ExprKind::Index { receiver, index },
+                                    ty,
+                                    span: self.span(property.span.start, property.span.end),
+                                }),
+                                index,
+                            )
                         } else {
-                            self.class_field_type(receiver_ty, field)?
+                            let field = self.property_key_symbol(&property.key)?;
+                            let omitted_key =
+                                self.object_destructuring_static_key_expr(&property.key, body)?;
+                            let receiver_ty = Self::expr_ty(body, receiver);
+                            let field_span = self.span(property.span.start, property.span.end);
+                            let field_name = self
+                                .ctx
+                                .krate
+                                .symbols
+                                .get(field)
+                                .unwrap_or_default()
+                                .to_owned();
+                            if let Some(extracted) = self.iterator_result_member(
+                                receiver,
+                                receiver_ty,
+                                &field_name,
+                                field_span,
+                                body,
+                            ) {
+                                omitted_keys.push(omitted_key);
+                                let ty = Self::expr_ty(body, extracted);
+                                self.binding_declaration(
+                                    &property.value,
+                                    Some(extracted),
+                                    Some(ty),
+                                    mutable,
+                                    body,
+                                    block,
+                                )?;
+                                continue;
+                            }
+                            let is_element_count =
+                                self.ctx.krate.symbols.get(field).is_some_and(|name| {
+                                    self.element_count_member(receiver_ty, name)
+                                });
+                            let ty = if is_element_count {
+                                self.ctx.krate.types.intern(Type::Float)
+                            } else {
+                                self.class_field_type(receiver_ty, field)?
+                            };
+                            let extracted = if is_element_count {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::Len { operand: receiver },
+                                    ty,
+                                    span: self.span(property.span.start, property.span.end),
+                                })
+                            } else {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::Field { receiver, field },
+                                    ty,
+                                    span: self.span(property.span.start, property.span.end),
+                                })
+                            };
+                            (ty, extracted, omitted_key)
                         };
-                        let extracted = if is_element_count {
-                            body.push_expr(Expr {
-                                kind: ExprKind::Len { operand: receiver },
-                                ty,
-                                span: self.span(property.span.start, property.span.end),
-                            })
-                        } else {
-                            body.push_expr(Expr {
-                                kind: ExprKind::Field { receiver, field },
-                                ty,
-                                span: self.span(property.span.start, property.span.end),
-                            })
-                        };
-                        (ty, extracted, omitted_key)
-                    };
                     omitted_keys.push(omitted_key);
                     self.binding_declaration(
                         &property.value,
@@ -332,7 +348,24 @@ impl ModuleBuilder<'_> {
                     let value_ty = Self::expr_ty(body, value);
                     if self.ctx.krate.types.get(value_ty) == Some(&Type::None) {
                         fallback
+                    } else if self.ctx.krate.types.get(value_ty) == Some(&Type::Unknown)
+                        && !self.checker_types_binding_concretely(&assign.left)
+                    {
+                        // `const { x = true } = rec` with `rec: Record<string,
+                        // unknown>` binds `x: unknown`, as TypeScript types it:
+                        // a present value of ANY type wins over the default.
+                        // Typing the binding from the default asserted `"t"`
+                        // to `true`. The binding stays at the source's own
+                        // `unknown` (the declared dynamic boundary), and the
+                        // default joins it.
+                        let fallback =
+                            Self::fallback_at_type(fallback, fallback_ty, value_ty, body);
+                        let span = self.span(assign.span.start, assign.span.end);
+                        self.default_when_undefined(value, fallback, value_ty, span, body, block)
                     } else if self.ctx.krate.types.get(value_ty) == Some(&Type::Unknown) {
+                        // The checker types the binding concretely: the value
+                        // was erased upstream (an unmodeled declaration), and
+                        // the default's type is the recovered one.
                         body.push_expr(Expr {
                             kind: ExprKind::OptionalCoalesce {
                                 optional: value,
@@ -341,21 +374,63 @@ impl ModuleBuilder<'_> {
                             ty: fallback_ty,
                             span: self.span(assign.span.start, assign.span.end),
                         })
+                    } else if let Some(non_null_ty) = self.non_nullish_type(value_ty)
+                        && self.ctx.krate.types.get(non_null_ty) == Some(&Type::Unknown)
+                        && self.checker_types_binding_concretely(&assign.left)
+                    {
+                        // As above, for an optional erased value.
+                        let optional = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value },
+                            ty: smelt_hir::type_normalize::optional_of(
+                                &mut self.ctx.krate.types,
+                                fallback_ty,
+                            ),
+                            span: self.span(assign.left.span().start, assign.left.span().end),
+                        });
+                        let coalesced_value = body.push_expr(Expr {
+                            kind: ExprKind::OptionalCoalesce { optional, fallback },
+                            ty: fallback_ty,
+                            span: self.span(assign.span.start, assign.span.end),
+                        });
+                        let ty = Self::expr_ty(body, coalesced_value);
+                        return self.binding_declaration(
+                            &assign.left,
+                            Some(coalesced_value),
+                            Some(ty),
+                            mutable,
+                            body,
+                            block,
+                        );
                     } else if let Some(non_null_ty) = self.non_nullish_type(value_ty) {
                         if self.ctx.krate.types.get(non_null_ty) == Some(&Type::Unknown) {
-                            let optional = body.push_expr(Expr {
-                                kind: ExprKind::TypeAssert { value },
-                                ty: smelt_hir::type_normalize::optional_of(
-                                    &mut self.ctx.krate.types,
-                                    fallback_ty,
-                                ),
-                                span: self.span(assign.left.span().start, assign.left.span().end),
+                            // `unknown | undefined`: the binding is `unknown`
+                            // (see the arm above), not the default's type.
+                            let fallback =
+                                Self::fallback_at_type(fallback, fallback_ty, non_null_ty, body);
+                            let span = self.span(assign.span.start, assign.span.end);
+                            // An absent `Option` is `undefined`; a present one
+                            // still holds a tagged value that may be `undefined`.
+                            let undefined = body.push_expr(Expr {
+                                kind: ExprKind::Literal(Literal::Undefined),
+                                ty: non_null_ty,
+                                span,
                             });
-                            let coalesced_value = body.push_expr(Expr {
-                                kind: ExprKind::OptionalCoalesce { optional, fallback },
-                                ty: fallback_ty,
-                                span: self.span(assign.span.start, assign.span.end),
+                            let present = body.push_expr(Expr {
+                                kind: ExprKind::OptionalCoalesce {
+                                    optional: value,
+                                    fallback: undefined,
+                                },
+                                ty: non_null_ty,
+                                span,
                             });
+                            let coalesced_value = self.default_when_undefined(
+                                present,
+                                fallback,
+                                non_null_ty,
+                                span,
+                                body,
+                                block,
+                            );
                             let ty = Self::expr_ty(body, coalesced_value);
                             return self.binding_declaration(
                                 &assign.left,
@@ -429,6 +504,101 @@ impl ModuleBuilder<'_> {
                 self.binding_declaration(&assign.left, Some(value), Some(ty), mutable, body, block)
             }
         }
+    }
+
+    /// Whether the TS7 checker gives the binding `pattern` a type other than
+    /// `unknown`/`any`. A binding whose value Smelt sees as erased but the
+    /// checker types concretely was erased upstream, not declared dynamic.
+    /// `false` without facts, where the declared `unknown` is taken at its word.
+    fn checker_types_binding_concretely(&self, pattern: &BindingPattern<'_>) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        let span = pattern.span();
+        facts
+            .type_at(&self.path, span.start, span.end)
+            .is_some_and(|ty| {
+                !matches!(
+                    ty.kind,
+                    smelt_ts_model::TsTypeKind::Unknown | smelt_ts_model::TsTypeKind::Any
+                )
+            })
+    }
+
+    /// `value === undefined ? fallback : value` for a tagged `unknown` value:
+    /// a destructuring default applies to `undefined` only, so a present
+    /// `null` (or `0`, `""`) is kept, and the default is evaluated only when
+    /// it applies. `value` is read once, through a temporary.
+    fn default_when_undefined(
+        &mut self,
+        value: smelt_hir::ExprId,
+        fallback: smelt_hir::ExprId,
+        unknown_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> smelt_hir::ExprId {
+        let temp = body.push_local(LocalDecl {
+            name: None,
+            ty: unknown_ty,
+            mutable: false,
+            span,
+        });
+        let pat = body.push_pattern(Pattern::Binding(temp));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat,
+                ty: unknown_ty,
+                value: Some(value),
+            },
+        );
+        let read = |arena: &mut Body| {
+            arena.push_expr(Expr {
+                kind: ExprKind::Local(temp),
+                ty: unknown_ty,
+                span,
+            })
+        };
+        let tested = read(body);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let cond_value = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value: tested,
+                kind: smelt_hir::UnknownKind::Undefined,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let kept = read(body);
+        body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond: cond_value,
+                then_expr: fallback,
+                else_expr: kept,
+            },
+            ty: unknown_ty,
+            span,
+        })
+    }
+
+    /// `fallback` (of type `fallback_ty`) viewed at `target_ty`, the binding's
+    /// type: unchanged when they agree, else asserted to it.
+    fn fallback_at_type(
+        fallback: smelt_hir::ExprId,
+        fallback_ty: smelt_hir::TypeId,
+        target_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if fallback_ty == target_ty {
+            return fallback;
+        }
+        let span = Self::body_expr_span(body, fallback);
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: fallback },
+            ty: target_ty,
+            span,
+        })
     }
 
     /// Create a string key expression for a static object destructuring property.
@@ -517,11 +687,11 @@ impl ModuleBuilder<'_> {
 
     /// Return the span for an expression already inserted into a body.
     pub(in crate::lowering) fn body_expr_span(body: &Body, expr: smelt_hir::ExprId) -> Span {
-        let root_span = body.block_at(body.root)
+        let root_span = body
+            .block_at(body.root)
             .or_else(|| body.blocks.first())
             .map_or(Span::new(FileId(0), 0, 0), |block| block.span);
-        body.expr_at(expr)
-            .map_or(root_span, |expr| expr.span)
+        body.expr_at(expr).map_or(root_span, |expr| expr.span)
     }
 
     /// Collect source names introduced by a binding pattern.

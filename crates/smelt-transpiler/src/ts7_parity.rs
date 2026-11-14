@@ -81,7 +81,11 @@ pub(crate) fn classify(krate: &Crate, hir: TypeId, facts: &TsTypeFacts, ts: TsTy
 const fn is_dynamic(kind: &TsTypeKind) -> bool {
     matches!(
         kind,
-        TsTypeKind::Any | TsTypeKind::Unknown | TsTypeKind::NonPrimitive | TsTypeKind::Symbol | TsTypeKind::UniqueSymbol
+        TsTypeKind::Any
+            | TsTypeKind::Unknown
+            | TsTypeKind::NonPrimitive
+            | TsTypeKind::Symbol
+            | TsTypeKind::UniqueSymbol
     )
 }
 
@@ -105,7 +109,11 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         return "?".to_owned();
     };
     let join = |members: &[TypeId], separator: &str| {
-        members.iter().map(|&member| shape_at_depth(krate, member, next)).collect::<Vec<_>>().join(separator)
+        members
+            .iter()
+            .map(|&member| shape_at_depth(krate, member, next))
+            .collect::<Vec<_>>()
+            .join(separator)
     };
     let symbol = |name| krate.symbols.source(name).unwrap_or("?");
     match ty {
@@ -118,7 +126,9 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         Type::Class { name, .. } => format!("Class({})", symbol(*name)),
         // A declared type parameter's identity key names its declaration
         // site; its rendering is the source spelling.
-        Type::TypeParam { name } => format!("TypeParam({})", krate.symbols.get(*name).unwrap_or("?")),
+        Type::TypeParam { name } => {
+            format!("TypeParam({})", krate.symbols.get(*name).unwrap_or("?"))
+        }
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
@@ -155,24 +165,38 @@ fn ts_shape_at_depth(facts: &TsTypeFacts, id: TsTypeId, depth: usize) -> String 
         return "?".to_owned();
     };
     let join = |members: &[TsTypeId], separator: &str| {
-        members.iter().map(|&member| ts_shape_at_depth(facts, member, next)).collect::<Vec<_>>().join(separator)
+        members
+            .iter()
+            .map(|&member| ts_shape_at_depth(facts, member, next))
+            .collect::<Vec<_>>()
+            .join(separator)
     };
     match &ty.kind {
         TsTypeKind::StringLiteral(_) => "string-literal".to_owned(),
         TsTypeKind::NumberLiteral(_) => "number-literal".to_owned(),
         TsTypeKind::BooleanLiteral(_) => "boolean-literal".to_owned(),
         TsTypeKind::BigIntLiteral(_) => "bigint-literal".to_owned(),
-        TsTypeKind::Union { enum_symbol: Some(symbol), .. } => format!("Enum({})", symbol.name),
+        TsTypeKind::Union {
+            enum_symbol: Some(symbol),
+            ..
+        } => format!("Enum({})", symbol.name),
         TsTypeKind::EnumMember { enum_symbol, .. } => format!("EnumMember({})", enum_symbol.name),
-        TsTypeKind::Union { members, enum_symbol: None } => join(members, " | "),
+        TsTypeKind::Union {
+            members,
+            enum_symbol: None,
+        } => join(members, " | "),
         TsTypeKind::Intersection(members) => join(members, " & "),
-        TsTypeKind::Array { element, .. } => format!("Array<{}>", ts_shape_at_depth(facts, *element, next)),
+        TsTypeKind::Array { element, .. } => {
+            format!("Array<{}>", ts_shape_at_depth(facts, *element, next))
+        }
         TsTypeKind::Tuple { elements, .. } => {
             let ids: Vec<TsTypeId> = elements.iter().map(|element| element.ty).collect();
             format!("[{}]", join(&ids, ", "))
         }
         TsTypeKind::Named { symbol, .. } => format!("Named({})", symbol.name),
-        TsTypeKind::Object(object) if object.properties.is_empty() && !object.call_signatures.is_empty() => {
+        TsTypeKind::Object(object)
+            if object.properties.is_empty() && !object.call_signatures.is_empty() =>
+        {
             "Function".to_owned()
         }
         TsTypeKind::Object(object) => format!("Object{{{} props}}", object.properties.len()),
@@ -209,7 +233,8 @@ impl Comparer<'_> {
         if depth > MAX_DEPTH {
             return true;
         }
-        let (Some(hir_type), Some(ts_type)) = (self.krate.types.get(hir), self.facts.types.get(ts)) else {
+        let (Some(hir_type), Some(ts_type)) = (self.krate.types.get(hir), self.facts.types.get(ts))
+        else {
             return false;
         };
         if is_dynamic(&ts_type.kind) || is_deferred(&ts_type.kind) {
@@ -232,13 +257,20 @@ impl Comparer<'_> {
             }
             TsTypeKind::Boolean | TsTypeKind::BooleanLiteral(_) => Some(matches!(hir, Type::Bool)),
             TsTypeKind::BigInt | TsTypeKind::BigIntLiteral(_) => Some(matches!(hir, Type::BigInt)),
-            TsTypeKind::Void | TsTypeKind::Undefined | TsTypeKind::Null => Some(matches!(hir, Type::None)),
+            TsTypeKind::Void | TsTypeKind::Undefined | TsTypeKind::Null => {
+                Some(matches!(hir, Type::None))
+            }
             // `never` is the bottom type: every HIR type can hold it (an empty
             // array literal is `never[]` before its uses widen it).
             TsTypeKind::Never => Some(true),
-            TsTypeKind::TypeParameter { constraint, is_this, .. } => {
-                Some(matches!(hir, Type::TypeParam { .. }) || (*is_this && self.this_agrees(hir, *constraint)))
-            }
+            TsTypeKind::TypeParameter {
+                constraint,
+                is_this,
+                ..
+            } => Some(
+                matches!(hir, Type::TypeParam { .. })
+                    || (*is_this && self.this_agrees(hir, *constraint)),
+            ),
             TsTypeKind::EnumMember { enum_symbol, value } => {
                 Some(self.named_class(hir, &enum_symbol.name) || self.value_agrees(hir, *value))
             }
@@ -263,14 +295,20 @@ impl Comparer<'_> {
     /// (Rust's `Self`), so `this` agrees with whatever agrees with its constraint.
     fn this_agrees(&self, hir: &Type, constraint: Option<TsTypeId>) -> bool {
         constraint.is_some_and(|bound| {
-            self.facts.types.get(bound).is_some_and(|bound_type| self.composite_agrees_type(hir, bound_type))
+            self.facts
+                .types
+                .get(bound)
+                .is_some_and(|bound_type| self.composite_agrees_type(hir, bound_type))
         })
     }
 
     /// `composite_agrees` for a HIR type without its id (non-union constraints only).
     fn composite_agrees_type(&self, hir: &Type, ts: &TsType) -> bool {
         match &ts.kind {
-            TsTypeKind::Named { symbol, type_arguments } => self.named_agrees(hir, &symbol.name, type_arguments, 1),
+            TsTypeKind::Named {
+                symbol,
+                type_arguments,
+            } => self.named_agrees(hir, &symbol.name, type_arguments, 1),
             TsTypeKind::Object(_) => matches!(hir, Type::Class { .. }),
             TsTypeKind::Any
             | TsTypeKind::Unknown
@@ -308,10 +346,12 @@ impl Comparer<'_> {
         }
         let next = depth.saturating_add(1);
         match self.krate.types.get(hir) {
-            Some(Type::Optional(inner)) => self.agrees(*inner, ts, next) || self.wider(*inner, ts, next),
-            Some(Type::Union(members)) => {
-                members.iter().any(|&member| self.agrees(member, ts, next) || self.wider(member, ts, next))
+            Some(Type::Optional(inner)) => {
+                self.agrees(*inner, ts, next) || self.wider(*inner, ts, next)
             }
+            Some(Type::Union(members)) => members
+                .iter()
+                .any(|&member| self.agrees(member, ts, next) || self.wider(member, ts, next)),
             Some(_) | None => false,
         }
     }
@@ -330,25 +370,34 @@ impl Comparer<'_> {
     /// `hir_id` and `hir` are the same HIR type (the interner has no reverse lookup).
     fn composite_agrees(&self, hir_id: TypeId, hir: &Type, ts: &TsType, depth: usize) -> bool {
         match &ts.kind {
-            TsTypeKind::Union { members, enum_symbol } => {
-                self.union_agrees(hir_id, members, enum_symbol.as_ref(), depth)
-            }
+            TsTypeKind::Union {
+                members,
+                enum_symbol,
+            } => self.union_agrees(hir_id, members, enum_symbol.as_ref(), depth),
             TsTypeKind::Intersection(members) => {
                 matches!(hir, Type::Class { .. } | Type::Dict(..))
-                    || members.iter().any(|&member| self.agrees(hir_id, member, depth))
+                    || members
+                        .iter()
+                        .any(|&member| self.agrees(hir_id, member, depth))
             }
             TsTypeKind::Array { element, .. } => {
                 matches!(hir, Type::List(inner) if self.agrees(*inner, *element, depth))
             }
             TsTypeKind::Tuple { elements, .. } => self.tuple_agrees(hir, elements, depth),
-            TsTypeKind::Named { symbol, type_arguments } => {
-                self.named_agrees(hir, &symbol.name, type_arguments, depth)
-            }
-            TsTypeKind::Object(object) if object.properties.is_empty() && !object.call_signatures.is_empty() => {
+            TsTypeKind::Named {
+                symbol,
+                type_arguments,
+            } => self.named_agrees(hir, &symbol.name, type_arguments, depth),
+            TsTypeKind::Object(object)
+                if object.properties.is_empty() && !object.call_signatures.is_empty() =>
+            {
                 matches!(hir, Type::Function(_))
             }
             TsTypeKind::Object(_) => {
-                matches!(hir, Type::Class { .. } | Type::Dict(..) | Type::JsMap(..) | Type::Function(_))
+                matches!(
+                    hir,
+                    Type::Class { .. } | Type::Dict(..) | Type::JsMap(..) | Type::Function(_)
+                )
             }
             TsTypeKind::Any
             | TsTypeKind::Unknown
@@ -400,17 +449,24 @@ impl Comparer<'_> {
         }
         if let Type::Union(hir_members) = hir {
             return members.iter().all(|&member| {
-                hir_members.iter().any(|&hir_member| self.agrees(hir_member, member, depth))
+                hir_members
+                    .iter()
+                    .any(|&hir_member| self.agrees(hir_member, member, depth))
             });
         }
-        members.iter().all(|&member| self.agrees(hir_id, member, depth))
+        members
+            .iter()
+            .all(|&member| self.agrees(hir_id, member, depth))
     }
 
     /// Splits union members into nullish (`null`/`undefined`/`void`) and the rest.
     fn split_nullish(&self, members: &[TsTypeId]) -> (Vec<TsTypeId>, Vec<TsTypeId>) {
         members.iter().partition(|&&member| {
             self.facts.types.get(member).is_some_and(|ty| {
-                matches!(ty.kind, TsTypeKind::Undefined | TsTypeKind::Null | TsTypeKind::Void)
+                matches!(
+                    ty.kind,
+                    TsTypeKind::Undefined | TsTypeKind::Null | TsTypeKind::Void
+                )
             })
         })
     }
@@ -455,7 +511,13 @@ impl Comparer<'_> {
     }
 
     /// A class or interface reference, honoring the host-collection mappings.
-    fn named_agrees(&self, hir: &Type, name: &str, type_arguments: &[TsTypeId], depth: usize) -> bool {
+    fn named_agrees(
+        &self,
+        hir: &Type,
+        name: &str,
+        type_arguments: &[TsTypeId],
+        depth: usize,
+    ) -> bool {
         match (name, hir) {
             ("Map" | "ReadonlyMap" | "WeakMap", Type::JsMap(..) | Type::Dict(..))
             | ("Set" | "ReadonlySet" | "WeakSet", Type::Set(_))
@@ -463,9 +525,9 @@ impl Comparer<'_> {
                 "Generator" | "AsyncGenerator" | "IterableIterator" | "AsyncIterableIterator",
                 Type::Generator { .. },
             ) => true,
-            ("Promise" | "PromiseLike", Type::Future(inner)) => {
-                type_arguments.first().is_none_or(|&argument| self.agrees(*inner, argument, depth))
-            }
+            ("Promise" | "PromiseLike", Type::Future(inner)) => type_arguments
+                .first()
+                .is_none_or(|&argument| self.agrees(*inner, argument, depth)),
             _ => self.named_class(hir, name),
         }
     }
@@ -480,7 +542,11 @@ impl Comparer<'_> {
         let Type::Class { name: symbol, .. } = hir else {
             return false;
         };
-        let original = self.krate.names.get(*symbol).or_else(|| self.krate.symbols.source(*symbol));
+        let original = self
+            .krate
+            .names
+            .get(*symbol)
+            .or_else(|| self.krate.symbols.source(*symbol));
         original == Some(name)
     }
 }

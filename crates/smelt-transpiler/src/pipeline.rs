@@ -12,9 +12,9 @@ use smelt_hir::format_compact;
 use crate::type_gate::TypeErrorPolicy;
 use crate::{
     config::{Allocator, Config, OutputKind, ReleaseProfile},
-    erasure, lowering, typedness_report,
+    erasure, lowering,
     source_files::resolve_manifest_path,
-    stubs, timing,
+    stubs, timing, typedness_report,
 };
 
 /// Parses a Python file and dumps the Ruff AST for CLI debugging.
@@ -92,13 +92,20 @@ pub(crate) fn build_rust_crate_with_erasure(
     settings: &erasure::ErasureSettings,
     type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let lowered = timing::measure("manifest.lower", || -> Result<_, Box<dyn std::error::Error>> {
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?
-            .check()?
-            .into_inner(type_errors)?
-            .lower()
-    })?;
-    let lowering::LoweredCrate { krate, modules, sources } = lowered;
+    let lowered = timing::measure(
+        "manifest.lower",
+        || -> Result<_, Box<dyn std::error::Error>> {
+            lowering::ManifestLowering::for_manifest(config, manifest_path)?
+                .check()?
+                .into_inner(type_errors)?
+                .lower()
+        },
+    )?;
+    let lowering::LoweredCrate {
+        krate,
+        modules,
+        sources,
+    } = lowered;
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
     })?;
@@ -158,17 +165,26 @@ pub(crate) fn check_manifest(
     settings: &erasure::ErasureSettings,
     type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let lowered = timing::measure("manifest.lower", || -> Result<_, Box<dyn std::error::Error>> {
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?
-            .check()?
-            .into_inner(type_errors)?
-            .lower()
-    })?;
+    let lowered = timing::measure(
+        "manifest.lower",
+        || -> Result<_, Box<dyn std::error::Error>> {
+            lowering::ManifestLowering::for_manifest(config, manifest_path)?
+                .check()?
+                .into_inner(type_errors)?
+                .lower()
+        },
+    )?;
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&lowered.krate, &lowered.modules)
     })?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let erasures = erasure::resolve(&lowered.krate, &lowered.sources, &[], manifest_dir, settings);
+    let erasures = erasure::resolve(
+        &lowered.krate,
+        &lowered.sources,
+        &[],
+        manifest_dir,
+        settings,
+    );
     let denied = erasure::print_diagnostics(&erasures);
     if denied > 0 {
         return Err(erasure::denied_error(denied));

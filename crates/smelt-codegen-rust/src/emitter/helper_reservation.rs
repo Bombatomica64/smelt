@@ -160,24 +160,36 @@ mod tests {
     #[test]
     fn a_released_reservation_rolls_back_nested_commits() {
         let minted = MintedItems::default();
-        let outer = reserve(&minted, &minted.record_conversion_helpers, "Outer".to_owned());
+        let outer = reserve(
+            &minted,
+            &minted.record_conversion_helpers,
+            "Outer".to_owned(),
+        );
         let nested = reserve(
             &minted,
             &minted.record_adapter_helpers,
             ("Source".to_owned(), "Target".to_owned()),
         );
         let outer_ordinal = outer.ordinal;
-        nested.commit(format!("__smelt_from_unknown_record_{outer_ordinal}(smelt_value)"));
+        nested.commit(format!(
+            "__smelt_from_unknown_record_{outer_ordinal}(smelt_value)"
+        ));
         minted.backend_erasures.borrow_mut().clear();
         minted.console_inspect_used.set(true);
         assert_eq!(minted.record_adapter_helpers.borrow().len(), 1);
         drop(outer);
-        assert!(minted.record_conversion_helpers.borrow().is_empty(), "the outer entry is released");
+        assert!(
+            minted.record_conversion_helpers.borrow().is_empty(),
+            "the outer entry is released"
+        );
         assert!(
             minted.record_adapter_helpers.borrow().is_empty(),
             "the nested helper that calls the released ordinal is released with it"
         );
-        assert!(!minted.console_inspect_used.get(), "flags raised by the discarded render are lowered");
+        assert!(
+            !minted.console_inspect_used.get(),
+            "flags raised by the discarded render are lowered"
+        );
     }
 
     /// A committed reservation keeps its entry and everything nested in it, and
@@ -185,13 +197,24 @@ mod tests {
     #[test]
     fn a_commit_keeps_and_a_release_spares_earlier_items() {
         let minted = MintedItems::default();
-        let first = reserve(&minted, &minted.record_conversion_helpers, "First".to_owned());
+        let first = reserve(
+            &minted,
+            &minted.record_conversion_helpers,
+            "First".to_owned(),
+        );
         let first_ordinal = first.commit("first".to_owned());
-        let second = reserve(&minted, &minted.record_conversion_helpers, "Second".to_owned());
+        let second = reserve(
+            &minted,
+            &minted.record_conversion_helpers,
+            "Second".to_owned(),
+        );
         assert_eq!(second.ordinal, first_ordinal + 1);
         drop(second);
         let helpers = minted.record_conversion_helpers.borrow();
         assert_eq!(helpers.len(), 1);
-        assert_eq!(helpers.get("First").map(|(_, body)| body.as_str()), Some("first"));
+        assert_eq!(
+            helpers.get("First").map(|(_, body)| body.as_str()),
+            Some("first")
+        );
     }
 }

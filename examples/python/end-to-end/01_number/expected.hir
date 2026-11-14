@@ -10,6 +10,5 @@ module examples/python/end-to-end/01_number/input.py (ModuleId(0))
     s0: #2
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Int
+  t0 = Int
+  t1 = None

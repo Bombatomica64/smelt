@@ -300,7 +300,16 @@ fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handle
 //~ serving.
 #[allow(dead_code)]
 async fn smelt_run_until_exit() {
+    //~ Node does not exit while a timer is pending: each zero-delay sleep
+    //~ advances virtual time to the earliest pending timer and fires it
+    //~ (with the microtasks it queues), so the loop repeats until no timer
+    //~ is left. One sleep fired only the first: `setTimeout(a, 1);
+    //~ setTimeout(b, 2)` printed `a` and exited, and an interval ticked once.
+    //~ A never-cleared interval keeps the program running, as it does in Node.
     smelt_sleep_ms(0.0).await;
+    while SMELT_TIMERS.with(|timers| !timers.borrow().is_empty()) {
+        smelt_sleep_ms(0.0).await;
+    }
     //~ While a handle keeps the program alive, the loop keeps RUNNING
     //~ the event loop, not just waiting: work a handle produces (a
     //~ `node:http` request whose handler starts a promise, a timer it

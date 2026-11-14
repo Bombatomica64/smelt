@@ -110,7 +110,10 @@ function child(node: TreeNode, key: string): TreeNode {
 console.log(Object.keys(child(new TreeNode(), 'a').kids).length);
 ",
     );
-    assert!(source.contains("let mut next: Option<TreeNode>"), "{source}");
+    assert!(
+        source.contains("let mut next: Option<TreeNode>"),
+        "{source}"
+    );
     assert!(source.contains("next.clone().is_some()"), "{source}");
 }
 
@@ -150,7 +153,10 @@ console.log(kind(new PathError('x')));
         source.contains("matches!(smelt_value.get(\"__smelt_class\")"),
         "{source}"
     );
-    assert!(source.contains("\"BaseError\") || smelt_class_name.eq_str(\"PathError\""), "{source}");
+    assert!(
+        source.contains("\"BaseError\") || smelt_class_name.eq_str(\"PathError\""),
+        "{source}"
+    );
 }
 
 /// A truthiness guard over a union of object arms is folded only for a
@@ -231,7 +237,10 @@ console.log(/\((?!\?:)/.test('(a|b)'));
     // supports look-around as JavaScript does. (This used to pin `fancy-regex`,
     // the look-around-capable engine the old UTF-8 translation compiled to.)
     let main = source.split("fn main()").nth(1).unwrap_or_default();
-    assert!(main.contains("SmeltRegExp::new(") && main.contains(".is_match(&"), "{main}");
+    assert!(
+        main.contains("SmeltRegExp::new(") && main.contains(".is_match(&"),
+        "{main}"
+    );
     assert!(source.contains("regress::Regex::"), "{source}");
 }
 
@@ -260,8 +269,14 @@ console.log(box.label);
 ",
     );
     assert!(source.contains("smelt_push_this_lazy("), "{source}");
-    assert!(source.contains("fn __smelt_set_field(&self, key: &str, value: SmeltUnknown)"), "{source}");
-    assert!(source.contains("smelt_object_write_through(smelt_map, \"label\""), "{source}");
+    assert!(
+        source.contains("fn __smelt_set_field(&self, key: &str, value: SmeltUnknown)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_object_write_through(smelt_map, \"label\""),
+        "{source}"
+    );
 }
 
 /// A method call keeps calling the Rust method: only a DATA field holding a
@@ -334,7 +349,10 @@ export function pick(rec: Record<string, string>, key: string): unknown {
             || source.contains("unwrap_or(SmeltUnknown::Undefined)"),
         "{source}"
     );
-    assert!(!program_part(&source).contains("unwrap_or(String::new())"), "{source}");
+    assert!(
+        !program_part(&source).contains("unwrap_or(String::new())"),
+        "{source}"
+    );
 }
 
 /// A string index read is total: `''[0]` is `undefined`, not a panic.
@@ -347,7 +365,10 @@ export function startsWithSlash(parts: string[]): boolean {
 }
 ",
     );
-    assert!(!program_part(&source).contains("expect(\"index out of bounds\")"), "{source}");
+    assert!(
+        !program_part(&source).contains("expect(\"index out of bounds\")"),
+        "{source}"
+    );
 }
 
 /// `sourceBuffer as ArrayBuffer` over an `ArrayBufferView | ArrayBuffer`
@@ -366,7 +387,10 @@ export async function hash(data: ArrayBufferView | ArrayBuffer): Promise<number>
 }
 ",
     );
-    assert!(!source.contains("union guard selected an excluded member"), "{source}");
+    assert!(
+        !source.contains("union guard selected an excluded member"),
+        "{source}"
+    );
     assert!(source.contains("(value) => value.to_bytes()"), "{source}");
 }
 
@@ -440,8 +464,14 @@ export function ownValue(rec: Record<string, string>, key: string): unknown {
 ",
     );
     assert!(source.contains("contains_key(&key"), "{source}");
-    assert!(source.contains("JsString::from(\"configurable\")"), "{source}");
-    assert!(!program_part(&source).contains("\"getOwnPropertyDescriptor\""), "{source}");
+    assert!(
+        source.contains("JsString::from(\"configurable\")"),
+        "{source}"
+    );
+    assert!(
+        !program_part(&source).contains("\"getOwnPropertyDescriptor\""),
+        "{source}"
+    );
 }
 
 /// `Array.prototype.map.call(view, f)` maps the view's elements.
@@ -461,7 +491,10 @@ export function hex(bytes: Uint8Array): string {
     let program = program_part(&source);
     assert!(!program.contains("\"prototype\""), "{program}");
     assert!(program.contains("to_elements()"), "{program}");
-    assert!(program.contains("let smelt_radix ="), "the callback keeps its radix:\n{program}");
+    assert!(
+        program.contains("smelt_number_to_string_radix(closure_arg_0, 16.0 as u32)"),
+        "the callback keeps its radix:\n{program}"
+    );
 }
 
 /// `x.toString(16)` inside a callback body keeps its radix.

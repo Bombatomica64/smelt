@@ -1,12 +1,12 @@
 //! Module globals: the type of each top-level binding a function body may read,
 //! inferred from its annotation or initializer before bodies are lowered.
 
-use std::collections::{HashMap, HashSet};
+use super::super::{ConstCollection, ModuleBuilder};
 use crate::SmeltError;
 use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Item, Type};
-use super::super::{ConstCollection, ModuleBuilder};
+use std::collections::{HashMap, HashSet};
 
 impl ModuleBuilder<'_> {
     /// Collect typed top-level variables that functions may read or write.
@@ -27,7 +27,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Register annotated and inferred module-level variables for later function-body lookup.
-    pub(in crate::lowering) fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
+    pub(in crate::lowering) fn collect_module_global_decl(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) {
         // `declare let process: …` says the HOST provides `process`. The
         // declaration still contributes the name's TYPE — that is all a
         // `declare` is — but recording it as an ordinary module global made
@@ -90,32 +93,47 @@ impl ModuleBuilder<'_> {
                     // body that recreates the const (`paths[p][1]`) reads the
                     // declared tuple/list shapes rather than the literal's
                     // erased inference.
-                    let type_hint = declarator
-                        .type_annotation
-                        .as_ref()
-                        .and_then(|annotation| self.ts_type_to_hir(&annotation.type_annotation).ok());
+                    let type_hint = declarator.type_annotation.as_ref().and_then(|annotation| {
+                        self.ts_type_to_hir(&annotation.type_annotation).ok()
+                    });
                     self.object_const_from_expression(object, type_hint)
                 }
             {
                 if let Some(collection) = self.const_collection_from_object_const(&value) {
-                    self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
-                    self.publish_export(|ctx| &mut ctx.object_value_collections, binding.name.as_str().to_owned(), collection);
+                    self.consts.set_object_value_collection(
+                        binding.name.as_str().to_owned(),
+                        collection.clone(),
+                    );
+                    self.publish_export(
+                        |ctx| &mut ctx.object_value_collections,
+                        binding.name.as_str().to_owned(),
+                        collection,
+                    );
                 }
-                self.consts.set_object(binding.name.as_str().to_owned(), value);
+                self.consts
+                    .set_object(binding.name.as_str().to_owned(), value);
             } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
                 && let Some(collection) = self.const_unknown_value_collection_from_object(object)
             {
-                self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
-                self.publish_export(|ctx| &mut ctx.object_value_collections, binding.name.as_str().to_owned(), collection);
+                self.consts.set_object_value_collection(
+                    binding.name.as_str().to_owned(),
+                    collection.clone(),
+                );
+                self.publish_export(
+                    |ctx| &mut ctx.object_value_collections,
+                    binding.name.as_str().to_owned(),
+                    collection,
+                );
             }
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && !self.consts.has_object(binding.name.as_str())
                 && let Some(init) = &declarator.init
                 && let Some(map_const) = self.map_const_from_initializer(init)
             {
-                self.consts.set_object(binding.name.as_str().to_owned(), map_const);
+                self.consts
+                    .set_object(binding.name.as_str().to_owned(), map_const);
             }
             if matches!(
                 decl.kind,
@@ -130,7 +148,8 @@ impl ModuleBuilder<'_> {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
-                    self.consts.set_regexp(binding.name.as_str().to_owned(), (pattern, flags, ty));
+                    self.consts
+                        .set_regexp(binding.name.as_str().to_owned(), (pattern, flags, ty));
                 }
             }
             if matches!(
@@ -143,7 +162,8 @@ impl ModuleBuilder<'_> {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), value.ty);
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
-                    self.consts.set_literal(binding.name.as_str().to_owned(), value);
+                    self.consts
+                        .set_literal(binding.name.as_str().to_owned(), value);
                 }
             }
             let Some(annotation) = &declarator.type_annotation else {
@@ -172,8 +192,13 @@ impl ModuleBuilder<'_> {
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-                        self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
-                        self.publish_export(|ctx| &mut ctx.const_collections, binding.name.as_str().to_owned(), collection);
+                        self.consts
+                            .set_collection(binding.name.as_str().to_owned(), collection.clone());
+                        self.publish_export(
+                            |ctx| &mut ctx.const_collections,
+                            binding.name.as_str().to_owned(),
+                            collection,
+                        );
                     }
                 }
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -202,8 +227,13 @@ impl ModuleBuilder<'_> {
                     && let Some(init) = &declarator.init
                     && let Some(collection) = self.declared_const_collection(init, ty)
                 {
-                    self.consts.set_collection(binding.name.as_str().to_owned(), collection.clone());
-                    self.publish_export(|ctx| &mut ctx.const_collections, binding.name.as_str().to_owned(), collection);
+                    self.consts
+                        .set_collection(binding.name.as_str().to_owned(), collection.clone());
+                    self.publish_export(
+                        |ctx| &mut ctx.const_collections,
+                        binding.name.as_str().to_owned(),
+                        collection,
+                    );
                 }
             }
         }
@@ -248,9 +278,8 @@ impl ModuleBuilder<'_> {
         let mut collection = self.const_collection_from_initializer(init, declared_ty)?;
         collection.ty = declared_ty;
         let set_ty = matches!(self.ctx.krate.types.get(declared_ty), Some(Type::Set(_)));
-        (collection.is_set == set_ty
-            && collection.items.iter().all(|item| item.ty == element_ty))
-        .then_some(collection)
+        (collection.is_set == set_ty && collection.items.iter().all(|item| item.ty == element_ty))
+            .then_some(collection)
     }
 
     /// Record every name an ambient declaration's binding pattern introduces.
@@ -332,7 +361,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true for const array initializers whose values must be visible in functions.
-    pub(in crate::lowering) fn is_module_global_array_initializer(&self, init: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_module_global_array_initializer(
+        &self,
+        init: &Expression<'_>,
+    ) -> bool {
         match init {
             Expression::ArrayExpression(_) => true,
             Expression::NewExpression(new_expr) => matches!(
@@ -404,8 +436,9 @@ impl ModuleBuilder<'_> {
         // Compared by shape, not by interning `Unknown`: the type table is
         // what decides whether the erased runtime is emitted, so a pass that
         // only LOOKS for erased bindings must not add the type itself.
-        let is_unknown =
-            |builder: &Self, ty: smelt_hir::TypeId| matches!(builder.ctx.krate.types.get(ty), Some(Type::Unknown));
+        let is_unknown = |builder: &Self, ty: smelt_hir::TypeId| {
+            matches!(builder.ctx.krate.types.get(ty), Some(Type::Unknown))
+        };
         for statement in &program.body {
             let variable = match statement {
                 Statement::VariableDeclaration(variable) => variable,
@@ -427,7 +460,10 @@ impl ModuleBuilder<'_> {
                     continue;
                 };
                 if matches!(init, Expression::ArrowFunctionExpression(_))
-                    || !self.module_globals.get(name).is_some_and(|&ty| is_unknown(self, ty))
+                    || !self
+                        .module_globals
+                        .get(name)
+                        .is_some_and(|&ty| is_unknown(self, ty))
                 {
                     continue;
                 }

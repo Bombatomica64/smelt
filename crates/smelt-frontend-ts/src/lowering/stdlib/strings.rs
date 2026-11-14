@@ -1,9 +1,9 @@
 //! `String.prototype` methods and `String.fromCharCode`/`fromCodePoint`.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
-use crate::lowering::{Literal, ModuleBuilder, Span, StringPadOp};
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::js_str_text;
+use crate::lowering::{Literal, ModuleBuilder, Span, StringPadOp};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -41,7 +41,10 @@ impl ModuleBuilder<'_> {
             operand
         } else if self.string_method_erased_receiver(operand_ty) {
             body.push_expr(Expr {
-                kind: ExprKind::UnknownCast { value: operand, target: string_ty },
+                kind: ExprKind::UnknownCast {
+                    value: operand,
+                    target: string_ty,
+                },
                 ty: string_ty,
                 span: self.span(member.object.span().start, member.object.span().end),
             })
@@ -51,9 +54,16 @@ impl ModuleBuilder<'_> {
         let (kind, ty) = if repair {
             (ExprKind::StringToWellFormed { operand }, string_ty)
         } else {
-            (ExprKind::StringIsWellFormed { operand }, self.ctx.krate.types.intern(Type::Bool))
+            (
+                ExprKind::StringIsWellFormed { operand },
+                self.ctx.krate.types.intern(Type::Bool),
+            )
         };
-        Ok(Some(body.push_expr(Expr { kind, ty, span: self.span(call.span.start, call.span.end) })))
+        Ok(Some(body.push_expr(Expr {
+            kind,
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower direct TypeScript string case methods.
@@ -143,7 +153,9 @@ impl ModuleBuilder<'_> {
                 let item = self.type_param_constraint_or_self(*item);
                 matches!(
                     self.ctx.krate.types.get(item),
-                    Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                    Some(
+                        Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }
+                    )
                 )
             }),
             _ => false,
@@ -442,6 +454,16 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let haystack = self.expression(&member.object, body)?;
+        if let Some(expr) = self.erased_pattern_call(
+            smelt_hir::ErasedPatternMethod::Search,
+            haystack,
+            &member.object,
+            pattern_argument,
+            call.span,
+            body,
+        )? {
+            return Ok(Some(expr));
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String) {
             return Ok(None);
         }
@@ -498,7 +520,10 @@ impl ModuleBuilder<'_> {
             let from_index = self.argument(from_index_argument, body)?;
             if !self.slice_index_type_is_number(Self::expr_ty(body, from_index)) {
                 return Err(SmeltError::unsupported(
-                    self.span(from_index_argument.span().start, from_index_argument.span().end),
+                    self.span(
+                        from_index_argument.span().start,
+                        from_index_argument.span().end,
+                    ),
                     "string search fromIndex must be numeric",
                 ));
             }
@@ -903,7 +928,10 @@ impl ModuleBuilder<'_> {
             "charCodeAt" => (ExprKind::StringCharCodeAt { operand, index }, Type::Float),
             "codePointAt" => {
                 let float_ty = self.ctx.krate.types.intern(Type::Float);
-                (ExprKind::StringCodePointAt { operand, index }, Type::Optional(float_ty))
+                (
+                    ExprKind::StringCodePointAt { operand, index },
+                    Type::Optional(float_ty),
+                )
             }
             _ => (ExprKind::StringCharAt { operand, index }, Type::String),
         };
@@ -1058,7 +1086,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether `Array.prototype.join` can stringify this lowered item type.
-    pub(in crate::lowering) fn array_join_item_type_supported(&self, item_ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn array_join_item_type_supported(
+        &self,
+        item_ty: smelt_hir::TypeId,
+    ) -> bool {
         match self
             .ctx
             .krate
@@ -1139,7 +1170,8 @@ impl ModuleBuilder<'_> {
         let (start, end) = (member.object.span().start, member.object.span().end);
         let method = self.intern_source_name("includes");
         if (self.type_contains_unknown(haystack_ty)
-            && (self.checker_types_as_array(start, end) || self.checker_types_as_non_string(start, end)))
+            && (self.checker_types_as_array(start, end)
+                || self.checker_types_as_non_string(start, end)))
             || self.receiver_owns_member(haystack_ty, method)
         {
             return Ok(None);
@@ -1186,10 +1218,7 @@ impl ModuleBuilder<'_> {
             let position = self.argument(position_argument, body)?;
             if !self.slice_index_type_is_number(Self::expr_ty(body, position)) {
                 return Err(SmeltError::unsupported(
-                    self.span(
-                        position_argument.span().start,
-                        position_argument.span().end,
-                    ),
+                    self.span(position_argument.span().start, position_argument.span().end),
                     "string includes position must be numeric",
                 ));
             }
@@ -1242,7 +1271,9 @@ impl ModuleBuilder<'_> {
             let operand_ty = Self::expr_ty(body, operand);
             let float_ty = self.ctx.krate.types.intern(Type::Float);
             let codes_ty = self.ctx.krate.types.intern(Type::List(float_ty));
-            let operand = if operand_ty == codes_ty || self.is_modeled_class(operand_ty, smelt_stdlib::StdlibClass::TypedArray) {
+            let operand = if operand_ty == codes_ty
+                || self.is_modeled_class(operand_ty, smelt_stdlib::StdlibClass::TypedArray)
+            {
                 operand
             } else if matches!(
                 self.ctx.krate.types.get(operand_ty),
@@ -1427,7 +1458,9 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::String | Type::Unknown | Type::TypeParam { .. }) => true,
-            Some(Type::Class { name, .. }) => self.stdlib_class_of_symbol(*name) == Some(smelt_stdlib::StdlibClass::RegExp),
+            Some(Type::Class { name, .. }) => {
+                self.stdlib_class_of_symbol(*name) == Some(smelt_stdlib::StdlibClass::RegExp)
+            }
             Some(Type::Optional(item)) => self.string_split_separator_type_is_supported(*item),
             Some(Type::Union(items)) => items
                 .iter()

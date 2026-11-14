@@ -5,9 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::{
-    LocalId, Mir, MirFunction, Operand, Place, ReadMut, Rvalue, Statement, Terminator,
-};
+use crate::{LocalId, Mir, MirFunction, Operand, Place, ReadMut, Rvalue, Statement, Terminator};
 use shared_locals::SharedLocals;
 use smelt_hir::Type;
 
@@ -29,8 +27,8 @@ pub use dict_entry_mutation::DictEntryInPlaceMutation;
 pub use dict_entry_update::DictEntryUpdate;
 pub use integer_range::IntegerRange;
 pub use let_temp_elision::LetTempElision;
-pub use rest_call_fusion::RestCallFusion;
 pub use move_on_last_use::MoveOnLastUse;
+pub use rest_call_fusion::RestCallFusion;
 pub use temp_copy_forwarding::TempCopyForwarding;
 pub use unobserved_receiver_bind::UnobservedReceiverBind;
 
@@ -179,7 +177,11 @@ fn run_fixpoint(mir: &mut Mir, passes: &[Box<dyn Pass>]) -> Result<(), OptimizeE
             break;
         }
     }
-    if converged { Ok(()) } else { Err(OptimizeError::DidNotConverge { changing }) }
+    if converged {
+        Ok(())
+    } else {
+        Err(OptimizeError::DidNotConverge { changing })
+    }
 }
 
 /// [`try_optimize`] for callers that treat a failure as a bug: the test
@@ -202,6 +204,8 @@ pub fn optimize(mir: &mut Mir) {
 /// Re-establish the facts every pass may have made stale: capture sources
 /// derived from their sites, and the lazily built name/call index.
 fn after_pass(mir: &mut Mir) {
+    // A pass that settles a branch strands the block it no longer takes.
+    crate::reachability::remove_unreachable_blocks(mir);
     crate::sync_capture_sources(mir);
     mir.clear_index();
 }
@@ -335,8 +339,14 @@ fn unwind_written_locals(function: &MirFunction) -> HashSet<LocalId> {
         .iter()
         .filter_map(|block| match &block.terminator {
             Some(
-                Terminator::Call { unwind: Some(handler), .. }
-                | Terminator::Await { unwind: Some(handler), .. },
+                Terminator::Call {
+                    unwind: Some(handler),
+                    ..
+                }
+                | Terminator::Await {
+                    unwind: Some(handler),
+                    ..
+                },
             ) => handler.exception_local,
             _ => None,
         })
@@ -407,12 +417,14 @@ mod fixpoint_tests {
     //! The optimizer's own guarantees: it terminates (C10) and its alias
     //! rewrite never moves a value that is still live (C11).
 
-    use smelt_hir::{BodyId, FileId, OriginalNameTable, Span, Symbol, SymbolInterner, Type, TypeInterner};
+    use smelt_hir::{
+        BodyId, FileId, OriginalNameTable, Span, Symbol, SymbolInterner, Type, TypeInterner,
+    };
 
     use super::{CopyPropagation, OptimizeError, Pass, run_fixpoint};
     use crate::{
-        FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir, MirFunction, Operand, Place,
-        Rvalue, Statement, Terminator,
+        FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir, MirFunction, Operand, Place, Rvalue,
+        Statement, Terminator,
     };
 
     /// Flips one global's type id between two values: with [`Unflip`], a pair
@@ -423,14 +435,18 @@ mod fixpoint_tests {
 
     impl Pass for Flip {
         fn run(&self, mir: &mut Mir) -> bool {
-            mir.globals.iter_mut().for_each(|global| global.ty = smelt_hir::TypeId(1));
+            mir.globals
+                .iter_mut()
+                .for_each(|global| global.ty = smelt_hir::TypeId(1));
             true
         }
     }
 
     impl Pass for Unflip {
         fn run(&self, mir: &mut Mir) -> bool {
-            mir.globals.iter_mut().for_each(|global| global.ty = smelt_hir::TypeId(0));
+            mir.globals
+                .iter_mut()
+                .for_each(|global| global.ty = smelt_hir::TypeId(0));
             true
         }
     }
@@ -440,7 +456,11 @@ mod fixpoint_tests {
         let mut types = TypeInterner::default();
         types.intern(Type::Float);
         types.intern(Type::String);
-        let mut mir = Mir::new(types, SymbolInterner::default(), OriginalNameTable::default());
+        let mut mir = Mir::new(
+            types,
+            SymbolInterner::default(),
+            OriginalNameTable::default(),
+        );
         mir.globals.push(crate::MirGlobal {
             name: Symbol(0),
             ty: smelt_hir::TypeId(0),
@@ -456,32 +476,61 @@ mod fixpoint_tests {
         let mut mir = program();
         let passes: Vec<Box<dyn Pass>> = vec![Box::new(Flip), Box::new(Unflip)];
         let result = run_fixpoint(&mut mir, &passes);
-        assert!(matches!(result, Err(OptimizeError::DidNotConverge { .. })), "{result:?}");
+        assert!(
+            matches!(result, Err(OptimizeError::DidNotConverge { .. })),
+            "{result:?}"
+        );
     }
 
     /// `%1 = copy %0; f(move %1); g(copy %0)`: rewriting the alias must give
     /// `f(copy %0)`, not `f(move %0)`, since `%0` is read again (C11).
     #[test]
-    #[expect(clippy::indexing_slicing, clippy::panic, reason = "test fixtures unwrap and index their own known-good shapes")]
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::panic,
+        reason = "test fixtures unwrap and index their own known-good shapes"
+    )]
     fn an_alias_rewrite_never_moves_its_source() {
         let span = Span::new(FileId(0), 0, 0);
         let float = smelt_hir::TypeId(0);
         let mut mir = program();
-        let mut function =
-            MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), float, span);
-        for kind in [LocalKind::UserBinding(Symbol(1)), LocalKind::UserBinding(Symbol(2)), LocalKind::Temp] {
-            function.locals.push(LocalDecl { ty: float, kind, span });
+        let mut function = MirFunction::new(
+            FuncId(0),
+            Symbol(0),
+            HirOrigin::Body(BodyId(0)),
+            float,
+            span,
+        );
+        for kind in [
+            LocalKind::UserBinding(Symbol(1)),
+            LocalKind::UserBinding(Symbol(2)),
+            LocalKind::Temp,
+        ] {
+            function.locals.push(LocalDecl {
+                ty: float,
+                kind,
+                span,
+                init: crate::LocalInit::Definite,
+            });
         }
         let local = |index| Place::Local(LocalId(index));
         function.blocks[0].statements = vec![
-            Statement::Assign { dest: LocalId(1), value: Rvalue::Use(Operand::Copy(local(0))) },
-            Statement::Assign { dest: LocalId(2), value: Rvalue::List(vec![Operand::Move(local(1)), Operand::Copy(local(0))]) },
+            Statement::Assign {
+                dest: LocalId(1),
+                value: Rvalue::Use(Operand::Copy(local(0))),
+            },
+            Statement::Assign {
+                dest: LocalId(2),
+                value: Rvalue::List(vec![Operand::Move(local(1)), Operand::Copy(local(0))]),
+            },
         ];
         function.blocks[0].terminator = Some(Terminator::Return(Operand::Copy(local(2))));
         mir.push_function(function);
         assert!(CopyPropagation.run(&mut mir));
-        let Some(Statement::Assign { value: Rvalue::List(items), .. }) =
-            mir.functions[0].blocks[0].statements.get(1)
+        let Some(Statement::Assign {
+            value: Rvalue::List(items),
+            ..
+        }) = mir.functions[0].blocks[0].statements.get(1)
         else {
             panic!("the list statement survives");
         };

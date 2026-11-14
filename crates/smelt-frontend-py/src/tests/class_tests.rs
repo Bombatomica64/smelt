@@ -160,7 +160,8 @@ missing: bool = 4 not in values
     let code = module_code(&ctx, module)?;
 
     ensure_eq(
-        &code.exprs()
+        &code
+            .exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::TupleContains { .. }))
             .count(),
         &2,
@@ -230,7 +231,8 @@ missing: bool = "b" not in values
     let code = module_code(&ctx, module)?;
 
     ensure_eq(
-        &code.exprs()
+        &code
+            .exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
             .count(),
         &2,
@@ -680,10 +682,7 @@ def area(radius: float) -> float:
 
     // The class variable becomes a materialized static field.
     ensure_eq(&class.static_fields.len(), &1, "static field count")?;
-    let static_field = class
-        .static_fields
-        .first()
-        .ok_or("missing static field")?;
+    let static_field = class.static_fields.first().ok_or("missing static field")?;
     ensure(
         matches!(static_field.value, Some(Literal::Int(7))),
         "expected concrete static field value",
@@ -696,11 +695,7 @@ def area(radius: float) -> float:
 // ---------------------------------------------------------------------------
 
 /// Return the body of the named function/method item in `module`.
-fn method_body_named<'a>(
-    ctx: &'a HirCtx,
-    module: &Module,
-    name: &str,
-) -> Result<&'a Body, String> {
+fn method_body_named<'a>(ctx: &'a HirCtx, module: &Module, name: &str) -> Result<&'a Body, String> {
     let item_id = module
         .items
         .iter()
@@ -789,10 +784,12 @@ class Counter:
             .items
             .iter()
             .copied()
-            .find(|item_id| matches!(
-                item(&ctx, *item_id),
-                Ok(Item::Function(function)) if symbol(&ctx, function.name).ok() == Some("make")
-            ))
+            .find(|item_id| {
+                matches!(
+                    item(&ctx, *item_id),
+                    Ok(Item::Function(function)) if symbol(&ctx, function.name).ok() == Some("make")
+                )
+            })
             .ok_or("missing make item")?,
     )?
     else {
@@ -917,7 +914,11 @@ class B:
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     ensure_class_shape(&ctx, "B", "B { inner: A }")?;
-    ensure_eq(&method_receiver_types(&ctx, "b")?, &vec!["A".to_owned()], "receivers of `b`")?;
+    ensure_eq(
+        &method_receiver_types(&ctx, "b")?,
+        &vec!["A".to_owned()],
+        "receivers of `b`",
+    )?;
     Ok(())
 }
 
@@ -1060,7 +1061,11 @@ class B:
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     ensure_class_shape(&ctx, "B", "B { inner: A }")?;
-    ensure_eq(&method_receiver_types(&ctx, "b")?, &vec!["A".to_owned()], "receivers of `b`")?;
+    ensure_eq(
+        &method_receiver_types(&ctx, "b")?,
+        &vec!["A".to_owned()],
+        "receivers of `b`",
+    )?;
     Ok(())
 }
 
@@ -1136,13 +1141,15 @@ class B(A):
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     ensure(
-        ctx.krate.bodies.iter().any(|candidate| candidate.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::Method { method, .. }
-                    if symbol(&ctx, method).ok() == Some("__smelt$super$greet")
-            )
-        })),
+        ctx.krate.bodies.iter().any(|candidate| {
+            candidate.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::Method { method, .. }
+                        if symbol(&ctx, method).ok() == Some("__smelt$super$greet")
+                )
+            })
+        }),
         "expected super().greet() to target the base alias",
     )?;
     Ok(())
@@ -1240,7 +1247,10 @@ def identity(value: V) -> V:
     lower_module(source, &mut ctx)?;
     ensure_signature(&ctx, "identity", "identity<V>(value: V) -> V")?;
     for name in ["P", "Ts", "U", "V"] {
-        ensure(!has_module_binding(&ctx, name), format!("{name} is a type-level declaration, not a value"))?;
+        ensure(
+            !has_module_binding(&ctx, name),
+            format!("{name} is a type-level declaration, not a value"),
+        )?;
     }
     Ok(())
 }
@@ -1387,7 +1397,10 @@ def check(r: Result) -> bool:
         let mut ctx = HirCtx::new();
         lower_module(source, &mut ctx)?;
         ensure_signature(&ctx, "check", "check(r: Ok | Err) -> Bool")?;
-        ensure(!has_module_binding(&ctx, "Result"), format!("a type alias binds no value: {source}"))?;
+        ensure(
+            !has_module_binding(&ctx, "Result"),
+            format!("a type alias binds no value: {source}"),
+        )?;
     }
     Ok(())
 }
@@ -1497,7 +1510,9 @@ fn class_base_name(ctx: &HirCtx, module_id: ModuleId, class_name: &str) -> Resul
         if let Item::Class(class) = item(ctx, *item_id)?
             && symbol(ctx, class.name)? == class_name
         {
-            let base = class.base.ok_or_else(|| format!("expected '{class_name}' to have a base"))?;
+            let base = class
+                .base
+                .ok_or_else(|| format!("expected '{class_name}' to have a base"))?;
             return Ok(symbol(ctx, base)?.to_owned());
         }
     }
@@ -1525,9 +1540,21 @@ class C(cabc.Mapping[str, int]):
 ");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
-    ensure_eq(&class_base_name(&ctx, module_id, "A")?.as_str(), &"TestCase", "A base")?;
-    ensure_eq(&class_base_name(&ctx, module_id, "B")?.as_str(), &"MutableMapping", "B base")?;
-    ensure_eq(&class_base_name(&ctx, module_id, "C")?.as_str(), &"Mapping", "C base")?;
+    ensure_eq(
+        &class_base_name(&ctx, module_id, "A")?.as_str(),
+        &"TestCase",
+        "A base",
+    )?;
+    ensure_eq(
+        &class_base_name(&ctx, module_id, "B")?.as_str(),
+        &"MutableMapping",
+        "B base",
+    )?;
+    ensure_eq(
+        &class_base_name(&ctx, module_id, "C")?.as_str(),
+        &"Mapping",
+        "C base",
+    )?;
     Ok(())
 }
 
@@ -1556,7 +1583,11 @@ class Child(pkg.models.Base):
         "src/pkg/views.py",
         &mut ctx,
     )?;
-    ensure_eq(&class_base_name(&ctx, module_id, "Child")?.as_str(), &"Base", "Child base")?;
+    ensure_eq(
+        &class_base_name(&ctx, module_id, "Child")?.as_str(),
+        &"Base",
+        "Child base",
+    )?;
     Ok(())
 }
 
@@ -1588,7 +1619,9 @@ class A(m.Base):
         let errors = lower_errors(source, &mut ctx)?;
         let error = first_error(&errors)?;
         ensure(
-            error.message.contains("complex base class expression not supported"),
+            error
+                .message
+                .contains("complex base class expression not supported"),
             format!("expected a complex-base rejection, got {error:?}"),
         )?;
     }
@@ -1643,12 +1676,18 @@ def run() -> int:
         "expected Outer.Inner's constructor and bump method on the hoisted type",
     )?;
     ensure(
-        inner.fields.iter().any(|field| symbol(&ctx, field.name) == Ok("count")),
+        inner
+            .fields
+            .iter()
+            .any(|field| symbol(&ctx, field.name) == Ok("count")),
         "expected Outer.Inner.count",
     )?;
     let other = class_item(&ctx, "Other.Inner")?;
     ensure(
-        other.fields.iter().any(|field| symbol(&ctx, field.name) == Ok("label")),
+        other
+            .fields
+            .iter()
+            .any(|field| symbol(&ctx, field.name) == Ok("label")),
         "expected Other.Inner to stay a separate type",
     )?;
     ensure(
@@ -1669,11 +1708,15 @@ def run() -> int:
         "expected Outer.root: Outer.Inner",
     )?;
     let constructs_inner = ctx.krate.bodies.iter().any(|candidate| {
-        candidate.exprs.iter().any(
-            |expr| matches!(&expr.kind, ExprKind::New { class, .. } if *class == inner_sym),
-        )
+        candidate
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::New { class, .. } if *class == inner_sym))
     });
-    ensure(constructs_inner, "expected `Outer.Inner(..)` to construct the hoisted class")?;
+    ensure(
+        constructs_inner,
+        "expected `Outer.Inner(..)` to construct the hoisted class",
+    )?;
     Ok(())
 }
 
@@ -1700,11 +1743,20 @@ class Outer:
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     ensure(
-        matches!(class_item(&ctx, "Outer.Point")?.kind, smelt_hir::ClassKind::DataclassLike { .. }),
+        matches!(
+            class_item(&ctx, "Outer.Point")?.kind,
+            smelt_hir::ClassKind::DataclassLike { .. }
+        ),
         "expected the nested @dataclass to lower as a dataclass",
     )?;
-    let base = class_item(&ctx, "Outer.Child")?.base.ok_or("expected Outer.Child base")?;
-    ensure_eq(&symbol(&ctx, base)?, &"Outer.Base", "a sibling nested base keeps its qualified name")?;
+    let base = class_item(&ctx, "Outer.Child")?
+        .base
+        .ok_or("expected Outer.Child base")?;
+    ensure_eq(
+        &symbol(&ctx, base)?,
+        &"Outer.Base",
+        "a sibling nested base keeps its qualified name",
+    )?;
     Ok(())
 }
 
@@ -1740,20 +1792,28 @@ class Blob:
 #[test]
 fn protocol_lowers_to_an_interface_with_method_slots_and_parents() -> TestResult {
     let mut ctx = HirCtx::new();
-    lower_module(&format!("{SHAPES}\ndef ok() -> int:\n    return 1\n"), &mut ctx)?;
+    lower_module(
+        &format!("{SHAPES}\ndef ok() -> int:\n    return 1\n"),
+        &mut ctx,
+    )?;
     let shape = ctx
         .krate
         .items
         .iter()
         .find_map(|item| match item {
-            Item::Interface(interface) if ctx.krate.symbols.get(interface.name) == Some("Shape") => {
+            Item::Interface(interface)
+                if ctx.krate.symbols.get(interface.name) == Some("Shape") =>
+            {
                 Some(interface)
             }
             _ => None,
         })
         .ok_or("expected the Shape interface")?;
     let names = |symbols: Vec<Symbol>| -> Result<Vec<String>, String> {
-        symbols.into_iter().map(|sym| symbol(&ctx, sym).map(ToOwned::to_owned)).collect()
+        symbols
+            .into_iter()
+            .map(|sym| symbol(&ctx, sym).map(ToOwned::to_owned))
+            .collect()
     };
     ensure_eq(
         &names(shape.methods.iter().map(|method| method.name).collect())?,
@@ -1769,8 +1829,10 @@ fn protocol_lowers_to_an_interface_with_method_slots_and_parents() -> TestResult
     ensure_eq(&label.required_params, &Some(1), "suffix has a default")?;
     // Each method is also a function-typed slot, like a TypeScript interface.
     ensure(
-        shape.fields.iter().any(|field| symbol(&ctx, field.name) == Ok("label")
-            && matches!(ctx.krate.types.get(field.ty), Some(Type::Function(_)))),
+        shape.fields.iter().any(|field| {
+            symbol(&ctx, field.name) == Ok("label")
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::Function(_)))
+        }),
         "expected the label slot",
     )
 }
@@ -1798,7 +1860,10 @@ def run() -> str:
             _ => false,
         })
     });
-    ensure(calls_slot, "expected the protocol method call to call the interface slot")
+    ensure(
+        calls_slot,
+        "expected the protocol method call to call the interface slot",
+    )
 }
 
 #[test]
@@ -1816,7 +1881,9 @@ def run() -> str:
     let mut ctx = HirCtx::new();
     let errors = lower_errors(&source, &mut ctx)?;
     ensure(
-        errors.iter().any(|error| error.message.contains("argument type does not match")),
+        errors
+            .iter()
+            .any(|error| error.message.contains("argument type does not match")),
         format!("expected a conformance rejection, got {errors:?}"),
     )
 }

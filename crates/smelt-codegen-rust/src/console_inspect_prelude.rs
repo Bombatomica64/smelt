@@ -129,7 +129,9 @@ pub(crate) fn struct_impl_text(
                 "        if let Some(value) = &{receiver}.{name} {{ entries.push(({key:?}, value)); }}\n"
             ));
         } else {
-            text.push_str(&format!("        entries.push(({key:?}, &{receiver}.{name}));\n"));
+            text.push_str(&format!(
+                "        entries.push(({key:?}, &{receiver}.{name}));\n"
+            ));
         }
     }
     text.push_str(&format!(
@@ -165,13 +167,26 @@ mod tests {
     /// absent without it, since the impl names the container's type.
     #[test]
     fn container_impls_follow_their_gates() {
-        let with = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|flag| matches!(flag, "smelt_list" | "prim_set" | "unknown"));
+        let with = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|flag| {
+            matches!(flag, "smelt_list" | "prim_set" | "unknown")
+        });
         let without = crate::runtime_prelude::rendered_entries(CONSOLE_INSPECT, &|_| false);
-        for gated in ["SmeltInspect for SmeltList<T>", "SmeltInspect for SmeltPrimSet<T>", "SmeltInspect for SmeltJsMap<K, V>", "SmeltInspect for SmeltUnknown"] {
-            assert!(with.contains(gated), "`{gated}` is missing with its container");
+        for gated in [
+            "SmeltInspect for SmeltList<T>",
+            "SmeltInspect for SmeltPrimSet<T>",
+            "SmeltInspect for SmeltJsMap<K, V>",
+            "SmeltInspect for SmeltUnknown",
+        ] {
+            assert!(
+                with.contains(gated),
+                "`{gated}` is missing with its container"
+            );
         }
         for gated in ["SmeltList<T>", "SmeltPrimSet<T>", "for SmeltUnknown"] {
-            assert!(!without.contains(gated), "`{gated}` is emitted without its container");
+            assert!(
+                !without.contains(gated),
+                "`{gated}` is emitted without its container"
+            );
         }
     }
 
@@ -182,8 +197,16 @@ mod tests {
             "Point",
             "",
             &[
-                InspectField { key: "x".to_owned(), rust_name: "x".to_owned(), skip_when_absent: false },
-                InspectField { key: "label".to_owned(), rust_name: "label".to_owned(), skip_when_absent: true },
+                InspectField {
+                    key: "x".to_owned(),
+                    rust_name: "x".to_owned(),
+                    skip_when_absent: false,
+                },
+                InspectField {
+                    key: "label".to_owned(),
+                    rust_name: "label".to_owned(),
+                    skip_when_absent: true,
+                },
             ],
             false,
         );
@@ -202,7 +225,11 @@ mod tests {
         let reference = struct_impl_text(
             "Node",
             "Node",
-            &[InspectField { key: "next".to_owned(), rust_name: "next".to_owned(), skip_when_absent: false }],
+            &[InspectField {
+                key: "next".to_owned(),
+                rust_name: "next".to_owned(),
+                skip_when_absent: false,
+            }],
             true,
         );
         assert_eq!(

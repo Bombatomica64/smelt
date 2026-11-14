@@ -12,11 +12,14 @@ def run() -> None:
 ",
     );
 
-    assert_eq!(rust_fn(&source, "run"), r"fn run() -> () {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r"fn run() -> () {
 let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
 let copied: SmeltList<i64> = Into::<SmeltList<_>>::into(values.fresh_copy());
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -45,7 +48,9 @@ def run() -> None:
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> () {
 let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
 let copied_values: SmeltList<i64> = Into::<SmeltList<_>>::into(values.clone().fresh_copy());
 let value_tuple: (i64, i64) = { let smelt_tuple_items = values.clone(); if smelt_tuple_items.len() != 2 { panic!("tuple() length mismatch"); } (smelt_tuple_items.borrow()[0].clone(), smelt_tuple_items.borrow()[1].clone()) };
@@ -66,7 +71,8 @@ let coords: (i64, i64) = (1, 2);
 let coord_list: SmeltList<i64> = Into::<SmeltList<_>>::into(vec![coords.clone().0.clone(), coords.clone().1.clone()]);
 let coord_set: SmeltPrimSet<i64> = SmeltPrimSet::from([coords.0.clone(), coords.1.clone()]);
 return;
-}"#);
+}"#
+    );
 }
 
 /// `set(tuple)` builds the container its `set[...]` slot declares. A tuple of
@@ -85,13 +91,16 @@ def run() -> None:
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> () {
 let coords: (f64, f64) = (1.5, 2.5);
 let coord_set: SmeltJsSet<f64> = SmeltJsSet::from([coords.0.clone(), coords.1.clone()]);
 let names: (String, String) = ("a".to_owned(), "b".to_owned());
 let name_set: SmeltPrimSet<String> = SmeltPrimSet::from([names.0.clone(), names.1.clone()]);
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -105,12 +114,15 @@ def run() -> None:
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> () {
 let mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
 let maybe: Option<i64> = mapping.get(&"a".to_owned());
 let fallback: i64 = mapping.get(&"b".to_owned()).unwrap_or(0);
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -123,11 +135,14 @@ def run() -> None:
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> () {
 let mut mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
 let value: i64 = { if let Some(smelt_value) = mapping.get(&"b".to_owned()) { smelt_value } else { mapping.insert("b".to_owned(), 2.clone()); 2 } };
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -140,11 +155,14 @@ def run() -> None:
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> () {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> () {
 let mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
 let copied: SmeltRecord<String, i64> = mapping.iter().collect::<SmeltRecord<_, _>>();
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -156,9 +174,12 @@ def choose(flag: bool, left: int, right: int) -> int:
 ",
     );
 
-    assert_eq!(rust_fn(&source, "choose"), r"fn choose(flag: bool, left: i64, right: i64) -> i64 {
+    assert_eq!(
+        rust_fn(&source, "choose"),
+        r"fn choose(flag: bool, left: i64, right: i64) -> i64 {
 let mut _smelt_tmp_3: i64;
 let _smelt_tmp_3: i64 = if flag { left } else { right };
 return _smelt_tmp_3;
-}");
+}"
+    );
 }

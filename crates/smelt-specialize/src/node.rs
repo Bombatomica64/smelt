@@ -14,7 +14,10 @@ use crate::{
 };
 
 /// Embedded, versioned Node specialization guest.
-#[expect(clippy::redundant_pub_crate, reason = "the cache key hashes the guest; plain pub trips unreachable_pub")]
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "the cache key hashes the guest; plain pub trips unreachable_pub"
+)]
 pub(crate) const NODE_GUEST: &str = include_str!("../guest/node.js");
 
 /// Monotonic suffix for Node scratch directories.
@@ -709,7 +712,11 @@ cycle.self = cycle;
         if example.methods.iter().all(|method| method.name != "greet") {
             return Err("decorated class method is absent".to_owned());
         }
-        if example.methods.iter().all(|method| method.name != "#hidden") {
+        if example
+            .methods
+            .iter()
+            .all(|method| method.name != "#hidden")
+        {
             return Err("decorated private method is absent".to_owned());
         }
         if example.methods.iter().all(|method| method.name != "ping") {
@@ -775,9 +782,9 @@ cycle.self = cycle;
                 .get(..start)
                 .and_then(|prefix| prefix.rfind('\n'))
                 .map_or(0, |newline| newline.saturating_add(1));
-            source.get(line_start..end).is_none_or(|text| {
-                !text.contains("addInitializer")
-            })
+            source
+                .get(line_start..end)
+                .is_none_or(|text| !text.contains("addInitializer"))
         }) {
             return Err(format!(
                 "initializer provenance did not map back to its nested TypeScript source: {:?}",

@@ -9,9 +9,9 @@
       "clippy::expect_used": 54,
       "clippy::indexing_slicing": 12,
       "clippy::missing_docs_in_private_items": 1,
-      "clippy::shadow_reuse": 84,
-      "clippy::shadow_same": 17,
-      "clippy::shadow_unrelated": 11,
+      "clippy::shadow_reuse": 82,
+      "clippy::shadow_same": 16,
+      "clippy::shadow_unrelated": 9,
       "clippy::unwrap_used": 8,
       "clippy::wildcard_enum_match_arm": 1,
       "unused_qualifications": 7
@@ -34,7 +34,6 @@
       "clippy::shadow_same": 2,
       "clippy::shadow_unrelated": 68,
       "clippy::unreachable": 1,
-      "unused_import_braces": 1,
       "unused_qualifications": 4
     },
     "smelt-hir": {

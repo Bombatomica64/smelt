@@ -47,9 +47,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -250,7 +247,6 @@ test("a subclass of a specific builtin error keeps that base's identity", () => 
     run_fixture(source, "smelt_object_model_error_subclass");
 }
 
-
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_class_instance_exposes_its_source_properties_and_hides_its_private_names() {
@@ -346,7 +342,6 @@ test("one body's callback binding wins over an earlier body's same name", () => 
 "#;
     run_fixture(source, "smelt_object_model_callback_identity");
 }
-
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]

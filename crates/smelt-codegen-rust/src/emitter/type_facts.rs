@@ -29,7 +29,9 @@ impl FunctionEmitter<'_> {
                 | Type::Optional(_)
                 | Type::Dict(_, _)
                 | Type::Tuple(_)),
-            ) => container.children().any(|child| self.type_contains_noncloneable(child)),
+            ) => container
+                .children()
+                .any(|child| self.type_contains_noncloneable(child)),
             // A union's cloneability is its RUST representation's, not its
             // arms'. A union that erases stores a `SmeltUnknown`, and a union
             // with concrete storage stores a generated `SmeltUnion…` that
@@ -54,7 +56,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
             // A callable and a nominal type carry their own storage.
             Some(Type::Function(_) | Type::Class { .. }) | None => false,
-            Some(other) => other.children().any(|child| self.type_contains_unknown(child)),
+            Some(other) => other
+                .children()
+                .any(|child| self.type_contains_unknown(child)),
         }
     }
 
@@ -245,14 +249,12 @@ impl FunctionEmitter<'_> {
         else {
             return false;
         };
-        fields
-            .iter()
-            .any(|candidate| {
-                candidate.name == field
-                    && self
-                        .symbol_source_name(candidate.name)
-                        .is_ok_and(|source| source != smelt_hir::CLASS_INDEX_STORE_FIELD)
-            })
+        fields.iter().any(|candidate| {
+            candidate.name == field
+                && self
+                    .symbol_source_name(candidate.name)
+                    .is_ok_and(|source| source != smelt_hir::CLASS_INDEX_STORE_FIELD)
+        })
     }
 
     /// Returns whether a type is a callable-interface struct.
@@ -363,6 +365,24 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether parameter `index` of the callable `function` is passed as
+    /// `&mut T`: a `mutable_params` position whose type is not a reference
+    /// class. `&mut` is how a by-value struct carries a callee's write back to
+    /// the caller; a reference-class handle already shares its state, so it is
+    /// passed as the handle, and `&mut flags` on a handle binding that is not
+    /// `mut` was E0596.
+    pub(super) fn param_passed_by_mut_ref(
+        &self,
+        function: &smelt_hir::FunctionType,
+        index: usize,
+    ) -> bool {
+        function.mutable_params.contains(&index)
+            && !function
+                .params
+                .get(index)
+                .is_some_and(|ty| self.is_reference_class_type(*ty))
+    }
+
     /// Returns whether a type is a reference class (handle newtype).
     ///
     /// Reference classes carry shared mutable identity through
@@ -461,7 +481,9 @@ impl FunctionEmitter<'_> {
     /// Returns whether a class-shaped type is emitted as `SmeltUnknown`.
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Class { name, .. }) => crate::classes::class_name_renders_erased(self.mir, *name),
+            Some(Type::Class { name, .. }) => {
+                crate::classes::class_name_renders_erased(self.mir, *name)
+            }
             _ => false,
         }
     }
@@ -497,7 +519,8 @@ impl FunctionEmitter<'_> {
                 Type::Bool
                     | Type::Int
                     | Type::Float
-                    | Type::String | Type::PyStr
+                    | Type::String
+                    | Type::PyStr
                     | Type::Unknown
                     | Type::Never
                     | Type::None
@@ -511,6 +534,14 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
+        self.is_json_serializable_type_seen(ty, &mut Vec::new())
+    }
+
+    /// [`Self::is_json_serializable_type`] with the shapes already being
+    /// proven in `seen`: a recursive shape (`interface Tree { kids: Tree[] }`,
+    /// `next?: Node<T>`) is serializable when its other fields are, so a shape
+    /// met again counts as proven instead of recursing forever.
+    fn is_json_serializable_type_seen(&self, ty: TypeId, seen: &mut Vec<Symbol>) -> bool {
         // A value whose EMITTED Rust type is already the erased carrier has
         // nothing left to reject. `json_stringify_expr` erases its operand
         // unconditionally and lets `Serialize for SmeltUnknown` decide the
@@ -544,17 +575,21 @@ impl FunctionEmitter<'_> {
             // erases the value first (`json_stringify_expr` always does). Rejecting it
             // made a generic helper that serializes its argument a blocker for
             // the whole crate.
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown)
+            Some(
+                Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown,
+            )
             | Some(Type::TypeParam { .. }) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-                self.is_json_serializable_type(*item)
+                self.is_json_serializable_type_seen(*item, seen)
             }
             Some(Type::Tuple(items)) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type(*item)),
+                .all(|item| self.is_json_serializable_type_seen(*item, seen)),
             Some(Type::Dict(key, value)) => {
-                matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr | Type::PropKey))
-                    && self.is_json_serializable_type(*value)
+                matches!(
+                    self.mir.types.get(*key),
+                    Some(Type::String | Type::PyStr | Type::PropKey)
+                ) && self.is_json_serializable_type_seen(*value, seen)
             }
             // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
             Some(Type::None) => true,
@@ -563,19 +598,20 @@ impl FunctionEmitter<'_> {
             // URLSearchParams | ReadableStream | null`) be stringified at all.
             Some(Type::Union(items)) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type(*item)),
+                .all(|item| self.is_json_serializable_type_seen(*item, seen)),
             Some(Type::Class { name, .. }) => {
                 // A host object serializes as `{}` — none of its state is an own
                 // enumerable property (see the frontend's matching arm). The
                 // emitter erases such a value first, and the erased carrier's
                 // `Serialize` is what renders the empty object.
-                if self.is_host_object_class(*name) {
+                if self.is_host_object_class(*name) || seen.contains(name) {
                     return true;
                 }
+                seen.push(*name);
                 if let Some(class) = crate::classes::find_class(self.mir, *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()
-                        .all(|field| self.is_json_serializable_type(field.ty))
+                        .all(|field| self.is_json_serializable_type_seen(field.ty, seen))
                 } else {
                     self.mir
                         .interfaces
@@ -585,7 +621,7 @@ impl FunctionEmitter<'_> {
                             interface
                                 .fields
                                 .iter()
-                                .all(|field| self.is_json_serializable_type(field.ty))
+                                .all(|field| self.is_json_serializable_type_seen(field.ty, seen))
                         })
                 }
             }
@@ -614,7 +650,9 @@ impl FunctionEmitter<'_> {
 pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
     match mir.types.get(key_ty) {
         // A bigint key hashes by value, which is SameValueZero for bigints.
-        Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr) => false,
+        Some(
+            Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr,
+        ) => false,
         Some(Type::Float) => true,
         // A property-key record (`Record<K, V>` with a type-parameter key, or
         // one holding symbols) is a `SmeltPropKeyRecord<_>`, which answers the
@@ -623,7 +661,9 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
         // any `SmeltJsKeyEq` key.
         Some(Type::PropKey | Type::Symbol) => true,
         Some(Type::Optional(inner) | Type::Future(inner)) => dict_key_uses_js_key_map(mir, *inner),
-        Some(Type::Union(items)) => items.iter().any(|item| dict_key_uses_js_key_map(mir, *item)),
+        Some(Type::Union(items)) => items
+            .iter()
+            .any(|item| dict_key_uses_js_key_map(mir, *item)),
         Some(
             Type::Unknown
             | Type::TypeParam { .. }
@@ -652,7 +692,11 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
 /// insertion-ordered; this is the hashed container for the rest, and it must
 /// keep the same order, since Python dicts and JavaScript objects both iterate
 /// in insertion order.
-pub(crate) fn dict_renders_as_index_map(mir: &Mir, _demand: &RuntimeDemand, key_ty: TypeId) -> bool {
+pub(crate) fn dict_renders_as_index_map(
+    mir: &Mir,
+    _demand: &RuntimeDemand,
+    key_ty: TypeId,
+) -> bool {
     !dict_key_uses_js_key_map(mir, key_ty) && !dict_key_uses_smelt_record(mir, key_ty)
 }
 
@@ -666,5 +710,8 @@ pub(crate) fn dict_renders_as_index_map(mir: &Mir, _demand: &RuntimeDemand, key_
 /// program's: JavaScript own-key order, or a Python program's insertion order
 /// (the runtime's `js_key_order` flag).
 pub(crate) fn dict_key_uses_smelt_record(mir: &Mir, key_ty: TypeId) -> bool {
-    matches!(mir.types.get(key_ty), Some(Type::String | Type::PyStr | Type::Int | Type::Bool))
+    matches!(
+        mir.types.get(key_ty),
+        Some(Type::String | Type::PyStr | Type::Int | Type::Bool)
+    )
 }

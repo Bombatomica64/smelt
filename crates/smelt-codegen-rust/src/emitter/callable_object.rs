@@ -46,57 +46,74 @@ impl FunctionEmitter<'_> {
                 self.operand_expr(callee)?.tight()
             )
         } else {
-            format!("{}.{SMELT_CALL}.clone()", self.operand_expr(callee)?.tight())
+            format!(
+                "{}.{SMELT_CALL}.clone()",
+                self.operand_expr(callee)?.tight()
+            )
         };
-        let (call_text, source_ty) =
-            if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
-                // The slot is a `SmeltErasedFunction`: its ABI takes the argument
-                // vector and always answers a bare `SmeltUnknown`.
-                let rendered = args
-                    .iter()
-                    .map(|arg| self.erase(arg))
-                    .collect::<Result<Vec<_>, EmitError>>()?;
-                (
-                    RustExpr::atom(slot_text).postfix(format!(".call(vec![{}])", rendered.join(", "))),
-                    self.type_id(Type::Unknown)?,
-                )
-            } else {
-                // The slot is a Rust closure with the borrowed-callback ABI of
-                // any other callable value: a `&T` parameter takes a reference.
-                let mut rendered = args
-                    .iter()
-                    .zip(function.params.iter())
-                    .enumerate()
-                    .map(|(index, (arg, param))| {
-                        if self.callback_param_is_shared_reference(&function, index, *param) {
-                            self.shared_reference_argument_expr(arg, *param)
-                        } else {
-                            self.closure_value_argument_expr(arg, *param)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?;
-                // A call may omit trailing optional parameters; the slot is a
-                // Rust closure, which takes every one.
-                for (index, param) in function.params.iter().enumerate().skip(args.len()) {
-                    let padding = self.closure_value_padding_expr(*param)?;
-                    rendered.push(self.callback_call_arg_expr(&function, index, *param, padding.into_string()));
-                }
-                let call = format!("({slot_text})({})", rendered.join(", "));
-                let call = if function.may_throw {
-                    if self.body_can_propagate_error() {
-                        format!("{call}?")
+        let (call_text, source_ty) = if self.is_erased_unknown_rest_function(&function)
+            && !function.may_throw
+        {
+            // The slot is a `SmeltErasedFunction`: its ABI takes the argument
+            // vector and always answers a bare `SmeltUnknown`.
+            let rendered = args
+                .iter()
+                .map(|arg| self.erase(arg))
+                .collect::<Result<Vec<_>, EmitError>>()?;
+            (
+                RustExpr::atom(slot_text).postfix(format!(".call(vec![{}])", rendered.join(", "))),
+                self.type_id(Type::Unknown)?,
+            )
+        } else {
+            // The slot is a Rust closure with the borrowed-callback ABI of
+            // any other callable value: a `&T` parameter takes a reference.
+            let mut rendered = args
+                .iter()
+                .zip(function.params.iter())
+                .enumerate()
+                .map(|(index, (arg, param))| {
+                    if self.callback_param_is_shared_reference(&function, index, *param) {
+                        self.shared_reference_argument_expr(arg, *param)
                     } else {
-                        format!("{call}.unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))")
+                        self.closure_value_argument_expr(arg, *param)
                     }
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?;
+            // A call may omit trailing optional parameters; the slot is a
+            // Rust closure, which takes every one.
+            for (index, param) in function.params.iter().enumerate().skip(args.len()) {
+                let padding = self.closure_value_padding_expr(*param)?;
+                rendered.push(self.callback_call_arg_expr(
+                    &function,
+                    index,
+                    *param,
+                    padding.into_string(),
+                ));
+            }
+            let call = format!("({slot_text})({})", rendered.join(", "));
+            let call = if function.may_throw {
+                if self.body_can_propagate_error() {
+                    format!("{call}?")
                 } else {
-                    call
-                };
-                (RustExpr::from(call), function.return_ty)
+                    format!("{call}.unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))")
+                }
+            } else {
+                call
             };
+            (RustExpr::from(call), function.return_ty)
+        };
         if self.mir.types.get(dest_ty) == Some(&Type::None) {
-            return Ok(Some(RustExpr::atom(format!("{{ {call_text}; () }}", call_text = call_text.delimited()))));
+            return Ok(Some(RustExpr::atom(format!(
+                "{{ {call_text}; () }}",
+                call_text = call_text.delimited()
+            ))));
         }
-        Ok(Some(self.rendered_at_type(&call_text, source_ty, dest_ty, &self.render_scope())?))
+        Ok(Some(self.rendered_at_type(
+            &call_text,
+            source_ty,
+            dest_ty,
+            &self.render_scope(),
+        )?))
     }
 
     /// Render the runtime dispatch snippet for invoking a dynamically-typed
@@ -168,7 +185,10 @@ impl FunctionEmitter<'_> {
         if !smelt_stdlib::is_erased_prototype_method(field) {
             return None;
         }
-        Some(self.place_description(place, 0).unwrap_or_else(|| "expression".to_owned()))
+        Some(
+            self.place_description(place, 0)
+                .unwrap_or_else(|| "expression".to_owned()),
+        )
     }
 
     /// The field name a callee's single-assignment chain ends in, if any.
@@ -199,7 +219,10 @@ impl FunctionEmitter<'_> {
                 if field_name.starts_with("__smelt_") {
                     return None;
                 }
-                Some(format!("{}.{field_name}", self.local_description(*base, depth)?))
+                Some(format!(
+                    "{}.{field_name}",
+                    self.local_description(*base, depth)?
+                ))
             }
             Place::Index { .. } | Place::Global { .. } => None,
         }
@@ -209,7 +232,10 @@ impl FunctionEmitter<'_> {
     /// single assignment to a compiler temporary read.
     fn local_description(&self, local: LocalId, depth: usize) -> Option<String> {
         match self.local_decl(local).ok()?.kind {
-            LocalKind::UserBinding(symbol) | LocalKind::Param { symbol: Some(symbol) } => {
+            LocalKind::UserBinding(symbol)
+            | LocalKind::Param {
+                symbol: Some(symbol),
+            } => {
                 return self.symbol_source_name(symbol).ok().map(str::to_owned);
             }
             LocalKind::Param { symbol: None } => return None,
@@ -238,17 +264,18 @@ impl FunctionEmitter<'_> {
         spreads: &[Operand],
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if self.has_dynamic_shape(dest_ty)
-        {
+        if self.has_dynamic_shape(dest_ty) {
             let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(
-                "smelt_object.push((JsString::from(\"{SMELT_CALL}\"), {callable_text}));", callable_text = callable_text.delimited()
+                "smelt_object.push((JsString::from(\"{SMELT_CALL}\"), {callable_text}));",
+                callable_text = callable_text.delimited()
             )];
             for (key, value) in props {
                 let key_text = self.symbol_source_name(*key)?;
                 let value_text = self.erase(value)?;
                 entries.push(format!(
-                    "smelt_object.push((JsString::from({key_text:?}), {value_text}));", value_text = value_text.delimited()
+                    "smelt_object.push((JsString::from({key_text:?}), {value_text}));",
+                    value_text = value_text.delimited()
                 ));
             }
             // Dynamic record sources (`Object.assign(fn, def)` with a variable
@@ -319,9 +346,7 @@ impl FunctionEmitter<'_> {
         };
         let type_symbol = *name;
         let type_args = args.clone();
-        if !self.is_interface_record_type(dest_ty)
-            && !self.mir.has_class(type_symbol)
-        {
+        if !self.is_interface_record_type(dest_ty) && !self.mir.has_class(type_symbol) {
             return Ok(None);
         }
         let Some(fields) = self.structural_record_fields(dest_ty) else {
@@ -366,7 +391,8 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
-        self.callable_record_literal(field_text, type_symbol, type_args.len()).map(Some)
+        self.callable_record_literal(field_text, type_symbol, type_args.len())
+            .map(Some)
     }
 
     /// The struct literal of a callable record, from its rendered `fields`.
@@ -378,6 +404,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         self.push_phantom_field(&mut fields, class, type_arg_count);
         let type_name = self.type_rust_name(class)?;
-        Ok(RustExpr::loose(format!("{type_name} {{ {} }}", fields.join(", "))))
+        Ok(RustExpr::loose(format!(
+            "{type_name} {{ {} }}",
+            fields.join(", ")
+        )))
     }
 }

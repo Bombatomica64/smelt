@@ -34,7 +34,9 @@ fn only_promise_output(source: &str) -> Result<Type, String> {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     let types = promise_types(&ctx);
     let [Type::Future(output)] = types.as_slice() else {
-        return Err(format!("expected exactly one promise future, found {types:?}"));
+        return Err(format!(
+            "expected exactly one promise future, found {types:?}"
+        ));
     };
     ctx.krate
         .types
@@ -50,7 +52,10 @@ export function later() {
   return new Promise((resolve) => setTimeout(() => resolve(42)));
 }
 "))?;
-    ensure!(output == Type::Float, "expected Future<Float>, got Future<{output:?}>");
+    ensure!(
+        output == Type::Float,
+        "expected Future<Float>, got Future<{output:?}>"
+    );
     Ok(())
 }
 
@@ -67,7 +72,10 @@ export function pick(flag: boolean) {
   });
 }
 "))?;
-    ensure!(output == Type::String, "expected Future<String>, got Future<{output:?}>");
+    ensure!(
+        output == Type::String,
+        "expected Future<String>, got Future<{output:?}>"
+    );
     Ok(())
 }
 
@@ -78,7 +86,10 @@ export function mixed(flag: boolean) {
   return new Promise((resolve) => (flag ? resolve('text') : resolve(7)));
 }
 "))?;
-    ensure!(output == Type::Unknown, "expected Future<Unknown>, got Future<{output:?}>");
+    ensure!(
+        output == Type::Unknown,
+        "expected Future<Unknown>, got Future<{output:?}>"
+    );
     Ok(())
 }
 
@@ -89,7 +100,10 @@ export function settle() {
   return new Promise((resolve) => setTimeout(() => resolve()));
 }
 "))?;
-    ensure!(output == Type::None, "expected Future<None>, got Future<{output:?}>");
+    ensure!(
+        output == Type::None,
+        "expected Future<None>, got Future<{output:?}>"
+    );
     Ok(())
 }
 
@@ -106,7 +120,9 @@ export function maybe(flag: boolean) {
     )?;
     let types = promise_types(&ctx);
     let [Type::Future(output)] = types.as_slice() else {
-        return Err(format!("expected exactly one promise future, found {types:?}"));
+        return Err(format!(
+            "expected exactly one promise future, found {types:?}"
+        ));
     };
     let Some(Type::Optional(inner)) = ctx.krate.types.get(*output) else {
         return Err(format!("expected Future<Optional<Float>>, got {types:?}"));
@@ -122,6 +138,9 @@ export function text(): Promise<string> {
   return new Promise((resolve) => setTimeout(() => resolve('x')));
 }
 "))?;
-    ensure!(output == Type::String, "expected Future<String>, got Future<{output:?}>");
+    ensure!(
+        output == Type::String,
+        "expected Future<String>, got Future<{output:?}>"
+    );
     Ok(())
 }

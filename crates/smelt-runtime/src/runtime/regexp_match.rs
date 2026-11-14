@@ -188,7 +188,9 @@ impl IntoSmeltUnknown for SmeltMatch {
         let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<Vec<_>>();
         let array = SmeltArray::with_id(self.id, elements);
         //~ Derived from this match, and rewritten by its every erasure.
-        smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", SmeltUnknown::Object(SmeltObject::new(groups)))], true);
+        //~ `groups` is `undefined` for a regex without named groups.
+        let groups = if self.named.is_empty() { SmeltUnknown::Undefined } else { SmeltUnknown::Object(SmeltObject::new(groups)) };
+        smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", groups)], true);
         SmeltUnknown::Array(array)
     }
 }
@@ -227,4 +229,39 @@ impl SmeltFromUnknown for SmeltMatch {
     }
 }
 
+// @smelt:item-end
+
+// @smelt:item smelt_erased_pattern_call when erased_pattern_call
+/// `receiver.match(pattern)` or `receiver.search(pattern)` on an erased receiver.
+//~
+//~ Which method answers is decided by the receiver's run-time value, as
+//~ JavaScript's property lookup decides it: a string answers
+//~ `String.prototype.match`/`search` (a pattern that is not a RegExp is
+//~ `new RegExp(pattern)`, and `undefined` the empty pattern); any other value
+//~ answers its own member, called with the pattern, and a value without one
+//~ throws JavaScript's `TypeError: x.match is not a function`.
+#[allow(dead_code)]
+fn smelt_erased_pattern_call(receiver: &SmeltUnknown, method: &str, pattern: SmeltUnknown, callee: &str) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    if let SmeltUnknown::String(text) = receiver {
+        let regexp = match &pattern {
+            SmeltUnknown::Object(object) if object.contains_key("__smelt_regexp") => SmeltRegExp::smelt_from_unknown(pattern.clone()),
+            SmeltUnknown::Undefined => SmeltRegExp::new(String::new(), String::new()),
+            other => SmeltRegExp::new(smelt_erased_to_js_string(other).to_string(), String::new()),
+        };
+        return Ok(match method {
+            "search" => SmeltUnknown::Number(regexp.search_index(text).map_or(-1.0, smelt_units_to_number)),
+            //~ A global match is the plain array of whole matches; any other is `exec`'s match value.
+            _ if regexp.has_flag('g') => regexp.match_all_strings(text).map_or(SmeltUnknown::Null, |items| SmeltUnknown::Array(items.into_iter().map(SmeltUnknown::String).collect::<Vec<_>>().into())),
+            _ => regexp.match_string(text).map_or(SmeltUnknown::Null, IntoSmeltUnknown::into_smelt_unknown),
+        });
+    }
+    //~ JavaScript's `TypeError`, as a catchable throw.
+    let type_error = |message: String| Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))));
+    let absent = match receiver { SmeltUnknown::Null => Some("null"), SmeltUnknown::Undefined => Some("undefined"), _ => None };
+    if let Some(absent) = absent {
+        return type_error(format!("Cannot read properties of {absent} (reading '{method}')"));
+    }
+    smelt_erased_callable(&smelt_get_unknown_field(receiver, method))
+        .map_or_else(|| type_error(format!("{callee} is not a function")), |function| function(vec![pattern]))
+}
 // @smelt:item-end

@@ -1,7 +1,7 @@
 //! Set emission helpers.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Converts a set containment operation to Rust text.
@@ -32,14 +32,18 @@ impl FunctionEmitter<'_> {
                 // The narrowed needle has the element type, so the container's
                 // own `contains` applies the correct membership (SameValueZero
                 // through `SmeltJsSet`, value equality for the `HashSet` backing).
-                format!("{set_text}.contains(&smelt_needle)", set_text = set_text.tight())
+                format!(
+                    "{set_text}.contains(&smelt_needle)",
+                    set_text = set_text.tight()
+                )
             } else if matches!(
                 self.mir.types.get(inner),
                 Some(Type::Unknown | Type::TypeParam { .. })
             ) {
                 // An erased needle compares against each element erased to the
                 // runtime `SmeltUnknown` value (JS `Set.prototype.has`).
-                let erased = self.erase_rendered(&RustExpr::path("smelt_value").cloned_value(), item_ty)?;
+                let erased =
+                    self.erase_rendered(&RustExpr::path("smelt_value").cloned_value(), item_ty)?;
                 self.carrier_format(self.carrier()?, format_args!("{set_text}.iter().any(|smelt_value| ({erased}).same_js_key(&smelt_needle))", set_text = set_text.tight(), erased = erased.delimited()))
             } else {
                 return Ok(RustExpr::path("false"));
@@ -62,7 +66,14 @@ impl FunctionEmitter<'_> {
         // equals `-0`, and objects/functions match by reference identity — the
         // JS `Set.prototype.has` semantics — rather than `HashSet`'s structural
         // `Eq`.
-        Ok({ let receiver = self.operand_expr(set)?; receiver.postfix(format!(".contains({})", self.shared_reference_argument_expr(item, item_ty)?.delimited())) })
+        Ok({
+            let receiver = self.operand_expr(set)?;
+            receiver.postfix(format!(
+                ".contains({})",
+                self.shared_reference_argument_expr(item, item_ty)?
+                    .delimited()
+            ))
+        })
     }
 
     /// Converts a set disjointness predicate to Rust text.
@@ -72,7 +83,13 @@ impl FunctionEmitter<'_> {
         right: &Operand,
     ) -> Result<RustExpr, EmitError> {
         self.validate_set_pair_operands(left, right, "set isdisjoint")?;
-        Ok({ let receiver = self.operand_expr(left)?; receiver.postfix(format!(".is_disjoint(&{})", self.operand_expr(right)?.tight())) })
+        Ok({
+            let receiver = self.operand_expr(left)?;
+            receiver.postfix(format!(
+                ".is_disjoint(&{})",
+                self.operand_expr(right)?.tight()
+            ))
+        })
     }
 
     /// Converts a set relation predicate to Rust text.
@@ -128,10 +145,16 @@ impl FunctionEmitter<'_> {
         // insertion shape works for every element type — including `f64`, whose
         // `SmeltJsSet` insert applies SameValueZero (`NaN` equals `NaN`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-            Ok(RustExpr::atom(format!("{{ {set_text}.insert({item_text}); () }}", set_text = set_text.tight(), item_text = item_text.delimited())))
+            Ok(RustExpr::atom(format!(
+                "{{ {set_text}.insert({item_text}); () }}",
+                set_text = set_text.tight(),
+                item_text = item_text.delimited()
+            )))
         } else if dest_ty == set_ty {
             Ok(RustExpr::atom(format!(
-                "{{ {set_text}.insert({item_text}); {set_text}.clone() }}", set_text = set_text.tight(), item_text = item_text.delimited()
+                "{{ {set_text}.insert({item_text}); {set_text}.clone() }}",
+                set_text = set_text.tight(),
+                item_text = item_text.delimited()
             )))
         } else {
             Err(EmitError::new(
@@ -168,20 +191,29 @@ impl FunctionEmitter<'_> {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
                     return Err(EmitError::new("set delete destination must be bool"));
                 }
-                Ok(set_text.postfix(format!(".remove({item_text})", item_text = item_text.delimited())))
+                Ok(set_text.postfix(format!(
+                    ".remove({item_text})",
+                    item_text = item_text.delimited()
+                )))
             }
             smelt_hir::SetRemoveOp::Discard => {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
                     return Err(EmitError::new("set discard destination must be None"));
                 }
-                Ok(RustExpr::atom(format!("{{ {set_text}.remove({item_text}); () }}", set_text = set_text.tight(), item_text = item_text.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "{{ {set_text}.remove({item_text}); () }}",
+                    set_text = set_text.tight(),
+                    item_text = item_text.delimited()
+                )))
             }
             smelt_hir::SetRemoveOp::Remove => {
                 if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
                     return Err(EmitError::new("set remove destination must be None"));
                 }
                 Ok(RustExpr::atom(format!(
-                    "{{ if !{set_text}.remove({item_text}) {{ panic!(\"set remove missing item\"); }} () }}", set_text = set_text.tight(), item_text = item_text.delimited()
+                    "{{ if !{set_text}.remove({item_text}) {{ panic!(\"set remove missing item\"); }} () }}",
+                    set_text = set_text.tight(),
+                    item_text = item_text.delimited()
                 )))
             }
         }
@@ -237,8 +269,14 @@ impl FunctionEmitter<'_> {
         };
         // The algebra helpers answer owned members (a set is a shared store
         // read by snapshot), and collecting them mints the NEW set JS returns.
-        Ok({ let receiver = self.operand_expr(left)?; receiver.postfix(format!(".{}(&{}).collect()", method,
-            self.operand_expr(right)?.tight())) })
+        Ok({
+            let receiver = self.operand_expr(left)?;
+            receiver.postfix(format!(
+                ".{}(&{}).collect()",
+                method,
+                self.operand_expr(right)?.tight()
+            ))
+        })
     }
 
     /// Converts an in-place set update (`s |= t`) to Rust text.
@@ -256,14 +294,20 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let set_ty = self.operand_ty(set)?;
-        if self.operand_ty(other)? != set_ty || !matches!(self.mir.types.get(set_ty), Some(Type::Set(_))) {
-            return Err(EmitError::new("an in-place set update needs two sets of one type"));
+        if self.operand_ty(other)? != set_ty
+            || !matches!(self.mir.types.get(set_ty), Some(Type::Set(_)))
+        {
+            return Err(EmitError::new(
+                "an in-place set update needs two sets of one type",
+            ));
         }
         if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
             return Err(EmitError::new("an in-place set update answers None"));
         }
         let (Operand::Copy(place) | Operand::Move(place)) = set else {
-            return Err(EmitError::new("an in-place set update needs a place receiver"));
+            return Err(EmitError::new(
+                "an in-place set update needs a place receiver",
+            ));
         };
         let method = match op {
             smelt_hir::SetBinaryOp::Union => "union",
@@ -312,15 +356,22 @@ impl FunctionEmitter<'_> {
         // answer an owned snapshot of the members.
         let set_text = self.operand_borrow_expr(set)?;
         match op {
-            smelt_hir::SetProjectionOp::Values => {
-                Ok(RustExpr::atom_on(&set_text, format!("{set_text}.iter().collect::<Vec<_>>()", set_text = set_text.tight())))
-            }
-            smelt_hir::SetProjectionOp::Entries => Ok(RustExpr::atom_on(&set_text, format!(
-                "{set_text}.iter().map(|smelt_value| (smelt_value.clone(), smelt_value.clone())).collect::<Vec<_>>()", set_text = set_text.tight()
-            ))),
+            smelt_hir::SetProjectionOp::Values => Ok(RustExpr::atom_on(
+                &set_text,
+                format!(
+                    "{set_text}.iter().collect::<Vec<_>>()",
+                    set_text = set_text.tight()
+                ),
+            )),
+            smelt_hir::SetProjectionOp::Entries => Ok(RustExpr::atom_on(
+                &set_text,
+                format!(
+                    "{set_text}.iter().map(|smelt_value| (smelt_value.clone(), smelt_value.clone())).collect::<Vec<_>>()",
+                    set_text = set_text.tight()
+                ),
+            )),
         }
     }
-
 
     /// Validates two same-typed set operands.
     pub(super) fn validate_set_pair_operands(

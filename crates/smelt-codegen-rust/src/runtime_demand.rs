@@ -25,8 +25,7 @@ mod op_needs;
 
 use smelt_hir::Type;
 use smelt_mir::{
-    BasicBlock, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement,
-    Terminator,
+    BasicBlock, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement, Terminator,
 };
 use smelt_stdlib::{BackendDependency, StdlibClass};
 
@@ -91,6 +90,8 @@ declare_needs! {
     JsString,
     /// Python's `repr`, for a container `print` shows.
     PyRepr,
+    /// `smelt_erased_pattern_call`: `.match`/`.search` on an erased receiver.
+    ErasedPatternCall,
     /// Mutable closure captures shared through the capture registry.
     SharedCaptures,
     /// `encodeURI` and friends.
@@ -161,6 +162,13 @@ declare_needs! {
     PythonListRead,
     /// A raised Python exception, `SmeltPyException`.
     PyException,
+    /// `SmeltBinding`, the storage of a source binding that can be read
+    /// before its first assignment.
+    Binding,
+    /// The `ReferenceError` of a JavaScript binding read in its temporal dead zone.
+    BindingTdz,
+    /// The `UnboundLocalError`/`NameError` of a Python name read unbound.
+    BindingPy,
     /// The shared, ordered `SmeltRecord` dict and its property store.
     Record,
     /// A Python program: dicts keep plain insertion order.
@@ -211,6 +219,9 @@ declare_needs! {
     Accessors,
     /// Python's number formatting.
     PythonNumberFormat,
+    /// `Number.prototype`'s formatting methods (`toFixed`, `toPrecision`,
+    /// `toExponential`, `toString(radix)`).
+    NumberMethods,
     /// The `tokio` crate.
     DepTokio,
     /// The `genawaiter` crate.
@@ -252,7 +263,10 @@ declare_needs! {
 
 /// [`RuntimeDemand`] holds one bit per [`Need`] in a `u128`: a 129th need would
 /// alias bit 0 in a release build, so the bound is checked where the enum is.
-const _: () = assert!(Need::ALL.len() <= 128, "Need outgrew the u128 demand bitset");
+const _: () = assert!(
+    Need::ALL.len() <= 128,
+    "Need outgrew the u128 demand bitset"
+);
 
 /// The declared dependency graph: a family on the left is written against every
 /// family on the right, so demanding it demands them.
@@ -277,14 +291,20 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::DepTokio,
             // The erased string payload is a `JsString`.
             Need::JsString,
+            // An erased number answers its `Number.prototype` members.
+            Need::NumberMethods,
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
+    (Need::ErasedPatternCall, &[Need::Unknown, Need::DepRegress]),
     (Need::PyException, &[Need::PyRepr]),
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
     (Need::PythonDictRead, &[Need::PyException]),
+    // A checked binding read raises through the error its language throws.
+    (Need::BindingTdz, &[Need::Binding, Need::Unknown]),
+    (Need::BindingPy, &[Need::Binding, Need::PyException]),
     // The checked read indexes the identity-bearing list it is handed.
     (Need::PythonListRead, &[Need::PyException, Need::SmeltList]),
     (Need::PrimSet, &[Need::ObjectIds]),
@@ -292,7 +312,10 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),
-    (Need::Generator, &[Need::Unknown, Need::IteratorResult, Need::DepGenawaiter]),
+    (
+        Need::Generator,
+        &[Need::Unknown, Need::IteratorResult, Need::DepGenawaiter],
+    ),
     (Need::Timers, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
@@ -311,14 +334,23 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Base64, &[Need::Unknown]),
     (Need::RegExpCompile, &[Need::Unknown]),
     (Need::UrlThrowing, &[Need::Unknown, Need::Url]),
-    (Need::DataViewAccess, &[Need::Unknown, Need::ByteArray, Need::DataView]),
+    (
+        Need::DataViewAccess,
+        &[Need::Unknown, Need::ByteArray, Need::DataView],
+    ),
     (Need::BigInt, &[Need::Unknown]),
     // A symbol erases to the carrier's `Symbol` tag and its key form is the
     // reserved spelling the carrier's objects store it under.
     (Need::Symbol, &[Need::Unknown]),
     // The host families.
-    (Need::Response, &[Need::Headers, Need::Body, Need::ObjectIds]),
-    (Need::Request, &[Need::Headers, Need::Body, Need::ObjectIds, Need::DepUrl]),
+    (
+        Need::Response,
+        &[Need::Headers, Need::Body, Need::ObjectIds],
+    ),
+    (
+        Need::Request,
+        &[Need::Headers, Need::Body, Need::ObjectIds, Need::DepUrl],
+    ),
     (Need::Headers, &[Need::ObjectIds, Need::HostOrigins]),
     (Need::Body, &[Need::ObjectIds]),
     (Need::BodyHostMethod, &[Need::JsonParse]),
@@ -326,22 +358,49 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::ErasedAnswer, &[Need::Unknown]),
     (
         Need::HttpServer,
-        &[Need::Headers, Need::EventEmitter, Need::Timers, Need::ObjectIds, Need::HostOrigins],
+        &[
+            Need::Headers,
+            Need::EventEmitter,
+            Need::Timers,
+            Need::ObjectIds,
+            Need::HostOrigins,
+        ],
     ),
-    (Need::FetchServer, &[Need::HttpServer, Need::Response, Need::Request]),
+    (
+        Need::FetchServer,
+        &[Need::HttpServer, Need::Response, Need::Request],
+    ),
     // A listener is stored and compared as an erased callable, and the emitter
     // record converts through the carrier's `SmeltFromUnknown`.
-    (Need::EventEmitter, &[Need::Unknown, Need::ObjectIds, Need::HostOrigins]),
+    (
+        Need::EventEmitter,
+        &[Need::Unknown, Need::ObjectIds, Need::HostOrigins],
+    ),
     (Need::Url, &[Need::UrlSearchParams, Need::HostOrigins]),
-    (Need::UrlSearchParams, &[Need::ObjectIds, Need::HostOrigins, Need::DepUrl]),
-    (Need::FormData, &[Need::Blob, Need::ObjectIds, Need::HostOrigins, Need::DepUrl]),
+    (
+        Need::UrlSearchParams,
+        &[Need::ObjectIds, Need::HostOrigins, Need::DepUrl],
+    ),
+    (
+        Need::FormData,
+        &[Need::Blob, Need::ObjectIds, Need::HostOrigins, Need::DepUrl],
+    ),
     (Need::Blob, &[Need::ByteArray, Need::ObjectIds]),
-    (Need::TextEncoder, &[Need::ByteArray, Need::ObjectIds, Need::HostOrigins]),
-    (Need::TextDecoder, &[Need::ByteArray, Need::ObjectIds, Need::HostOrigins]),
+    (
+        Need::TextEncoder,
+        &[Need::ByteArray, Need::ObjectIds, Need::HostOrigins],
+    ),
+    (
+        Need::TextDecoder,
+        &[Need::ByteArray, Need::ObjectIds, Need::HostOrigins],
+    ),
     (Need::ByteArray, &[Need::ObjectIds, Need::HostOrigins]),
     (Need::CryptoRandomValues, &[Need::ByteArray]),
     (Need::CryptoDigest, &[Need::ByteArray, Need::DepSha]),
-    (Need::CryptoKey, &[Need::Unknown, Need::ByteArray, Need::DepSha, Need::DepHmac]),
+    (
+        Need::CryptoKey,
+        &[Need::Unknown, Need::ByteArray, Need::DepSha, Need::DepHmac],
+    ),
     (
         Need::NodeHash,
         &[
@@ -353,7 +412,10 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::DepMd5,
         ],
     ),
-    (Need::Sqlite, &[Need::Unknown, Need::ByteArray, Need::HostOrigins]),
+    (
+        Need::Sqlite,
+        &[Need::Unknown, Need::ByteArray, Need::HostOrigins],
+    ),
 ];
 
 /// Proof that the closed demand holds a need: only [`RuntimeDemand::require`]
@@ -390,19 +452,37 @@ impl RuntimeDemand {
         demand.scan_declarations(mir);
         demand.scan_types(mir);
         // A TypeScript body spells its strings `JsString`.
-        if mir.functions.iter().any(|function| function.language == smelt_hir::Language::TypeScript)
-            || mir.closures.iter().any(|closure| closure.language == smelt_hir::Language::TypeScript)
+        if mir
+            .functions
+            .iter()
+            .any(|function| function.language == smelt_hir::Language::TypeScript)
+            || mir
+                .closures
+                .iter()
+                .any(|closure| closure.language == smelt_hir::Language::TypeScript)
         {
             demand.add(Need::JsString);
         }
         for function in &mir.functions {
-            demand.scan_body_in(function.language, mir, &function.locals, &function.blocks, function.return_ty);
+            demand.scan_body_in(
+                function.language,
+                mir,
+                &function.locals,
+                &function.blocks,
+                function.return_ty,
+            );
             if function.language == smelt_hir::Language::Python {
                 demand.add(Need::PyDictOrder);
             }
         }
         for closure in &mir.closures {
-            demand.scan_body_in(closure.language, mir, &closure.locals, &closure.blocks, closure.return_ty);
+            demand.scan_body_in(
+                closure.language,
+                mir,
+                &closure.locals,
+                &closure.blocks,
+                closure.return_ty,
+            );
         }
         demand.close();
         // Which container a dict renders as depends on whether the carrier is
@@ -464,7 +544,8 @@ impl RuntimeDemand {
     ///
     /// When the scan did not predict an erased value.
     pub(crate) fn carrier(&self) -> Result<CarrierUse, crate::EmitError> {
-        self.require(Need::Unknown).map(|_| CarrierUse { _proof: () })
+        self.require(Need::Unknown)
+            .map(|_| CarrierUse { _proof: () })
     }
 
     /// Records `need` as demanded.
@@ -490,7 +571,11 @@ impl RuntimeDemand {
         self.scan_body(mir, locals, blocks, return_ty);
         if self.has(Need::RegexOps) {
             self.remove(Need::RegexOps);
-            self.add(if language == smelt_hir::Language::Python { Need::DepRegex } else { Need::DepRegress });
+            self.add(if language == smelt_hir::Language::Python {
+                Need::DepRegex
+            } else {
+                Need::DepRegress
+            });
         }
     }
 
@@ -516,10 +601,20 @@ impl RuntimeDemand {
         if !mir.accessor_fields.is_empty() {
             self.add(Need::Accessors);
         }
+        // A per-evaluation class's statics frame erases to a class value
+        // (`emitter::statics_frame`), whose static hooks, enumerable view and
+        // `instanceof` need the class-value runtime.
+        if mir.classes.iter().any(|class| class.statics_of.is_some()) {
+            self.add(Need::ClassValue);
+            self.add(Need::InstanceOfValue);
+        }
         // A generic class, interface or function emits `IntoSmeltUnknown +
         // SmeltFromUnknown` bounds on its type parameters, so the erasure traits
         // must exist even with no erased value in the program.
-        if mir.classes.iter().any(|class| !class.type_params.is_empty())
+        if mir
+            .classes
+            .iter()
+            .any(|class| !class.type_params.is_empty())
             || mir
                 .interfaces
                 .iter()
@@ -644,7 +739,9 @@ impl RuntimeDemand {
             StdlibClass::Request => self.add(Need::Request),
             StdlibClass::EventEmitter => self.add(Need::EventEmitter),
             StdlibClass::SqliteDatabase | StdlibClass::SqliteStatement => self.add(Need::Sqlite),
-            StdlibClass::HttpServer | StdlibClass::IncomingMessage | StdlibClass::ServerResponse => {
+            StdlibClass::HttpServer
+            | StdlibClass::IncomingMessage
+            | StdlibClass::ServerResponse => {
                 self.add(Need::HttpServer);
             }
             StdlibClass::UrlSearchParams => self.add(Need::UrlSearchParams),
@@ -666,7 +763,19 @@ impl RuntimeDemand {
     }
 
     /// Records what one function or closure body demands.
-    fn scan_body(&mut self, mir: &Mir, locals: &[LocalDecl], blocks: &[BasicBlock], return_ty: smelt_hir::TypeId) {
+    fn scan_body(
+        &mut self,
+        mir: &Mir,
+        locals: &[LocalDecl],
+        blocks: &[BasicBlock],
+        return_ty: smelt_hir::TypeId,
+    ) {
+        if locals
+            .iter()
+            .any(|local| local.init == smelt_mir::LocalInit::MaybeUnbound)
+        {
+            self.add(Need::Binding);
+        }
         for block in blocks {
             for statement in &block.statements {
                 self.scan_statement(mir, locals, statement);
@@ -702,7 +811,8 @@ impl RuntimeDemand {
         // erased goes through the same helper as one at `unknown`.
         if let Statement::Assign {
             dest,
-            value: Rvalue::Use(Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source))),
+            value:
+                Rvalue::Use(Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source))),
         } = statement
             && reads_optional_at_type_param(mir, locals, *dest, *source)
         {
@@ -714,8 +824,8 @@ impl RuntimeDemand {
         // erased value would otherwise not have.
         if !self.has(Need::ErasedAnswer) {
             value.reads(|operand| {
-                if let Operand::Copy(Place::Field { base, field }) | Operand::Move(Place::Field { base, field }) =
-                    operand
+                if let Operand::Copy(Place::Field { base, field })
+                | Operand::Move(Place::Field { base, field }) = operand
                     && local_class_declares_method(mir, locals, *base, *field)
                 {
                     self.add(Need::ErasedAnswer);
@@ -806,8 +916,16 @@ fn operand_is_class_local(mir: &Mir, locals: &[LocalDecl], operand: &Operand) ->
 
 /// Whether `base` is a local of a class type that declares a method named
 /// `field` (and no field of that name).
-fn local_class_declares_method(mir: &Mir, locals: &[LocalDecl], base: LocalId, field: smelt_hir::Symbol) -> bool {
-    let Some(decl) = usize::try_from(base.0).ok().and_then(|index| locals.get(index)) else {
+fn local_class_declares_method(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    base: LocalId,
+    field: smelt_hir::Symbol,
+) -> bool {
+    let Some(decl) = usize::try_from(base.0)
+        .ok()
+        .and_then(|index| locals.get(index))
+    else {
         return false;
     };
     let Some(Type::Class { name, .. }) = mir.types.get(decl.ty) else {
@@ -816,16 +934,28 @@ fn local_class_declares_method(mir: &Mir, locals: &[LocalDecl], base: LocalId, f
     let Some(class) = crate::classes::find_class(mir, *name) else {
         return false;
     };
-    !class.fields.iter().any(|class_field| class_field.name == field)
+    !class
+        .fields
+        .iter()
+        .any(|class_field| class_field.name == field)
         && class
             .methods
             .iter()
-            .filter_map(|id| usize::try_from(id.0).ok().and_then(|index| mir.functions.get(index)))
+            .filter_map(|id| {
+                usize::try_from(id.0)
+                    .ok()
+                    .and_then(|index| mir.functions.get(index))
+            })
             .any(|function| function.name == field)
 }
 
 /// Whether `dest` is a type parameter and `source` that parameter's optional.
-fn reads_optional_at_type_param(mir: &Mir, locals: &[LocalDecl], dest: LocalId, source: LocalId) -> bool {
+fn reads_optional_at_type_param(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    dest: LocalId,
+    source: LocalId,
+) -> bool {
     let local_ty = |local: LocalId| {
         usize::try_from(local.0)
             .ok()
@@ -866,7 +996,10 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::DepChrono, BackendDependency::Chrono),
         (Need::DepChronoTz, BackendDependency::ChronoTz),
         (Need::DepUrl, BackendDependency::Url),
-        (Need::DepUnicodeNormalization, BackendDependency::UnicodeNormalization),
+        (
+            Need::DepUnicodeNormalization,
+            BackendDependency::UnicodeNormalization,
+        ),
         (Need::HttpServer, BackendDependency::Hyper),
         (Need::Sqlite, BackendDependency::Rusqlite),
         (Need::DepUuid, BackendDependency::Uuid),

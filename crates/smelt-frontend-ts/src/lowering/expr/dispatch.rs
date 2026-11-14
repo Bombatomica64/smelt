@@ -1,6 +1,7 @@
 //! Expression dispatch: `expression_with_hint` and the match over every
 //! expression shape, which hands each shape to the module that lowers it.
 
+use super::super::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_literal;
@@ -8,7 +9,6 @@ use crate::lowering::peel::{Wrappers, peel};
 use oxc::ast::ast::Expression;
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, PrimitiveCastOp, Type, UnaryOp};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Lower an expression while preserving a caller-supplied type hint when possible.
@@ -26,8 +26,16 @@ impl ModuleBuilder<'_> {
         {
             let span = self.expression_span(expression);
             let stored_ty = Self::local_ty(body, temp);
-            let read = body.push_expr(Expr { kind: ExprKind::Local(temp), ty: stored_ty, span });
-            return Ok(body.push_expr(Expr { kind: ExprKind::TypeAssert { value: read }, ty: present_ty, span }));
+            let read = body.push_expr(Expr {
+                kind: ExprKind::Local(temp),
+                ty: stored_ty,
+                span,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: read },
+                ty: present_ty,
+                span,
+            }));
         }
         let anchor = self.expression_span(expression);
         let lowered = self.with_erasure_anchor(anchor, |this| {
@@ -43,7 +51,11 @@ impl ModuleBuilder<'_> {
     /// `TypeAssert` to the TypeScript view, which the backend converts. A
     /// function value is left alone; its calls convert their own arguments
     /// and results. See `smelt_hir::language_view`.
-    pub(in crate::lowering) fn in_own_language_view(&mut self, value: smelt_hir::ExprId, body: &mut Body) -> smelt_hir::ExprId {
+    pub(in crate::lowering) fn in_own_language_view(
+        &mut self,
+        value: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let ty = Self::expr_ty(body, value);
         let language = smelt_hir::language_view::SourceLanguage::TypeScript;
         if matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_)))
@@ -56,7 +68,11 @@ impl ModuleBuilder<'_> {
             .get(usize::try_from(value.0).unwrap_or(usize::MAX))
             .map_or_else(|| self.span(0, 0), |expr| expr.span);
         let viewed = smelt_hir::language_view::view_in(&mut self.ctx.krate.types, ty, language);
-        body.push_expr(Expr { kind: ExprKind::TypeAssert { value }, ty: viewed, span })
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: viewed,
+            span,
+        })
     }
 
     /// Lower one expression; see [`Self::expression_with_hint`].
@@ -153,9 +169,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::ArrayExpression(array) => self.array_expression(array, body, type_hint),
-            Expression::ObjectExpression(object) => {
-                self.object_expression(object, body, type_hint)
-            }
+            Expression::ObjectExpression(object) => self.object_expression(object, body, type_hint),
             Expression::BinaryExpression(binary) => {
                 if binary.operator == BinaryOperator::Instanceof {
                     return self.instanceof_expression(binary, body);
@@ -236,17 +250,21 @@ impl ModuleBuilder<'_> {
                 // types may know it concatenates, as in `binary_expression`.
                 let ty = if op == BinOp::Add
                     && (self.checker_types_as_string(binary.span.start, binary.span.end)
-                        || type_hint
-                            .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))
-                            && (self.is_string_compatible_type(lhs_ty)
-                                || self.is_string_compatible_type(rhs_ty)
-                                || self.type_contains_unknown(lhs_ty)
-                                || self.type_contains_unknown(rhs_ty)))
+                        || type_hint.is_some_and(|hint| {
+                            self.ctx.krate.types.get(hint) == Some(&Type::String)
+                        }) && (self.is_string_compatible_type(lhs_ty)
+                            || self.is_string_compatible_type(rhs_ty)
+                            || self.type_contains_unknown(lhs_ty)
+                            || self.type_contains_unknown(rhs_ty)))
                 {
                     self.ctx.krate.types.intern(Type::String)
-                } else if let Some(dynamic) =
-                    self.dynamic_addition_type(op, lhs_ty, rhs_ty, binary.span.start, binary.span.end)
-                {
+                } else if let Some(dynamic) = self.dynamic_addition_type(
+                    op,
+                    lhs_ty,
+                    rhs_ty,
+                    binary.span.start,
+                    binary.span.end,
+                ) {
                     dynamic
                 } else {
                     self.binary_result_type(op, lhs_ty, rhs_ty)
@@ -290,7 +308,8 @@ impl ModuleBuilder<'_> {
                 } else {
                     None
                 };
-                let rhs = self.with_narrowing(rhs_narrowing, |this| this.expression(&logical.right, body))?;
+                let rhs = self
+                    .with_narrowing(rhs_narrowing, |this| this.expression(&logical.right, body))?;
                 // JavaScript's `&&`/`||` select an OPERAND, so in this value
                 // position the result is the union of the operand types, not a
                 // boolean. `logical_operand_value_expression` builds that
@@ -309,9 +328,7 @@ impl ModuleBuilder<'_> {
                 )?;
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 let identity = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::Bool(
-                        logical.operator == LogicalOperator::Or,
-                    )),
+                    kind: ExprKind::Literal(Literal::Bool(logical.operator == LogicalOperator::Or)),
                     ty,
                     span: self.expression_span(&logical.left),
                 });
@@ -359,7 +376,10 @@ impl ModuleBuilder<'_> {
                     UnaryOperator::UnaryPlus => {
                         let operand = self.expression(&unary.argument, body)?;
                         let operand_ty = Self::expr_ty(body, operand);
-                        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
+                        if matches!(
+                            self.ctx.krate.types.get(operand_ty),
+                            Some(Type::Int | Type::Float)
+                        ) {
                             return Ok(operand);
                         }
                         if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Bool))
@@ -419,8 +439,7 @@ impl ModuleBuilder<'_> {
                         self.ctx.krate.types.get(hint),
                         Some(Type::Unknown | Type::TypeParam { .. })
                     )
-                })
-                    && let Some(expr) = self.unknown_computed_member_with_hint(member, body)?
+                }) && let Some(expr) = self.unknown_computed_member_with_hint(member, body)?
                 {
                     return Ok(expr);
                 }
@@ -439,19 +458,19 @@ impl ModuleBuilder<'_> {
                 // when it has one, exactly as the `new Array(n)` spelling does
                 // below; the two forms must stay in lockstep.
                 let value = self.adopt_contextual_list_allocation_type(value, type_hint, body);
-                let statically_callable = body.expr_at(value)
-                    .and_then(|lowered_expr| match &lowered_expr.kind {
-                        ExprKind::Call { callee, .. } | ExprKind::ClosureCall { callee, .. } => {
-                            Some(*callee)
-                        }
-                        _ => None,
-                    })
-                    .is_some_and(|callee| {
-                        matches!(
-                            self.ctx.krate.types.get(Self::expr_ty(body, callee)),
-                            Some(Type::Function(_))
-                        )
-                    });
+                let statically_callable =
+                    body.expr_at(value)
+                        .and_then(|lowered_expr| match &lowered_expr.kind {
+                            ExprKind::Call { callee, .. }
+                            | ExprKind::ClosureCall { callee, .. } => Some(*callee),
+                            _ => None,
+                        })
+                        .is_some_and(|callee| {
+                            matches!(
+                                self.ctx.krate.types.get(Self::expr_ty(body, callee)),
+                                Some(Type::Function(_))
+                            )
+                        });
                 if let Some(hint) = type_hint
                     && statically_callable
                     && matches!(self.ctx.krate.types.get(hint), Some(Type::Future(_)))
@@ -488,12 +507,9 @@ impl ModuleBuilder<'_> {
             Expression::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
             }
-            Expression::FunctionExpression(function) => self.function_expression_value(
-                function,
-                type_hint,
-                function.span,
-                body,
-            ),
+            Expression::FunctionExpression(function) => {
+                self.function_expression_value(function, type_hint, function.span, body)
+            }
             Expression::ClassExpression(class) => self.class_expression_value(class, body),
             Expression::ChainExpression(chain) => self.chain_expression(chain, body),
             Expression::TSAsExpression(as_expr) => self.type_assertion_expression(

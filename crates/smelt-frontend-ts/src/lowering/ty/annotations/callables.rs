@@ -161,7 +161,9 @@ impl ModuleBuilder<'_> {
                 let rest_ty = rest
                     .type_annotation
                     .as_ref()
-                    .map(|annotation| self.function_type_rest_param_to_hir(&annotation.type_annotation))
+                    .map(|annotation| {
+                        self.function_type_rest_param_to_hir(&annotation.type_annotation)
+                    })
                     .transpose()?
                     .ok_or_else(|| {
                         SmeltError::unsupported(

@@ -144,7 +144,10 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::DataView) {
+        if !self.is_modeled_class(
+            Self::expr_ty(body, receiver),
+            smelt_stdlib::StdlibClass::DataView,
+        ) {
             return Ok(None);
         }
         let Some((write, element)) = smelt_stdlib::data_view_accessor(member_name) else {
@@ -219,9 +222,7 @@ impl ModuleBuilder<'_> {
             "length" if is_view => (ByteArrayOp::Length, float_ty),
             "byteLength" => (ByteArrayOp::ByteLength, float_ty),
             "byteOffset" if is_view || is_data_view => (ByteArrayOp::ByteOffset, float_ty),
-            "buffer" if is_view || is_data_view => {
-                (ByteArrayOp::Buffer, self.array_buffer_type())
-            }
+            "buffer" if is_view || is_data_view => (ByteArrayOp::Buffer, self.array_buffer_type()),
             _ => return Ok(None),
         };
         Ok(Some(body.push_expr(Expr {
@@ -354,7 +355,9 @@ impl ModuleBuilder<'_> {
         // addresses BYTES through accessors and has no own enumerable
         // properties, which is why `JSON.stringify(dataView)` is `{}` where a
         // typed array's is its element indices.
-        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ArrayBuffer) || self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::DataView) {
+        if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::ArrayBuffer)
+            || self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::DataView)
+        {
             return self.empty_projection_expression(op, span, body);
         }
         if !self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TypedArray) {

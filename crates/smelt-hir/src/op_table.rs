@@ -85,15 +85,23 @@ macro_rules! op_field_ty {
 /// Selects the HIR text of an entry's display clause.
 #[macro_export]
 macro_rules! op_hir_display {
-    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => { $hir };
-    (($both:expr)) => { $both };
+    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => {
+        $hir
+    };
+    (($both:expr)) => {
+        $both
+    };
 }
 
 /// Selects the MIR text of an entry's display clause.
 #[macro_export]
 macro_rules! op_mir_display {
-    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => { $mir };
-    (($both:expr)) => { $both };
+    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => {
+        $mir
+    };
+    (($both:expr)) => {
+        $both
+    };
 }
 
 /// Expands to an entry's `fallible` condition; an entry without one cannot throw.
@@ -175,12 +183,26 @@ macro_rules! op_group_transcribed {
                 /// Protocol method used for this resumption.
                 kind: [$crate::GeneratorResumeKind],
             }
+                // The generator's body may throw, and a `try` around the
+                // `.next()` that resumed it must see the throw.
+                fallible(true)
+                call(format!("@generator_{kind:?}"))
                 => (
                     value.map_or_else(
                         || format!("{kind:?} {generator}"),
                         |value| format!("{kind:?} {generator} with {value}"),
                     )
                 );
+            /// Drain a synchronous generator into a fresh list (`[...gen]`,
+            /// `Array.from(gen)`). A throw from its body reaches the enclosing
+            /// `try`, as it does for `.next()`.
+            GeneratorCollect {
+                /// Generator handle to drain.
+                generator: one,
+            }
+                fallible(true)
+                call("@generator_collect".to_owned())
+                => (format!("generator_collect {generator}"));
             /// Test whether a generator resume result represents completion.
             GeneratorDone {
                 /// Resume result to inspect.
@@ -194,10 +216,14 @@ macro_rules! op_group_transcribed {
             }
                 => (format!("value {result}"));
             /// Resume a delegated generator, forwarding each suspension to the caller.
+            /// A throw from a delegate generator reaches the `try` around the
+            /// `yield*`.
             GeneratorDelegate {
                 /// Generator whose suspension points are forwarded.
                 generator: one,
             }
+                fallible(true)
+                call("@generator_delegate".to_owned())
                 => (format!("yield* {generator}"));
             /// Read the JavaScript `this` receiver installed by the active call.
             ///
@@ -386,15 +412,25 @@ macro_rules! op_group_transcribed {
                 radix: one,
             }
                 => (format!("numeric_to_string_radix {operand}, {radix}"));
-            /// Format a numeric value as a fixed-point decimal string with a given
-            /// number of fractional digits (`Number.prototype.toFixed`).
-            NumericToFixed {
-                /// Numeric operand being formatted.
+            /// Format a number with one of `Number.prototype`'s formatting
+            /// methods (`toFixed`, `toPrecision`, `toExponential`, `toString(radix)`).
+            ///
+            /// An argument outside the method's range is a `RangeError`, so the op
+            /// is fallible unless the frontend proved the argument is absent or a
+            /// constant inside that range.
+            NumericFormat {
+                /// Which method.
+                method: [$crate::NumericFormatMethod],
+                /// The numeric receiver.
                 operand: one,
-                /// Number of fractional digits to render.
-                digits: one,
+                /// The digit count (or radix), when written.
+                digits: opt,
+                /// Whether the argument can fall outside the method's range.
+                digits_checked: [bool],
             }
-                => (format!("numeric_to_fixed {operand}, {digits}"));
+                fallible(*digits_checked)
+                call(format!("@number_{}", method.js_name()))
+                => (format!("numeric_format {} {operand}, {digits:?} checked={digits_checked:?}", method.js_name()));
             /// Parse an integer from a string with a JavaScript-style numeric radix.
             ParseIntRadix {
                 /// String operand.
@@ -575,6 +611,24 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("string_{op} {operand}"));
+            /// `receiver.match(pattern)` / `receiver.search(pattern)` on an
+            /// erased receiver, resolved by the receiver's run-time value (see
+            /// [`$crate::ErasedPatternMethod`]). The result is erased: what a
+            /// dynamically chosen method answers has no static shape.
+            ErasedPatternCall {
+                /// The method called.
+                method: [$crate::ErasedPatternMethod],
+                /// The erased receiver.
+                receiver: one @READ,
+                /// The pattern argument (a `RegExp`, a string, or anything).
+                pattern: one @READ,
+                /// The source spelling of the callee (`item.match`), which a
+                /// receiver without the member names in its `TypeError`.
+                callee: [String],
+            }
+                fallible(true)
+                call(format!("@erased_{method}"))
+                => (format!("erased_{method} {receiver}, {pattern} ({callee})"));
             /// Test whether a regex pattern matches a string.
             RegexIsMatch {
                 /// Regex match shape to apply.
@@ -2354,6 +2408,24 @@ macro_rules! op_group_transcribed {
                 fallible(*divisor_checked)
                 call("@python_division".to_owned())
                 => (format!("python_division {lhs} {} {rhs} checked={divisor_checked:?}", op.source_text()));
+            /// Raise the source language's error unless a binding whose storage
+            /// can be unassigned (`smelt_mir::LocalInit::MaybeUnbound`) is
+            /// assigned: a Python name assigned on only some paths, a JavaScript
+            /// binding read in its temporal dead zone through a closure.
+            ///
+            /// MIR lowering's definite-assignment pass is the only producer: it
+            /// puts one before every read of such a binding that the analysis
+            /// cannot prove assigned. The check answers nothing; past it the
+            /// binding is assigned, so the read after it is an ordinary one.
+            BindingCheck {
+                /// The binding, always a place naming the local itself.
+                binding: one @READ,
+                /// The error an unassigned binding raises.
+                unbound: [$crate::UnboundRead],
+            }
+                fallible(true)
+                call(format!("@binding_check_{}", unbound.name()))
+                => (format!("binding_check {binding} or {}", unbound.name()));
             /// Python's `d[k]` read, which raises `KeyError` on a missing key.
             PythonDictRead {
                 /// The dictionary.
@@ -2398,6 +2470,13 @@ macro_rules! op_group_transcribed {
                 value: one,
             }
                 => (format!("py_repr {value}"));
+            /// Python's `json.dumps(value)` with its default arguments, encoded
+            /// by the value's static type (`int` and `float` stay distinct).
+            PyJsonDumps {
+                /// The JSON-compatible value.
+                value: one @READ,
+            }
+                => (format!("py_json_dumps {value}"));
             /// `e.args`: the constructor arguments of an exception, as the
             /// runtime's `SmeltPyExceptionArgs`.
             PyExceptionArgs {

@@ -120,9 +120,8 @@ use smelt_hir::{Type, TypeId};
 
 use self::summary::{ArgumentEffect, CallSummaries, ParamEffect, SummaryFacts};
 use crate::{
-    Callee, ClosureId, FuncId, GlobalProjection, LocalId, LocalKind, Mir, MirClosure,
-    MirFunction, Operand, Place,
-    Rvalue, Statement, Terminator,
+    Callee, ClosureId, FuncId, GlobalProjection, LocalId, LocalKind, Mir, MirClosure, MirFunction,
+    Operand, Place, Rvalue, Statement, Terminator,
 };
 
 /// The class assigned to one list-typed local.
@@ -258,7 +257,10 @@ impl BodyListEscape {
     /// Number of locals in this body that landed in `class`.
     #[must_use]
     pub fn count(&self, class: ListLocalClass) -> usize {
-        self.locals.iter().filter(|fact| fact.class == class).count()
+        self.locals
+            .iter()
+            .filter(|fact| fact.class == class)
+            .count()
     }
 
     /// Number of locals in this body that are confined to the frame.
@@ -339,7 +341,12 @@ impl<'mir> FunctionBody<'mir> {
     /// outside, so both count as externally defined.
     fn from_closure(closure: &'mir MirClosure) -> Self {
         let mut entry_locals = closure.params.clone();
-        entry_locals.extend(closure.captures.iter().filter_map(|capture| capture.target_local));
+        entry_locals.extend(
+            closure
+                .captures
+                .iter()
+                .filter_map(|capture| capture.target_local),
+        );
         Self {
             locals: &closure.locals,
             blocks: &closure.blocks,
@@ -360,7 +367,10 @@ impl<'mir> FunctionBody<'mir> {
             .locals
             .get(usize::try_from(local.0).unwrap_or(usize::MAX))?;
         let symbol = match decl.kind {
-            LocalKind::UserBinding(symbol) | LocalKind::Param { symbol: Some(symbol) } => symbol,
+            LocalKind::UserBinding(symbol)
+            | LocalKind::Param {
+                symbol: Some(symbol),
+            } => symbol,
             LocalKind::Param { symbol: None } | LocalKind::Temp => return None,
         };
         mir.symbols.get(symbol).map(ToOwned::to_owned)
@@ -468,10 +478,7 @@ impl Groups {
         // The lower id always wins so the representative is deterministic and
         // the reported group name does not depend on visit order.
         let (found_left, found_right) = (self.find(left), self.find(right));
-        let (left_root, right_root) = (
-            found_left.min(found_right),
-            found_left.max(found_right),
-        );
+        let (left_root, right_root) = (found_left.min(found_right), found_left.max(found_right));
         if left_root == right_root {
             if concurrent {
                 self.aliased.insert(left_root, true);
@@ -836,9 +843,7 @@ impl<'a> BodyWalk<'a> {
                     self.groups.mutate(named.0);
                 }
             }
-            Some(&Place::Field { base, .. } | &Place::Index { base, .. })
-                if self.is_list(base) =>
-            {
+            Some(&Place::Field { base, .. } | &Place::Index { base, .. }) if self.is_list(base) => {
                 self.touch(base);
             }
             _ => {}
@@ -854,9 +859,7 @@ impl<'a> BodyWalk<'a> {
             }
             // Returning `obj.items` hands back a buffer that also lives inside
             // the container, which no summary can call uniquely owned.
-            Some(&Place::Field { base, .. } | &Place::Index { base, .. })
-                if self.is_list(base) =>
-            {
+            Some(&Place::Field { base, .. } | &Place::Index { base, .. }) if self.is_list(base) => {
                 self.touch(base);
             }
             _ => {}
@@ -867,8 +870,7 @@ impl<'a> BodyWalk<'a> {
     fn define_from_outside(&mut self, dest: LocalId) {
         if self.is_list(dest) {
             self.touch(dest);
-            self.groups
-                .escape(dest.0, EscapeReason::UnprovenDefinition);
+            self.groups.escape(dest.0, EscapeReason::UnprovenDefinition);
         }
     }
 
@@ -889,9 +891,7 @@ impl<'a> BodyWalk<'a> {
             }
             // A projected read pulls a value *out* of the base; the base itself
             // is only read.
-            Some(&Place::Field { base, .. } | &Place::Index { base, .. })
-                if self.is_list(base) =>
-            {
+            Some(&Place::Field { base, .. } | &Place::Index { base, .. }) if self.is_list(base) => {
                 self.touch(base);
             }
             _ => {}
@@ -1057,10 +1057,7 @@ impl<'a> BodyWalk<'a> {
     /// one return operand is anything but a list local whose group is free of
     /// entry locals and of every escape other than the return itself.
     fn returns_fresh_list(&mut self, function: &MirFunction) -> bool {
-        if !matches!(
-            self.mir.types.get(function.return_ty),
-            Some(Type::List(_))
-        ) {
+        if !matches!(self.mir.types.get(function.return_ty), Some(Type::List(_))) {
             return false;
         }
         let returned: Vec<Operand> = function
@@ -1086,7 +1083,9 @@ impl<'a> BodyWalk<'a> {
 
 /// Pairs one op field's operands with its stated role.
 macro_rules! push_op_role {
-    ($roles:ident, one, $field:ident, $role:expr) => { $roles.push(($field, $role)); };
+    ($roles:ident, one, $field:ident, $role:expr) => {
+        $roles.push(($field, $role));
+    };
     ($roles:ident, opt, $field:ident, $role:expr) => {
         if let Some(operand) = $field {
             $roles.push((operand, $role));

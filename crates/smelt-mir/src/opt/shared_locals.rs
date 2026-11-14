@@ -37,12 +37,21 @@ impl SharedLocals {
             .closures
             .iter()
             .map(|closure| {
-                let mut shared = written_by_created_closures(&closure.blocks, &mir.closures, &writes);
-                shared.extend(closure.captures.iter().filter_map(|capture| capture.target_local));
+                let mut shared =
+                    written_by_created_closures(&closure.blocks, &mir.closures, &writes);
+                shared.extend(
+                    closure
+                        .captures
+                        .iter()
+                        .filter_map(|capture| capture.target_local),
+                );
                 shared
             })
             .collect();
-        Self { functions, closures }
+        Self {
+            functions,
+            closures,
+        }
     }
 
     /// The shared locals of the function at `index`.
@@ -106,7 +115,10 @@ fn written_by_created_closures(
             continue;
         };
         for capture in &closure.captures {
-            if capture.target_local.is_some_and(|target| written.contains(&target)) {
+            if capture
+                .target_local
+                .is_some_and(|target| written.contains(&target))
+            {
                 shared.insert(capture.source_local);
             }
         }
@@ -116,9 +128,20 @@ fn written_by_created_closures(
 
 /// Every closure the statements of `blocks` construct.
 fn created_closures(blocks: &[BasicBlock]) -> impl Iterator<Item = ClosureId> + '_ {
-    blocks.iter().flat_map(|block| &block.statements).filter_map(|statement| match statement {
-        Statement::Assign { value: Rvalue::Closure { id, .. }, .. }
-        | Statement::AssignPlace { value: Rvalue::Closure { id, .. }, .. } => Some(*id),
-        Statement::Assign { .. } | Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => None,
-    })
+    blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter_map(|statement| match statement {
+            Statement::Assign {
+                value: Rvalue::Closure { id, .. },
+                ..
+            }
+            | Statement::AssignPlace {
+                value: Rvalue::Closure { id, .. },
+                ..
+            } => Some(*id),
+            Statement::Assign { .. }
+            | Statement::AssignPlace { .. }
+            | Statement::DictEntryUpdate { .. } => None,
+        })
 }

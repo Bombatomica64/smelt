@@ -1072,6 +1072,7 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
         let values = self.borrow();
+        
         let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
         smelt_inspect_array(ctx, depth, &entries)
     }

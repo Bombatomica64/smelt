@@ -72,6 +72,17 @@ impl RuntimeDemand {
             Rvalue::RegexFind { .. } => {
                 self.add(Need::DepRegress);
             }
+            // A computed digit count can throw its `RangeError`, which
+            // crosses the erased error channel.
+            Rvalue::NumericFormat { digits_checked, .. } => {
+                self.add(Need::NumberMethods);
+                if *digits_checked {
+                    self.add(Need::Unknown);
+                }
+            }
+            Rvalue::ErasedPatternCall { .. } => {
+                self.add(Need::ErasedPatternCall);
+            }
             Rvalue::RegexExec { .. } => {
                 self.add(Need::DepRegress);
             }
@@ -379,6 +390,15 @@ impl RuntimeDemand {
             Rvalue::PythonDictRead { .. } => {
                 self.add(Need::PythonDictRead);
             }
+            Rvalue::BindingCheck { unbound, .. } => {
+                self.add(Need::Binding);
+                match unbound {
+                    smelt_hir::UnboundRead::JsTemporalDeadZone => self.add(Need::BindingTdz),
+                    smelt_hir::UnboundRead::PyLocal
+                    | smelt_hir::UnboundRead::PyFreeVariable
+                    | smelt_hir::UnboundRead::PyGlobal => self.add(Need::BindingPy),
+                }
+            }
             Rvalue::PythonListRead { .. } => {
                 self.add(Need::PythonListRead);
             }
@@ -388,7 +408,7 @@ impl RuntimeDemand {
             Rvalue::PyStr { .. } => {
                 self.add(Need::PyRepr);
             }
-            Rvalue::PyRepr { .. } => {
+            Rvalue::PyRepr { .. } | Rvalue::PyJsonDumps { .. } => {
                 self.add(Need::PyRepr);
             }
             Rvalue::PyExceptionArgs { .. } => {
@@ -433,6 +453,7 @@ impl RuntimeDemand {
                 self.add(Need::ErasedAnswer);
             }
             Rvalue::GeneratorNext { .. }
+            | Rvalue::GeneratorCollect { .. }
             | Rvalue::GeneratorDone { .. }
             | Rvalue::GeneratorValue { .. }
             | Rvalue::GeneratorDelegate { .. }
@@ -449,7 +470,6 @@ impl RuntimeDemand {
             | Rvalue::NumericPow { .. }
             | Rvalue::NumericAtan2 { .. }
             | Rvalue::NumericToStringRadix { .. }
-            | Rvalue::NumericToFixed { .. }
             | Rvalue::StringCase { .. }
             | Rvalue::StringIsWellFormed { .. }
             | Rvalue::StringToWellFormed { .. }

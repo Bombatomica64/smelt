@@ -87,7 +87,13 @@ impl ModuleBuilder<'_> {
             let value = Self::caught_read(caught, unknown_ty, span, body);
             let expected = self.argument(message_arg, body)?;
             let oxc_span = message_arg.span();
-            let message_matches = self.runtime_check_expr("error_message_matches", value, &[expected], oxc_span, body);
+            let message_matches = self.runtime_check_expr(
+                "error_message_matches",
+                value,
+                &[expected],
+                oxc_span,
+                body,
+            );
             let both = body.push_expr(Expr {
                 kind: ExprKind::Conditional {
                     cond: is_instance,
@@ -108,7 +114,8 @@ impl ModuleBuilder<'_> {
             Err(error) => return Err(error),
         };
         let expected_ty = Self::expr_ty(body, expected);
-        let is_regexp = self.stdlib_class_of_type(expected_ty) == Some(smelt_stdlib::StdlibClass::RegExp);
+        let is_regexp =
+            self.stdlib_class_of_type(expected_ty) == Some(smelt_stdlib::StdlibClass::RegExp);
         let is_string = matches!(self.ctx.krate.types.get(expected_ty), Some(Type::String));
         if !is_regexp && !is_string {
             return Ok(imported_class_candidate.map(|name| instance_of(self, name, body)));

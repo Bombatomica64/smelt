@@ -39,14 +39,21 @@ impl ModuleBuilder<'_> {
         if op != BinOp::Add {
             return (lhs, rhs);
         }
-        let is_string =
-            |builder: &Self, expr| builder.ctx.krate.types.get(Self::expr_ty(body, expr)) == Some(&Type::String);
+        let is_string = |builder: &Self, expr| {
+            builder.ctx.krate.types.get(Self::expr_ty(body, expr)) == Some(&Type::String)
+        };
         if is_string(self, lhs) {
             let span = binary.right.span();
-            (lhs, self.null_absent_string_operand(rhs, span.start, span.end, body))
+            (
+                lhs,
+                self.null_absent_string_operand(rhs, span.start, span.end, body),
+            )
         } else if is_string(self, rhs) {
             let span = binary.left.span();
-            (self.null_absent_string_operand(lhs, span.start, span.end, body), rhs)
+            (
+                self.null_absent_string_operand(lhs, span.start, span.end, body),
+                rhs,
+            )
         } else {
             (lhs, rhs)
         }
@@ -58,19 +65,26 @@ impl ModuleBuilder<'_> {
         let Some(facts) = self.ts_facts else {
             return false;
         };
-        facts.type_id_at(&self.path, start, end).is_some_and(|id| !ts_type_may_be_string(facts, id, 0))
+        facts
+            .type_id_at(&self.path, start, end)
+            .is_some_and(|id| !ts_type_may_be_string(facts, id, 0))
     }
 
     /// Whether the TS7 checker types the expression at `start..end` as a
     /// number or a bigint (a literal of either included). `false` without
     /// facts.
     pub(in crate::lowering) fn checker_types_as_numeric(&self, start: u32, end: u32) -> bool {
-        self.ts_facts.and_then(|facts| facts.type_at(&self.path, start, end)).is_some_and(|ty| {
-            matches!(
-                ty.kind,
-                TsTypeKind::Number | TsTypeKind::NumberLiteral(_) | TsTypeKind::BigInt | TsTypeKind::BigIntLiteral(_)
-            )
-        })
+        self.ts_facts
+            .and_then(|facts| facts.type_at(&self.path, start, end))
+            .is_some_and(|ty| {
+                matches!(
+                    ty.kind,
+                    TsTypeKind::Number
+                        | TsTypeKind::NumberLiteral(_)
+                        | TsTypeKind::BigInt
+                        | TsTypeKind::BigIntLiteral(_)
+                )
+            })
     }
 
     /// Whether the TS7 checker types the expression at `start..end` as a string.
@@ -148,15 +162,18 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let operand_ty = Self::expr_ty(body, operand);
-        if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Optional(_)))
-            || !self.checker_absent_is_null(start, end)
+        if !matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Optional(_))
+        ) || !self.checker_absent_is_null(start, end)
         {
             return operand;
         }
         let span = self.span(start, end);
         let string_ty = self.ctx.krate.types.intern(Type::String);
         // A `string | null` needs no conversion when present: `x ?? "null"`.
-        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == string_ty) {
+        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == string_ty)
+        {
             let fallback = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("null".to_owned())),
                 ty: string_ty,
@@ -226,7 +243,11 @@ impl ModuleBuilder<'_> {
 /// Whether a value of the checker type `id` can be a string: a string, a type
 /// that says nothing (`any`, `unknown`, a free parameter, a deferred operator),
 /// or a union or intersection with such a member.
-fn ts_type_may_be_string(facts: &smelt_ts_model::TsTypeFacts, id: smelt_ts_model::TsTypeId, depth: usize) -> bool {
+fn ts_type_may_be_string(
+    facts: &smelt_ts_model::TsTypeFacts,
+    id: smelt_ts_model::TsTypeId,
+    depth: usize,
+) -> bool {
     if depth > 16 {
         return true;
     }
@@ -241,9 +262,12 @@ fn ts_type_may_be_string(facts: &smelt_ts_model::TsTypeFacts, id: smelt_ts_model
         | TsTypeKind::TypeParameter { .. }
         | TsTypeKind::Deferred(_)
         | TsTypeKind::Truncated => true,
-        TsTypeKind::Union { members, .. } => members.iter().any(|member| ts_type_may_be_string(facts, *member, depth + 1)),
-        TsTypeKind::Intersection(members) => members.iter().any(|member| ts_type_may_be_string(facts, *member, depth + 1)),
+        TsTypeKind::Union { members, .. } => members
+            .iter()
+            .any(|member| ts_type_may_be_string(facts, *member, depth + 1)),
+        TsTypeKind::Intersection(members) => members
+            .iter()
+            .any(|member| ts_type_may_be_string(facts, *member, depth + 1)),
         _ => false,
     }
 }
-

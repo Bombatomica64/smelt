@@ -1,8 +1,10 @@
 // Manifest-driven specialization lowering helpers.
 // Included into lowering.rs via include!, so this file uses plain comments.
-/// Returns the manifest module record corresponding to `path`.
+/// Returns the manifest module record corresponding to `path`, whose source
+/// text is `source`.
 pub(crate) fn specialization_for_path(
     path: &str,
+    source: &str,
     manifest: Option<&smelt_specialize::SpecializationManifest>,
 ) -> Option<SpecializationData> {
     let specialization = manifest?;
@@ -19,21 +21,54 @@ pub(crate) fn specialization_for_path(
                 .flatten()
         })
         .cloned()?;
-    let replay_effects = specialization
+    let is_first_module = specialization
         .modules
         .first()
         .is_some_and(|first| first.path == module.path);
-    let effects = if replay_effects {
-        specialization.effects.clone()
-    } else {
-        Vec::new()
-    };
+    let line_starts = line_start_offsets(source);
+    // A write attributed to a module replays in that module, at its statement;
+    // one with no attribution keeps the old rule (once, in the first module).
+    let outputs = specialization
+        .effects
+        .iter()
+        .filter_map(|effect| {
+            let smelt_specialize::EffectReplay::Output { stderr, text, path: written_path, line } = effect else {
+                return None;
+            };
+            match (written_path, line) {
+                (Some(written_in), Some(statement_line)) => specialization_paths_match(&module.path, written_in)
+                    .then(|| OutputReplay {
+                        stderr: *stderr,
+                        text: text.clone(),
+                        offset: statement_line
+                            .checked_sub(1)
+                            .and_then(|index| line_starts.get(usize::try_from(index).ok()?).copied()),
+                    }),
+                _ => is_first_module.then(|| OutputReplay {
+                    stderr: *stderr,
+                    text: text.clone(),
+                    offset: None,
+                }),
+            }
+        })
+        .collect();
     Some(SpecializationData {
         module,
         values: specialization.values.nodes.clone(),
         required_adapters: specialization.required_adapters.clone(),
-        effects,
+        outputs,
     })
+}
+
+/// Byte offset of the start of each line of `source` (index 0 is line 1).
+fn line_start_offsets(source: &str) -> Vec<u32> {
+    std::iter::once(0)
+        .chain(
+            source
+                .match_indices('\n')
+                .filter_map(|(index, _)| index.checked_add(1).and_then(|start| u32::try_from(start).ok())),
+        )
+        .collect()
 }
 
 /// Compares frontend and guest paths after canonicalization when possible.
@@ -75,46 +110,79 @@ struct MaterializedClassTarget<'name> {
 }
 
 impl ModuleBuilder<'_> {
-    /// Replays deterministic output captured during definition-time execution.
-    fn replay_specialization_output(&mut self, body: &mut Body) {
-        let effects = self
+    /// Replays, at the start of the module body, the captured output that no
+    /// top-level statement is known to have written.
+    fn replay_unattributed_output(&mut self, body: &mut Body) {
+        let outputs: Vec<OutputReplay> = self
             .specialization
             .as_ref()
-            .map(|specialization| specialization.effects.clone())
+            .map(|specialization| {
+                specialization.outputs.iter().filter(|output| output.offset.is_none()).cloned().collect()
+            })
             .unwrap_or_default();
+        for output in outputs {
+            self.push_output_replay(output, body);
+        }
+    }
+
+    /// Replays, in place of the top-level statement spanning `range`, the
+    /// output it wrote at definition time.
+    ///
+    /// Only a statement the frontend materializes from the manifest (a
+    /// decorated function, a class whose body or hooks ran) is replayed: it
+    /// does not run again, so its output must be. A statement lowered to
+    /// run-time code prints its own output; replaying it as well printed it
+    /// twice.
+    fn replay_statement_output(&mut self, range: TextRange, body: &mut Body) {
+        let start = u32::from(range.start());
+        let end = u32::from(range.end());
+        let outputs: Vec<OutputReplay> = self
+            .specialization
+            .as_ref()
+            .map(|specialization| {
+                specialization
+                    .outputs
+                    .iter()
+                    .filter(|output| output.offset.is_some_and(|offset| offset >= start && offset < end))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        for output in outputs {
+            self.push_output_replay(output, body);
+        }
+    }
+
+    /// Appends one replayed write to the module body.
+    fn push_output_replay(&mut self, output: OutputReplay, body: &mut Body) {
         let span = Span::new(self.file_id, 0, 0);
         let none_ty = self.intern_type(Type::None);
         let string_ty = self.intern_type(Type::PyStr);
-        for effect in effects {
-            let smelt_specialize::EffectReplay::Output { stderr, text } = effect else {
-                continue;
-            };
-            let symbol = if stderr {
-                smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL
-            } else {
-                smelt_hir::CONSOLE_WRITE_SYMBOL
-            };
-            let item = self.ensure_specialization_output_item(symbol, span);
-            let callee = body.push_expr(HirExpr {
-                kind: ExprKind::Item(item),
-                ty: none_ty,
-                span,
-            });
-            let value = body.push_expr(HirExpr {
-                kind: ExprKind::Literal(Literal::String(text)),
-                ty: string_ty,
-                span,
-            });
-            let call = body.push_expr(HirExpr {
-                kind: ExprKind::Call {
-                    callee,
-                    args: vec![value],
-                },
-                ty: none_ty,
-                span,
-            });
-            body.push_stmt_to_block(body.root, HirStmt::Expr(call));
-        }
+        let symbol = if output.stderr {
+            smelt_hir::CONSOLE_ERROR_WRITE_SYMBOL
+        } else {
+            smelt_hir::CONSOLE_WRITE_SYMBOL
+        };
+        let item = self.ensure_specialization_output_item(symbol, span);
+        let callee = body.push_expr(HirExpr {
+            kind: ExprKind::Item(item),
+            ty: none_ty,
+            span,
+        });
+        let value = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::String(output.text)),
+            ty: string_ty,
+            span,
+        });
+        let call = body.push_expr(HirExpr {
+            kind: ExprKind::Call {
+                callee,
+                args: vec![value],
+            },
+            ty: none_ty,
+            span,
+        });
+        body.push_stmt_to_block(body.root, HirStmt::Expr(call));
     }
 
     /// Ensures one exact output replay builtin exists in HIR.

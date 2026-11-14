@@ -1,13 +1,15 @@
 //! Local dataflow and mutability analysis: whether a MIR local needs a mutable Rust binding, its assignment/use ordering, and rvalue-level in-place mutation and mutable-borrow queries.
 
+use super::core::terminator_successors;
 use super::*;
 use smelt_hir::FunctionType;
-use super::core::terminator_successors;
 
 impl FunctionEmitter<'_> {
     /// The function's [`LocalWriteIndex`], built on first use.
     pub(super) fn local_write_index(&self) -> &LocalWriteIndex {
-        self.caches.local_write_index.get_or_init(|| self.build_local_write_index())
+        self.caches
+            .local_write_index
+            .get_or_init(|| self.build_local_write_index())
     }
 
     /// Scan every block once and record the write facts the per-local
@@ -29,7 +31,17 @@ impl FunctionEmitter<'_> {
                                     .captures
                                     .iter()
                                     .filter(|capture| {
+                                        // A binding that can be unassigned when
+                                        // captured is shared with the closure,
+                                        // which reads the same `SmeltBinding`.
                                         self.closure_capture_needs_shared_access(closure, capture)
+                                            || self
+                                                .function
+                                                .locals
+                                                .get(capture.source_local.index())
+                                                .is_some_and(|decl| {
+                                                    decl.init == smelt_mir::LocalInit::MaybeUnbound
+                                                })
                                     })
                                     .map(|capture| capture.source_local),
                             );
@@ -37,7 +49,11 @@ impl FunctionEmitter<'_> {
                         bump_u32(&mut index.writes, *dest);
                         index.last_write_block.insert(*dest, block.id);
                         if let Rvalue::Use(source) = value {
-                            index.use_sources.entry(*dest).or_default().push(source.clone());
+                            index
+                                .use_sources
+                                .entry(*dest)
+                                .or_default()
+                                .push(source.clone());
                         }
                         bump_usize(&mut index.assignments, *dest);
                         index.assign_blocks.entry(*dest).or_default().push(block.id);
@@ -77,7 +93,11 @@ impl FunctionEmitter<'_> {
                         bump_u32(&mut index.writes, *current);
                         index.last_write_block.insert(*current, block.id);
                         bump_usize(&mut index.assignments, *current);
-                        index.assign_blocks.entry(*current).or_default().push(block.id);
+                        index
+                            .assign_blocks
+                            .entry(*current)
+                            .or_default()
+                            .push(block.id);
                         if self.dict_entry_update_needs_mut_base(*base) {
                             index.mutated.insert(*base);
                         }
@@ -98,7 +118,11 @@ impl FunctionEmitter<'_> {
             {
                 index.unwind_written.insert(local);
             }
-            if let Some(Terminator::Call { callee: Callee::Op(op, Some(_)), .. }) = &block.terminator {
+            if let Some(Terminator::Call {
+                callee: Callee::Op(op, Some(_)),
+                ..
+            }) = &block.terminator
+            {
                 for mutated in self.rvalue_mutable_locals(op) {
                     index.mutated.insert(mutated);
                 }
@@ -132,7 +156,12 @@ impl FunctionEmitter<'_> {
     pub(crate) fn repeat_reachable_against_reference(
         &self,
     ) -> (Vec<smelt_mir::BlockId>, Vec<smelt_mir::BlockId>) {
-        let mut indexed: Vec<_> = self.local_write_index().repeat_reachable.iter().copied().collect();
+        let mut indexed: Vec<_> = self
+            .local_write_index()
+            .repeat_reachable
+            .iter()
+            .copied()
+            .collect();
         indexed.sort_by_key(|block| block.0);
         let reference = self
             .function
@@ -172,7 +201,9 @@ impl FunctionEmitter<'_> {
                         closure
                             .captures
                             .iter()
-                            .filter(|capture| self.closure_capture_needs_shared_access(closure, capture))
+                            .filter(|capture| {
+                                self.closure_capture_needs_shared_access(closure, capture)
+                            })
                             .map(|capture| capture.source_local),
                     );
                 }
@@ -277,14 +308,18 @@ impl FunctionEmitter<'_> {
     /// `None` whenever the local is not the destination of a static call, the
     /// callee erased its generics, or its declared return is not a function type.
     pub(super) fn emitted_call_result_function_type(&self, local: LocalId) -> Option<FunctionType> {
-        let func_id = self.function.blocks.iter().find_map(|block| match &block.terminator {
-            Some(Terminator::Call {
-                callee: Callee::Static(func_id),
-                dest,
-                ..
-            }) if *dest == local => Some(*func_id),
-            _ => None,
-        })?;
+        let func_id = self
+            .function
+            .blocks
+            .iter()
+            .find_map(|block| match &block.terminator {
+                Some(Terminator::Call {
+                    callee: Callee::Static(func_id),
+                    dest,
+                    ..
+                }) if *dest == local => Some(*func_id),
+                _ => None,
+            })?;
         let callee = self
             .mir
             .functions
@@ -396,9 +431,7 @@ impl FunctionEmitter<'_> {
                         }
                     }
                     Statement::AssignPlace { place, value } => {
-                        if place.target_reads_local(local)
-                            || value.reads_local(local)
-                        {
+                        if place.target_reads_local(local) || value.reads_local(local) {
                             return true;
                         }
                         if matches!(place, Place::Local(candidate) if *candidate == local) {
@@ -414,9 +447,7 @@ impl FunctionEmitter<'_> {
                         current,
                         value,
                     } => {
-                        if *base == local
-                            || index.reads_local(local)
-                            || default.reads_local(local)
+                        if *base == local || index.reads_local(local) || default.reads_local(local)
                         {
                             return true;
                         }
@@ -537,7 +568,6 @@ fn mutated_binding_root(value: &Rvalue) -> Option<LocalId> {
 }
 
 impl FunctionEmitter<'_> {
-
     /// Returns whether rendering an rvalue needs a mutable borrow of `local`.
     pub(super) fn rvalue_borrows_local_mutably(&self, value: &Rvalue, local: LocalId) -> bool {
         match value {
@@ -603,7 +633,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether `local` may be read before a real MIR assignment.
-    pub(super) fn local_may_be_used_before_assignment(&self, local: LocalId) -> Result<bool, EmitError> {
+    pub(super) fn local_may_be_used_before_assignment(
+        &self,
+        local: LocalId,
+    ) -> Result<bool, EmitError> {
         let assigned = self.function.params.contains(&local);
         self.block_may_use_local_before_assignment(
             self.function.entry,
@@ -653,9 +686,7 @@ impl FunctionEmitter<'_> {
                     current,
                     value,
                 } => {
-                    if (*base == local
-                        || index.reads_local(local)
-                        || default.reads_local(local))
+                    if (*base == local || index.reads_local(local) || default.reads_local(local))
                         && !assigned
                     {
                         return Ok(true);
@@ -693,7 +724,6 @@ impl FunctionEmitter<'_> {
         }
         Ok(false)
     }
-
 }
 
 /// Per-local write facts for one function, gathered in a single pass.
@@ -830,7 +860,9 @@ fn repeat_reachable_blocks(function: &MirFunction) -> HashSet<smelt_mir::BlockId
             .get(node)
             .and_then(|id| component_sizes.get(*id))
             .is_some_and(|size| *size > 1)
-            || successors.get(node).is_some_and(|targets| targets.contains(&node))
+            || successors
+                .get(node)
+                .is_some_and(|targets| targets.contains(&node))
     };
     // Forward sweep from every cyclic block.
     let mut reached = vec![false; count];

@@ -76,6 +76,16 @@ fn lambda_arithmetic() -> TestResult {
     verify_python_parity("lambda_arithmetic")
 }
 
+/// A name read before an assignment bound it raises: `UnboundLocalError` for a
+/// function local, `NameError` for a free variable or a module-level name. Each
+/// is caught by an `except` naming it (or `NameError`, its base), propagates
+/// out of a function that does not catch it, and a path that did assign the
+/// name reads its value (C8).
+#[test]
+fn unbound_names() -> TestResult {
+    verify_python_parity("unbound_names")
+}
+
 /// A raise from a `map`, `filter` or `sorted` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {
@@ -245,4 +255,19 @@ fn builtins_and_sequences() -> TestResult {
 #[test]
 fn class_inheritance() -> TestResult {
     verify_python_parity("class_inheritance")
+}
+
+/// `json.dumps` with `CPython`'s default separators, float repr and
+/// `ensure_ascii`, called from a function a module-level statement calls,
+/// whose output prints once.
+#[test]
+fn json_dumps_defaults() -> TestResult {
+    verify_python_parity("json_dumps_defaults")
+}
+
+/// The entry module's `__name__` is `"__main__"`, and output a decorator wrote
+/// at definition time prints once, where its statement stands.
+#[test]
+fn module_entry_and_definition_output() -> TestResult {
+    verify_python_parity("module_entry_and_definition_output")
 }

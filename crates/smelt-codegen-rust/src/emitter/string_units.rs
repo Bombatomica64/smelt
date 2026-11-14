@@ -16,44 +16,72 @@ impl FunctionEmitter<'_> {
     /// Python body, [`Type::String`] (a JavaScript string) otherwise. A string
     /// the body makes itself (a literal, a concatenation) has this type.
     pub(super) fn text_type(&self) -> Type {
-        if self.function.language == Language::Python { Type::PyStr } else { Type::String }
+        if self.function.language == Language::Python {
+            Type::PyStr
+        } else {
+            Type::String
+        }
     }
 
     /// The Rust type name of this body's strings: `JsString` (UTF-16) in a
     /// TypeScript body, `String` in a Python one.
     pub(super) fn text_type_name(&self) -> &'static str {
-        if self.indexes_utf16() { "JsString" } else { "String" }
+        if self.indexes_utf16() {
+            "JsString"
+        } else {
+            "String"
+        }
     }
 
     /// `string_expr`, a Rust expression of type `String`, as a value of this
     /// body's string type: wrapped in `JsString::from` in a TypeScript body
     /// (an O(n) transcode), unchanged in a Python one.
     pub(super) fn text_from_string(&self, string_expr: &str) -> String {
-        if self.indexes_utf16() { format!("JsString::from({string_expr})") } else { string_expr.to_owned() }
+        if self.indexes_utf16() {
+            format!("JsString::from({string_expr})")
+        } else {
+            string_expr.to_owned()
+        }
     }
 
     /// `text`, a value of this body's string type, as UTF-8 text for a Rust
     /// API that takes `&str`: a JavaScript string's lossy UTF-8
     /// (`to_string_lossy`), a Python `String` unchanged.
     pub(super) fn host_utf8_text(&self, text: RustExpr) -> RustExpr {
-        if self.indexes_utf16() { text.postfix(".to_string_lossy()") } else { text }
+        if self.indexes_utf16() {
+            text.postfix(".to_string_lossy()")
+        } else {
+            text
+        }
     }
 
     /// `payload`, the `JsString` an erased `SmeltUnknown::String` holds, as a
     /// value of this body's string type: itself in a TypeScript body, its
     /// UTF-8 text in a Python one.
     pub(super) fn text_from_unknown_string(&self, payload: &str) -> String {
-        if self.indexes_utf16() { payload.to_owned() } else { format!("{payload}.to_string()") }
+        if self.indexes_utf16() {
+            payload.to_owned()
+        } else {
+            format!("{payload}.to_string()")
+        }
     }
 
     /// The constant `value` as a value of this body's string type.
     pub(super) fn text_literal(&self, value: &str) -> RustExpr {
-        if self.indexes_utf16() { RustExpr::js_string_literal(value) } else { RustExpr::string_literal(value) }
+        if self.indexes_utf16() {
+            RustExpr::js_string_literal(value)
+        } else {
+            RustExpr::string_literal(value)
+        }
     }
 
     /// The empty string of this body's string type.
     pub(super) fn text_empty(&self) -> &'static str {
-        if self.indexes_utf16() { "JsString::new()" } else { "String::new()" }
+        if self.indexes_utf16() {
+            "JsString::new()"
+        } else {
+            "String::new()"
+        }
     }
 
     /// Whether this body's string indices count UTF-16 code units.
@@ -93,7 +121,9 @@ impl FunctionEmitter<'_> {
     /// (both `usize`, clamped to the string).
     pub(super) fn string_slice_text(&self, receiver: &str, start: &str, count: &str) -> String {
         if self.indexes_utf16() {
-            format!("{{ let smelt_start = {start}; {receiver}.slice(smelt_start, smelt_start.saturating_add({count})) }}")
+            format!(
+                "{{ let smelt_start = {start}; {receiver}.slice(smelt_start, smelt_start.saturating_add({count})) }}"
+            )
         } else {
             format!("{receiver}.chars().skip({start}).take({count}).collect::<String>()")
         }
@@ -103,14 +133,18 @@ impl FunctionEmitter<'_> {
     /// `receiver`, clamped to its end. (A JavaScript string indexes its code
     /// units directly and never asks for a byte offset.)
     pub(super) fn string_byte_of_text(&self, receiver: &str, index: &str) -> String {
-        format!("{receiver}.char_indices().nth({index}).map_or({receiver}.len(), |(smelt_byte, _)| smelt_byte)")
+        format!(
+            "{receiver}.char_indices().nth({index}).map_or({receiver}.len(), |(smelt_byte, _)| smelt_byte)"
+        )
     }
 
     /// A `(byte, index)` pair for code point `index` (`usize`) of the Python
     /// string `receiver`: the byte offset a search from `index` starts at
     /// (clamped to the end) and the code point index of that byte.
     pub(super) fn string_seek_text(&self, receiver: &str, index: &str) -> String {
-        format!("match {receiver}.char_indices().nth({index}) {{ Some((smelt_byte, _)) => (smelt_byte, {index}), None => ({receiver}.len(), {receiver}.chars().count()) }}")
+        format!(
+            "match {receiver}.char_indices().nth({index}) {{ Some((smelt_byte, _)) => (smelt_byte, {index}), None => ({receiver}.len(), {receiver}.chars().count()) }}"
+        )
     }
 
     /// The code point index (`usize`) of the char-boundary byte offset `byte`
@@ -135,7 +169,9 @@ impl FunctionEmitter<'_> {
         if self.indexes_utf16() {
             format!("{receiver}.unit_at({index}).map_or(f64::NAN, f64::from)")
         } else {
-            format!("match {receiver}.as_bytes().get(..={index}) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[{index}]), _ => {receiver}.chars().nth({index}).map_or(f64::NAN, |smelt_ch| smelt_ch as u32 as f64) }}")
+            format!(
+                "match {receiver}.as_bytes().get(..={index}) {{ Some(smelt_prefix) if smelt_prefix.is_ascii() => f64::from(smelt_prefix[{index}]), _ => {receiver}.chars().nth({index}).map_or(f64::NAN, |smelt_ch| smelt_ch as u32 as f64) }}"
+            )
         }
     }
 

@@ -6,23 +6,23 @@
 //! child module for their concern; type reference name resolution is
 //! `type_references`.
 
-mod unions;
-mod object_types;
+mod callables;
 mod derived_records;
+mod fetch_init;
+mod field_types;
+mod host_types;
+mod method_resolution;
+mod object_types;
+mod record_keys;
 mod structural_fields;
 mod tuples_rest;
-mod callables;
-mod type_references;
-mod record_keys;
-mod field_types;
-mod method_resolution;
-mod fetch_init;
-mod host_types;
 mod type_queries;
+mod type_references;
+mod unions;
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Expression, TSType, TSTypeQueryExprName};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::UnaryOperator;
@@ -37,7 +37,10 @@ impl ModuleBuilder<'_> {
     /// Bun's `int32` is an int32 slot type only as the WHOLE annotation; every
     /// nested type lowers through this same function one level deeper, where
     /// it is a `number` (see `lowering::int32`).
-    pub(in crate::lowering) fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
+    pub(in crate::lowering) fn ts_type_to_hir(
+        &mut self,
+        ty: &TSType<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         let whole = self.int32_type_depth == 0;
         if whole && self.is_bun_int32_annotation(ty) {
             return Ok(self
@@ -81,7 +84,9 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         records_before: usize,
     ) -> smelt_hir::TypeId {
-        if self.ts_facts.is_none() || !matches!(self.ctx.krate.types.get(lowered), Some(Type::Unknown)) {
+        if self.ts_facts.is_none()
+            || !matches!(self.ctx.krate.types.get(lowered), Some(Type::Unknown))
+        {
             return lowered;
         }
         let overturned: Vec<_> = self.ctx.krate.erasures.drain(records_before..).collect();
@@ -124,10 +129,7 @@ impl ModuleBuilder<'_> {
                 }
                 oxc::ast::ast::TSLiteral::UnaryExpression(unary)
                     if unary.operator == UnaryOperator::UnaryNegation
-                        && matches!(
-                            unary.argument,
-                            Expression::NumericLiteral(_)
-                        ) =>
+                        && matches!(unary.argument, Expression::NumericLiteral(_)) =>
                 {
                     Ok(self.ctx.krate.types.intern(Type::Float))
                 }
@@ -145,10 +147,19 @@ impl ModuleBuilder<'_> {
             // `null_or_undefined_join`). With any other arm the two collapse
             // into that arm's `Optional`, as everywhere else.
             TSType::TSUnionType(union)
-                if union.types.iter().any(|member| matches!(member, TSType::TSNullKeyword(_)))
-                    && union.types.iter().any(|member| matches!(member, TSType::TSUndefinedKeyword(_)))
+                if union
+                    .types
+                    .iter()
+                    .any(|member| matches!(member, TSType::TSNullKeyword(_)))
+                    && union
+                        .types
+                        .iter()
+                        .any(|member| matches!(member, TSType::TSUndefinedKeyword(_)))
                     && union.types.iter().all(|member| {
-                        matches!(member, TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_))
+                        matches!(
+                            member,
+                            TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_)
+                        )
                     }) =>
             {
                 let none = self.ctx.krate.types.intern(Type::None);
@@ -220,16 +231,15 @@ impl ModuleBuilder<'_> {
                         let item_ty = self.erase(ErasureReason::TypeLevel);
                         let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                         let return_ty = self.unknown_type(NotNewErasure::ErasedUpstream); // not a new erasure: same mixed-arity decision recorded for the rest item above
-                        let unified =
-                            self.ctx.krate.types.intern(Type::Function(FunctionType {
-                                params: vec![rest_list_ty],
-                                rest: Some(0),
-                                required_params: Some(0),
-                                mutable_params: Vec::new(),
-                                return_ty,
-                                is_async: false,
-                                may_throw: false,
-                            }));
+                        let unified = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                            params: vec![rest_list_ty],
+                            rest: Some(0),
+                            required_params: Some(0),
+                            mutable_params: Vec::new(),
+                            return_ty,
+                            is_async: false,
+                            may_throw: false,
+                        }));
                         if nullish.is_empty() {
                             return Ok(unified);
                         }
@@ -299,7 +309,10 @@ impl ModuleBuilder<'_> {
                     [] => Ok(self.ctx.krate.types.intern(Type::None)),
                     [single] => Ok(*single),
                     _ if meaningful.iter().any(|member_ty| {
-                        matches!(self.ctx.krate.types.get(*member_ty), Some(Type::Function(_)))
+                        matches!(
+                            self.ctx.krate.types.get(*member_ty),
+                            Some(Type::Function(_))
+                        )
                     }) =>
                     {
                         // A function intersected with an object whose fields
@@ -428,9 +441,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
             }
             TSType::TSFunctionType(function) => self.function_type_to_hir(function),
-            TSType::TSConstructorType(constructor) => {
-                self.constructor_type_to_hir(constructor)
-            }
+            TSType::TSConstructorType(constructor) => self.constructor_type_to_hir(constructor),
             TSType::TSThisType(_this_ty) => {
                 let Some(class_name) = self.current_class.clone() else {
                     return Ok(self.erase(ErasureReason::TypeLevel));
@@ -447,7 +458,9 @@ impl ModuleBuilder<'_> {
                 // lowered inline without a forward-declaration pass. The interned
                 // symbol matches the class item's name because both come from
                 // `intern_type_name(class_text)`.
-                let name = self.classes.item(&class_name)
+                let name = self
+                    .classes
+                    .item(&class_name)
                     .and_then(|class_item| match self.item_ref(class_item) {
                         Item::Class(class) => Some(class.name),
                         _ => None,

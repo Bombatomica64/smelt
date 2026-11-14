@@ -502,6 +502,7 @@ impl ModuleBuilder<'_> {
             abstract_methods: Vec::new(),
             implements: vec![],
             protocols: Vec::new(),
+            statics_of: None,
         }));
         self.items.insert(class_name_str.to_owned(), class_item_id);
         // Pre-register every method's `ItemId` so a body can call siblings
@@ -859,6 +860,7 @@ impl ModuleBuilder<'_> {
             abstract_methods: std::mem::take(&mut lowered.abstract_methods),
             implements: vec![],
             protocols,
+            statics_of: None,
         });
         let class_index = usize::try_from(class_item_id.0).map_err(|err| {
             SmeltError::unsupported(

@@ -60,7 +60,10 @@ fn union_declaration<'a>(source: &'a str, first_member: &str) -> &'a str {
     let member = source
         .find(first_member)
         .unwrap_or_else(|| panic!("a union declares `{first_member}`:\n{source}"));
-    let start = source.get(..member).and_then(|head| head.rfind("pub enum ")).unwrap_or(member);
+    let start = source
+        .get(..member)
+        .and_then(|head| head.rfind("pub enum "))
+        .unwrap_or(member);
     source.get(start..).unwrap_or_default()
 }
 
@@ -90,9 +93,19 @@ fn union_use_site_erases_a_parameter_its_item_does_not_declare() {
 fn union_member_fields_erase_at_the_member_type_arguments() {
     let source = source_for(FIXTURE);
     let outcome = union_declaration(&source, "M2(Many<R>)");
-    let outcome = outcome.get(..outcome.find("\nimpl").and_then(|first| {
-        outcome.get(first..).and_then(|rest| rest.find("\n}\n")).map(|end| first + end)
-    }).unwrap_or(outcome.len())).unwrap_or(outcome);
+    let outcome = outcome
+        .get(
+            ..outcome
+                .find("\nimpl")
+                .and_then(|first| {
+                    outcome
+                        .get(first..)
+                        .and_then(|rest| rest.find("\n}\n"))
+                        .map(|end| first + end)
+                })
+                .unwrap_or(outcome.len()),
+        )
+        .unwrap_or(outcome);
     assert!(
         !outcome.contains(crate::ERASED_GENERIC_ARRAY_ALIAS_FN),
         "`Many<R>.next` is a `SmeltList<R>` in the enum's scope: {outcome}"
@@ -130,16 +143,31 @@ fn union_enum_members_render_in_the_enum_scope() {
         !maker.contains("<::std::rc::Rc<dyn Fn() -> Box_<T>> as SmeltFromUnknown>"),
         "an `Rc<dyn Fn>` member has no `SmeltFromUnknown`: {maker}"
     );
-    let recovery = maker.find("fn from_smelt_unknown").and_then(|at| maker.get(at..)).unwrap_or_default();
-    let recovery = recovery.get(..recovery.find("\n}\n").unwrap_or(recovery.len())).unwrap_or(recovery);
+    let recovery = maker
+        .find("fn from_smelt_unknown")
+        .and_then(|at| maker.get(at..))
+        .unwrap_or_default();
+    let recovery = recovery
+        .get(..recovery.find("\n}\n").unwrap_or(recovery.len()))
+        .unwrap_or(recovery);
     assert!(
         recovery.contains("Rc<dyn Fn() -> Box_<T>>") && !recovery.contains("Box_<SmeltUnknown>"),
         "the callable member's adapter keeps the enum's `T`: {recovery}"
     );
     let outcome = union_declaration(&source, "M2(Many<T>)");
-    let outcome = outcome.get(..outcome.find("\nimpl").and_then(|first| {
-        outcome.get(first..).and_then(|rest| rest.find("\n}\n")).map(|end| first + end)
-    }).unwrap_or(outcome.len())).unwrap_or(outcome);
+    let outcome = outcome
+        .get(
+            ..outcome
+                .find("\nimpl")
+                .and_then(|first| {
+                    outcome
+                        .get(first..)
+                        .and_then(|rest| rest.find("\n}\n"))
+                        .map(|end| first + end)
+                })
+                .unwrap_or(outcome.len()),
+        )
+        .unwrap_or(outcome);
     assert!(
         !outcome.contains(crate::ERASED_GENERIC_ARRAY_ALIAS_FN),
         "`Many<T>.next` is a `SmeltList<T>` in the enum's scope: {outcome}"

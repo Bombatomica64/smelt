@@ -12,7 +12,7 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure_eq, ensure_node_agrees, smelt_in,
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in,
     workspace_root,
 };
 
@@ -32,7 +32,12 @@ fn verify_node_parity_with(name: &str, modules: &[&str]) -> TestResult {
         .map(|module| fs::read_to_string(fixtures.join(name).join(module)))
         .collect::<Result<Vec<_>, _>>()?;
     let mut files = vec![("main.ts", source.as_str())];
-    files.extend(modules.iter().copied().zip(module_sources.iter().map(String::as_str)));
+    files.extend(
+        modules
+            .iter()
+            .copied()
+            .zip(module_sources.iter().map(String::as_str)),
+    );
     ensure_node_agrees(&files, "main.ts", &expected, name)?;
     let project = TempProject::new()?;
     let root = project.path();
@@ -70,16 +75,60 @@ fn truthiness_absence_identity() -> TestResult {
     verify_node_parity("truthiness_absence_identity")
 }
 
+/// `??` whose fallback is an erased `?.` chain treats a present `undefined` or
+/// `null` as absent and keeps a present `0`, so the chain's own last fallback
+/// still applies (it was `NaN`).
+#[test]
+fn erased_nullish_chain() -> TestResult {
+    verify_node_parity("erased_nullish_chain")
+}
+
+/// A `let`/`const` read in its temporal dead zone throws a catchable
+/// `ReferenceError`, through a closure called early or a `switch` case that
+/// skipped the declaration; a hoisted function or a recursive arrow that runs
+/// after the binding it reads is initialized is unaffected (C8).
+#[test]
+fn temporal_dead_zone() -> TestResult {
+    verify_node_parity("temporal_dead_zone")
+}
+
+/// Shapes that contain themselves by value (mutual and self recursion through
+/// optional fields, union arms, generic nodes, a by-value generic wrapper, a
+/// class with an optional parameter property) compile as reference handles and
+/// keep JavaScript's sharing; a cycle through an array stays a value.
+#[test]
+fn recursive_shapes() -> TestResult {
+    verify_node_parity("recursive_shapes")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {
     verify_node_parity("bigint_boundaries")
 }
 
+/// Destructuring defaults: a default replaces `undefined` only (a present
+/// `null`, `0`, `false` or `""` is kept), an `unknown` source keeps its
+/// binding `unknown` instead of taking the default's type, and the default is
+/// evaluated only when it applies.
+#[test]
+fn destructuring_defaults() -> TestResult {
+    verify_node_parity("destructuring_defaults")
+}
+
 /// `console.log` renders lists, records and class instances as `util.inspect` does.
 #[test]
 fn console_inspect_shapes() -> TestResult {
     verify_node_parity("console_inspect_shapes")
+}
+
+/// `.match`/`.search` on an `any` receiver are resolved by its run-time value:
+/// a string answers `String.prototype`, an object its own member, and a value
+/// without one throws a catchable `TypeError`; a match array prints with its
+/// `index`, `input` and `groups`.
+#[test]
+fn erased_pattern_methods() -> TestResult {
+    verify_node_parity("erased_pattern_methods")
 }
 
 /// String methods on concrete and erased receivers, and strings in boolean position.
@@ -107,16 +156,50 @@ fn function_value_semantics() -> TestResult {
     verify_node_parity("function_value_semantics")
 }
 
+/// A function keeps one identity across its representations: erased into
+/// `unknown`, read at a typed slot, stored in a list, a `Set` or a `Map`, and
+/// found again with `===`, `indexOf`, `includes`, `has` and `get`.
+#[test]
+fn function_identity() -> TestResult {
+    verify_node_parity("function_identity")
+}
+
 /// A `catch` runs wherever its `try` sits: a loop, a closure, an `if` arm, a callback.
 #[test]
 fn throw_and_catch_forms() -> TestResult {
     verify_node_parity("throw_and_catch_forms")
 }
 
+/// Callback ABI forms: a callback writing its parameter's field reaches the
+/// caller's object, rest callbacks in `forEach`/`map` get the tuple of their
+/// arguments, `===` on borrowed callbacks compares identity, a borrowed
+/// erased-rest callback forwards to a typed slot, a `switch` with no default
+/// returns from an arrow, and a method fits a generic interface field.
+#[test]
+fn closure_abi_forms() -> TestResult {
+    verify_node_parity("closure_abi_forms")
+}
+
 /// Async closures, generators and timers behave as Node runs them.
 #[test]
 fn async_forms() -> TestResult {
     verify_node_parity("async_forms")
+}
+
+/// `setTimeout`, `setInterval` and `clearInterval` used as values schedule
+/// and cancel like direct calls, every pending timer runs before the program
+/// exits, and an interval's callback can cancel the interval it belongs to.
+#[test]
+fn timer_values() -> TestResult {
+    verify_node_parity("timer_values")
+}
+
+/// A throw from a generator body reaches the `try` around whatever resumed
+/// it (`.next()`, `for...of`, a spread, `Array.from`, a `yield*` in another
+/// generator), whatever value is thrown, and the generator is done afterwards.
+#[test]
+fn generator_throws() -> TestResult {
+    verify_node_parity("generator_throws")
 }
 
 /// A throw delivers its operand whole through one channel, whatever it is, and
@@ -209,7 +292,11 @@ fn contextual_add_and_symbol_keys() -> TestResult {
 #[test]
 fn uncaught_throw_exits_one_with_its_message() -> TestResult {
     let programs = [
-        ("returned out of main", "throw new TypeError('top level');\n", "TypeError: top level"),
+        (
+            "returned out of main",
+            "throw new TypeError('top level');\n",
+            "TypeError: top level",
+        ),
         (
             "through a callback",
             "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
@@ -247,9 +334,17 @@ build = false
             .current_dir(root)
             .env("RUSTFLAGS", "-Awarnings")
             .output()?;
-        ensure_eq(&output.status.code(), &Some(1_i32), format!("{name}: exit status"))?;
+        ensure_eq(
+            &output.status.code(),
+            &Some(1_i32),
+            format!("{name}: exit status"),
+        )?;
         let stderr = String::from_utf8_lossy(&output.stderr);
-        ensure_eq(&stderr.contains(message), &true, format!("{name}: stderr was {stderr}"))?;
+        ensure_eq(
+            &stderr.contains(message),
+            &true,
+            format!("{name}: stderr was {stderr}"),
+        )?;
     }
     Ok(())
 }
@@ -578,7 +673,10 @@ fn namespace_generic_calls() -> TestResult {
 /// importer, and a class may name itself from its own members.
 #[test]
 fn namespace_reexports() -> TestResult {
-    verify_node_parity_with("namespace_reexports", &["index.ts", "patterns.ts", "symbols.ts"])
+    verify_node_parity_with(
+        "namespace_reexports",
+        &["index.ts", "patterns.ts", "symbols.ts"],
+    )
 }
 
 /// A spread fills a rest parameter element by element through a function value.
@@ -734,6 +832,78 @@ fn object_assign_write_through() -> TestResult {
 #[test]
 fn record_callable_type_arguments() -> TestResult {
     verify_node_parity("record_callable_type_arguments")
+}
+
+/// A Date setter on an erased receiver (a `D extends Date` generic) borrows
+/// the receiver to read its timestamp and writes the new one into the same
+/// object, so the receiver is not moved twice and every alias sees the write.
+#[test]
+fn date_setter_erased_receiver() -> TestResult {
+    verify_node_parity("date_setter_erased_receiver")
+}
+
+/// A generic alias over a union with an object arm (`{ value: V; rest: string }
+/// | null`) lowers to an optional generic record, a generic helper mapping it
+/// stays generic, and `if (!r) return r;` returns the narrowed `null`.
+#[test]
+fn generic_record_result_alias() -> TestResult {
+    verify_node_parity("generic_record_result_alias")?;
+    // Type preservation, on the same source: `mapValue` keeps both
+    // parameters as Rust generics, and each call passes its arrow at the
+    // instantiated type (`(n) => n * 2` takes `&f64`), not through an erased
+    // adapter. The arrow's parameter type is TypeScript's instantiated one
+    // (`callbacks::body_lowering::names_type_param_out_of_scope`); with the
+    // callee's bare `A` the call bound `A` to `SmeltUnknown` (E0631).
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("generic_record_result_alias.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"generic-record\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    let map_value = source
+        .lines()
+        .find(|line| line.contains("fn map_value<"))
+        .ok_or("map_value did not keep its generics")?;
+    ensure(
+        !map_value.contains("SmeltUnknown>") && !map_value.contains(": SmeltUnknown"),
+        map_value.to_owned(),
+    )?;
+    for call in source
+        .lines()
+        .filter(|line| line.contains("map_value(") && !line.contains("fn map_value"))
+    {
+        ensure(
+            !call.contains("&SmeltUnknown"),
+            format!("erased callback adapter: {call}"),
+        )?;
+    }
+    Ok(())
+}
+
+/// A narrowing proved inside one class member (a method, a constructor) does
+/// not leak into a sibling member's same-named local, so that member's own
+/// null test survives instead of folding to `true` and unwrapping `None`.
+#[test]
+fn member_narrowing_scope() -> TestResult {
+    verify_node_parity("member_narrowing_scope")
+}
+
+/// `String(x)` on a value of a real Rust generic `T`, and a concrete Date
+/// erased by a callee: the erased view reads and writes the same date.
+#[test]
+fn generic_string_and_shared_date() -> TestResult {
+    verify_node_parity("generic_string_and_shared_date")
 }
 
 /// A class value carries its static methods, so a computed-key call finds
@@ -1002,4 +1172,18 @@ fn emission_rules_behaviour() -> TestResult {
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
+}
+
+/// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
+/// empty collection at the present type, as JavaScript's constructors do.
+#[test]
+fn absent_iterable_constructors() -> TestResult {
+    verify_node_parity("absent_iterable_constructors")
+}
+
+/// `toFixed`, `toPrecision`, `toExponential` and `toString(radix)` round and
+/// throw as Node does, typed and through an erased receiver's member read.
+#[test]
+fn number_format_methods() -> TestResult {
+    verify_node_parity("number_format_methods")
 }

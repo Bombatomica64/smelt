@@ -31,7 +31,8 @@ fn recovery_of<'a>(source: &'a str, first_member: &str) -> &'a str {
     let rest = source.get(member..).unwrap_or_default();
     let start = rest.find("fn from_smelt_unknown").unwrap_or(0);
     let body = rest.get(start..).unwrap_or_default();
-    body.get(..body.find("\n    }\n").unwrap_or(body.len())).unwrap_or(body)
+    body.get(..body.find("\n    }\n").unwrap_or(body.len()))
+        .unwrap_or(body)
 }
 
 /// The erased recovery of each arm tests its literal discriminants: an

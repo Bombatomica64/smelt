@@ -41,8 +41,6 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
-
-
 /// The reflected-construct *kind* string for a host constructor class name.
 ///
 /// The kind is the class's registry marker with the shared `__smelt_` prefix

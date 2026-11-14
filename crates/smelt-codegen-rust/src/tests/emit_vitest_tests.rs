@@ -56,5 +56,8 @@ it("configures a chain", () => {
 "#,
     );
     assert!(mocking.contains("struct SmeltVitestMockState"), "{mocking}");
-    assert!(mocking.contains("fn rejected(value: SmeltUnknown)"), "{mocking}");
+    assert!(
+        mocking.contains("fn rejected(value: SmeltUnknown)"),
+        "{mocking}"
+    );
 }

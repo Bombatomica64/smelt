@@ -65,8 +65,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
 /// Appends a hand-written probe module to the emitted crate's `main.rs`.
 ///
 /// The probe needs to control every allocation between a free and the reuse of
@@ -80,12 +78,14 @@ fn append_probe(crate_dir: &Path, probe: &str) {
     std::fs::write(&main, source).expect("write generated main.rs");
 }
 
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("smelt-callable-runtime-{}-{seq}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "smelt-callable-runtime-{}-{seq}",
+        std::process::id()
+    ))
 }
 
 /// Emit `source` as a crate, append `probe`, and run the crate's tests.
@@ -462,5 +462,9 @@ mod smelt_receiver_cycle_probe {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn closures_stored_on_their_receiver_do_not_keep_it_alive() {
-    run_fixture(RECEIVER_CYCLE_FIXTURE, "receiver_cycle_runtime", RECEIVER_CYCLE_PROBE);
+    run_fixture(
+        RECEIVER_CYCLE_FIXTURE,
+        "receiver_cycle_runtime",
+        RECEIVER_CYCLE_PROBE,
+    );
 }

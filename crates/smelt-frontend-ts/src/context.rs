@@ -1,8 +1,8 @@
 //! HIR construction context for TypeScript frontend lowering.
 
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::Rc;
-use std::collections::{HashMap, HashSet};
 
 use indexmap::IndexMap;
 
@@ -59,7 +59,9 @@ impl ObjectConstEntry {
     /// The key as the HIR string literal a lowered body reads it as.
     #[must_use]
     pub fn key_literal(&self) -> Literal {
-        self.key_units.clone().map_or_else(|| Literal::String(self.key.clone()), Literal::StringUnits)
+        self.key_units
+            .clone()
+            .map_or_else(|| Literal::String(self.key.clone()), Literal::StringUnits)
     }
 }
 
@@ -188,7 +190,10 @@ impl<V> Published<HashMap<QualifiedExport, V>> {
     /// The entry some module published for `name`, for tests that lower one
     /// module and inspect what it exported.
     pub(crate) fn exported(&self, name: &str) -> Option<&V> {
-        self.0.iter().find(|(key, _)| key.name == name).map(|(_, value)| value)
+        self.0
+            .iter()
+            .find(|(key, _)| key.name == name)
+            .map(|(_, value)| value)
     }
 }
 
@@ -292,7 +297,8 @@ pub struct HirCtx {
     /// Structural fields attached to type aliases visible to later modules.
     pub type_alias_fields: Published<HashMap<smelt_hir::Symbol, Vec<Field>>>,
     /// Interface heritage clauses visible to later modules for lazy field lookup.
-    pub interface_extends: Published<HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>>,
+    pub interface_extends:
+        Published<HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>>,
     /// Value types declared by interface string index signatures.
     pub interface_index_values: Published<HashMap<smelt_hir::Symbol, TypeId>>,
     /// Declared type parameters of every class the crate lowers, by name symbol.

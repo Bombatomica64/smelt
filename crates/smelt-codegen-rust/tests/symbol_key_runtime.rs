@@ -43,9 +43,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -263,5 +260,8 @@ fn a_folded_symbol_key_and_a_runtime_derived_key_name_one_property() {
     // this holds for each kind of symbol whose identity is fixed (unique bound
     // once, registry) and in both directions: a folded write read dynamically,
     // and a dynamic write read through the folded key.
-    run_fixture(SYMBOL_KEY_AGREEMENT_SOURCE, "smelt_symbol_key_folded_and_runtime_agree");
+    run_fixture(
+        SYMBOL_KEY_AGREEMENT_SOURCE,
+        "smelt_symbol_key_folded_and_runtime_agree",
+    );
 }

@@ -1,8 +1,8 @@
 //! `Object.assign` onto records, classes and callable values.
 
+use crate::lowering::js_text::{LONE_SURROGATE_NAME, has_lone_surrogate, js_str_text};
 use crate::lowering::support::source_spelling;
 use crate::lowering::{ModuleBuilder, SmeltError};
-use crate::lowering::js_text::{LONE_SURROGATE_NAME, has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -203,7 +203,10 @@ impl ModuleBuilder<'_> {
     fn names_class_value(&self, expression: &Expression<'_>) -> bool {
         match expression {
             Expression::Identifier(name) => {
-                matches!(self.resolve_value(name.name.as_str()), crate::lowering::resolve::ValueBinding::Class)
+                matches!(
+                    self.resolve_value(name.name.as_str()),
+                    crate::lowering::resolve::ValueBinding::Class
+                )
             }
             Expression::ThisExpression(_) => self.static_initializer_this().is_some(),
             _ => false,
@@ -410,8 +413,7 @@ impl ModuleBuilder<'_> {
                 break;
             }
             visited.push(symbol);
-            let source_name = source_spelling(&self.ctx.krate, symbol)
-                .map(str::to_owned);
+            let source_name = source_spelling(&self.ctx.krate, symbol).map(str::to_owned);
             let (fields, base) = if let Some(item) = self.class_by_symbol(symbol) {
                 (item.fields.clone(), item.base)
             } else if let Some(interface) = self.find_interface(symbol) {
@@ -563,7 +565,10 @@ impl ModuleBuilder<'_> {
                 let key_text = match &object_property.key {
                     PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
                     PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value) => {
-                        return Err(SmeltError::unsupported(self.span(lit.span.start, lit.span.end), LONE_SURROGATE_NAME));
+                        return Err(SmeltError::unsupported(
+                            self.span(lit.span.start, lit.span.end),
+                            LONE_SURROGATE_NAME,
+                        ));
                     }
                     PropertyKey::StringLiteral(lit) => js_str_text(lit.value).into_owned(),
                     _ => {

@@ -55,7 +55,8 @@ use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
 
 use crate::emitter::{EmitContext, method_mutates_this};
 use crate::{
-    EmitError, classes::effective_class_methods,
+    EmitError,
+    classes::effective_class_methods,
     emitter::record_coercion::{record_field_unknown_expr, type_supports_from_unknown},
 };
 
@@ -158,15 +159,20 @@ pub(crate) fn method_is_proto_eligible(
     // which renders the DECLARING class's type parameters; an inherited copy
     // in a subclass impl substitutes them, so only an own method takes it.
     let own_method = class == owner;
-    function.params.iter().enumerate().skip(1).all(|(index, param)| {
-        local_decl(function, *param).is_some_and(|local| {
-            if own_method {
-                param_crosses_erased_call(mir, context, function, index, local.ty)
-            } else {
-                function.rest.is_none() && type_supports_from_unknown(mir, context, local.ty)
-            }
+    function
+        .params
+        .iter()
+        .enumerate()
+        .skip(1)
+        .all(|(index, param)| {
+            local_decl(function, *param).is_some_and(|local| {
+                if own_method {
+                    param_crosses_erased_call(mir, context, function, index, local.ty)
+                } else {
+                    function.rest.is_none() && type_supports_from_unknown(mir, context, local.ty)
+                }
+            })
         })
-    })
 }
 
 /// Whether the erased adapter can rebuild parameter `index` of `function`
@@ -236,7 +242,9 @@ pub(crate) fn method_identity_expr(
         .get(method)
         .ok_or_else(|| EmitError::new("class method references an unknown symbol"))?;
     let key = format!("{class_name}::{method_name}");
-    Ok(Some(RustExpr::chain(format!("smelt_method_identity({key:?})"))))
+    Ok(Some(RustExpr::chain(format!(
+        "smelt_method_identity({key:?})"
+    ))))
 }
 
 /// Render the erased adapter expression for one eligible method.
@@ -252,7 +260,13 @@ fn method_adapter(
     function: &MirFunction,
     rust_method: &str,
 ) -> Result<RustExpr, EmitError> {
-    erased_callable_adapter(mir, context, function, &MethodReceiver::Instance, rust_method)
+    erased_callable_adapter(
+        mir,
+        context,
+        function,
+        &MethodReceiver::Instance,
+        rust_method,
+    )
 }
 
 /// What an erased adapter calls its method on.
@@ -296,39 +310,66 @@ fn erased_callable_adapter(
             };
             let emitter = match &method_emitter {
                 Some(emitter) => emitter,
-                None => method_emitter.insert(crate::emitter::FunctionEmitter::new(mir, context, function)?),
+                None => method_emitter.insert(crate::emitter::FunctionEmitter::new(
+                    mir, context, function,
+                )?),
             };
-            args.push(RustExpr::atom(emitter.erased_proto_argument(*param, &erased)?));
+            args.push(RustExpr::atom(
+                emitter.erased_proto_argument(*param, &erased)?,
+            ));
             continue;
         }
         // The parameter's TYPE decides how it is recovered: the blanket
         // `SmeltFromUnknown` does not compile for a parameter type that has no such
         // impl. See `record_field_from_unknown_expr`.
-        args.push(crate::emitter::record_coercion::record_field_from_unknown_expr(
-            mir,
-            &RustExpr::chain(format!(
-                "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-            )),
-            local.ty,
-        )?);
+        args.push(
+            crate::emitter::record_coercion::record_field_from_unknown_expr(
+                mir,
+                &RustExpr::chain(format!(
+                    "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                )),
+                local.ty,
+            )?,
+        );
     }
     // A throwing method returns `Result<_, Box<dyn Error>>`; the erased
     // callback's own return type is the same `Result`, so the `?` propagates
     // the thrown value across the seam rather than swallowing it.
     let try_operator = if function.can_throw { "?" } else { "" };
     let (capture, callee) = match receiver {
-        MethodReceiver::Instance => ("let smelt_receiver = self.clone(); ", "smelt_receiver.".to_owned()),
+        MethodReceiver::Instance => (
+            "let smelt_receiver = self.clone(); ",
+            "smelt_receiver.".to_owned(),
+        ),
         MethodReceiver::Static(class) => ("", format!("{class}::")),
     };
-    let call = format!(
-        "{callee}{rust_method}({}){try_operator}",
-        args.join(", ")
-    );
+    let call = format!("{callee}{rust_method}({}){try_operator}", args.join(", "));
     let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()
+    } else if matches!(
+        mir.types.get(function.return_ty),
+        Some(Type::Class { name: returned, args: returned_args }) if returned_args.is_empty()
+            && crate::classes::find_class(mir, *returned).is_some_and(|returned_class| returned_class.type_params.is_empty())
+    ) {
+        // A (non-generic) class instance crosses as an instance: with its
+        // class marker and its prototype-carried methods, as every other
+        // erasure of it does (`FunctionEmitter::erase`). The record
+        // projection alone dropped them, so `K.build(1).describe()` through
+        // an erased class value found no method. A generic class keeps the
+        // projection: its inline erasure needs the caller's render scope.
+        let emitter = match &method_emitter {
+            Some(emitter) => emitter,
+            None => method_emitter.insert(crate::emitter::FunctionEmitter::new(
+                mir, context, function,
+            )?),
+        };
+        emitter
+            .erased_value_text(&RustExpr::path("smelt_result"), function.return_ty)?
+            .into_string()
     } else {
-        record_field_unknown_expr(mir, &RustExpr::path("smelt_result"), function.return_ty)?.into_string()
+        record_field_unknown_expr(mir, &RustExpr::path("smelt_result"), function.return_ty)?
+            .into_string()
     };
     // The adapter is a fresh allocation per erasure, but it denotes the ONE
     // prototype method; link it to that method's canonical identity so
@@ -349,7 +390,8 @@ fn erased_callable_adapter(
     };
     Ok(RustExpr::atom(format!(
         "{{ let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({body}); \
-         smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}", identity_key = identity_key.delimited()
+         smelt_link_function_identity_key(&smelt_method, {identity_key}); SmeltUnknown::Function(smelt_method) }}",
+        identity_key = identity_key.delimited()
     )))
 }
 
@@ -371,7 +413,10 @@ fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
                 found |= block.statements.iter().any(|statement| {
                     matches!(
                         statement,
-                        smelt_mir::Statement::Assign { value: smelt_mir::Rvalue::ConstructLike { .. }, .. }
+                        smelt_mir::Statement::Assign {
+                            value: smelt_mir::Rvalue::ConstructLike { .. },
+                            ..
+                        }
                     )
                 });
             }
@@ -411,20 +456,27 @@ fn constructor_adapter(
             if !type_supports_from_unknown(mir, context, local.ty) {
                 return Ok(None);
             }
-            args.push(crate::emitter::record_coercion::record_field_from_unknown_expr(
-                mir,
-                &RustExpr::chain(format!(
-                    "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                )),
-                local.ty,
-            )?);
+            args.push(
+                crate::emitter::record_coercion::record_field_from_unknown_expr(
+                    mir,
+                    &RustExpr::chain(format!(
+                        "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                    )),
+                    local.ty,
+                )?,
+            );
         }
     }
-    let try_operator = if constructor.is_some_and(|function| function.can_throw) { "?" } else { "" };
+    let try_operator = if constructor.is_some_and(|function| function.can_throw) {
+        "?"
+    } else {
+        ""
+    };
     let built = record_field_unknown_expr(mir, &RustExpr::path("smelt_built"), self_ty)?;
     Ok(Some(RustExpr::atom(format!(
         "SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; let smelt_built = Self::new({}){try_operator}; Ok({built}) }}))",
-        args.join(", "), built = built.delimited()
+        args.join(", "),
+        built = built.delimited()
     ))))
 }
 
@@ -456,7 +508,11 @@ pub(crate) fn class_proto_entries_method(
         }
         let property = source_name.strip_prefix(GETTER_PREFIX);
         if !method_is_proto_eligible(mir, context, class.name, function) {
-            let member = format!("{}.{}", class_source_name(mir, class), property.unwrap_or(&source_name));
+            let member = format!(
+                "{}.{}",
+                class_source_name(mir, class),
+                property.unwrap_or(&source_name)
+            );
             let key = format!("{METHOD_KEY_PREFIX}{}", property.unwrap_or(&source_name));
             pushes.push(format!(
                 "        smelt_proto_entries.push(({key:?}.to_owned(), smelt_unbridged_member({member:?})));\n"
@@ -472,7 +528,10 @@ pub(crate) fn class_proto_entries_method(
         let adapter = method_adapter(mir, context, function, &rust_method)?;
         let key = format!("{METHOD_KEY_PREFIX}{}", property.unwrap_or(&source_name));
         let member = if property.is_some() {
-            format!("SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_get\".to_owned(), {adapter})])))", adapter = adapter.delimited())
+            format!(
+                "SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"__smelt_get\".to_owned(), {adapter})])))",
+                adapter = adapter.delimited()
+            )
         } else {
             adapter.into_string()
         };
@@ -483,7 +542,8 @@ pub(crate) fn class_proto_entries_method(
     pushes.extend(hidden_field_entries(mir, context, class)?);
     if let Some(adapter) = constructor_adapter(mir, context, class)? {
         pushes.push(format!(
-            "        smelt_proto_entries.push(({CONSTRUCTOR_KEY:?}.to_owned(), {adapter}));\n", adapter = adapter.delimited()
+            "        smelt_proto_entries.push(({CONSTRUCTOR_KEY:?}.to_owned(), {adapter}));\n",
+            adapter = adapter.delimited()
         ));
     }
     if pushes.is_empty() {
@@ -494,12 +554,16 @@ pub(crate) fn class_proto_entries_method(
     // key enumeration, structural equality, hashing and JSON all skip: a class's
     // methods are non-enumerable.
     let mut out = String::new();
-    out.push_str("    /// Prototype-carried members of this class, as receiver-bound erased functions.\n");
+    out.push_str(
+        "    /// Prototype-carried members of this class, as receiver-bound erased functions.\n",
+    );
     out.push_str("    #[allow(dead_code)]\n");
     out.push_str(&format!(
         "    fn {PROTO_ENTRIES_METHOD}(&self) -> Vec<(String, SmeltUnknown)> {{\n"
     ));
-    out.push_str("        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();\n");
+    out.push_str(
+        "        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();\n",
+    );
     for push in pushes {
         out.push_str(&push);
     }
@@ -510,26 +574,44 @@ pub(crate) fn class_proto_entries_method(
 
 /// The source spelling of `class`'s name.
 fn class_source_name<'mir>(mir: &'mir Mir, class: &MirClass) -> &'mir str {
-    mir.names.get(class.name).or_else(|| mir.symbols.get(class.name)).unwrap_or("class")
+    mir.names
+        .get(class.name)
+        .or_else(|| mir.symbols.get(class.name))
+        .unwrap_or("class")
 }
 
 /// One entry per `#private` field, so an instance round-trips through the
 /// erased carrier with its private state. Under the method prefix every
 /// enumeration, equality and JSON view skips it; `value["#x"]` misses it,
 /// since a member read of a `#` name does not consult the prefix.
-fn hidden_field_entries(mir: &Mir, context: &EmitContext, class: &MirClass) -> Result<Vec<String>, EmitError> {
-    let base = if context.is_reference_class(class.name) { "self.0.borrow()" } else { "self" };
+fn hidden_field_entries(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<Vec<String>, EmitError> {
+    let base = if context.is_reference_class(class.name) {
+        "self.0.borrow()"
+    } else {
+        "self"
+    };
     class
         .fields
         .iter()
         .filter(|field| !field.visibility.is_own_property())
         .map(|field| {
-            let source = mir.names.get(field.name).or_else(|| mir.symbols.get(field.name)).unwrap_or("field");
+            let source = mir
+                .names
+                .get(field.name)
+                .or_else(|| mir.symbols.get(field.name))
+                .unwrap_or("field");
             let key = format!("{METHOD_KEY_PREFIX}{source}");
             let rust_field = context.names().field(mir, field.name).into_string();
             let read = RustExpr::chain(format!("{base}.{rust_field}")).cloned_value();
             let value = record_field_unknown_expr(mir, &read, field.ty)?;
-            Ok(format!("        smelt_proto_entries.push(({key:?}.to_owned(), {value}));\n", value = value.delimited()))
+            Ok(format!(
+                "        smelt_proto_entries.push(({key:?}.to_owned(), {value}));\n",
+                value = value.delimited()
+            ))
         })
         .collect()
 }
@@ -538,11 +620,7 @@ fn hidden_field_entries(mir: &Mir, context: &EmitContext, class: &MirClass) -> R
 ///
 /// The erasure sites consult this before appending the call, so a class with no
 /// eligible method keeps its previous output exactly.
-pub(crate) fn class_has_proto_entries(
-    mir: &Mir,
-    context: &EmitContext,
-    class: &MirClass,
-) -> bool {
+pub(crate) fn class_has_proto_entries(mir: &Mir, context: &EmitContext, class: &MirClass) -> bool {
     effective_class_methods(mir, class)
         .into_iter()
         .filter_map(|method| function_by_id(mir, method))
@@ -550,7 +628,10 @@ pub(crate) fn class_has_proto_entries(
             matches!(function.origin, HirOrigin::ClassMethod { method, .. }
                 if mir.symbols.get(method).is_some_and(|name| !name.starts_with(SETTER_PREFIX)))
         })
-        || class.fields.iter().any(|field| !field.visibility.is_own_property())
+        || class
+            .fields
+            .iter()
+            .any(|field| !field.visibility.is_own_property())
         || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
 }
 
@@ -582,7 +663,12 @@ pub(crate) fn class_static_entries(
     let rust_class = context.names().type_name(class)?.as_str().to_owned();
     let mut entries = Vec::new();
     for function in &mir.functions {
-        let HirOrigin::ClassStaticMethod { class: owner, method, .. } = function.origin else {
+        let HirOrigin::ClassStaticMethod {
+            class: owner,
+            method,
+            ..
+        } = function.origin
+        else {
             continue;
         };
         if owner != class

@@ -165,13 +165,14 @@ impl ModuleBuilder<'_> {
             ),
             // Delegated so an awaited call argument lowers through the same rule
             // as an awaited expression.
-            Argument::AwaitExpression(await_expr) => {
-                self.await_expression(await_expr, None, body)
-            }
+            Argument::AwaitExpression(await_expr) => self.await_expression(await_expr, None, body),
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
             Argument::FunctionExpression(function) => {
                 if function.r#async {
-                    let ty = self.erase_with(ErasureReason::UnmodeledType, "async function expression argument");
+                    let ty = self.erase_with(
+                        ErasureReason::UnmodeledType,
+                        "async function expression argument",
+                    );
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty,

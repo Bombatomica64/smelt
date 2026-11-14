@@ -122,7 +122,9 @@ impl BinOp {
     const fn equality_polarity(self) -> Option<bool> {
         match self {
             Self::Eq | Self::StrictEq | Self::JsStrictEq | Self::JsLooseEq => Some(false),
-            Self::NotEq | Self::StrictNotEq | Self::JsStrictNotEq | Self::JsLooseNotEq => Some(true),
+            Self::NotEq | Self::StrictNotEq | Self::JsStrictNotEq | Self::JsLooseNotEq => {
+                Some(true)
+            }
             Self::Add
             | Self::Sub
             | Self::Mul

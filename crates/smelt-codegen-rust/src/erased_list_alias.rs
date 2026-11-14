@@ -51,7 +51,6 @@
 use crate::rust::RustExpr;
 use smelt_hir::Type;
 
-
 /// The prelude helper that hands an erased generic list to an erased-list slot.
 ///
 /// The SmeltUnknown report keys its boundary classification on this name.
@@ -83,7 +82,8 @@ pub(crate) fn leaves_erased_generic(source_item: Option<&Type>) -> bool {
 /// handle: same id, same buffer.
 #[must_use]
 pub(crate) fn list_alias_expr(value: &RustExpr) -> RustExpr {
-    RustExpr::atom(ERASED_GENERIC_LIST_ALIAS_FN).postfix(format!("({value})", value = value.delimited()))
+    RustExpr::atom(ERASED_GENERIC_LIST_ALIAS_FN)
+        .postfix(format!("({value})", value = value.delimited()))
 }
 
 /// Renders the erasure of an erased generic list into a `SmeltUnknown::Array`.
@@ -97,5 +97,8 @@ pub(crate) fn list_alias_expr(value: &RustExpr) -> RustExpr {
 /// stays at the call site so the report still counts the occurrence.
 #[must_use]
 pub(crate) fn array_alias_expr(value: &RustExpr) -> RustExpr {
-    RustExpr::atom(format!("SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}({value}))", value = value.delimited()))
+    RustExpr::atom(format!(
+        "SmeltUnknown::Array({ERASED_GENERIC_ARRAY_ALIAS_FN}({value}))",
+        value = value.delimited()
+    ))
 }

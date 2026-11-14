@@ -10,15 +10,18 @@
 //! values the call supplies, and ROWS, whose columns the SQL text decides at
 //! run time — the same boundary as a parsed JSON document.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emit `new DatabaseSync(path)`.
     pub(super) fn sqlite_open_expr(&self, path: &Operand) -> Result<RustExpr, EmitError> {
         let string_ty = self.type_id(Type::String)?;
         let path_text = self.value_at_type(path, string_ty)?;
-        Ok(RustExpr::loose(format!("SmeltSqliteDatabase::open(&{path_text})?", path_text = path_text.tight())))
+        Ok(RustExpr::loose(format!(
+            "SmeltSqliteDatabase::open(&{path_text})?",
+            path_text = path_text.tight()
+        )))
     }
 
     /// Emit one database or statement operation.
@@ -39,14 +42,27 @@ impl FunctionEmitter<'_> {
         match op {
             SqliteOp::Exec | SqliteOp::Prepare => {
                 let Some(sql) = args.first() else {
-                    return Err(EmitError::new("`DatabaseSync` exec/prepare requires SQL text"));
+                    return Err(EmitError::new(
+                        "`DatabaseSync` exec/prepare requires SQL text",
+                    ));
                 };
                 let string_ty = self.type_id(Type::String)?;
                 let sql_text = self.value_at_type(sql, string_ty)?;
-                let method = if op == SqliteOp::Exec { "exec" } else { "prepare" };
-                Ok(RustExpr::loose(format!("{receiver_text}.{method}(&{sql_text})?", receiver_text = receiver_text.tight(), sql_text = sql_text.tight())))
+                let method = if op == SqliteOp::Exec {
+                    "exec"
+                } else {
+                    "prepare"
+                };
+                Ok(RustExpr::loose(format!(
+                    "{receiver_text}.{method}(&{sql_text})?",
+                    receiver_text = receiver_text.tight(),
+                    sql_text = sql_text.tight()
+                )))
             }
-            SqliteOp::Close => Ok(RustExpr::loose(format!("{receiver_text}.close()?", receiver_text = receiver_text.tight()))),
+            SqliteOp::Close => Ok(RustExpr::loose(format!(
+                "{receiver_text}.close()?",
+                receiver_text = receiver_text.tight()
+            ))),
             SqliteOp::All | SqliteOp::Get | SqliteOp::Run => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let parameters = args
@@ -58,11 +74,17 @@ impl FunctionEmitter<'_> {
                 match op {
                     SqliteOp::All => {
                         let rows_ty = self.type_id(Type::List(unknown_ty))?;
-                        let text = RustExpr::loose(format!("{receiver_text}.smelt_sqlite_all(&[{parameters}])?", receiver_text = receiver_text.tight()));
+                        let text = RustExpr::loose(format!(
+                            "{receiver_text}.smelt_sqlite_all(&[{parameters}])?",
+                            receiver_text = receiver_text.tight()
+                        ));
                         self.rendered_at_type(&text, rows_ty, dest_ty, &scope)
                     }
                     SqliteOp::Get => {
-                        let text = RustExpr::loose(format!("{receiver_text}.smelt_sqlite_get(&[{parameters}])?", receiver_text = receiver_text.tight()));
+                        let text = RustExpr::loose(format!(
+                            "{receiver_text}.smelt_sqlite_get(&[{parameters}])?",
+                            receiver_text = receiver_text.tight()
+                        ));
                         self.rendered_at_type(&text, unknown_ty, dest_ty, &scope)
                     }
                     _ => {
@@ -95,13 +117,18 @@ impl FunctionEmitter<'_> {
         } else {
             self.type_id(Type::Unknown)?
         };
-        Ok(RustExpr::loose(format!("&{}", self.value_at_type(arg, target)?.tight())))
+        Ok(RustExpr::loose(format!(
+            "&{}",
+            self.value_at_type(arg, target)?.tight()
+        )))
     }
 
     /// Whether a value of `ty` has a `SmeltSqliteBind` impl at its own type.
     fn binds_at_own_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown) => true,
+            Some(
+                Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown,
+            ) => true,
             Some(Type::Optional(inner)) => {
                 matches!(
                     self.mir.types.get(*inner),
@@ -113,7 +140,14 @@ impl FunctionEmitter<'_> {
                     && self.dict_uses_smelt_record(*key)
                     && matches!(
                         self.mir.types.get(*value),
-                        Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown)
+                        Some(
+                            Type::Float
+                                | Type::Int
+                                | Type::String
+                                | Type::PyStr
+                                | Type::Bool
+                                | Type::Unknown
+                        )
                     )
             }
             _ => false,

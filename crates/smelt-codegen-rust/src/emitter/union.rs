@@ -4,9 +4,9 @@
 //! canonical tagged enum. Truly dynamic members (`unknown`, unscoped type
 //! parameters, or erased host shapes) continue to use `SmeltUnknown`.
 
-use crate::rust::RustType;
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
+use crate::rust::RustType;
 
 /// Return the stable generated Rust name for an interned union type.
 pub(crate) fn union_name(ty: TypeId) -> String {
@@ -18,7 +18,8 @@ impl FunctionEmitter<'_> {
     /// function, with its generic arguments resolved in this function's
     /// lexical type-parameter scope (see [`Self::union_type_text_in`]).
     pub(super) fn union_rust_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
-        self.union_type_text_in(ty, &self.render_scope().substitution()).map(RustType::from)
+        self.union_type_text_in(ty, &self.render_scope().substitution())
+            .map(RustType::from)
     }
 
     /// Render a concrete union storage type at a use site, resolving each of
@@ -41,7 +42,8 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
         substitution: &TypeSubstitution<'_>,
     ) -> Result<String, EmitError> {
-        self.union_rust_type_in(ty, substitution).map(RustType::into_string)
+        self.union_rust_type_in(ty, substitution)
+            .map(RustType::into_string)
     }
 
     /// The generated enum of a concrete union, with its arguments resolved
@@ -66,8 +68,15 @@ impl FunctionEmitter<'_> {
                 self.rust_type(param_ty, false, substitution)
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
-        let text = args.iter().map(RustType::as_str).collect::<Vec<_>>().join(", ");
-        Ok(RustType::composed(format!("{}<{text}>", union_name(ty)), &args))
+        let text = args
+            .iter()
+            .map(RustType::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(RustType::composed(
+            format!("{}<{text}>", union_name(ty)),
+            &args,
+        ))
     }
 
     /// Spell a concrete union with the generated enum's OWN declared
@@ -160,12 +169,24 @@ impl FunctionEmitter<'_> {
             // An arm's method that can throw returns `Result`. Its error leaves
             // as a panic, which the enclosing `try` catches (the call has an
             // unwind edge there) or the caller's channel carries on.
-            let thrown = if can_throw { ".unwrap_or_else(|error| smelt_panic_throw(error))" } else { "" };
+            let thrown = if can_throw {
+                ".unwrap_or_else(|error| smelt_panic_throw(error))"
+            } else {
+                ""
+            };
             let call = RustExpr::chain(format!("value.{method_name}({args_text}){thrown}"));
-            let converted = self.rendered_at_type(&call, return_ty, dest_ty, &self.render_scope())?;
-            arms.push(format!("{union}::M{index}(value) => {converted}", converted = converted.delimited()));
+            let converted =
+                self.rendered_at_type(&call, return_ty, dest_ty, &self.render_scope())?;
+            arms.push(format!(
+                "{union}::M{index}(value) => {converted}",
+                converted = converted.delimited()
+            ));
         }
-        Ok(RustExpr::atom(format!("match {receiver_text} {{ {} }}", arms.join(", "), receiver_text = receiver_text.delimited())))
+        Ok(RustExpr::atom(format!(
+            "match {receiver_text} {{ {} }}",
+            arms.join(", "),
+            receiver_text = receiver_text.delimited()
+        )))
     }
 
     /// Resolve and instantiate one union member's declared method return type,
@@ -193,7 +214,11 @@ impl FunctionEmitter<'_> {
             .map(|(param, arg)| (param.name, arg))
             .collect::<HashMap<_, _>>();
         Ok((
-            crate::generic_bindings::substitute_existing_type(self.mir, function.return_ty, &substitutions),
+            crate::generic_bindings::substitute_existing_type(
+                self.mir,
+                function.return_ty,
+                &substitutions,
+            ),
             function.can_throw,
         ))
     }
@@ -206,8 +231,13 @@ impl FunctionEmitter<'_> {
         let concrete = self.context.concrete_unions.borrow().get(&ty).copied();
         let concrete = concrete.unwrap_or_else(|| {
             let concrete = items.len() >= 2
-                && items.iter().all(|item| self.union_member_is_concrete(*item));
-            self.context.concrete_unions.borrow_mut().insert(ty, concrete);
+                && items
+                    .iter()
+                    .all(|item| self.union_member_is_concrete(*item));
+            self.context
+                .concrete_unions
+                .borrow_mut()
+                .insert(ty, concrete);
             concrete
         });
         concrete.then_some(items)
@@ -232,7 +262,9 @@ impl FunctionEmitter<'_> {
                 | Type::Tuple(_)
                 | Type::Function(_)
                 | Type::GeneratorResult { .. }),
-            ) => container.children().all(|child| self.union_member_is_concrete(child)),
+            ) => container
+                .children()
+                .all(|child| self.union_member_is_concrete(child)),
             Some(Type::Generator {
                 yield_ty,
                 return_ty,
@@ -244,7 +276,17 @@ impl FunctionEmitter<'_> {
                 // generated wrapper, so a dynamic next-input boundary does not
                 // make the generator value itself an erased runtime object.
             }
-            Some(Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::Float | Type::String | Type::PyStr | Type::Symbol | Type::PropKey) => true,
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::FixedInt(_)
+                | Type::BigInt
+                | Type::Float
+                | Type::String
+                | Type::PyStr
+                | Type::Symbol
+                | Type::PropKey,
+            ) => true,
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.
@@ -269,16 +311,25 @@ impl FunctionEmitter<'_> {
     /// the source expression is a place read as often as it is a temporary, so
     /// the clone belongs here rather than at each call site. Cloning a
     /// temporary is redundant but harmless; moving a place is a hard error.
-    pub(super) fn erase_concrete_union_expr(&self, value_text: &RustExpr, ty: TypeId) -> Result<RustExpr, EmitError> {
+    pub(super) fn erase_concrete_union_expr(
+        &self,
+        value_text: &RustExpr,
+        ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         if self.concrete_union_members(ty).is_none() {
             return Ok(value_text.to_owned());
         }
         // A caller that already owns a clone needs no second one; `.clone().clone()`
         // is not what a hand-writing Rust team would produce.
         if value_text.has_clone_tail() {
-            return Ok(value_text.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()"))));
+            return Ok(value_text.postfix(
+                self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
+            ));
         }
-        Ok(value_text.postfix(self.carrier_format(self.carrier()?, format_args!(".clone().into_smelt_unknown()"))))
+        Ok(value_text.postfix(self.carrier_format(
+            self.carrier()?,
+            format_args!(".clone().into_smelt_unknown()"),
+        )))
     }
 
     /// Wrap a concrete value in the matching variant of a target union.
@@ -293,7 +344,11 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         if let Some(index) = members.iter().position(|member| *member == source) {
-            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({value_text})", union_name(target), value_text = value_text.delimited()))));
+            return Ok(Some(RustExpr::opaque(format!(
+                "{}::M{index}({value_text})",
+                union_name(target),
+                value_text = value_text.delimited()
+            ))));
         }
         // A member that is itself a generated union (`number | ResponseOrInit`
         // where `ResponseOrInit = ResponseInit | Response`, kept as its own
@@ -312,7 +367,11 @@ impl FunctionEmitter<'_> {
         if let [(index, member)] = nested.as_slice()
             && let Some(inner) = self.inject_union_value(value_text, source, *member, scope)?
         {
-            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({inner})", union_name(target), inner = inner.delimited()))));
+            return Ok(Some(RustExpr::opaque(format!(
+                "{}::M{index}({inner})",
+                union_name(target),
+                inner = inner.delimited()
+            ))));
         }
         // Structural injection: the source is not an exact member but shares a
         // single member's collection shape (for example an empty
@@ -347,7 +406,11 @@ impl FunctionEmitter<'_> {
         }
         if let [index] = structural.as_slice() {
             let coerced = self.rendered_at_type(value_text, source, members[*index], scope)?;
-            return Ok(Some(RustExpr::opaque(format!("{}::M{index}({coerced})", union_name(target), coerced = coerced.delimited()))));
+            return Ok(Some(RustExpr::opaque(format!(
+                "{}::M{index}({coerced})",
+                union_name(target),
+                coerced = coerced.delimited()
+            ))));
         }
         // A string-keyed record that fits several object arms (`{ done,
         // hasNext: false }` against `LazyEmpty | LazyNext<T>`, whose literal
@@ -362,12 +425,24 @@ impl FunctionEmitter<'_> {
             && matches!(self.mir.types.get(source), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)))
             && structural
                 .iter()
-                .filter(|index| self.union_member_structural_guard(members[**index], members, **index).is_none())
+                .filter(|index| {
+                    self.union_member_structural_guard(members[**index], members, **index)
+                        .is_none()
+                })
                 .count()
                 <= 1
         {
             let erased = self.erase_rendered(value_text, source)?;
-            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({erased})", erased = erased.delimited())) }));
+            return Ok(Some({
+                let receiver = union_name(target);
+                RustExpr::atom_on(
+                    &receiver,
+                    format!(
+                        "{receiver}::from_smelt_unknown({erased})",
+                        erased = erased.delimited()
+                    ),
+                )
+            }));
         }
         // An erased source (object-field read, erased return, nullish default)
         // carries a `SmeltUnknown`; reconstruct the concrete union by routing the
@@ -377,7 +452,16 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(source),
             Some(Type::Unknown | Type::TypeParam { .. })
         ) {
-            return Ok(Some({ let receiver = union_name(target); RustExpr::atom_on(&receiver, format!("{receiver}::from_smelt_unknown({value_text})", value_text = value_text.delimited())) }));
+            return Ok(Some({
+                let receiver = union_name(target);
+                RustExpr::atom_on(
+                    &receiver,
+                    format!(
+                        "{receiver}::from_smelt_unknown({value_text})",
+                        value_text = value_text.delimited()
+                    ),
+                )
+            }));
         }
         Ok(None)
     }
@@ -435,7 +519,9 @@ impl FunctionEmitter<'_> {
         // A record/class source instead offers its own named fields, which the
         // field-wise adapter already checks.
         match self.mir.types.get(source) {
-            Some(Type::Dict(key, value)) if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)) => {
+            Some(Type::Dict(key, value))
+                if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)) =>
+            {
                 let value_ty = *value;
                 fields.iter().all(|field| {
                     matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
@@ -495,7 +581,11 @@ impl FunctionEmitter<'_> {
     /// The single arm of `targets` that instantiates the same named class or
     /// interface as `member` with different type arguments, if exactly one
     /// does.
-    fn union_member_same_nominal(&self, member: TypeId, targets: &[TypeId]) -> Option<(usize, TypeId)> {
+    fn union_member_same_nominal(
+        &self,
+        member: TypeId,
+        targets: &[TypeId],
+    ) -> Option<(usize, TypeId)> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
             return None;
         };
@@ -558,8 +648,9 @@ impl FunctionEmitter<'_> {
             let target_name = union_name(target);
             let mut arms = Vec::new();
             for (source_index, member) in source_members.iter().enumerate() {
-                if let Some(target_index) =
-                    target_members.iter().position(|target_member| target_member == member)
+                if let Some(target_index) = target_members
+                    .iter()
+                    .position(|target_member| target_member == member)
                 {
                     arms.push(format!(
                         "{source_name}::M{source_index}(value) => {target_name}::M{target_index}(value)"
@@ -574,8 +665,12 @@ impl FunctionEmitter<'_> {
                 if let Some((target_index, target_member)) =
                     self.union_member_same_nominal(*member, target_members)
                 {
-                    let converted =
-                        self.rendered_at_type(&RustExpr::path("value"), *member, target_member, &self.render_scope())?;
+                    let converted = self.rendered_at_type(
+                        &RustExpr::path("value"),
+                        *member,
+                        target_member,
+                        &self.render_scope(),
+                    )?;
                     arms.push(format!(
                         "{source_name}::M{source_index}(value) => {target_name}::M{target_index}({converted})", converted = converted.delimited()
                     ));
@@ -587,10 +682,17 @@ impl FunctionEmitter<'_> {
                 // discriminants. Any other unmatched arm is one the program
                 // narrowed away and stays excluded.
                 if matches!(self.mir.types.get(*member), Some(Type::Dict(key, _)) if matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr)))
-                    && let Some(injected) =
-                        self.inject_union_value(&RustExpr::path("value"), *member, target, &self.render_scope())?
+                    && let Some(injected) = self.inject_union_value(
+                        &RustExpr::path("value"),
+                        *member,
+                        target,
+                        &self.render_scope(),
+                    )?
                 {
-                    arms.push(format!("{source_name}::M{source_index}(value) => {injected}", injected = injected.delimited()));
+                    arms.push(format!(
+                        "{source_name}::M{source_index}(value) => {injected}",
+                        injected = injected.delimited()
+                    ));
                 }
             }
             if arms.is_empty() {
@@ -603,14 +705,16 @@ impl FunctionEmitter<'_> {
             };
             return Ok(Some(RustExpr::atom(format!(
                 "match {value_text} {{ {}{fallback} }}",
-                arms.join(", "), value_text = value_text.delimited()
+                arms.join(", "),
+                value_text = value_text.delimited()
             ))));
         }
         let Some(index) = source_members.iter().position(|member| *member == target) else {
             return Ok(None);
         };
         Ok(Some(RustExpr::atom(format!(
-            "match {value_text} {{ {source_name}::M{index}(value) => value, _ => unreachable!(\"union guard selected an excluded member\") }}", value_text = value_text.delimited()
+            "match {value_text} {{ {source_name}::M{index}(value) => value, _ => unreachable!(\"union guard selected an excluded member\") }}",
+            value_text = value_text.delimited()
         ))))
     }
 
@@ -632,7 +736,11 @@ impl FunctionEmitter<'_> {
         Some(if patterns.is_empty() {
             "false".to_owned()
         } else {
-            format!("matches!({value_text}, {})", patterns.join(" | "), value_text = value_text.delimited())
+            format!(
+                "matches!({value_text}, {})",
+                patterns.join(" | "),
+                value_text = value_text.delimited()
+            )
         })
     }
 
@@ -647,7 +755,11 @@ impl FunctionEmitter<'_> {
         Some(if patterns.is_empty() {
             "false".to_owned()
         } else {
-            format!("matches!({value_text}, {})", patterns.join(" | "), value_text = value_text.delimited())
+            format!(
+                "matches!({value_text}, {})",
+                patterns.join(" | "),
+                value_text = value_text.delimited()
+            )
         })
     }
 
@@ -682,7 +794,8 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|pattern| format!("Some({pattern})"))
                     .collect::<Vec<_>>()
-                    .join(" | "), value_text = value_text.delimited()
+                    .join(" | "),
+                value_text = value_text.delimited()
             )
         })
     }
@@ -692,7 +805,11 @@ impl FunctionEmitter<'_> {
     /// Empty when no arm is that class, which is a real `false` rather than a
     /// missing answer — the union cannot hold one. `None` only when the type is
     /// not a concrete generated union at all.
-    fn concrete_union_class_patterns(&self, union_ty: TypeId, class: Symbol) -> Option<Vec<String>> {
+    fn concrete_union_class_patterns(
+        &self,
+        union_ty: TypeId,
+        class: Symbol,
+    ) -> Option<Vec<String>> {
         let members = self.concrete_union_members(union_ty)?;
         let union_enum_name = union_name(union_ty);
         Some(
@@ -732,7 +849,9 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(member) {
             Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
             Some(Type::Future(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Promise),
-            Some(Type::List(_) | Type::Tuple(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Array),
+            Some(Type::List(_) | Type::Tuple(_)) => {
+                rule == Some(smelt_stdlib::InstanceOfRule::Array)
+            }
             Some(Type::JsMap(_, _)) => rule == Some(smelt_stdlib::InstanceOfRule::Map),
             Some(Type::Set(_)) => rule == Some(smelt_stdlib::InstanceOfRule::Set),
             _ => false,
@@ -849,18 +968,28 @@ impl FunctionEmitter<'_> {
             // path does.
             let is_callable = matches!(self.mir.types.get(member), Some(Type::Function(_)));
             let extracted = if is_callable {
-                self.extract_rendered(&RustExpr::path("value"), member, &RenderScope::lexical(member_scope.clone()))?
+                self.extract_rendered(
+                    &RustExpr::path("value"),
+                    member,
+                    &RenderScope::lexical(member_scope.clone()),
+                )?
             } else if member_params
                 .iter()
                 .any(|param| substitution.spells(*param))
             {
                 let member_text = self.rust_type(member, false, substitution)?.into_string();
-                RustExpr::loose(self.carrier_format(self.carrier()?, format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)")))
+                RustExpr::loose(self.carrier_format(
+                    self.carrier()?,
+                    format_args!("<{member_text} as SmeltFromUnknown>::smelt_from_unknown(value)"),
+                ))
             } else {
                 self.extract_rendered(&RustExpr::path("value"), member, &self.render_scope())?
             };
             if Some(position) == order.len().checked_sub(1) {
-                body.push_str(&format!("        Self::M{index}({extracted})\n", extracted = extracted.delimited()));
+                body.push_str(&format!(
+                    "        Self::M{index}({extracted})\n",
+                    extracted = extracted.delimited()
+                ));
             } else {
                 let pattern = self.union_member_unknown_pattern(member);
                 let guard = match self.union_member_structural_guard(member, members, index) {
@@ -868,7 +997,8 @@ impl FunctionEmitter<'_> {
                     None => format!("matches!(value, {pattern})"),
                 };
                 body.push_str(&format!(
-                    "        if {guard} {{ return Self::M{index}({extracted}); }}\n", extracted = extracted.delimited()
+                    "        if {guard} {{ return Self::M{index}({extracted}); }}\n",
+                    extracted = extracted.delimited()
                 ));
             }
         }
@@ -950,9 +1080,7 @@ impl FunctionEmitter<'_> {
         let siblings = members
             .iter()
             .enumerate()
-            .filter(|(other, ty)| {
-                *other != index && self.union_member_unknown_pattern(**ty) == tag
-            })
+            .filter(|(other, ty)| *other != index && self.union_member_unknown_pattern(**ty) == tag)
             .map(|(_, ty)| *ty)
             .collect::<Vec<_>>();
         if siblings.is_empty() {
@@ -988,15 +1116,14 @@ impl FunctionEmitter<'_> {
         if let Some(interface) = self.mir.interface_named(*name) {
             return self.interface_member_structural_guard(interface, &siblings);
         }
-        let fields = crate::classes::find_class(self.mir, *name)
-            .map(|class| {
-                class
-                    .fields
-                    .iter()
-                    .filter_map(|field| self.symbol_name(field.name).ok())
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            })?;
+        let fields = crate::classes::find_class(self.mir, *name).map(|class| {
+            class
+                .fields
+                .iter()
+                .filter_map(|field| self.symbol_name(field.name).ok())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })?;
         let distinguishing = fields
             .into_iter()
             .filter(|field| {
@@ -1067,9 +1194,7 @@ impl FunctionEmitter<'_> {
                     "matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({key:?}))"
                 )));
             }
-            if literal_disjoint
-                && let Some(test) = Self::literal_field_test(key, literals)
-            {
+            if literal_disjoint && let Some(test) = Self::literal_field_test(key, literals) {
                 tests.push(test);
             }
         }
@@ -1094,7 +1219,11 @@ impl FunctionEmitter<'_> {
     /// (an optional `hasMany?: false` admits `false`, or is absent; neither
     /// passes a `hasMany === true` test); `None` when the arm is not an
     /// interface or the field is not literal-typed.
-    fn union_member_field_literals(&self, ty: TypeId, name: Symbol) -> Option<&[smelt_hir::Literal]> {
+    fn union_member_field_literals(
+        &self,
+        ty: TypeId,
+        name: Symbol,
+    ) -> Option<&[smelt_hir::Literal]> {
         let Some(Type::Class { name: owner, .. }) = self.mir.types.get(ty) else {
             return None;
         };
@@ -1177,7 +1306,11 @@ impl FunctionEmitter<'_> {
         } else if patterns.len() == members.len() {
             "true".to_owned()
         } else {
-            format!("matches!({value_text}, {})", patterns.join(" | "), value_text = value_text.delimited())
+            format!(
+                "matches!({value_text}, {})",
+                patterns.join(" | "),
+                value_text = value_text.delimited()
+            )
         })
     }
 
@@ -1222,7 +1355,8 @@ impl FunctionEmitter<'_> {
                 format!("smelt_union_arm.{field_name}")
             };
             arms.push(format!(
-                "{union_enum_name}::M{index}(smelt_union_arm) => {{ {slot} = {rendered_value}; }}", rendered_value = rendered_value.delimited()
+                "{union_enum_name}::M{index}(smelt_union_arm) => {{ {slot} = {rendered_value}; }}",
+                rendered_value = rendered_value.delimited()
             ));
         }
         Ok(Some(RustExpr::atom(format!(
@@ -1291,10 +1425,15 @@ impl FunctionEmitter<'_> {
             let length = match self.mir.types.get(*member) {
                 Some(Type::List(_)) => "(smelt_union_arm.len() as f64)".to_owned(),
                 Some(Type::Tuple(items)) => format!("{}.0", items.len()),
-                Some(Type::String | Type::PyStr) => format!("({} as f64)", self.string_len_text("smelt_union_arm")),
+                Some(Type::String | Type::PyStr) => {
+                    format!("({} as f64)", self.string_len_text("smelt_union_arm"))
+                }
                 _ => return Ok(None),
             };
-            arms.push(format!("{}::M{position}(smelt_union_arm) => {length}", union_name(base_ty)));
+            arms.push(format!(
+                "{}::M{position}(smelt_union_arm) => {length}",
+                union_name(base_ty)
+            ));
         }
         Ok(Some(RustExpr::atom(format!(
             "match &{} {{ {} }}",
@@ -1333,7 +1472,9 @@ impl FunctionEmitter<'_> {
         let constant = match index {
             Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
             Operand::Const(Constant::Float(value))
-                if value.fract() == 0.0_f64 && *value >= 0.0_f64 && *value < 4_294_967_296.0_f64 =>
+                if value.fract() == 0.0_f64
+                    && *value >= 0.0_f64
+                    && *value < 4_294_967_296.0_f64 =>
             {
                 #[expect(
                     clippy::cast_possible_truncation,
@@ -1371,13 +1512,21 @@ impl FunctionEmitter<'_> {
                         *item,
                         format!(
                             "{}.get({index_text}).cloned().unwrap_or_else(|| {missing})",
-                            list_read_expr(&RustExpr::opaque("smelt_union_arm")).tight(), index_text = index_text.delimited(), missing = missing.delimited()
+                            list_read_expr(&RustExpr::opaque("smelt_union_arm")).tight(),
+                            index_text = index_text.delimited(),
+                            missing = missing.delimited()
                         ),
                     )
                 }
                 Some(Type::Dict(key, value)) => UnionArmIndexRead::Element(
                     *value,
-                    self.dict_index_read_expr(&RustExpr::path("smelt_union_arm"), *key, *value, index)?.into_string(),
+                    self.dict_index_read_expr(
+                        &RustExpr::path("smelt_union_arm"),
+                        *key,
+                        *value,
+                        index,
+                    )?
+                    .into_string(),
                 ),
                 _ => return Ok(None),
             };
@@ -1404,7 +1553,10 @@ impl FunctionEmitter<'_> {
                 joined
             }
         };
-        let read_ty = if reads.iter().any(|read| matches!(read, UnionArmIndexRead::Absent)) {
+        let read_ty = if reads
+            .iter()
+            .any(|read| matches!(read, UnionArmIndexRead::Absent))
+        {
             if matches!(self.mir.types.get(joined), Some(Type::Optional(_))) {
                 joined
             } else {
@@ -1428,12 +1580,15 @@ impl FunctionEmitter<'_> {
         negative: NegativeIndex,
     ) -> Result<Option<RustExpr>, EmitError> {
         let base_ty = self.local_decl(base)?.ty;
-        let Some((read_ty, reads)) = self.concrete_union_index_reads(base_ty, index, negative)? else {
+        let Some((read_ty, reads)) = self.concrete_union_index_reads(base_ty, index, negative)?
+        else {
             return Ok(None);
         };
         let (optional, joined) = match self.mir.types.get(read_ty) {
             Some(Type::Optional(inner))
-                if reads.iter().any(|read| matches!(read, UnionArmIndexRead::Absent)) =>
+                if reads
+                    .iter()
+                    .any(|read| matches!(read, UnionArmIndexRead::Absent)) =>
             {
                 (true, *inner)
             }
@@ -1455,10 +1610,16 @@ impl FunctionEmitter<'_> {
                         }
                         _ => text.clone(),
                     };
-                    if optional { format!("Some({injected})") } else { injected }
+                    if optional {
+                        format!("Some({injected})")
+                    } else {
+                        injected
+                    }
                 }
             };
-            arms.push(format!("{base_enum}::M{position}(smelt_union_arm) => {value}"));
+            arms.push(format!(
+                "{base_enum}::M{position}(smelt_union_arm) => {value}"
+            ));
         }
         Ok(Some(RustExpr::atom(format!(
             "match &{} {{ {} }}",
@@ -1505,9 +1666,16 @@ impl FunctionEmitter<'_> {
                     format!("Some({}::M{arm}({text}))", union_name(inner))
                 }
             };
-            arms.push(format!("{}::M{position}(smelt_union_arm) => {value}", union_name(base_ty)));
+            arms.push(format!(
+                "{}::M{position}(smelt_union_arm) => {value}",
+                union_name(base_ty)
+            ));
         }
-        Ok(Some(RustExpr::atom(format!("match &{base_text} {{ {} }}", arms.join(", "), base_text = base_text.tight()))))
+        Ok(Some(RustExpr::atom(format!(
+            "match &{base_text} {{ {} }}",
+            arms.join(", "),
+            base_text = base_text.tight()
+        ))))
     }
 
     /// The static type and per-arm reads of `receiver.field` on a concrete
@@ -1613,9 +1781,14 @@ impl FunctionEmitter<'_> {
                     UnionArmRead::Field(ty) => {
                         (format!("smelt_union_arm.{field_name}.clone()"), *ty)
                     }
-                    UnionArmRead::Host(ty, property) => {
-                        (field_access::host_data_property_read(&RustExpr::path("smelt_union_arm"), property).into_string(), *ty)
-                    }
+                    UnionArmRead::Host(ty, property) => (
+                        field_access::host_data_property_read(
+                            &RustExpr::path("smelt_union_arm"),
+                            property,
+                        )
+                        .into_string(),
+                        *ty,
+                    ),
                 };
                 let value = if read_is_optional
                     && !matches!(self.mir.types.get(ty), Some(Type::Optional(_)))
@@ -1628,7 +1801,10 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        Ok(Some(RustExpr::atom(format!("match &{receiver_text} {{ {arms} }}", receiver_text = receiver_text.tight()))))
+        Ok(Some(RustExpr::atom(format!(
+            "match &{receiver_text} {{ {arms} }}",
+            receiver_text = receiver_text.tight()
+        ))))
     }
 
     /// Resolve the one type every arm of a concrete union gives a named field.
@@ -1636,7 +1812,11 @@ impl FunctionEmitter<'_> {
     /// `None` when the receiver is not a concrete union, when an arm does not
     /// declare the field, or when the arms disagree about its type — the three
     /// cases in which the tag alone cannot decide a single static read type.
-    pub(super) fn concrete_union_field_ty(&self, union_ty: TypeId, field: Symbol) -> Option<TypeId> {
+    pub(super) fn concrete_union_field_ty(
+        &self,
+        union_ty: TypeId,
+        field: Symbol,
+    ) -> Option<TypeId> {
         let members = self.concrete_union_members(union_ty)?;
         let mut resolved: Option<TypeId> = None;
         for member in members {
@@ -1769,9 +1949,9 @@ impl FunctionEmitter<'_> {
         has_field
             || has_accessor
             || has_method
-            || class
-                .base
-                .is_some_and(|base| self.mir_class_has_member(base, member, depth.saturating_add(1)))
+            || class.base.is_some_and(|base| {
+                self.mir_class_has_member(base, member, depth.saturating_add(1))
+            })
     }
 
     /// Return whether a named MIR interface declares a field (own or inherited).
@@ -1916,13 +2096,16 @@ pub(crate) fn emit_union_definitions(
             output.push_str("}\n\n");
             continue;
         }
-        output.push_str(&format!("impl{impl_generics} IntoSmeltUnknown for {target} {{\n"));
+        output.push_str(&format!(
+            "impl{impl_generics} IntoSmeltUnknown for {target} {{\n"
+        ));
         output.push_str("    fn into_smelt_unknown(self) -> SmeltUnknown {\n");
         output.push_str("        match self {\n");
         for (member_index, member) in members.iter().enumerate() {
             let erased = emitter.erase_rendered(&RustExpr::path("value"), *member)?;
             output.push_str(&format!(
-                "            Self::M{member_index}(value) => {erased},\n", erased = erased.delimited()
+                "            Self::M{member_index}(value) => {erased},\n",
+                erased = erased.delimited()
             ));
         }
         output.push_str("        }\n    }\n}\n");
@@ -1930,9 +2113,7 @@ pub(crate) fn emit_union_definitions(
         // Genuine dynamic boundary: recovering a union from an erased value is
         // the adapter's whole job, and `smelt-unknown-report` counts it as one.
         output.push_str("    fn from_smelt_unknown(value: SmeltUnknown) -> Self {\n");
-        output.push_str(
-            &emitter.union_from_smelt_unknown_body_in_scope(members, &member_scope)?,
-        );
+        output.push_str(&emitter.union_from_smelt_unknown_body_in_scope(members, &member_scope)?);
         output.push_str("    }\n}\n");
         output.push_str(&format!("impl{impl_generics} PartialEq for {target} {{\n"));
         output.push_str("    fn eq(&self, other: &Self) -> bool {\n");
@@ -1976,7 +2157,9 @@ pub(crate) fn emit_union_definitions(
         // view (always present, since the union already emits `IntoSmeltUnknown`)
         // exactly like the `PartialEq` impl above, and `Default` selects the
         // first arm, matching how `default_value` builds a concrete-union default.
-        output.push_str(&format!("impl{impl_generics} ::std::fmt::Debug for {target} {{\n"));
+        output.push_str(&format!(
+            "impl{impl_generics} ::std::fmt::Debug for {target} {{\n"
+        ));
         output.push_str(
             "    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {\n",
         );
@@ -1990,7 +2173,10 @@ pub(crate) fn emit_union_definitions(
         let first_default = emitter.default_value(first_member)?;
         output.push_str(&format!("impl{default_generics} Default for {target} {{\n"));
         output.push_str("    fn default() -> Self {\n");
-        output.push_str(&format!("        Self::M0({first_default})\n", first_default = first_default.delimited()));
+        output.push_str(&format!(
+            "        Self::M0({first_default})\n",
+            first_default = first_default.delimited()
+        ));
         output.push_str("    }\n}\n\n");
     }
     Ok(output)

@@ -13,15 +13,14 @@
 use smelt_hir::{ExprId, ExprKind, Span, Symbol, Type, TypeId};
 
 use crate::{
-    BuiltinFn, Callee, Constant, FuncId, LocalId, Operand,
-    Place, Rvalue, Statement, Terminator,
+    BuiltinFn, Callee, Constant, FuncId, LocalId, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 use super::context::LoweringCtx;
+use super::transcribe::transcribed_op_pattern;
+use super::{LowerError, LoweredMutationReceiver, MutationWriteback, lower_literal};
 use crate::AbsentSpelling;
 use crate::NegativeIndex;
-use super::transcribe::transcribed_op_pattern;
-use super::{LoweredMutationReceiver, LowerError, MutationWriteback, lower_literal};
 
 impl LoweringCtx<'_> {
     /// Lowers a HIR expression to an operand, allocating temporaries as needed.
@@ -259,7 +258,10 @@ impl LoweringCtx<'_> {
                 let index_operand = self.lower_expr(*index)?;
                 if matches!(self.krate.types.get(expr.ty), Some(Type::Optional(_))) {
                     let dest = self.push_temp(expr.ty, expr.span);
-                    let from_end = matches!(self.negative_index_policy(expr.span), NegativeIndex::FromEnd);
+                    let from_end = matches!(
+                        self.negative_index_policy(expr.span),
+                        NegativeIndex::FromEnd
+                    );
                     self.block_mut()?.statements.push(Statement::Assign {
                         dest,
                         value: Rvalue::OptionalIndex {
@@ -284,15 +286,15 @@ impl LoweringCtx<'_> {
                 method,
                 args,
             } => {
-                if let Some(result) =
-                    self.lower_optional_method_with_unwind(&super::optional_call::OptionalMethodCall {
+                if let Some(result) = self.lower_optional_method_with_unwind(
+                    &super::optional_call::OptionalMethodCall {
                         receiver: *receiver,
                         method: *method,
                         args,
                         result_ty: expr.ty,
                         span: expr.span,
-                    })?
-                {
+                    },
+                )? {
                     self.exprs.insert(expr_id, result.clone());
                     return Ok(result);
                 }
@@ -321,15 +323,15 @@ impl LoweringCtx<'_> {
                 )? {
                     result
                 } else {
-                let lowered_fallback = self.lower_expr(*fallback)?;
-                self.assign_temp(
-                    expr.ty,
-                    expr.span,
-                    Rvalue::OptionalCoalesce {
-                        optional: lowered_optional,
-                        fallback: lowered_fallback,
-                    },
-                )?
+                    let lowered_fallback = self.lower_expr(*fallback)?;
+                    self.assign_temp(
+                        expr.ty,
+                        expr.span,
+                        Rvalue::OptionalCoalesce {
+                            optional: lowered_optional,
+                            fallback: lowered_fallback,
+                        },
+                    )?
                 }
             }
             ExprKind::TypeAssert { value } => {
@@ -460,9 +462,15 @@ impl LoweringCtx<'_> {
                 self.write_back_mutation_receiver(writeback)?;
                 sorted
             }
-            ExprKind::ListPop { list, raises_when_empty } => {
+            ExprKind::ListPop {
+                list,
+                raises_when_empty,
+            } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let value = Rvalue::ListPop { list: list_operand, raises_when_empty: *raises_when_empty };
+                let value = Rvalue::ListPop {
+                    list: list_operand,
+                    raises_when_empty: *raises_when_empty,
+                };
                 let popped = self.finish_op(&expr, value)?;
                 self.write_back_mutation_receiver(writeback)?;
                 popped
@@ -515,37 +523,38 @@ impl LoweringCtx<'_> {
                         },
                     )?
                 } else {
-                let base = self.materialize_operand_local(
-                    receiver_operand.clone(),
-                    receiver_ty,
-                    expr.span,
-                )?;
-                let materialized_receiver_ty = self.mir_local(base)?.ty;
-                let callee_id = self.resolve_method(materialized_receiver_ty, *method, expr.span)?;
-                // A getter-backed receiver is evaluated once, into `base`
-                // (see `receiver_reads_through_getter`).
-                let receiver_arg = if self.receiver_reads_through_getter(*receiver) {
-                    Operand::Copy(Place::Local(base))
-                } else {
-                    receiver_operand
-                };
-                let mut lowered_args = vec![receiver_arg];
-                lowered_args.extend(
-                    args.iter()
-                        .map(|arg| self.lower_expr(*arg))
-                        .collect::<Result<Vec<_>, _>>()?,
-                );
-                let dest = self.push_temp(expr.ty, expr.span);
-                let target = self.function.push_block(expr.span);
-                self.terminate(Terminator::Call {
-                    callee: Callee::Static(callee_id),
-                    args: lowered_args,
-                    dest,
-                    target,
-                    unwind: self.current_exception_handler(),
-                })?;
-                self.switch_to(target);
-                Operand::Copy(Place::Local(dest))
+                    let base = self.materialize_operand_local(
+                        receiver_operand.clone(),
+                        receiver_ty,
+                        expr.span,
+                    )?;
+                    let materialized_receiver_ty = self.mir_local(base)?.ty;
+                    let callee_id =
+                        self.resolve_method(materialized_receiver_ty, *method, expr.span)?;
+                    // A getter-backed receiver is evaluated once, into `base`
+                    // (see `receiver_reads_through_getter`).
+                    let receiver_arg = if self.receiver_reads_through_getter(*receiver) {
+                        Operand::Copy(Place::Local(base))
+                    } else {
+                        receiver_operand
+                    };
+                    let mut lowered_args = vec![receiver_arg];
+                    lowered_args.extend(
+                        args.iter()
+                            .map(|arg| self.lower_expr(*arg))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    );
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    let target = self.function.push_block(expr.span);
+                    self.terminate(Terminator::Call {
+                        callee: Callee::Static(callee_id),
+                        args: lowered_args,
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.switch_to(target);
+                    Operand::Copy(Place::Local(dest))
                 }
             }
             ExprKind::New { class, args } => {
@@ -626,13 +635,24 @@ impl LoweringCtx<'_> {
             // It runs source code (the function `call`/`apply` resolves to),
             // so inside a `try` it takes the call terminator whose unwind
             // edge reaches the handler, as a dynamic `ClosureCall` does.
-            ExprKind::ErasedFunctionMethodCall { receiver, method, args } => {
+            ExprKind::ErasedFunctionMethodCall {
+                receiver,
+                method,
+                args,
+            } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let lowered_args = args.iter().map(|arg| self.lower_expr(*arg)).collect::<Result<Vec<_>, _>>()?;
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
                 self.place_source_call_op(
                     expr.ty,
                     expr.span,
-                    Rvalue::ErasedFunctionMethodCall { receiver: receiver_operand, method: *method, args: lowered_args },
+                    Rvalue::ErasedFunctionMethodCall {
+                        receiver: receiver_operand,
+                        method: *method,
+                        args: lowered_args,
+                    },
                 )?
             }
             ExprKind::ClosureCall { callee, args } => {
@@ -729,8 +749,10 @@ impl LoweringCtx<'_> {
         };
 
         // A place operand is read by whatever consumes it, after every sibling.
-        let operand = if matches!(operand.place(), Some(Place::Field { .. } | Place::Index { .. }))
-            && self.volatile_locals.is_early_read(self.body.id, expr_id)
+        let operand = if matches!(
+            operand.place(),
+            Some(Place::Field { .. } | Place::Index { .. })
+        ) && self.volatile_locals.is_early_read(self.body.id, expr_id)
         {
             self.assign_temp(expr.ty, expr.span, Rvalue::Use(operand))?
         } else {
@@ -768,13 +790,32 @@ impl LoweringCtx<'_> {
     }
 
     /// The operand reading HIR local `local` at the type of `expr`.
-    fn local_read(&mut self, local: smelt_hir::LocalId, expr: &smelt_hir::Expr) -> Result<Operand, LowerError> {
+    fn local_read(
+        &mut self,
+        local: smelt_hir::LocalId,
+        expr: &smelt_hir::Expr,
+    ) -> Result<Operand, LowerError> {
         let local_id = self.locals.get(&local).copied().ok_or_else(|| {
-            self.error("local expression references an unknown local", Some(expr.span))
+            self.error(
+                "local expression references an unknown local",
+                Some(expr.span),
+            )
         })?;
         let operand = Operand::Copy(Place::Local(local_id));
         let local_ty = self.mir_local(local_id)?.ty;
-        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty) {
+        // A read narrowed to `None` (`if (!r) return r;` with `r: T | null`
+        // and `T` always truthy, or `if (r === null)`) can only see the
+        // absent value, so it IS that constant. Copying the `Option<T>`
+        // local instead kept the payload type `T` in the read: returned where
+        // `Option<U>` is declared, it needed a `T` -> `U` conversion that a
+        // generic `T`/`U` cannot have.
+        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(_)))
+            && matches!(self.krate.types.get(expr.ty), Some(Type::None))
+        {
+            return Ok(Operand::Const(lower_literal(&smelt_hir::Literal::None)));
+        }
+        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty)
+        {
             let dest = self.push_temp(expr.ty, expr.span);
             self.block_mut()?.statements.push(Statement::Assign {
                 dest,
@@ -833,7 +874,11 @@ impl LoweringCtx<'_> {
     }
 
     /// Resolves a class constructor to its function ID.
-    pub(super) fn resolve_constructor(&self, class: Symbol, span: Span) -> Result<Option<FuncId>, LowerError> {
+    pub(super) fn resolve_constructor(
+        &self,
+        class: Symbol,
+        span: Span,
+    ) -> Result<Option<FuncId>, LowerError> {
         for item in &self.krate.items {
             if let smelt_hir::Item::Class(class_item) = item
                 && class_item.name == class
@@ -1327,9 +1372,18 @@ impl LoweringCtx<'_> {
                         .function
                         .locals
                         .get(usize::try_from(local.0).unwrap_or(usize::MAX))
-                        .ok_or_else(|| self.error("a global writeback names an unknown local", None))?;
+                        .ok_or_else(|| {
+                            self.error("a global writeback names an unknown local", None)
+                        })?;
                     let (ty, span) = (decl.ty, decl.span);
-                    self.assign_temp(ty, span, Rvalue::GlobalSet { global, value: Operand::Copy(Place::Local(local)) })?;
+                    self.assign_temp(
+                        ty,
+                        span,
+                        Rvalue::GlobalSet {
+                            global,
+                            value: Operand::Copy(Place::Local(local)),
+                        },
+                    )?;
                 }
             }
         }

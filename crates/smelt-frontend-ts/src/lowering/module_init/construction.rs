@@ -1,10 +1,6 @@
 //! `ModuleBuilder` construction: the builder's initial state and the items and
 //! const literals carried over from modules lowered earlier.
 
-use std::collections::{HashMap, HashSet};
-use crate::HirCtx;
-use smelt_hir::{FileId, Item, Span};
-use super::super::{ConstLiteral, ModuleBuilder, SpecializationData};
 use super::super::state::class_registry::ClassRegistry;
 use super::super::state::const_registry::ConstRegistry;
 use super::super::state::fn_ctx::FnCtx;
@@ -15,6 +11,10 @@ use super::super::state::local_scope::LocalScope;
 use super::super::state::lowering_mode::UnknownIndexAccess;
 use super::super::state::type_scope::TypeScope;
 use super::super::support::{const_literal_from_item, insert_visible_item, item_name};
+use super::super::{ConstLiteral, ModuleBuilder, SpecializationData};
+use crate::HirCtx;
+use smelt_hir::{FileId, Item, Span};
+use std::collections::{HashMap, HashSet};
 
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
@@ -38,9 +38,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let interface_construct_signatures = ctx.interface_construct_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let callable_object_aliases = ctx.callable_object_aliases.clone();
-        let unknown_index_access = UnknownIndexAccess::for_module(
-            Self::is_declaration_type_test_path(&path),
-        );
+        let unknown_index_access =
+            UnknownIndexAccess::for_module(Self::is_declaration_type_test_path(&path));
         Self {
             test_tier_module: false,
             file_id,
@@ -69,6 +68,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
             static_initializer_class: None,
+            evaluation_statics: HashMap::new(),
+            evaluation_frames: HashMap::new(),
+            lowering_evaluation_statics: None,
             fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
             pinned_nodes: Vec::new(),
@@ -98,8 +100,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Install the module's facts and publish the member names it declares.
-    pub(in crate::lowering) fn adopt_source_facts(&mut self, facts: super::super::source_facts::SourceFacts) {
-        self.ctx.declared_member_names.extend(facts.declared_members().cloned());
+    pub(in crate::lowering) fn adopt_source_facts(
+        &mut self,
+        facts: super::super::source_facts::SourceFacts,
+    ) {
+        self.ctx
+            .declared_member_names
+            .extend(facts.declared_members().cloned());
         self.source_facts = facts;
     }
 
@@ -119,7 +126,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
-            if matches!(item, Item::Class(class) if ctx.local_class_expressions.contains(&class.name)) {
+            if matches!(item, Item::Class(class) if ctx.local_class_expressions.contains(&class.name))
+            {
                 continue;
             }
             insert_visible_item(
@@ -157,7 +165,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Collect literal constant items already present in the shared crate.
-    pub(in crate::lowering) fn visible_const_literals(ctx: &HirCtx) -> HashMap<String, ConstLiteral> {
+    pub(in crate::lowering) fn visible_const_literals(
+        ctx: &HirCtx,
+    ) -> HashMap<String, ConstLiteral> {
         let mut values = HashMap::new();
         for item in &ctx.krate.items {
             let Item::Const(const_item) = item else {

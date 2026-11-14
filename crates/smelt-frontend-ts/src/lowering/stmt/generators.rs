@@ -114,160 +114,159 @@ impl ModuleBuilder<'_> {
         let value_ty = Self::expr_ty(body, value);
         let span = self.span(yield_expr.span.start, yield_expr.span.end);
         let outer_is_async = self
-            .fn_ctx.generator
+            .fn_ctx
+            .generator
             .is_some_and(|generator| generator.is_async);
         let outer_yield_ty = self
-            .fn_ctx.generator
+            .fn_ctx
+            .generator
             .map(|generator| generator.yield_ty)
             .ok_or_else(|| {
                 SmeltError::unsupported(span, "yield* is only valid inside a generator")
             })?;
-        let (generator, return_ty) =
-            if let Some(Type::Generator {
-                is_async,
-                yield_ty,
-                return_ty,
-                ..
-            }) =
-                self.ctx.krate.types.get(value_ty).cloned()
-            {
+        let (generator, return_ty) = if let Some(Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            ..
+        }) = self.ctx.krate.types.get(value_ty).cloned()
+        {
+            if is_async && !outer_is_async {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "a synchronous generator cannot delegate to an AsyncGenerator",
+                ));
+            }
+            if !self.type_assignable_to(yield_ty, outer_yield_ty) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "yield* item type is not assignable to the outer yield type",
+                ));
+            }
+            (value, return_ty)
+        } else if let Some(members) = match self.ctx.krate.types.get(value_ty).cloned() {
+            Some(Type::Union(members)) => Some(members),
+            _ => None,
+        } {
+            let mut return_types = Vec::with_capacity(members.len());
+            for member in members {
+                let (is_async, item_ty, return_ty) = match self.ctx.krate.types.get(member) {
+                    Some(Type::Generator {
+                        is_async,
+                        yield_ty,
+                        return_ty,
+                        ..
+                    }) => (*is_async, *yield_ty, *return_ty),
+                    Some(Type::List(item_ty) | Type::Set(item_ty)) => {
+                        (false, *item_ty, self.ctx.krate.types.intern(Type::None))
+                    }
+                    Some(Type::String) => {
+                        let string_ty = self.ctx.krate.types.intern(Type::String);
+                        (false, string_ty, self.ctx.krate.types.intern(Type::None))
+                    }
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            "yield* union member is not a typed iterable carrier",
+                        ));
+                    }
+                };
                 if is_async && !outer_is_async {
                     return Err(SmeltError::unsupported(
                         span,
-                        "a synchronous generator cannot delegate to an AsyncGenerator",
+                        "a synchronous generator cannot delegate to an async union member",
                     ));
                 }
-                if !self.type_assignable_to(yield_ty, outer_yield_ty) {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        "yield* item type is not assignable to the outer yield type",
-                    ));
-                }
-                (value, return_ty)
-            } else if let Some(members) = match self.ctx.krate.types.get(value_ty).cloned() {
-                Some(Type::Union(members)) => Some(members),
-                _ => None,
-            } {
-                let mut return_types = Vec::with_capacity(members.len());
-                for member in members {
-                    let (is_async, item_ty, return_ty) = match self.ctx.krate.types.get(member) {
-                        Some(Type::Generator {
-                            is_async,
-                            yield_ty,
-                            return_ty,
-                            ..
-                        }) => (*is_async, *yield_ty, *return_ty),
-                        Some(Type::List(item_ty) | Type::Set(item_ty)) => (
-                            false,
-                            *item_ty,
-                            self.ctx.krate.types.intern(Type::None),
-                        ),
-                        Some(Type::String) => {
-                            let string_ty = self.ctx.krate.types.intern(Type::String);
-                            (false, string_ty, self.ctx.krate.types.intern(Type::None))
-                        }
-                        _ => {
-                            return Err(SmeltError::unsupported(
-                                span,
-                                "yield* union member is not a typed iterable carrier",
-                            ));
-                        }
-                    };
-                    if is_async && !outer_is_async {
-                        return Err(SmeltError::unsupported(
-                            span,
-                            "a synchronous generator cannot delegate to an async union member",
-                        ));
-                    }
-                    if !self.type_assignable_to(item_ty, outer_yield_ty) {
-                        return Err(SmeltError::unsupported(
-                            span,
-                            "yield* union item type is not assignable to the outer yield type",
-                        ));
-                    }
-                    if !return_types.contains(&return_ty) {
-                        return_types.push(return_ty);
-                    }
-                }
-                (value, self.joined_inferred_type(return_types))
-            } else if let Some(item_ty) = match self.ctx.krate.types.get(value_ty) {
-                Some(Type::List(item_ty) | Type::Set(item_ty)) => Some(*item_ty),
-                Some(Type::String) => Some(self.ctx.krate.types.intern(Type::String)),
-                Some(Type::Tuple(items)) if items
-                    .iter()
-                    .all(|item| self.type_assignable_to(*item, outer_yield_ty)) =>
-                {
-                    Some(outer_yield_ty)
-                }
-                _ => None,
-            } {
                 if !self.type_assignable_to(item_ty, outer_yield_ty) {
                     return Err(SmeltError::unsupported(
                         span,
-                        "yield* iterable item type is not assignable to the outer yield type",
+                        "yield* union item type is not assignable to the outer yield type",
                     ));
                 }
-                // Built-in iterable completion is JavaScript `undefined`, which
-                // is represented by the frontend's void/none result type. The
-                // operand remains a collection rather than masquerading as a
-                // generator carrier; MIR/codegen adapt its concrete protocol.
-                (value, self.ctx.krate.types.intern(Type::None))
-            } else {
-                // TypeScript's iterable protocol delegates through the
-                // well-known `Symbol.iterator` member. Computed-key lowering
-                // gives that member a stable synthetic name, so resolve it
-                // through the same general class/interface member lookup used
-                // by ordinary method calls rather than recognizing a source
-                // library or concrete class.
-                let mut candidates = Vec::new();
-                if outer_is_async {
-                    candidates.push(self.intern_symbol_key("__smelt_symbol_async_iterator"));
+                if !return_types.contains(&return_ty) {
+                    return_types.push(return_ty);
                 }
-                candidates.push(self.intern_symbol_key("__smelt_symbol_iterator"));
-                let mut resolved = None;
-                for iterator in candidates {
-                    let Ok(iterator_ty) = self.class_field_type(value_ty, iterator) else {
-                        continue;
-                    };
-                    let Some(Type::Function(iterator_fn)) =
-                        self.ctx.krate.types.get(iterator_ty).cloned()
-                    else {
-                        continue;
-                    };
-                    let generator_ty = iterator_fn.return_ty;
-                    let Some(Type::Generator {
-                        is_async,
-                        return_ty,
-                        ..
-                    }) = self.ctx.krate.types.get(generator_ty).cloned()
-                    else {
-                        continue;
-                    };
-                    if !is_async || outer_is_async {
-                        resolved = Some((iterator, generator_ty, return_ty));
-                        break;
-                    }
-                }
-                let Some((iterator, generator_ty, return_ty)) = resolved else {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        format!(
-                            "yield* requires a typed sync or async iterator method (received {:?})",
-                            self.ctx.krate.types.get(value_ty),
-                        ),
-                    ));
-                };
-                let generator = body.push_expr(Expr {
-                    kind: ExprKind::Method {
-                        receiver: value,
-                        method: iterator,
-                        args: Vec::new(),
-                    },
-                    ty: generator_ty,
+            }
+            (value, self.joined_inferred_type(return_types))
+        } else if let Some(item_ty) = match self.ctx.krate.types.get(value_ty) {
+            Some(Type::List(item_ty) | Type::Set(item_ty)) => Some(*item_ty),
+            Some(Type::String) => Some(self.ctx.krate.types.intern(Type::String)),
+            Some(Type::Tuple(items))
+                if items
+                    .iter()
+                    .all(|item| self.type_assignable_to(*item, outer_yield_ty)) =>
+            {
+                Some(outer_yield_ty)
+            }
+            _ => None,
+        } {
+            if !self.type_assignable_to(item_ty, outer_yield_ty) {
+                return Err(SmeltError::unsupported(
                     span,
-                });
-                (generator, return_ty)
+                    "yield* iterable item type is not assignable to the outer yield type",
+                ));
+            }
+            // Built-in iterable completion is JavaScript `undefined`, which
+            // is represented by the frontend's void/none result type. The
+            // operand remains a collection rather than masquerading as a
+            // generator carrier; MIR/codegen adapt its concrete protocol.
+            (value, self.ctx.krate.types.intern(Type::None))
+        } else {
+            // TypeScript's iterable protocol delegates through the
+            // well-known `Symbol.iterator` member. Computed-key lowering
+            // gives that member a stable synthetic name, so resolve it
+            // through the same general class/interface member lookup used
+            // by ordinary method calls rather than recognizing a source
+            // library or concrete class.
+            let mut candidates = Vec::new();
+            if outer_is_async {
+                candidates.push(self.intern_symbol_key("__smelt_symbol_async_iterator"));
+            }
+            candidates.push(self.intern_symbol_key("__smelt_symbol_iterator"));
+            let mut resolved = None;
+            for iterator in candidates {
+                let Ok(iterator_ty) = self.class_field_type(value_ty, iterator) else {
+                    continue;
+                };
+                let Some(Type::Function(iterator_fn)) =
+                    self.ctx.krate.types.get(iterator_ty).cloned()
+                else {
+                    continue;
+                };
+                let generator_ty = iterator_fn.return_ty;
+                let Some(Type::Generator {
+                    is_async,
+                    return_ty,
+                    ..
+                }) = self.ctx.krate.types.get(generator_ty).cloned()
+                else {
+                    continue;
+                };
+                if !is_async || outer_is_async {
+                    resolved = Some((iterator, generator_ty, return_ty));
+                    break;
+                }
+            }
+            let Some((iterator, generator_ty, return_ty)) = resolved else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "yield* requires a typed sync or async iterator method (received {:?})",
+                        self.ctx.krate.types.get(value_ty),
+                    ),
+                ));
             };
+            let generator = body.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver: value,
+                    method: iterator,
+                    args: Vec::new(),
+                },
+                ty: generator_ty,
+                span,
+            });
+            (generator, return_ty)
+        };
         Ok(body.push_expr(Expr {
             kind: ExprKind::GeneratorDelegate { generator },
             ty: return_ty,

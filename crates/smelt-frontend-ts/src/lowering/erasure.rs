@@ -113,7 +113,10 @@ impl ModuleBuilder<'_> {
         if all_erased {
             self.unknown_type(NotNewErasure::ErasedUpstream)
         } else {
-            self.erase_with(ErasureReason::DynamicOperator, "join with an erased operand")
+            self.erase_with(
+                ErasureReason::DynamicOperator,
+                "join with an erased operand",
+            )
         }
     }
 

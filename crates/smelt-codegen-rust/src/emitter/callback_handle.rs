@@ -192,7 +192,8 @@ impl FunctionEmitter<'_> {
         };
         let length = self.operand_function_length(operand)?;
         Ok(Some(RustExpr::loose(format!(
-            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}", callback = callback.delimited()
+            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}",
+            callback = callback.delimited()
         ))))
     }
 
@@ -225,7 +226,8 @@ impl FunctionEmitter<'_> {
             }
             Operand::Const(_) => false,
         };
-        let args = self.function_args_from_smelt_args_text(source, ErasedCallTargetAbi::Declared)?;
+        let args =
+            self.function_args_from_smelt_args_text(source, ErasedCallTargetAbi::Declared)?;
         let callback_text = if is_borrowed_param {
             function_text.clone()
         } else {
@@ -237,15 +239,16 @@ impl FunctionEmitter<'_> {
         } else if is_borrowed_param {
             callback_text.postfix(format!("({args})"))
         } else {
-            RustExpr::atom(format!("({callback_text})({args})", callback_text = callback_text.delimited()))
+            RustExpr::atom(format!(
+                "({callback_text})({args})",
+                callback_text = callback_text.delimited()
+            ))
         };
         // An async callback carries its throw path inside the returned future's
         // `Result`; invoking the callback yields the future directly. Only a
         // synchronous throwing callback returns a `Result` at this call site.
-        let source_returns_future = matches!(
-            self.mir.types.get(source.return_ty),
-            Some(Type::Future(_))
-        );
+        let source_returns_future =
+            matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
         let call_value = if source.may_throw && !source_returns_future {
             call.postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
@@ -256,18 +259,35 @@ impl FunctionEmitter<'_> {
         // its throw is the whole point of invoking it, and erasing its "result"
         // must not replace the call with a constant. It therefore takes the
         // statement shape of a `void` callback, whose value is never observed.
-        let return_text = if matches!(self.mir.types.get(source.return_ty), Some(Type::None | Type::Never)) {
+        let return_text = if matches!(
+            self.mir.types.get(source.return_ty),
+            Some(Type::None | Type::Never)
+        ) {
             let null_text = self.null_value()?;
-            format!("{{ {call_value}; {null_text} }}", call_value = call_value.delimited(), null_text = null_text.delimited())
+            format!(
+                "{{ {call_value}; {null_text} }}",
+                call_value = call_value.delimited(),
+                null_text = null_text.delimited()
+            )
         } else {
-            self.rendered_at_type(&call_value, source.return_ty, unknown_ty, &self.render_scope())?.into_string()
+            self.rendered_at_type(
+                &call_value,
+                source.return_ty,
+                unknown_ty,
+                &self.render_scope(),
+            )?
+            .into_string()
         };
-        let closure = self.carrier_format(self.carrier()?, format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"));
+        let closure = self.carrier_format(
+            self.carrier()?,
+            format_args!("move |smelt_args: Vec<SmeltUnknown>| {return_text}"),
+        );
         Ok(Some(if is_borrowed_param {
             RustExpr::loose(format!("::std::rc::Rc::new({closure})"))
         } else {
             RustExpr::atom(format!(
-                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}", function_text = function_text.tight()
+                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}",
+                function_text = function_text.tight()
             ))
         }))
     }
@@ -446,7 +466,10 @@ impl FunctionEmitter<'_> {
                 && !self.is_erased_unknown_rest_function(function)
             {
                 let owned = self.extract(operand, target, &self.render_scope())?;
-                return Ok(RustExpr::loose(format!("&*({owned})", owned = owned.delimited())));
+                return Ok(RustExpr::loose(format!(
+                    "&*({owned})",
+                    owned = owned.delimited()
+                )));
             }
             return self.borrowed_default_function_expr(target, callee_bindings);
         }
@@ -461,7 +484,10 @@ impl FunctionEmitter<'_> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 let place_expr = self.place_expr(place)?;
-                Ok(RustExpr::loose(format!("&*{place_expr}", place_expr = place_expr.tight())))
+                Ok(RustExpr::loose(format!(
+                    "&*{place_expr}",
+                    place_expr = place_expr.tight()
+                )))
             }
             Operand::Const(_) => self.borrowed_default_function_expr(target, callee_bindings),
         }
@@ -488,7 +514,10 @@ impl FunctionEmitter<'_> {
             .join(", ");
         let return_value = self.default_value(function.return_ty)?;
         let return_text = if function.may_throw {
-            format!("Ok::<_, {ERROR_BOX}>({return_value})", return_value = return_value.delimited())
+            format!(
+                "Ok::<_, {ERROR_BOX}>({return_value})",
+                return_value = return_value.delimited()
+            )
         } else {
             return_value.into_string()
         };
@@ -500,7 +529,9 @@ impl FunctionEmitter<'_> {
         // crate-wide for the same shape; the redundancy is deliberate, since the
         // valve is crate-wide and this is local.
         if let Some(annotation) = self.callback_return_annotation(function, callee_bindings)? {
-            return Ok(RustExpr::loose(format!("&|{params}| -> {annotation} {{ {return_text} }}")));
+            return Ok(RustExpr::loose(format!(
+                "&|{params}| -> {annotation} {{ {return_text} }}"
+            )));
         }
         Ok(RustExpr::loose(format!("&|{params}| {return_text}")))
     }
@@ -547,7 +578,8 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "{{ let smelt_handle_callback = {function_text}.clone(); \
              ::std::rc::Rc::new(move |{}| (smelt_handle_callback)({args})) }}",
-            params.join(", "), function_text = function_text.tight()
+            params.join(", "),
+            function_text = function_text.tight()
         )))
     }
 }

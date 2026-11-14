@@ -374,7 +374,10 @@ function* values(limit: number): Generator<number> {
     ensure!(body.is_generator());
     ensure!(matches!(
         ctx.krate.types.get(function.return_ty),
-        Some(Type::Generator { is_async: false, .. })
+        Some(Type::Generator {
+            is_async: false,
+            ..
+        })
     ));
     ensure!(
         body.exprs
@@ -520,7 +523,8 @@ function testCase(): Generator<number, number, unknown> {
     ensure!(
         ctx.krate.bodies.iter().any(|body| {
             body.is_generator()
-                && body.exprs
+                && body
+                    .exprs
                     .iter()
                     .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))
         }),
@@ -556,7 +560,8 @@ const result = safeTry(async function* () {
         ctx.krate.bodies.iter().any(|body| {
             body.is_generator()
                 && body.async_state_machine().is_some()
-                && body.exprs
+                && body
+                    .exprs
                     .iter()
                     .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))
         }),
@@ -1085,7 +1090,10 @@ describe("pairs", () => {
         &mut ctx,
     )?;
     ensure!(
-        ctx.krate.items.iter().any(|item| matches!(item, Item::Class(class)
+        ctx.krate
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::Class(class)
             if ctx
                 .krate
                 .names
@@ -1390,8 +1398,14 @@ describe("erased", () => {
         "an erased toContain actual should dispatch on its string and array runtime tags",
     );
     ensure!(
-        count_exprs(&erased_ctx, |kind| matches!(kind, ExprKind::StringContains { .. })) == 1
-            && count_exprs(&erased_ctx, |kind| matches!(kind, ExprKind::ListContains { .. })) == 1,
+        count_exprs(&erased_ctx, |kind| matches!(
+            kind,
+            ExprKind::StringContains { .. }
+        )) == 1
+            && count_exprs(&erased_ctx, |kind| matches!(
+                kind,
+                ExprKind::ListContains { .. }
+            )) == 1,
         "an erased toContain actual should carry both a substring and an element search",
     );
 
@@ -1413,12 +1427,21 @@ describe("typed", () => {
         &mut typed_ctx,
     )?;
     ensure!(
-        count_exprs(&typed_ctx, |kind| matches!(kind, ExprKind::UnknownIs { .. })) == 0,
+        count_exprs(&typed_ctx, |kind| matches!(
+            kind,
+            ExprKind::UnknownIs { .. }
+        )) == 0,
         "typed and optional toContain actuals must not read a runtime tag",
     );
     ensure!(
-        count_exprs(&typed_ctx, |kind| matches!(kind, ExprKind::StringContains { .. })) == 2
-            && count_exprs(&typed_ctx, |kind| matches!(kind, ExprKind::ListContains { .. })) == 1,
+        count_exprs(&typed_ctx, |kind| matches!(
+            kind,
+            ExprKind::StringContains { .. }
+        )) == 2
+            && count_exprs(&typed_ctx, |kind| matches!(
+                kind,
+                ExprKind::ListContains { .. }
+            )) == 1,
         "typed toContain actuals keep their typed string/list containment",
     );
     Ok(())
@@ -1467,8 +1490,10 @@ export function run(c: Ctx): string {
     )?;
     let header = ctx.krate.symbols.intern("header");
     ensure!(
-        count_exprs(&ctx, |kind| matches!(kind, ExprKind::Method { method, .. } if *method == header))
-            >= 2,
+        count_exprs(
+            &ctx,
+            |kind| matches!(kind, ExprKind::Method { method, .. } if *method == header)
+        ) >= 2,
         "getter-reached `header` calls should lower to class method dispatch in both closures",
     );
     Ok(())
@@ -1680,9 +1705,12 @@ export function check(): boolean { return run() instanceof Promise; }
 "),
         &mut ctx,
     )?;
-    ensure!(ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(|expr| matches!(
-        expr.kind,
-        ExprKind::Literal(Literal::Bool(true))
-    )));
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| &body.exprs)
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))
+    );
     Ok(())
 }

@@ -54,7 +54,8 @@ impl GuestScriptHash {
 const NODE_GUEST_HASH: GuestScriptHash = GuestScriptHash::of(crate::node::NODE_GUEST.as_bytes());
 
 /// The `CPython` guest's hash.
-const PYTHON_GUEST_HASH: GuestScriptHash = GuestScriptHash::of(crate::python::PYTHON_GUEST.as_bytes());
+const PYTHON_GUEST_HASH: GuestScriptHash =
+    GuestScriptHash::of(crate::python::PYTHON_GUEST.as_bytes());
 
 /// Which specializer produced an artifact: everything about Smelt itself that
 /// can change the output.
@@ -108,17 +109,26 @@ impl ProjectRoot {
     #[must_use]
     pub fn relative(&self, path: &Path) -> String {
         let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-        let relative = absolute
-            .strip_prefix(&self.0)
-            .ok()
-            .filter(|relative| relative.components().all(|component| matches!(component, Component::Normal(_))));
-        relative.unwrap_or(&absolute).to_string_lossy().replace('\\', "/")
+        let relative = absolute.strip_prefix(&self.0).ok().filter(|relative| {
+            relative
+                .components()
+                .all(|component| matches!(component, Component::Normal(_)))
+        });
+        relative
+            .unwrap_or(&absolute)
+            .to_string_lossy()
+            .replace('\\', "/")
     }
 
     /// A digest of `(path, text)` pairs, by project-relative path.
     #[must_use]
-    pub fn hash_texts<'text>(&self, texts: impl Iterator<Item = (&'text Path, &'text [u8])>) -> String {
-        let mut entries = texts.map(|(path, text)| (self.relative(path), text)).collect::<Vec<_>>();
+    pub fn hash_texts<'text>(
+        &self,
+        texts: impl Iterator<Item = (&'text Path, &'text [u8])>,
+    ) -> String {
+        let mut entries = texts
+            .map(|(path, text)| (self.relative(path), text))
+            .collect::<Vec<_>>();
         entries.sort_by(|left, right| left.0.cmp(&right.0));
         let mut digest = Sha256::new();
         for (path, text) in entries {
@@ -140,7 +150,11 @@ impl ProjectRoot {
             .filter(|path| path.is_file())
             .map(|path| fs::read(&path).map(|bytes| (path, bytes)))
             .collect::<io::Result<Vec<_>>>()?;
-        Ok(self.hash_texts(files.iter().map(|(path, bytes)| (path.as_path(), bytes.as_slice()))))
+        Ok(self.hash_texts(
+            files
+                .iter()
+                .map(|(path, bytes)| (path.as_path(), bytes.as_slice())),
+        ))
     }
 
     /// A digest of the packages installed under the project's `node_modules`:
@@ -160,7 +174,10 @@ impl ProjectRoot {
         if modules.is_dir() {
             for entry in fs::read_dir(&modules)? {
                 let package = entry?.path();
-                let scoped = package.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.starts_with('@'));
+                let scoped = package
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with('@'));
                 if scoped && package.is_dir() {
                     for scoped_entry in fs::read_dir(&package)? {
                         manifests.push(scoped_entry?.path().join("package.json"));
@@ -180,7 +197,11 @@ impl ProjectRoot {
             let path = Path::new(root);
             if path.starts_with(&self.0) {
                 let relative = self.relative(path);
-                if relative.is_empty() { "<project>".to_owned() } else { format!("<project>/{relative}") }
+                if relative.is_empty() {
+                    "<project>".to_owned()
+                } else {
+                    format!("<project>/{relative}")
+                }
             } else {
                 root.clone()
             }
@@ -294,7 +315,11 @@ mod tests {
         SandboxPolicyRecord {
             backend: "linux-bwrap".to_owned(),
             network: false,
-            read_only_roots: vec![project.to_owned(), format!("{project}/.smelt/out"), "/usr".to_owned()],
+            read_only_roots: vec![
+                project.to_owned(),
+                format!("{project}/.smelt/out"),
+                "/usr".to_owned(),
+            ],
             writable_roots: vec!["<scratch>".to_owned()],
             environment: BTreeMap::new(),
             wall_time_ms: 10_000,
@@ -310,31 +335,59 @@ mod tests {
     /// The key of a Python batch of the project at `project` with `hashes`.
     fn key(project: &str, hashes: HashInputs) -> SpecializationCacheKey {
         let root = ProjectRoot::new(Path::new(project)).expect("absolute");
-        let input = CacheKeyInput::new(HostLanguage::Python, "3.13.5".to_owned(), hashes, &policy(project), &root);
+        let input = CacheKeyInput::new(
+            HostLanguage::Python,
+            "3.13.5".to_owned(),
+            hashes,
+            &policy(project),
+            &root,
+        );
         SpecializationCacheKey::compute(&input).expect("serializable")
     }
 
     #[test]
     fn cache_key_is_deterministic_and_sensitive_to_inputs() {
         assert_eq!(key("/project", hashes()), key("/project", hashes()));
-        let changed = HashInputs { environment: "different".to_owned(), ..hashes() };
-        assert_ne!(key("/project", hashes()), key("/project", changed), "environment changes must invalidate");
+        let changed = HashInputs {
+            environment: "different".to_owned(),
+            ..hashes()
+        };
+        assert_ne!(
+            key("/project", hashes()),
+            key("/project", changed),
+            "environment changes must invalidate"
+        );
     }
 
     /// The same project checked out in two places has one key.
     #[test]
     fn cache_key_is_portable_across_checkouts() {
-        assert_eq!(key("/home/a/project", hashes()), key("/srv/b/project", hashes()));
+        assert_eq!(
+            key("/home/a/project", hashes()),
+            key("/srv/b/project", hashes())
+        );
     }
 
     /// The key carries the guest's hash: a different guest script is a
     /// different specializer, and the two languages' guests differ.
     #[test]
     fn the_guest_script_is_part_of_the_key() {
-        assert_ne!(GuestScriptHash::of(b"guest v1"), GuestScriptHash::of(b"guest v2"));
-        assert_ne!(SpecializerIdentity::of(HostLanguage::Python), SpecializerIdentity::of(HostLanguage::TypeScript));
-        assert_eq!(SpecializerIdentity::of(HostLanguage::Python).guest, PYTHON_GUEST_HASH);
-        assert_eq!(SpecializerIdentity::of(HostLanguage::TypeScript).guest, NODE_GUEST_HASH);
+        assert_ne!(
+            GuestScriptHash::of(b"guest v1"),
+            GuestScriptHash::of(b"guest v2")
+        );
+        assert_ne!(
+            SpecializerIdentity::of(HostLanguage::Python),
+            SpecializerIdentity::of(HostLanguage::TypeScript)
+        );
+        assert_eq!(
+            SpecializerIdentity::of(HostLanguage::Python).guest,
+            PYTHON_GUEST_HASH
+        );
+        assert_eq!(
+            SpecializerIdentity::of(HostLanguage::TypeScript).guest,
+            NODE_GUEST_HASH
+        );
     }
 
     /// Hashed paths are project-relative: the same files under two roots have

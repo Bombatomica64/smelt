@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use smelt_hir::{BodyId, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction};
 
+use crate::contract::MODULE_SOURCE_HEADER;
 use crate::crate_builder::{EmittedRoot, FreeFunctionHome, emit_root};
 use crate::deps::GeneratedDep;
-use crate::contract::MODULE_SOURCE_HEADER;
 use crate::names::{NameScope, NameSpace};
 use crate::{EmitError, GeneratedAllocator};
 
@@ -147,7 +147,12 @@ fn body_module_names(
         else {
             continue;
         };
-        let rust_module = stems.claim(crate::names::Spelling::Source(&source_module_spelling(&module.name))).as_str().to_owned();
+        let rust_module = stems
+            .claim(crate::names::Spelling::Source(&source_module_spelling(
+                &module.name,
+            )))
+            .as_str()
+            .to_owned();
         let module_info = BodyModuleInfo {
             name: rust_module.clone(),
             source_path: path.clone(),

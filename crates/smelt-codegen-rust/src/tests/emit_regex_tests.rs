@@ -28,7 +28,9 @@ export function localize(enNumber: number): string {
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "localize"), r#"fn localize(en_number: f64) -> JsString {
+    assert_eq!(
+        rust_fn(&source, "localize"),
+        r#"fn localize(en_number: f64) -> JsString {
 let suffix: JsString = JsString::from("!");
 let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("\\d"), JsString::from("g"));
 let _smelt_tmp_3: JsString = JsString::from(smelt_number_to_string(en_number));
@@ -40,7 +42,8 @@ _smelt_tmp_2.clone()
 }
 })(smelt_match.group_owned(0).unwrap_or_default()));
 return _smelt_tmp_5;
-}"#);
+}"#
+    );
 }
 
 /// A replacer whose result is dynamic is converted with JavaScript `ToString`.
@@ -54,7 +57,9 @@ export function replaceAll(str: string, table: unknown): string {
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "replace_all"), r#"fn replace_all(str: JsString, table: SmeltUnknown) -> JsString {
+    assert_eq!(
+        rust_fn(&source, "replace_all"),
+        r#"fn replace_all(str: JsString, table: SmeltUnknown) -> JsString {
 let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("[&<>\"']"), JsString::from("g"));
 let _smelt_tmp_4: JsString = _smelt_tmp_2.replace_with(&str.clone(), true, |smelt_match: &SmeltMatch| smelt_erased_to_js_string(&(({
 let table = table.clone();
@@ -64,12 +69,19 @@ smelt_record_property(&_smelt_tmp_2, &closure_arg_0.clone())
 }
 })(smelt_match.group_owned(0).unwrap_or_default()))));
 return _smelt_tmp_4;
-}"#);
+}"#
+    );
 }
 
-/// `match` on an erased receiver converts the haystack from its runtime tag.
+/// `match` on an erased receiver is resolved by the receiver's run-time value
+/// (`smelt_erased_pattern_call`), and can throw, so the function is fallible.
+///
+/// Old requirement: the receiver was converted to a string and searched, so an
+/// object defining its own `match` was searched as `"[object Object]"`, and
+/// one without it answered instead of throwing `TypeError: value.match is not
+/// a function`. The `erased_pattern_methods` Node-parity fixture runs both.
 #[test]
-fn emits_regex_find_with_erased_haystack_string_coercion() {
+fn emits_erased_receiver_match_as_runtime_dispatch() {
     let source = source_for(
         r"
 function matchUnknown(value: unknown): string[] | undefined {
@@ -78,11 +90,15 @@ function matchUnknown(value: unknown): string[] | undefined {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "match_unknown"), r#"fn match_unknown(value: SmeltUnknown) -> Option<SmeltList<JsString>> {
-let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("a+"), JsString::new());
-let _smelt_tmp_2: Option<SmeltMatch> = _smelt_tmp_1.match_string(&match value.clone() { SmeltUnknown::String(smelt_text) => smelt_text, smelt_value => JsString::from(match smelt_value {   SmeltUnknown::Object(smelt_value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(smelt_value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value)).unwrap_or_default().into_iter().map(|smelt_element| match smelt_element { SmeltUnknown::Number(smelt_element) => smelt_element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key("__smelt_regexp") => smelt_regexp_literal(&smelt_value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) });
-return _smelt_tmp_2.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
-}"#);
+    let function = rust_fn(&source, "match_unknown");
+    assert!(
+        function.starts_with("fn match_unknown(value: SmeltUnknown) -> Result<Option<SmeltList<JsString>>, Box<dyn std::error::Error>> {"),
+        "{function}"
+    );
+    assert!(
+        function.contains(r#"smelt_erased_pattern_call(&value.clone(), "match", _smelt_tmp_1.clone().into_smelt_unknown(), "value.match")?"#),
+        "{function}"
+    );
 }
 
 /// A regex held in a local keeps its flags through `match`.
@@ -97,11 +113,14 @@ function parts(value: string): string[] | undefined {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "parts"), r#"fn parts(value: JsString) -> Option<SmeltList<JsString>> {
+    assert_eq!(
+        rust_fn(&source, "parts"),
+        r#"fn parts(value: JsString) -> Option<SmeltList<JsString>> {
 let tokens: SmeltRegExp = SmeltRegExp::new(JsString::from("a+|b"), JsString::from("g"));
 let _smelt_tmp_3: Option<SmeltMatch> = tokens.match_string(&value.clone());
 return _smelt_tmp_3.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
-}"#);
+}"#
+    );
 }
 
 /// A statically global literal takes the whole-match list directly.
@@ -115,7 +134,9 @@ function words(text: string): number {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "words"), r#"fn words(text: JsString) -> f64 {
+    assert_eq!(
+        rust_fn(&source, "words"),
+        r#"fn words(text: JsString) -> f64 {
 let mut _smelt_tmp_5: Option<f64>;
 let _smelt_tmp_6: SmeltList<JsString>;
 let _smelt_tmp_7: f64;
@@ -134,7 +155,8 @@ _smelt_tmp_5 = None::<f64>;
 }
 _smelt_tmp_8 = _smelt_tmp_5.clone().unwrap_or(0.0);
 return _smelt_tmp_8;
-}"#);
+}"#
+    );
 }
 
 /// Each array element keeps its own flags and reads them with `has_flag`.
@@ -150,7 +172,9 @@ const usesMultiline = pattern.multiline;
 ",
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let _smelt_tmp_5: SmeltRegExp = SmeltRegExp::new(JsString::from("x"), JsString::from("u"));
 let _smelt_tmp_6: SmeltRegExp = SmeltRegExp::new(JsString::from("x"), JsString::from("gimu"));
 let patterns: SmeltList<SmeltRegExp> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltRegExp> = vec![_smelt_tmp_5.clone(), _smelt_tmp_6.clone()]; smelt_list_items }));
@@ -159,7 +183,8 @@ let uses_global: bool = pattern.has_flag('g');
 let ignores_case: bool = pattern.has_flag('i');
 let uses_multiline: bool = pattern.has_flag('m');
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -177,7 +202,8 @@ const matches = first.test("Nov");
         "{source}"
     );
     assert!(
-        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(JsString::from(&*self.flags)))"),
+        source
+            .contains("(\"flags\".to_owned(), SmeltUnknown::String(JsString::from(&*self.flags)))"),
         "{source}"
     );
 }
@@ -194,11 +220,14 @@ export function cloneRe(obj: unknown): RegExp {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "clone_re"), r"fn clone_re(obj: SmeltUnknown) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_fn(&source, "clone_re"),
+        r"fn clone_re(obj: SmeltUnknown) -> Result<SmeltRegExp, Box<dyn std::error::Error>> {
 let reg_exp: SmeltRegExp = <SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(obj.clone());
 let _smelt_tmp_3: SmeltRegExp = smelt_regexp_compile(JsString::from(&*reg_exp.source).clone(), JsString::from(&*reg_exp.flags).clone())?;
 return Ok(_smelt_tmp_3);
-}");
+}"
+    );
 }
 
 /// A record of regex arrays keeps its entries at their concrete type.
@@ -227,7 +256,9 @@ const selected = use({
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let selected: SmeltUnknown;
 let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("^j"), JsString::from("i"));
 let _smelt_tmp_3: SmeltRegExp = SmeltRegExp::new(JsString::from("^f"), JsString::from("i"));
@@ -240,7 +271,8 @@ let _smelt_tmp_9: Args = Args { parse_patterns: parse_month_patterns, default_pa
 let _smelt_tmp_10: SmeltUnknown = use_(_smelt_tmp_9);
 selected = _smelt_tmp_10;
 return;
-}"#);
+}"#
+    );
 }
 
 /// `matchAll` yields concrete `SmeltMatch` values and the erasure adapter is not emitted.
@@ -256,7 +288,9 @@ for (const { index } of matches) {
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let mut __smelt_for_item: SmeltMatch;
 let mut index: f64;
 let mut _smelt_tmp_7: usize;
@@ -274,8 +308,12 @@ let _ = { println!("{}", smelt_console_number(index)); };
 _smelt_tmp_6 = _smelt_tmp_6 + 1;
 }
 return;
-}"#);
-    assert!(!source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
+}"#
+    );
+    assert!(
+        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "{source}"
+    );
 }
 
 /// `exec` stays a concrete `Option<SmeltMatch>` and the erasure adapter is not emitted.
@@ -289,14 +327,20 @@ console.log(m === null);
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let re: SmeltRegExp = SmeltRegExp::new(JsString::from("(?<year>\\d{4})-(\\d{2})"), JsString::new());
 let m: Option<SmeltMatch> = re.exec(&JsString::from("2024-07"));
 let _smelt_tmp_4: bool = m.is_none();
 let _ = { println!("{}", _smelt_tmp_4); };
 return;
-}"#);
-    assert!(!source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
+}"#
+    );
+    assert!(
+        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "{source}"
+    );
 }
 
 /// Numbered groups, named groups, `index`, `input` and destructuring all read typed accessors.
@@ -322,7 +366,9 @@ for (const found of matches) {
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let mut found: SmeltMatch;
 let mut whole: Option<JsString>;
 let mut letter: Option<JsString>;
@@ -356,8 +402,12 @@ let _ = { println!("{}", found.input_owned().clone()); };
 _smelt_tmp_10 = _smelt_tmp_10 + 1;
 }
 return;
-}"#);
-    assert!(!source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
+}"#
+    );
+    assert!(
+        !source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "{source}"
+    );
 }
 
 /// Only a match flowing into `unknown` crosses the explicit adapter; the adjacent typed read stays concrete.
@@ -376,7 +426,9 @@ if (m !== null) {
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let letter: Option<JsString>;
 let boxed: SmeltUnknown;
 let _smelt_tmp_7: SmeltMatch;
@@ -395,8 +447,12 @@ let _ = { println!("{}", match &letter { Some(smelt_value) => format!("{}", smel
 let _ = { println!("{}", SmeltInspect::smelt_console_text(&boxed)); };
 }
 return;
-}"#);
-    assert!(source.contains("impl IntoSmeltUnknown for SmeltMatch"), "{source}");
+}"#
+    );
+    assert!(
+        source.contains("impl IntoSmeltUnknown for SmeltMatch"),
+        "{source}"
+    );
 }
 
 /// `[^]` is ECMAScript syntax the engine reads itself, so the pattern reaches it untranslated.
@@ -410,11 +466,14 @@ function inner(value: string): string[] | undefined {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "inner"), r#"fn inner(value: JsString) -> Option<SmeltList<JsString>> {
+    assert_eq!(
+        rust_fn(&source, "inner"),
+        r#"fn inner(value: JsString) -> Option<SmeltList<JsString>> {
 let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("^'([^]*?)'?$"), JsString::new());
 let _smelt_tmp_2: Option<SmeltMatch> = _smelt_tmp_1.match_string(&value.clone());
 return _smelt_tmp_2.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
-}"#);
+}"#
+    );
 }
 
 /// A `lastIndex` write targets the backing cell through `borrow_mut`, narrowing the number to `usize`.
@@ -430,11 +489,14 @@ export function run(): number {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> f64 {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> f64 {
 let mut regex: SmeltRegExp = SmeltRegExp::new(JsString::from("a"), JsString::from("g"));
 *regex.last_index.borrow_mut() = (10.0) as usize;
 return (*regex.last_index.borrow() as f64);
-}"#);
+}"#
+    );
 }
 
 /// A module-level regex `const` referenced from several functions must compile
@@ -473,7 +535,8 @@ export function second(text: string): number {
     // One compile site, behind the memo: `with_flags` for a `u`/`v` pattern
     // and `from_unicode` over code units otherwise, one call each.
     assert_eq!(
-        source.matches("regress::Regex::with_flags(").count() + source.matches("regress::Regex::from_unicode(").count(),
+        source.matches("regress::Regex::with_flags(").count()
+            + source.matches("regress::Regex::from_unicode(").count(),
         2,
         "the emitted crate must compile patterns only inside the memo, \
          so an inlined module-level const never recompiles its pattern\n{source}"

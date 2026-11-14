@@ -82,11 +82,26 @@ impl SmeltObject {
     #[inline]
     fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
     #[inline]
-    fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
+    //~ An erased view of a concrete `Date` (`IntoSmeltUnknown for SmeltDate`
+    //~ keeps the date as the store's origin) IS that date: its time value is
+    //~ the date's current one, which a write through the concrete handle may
+    //~ have changed since the view was made.
+// @smelt:if date
+    fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| { if *key == "__smelt_date" && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { return Some(SmeltUnknown::Number(date.get_time())); } self.store.borrow().get(key).cloned() }) }
+// @smelt:else
+//=     fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
+// @smelt:end
     //~ [`Self::get`] spelled like a record's text-keyed read.
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<SmeltUnknown> { self.get(key) }
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { self.store.borrow_mut().insert(key.into(), value) }
+    //~ Writing the time value of an erased `Date` view (a setter on a date
+    //~ whose static type erased it) sets the date it is a view of, so every
+    //~ alias, typed or erased, sees one object as in JavaScript.
+// @smelt:if date
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } self.store.borrow_mut().insert(key, value) }
+// @smelt:else
+//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { self.store.borrow_mut().insert(key.into(), value) }
+// @smelt:end
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow_mut().remove(key)) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
     fn keys(&self) -> Vec<JsString> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }

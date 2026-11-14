@@ -53,7 +53,7 @@ fn labels (FuncId(1)) -> Generator<String, None, None>
   bb4:
     return none
 
-fn main (FuncId(2)) -> None
+fn main (FuncId(2)) -> None throws
   locals
     %0 user from_range: List<Float>
     %1 user spread_range: List<Float>
@@ -79,28 +79,36 @@ fn main (FuncId(2)) -> None
   bb0:
     %4 = call fn0(1.0, 5.0) -> bb1
   bb1:
-    %0 = unknown_cast move %4 as t9
-    %6 = len copy %0
-    %7 = call @console_log(move %6, copy %0[0.0], copy %0[4.0]) -> bb2
+    %5 = call @generator_collect(move %4) -> bb2
   bb2:
-    %8 = call fn0(0.0, 10.0, 5.0) -> bb3
+    %0 = move %5
+    %6 = len copy %0
+    %7 = call @console_log(move %6, copy %0[0.0], copy %0[4.0]) -> bb3
   bb3:
-    %1 = unknown_cast move %8 as t9
-    %10 = string_join move %1, ","
-    %11 = call @console_log(move %10) -> bb4
+    %8 = call fn0(0.0, 10.0, 5.0) -> bb4
   bb4:
-    %12 = call fn1(3.0) -> bb5
+    %9 = call @generator_collect(move %8) -> bb5
   bb5:
-    %2 = unknown_cast move %12 as t11
-    %14 = string_join move %2, " "
-    %15 = call @console_log(move %14) -> bb6
+    %1 = move %9
+    %10 = string_join move %1, ","
+    %11 = call @console_log(move %10) -> bb6
   bb6:
-    %16 = call fn0(2.0, 3.0) -> bb7
+    %12 = call fn1(3.0) -> bb7
   bb7:
-    %3 = unknown_cast move %16 as t9
+    %13 = call @generator_collect(move %12) -> bb8
+  bb8:
+    %2 = move %13
+    %14 = string_join move %2, " "
+    %15 = call @console_log(move %14) -> bb9
+  bb9:
+    %16 = call fn0(2.0, 3.0) -> bb10
+  bb10:
+    %17 = call @generator_collect(move %16) -> bb11
+  bb11:
+    %3 = move %17
     %18 = len copy %3
     %19 = copy %3[0.0] + copy %3[1.0]
-    %20 = call @console_log(move %18, move %19) -> bb8
-  bb8:
+    %20 = call @console_log(move %18, move %19) -> bb12
+  bb12:
     return none
 

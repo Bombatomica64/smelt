@@ -80,10 +80,7 @@ fn class_item_text(krate: &Crate, class: &crate::item::Class) -> String {
         .implements
         .iter()
         .map(|implemented| {
-            let name = krate
-                .symbols
-                .get(implemented.parent)
-                .unwrap_or("<unknown>");
+            let name = krate.symbols.get(implemented.parent).unwrap_or("<unknown>");
             if implemented.args.is_empty() {
                 name.to_owned()
             } else {
@@ -204,7 +201,11 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
             )
         }
         Type::JsMap(key, value) => {
-            format!("Map<{}, {}>", type_ref(krate, *key), type_ref(krate, *value))
+            format!(
+                "Map<{}, {}>",
+                type_ref(krate, *key),
+                type_ref(krate, *value)
+            )
         }
         Type::Tuple(items) => {
             let items = items

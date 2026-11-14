@@ -19,7 +19,10 @@ use crate::lowering::ModuleBuilder;
 use crate::lowering::testing::matchers::{LoweredActual, MatcherSite, SiteActual};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{BinOp, Body, ErasureReason, Expr, ExprId, ExprKind, Literal, LocalDecl, Pattern, Stmt, Type, UnaryOp};
+use smelt_hir::{
+    BinOp, Body, ErasureReason, Expr, ExprId, ExprKind, Literal, LocalDecl, Pattern, Stmt, Type,
+    UnaryOp,
+};
 
 /// An assertion rule, once the library's spelling is gone.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -69,7 +72,9 @@ fn chai_terminal(name: &str, deep: bool, contains: bool) -> Option<LibraryCheck>
         "empty" => Runtime("is_empty"),
         "a" | "an" => TypeArgument,
         "instanceof" | "instanceOf" => Matcher("toBeInstanceOf"),
-        "include" | "includes" | "contain" | "contains" | "string" if deep => Runtime("deep_include"),
+        "include" | "includes" | "contain" | "contains" | "string" if deep => {
+            Runtime("deep_include")
+        }
         "include" | "includes" | "contain" | "contains" | "string" => Runtime("include"),
         "lengthOf" | "length" => Runtime("length_is"),
         "match" | "matches" => Matcher("toMatch"),
@@ -94,8 +99,14 @@ fn chai_terminal(name: &str, deep: bool, contains: bool) -> Option<LibraryCheck>
 /// The rule of `assert.<name>(actual, ...)`, shared by chai and `node:assert`,
 /// and whether the name asserts the opposite.
 fn assert_method(name: &str, chai: bool) -> Option<(LibraryCheck, bool)> {
-    use LibraryCheck::{Exists, Fail, IsBool, LooseEqual, Matcher, Runtime, StrictEqual, TypeArgument, TypeIs};
-    let deep_rule = if chai { Matcher("toStrictEqual") } else { Matcher("toEqual") };
+    use LibraryCheck::{
+        Exists, Fail, IsBool, LooseEqual, Matcher, Runtime, StrictEqual, TypeArgument, TypeIs,
+    };
+    let deep_rule = if chai {
+        Matcher("toStrictEqual")
+    } else {
+        Matcher("toEqual")
+    };
     Some(match name {
         "equal" => (LooseEqual, false),
         "notEqual" => (LooseEqual, true),
@@ -181,9 +192,7 @@ fn expected_arity(check: LibraryCheck) -> usize {
         LibraryCheck::IsBool(_)
         | LibraryCheck::TypeIs(_)
         | LibraryCheck::Exists
-        | LibraryCheck::Matcher(
-            "toBeNull" | "toBeUndefined" | "toBeNaN" | "toBeTruthy",
-        )
+        | LibraryCheck::Matcher("toBeNull" | "toBeUndefined" | "toBeNaN" | "toBeTruthy")
         | LibraryCheck::Runtime("is_empty") => 0,
         LibraryCheck::Runtime("close_to" | "within" | "has_property") => 2,
         LibraryCheck::Matcher("toThrow") => 2,
@@ -224,7 +233,9 @@ impl ModuleBuilder<'_> {
     /// The library root of `expression`, seeing through `chai.assert`/`chai.expect`.
     fn library_root_of(&self, expression: &Expression<'_>) -> Option<LibraryRoot> {
         match expression.get_inner_expression() {
-            Expression::Identifier(identifier) if !self.scope.is_bound(identifier.name.as_str()) => {
+            Expression::Identifier(identifier)
+                if !self.scope.is_bound(identifier.name.as_str()) =>
+            {
                 self.library_root(identifier.name.as_str())
             }
             Expression::StaticMemberExpression(member) => {
@@ -289,15 +300,32 @@ impl ModuleBuilder<'_> {
             return Ok(true);
         }
         let Some(actual) = call.arguments.first() else {
-            self.unmodelled_assertion(&format!("{library} assert.{name} without a value"), call.span, body);
+            self.unmodelled_assertion(
+                &format!("{library} assert.{name} without a value"),
+                call.span,
+                body,
+            );
             return Ok(true);
         };
         // `assert.throws(fn, Err, "shown on failure")` in Node, but chai's second
         // argument after the class is a message the error must contain.
-        let arity = if check == LibraryCheck::Matcher("toThrow") && !chai { 1 } else { expected_arity(check) };
+        let arity = if check == LibraryCheck::Matcher("toThrow") && !chai {
+            1
+        } else {
+            expected_arity(check)
+        };
         let end = (1 + arity).min(call.arguments.len());
         let arguments = call.arguments.get(1..end).unwrap_or_default();
-        self.library_check(check, Some(actual), None, inverted, arguments, call.span, &format!("assert.{name}(...)"), body)?;
+        self.library_check(
+            check,
+            Some(actual),
+            None,
+            inverted,
+            arguments,
+            call.span,
+            &format!("assert.{name}(...)"),
+            body,
+        )?;
         Ok(true)
     }
 
@@ -328,7 +356,11 @@ impl ModuleBuilder<'_> {
                     let Expression::StaticMemberExpression(member) = &call.callee else {
                         return Ok(false);
                     };
-                    links.push((member.property.name.as_str(), Some(call.arguments.as_slice()), call.span));
+                    links.push((
+                        member.property.name.as_str(),
+                        Some(call.arguments.as_slice()),
+                        call.span,
+                    ));
                     cursor = member.object.get_inner_expression();
                 }
                 Expression::StaticMemberExpression(member)
@@ -354,9 +386,12 @@ impl ModuleBuilder<'_> {
         links.reverse();
         // A chain may assert more than once (`.to.be.a("string").and.equal("x")`),
         // on one value, so a value that is read more than once gets a local.
-        let asserting = links.iter().filter(|(name, args, _)| {
-            !CHAI_LANGUAGE_CHAINS.contains(name) && (args.is_some() || !is_chai_flag(name))
-        }).count();
+        let asserting = links
+            .iter()
+            .filter(|(name, args, _)| {
+                !CHAI_LANGUAGE_CHAINS.contains(name) && (args.is_some() || !is_chai_flag(name))
+            })
+            .count();
         let shared = match (should_receiver, actual) {
             (Some(receiver), _) => Some(self.bind_expression_once(receiver, body)?),
             (None, Some(actual)) if asserting > 1 => Some(self.bind_actual_once(actual, body)?),
@@ -369,9 +404,18 @@ impl ModuleBuilder<'_> {
             }
             if arguments.is_none() {
                 match name {
-                    "not" => { inverted = true; continue; }
-                    "deep" | "nested" => { deep = true; continue; }
-                    "include" | "contain" | "includes" | "contains" => { contains = true; continue; }
+                    "not" => {
+                        inverted = true;
+                        continue;
+                    }
+                    "deep" | "nested" => {
+                        deep = true;
+                        continue;
+                    }
+                    "include" | "contain" | "includes" | "contains" => {
+                        contains = true;
+                        continue;
+                    }
                     "own" | "ordered" | "any" | "all" | "itself" => continue,
                     _ => {}
                 }
@@ -385,7 +429,16 @@ impl ModuleBuilder<'_> {
                 return Ok(true);
             }
             let message = format!("expect(...).{name}(...)");
-            self.library_check(check, actual, shared, inverted, arguments.unwrap_or(&[]), link_span, &message, body)?;
+            self.library_check(
+                check,
+                actual,
+                shared,
+                inverted,
+                arguments.unwrap_or(&[]),
+                link_span,
+                &message,
+                body,
+            )?;
         }
         if vitest_expect {
             self.tick_planned_assertion(span, body);
@@ -403,10 +456,26 @@ impl ModuleBuilder<'_> {
         let ty = Self::expr_ty(body, value);
         let span = self.expression_span(receiver);
         let name = self.intern_source_name("chai_actual");
-        let local = body.push_local(LocalDecl { name: Some(name), ty, mutable: false, span });
+        let local = body.push_local(LocalDecl {
+            name: Some(name),
+            ty,
+            mutable: false,
+            span,
+        });
         let pat = body.push_pattern(Pattern::Binding(local));
-        self.push_stmt_to_sink(body, Stmt::Let { pat, ty, value: Some(value) });
-        Ok(body.push_expr(Expr { kind: ExprKind::Local(local), ty, span }))
+        self.push_stmt_to_sink(
+            body,
+            Stmt::Let {
+                pat,
+                ty,
+                value: Some(value),
+            },
+        );
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty,
+            span,
+        }))
     }
 
     /// Evaluate an actual value into a local, for a chain that reads it twice.
@@ -419,14 +488,33 @@ impl ModuleBuilder<'_> {
         let ty = Self::expr_ty(body, value);
         let span = self.span(actual.span().start, actual.span().end);
         let name = self.intern_source_name("chai_actual");
-        let local = body.push_local(LocalDecl { name: Some(name), ty, mutable: false, span });
+        let local = body.push_local(LocalDecl {
+            name: Some(name),
+            ty,
+            mutable: false,
+            span,
+        });
         let pat = body.push_pattern(Pattern::Binding(local));
-        self.push_stmt_to_sink(body, Stmt::Let { pat, ty, value: Some(value) });
-        Ok(body.push_expr(Expr { kind: ExprKind::Local(local), ty, span }))
+        self.push_stmt_to_sink(
+            body,
+            Stmt::Let {
+                pat,
+                ty,
+                value: Some(value),
+            },
+        );
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty,
+            span,
+        }))
     }
 
     /// Lower one rule against `actual` (or the value already bound in `shared`).
-    #[expect(clippy::too_many_arguments, reason = "each is one independent part of the source assertion")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one independent part of the source assertion"
+    )]
     fn library_check(
         &mut self,
         check: LibraryCheck,
@@ -440,16 +528,27 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         if let LibraryCheck::Matcher(name) = check {
             let actual = match (name == "toThrow", shared, actual) {
-                (_, _, Some(argument)) if name == "toThrow" => SiteActual::Argument { argument, inverted },
+                (_, _, Some(argument)) if name == "toThrow" => {
+                    SiteActual::Argument { argument, inverted }
+                }
                 (_, Some(value), _) => SiteActual::Lowered(LoweredActual { value, inverted }),
                 (_, None, Some(argument)) => SiteActual::Argument { argument, inverted },
                 (_, None, None) => {
-                    self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
+                    self.unmodelled_assertion(
+                        &format!("{message} on a `.should` receiver"),
+                        span,
+                        body,
+                    );
                     return Ok(());
                 }
             };
             let lowered_throw = name == "toThrow" && matches!(actual, SiteActual::Lowered(_));
-            let site = MatcherSite { name, arguments, span, actual };
+            let site = MatcherSite {
+                name,
+                arguments,
+                span,
+                actual,
+            };
             // A `.should` chain's lowered callee reaches `toThrow` directly; the
             // general dispatch keeps declining a lowered `.resolves` value.
             let handled = if lowered_throw {
@@ -464,7 +563,11 @@ impl ModuleBuilder<'_> {
             value
         } else {
             let Some(actual) = actual else {
-                self.unmodelled_assertion(&format!("{message} on a `.should` receiver"), span, body);
+                self.unmodelled_assertion(
+                    &format!("{message} on a `.should` receiver"),
+                    span,
+                    body,
+                );
                 return Ok(());
             };
             self.argument(actual, body)?
@@ -472,19 +575,33 @@ impl ModuleBuilder<'_> {
         let holds = match check {
             LibraryCheck::LooseEqual | LibraryCheck::StrictEqual => {
                 let Some(expected) = arguments.first() else {
-                    self.unmodelled_assertion(&format!("{message} without an expected value"), span, body);
+                    self.unmodelled_assertion(
+                        &format!("{message} without an expected value"),
+                        span,
+                        body,
+                    );
                     return Ok(());
                 };
                 let expected = self.argument(expected, body)?;
-                let (value, expected) = self.erase_unrelated_matcher_operands(value, expected, span, body);
-                let op = if check == LibraryCheck::LooseEqual { BinOp::JsLooseEq } else { BinOp::JsStrictEq };
+                let (value, expected) =
+                    self.erase_unrelated_matcher_operands(value, expected, span, body);
+                let op = if check == LibraryCheck::LooseEqual {
+                    BinOp::JsLooseEq
+                } else {
+                    BinOp::JsStrictEq
+                };
                 self.comparison_expr(op, value, expected, span, body)
             }
             LibraryCheck::IsBool(wanted) => {
                 let bool_ty = self.ctx.krate.types.intern(Type::Bool);
                 let hir_span = self.span(span.start, span.end);
-                let literal = body.push_expr(Expr { kind: ExprKind::Literal(Literal::Bool(wanted)), ty: bool_ty, span: hir_span });
-                let (value, literal) = self.erase_unrelated_matcher_operands(value, literal, span, body);
+                let literal = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(wanted)),
+                    ty: bool_ty,
+                    span: hir_span,
+                });
+                let (value, literal) =
+                    self.erase_unrelated_matcher_operands(value, literal, span, body);
                 self.comparison_expr(BinOp::JsStrictEq, value, literal, span, body)
             }
             LibraryCheck::Exists => {
@@ -493,15 +610,35 @@ impl ModuleBuilder<'_> {
             }
             LibraryCheck::TypeIs(name) => {
                 let name = self.string_literal_expr(name, span, body);
-                return self.runtime_check("type_is", value, &[name], inverted, span, message, body);
+                return self.runtime_check(
+                    "type_is",
+                    value,
+                    &[name],
+                    inverted,
+                    span,
+                    message,
+                    body,
+                );
             }
             LibraryCheck::TypeArgument => {
                 let Some(type_name) = arguments.first() else {
-                    self.unmodelled_assertion(&format!("{message} without a type name"), span, body);
+                    self.unmodelled_assertion(
+                        &format!("{message} without a type name"),
+                        span,
+                        body,
+                    );
                     return Ok(());
                 };
                 let name = self.argument(type_name, body)?;
-                return self.runtime_check("type_is", value, &[name], inverted, span, message, body);
+                return self.runtime_check(
+                    "type_is",
+                    value,
+                    &[name],
+                    inverted,
+                    span,
+                    message,
+                    body,
+                );
             }
             LibraryCheck::Runtime(name) => {
                 let arguments = arguments
@@ -517,7 +654,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Fail unless the erased runtime check `name` holds for `actual`.
-    #[expect(clippy::too_many_arguments, reason = "each is one independent part of the source assertion")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one independent part of the source assertion"
+    )]
     pub(in crate::lowering) fn runtime_check(
         &mut self,
         name: &str,
@@ -546,9 +686,16 @@ impl ModuleBuilder<'_> {
         let unknown_ty = self.erase_with(ErasureReason::TestHarness, "assertion library check");
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let mut args = vec![Self::erase_to_unknown(actual, unknown_ty, hir_span, body)];
-        args.extend(arguments.iter().map(|argument| Self::erase_to_unknown(*argument, unknown_ty, hir_span, body)));
+        args.extend(
+            arguments
+                .iter()
+                .map(|argument| Self::erase_to_unknown(*argument, unknown_ty, hir_span, body)),
+        );
         body.push_expr(Expr {
-            kind: ExprKind::TestRuntimeCheck { check: name.to_owned(), args },
+            kind: ExprKind::TestRuntimeCheck {
+                check: name.to_owned(),
+                args,
+            },
             ty: bool_ty,
             span: hir_span,
         })
@@ -563,7 +710,11 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) {
-        let failed = if inverted { holds } else { self.unary_bool_expr(UnaryOp::Not, holds, span, body) };
+        let failed = if inverted {
+            holds
+        } else {
+            self.unary_bool_expr(UnaryOp::Not, holds, span, body)
+        };
         self.push_test_failure_if(failed, &format!("{message} failed"), span, body);
     }
 
@@ -576,7 +727,11 @@ impl ModuleBuilder<'_> {
     ) {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let hir_span = self.span(span.start, span.end);
-        let always = body.push_expr(Expr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span: hir_span });
+        let always = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span: hir_span,
+        });
         self.push_test_failure_if(always, message, span, body);
     }
 
@@ -593,7 +748,21 @@ impl ModuleBuilder<'_> {
 
 /// Whether a member word, without a call, sets a flag rather than asserting.
 fn is_chai_flag(name: &str) -> bool {
-    matches!(name, "not" | "deep" | "nested" | "include" | "contain" | "includes" | "contains" | "own" | "ordered" | "any" | "all" | "itself")
+    matches!(
+        name,
+        "not"
+            | "deep"
+            | "nested"
+            | "include"
+            | "contain"
+            | "includes"
+            | "contains"
+            | "own"
+            | "ordered"
+            | "any"
+            | "all"
+            | "itself"
+    )
 }
 
 impl ModuleBuilder<'_> {
@@ -603,7 +772,10 @@ impl ModuleBuilder<'_> {
             return false;
         }
         match self.imports.import_source(name) {
-            Some("fast-check") => self.imports.imported_name(name).is_some_and(|imported| matches!(imported, "default" | "*" | "fc")),
+            Some("fast-check") => self
+                .imports
+                .imported_name(name)
+                .is_some_and(|imported| matches!(imported, "default" | "*" | "fc")),
             Some("@fast-check/vitest") => self.imports.imported_name(name) == Some("fc"),
             _ => false,
         }
@@ -613,7 +785,9 @@ impl ModuleBuilder<'_> {
     /// the arbitrary's own method rather than `Array.prototype.map`.
     pub(in crate::lowering) fn is_fast_check_value(&self, expression: &Expression<'_>) -> bool {
         match expression.get_inner_expression() {
-            Expression::Identifier(identifier) => self.is_fast_check_namespace(identifier.name.as_str()),
+            Expression::Identifier(identifier) => {
+                self.is_fast_check_namespace(identifier.name.as_str())
+            }
             Expression::CallExpression(call) => self.is_fast_check_value(&call.callee),
             Expression::StaticMemberExpression(member) => self.is_fast_check_value(&member.object),
             _ => false,
@@ -648,7 +822,11 @@ impl ModuleBuilder<'_> {
             .transpose()?;
         let none = self.ctx.krate.types.intern(Type::None);
         let run = body.push_expr(Expr {
-            kind: ExprKind::FastCheckRun { arbitraries, predicate, parameters },
+            kind: ExprKind::FastCheckRun {
+                arbitraries,
+                predicate,
+                parameters,
+            },
             ty: none,
             span,
         });

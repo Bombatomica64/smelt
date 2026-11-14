@@ -60,7 +60,7 @@ fn hoisted_call (FuncId(2)) -> Float
 fn recursive (FuncId(3)) -> Float
   locals
     %0 param n: Float
-    %1 user count: fn(Float, Optional<Float>) -> Float
+    %1 user count: fn(Float, Optional<Float>) -> Float (maybe unbound)
     %2 temp: fn(Float, Optional<Float>) -> Float
     %3 temp: Float
   bb0:
@@ -162,7 +162,7 @@ closure ClosureId(3) -> Float
   locals
     %0 param k: Float
     %1 param acc: Optional<Float>
-    %2 user count: fn(Float, Optional<Float>) -> Float
+    %2 user count: fn(Float, Optional<Float>) -> Float (maybe unbound)
     %3 user acc: Float
     %4 temp: Float
     %5 temp: Bool

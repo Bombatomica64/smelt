@@ -126,7 +126,13 @@ pub struct RustExpr {
 impl RustExpr {
     /// `text`, at `precedence`.
     fn with_precedence(text: impl Into<String>, precedence: Precedence) -> Self {
-        Self { text: text.into(), precedence, clone_base: None, fact: ExprFact::Plain, delegates_default: false }
+        Self {
+            text: text.into(),
+            precedence,
+            clone_base: None,
+            fact: ExprFact::Plain,
+            delegates_default: false,
+        }
     }
 
     /// An identifier or field path.
@@ -204,7 +210,11 @@ impl RustExpr {
     #[must_use]
     pub fn tuple_field(base: &Self, index: usize) -> Self {
         let element = base.postfix(format!(".{index}"));
-        if base.is_trivial_place() { element.indexed_place() } else { element }
+        if base.is_trivial_place() {
+            element.indexed_place()
+        } else {
+            element
+        }
     }
 
     /// `text`, a postfix on `receiver` whose spine holds a path separator or a
@@ -221,7 +231,10 @@ impl RustExpr {
     #[must_use]
     pub fn string_literal(value: &str) -> Self {
         let literal = format!("{value:?}");
-        Self { fact: ExprFact::OwnedLiteral(literal.as_str().into()), ..Self::chain(format!("{literal}{TO_OWNED_SUFFIX}")) }
+        Self {
+            fact: ExprFact::OwnedLiteral(literal.as_str().into()),
+            ..Self::chain(format!("{literal}{TO_OWNED_SUFFIX}"))
+        }
     }
 
     /// A JavaScript string constant: `JsString::from("x")`.
@@ -232,34 +245,54 @@ impl RustExpr {
     #[must_use]
     pub fn js_string_literal(value: &str) -> Self {
         let literal = format!("{value:?}");
-        let text = if value.is_empty() { JS_STRING_EMPTY.to_owned() } else { format!("{JS_STRING_FROM}{literal})") };
-        Self { fact: ExprFact::JsLiteral(literal.into()), ..Self::chain(text) }
+        let text = if value.is_empty() {
+            JS_STRING_EMPTY.to_owned()
+        } else {
+            format!("{JS_STRING_FROM}{literal})")
+        };
+        Self {
+            fact: ExprFact::JsLiteral(literal.into()),
+            ..Self::chain(text)
+        }
     }
 
     /// A JavaScript string held as UTF-16 code units (one with a lone
     /// surrogate, which Rust text cannot spell): `JsString::from_units(&[..])`.
     #[must_use]
     pub fn js_string_units_literal(units: &[u16]) -> Self {
-        let listed = units.iter().map(|unit| format!("0x{unit:04X}")).collect::<Vec<_>>().join(", ");
+        let listed = units
+            .iter()
+            .map(|unit| format!("0x{unit:04X}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         Self::chain(format!("JsString::from_units(&[{listed}])"))
     }
 
     /// The unit value, which is also how an absent constant renders.
     #[must_use]
     pub fn unit() -> Self {
-        Self { fact: ExprFact::Unit, ..Self::atom("()") }
+        Self {
+            fact: ExprFact::Unit,
+            ..Self::atom("()")
+        }
     }
 
     /// The `self` receiver of a method body.
     #[must_use]
     pub fn receiver() -> Self {
-        Self { fact: ExprFact::Receiver, ..Self::path("self") }
+        Self {
+            fact: ExprFact::Receiver,
+            ..Self::path("self")
+        }
     }
 
     /// The erased `undefined` constant.
     #[must_use]
     pub fn undefined() -> Self {
-        Self { fact: ExprFact::Undefined, ..Self::atom("SmeltUnknown::Undefined") }
+        Self {
+            fact: ExprFact::Undefined,
+            ..Self::atom("SmeltUnknown::Undefined")
+        }
     }
 
     /// This expression, recorded as a tuple-indexed place such as `a.0`: it binds
@@ -495,7 +528,6 @@ impl AsRef<str> for RustExpr {
     }
 }
 
-
 /// The `.to_owned()` that follows the emitter's own spelling of a string constant.
 const TO_OWNED_SUFFIX: &str = ".to_owned()";
 
@@ -521,11 +553,16 @@ pub fn erased_string(value: &RustExpr) -> RustExpr {
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
     if value.precedence == Precedence::Path {
-        return RustExpr::atom(format!("SmeltUnknown::String({value}.into())", value = value.tight()));
+        return RustExpr::atom(format!(
+            "SmeltUnknown::String({value}.into())",
+            value = value.tight()
+        ));
     }
-    RustExpr::atom(format!("SmeltUnknown::String(({value}).into())", value = value.delimited()))
+    RustExpr::atom(format!(
+        "SmeltUnknown::String(({value}).into())",
+        value = value.delimited()
+    ))
 }
-
 
 /// A line-oriented writer for Rust source with indentation support.
 #[derive(Debug, Default, Clone)]
@@ -595,7 +632,10 @@ mod tests {
     /// from its `&'static str` the same way; the empty string is `new()`.
     #[test]
     fn spells_and_erases_a_javascript_string_literal() {
-        assert_eq!(RustExpr::js_string_literal("a\"b").as_str(), r#"JsString::from("a\"b")"#);
+        assert_eq!(
+            RustExpr::js_string_literal("a\"b").as_str(),
+            r#"JsString::from("a\"b")"#
+        );
         assert_eq!(RustExpr::js_string_literal("").as_str(), "JsString::new()");
         assert_eq!(
             erased_string(&RustExpr::js_string_literal("hi")).as_str(),
@@ -632,12 +672,21 @@ mod tests {
     /// cloned again, and a form that cannot take a postfix is parenthesised.
     #[test]
     fn an_owned_copy_clones_only_what_is_not_owned() {
-        assert_eq!(RustExpr::path("items").cloned_value().as_str(), "items.clone()");
+        assert_eq!(
+            RustExpr::path("items").cloned_value().as_str(),
+            "items.clone()"
+        );
         let owned = RustExpr::path("items").cloned_value();
         assert!(owned.has_clone_tail());
         assert_eq!(owned.cloned_value().as_str(), "items.clone()");
-        assert_eq!(RustExpr::atom("Foo::new()").cloned_value().as_str(), "(Foo::new()).clone()");
-        assert_eq!(RustExpr::loose("a + b").cloned_value().as_str(), "(a + b).clone()");
+        assert_eq!(
+            RustExpr::atom("Foo::new()").cloned_value().as_str(),
+            "(Foo::new()).clone()"
+        );
+        assert_eq!(
+            RustExpr::loose("a + b").cloned_value().as_str(),
+            "(a + b).clone()"
+        );
         let owned_atom = RustExpr::atom("Foo::new()").cloned_value();
         assert_eq!(owned_atom.cloned_value().as_str(), "((Foo::new()).clone())");
         assert_eq!(RustExpr::opaque("a").cloned_value().as_str(), "(a).clone()");
@@ -652,11 +701,19 @@ mod tests {
         assert_eq!(RustExpr::path("items").borrowed_value().as_str(), "&items");
         let owned = RustExpr::path("items").cloned_value();
         assert_eq!(owned.borrowed_value().as_str(), "&items");
-        let field = RustExpr::path("self.items").postfix(".first()").cloned_value();
+        let field = RustExpr::path("self.items")
+            .postfix(".first()")
+            .cloned_value();
         assert_eq!(field.borrowed_value().as_str(), "&self.items.first()");
         // A postfix applied after the clone ends the clone's reach.
-        assert_eq!(owned.postfix(".len()").borrowed_value().as_str(), "&items.clone().len()");
-        assert_eq!(RustExpr::loose("a + b").borrowed_value().as_str(), "&(a + b)");
+        assert_eq!(
+            owned.postfix(".len()").borrowed_value().as_str(),
+            "&items.clone().len()"
+        );
+        assert_eq!(
+            RustExpr::loose("a + b").borrowed_value().as_str(),
+            "&(a + b)"
+        );
     }
 
     /// A postfix applies to the whole receiver: a loose or unstated receiver is
@@ -664,13 +721,22 @@ mod tests {
     #[test]
     fn a_postfix_wraps_a_receiver_that_cannot_take_one() {
         let negated = RustExpr::loose("-1.0");
-        assert_eq!(negated.postfix(".to_string()").as_str(), "(-1.0).to_string()");
-        assert_eq!(RustExpr::cast("x as f64").postfix(".abs()").as_str(), "(x as f64).abs()");
+        assert_eq!(
+            negated.postfix(".to_string()").as_str(),
+            "(-1.0).to_string()"
+        );
+        assert_eq!(
+            RustExpr::cast("x as f64").postfix(".abs()").as_str(),
+            "(x as f64).abs()"
+        );
         assert_eq!(RustExpr::opaque("a").postfix("?").as_str(), "(a)?");
         let chained = RustExpr::path("xs").postfix(".len()");
         assert_eq!(chained.as_str(), "xs.len()");
         assert_eq!(chained.binding(), Precedence::Chain);
-        assert_eq!(RustExpr::atom("Foo::new()").postfix(".x").binding(), Precedence::Atom);
+        assert_eq!(
+            RustExpr::atom("Foo::new()").postfix(".x").binding(),
+            Precedence::Atom
+        );
         // `-x.abs()` would negate the absolute value; the operand is wrapped.
         assert_eq!(negated.as_binary_operand(), "(-1.0)");
     }
@@ -680,17 +746,26 @@ mod tests {
     #[test]
     fn a_literal_fact_carries_its_token() {
         let owned = RustExpr::string_literal("a\"b");
-        assert_eq!(erased_string(&owned).as_str(), r#"SmeltUnknown::String("a\"b".into())"#);
+        assert_eq!(
+            erased_string(&owned).as_str(),
+            r#"SmeltUnknown::String("a\"b".into())"#
+        );
         // A postfix on the literal is no longer the literal.
         let longer = owned.postfix(".to_uppercase()");
-        assert_eq!(erased_string(&longer).as_str(), r#"SmeltUnknown::String(("a\"b".to_owned().to_uppercase()).into())"#);
+        assert_eq!(
+            erased_string(&longer).as_str(),
+            r#"SmeltUnknown::String(("a\"b".to_owned().to_uppercase()).into())"#
+        );
     }
 
     /// Each binding level answers the two inlining questions on its own terms.
     #[test]
     fn precedence_decides_parentheses() {
         assert_eq!(RustExpr::chain("a.b()").parenthesized_if_needed(), "a.b()");
-        assert_eq!(RustExpr::cast("a as i64").parenthesized_if_needed(), "(a as i64)");
+        assert_eq!(
+            RustExpr::cast("a as i64").parenthesized_if_needed(),
+            "(a as i64)"
+        );
         assert_eq!(RustExpr::cast("a as i64").as_cast_operand(), "a as i64");
         assert_eq!(RustExpr::loose("a + b").as_cast_operand(), "(a + b)");
         assert_eq!(RustExpr::opaque("a").parenthesized_if_needed(), "(a)");
@@ -791,7 +866,10 @@ impl RustType {
 
     /// A concrete type built around `parts`, which it holds.
     #[must_use]
-    pub fn composed<'a>(text: impl Into<String>, parts: impl IntoIterator<Item = &'a Self>) -> Self {
+    pub fn composed<'a>(
+        text: impl Into<String>,
+        parts: impl IntoIterator<Item = &'a Self>,
+    ) -> Self {
         Self::raw(text).holding(parts)
     }
 

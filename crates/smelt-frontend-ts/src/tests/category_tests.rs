@@ -13,7 +13,11 @@ use smelt_stdlib::DiagnosticCategory;
 fn unresolved_builtin_is_missing_stdlib() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(ts!("const f = structuredClone;"), &mut ctx)?;
-    assert_category(&errors, "structuredClone", DiagnosticCategory::MissingStdlib)
+    assert_category(
+        &errors,
+        "structuredClone",
+        DiagnosticCategory::MissingStdlib,
+    )
 }
 
 /// An unresolved reference to an unknown user symbol is categorized as unresolved.
@@ -213,9 +217,18 @@ export function isBuf(value: unknown): boolean {
 #[test]
 fn instanceof_boxed_primitive_wrapper_lowers() -> Result<(), String> {
     for (target, source) in [
-        ("Boolean", "export function f(value: any): boolean { return value instanceof Boolean; }"),
-        ("String", "export function f(value: any): boolean { return value instanceof String; }"),
-        ("Symbol", "export function f(value: any): boolean { return value instanceof Symbol; }"),
+        (
+            "Boolean",
+            "export function f(value: any): boolean { return value instanceof Boolean; }",
+        ),
+        (
+            "String",
+            "export function f(value: any): boolean { return value instanceof String; }",
+        ),
+        (
+            "Symbol",
+            "export function f(value: any): boolean { return value instanceof Symbol; }",
+        ),
     ] {
         let mut ctx = HirCtx::new();
         lower_ok(source, &mut ctx)?;
@@ -349,10 +362,9 @@ export function readGlobal(): unknown {
     let function = named_function_item(&ctx, module, "read_global")?;
     let body = function_body(&ctx, function)?;
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::GlobalObject
-        )),
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::GlobalObject)),
         "expected bare `globalThis` value to carry the `__smelt_global_object` marker",
     );
     Ok(())
@@ -388,10 +400,9 @@ export function readGlobal(): unknown {
     let function = named_function_item(&ctx, module, "read_global")?;
     let body = function_body(&ctx, function)?;
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::GlobalObject
-        )),
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::GlobalObject)),
         "expected the global-detection chain to fold to the `__smelt_global_object` value",
     );
     Ok(())
@@ -441,10 +452,10 @@ export function isBuffer(x: unknown): boolean {
         "expected `globalThis.Buffer.isBuffer(x)` through an imported alias to lower to the Buffer identity check",
     );
     ensure!(
-        !body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::GlobalObject
-        )),
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::GlobalObject)),
         "the alias must resolve the member statically, not materialize the global object",
     );
     Ok(())
@@ -509,10 +520,9 @@ export function check(x: number): boolean {
     let function = named_function_item(&ctx, module, "check")?;
     let body = function_body(&ctx, function)?;
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::Literal(Literal::Bool(false))
-        )),
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::Literal(Literal::Bool(false)))),
         "expected a concrete numeric operand to fold its `typeof` presence guard",
     );
     Ok(())
@@ -554,10 +564,10 @@ fn ordinary_or_fallback_is_not_folded_to_global() -> Result<(), String> {
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
     ensure!(
-        !body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::GlobalObject
-        )),
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::GlobalObject)),
         "an ordinary `||` fallback must not fold to the global-object value",
     );
     Ok(())
@@ -584,10 +594,7 @@ export function bufferPresent(): boolean {
             .bodies
             .iter()
             .flat_map(|body| body.exprs.iter())
-            .any(|expr| matches!(
-                &expr.kind,
-                ExprKind::Literal(Literal::Bool(true))
-            )),
+            .any(|expr| matches!(&expr.kind, ExprKind::Literal(Literal::Bool(true)))),
         "expected `typeof Buffer !== 'undefined'` to fold to a constant true (present modeled host object)",
     );
     Ok(())
@@ -832,7 +839,9 @@ export function isFile(x: unknown): x is File {
 fn new_file_lowers_to_blob_from_parts_with_name() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        ts!(r"const f = new File(['content'], 'file.txt', { type: 'text/plain', lastModified: 3 });"),
+        ts!(
+            r"const f = new File(['content'], 'file.txt', { type: 'text/plain', lastModified: 3 });"
+        ),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -1173,7 +1182,9 @@ export function isTypedArray(x: unknown): boolean {
 fn trapped_proxy_into_a_concrete_record_is_rejected() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        ts!(r#"function make(): Record<string, string> { return new Proxy({}, { get: () => "x" }); }"#),
+        ts!(
+            r#"function make(): Record<string, string> { return new Proxy({}, { get: () => "x" }); }"#
+        ),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "cannot flow into a Record")
@@ -1185,8 +1196,10 @@ fn trapped_proxy_into_a_concrete_record_is_rejected() -> Result<(), String> {
 fn trapped_proxy_into_an_erased_record_lowers() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let _ = lower_ok(
-        ts!(r"function make<K>(): Record<string, K> { return new Proxy({}, { get: () => undefined as K }); }
-function erased(): Record<string, unknown> { return new Proxy({}, { get: () => 1 }); }"),
+        ts!(
+            r"function make<K>(): Record<string, K> { return new Proxy({}, { get: () => undefined as K }); }
+function erased(): Record<string, unknown> { return new Proxy({}, { get: () => 1 }); }"
+        ),
         &mut ctx,
     )?;
     Ok(())
@@ -1238,7 +1251,10 @@ fn bare_intl_namespace_value_lowers_to_interned_namespace() -> Result<(), String
 fn new_intl_namespace_constructor_lowers_to_marker_record() -> Result<(), String> {
     for (source, marker) in [
         ("const l = new Intl.Locale('en');", "__smelt_intl_locale"),
-        ("const c = new Intl.Collator('en');", "__smelt_intl_collator"),
+        (
+            "const c = new Intl.Collator('en');",
+            "__smelt_intl_collator",
+        ),
         (
             "const n = new Intl.NumberFormat('en');",
             "__smelt_intl_numberformat",
@@ -1297,16 +1313,13 @@ fn encode_uri_call_and_value_forms_lower_to_uri_encode() -> Result<(), String> {
     let call_module = module(&ctx, module_id)?;
     let call_body = module_body(&ctx, call_module)?;
     ensure!(
-        call_body
-            .exprs
-            .iter()
-            .any(|expr| matches!(
-                &expr.kind,
-                ExprKind::UriTranscode {
-                    op: smelt_hir::UriTranscodeOp::Encode,
-                    ..
-                }
-            )),
+        call_body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::UriTranscode {
+                op: smelt_hir::UriTranscodeOp::Encode,
+                ..
+            }
+        )),
         "expected `encodeURI('a b')` to lower to the UriTranscode op",
     );
 
@@ -1355,7 +1368,9 @@ fn bare_set_timeout_value_lowers_to_timer_closure() -> Result<(), String> {
 fn object_prototype_to_string_call_lowers_to_tag_probe() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        ts!("export function tag(x: unknown): string { return Object.prototype.toString.call(x); }"),
+        ts!(
+            "export function tag(x: unknown): string { return Object.prototype.toString.call(x); }"
+        ),
         &mut ctx,
     )?;
     let has_probe = ctx.krate.bodies.iter().any(|body| {

@@ -150,40 +150,28 @@ fn nested (FuncId(2)) -> None throws
   bb5:
     goto bb1
   bb6:
-    %14 = call @console_log("outer", copy %1) -> bb20
+    %14 = call @console_log("outer", copy %1) -> bb15
   bb7:
     %5 = true
     goto bb6
   bb8:
     %8 = copy %1 == 1
-    switch move %8 ? bb12 : bb13
+    switch move %8 ? bb9 : bb10
   bb9:
-    goto bb6
+    %9 = call @console_log("inner", copy %1) -> bb11 unwind bb7
   bb10:
-    %13 = call @console_log("inner", copy %1) -> bb18 unwind bb7
+    %11 = call @console_log("inner", copy %1) -> bb13 unwind bb7
   bb11:
-    %7 = true
-    goto bb10
+    %10 = call @console_log("outer", copy %1) -> bb12
   bb12:
-    %9 = call @console_log("inner", copy %1) -> bb14 unwind bb7
-  bb13:
-    %11 = call @console_log("inner", copy %1) -> bb16 unwind bb7
-  bb14:
-    %10 = call @console_log("outer", copy %1) -> bb15
-  bb15:
     goto bb1
-  bb16:
-    %12 = call @console_log("outer", move %1) -> bb17
-  bb17:
+  bb13:
+    %12 = call @console_log("outer", move %1) -> bb14
+  bb14:
     goto bb3
-  bb18:
-    switch move %7 ? bb19 : bb9
-  bb19:
-    %4 = move %6
-    goto bb7
-  bb20:
-    switch move %5 ? bb21 : bb5
-  bb21:
+  bb15:
+    switch move %5 ? bb16 : bb5
+  bb16:
     throw move %4
 
 fn main (FuncId(3)) -> None throws

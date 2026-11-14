@@ -20,7 +20,6 @@
 //! stable static spelling, so it deliberately does not fold here and stays on
 //! the runtime-keyed path.
 
-
 /// Return the stable synthetic member key for a well-known `Symbol.<name>`.
 ///
 /// Delegates to [`smelt_stdlib::well_known_symbols`], the single table shared
@@ -50,7 +49,6 @@ pub(in crate::lowering) fn well_known_key_of_symbol_literal(spelling: &str) -> O
 pub(in crate::lowering) fn well_known_symbol_value_spelling(name: &str) -> Option<String> {
     smelt_stdlib::well_known_symbols::value_spelling(name)
 }
-
 
 /// Return the stable synthetic member key for a unique `Symbol(...)` VALUE that
 /// a module-level `const` binds.

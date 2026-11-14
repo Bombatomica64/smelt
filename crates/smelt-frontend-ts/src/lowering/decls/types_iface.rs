@@ -1,10 +1,10 @@
 //! Type-level declarations: type aliases, interfaces, type namespaces and the
 //! structural members they share.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::support::source_spelling;
 use crate::SmeltError;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::state::interface_registry::LoweredInterface;
+use crate::lowering::support::source_spelling;
 use crate::lowering::{InterfaceHeritageRef, ModuleBuilder};
 use oxc::ast::ast::{
     BindingPattern, Declaration, Statement, TSNamespaceDeclarationBody, TSSignature,
@@ -14,7 +14,6 @@ use smelt_hir::{
 };
 
 impl ModuleBuilder<'_> {
-
     /// The symbol a module-scope type declaration interns for its own name.
     ///
     /// One entry point for every type-level kind — `interface`, `type` alias,
@@ -77,8 +76,13 @@ impl ModuleBuilder<'_> {
         if let Some(members) = surface {
             self.pop_type_parameter_scope();
             let span = self.span(alias.span.start, alias.span.end);
-            let item =
-                self.register_callable_object_interface(name, &name_text, type_params, members, span);
+            let item = self.register_callable_object_interface(
+                name,
+                &name_text,
+                type_params,
+                members,
+                span,
+            );
             self.items.insert(name_text, item);
             return Ok(item);
         }
@@ -92,8 +96,7 @@ impl ModuleBuilder<'_> {
             && literal.members.iter().all(|member| {
                 matches!(
                     member,
-                    TSSignature::TSPropertySignature(_)
-                        | TSSignature::TSMethodSignature(_)
+                    TSSignature::TSPropertySignature(_) | TSSignature::TSMethodSignature(_)
                 )
             })
         {
@@ -142,14 +145,19 @@ impl ModuleBuilder<'_> {
                 oxc::ast::ast::TSType::TSTypeReference(reference),
             ) if *target != name => {
                 let spelled = match &reference.type_name {
-                    oxc::ast::ast::TSTypeName::IdentifierReference(ident) => Some(ident.name.as_str()),
+                    oxc::ast::ast::TSTypeName::IdentifierReference(ident) => {
+                        Some(ident.name.as_str())
+                    }
                     _ => None,
                 };
                 let target_name = source_spelling(&self.ctx.krate, *target);
                 spelled.is_some_and(|spelled| {
                     target_name.is_some_and(|target_name| {
                         target_name == spelled
-                            || self.imports.imported_name(spelled).is_some_and(|imported| imported == target_name)
+                            || self
+                                .imports
+                                .imported_name(spelled)
+                                .is_some_and(|imported| imported == target_name)
                     })
                 })
             }
@@ -161,7 +169,10 @@ impl ModuleBuilder<'_> {
         {
             self.types.set_alias_fields(name, fields.clone());
             self.ctx.type_alias_fields.write().insert(name, fields);
-        } else if self.find_type_alias(name).is_some_and(|earlier| earlier.span.file == self.file_id) {
+        } else if self
+            .find_type_alias(name)
+            .is_some_and(|earlier| earlier.span.file == self.file_id)
+        {
             // A later declaration of the name in this file (block-local aliases
             // of one name in successive tests) replaces the earlier one, fields
             // included.
@@ -198,7 +209,12 @@ impl ModuleBuilder<'_> {
         let local_name_text = interface.id.name.as_str();
         let name_text = self.types.qualify(local_name_text);
         let name = self.declared_type_name_symbol(local_name_text, &name_text);
-        if interface.body.body.iter().any(Self::is_numeric_index_signature) {
+        if interface
+            .body
+            .body
+            .iter()
+            .any(Self::is_numeric_index_signature)
+        {
             self.classes.mark_array_like(name);
         }
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
@@ -288,7 +304,14 @@ impl ModuleBuilder<'_> {
         members: StructuralMembers,
         span: smelt_hir::Span,
     ) -> smelt_hir::ItemId {
-        let item = self.push_lowered_interface(name, name_text.clone(), type_params, Vec::new(), members, span);
+        let item = self.push_lowered_interface(
+            name,
+            name_text.clone(),
+            type_params,
+            Vec::new(),
+            members,
+            span,
+        );
         self.items.insert(name_text, item);
         item
     }
@@ -375,17 +398,25 @@ impl ModuleBuilder<'_> {
             index_value_ty,
         });
         // Mirror the same facts into the shared context for later modules.
-        self.ctx.interface_extends.write().insert(name, heritage_refs);
+        self.ctx
+            .interface_extends
+            .write()
+            .insert(name, heritage_refs);
         self.ctx
             .interface_call_signatures
-            .write().insert(name, call_signatures);
+            .write()
+            .insert(name, call_signatures);
         if !construct_signatures.is_empty() {
             self.ctx
                 .interface_construct_signatures
-                .write().insert(name, construct_signatures);
+                .write()
+                .insert(name, construct_signatures);
         }
         if let Some(index_value_ty) = index_value_ty {
-            self.ctx.interface_index_values.write().insert(name, index_value_ty);
+            self.ctx
+                .interface_index_values
+                .write()
+                .insert(name, index_value_ty);
         }
         item
     }
@@ -464,7 +495,11 @@ impl ModuleBuilder<'_> {
         let Some(signature) = call_signatures.first() else {
             return;
         };
-        let name = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_call"));
+        let name = self
+            .ctx
+            .krate
+            .symbols
+            .intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_call"));
         if fields.iter().any(|field| field.name == name) {
             return;
         }
@@ -605,20 +640,18 @@ impl ModuleBuilder<'_> {
                         Statement::TSNamespaceDeclaration(module_decl) => {
                             items.extend(self.type_namespace_declaration(module_decl)?);
                         }
-                        Statement::ExportDeclaration(export) => {
-                            match &export.declaration {
-                                Declaration::TSTypeAliasDeclaration(alias) => {
-                                    items.push(self.type_alias_declaration(alias)?);
-                                }
-                                Declaration::TSInterfaceDeclaration(interface) => {
-                                    items.push(self.interface_declaration(interface)?);
-                                }
-                                Declaration::TSNamespaceDeclaration(module_decl) => {
-                                    items.extend(self.type_namespace_declaration(module_decl)?);
-                                }
-                                _ => {}
+                        Statement::ExportDeclaration(export) => match &export.declaration {
+                            Declaration::TSTypeAliasDeclaration(alias) => {
+                                items.push(self.type_alias_declaration(alias)?);
                             }
-                        }
+                            Declaration::TSInterfaceDeclaration(interface) => {
+                                items.push(self.interface_declaration(interface)?);
+                            }
+                            Declaration::TSNamespaceDeclaration(module_decl) => {
+                                items.extend(self.type_namespace_declaration(module_decl)?);
+                            }
+                            _ => {}
+                        },
                         _ => {}
                     }
                 }
@@ -750,9 +783,7 @@ impl ModuleBuilder<'_> {
                             let ty = param
                                 .type_annotation
                                 .as_ref()
-                                .map(|annotation| {
-                                    self.ts_type_to_hir(&annotation.type_annotation)
-                                })
+                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                                 .transpose()?
                                 .ok_or_else(|| {
                                     SmeltError::unsupported(
@@ -772,9 +803,7 @@ impl ModuleBuilder<'_> {
                                 ty
                             };
                             let (param_name, param_span) =
-                                if let BindingPattern::BindingIdentifier(binding) =
-                                    &param.pattern
-                                {
+                                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                                     (
                                         self.intern_source_name(binding.name.as_str()),
                                         self.span(binding.span.start, binding.span.end),
@@ -818,10 +847,11 @@ impl ModuleBuilder<'_> {
                             // generated callable field. A fixed-width tuple
                             // rest is fixed parameters (`lowering::tuple_rest`).
                             let span = self.span(rest.span.start, rest.span.end);
-                            let slot_tys = self.fixed_tuple_rest_elements(rest_ty).unwrap_or_else(|| {
-                                rest_index = Some(params.len());
-                                vec![rest_ty]
-                            });
+                            let slot_tys =
+                                self.fixed_tuple_rest_elements(rest_ty).unwrap_or_else(|| {
+                                    rest_index = Some(params.len());
+                                    vec![rest_ty]
+                                });
                             for slot_ty in slot_tys {
                                 params.push(ParamSig {
                                     name: self.synthetic_param_symbol(params.len()),
@@ -838,8 +868,8 @@ impl ModuleBuilder<'_> {
                     let (return_ty, params, rest_index, required_params) = result?;
                     if method.optional {
                         let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
-                        let mutable_params = self
-                            .mutable_params_from_returned_tuple_state(&param_tys, return_ty);
+                        let mutable_params =
+                            self.mutable_params_from_returned_tuple_state(&param_tys, return_ty);
                         let function_ty =
                             self.ctx.krate.types.intern(Type::Function(FunctionType {
                                 params: param_tys,
@@ -907,9 +937,7 @@ impl ModuleBuilder<'_> {
                             let ty = param
                                 .type_annotation
                                 .as_ref()
-                                .map(|annotation| {
-                                    self.ts_type_to_hir(&annotation.type_annotation)
-                                })
+                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                                 .transpose()?
                                 .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                             params.push(ty);

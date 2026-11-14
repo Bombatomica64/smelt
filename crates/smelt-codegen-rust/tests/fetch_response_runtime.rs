@@ -39,8 +39,6 @@ use std::{
     thread,
 };
 
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -76,7 +74,6 @@ fn serve_fixed_responses(count: usize) -> (u16, thread::JoinHandle<()>) {
     });
     (port, handle)
 }
-
 
 #[test]
 #[ignore = "slow: emits, compiles and runs a generated crate against a local HTTP server"]

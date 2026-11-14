@@ -1,30 +1,21 @@
 //! Arrow-function const-declaration lowering and related helpers.
 
-
+use crate::SmeltError;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::{js_str_literal, js_str_text};
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
-use crate::lowering::support::{
-    const_literal_from_item, single_arg, two_args,
-};
 use crate::lowering::stdlib::symbols;
-use crate::lowering::{
-    ConstLiteral,
-    ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch,
-};
-use crate::SmeltError;
-use smelt_stdlib::MathFunction;
-use oxc::ast::ast::{
-    Argument, BindingPattern, Expression,
-};
+use crate::lowering::support::{const_literal_from_item, single_arg, two_args};
+use crate::lowering::{ConstLiteral, ModuleBuilder, RestParam, ambient_globals, stdlib_dispatch};
+use oxc::ast::ast::{Argument, BindingPattern, Expression};
 use oxc::span::GetSpan;
-use oxc::syntax::operator::{
-    BinaryOperator, UnaryOperator,
-};
+use oxc::syntax::operator::{BinaryOperator, UnaryOperator};
 use smelt_hir::{
-    Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal, LocalDecl, Param, Stmt, Type,
+    Body, ErasureReason, Expr, ExprKind, Function, FunctionOwner, FunctionType, Item, Literal,
+    LocalDecl, Param, Stmt, Type,
 };
+use smelt_stdlib::MathFunction;
 use std::borrow::Cow;
 
 impl ModuleBuilder<'_> {
@@ -559,7 +550,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Preserve callable parameters from an erased API surface while dropping precise return data.
-    pub(in crate::lowering) fn erase_opaque_callable_return(&mut self, inferred: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn erase_opaque_callable_return(
+        &mut self,
+        inferred: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(inferred).cloned() else {
             return inferred;
         };
@@ -572,15 +566,18 @@ impl ModuleBuilder<'_> {
             params: function.params,
             rest: function.rest,
             required_params: None,
-                    mutable_params: Vec::new(),
-return_ty,
+            mutable_params: Vec::new(),
+            return_ty,
             is_async: function.is_async,
-                            may_throw: false,
+            may_throw: false,
         }))
     }
 
     /// Create a stable internal symbol for a destructured parameter slot.
-    pub(in crate::lowering) fn synthetic_param_symbol(&mut self, index: usize) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn synthetic_param_symbol(
+        &mut self,
+        index: usize,
+    ) -> smelt_hir::Symbol {
         self.ctx
             .krate
             .symbols
@@ -588,7 +585,10 @@ return_ty,
     }
 
     /// Infer a block-bodied arrow return type from reachable direct returns.
-    pub(in crate::lowering) fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn last_return_type(
+        &mut self,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
         let mut found = Vec::new();
         Self::collect_return_types_from_block(body, body.root, &mut found);
         if !found.is_empty() {
@@ -608,8 +608,7 @@ return_ty,
         block: smelt_hir::BlockId,
         out: &mut Vec<smelt_hir::TypeId>,
     ) {
-        let Some(block) = body.block_at(block)
-        else {
+        let Some(block) = body.block_at(block) else {
             return;
         };
         for stmt_id in &block.stmts {
@@ -618,9 +617,12 @@ return_ty,
     }
 
     /// Collect return value types from a statement and any nested statement bodies.
-    pub(in crate::lowering) fn collect_return_types_from_stmt(body: &Body, stmt_id: smelt_hir::StmtId, out: &mut Vec<smelt_hir::TypeId>) {
-        let Some(stmt) = body.stmt_at(stmt_id)
-        else {
+    pub(in crate::lowering) fn collect_return_types_from_stmt(
+        body: &Body,
+        stmt_id: smelt_hir::StmtId,
+        out: &mut Vec<smelt_hir::TypeId>,
+    ) {
+        let Some(stmt) = body.stmt_at(stmt_id) else {
             return;
         };
         match stmt {
@@ -635,14 +637,18 @@ return_ty,
                     Self::collect_return_types_from_block(body, *else_block, out);
                 }
             }
-            Stmt::While { body: loop_body, .. }
+            Stmt::While {
+                body: loop_body, ..
+            }
             | Stmt::WhileUpdate {
                 body: loop_body, ..
             }
             | Stmt::WhileUpdateBlock {
                 body: loop_body, ..
             }
-            | Stmt::For { body: loop_body, .. } => {
+            | Stmt::For {
+                body: loop_body, ..
+            } => {
                 Self::collect_return_types_from_block(body, *loop_body, out);
             }
             Stmt::Match { arms, default, .. } => {
@@ -680,7 +686,10 @@ return_ty,
     /// initializers that reference such an import must still fold to the same
     /// literal, so fall back to the lowered const item when the precomputed map
     /// misses the name.
-    pub(in crate::lowering) fn resolve_const_literal_by_name(&self, name: &str) -> Option<ConstLiteral> {
+    pub(in crate::lowering) fn resolve_const_literal_by_name(
+        &self,
+        name: &str,
+    ) -> Option<ConstLiteral> {
         if let Some(value) = self.consts.literal(name) {
             return Some(value.clone());
         }
@@ -761,9 +770,14 @@ return_ty,
     /// meaning, so the string is a pattern `new RegExp(text)` reads the same
     /// way. The other flags have no in-pattern spelling; a site that needs
     /// them takes the literal as a `RegExp` value (`regexp_literal_expression`).
-    pub(in crate::lowering) fn regex_literal_pattern_text(literal: &oxc::ast::ast::RegExpLiteral<'_>) -> String {
+    pub(in crate::lowering) fn regex_literal_pattern_text(
+        literal: &oxc::ast::ast::RegExpLiteral<'_>,
+    ) -> String {
         let flags = literal.regex.flags.to_string();
-        let modifiers = flags.chars().filter(|flag| matches!(flag, 'i' | 'm' | 's')).collect::<String>();
+        let modifiers = flags
+            .chars()
+            .filter(|flag| matches!(flag, 'i' | 'm' | 's'))
+            .collect::<String>();
         let pattern = Self::regex_literal_pattern_text_without_flags(literal);
         if modifiers.is_empty() {
             pattern
@@ -795,7 +809,10 @@ return_ty,
     ///   always models the constructor (`new DOMException`, `instanceof
     ///   DOMException`), so the alias const is dropped and the identifier resolves
     ///   through the builtin path instead.
-    pub(in crate::lowering) fn is_known_non_importable_exported_const(&self, expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_known_non_importable_exported_const(
+        &self,
+        expression: &Expression<'_>,
+    ) -> bool {
         if let Expression::CallExpression(call) = expression
             && self.is_symbol_for_call(call)
         {
@@ -846,7 +863,9 @@ return_ty,
     /// being a `globalThis.X` member access whose property names a builtin Smelt
     /// models (currently `DOMException`); the test and fallback shapes are not
     /// inspected because the modeled builtin makes them irrelevant.
-    pub(in crate::lowering) fn is_host_constructor_presence_alias(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_host_constructor_presence_alias(
+        expression: &Expression<'_>,
+    ) -> bool {
         let Expression::ConditionalExpression(conditional) = expression else {
             return false;
         };
@@ -1006,7 +1025,10 @@ return_ty,
     /// keeps `export const supported = typeof globalThis === "object";` a foldable
     /// primitive instead of an "unresolved const" blocker. Returns `None` when the
     /// binary expression is not a recognized global probe.
-    pub(in crate::lowering) fn global_probe_const_value(&self, binary: &oxc::ast::ast::BinaryExpression<'_>) -> Option<bool> {
+    pub(in crate::lowering) fn global_probe_const_value(
+        &self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+    ) -> Option<bool> {
         // `"<key>" in <global-alias>`.
         if binary.operator == BinaryOperator::In
             && self.expr_is_global_alias(&binary.right)
@@ -1028,7 +1050,8 @@ return_ty,
         let (operand_name, literal) = ambient_globals::typeof_identifier_name(&binary.left)
             .map(|name| (name, &binary.right))
             .or_else(|| {
-                ambient_globals::typeof_identifier_name(&binary.right).map(|name| (name, &binary.left))
+                ambient_globals::typeof_identifier_name(&binary.right)
+                    .map(|name| (name, &binary.left))
             })?;
         let Expression::StringLiteral(kind_lit) = literal else {
             return None;
@@ -1060,7 +1083,8 @@ return_ty,
                 ty: self.ctx.krate.types.intern(Type::Symbol),
             });
         }
-        if matches!(&call.callee, Expression::Identifier(callee) if self.names_host(callee.name.as_str(), "Symbol")) {
+        if matches!(&call.callee, Expression::Identifier(callee) if self.names_host(callee.name.as_str(), "Symbol"))
+        {
             if call.arguments.len() > 1 {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -1082,7 +1106,9 @@ return_ty,
                 ty: self.ctx.krate.types.intern(Type::Symbol),
             });
         }
-        let Some(op) = stdlib_dispatch::pure_math_call(call, &|name, global| self.names_host(name, global)) else {
+        let Some(op) =
+            stdlib_dispatch::pure_math_call(call, &|name, global| self.names_host(name, global))
+        else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "exported const call expressions currently support only Symbol and selected Math calls",

@@ -1,12 +1,12 @@
 //! Import declarations: binding an import's locals to the source module's items,
 //! recording import provenance, and classifying host-module imports.
 
-use crate::test_support;
+use super::super::support::{const_literal_from_item, module_export_name};
+use super::super::{ModuleBuilder, PendingHostImport};
 use crate::lowering::js_text::js_str_text;
+use crate::test_support;
 use oxc::ast::ast::{ImportDeclarationSpecifier, ImportOrExportKind, Program, Statement};
 use smelt_hir::{ErasureReason, Import, Item, Module};
-use super::super::{ModuleBuilder, PendingHostImport};
-use super::super::support::{const_literal_from_item, module_export_name};
 
 impl ModuleBuilder<'_> {
     /// Record where each imported name came from before the predeclaration
@@ -131,7 +131,9 @@ impl ModuleBuilder<'_> {
                 // `import { P } from './index'` where the index declares
                 // `export * as P from './patterns'`: `P` is that module's
                 // namespace object, whose members the line above aliased as `P.*`.
-                if !self.import_alias_resolved(&local) && self.source_exports_namespace(source, &imported) {
+                if !self.import_alias_resolved(&local)
+                    && self.source_exports_namespace(source, &imported)
+                {
                     self.imports.mark_namespace(local.clone());
                     continue;
                 }
@@ -207,8 +209,8 @@ impl ModuleBuilder<'_> {
                     .mark_unresolved_value_import(candidate.local, blocker);
                 continue;
             }
-            let bare_package = !candidate.module.starts_with('.')
-                && !candidate.module.starts_with('/');
+            let bare_package =
+                !candidate.module.starts_with('.') && !candidate.module.starts_with('/');
             let blocker = if bare_package {
                 smelt_stdlib::host_value_blocker(&candidate.module, &candidate.imported)
             } else {
@@ -243,7 +245,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Add a local alias for an imported item when it is already known.
-    pub(in crate::lowering) fn alias_imported_item(&mut self, source: &str, imported: &str, local: &str) {
+    pub(in crate::lowering) fn alias_imported_item(
+        &mut self,
+        source: &str,
+        imported: &str,
+        local: &str,
+    ) {
         // A static property hung off an exported function (`partial.placeholder`)
         // is recorded under the compound key `partial.placeholder`, so an importer
         // has to alias those alongside the name itself. The fallback path below
@@ -343,7 +350,9 @@ impl ModuleBuilder<'_> {
         // constants were adopted through its qualified exports above.
         self.consts.rebind_import(local, imported);
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
-            self.object_namespaces.write().insert(local.to_owned(), namespace);
+            self.object_namespaces
+                .write()
+                .insert(local.to_owned(), namespace);
         }
         if let Some(overloads) = self.functions.overloads(imported).cloned() {
             self.functions.set_overloads(local.to_owned(), overloads);

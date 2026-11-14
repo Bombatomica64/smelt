@@ -16,10 +16,44 @@ use std::path::{Path, PathBuf};
 
 /// Host globals whose spelling a lowering site may not test directly.
 const HOST_GLOBALS: &[&str] = &[
-    "Math", "JSON", "Object", "Number", "Array", "String", "Boolean", "Date", "Promise", "Symbol", "RegExp", "Map",
-    "Set", "WeakMap", "WeakSet", "Error", "AggregateError", "Reflect", "Intl", "console", "BigInt", "parseInt",
-    "parseFloat", "isNaN", "isFinite", "globalThis", "Buffer", "process", "structuredClone", "URL", "crypto",
-    "setTimeout", "setInterval", "ArrayBuffer", "Temporal", "Uint8Array", "Infinity", "NaN",
+    "Math",
+    "JSON",
+    "Object",
+    "Number",
+    "Array",
+    "String",
+    "Boolean",
+    "Date",
+    "Promise",
+    "Symbol",
+    "RegExp",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "Error",
+    "AggregateError",
+    "Reflect",
+    "Intl",
+    "console",
+    "BigInt",
+    "parseInt",
+    "parseFloat",
+    "isNaN",
+    "isFinite",
+    "globalThis",
+    "Buffer",
+    "process",
+    "structuredClone",
+    "URL",
+    "crypto",
+    "setTimeout",
+    "setInterval",
+    "ArrayBuffer",
+    "Temporal",
+    "Uint8Array",
+    "Infinity",
+    "NaN",
 ];
 
 /// Every `.rs` file under `dir`, recursively.
@@ -48,13 +82,18 @@ fn line_bypasses(code: &str, global: &str) -> bool {
         format!(".name != \"{global}\""),
         format!(".name.as_str() == \"{global}\""),
     ];
-    if comparisons.iter().any(|shape| code.contains(shape.as_str())) {
+    if comparisons
+        .iter()
+        .any(|shape| code.contains(shape.as_str()))
+    {
         return true;
     }
     let matched = format!(".name.as_str(), \"{global}\"");
     code.match_indices(matched.as_str()).any(|(at, _)| {
         code[..at]
-            .trim_end_matches(|character: char| character.is_ascii_alphanumeric() || character == '_')
+            .trim_end_matches(|character: char| {
+                character.is_ascii_alphanumeric() || character == '_'
+            })
             .ends_with("matches!(")
     })
 }
@@ -65,7 +104,11 @@ fn host_globals_are_resolved_through_the_resolver() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lowering");
     let mut files = Vec::new();
     rust_files(&root, &mut files);
-    assert!(files.len() > 50, "the lowering sources were not found under {}", root.display());
+    assert!(
+        files.len() > 50,
+        "the lowering sources were not found under {}",
+        root.display()
+    );
     let mut bypasses = Vec::new();
     for file in files {
         if file.ends_with("resolve.rs") {
@@ -79,7 +122,10 @@ fn host_globals_are_resolved_through_the_resolver() {
             // A member's PROPERTY name (`member.property.name == "from"`) is
             // not a binding and needs no resolution.
             let code = code.replace("property.name", "property_name");
-            if HOST_GLOBALS.iter().any(|global| line_bypasses(&code, global)) {
+            if HOST_GLOBALS
+                .iter()
+                .any(|global| line_bypasses(&code, global))
+            {
                 bypasses.push(format!("{}:{}: {}", file.display(), index + 1, line.trim()));
             }
         }
@@ -104,5 +150,8 @@ fn bypass_shapes_match_the_forbidden_spellings() {
     ] {
         assert!(line_bypasses(line, "Map"), "{line}");
     }
-    assert!(!line_bypasses("self.names_host(object.name.as_str(), \"Map\")", "Map"));
+    assert!(!line_bypasses(
+        "self.names_host(object.name.as_str(), \"Map\")",
+        "Map"
+    ));
 }

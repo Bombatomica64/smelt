@@ -143,7 +143,7 @@ impl FunctionEmitter<'_> {
         index: usize,
         param: TypeId,
     ) -> bool {
-        !function.mutable_params.contains(&index)
+        !self.param_passed_by_mut_ref(function, index)
             && function.rest != Some(index)
             && self.param_type_is_by_shared_reference(param)
     }
@@ -183,9 +183,9 @@ impl FunctionEmitter<'_> {
         mutability: MutablePrefix,
     ) -> Result<String, EmitError> {
         match mutability {
-            MutablePrefix::Apply => {
-                self.function_type_param(function, index, param, substitution).map(RustType::into_string)
-            }
+            MutablePrefix::Apply => self
+                .function_type_param(function, index, param, substitution)
+                .map(RustType::into_string),
             // `Ignore` drops only the `&mut ` axis. The shared-reference axis is
             // independent of it and must NOT be dropped: an arity-widening adapter
             // rendered here is cast to the very `dyn Fn(..)` that
@@ -317,9 +317,7 @@ impl FunctionEmitter<'_> {
             .params
             .iter()
             .enumerate()
-            .map(|(index, param)| {
-                self.function_type_param(function, index, *param, substitution)
-            })
+            .map(|(index, param)| self.function_type_param(function, index, *param, substitution))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let return_ty = self.function_value_return_type(function, substitution)?;
@@ -358,7 +356,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// The generated `F{n}` name for one parameter, if it is rendered `&F{n}`.
-    pub(super) fn callback_generic_name(&self, local: LocalId) -> Result<Option<String>, EmitError> {
+    pub(super) fn callback_generic_name(
+        &self,
+        local: LocalId,
+    ) -> Result<Option<String>, EmitError> {
         Ok(self
             .callback_generic_params()?
             .into_iter()
@@ -401,10 +402,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn parameter_decl_type(&self, local: LocalId) -> Result<RustType, EmitError> {
         let ty = self.local_decl(local)?.ty;
         if self.parameter_needs_mutable_reference(local) {
-            return Ok(RustType::raw(format!(
-                "&mut {}",
-                self.rendered_type(ty)?
-            )));
+            return Ok(RustType::raw(format!("&mut {}", self.rendered_type(ty)?)));
         }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {

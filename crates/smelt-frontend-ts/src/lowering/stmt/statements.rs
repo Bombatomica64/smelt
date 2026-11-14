@@ -1,9 +1,9 @@
 //! The statement dispatcher: one source statement into the current block, and the
 //! statement forms too small for a module of their own.
 
-use crate::lowering::peel::{Wrappers, peel};
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::support::statement_terminates;
 use oxc::ast::ast::{AssignmentTarget, Expression, Statement};
 use oxc::span::GetSpan;
@@ -86,12 +86,17 @@ impl ModuleBuilder<'_> {
         &self,
         span: smelt_hir::Span,
     ) -> Option<(smelt_hir::ItemId, smelt_hir::Symbol)> {
-        self.ctx.krate.items.iter().enumerate().find_map(|(index, item)| match item {
-            smelt_hir::Item::Class(class) if class.span == span => {
-                Some((smelt_hir::ItemId(u32::try_from(index).ok()?), class.name))
-            }
-            _ => None,
-        })
+        self.ctx
+            .krate
+            .items
+            .iter()
+            .enumerate()
+            .find_map(|(index, item)| match item {
+                smelt_hir::Item::Class(class) if class.span == span => {
+                    Some((smelt_hir::ItemId(u32::try_from(index).ok()?), class.name))
+                }
+                _ => None,
+            })
     }
 
     /// Give a block-local class its own identity when its name is already taken.
@@ -188,6 +193,7 @@ impl ModuleBuilder<'_> {
                 if !self.conditional_class_declaration(class)? {
                     let item = self.class_declaration(class)?;
                     self.touch_class_static_initializers(item, body, block);
+                    self.evaluate_class_statics(item, class, body)?;
                 }
                 Ok(())
             }
@@ -227,6 +233,15 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|argument| self.expression_with_hint(argument, body, return_hint))
                     .transpose()?;
+                // A bare `return;` in a constructor still answers the instance.
+                let value = match (value, self.fn_ctx.constructor_this) {
+                    (None, Some(this_local)) => Some(body.push_expr(Expr {
+                        kind: ExprKind::Local(this_local),
+                        ty: Self::local_ty(body, this_local),
+                        span: self.span(return_stmt.span.start, return_stmt.span.end),
+                    })),
+                    (value, _) => value,
+                };
                 if self.fn_ctx.verifies_assertion_plan {
                     self.verify_planned_assertions(return_stmt.span, body);
                 }
@@ -238,14 +253,16 @@ impl ModuleBuilder<'_> {
                 let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 // Assignments performed only within this branch are flow facts
                 // for the branch, not for statements reached from either path.
-                let then_block = self.with_narrowing(Some(then_narrowing.unwrap_or_default()), |this| {
-                    this.block_from_statement(&if_stmt.consequent, body)
-                })?;
+                let then_block = self
+                    .with_narrowing(Some(then_narrowing.unwrap_or_default()), |this| {
+                        this.block_from_statement(&if_stmt.consequent, body)
+                    })?;
                 let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
                 let else_block = if let Some(alternate) = &if_stmt.alternate {
-                    let else_block = self.with_narrowing(Some(else_narrowing.unwrap_or_default()), |this| {
-                        this.block_from_statement(alternate, body)
-                    })?;
+                    let else_block = self
+                        .with_narrowing(Some(else_narrowing.unwrap_or_default()), |this| {
+                            this.block_from_statement(alternate, body)
+                        })?;
                     Some(else_block)
                 } else {
                     None
@@ -321,9 +338,10 @@ impl ModuleBuilder<'_> {
                 }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_narrowing = self.guard_narrowing(&while_stmt.test, body);
-                let loop_body = self.with_narrowing(Some(loop_narrowing.unwrap_or_default()), |this| {
-                    this.block_from_statement(&while_stmt.body, body)
-                })?;
+                let loop_body = self
+                    .with_narrowing(Some(loop_narrowing.unwrap_or_default()), |this| {
+                        this.block_from_statement(&while_stmt.body, body)
+                    })?;
                 body.push_stmt_to_block(
                     block,
                     Stmt::While {
@@ -394,7 +412,9 @@ impl ModuleBuilder<'_> {
                         ..
                     }) = this.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
                     {
-                        this.lower_generator_for_of(for_stmt, iter, yield_ty, return_ty, body, block)?;
+                        this.lower_generator_for_of(
+                            for_stmt, iter, yield_ty, return_ty, body, block,
+                        )?;
                         return Ok(None);
                     }
                     let iter = this.for_of_iterable(iter, &for_stmt.right, body);
@@ -517,38 +537,47 @@ impl ModuleBuilder<'_> {
                     // escaper (`utils/html.ts`, `default: continue` inside the
                     // scan loop) was a blocker. The synthetic-loop lowering
                     // used for real fallthrough still rejects it, and says why.
-                    let case_ends = self.with_narrowing(case_narrowing, |this| -> Result<bool, SmeltError> {
-                        let mut case_ends = false;
-                        for case_statement in &case.consequent {
-                            if let Statement::BlockStatement(block_stmt) = case_statement {
-                                for nested_statement in &block_stmt.body {
-                                    if matches!(nested_statement, Statement::BreakStatement(_)) {
-                                        case_ends = true;
+                    let case_ends =
+                        self.with_narrowing(case_narrowing, |this| -> Result<bool, SmeltError> {
+                            let mut case_ends = false;
+                            for case_statement in &case.consequent {
+                                if let Statement::BlockStatement(block_stmt) = case_statement {
+                                    for nested_statement in &block_stmt.body {
+                                        if matches!(nested_statement, Statement::BreakStatement(_))
+                                        {
+                                            case_ends = true;
+                                            break;
+                                        }
+                                        this.statement_in_block(
+                                            nested_statement,
+                                            body,
+                                            case_block,
+                                        )?;
+                                        if matches!(
+                                            nested_statement,
+                                            Statement::ContinueStatement(_)
+                                        ) {
+                                            case_ends = true;
+                                            break;
+                                        }
+                                    }
+                                    if case_ends {
                                         break;
                                     }
-                                    this.statement_in_block(nested_statement, body, case_block)?;
-                                    if matches!(nested_statement, Statement::ContinueStatement(_)) {
-                                        case_ends = true;
-                                        break;
-                                    }
+                                    continue;
                                 }
-                                if case_ends {
+                                if matches!(case_statement, Statement::BreakStatement(_)) {
+                                    case_ends = true;
                                     break;
                                 }
-                                continue;
+                                this.statement_in_block(case_statement, body, case_block)?;
+                                if matches!(case_statement, Statement::ContinueStatement(_)) {
+                                    case_ends = true;
+                                    break;
+                                }
                             }
-                            if matches!(case_statement, Statement::BreakStatement(_)) {
-                                case_ends = true;
-                                break;
-                            }
-                            this.statement_in_block(case_statement, body, case_block)?;
-                            if matches!(case_statement, Statement::ContinueStatement(_)) {
-                                case_ends = true;
-                                break;
-                            }
-                        }
-                        Ok(case_ends)
-                    })?;
+                            Ok(case_ends)
+                        })?;
                     let saw_break = case_ends;
                     let is_last_case = case_index + 1 == case_count;
                     if !saw_break
@@ -605,7 +634,9 @@ impl ModuleBuilder<'_> {
             }
             Statement::BreakStatement(break_stmt) => {
                 let stmt = match &break_stmt.label {
-                    Some(label) => Stmt::BreakLabel(self.ctx.krate.symbols.intern(label.name.as_str())),
+                    Some(label) => {
+                        Stmt::BreakLabel(self.ctx.krate.symbols.intern(label.name.as_str()))
+                    }
                     None => Stmt::Break,
                 };
                 body.push_stmt_to_block(block, stmt);
@@ -613,7 +644,9 @@ impl ModuleBuilder<'_> {
             }
             Statement::ContinueStatement(continue_stmt) => {
                 let stmt = match &continue_stmt.label {
-                    Some(label) => Stmt::ContinueLabel(self.ctx.krate.symbols.intern(label.name.as_str())),
+                    Some(label) => {
+                        Stmt::ContinueLabel(self.ctx.krate.symbols.intern(label.name.as_str()))
+                    }
                     None => Stmt::Continue,
                 };
                 body.push_stmt_to_block(block, stmt);
@@ -650,9 +683,10 @@ impl ModuleBuilder<'_> {
                 // either block assigns loses the narrowing it had before the
                 // `try` (`let x: T | undefined; try { x = f() } catch {}` leaves
                 // `x` possibly absent).
-                let try_body = self.with_narrowing(Some(std::collections::HashMap::new()), |this| {
-                    this.block_from_block_statement(&try_stmt.block, body)
-                })?;
+                let try_body = self
+                    .with_narrowing(Some(std::collections::HashMap::new()), |this| {
+                        this.block_from_block_statement(&try_stmt.block, body)
+                    })?;
                 let (catch_binding, catch_body) = if let Some(handler) = &try_stmt.handler {
                     let (catch_binding, catch_body) = self.with_lexical_scope(|this| {
                         this.with_narrowing(Some(std::collections::HashMap::new()), |this| {
@@ -661,7 +695,8 @@ impl ModuleBuilder<'_> {
                                 .as_ref()
                                 .map(|param| this.catch_binding(param, body))
                                 .transpose()?;
-                            let catch_body = this.block_from_block_statement(&handler.body, body)?;
+                            let catch_body =
+                                this.block_from_block_statement(&handler.body, body)?;
                             Ok::<_, SmeltError>((catch_binding, catch_body))
                         })
                     })?;
@@ -789,7 +824,7 @@ impl ModuleBuilder<'_> {
         // `Foo.prototype.x = …` assignments for a constructor function were
         // folded into the synthesized class during the block prepass, so the
         // assignment statement itself is dropped.
-        if self.is_synthesized_prototype_assignment(expression)
+        if self.is_synthesized_prototype_assignment(expression, body)
             || self.inline_runtime_lifecycle_setup(expression, body, block)?
             || self.is_test_framework_statement(expression)
             || Self::is_vitest_mock_statement(expression)
@@ -857,15 +892,31 @@ impl ModuleBuilder<'_> {
         let value = self.expression(expression, body)?;
         // A property read of an erased receiver can run a getter or a proxy
         // trap, so a bare `value.x;` is bound rather than dropped as unused.
-        if matches!(expression.get_inner_expression(), Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_))
-            && matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Unknown))
-        {
+        if matches!(
+            expression.get_inner_expression(),
+            Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+        ) && matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Unknown)
+        ) {
             let ty = Self::expr_ty(body, value);
             let span = self.span(expression_span.start, expression_span.end);
             let name = self.intern_source_name("smelt_discarded_read");
-            let local = body.push_local(smelt_hir::LocalDecl { name: Some(name), ty, mutable: false, span });
+            let local = body.push_local(smelt_hir::LocalDecl {
+                name: Some(name),
+                ty,
+                mutable: false,
+                span,
+            });
             let pat = body.push_pattern(smelt_hir::Pattern::Binding(local));
-            body.push_stmt_to_block(block, Stmt::Let { pat, ty, value: Some(value) });
+            body.push_stmt_to_block(
+                block,
+                Stmt::Let {
+                    pat,
+                    ty,
+                    value: Some(value),
+                },
+            );
             return Ok(());
         }
         let value = if matches!(
@@ -1026,7 +1077,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower a statement in the current scope.
-    pub(in crate::lowering) fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
+    pub(in crate::lowering) fn statement(
+        &mut self,
+        statement: &Statement<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
     }
 }

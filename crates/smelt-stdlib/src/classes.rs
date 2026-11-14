@@ -339,7 +339,11 @@ impl StdlibClass {
     /// (the same `SmeltMatch` value under a second name).
     #[must_use]
     pub const fn has_concrete_runtime_type(self) -> bool {
-        self.erases_through_adapter() || matches!(self, Self::MatchGroups | Self::PyException | Self::PyExceptionArgs)
+        self.erases_through_adapter()
+            || matches!(
+                self,
+                Self::MatchGroups | Self::PyException | Self::PyExceptionArgs
+            )
     }
 
     /// Return whether values of this class are the generated `SmeltBlob` type.
@@ -677,11 +681,27 @@ const REQUEST_MEMBERS: &[&str] = &[
 ];
 
 /// `Response`'s own members (the `Body` mixin is listed separately).
-const RESPONSE_MEMBERS: &[&str] =
-    &["type", "url", "redirected", "status", "ok", "statusText", "headers", "clone"];
+const RESPONSE_MEMBERS: &[&str] = &[
+    "type",
+    "url",
+    "redirected",
+    "status",
+    "ok",
+    "statusText",
+    "headers",
+    "clone",
+];
 
 /// `Blob`'s members; `File` adds its own three.
-const BLOB_MEMBERS: &[&str] = &["size", "type", "arrayBuffer", "bytes", "slice", "stream", "text"];
+const BLOB_MEMBERS: &[&str] = &[
+    "size",
+    "type",
+    "arrayBuffer",
+    "bytes",
+    "slice",
+    "stream",
+    "text",
+];
 
 /// A class surface: several member lists, read as their union.
 type MemberLists = &'static [&'static [&'static str]];
@@ -704,7 +724,9 @@ const fn stdlib_class_instance_members(class: StdlibClass) -> Option<MemberLists
             PAIR_ITERABLE_MEMBERS,
         ],
         StdlibClass::UrlSearchParams => &[
-            &["size", "append", "delete", "get", "getAll", "has", "set", "sort", "toString"],
+            &[
+                "size", "append", "delete", "get", "getAll", "has", "set", "sort", "toString",
+            ],
             PAIR_ITERABLE_MEMBERS,
         ],
         StdlibClass::Url => &[&[
@@ -724,7 +746,10 @@ const fn stdlib_class_instance_members(class: StdlibClass) -> Option<MemberLists
             "toJSON",
         ]],
         StdlibClass::Blob => &[BLOB_MEMBERS],
-        StdlibClass::File => &[BLOB_MEMBERS, &["name", "lastModified", "webkitRelativePath"]],
+        StdlibClass::File => &[
+            BLOB_MEMBERS,
+            &["name", "lastModified", "webkitRelativePath"],
+        ],
         StdlibClass::TextEncoder => &[&["encoding", "encode", "encodeInto"]],
         StdlibClass::TextDecoder => &[&["encoding", "fatal", "ignoreBOM", "decode"]],
         StdlibClass::NodeHash => &[&["update", "digest", "copy"]],
@@ -740,13 +765,34 @@ mod tests {
     /// inherited `Object.prototype` members, and nothing else.
     #[test]
     fn host_instance_in_answers_the_spec_surface() {
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "headers"), Some(true));
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "json"), Some(true));
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "toString"), Some(true));
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Request, "raw"), Some(false));
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Response, "status"), Some(true));
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Headers, "status"), Some(false));
-        assert_eq!(stdlib_class_instance_has_property(StdlibClass::Date, "getTime"), None);
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Request, "headers"),
+            Some(true)
+        );
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Request, "json"),
+            Some(true)
+        );
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Request, "toString"),
+            Some(true)
+        );
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Request, "raw"),
+            Some(false)
+        );
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Response, "status"),
+            Some(true)
+        );
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Headers, "status"),
+            Some(false)
+        );
+        assert_eq!(
+            stdlib_class_instance_has_property(StdlibClass::Date, "getTime"),
+            None
+        );
     }
 
     /// Array read methods are recognized; mutating methods never are, so a
@@ -756,7 +802,18 @@ mod tests {
         for name in ["indexOf", "slice", "map", "join", "includes", "forEach"] {
             assert!(is_array_non_mutating_method(name), "{name}");
         }
-        for name in ["push", "pop", "shift", "unshift", "sort", "reverse", "splice", "fill", "copyWithin", "length"] {
+        for name in [
+            "push",
+            "pop",
+            "shift",
+            "unshift",
+            "sort",
+            "reverse",
+            "splice",
+            "fill",
+            "copyWithin",
+            "length",
+        ] {
             assert!(!is_array_non_mutating_method(name), "{name}");
         }
     }
@@ -810,7 +867,13 @@ mod tests {
             );
         }
         assert!(is_typed_array_class_name("BigUint64Array"));
-        for name in ["Array", "Uint8", "TypedArray", "Float16Array", "MyUint8Array"] {
+        for name in [
+            "Array",
+            "Uint8",
+            "TypedArray",
+            "Float16Array",
+            "MyUint8Array",
+        ] {
             assert!(
                 !is_typed_array_class_name(name),
                 "did not expect `{name}` to be recognized as a typed array"
@@ -836,7 +899,9 @@ pub fn regexp_member(name: &str) -> Option<RegExpMember> {
     match name {
         "source" | "flags" => Some(RegExpMember::Text),
         "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode" | "dotAll"
-        | "dot_all" | "hasIndices" | "has_indices" | "unicodeSets" | "unicode_sets" => Some(RegExpMember::Flag),
+        | "dot_all" | "hasIndices" | "has_indices" | "unicodeSets" | "unicode_sets" => {
+            Some(RegExpMember::Flag)
+        }
         "lastIndex" | "last_index" => Some(RegExpMember::LastIndex),
         _ => None,
     }

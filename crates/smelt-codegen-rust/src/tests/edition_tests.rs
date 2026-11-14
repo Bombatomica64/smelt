@@ -12,14 +12,15 @@
 
 use std::process::Command;
 
-use crate::runtime_prelude::rendered_text;
 use crate::RustEdition;
+use crate::runtime_prelude::rendered_text;
 
 /// Error codes of names a standalone runtime text cannot resolve, and of what
 /// rustc reports only because of them.
 /// (E0220/E0223: an associated type of a trait that did not resolve.)
-const UNRESOLVED_CODES: &[&str] =
-    &["E0220", "E0223", "E0405", "E0412", "E0422", "E0423", "E0425", "E0432", "E0433", "E0531"];
+const UNRESOLVED_CODES: &[&str] = &[
+    "E0220", "E0223", "E0405", "E0412", "E0422", "E0423", "E0425", "E0432", "E0433", "E0531",
+];
 
 /// The errors `rustc` reports for `text` as a library under `edition`, as
 /// `(code, message)`; a parse error has no code.
@@ -29,7 +30,16 @@ fn rustc_errors(text: &str, edition: RustEdition) -> Vec<(Option<String>, String
     std::fs::write(&source, text).expect("write runtime");
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_owned());
     let output = Command::new(rustc)
-        .args(["--edition", edition.as_str(), "--crate-type", "lib", "--emit", "metadata", "--error-format", "short"])
+        .args([
+            "--edition",
+            edition.as_str(),
+            "--crate-type",
+            "lib",
+            "--emit",
+            "metadata",
+            "--error-format",
+            "short",
+        ])
         .arg("-o")
         .arg(dir.path().join("out.rmeta"))
         .arg(&source)
@@ -59,8 +69,16 @@ fn every_accepted_edition_parses_the_runtime() {
     for edition in RustEdition::ALL {
         let invalid = rustc_errors(&runtime, edition)
             .into_iter()
-            .filter(|(code, _)| !code.as_deref().is_some_and(|known| UNRESOLVED_CODES.contains(&known)))
+            .filter(|(code, _)| {
+                !code
+                    .as_deref()
+                    .is_some_and(|known| UNRESOLVED_CODES.contains(&known))
+            })
             .collect::<Vec<_>>();
-        assert!(invalid.is_empty(), "the runtime is not valid {} code: {invalid:#?}", edition.as_str());
+        assert!(
+            invalid.is_empty(),
+            "the runtime is not valid {} code: {invalid:#?}",
+            edition.as_str()
+        );
     }
 }

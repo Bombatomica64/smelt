@@ -31,25 +31,29 @@
     reason = "MIR structs are constructed across workspace crates during lowering and tests"
 )]
 
+/// Closure construction sites, the source of capture `source_local`s.
+mod closure_sites;
 /// The MIR stage as one call: lower, optimize, validate.
 mod compile;
-pub mod index;
+/// Definite assignment: which locals are assigned at each program point.
+pub mod definite_assignment;
 /// Promote erased-and-mutated record locals to an erased value representation.
 mod erased_record_promote;
 /// Compact MIR formatting utilities.
 mod format;
+pub mod index;
 /// Escape analysis for list-typed locals.
 pub mod list_escape;
 /// HIR-to-MIR lowering pipeline.
 mod lower;
 /// MIR optimization passes.
 pub mod opt;
+/// Block reachability, and removal of the blocks nothing reaches.
+pub mod reachability;
 /// The IR's own read/define traversal.
 mod traversal;
 /// MIR operational type normalization.
 mod type_normalize;
-/// Closure construction sites, the source of capture `source_local`s.
-mod closure_sites;
 /// Every MIR position that holds a type, walked by one visitor.
 mod type_positions;
 /// MIR core data types.
@@ -65,8 +69,8 @@ pub use list_escape::{
     BodyKey, BodyListEscape, EscapeReason, ListLocalClass, ListLocalFact, analyze_list_escapes,
 };
 pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
-pub use type_normalize::normalize_operational_types;
 pub use traversal::{Body, BodyOwner, Edge, MirBody, MirBodyMut, Read, ReadMut};
+pub use type_normalize::normalize_operational_types;
 pub use types::*;
 pub use validate::{ValidationError, validate};
 
@@ -139,9 +143,17 @@ mod tests {
         );
         assert!(mir.closures.len() >= 2, "{}", format_compact(&mir));
         for closure in &mir.closures {
-            assert!(closure.escapes, "closure {:?} must escape:\n{}", closure.id, format_compact(&mir));
             assert!(
-                closure.captures.iter().all(|capture| capture.mode == smelt_hir::CaptureMode::ByValue),
+                closure.escapes,
+                "closure {:?} must escape:\n{}",
+                closure.id,
+                format_compact(&mir)
+            );
+            assert!(
+                closure
+                    .captures
+                    .iter()
+                    .all(|capture| capture.mode == smelt_hir::CaptureMode::ByValue),
                 "an escaping closure owns its captures"
             );
         }
@@ -151,7 +163,10 @@ mod tests {
     /// promoted together with the closure's copy of it, so the capture keeps
     /// one type on both sides (audit C2).
     #[test]
-    #[expect(clippy::expect_used, reason = "test fixtures unwrap and index their own known-good shapes")]
+    #[expect(
+        clippy::expect_used,
+        reason = "test fixtures unwrap and index their own known-good shapes"
+    )]
     fn a_promoted_record_is_promoted_inside_the_closure_that_captures_it() {
         let mir = compile_ts(
             "function keep(x: unknown): unknown { return x; }\nfunction main(): void {\n  const rec: Record<string, number> = { a: 1 };\n  const alias = keep(rec);\n  rec[\"b\"] = 2;\n  const read = (): number => rec[\"a\"] ?? 0;\n  console.log(read(), alias);\n}\nmain();\n",
@@ -174,7 +189,10 @@ mod tests {
     /// rather than two items of one name that a by-name lookup would answer
     /// with the first (audit C12; es-toolkit's `isEqualWith.spec.ts`).
     #[test]
-    #[expect(clippy::indexing_slicing, reason = "test fixtures unwrap and index their own known-good shapes")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "test fixtures unwrap and index their own known-good shapes"
+    )]
     fn sibling_constructor_functions_get_distinct_class_identities() {
         let mir = compile_ts(
             "import { describe, it, expect } from \"vitest\";\ndescribe(\"ctor\", () => {\n  it(\"first\", () => {\n    function Foo() {\n      // @ts-ignore\n      this.a = 1;\n    }\n    Foo.prototype.a = 1;\n    // @ts-ignore\n    expect(new Foo().a).toBe(1);\n  });\n  it(\"second\", () => {\n    function Foo() {\n      // @ts-ignore\n      this.b = 2;\n    }\n    Foo.prototype.b = 2;\n    // @ts-ignore\n    expect(new Foo().b).toBe(2);\n  });\n});\n",
@@ -214,7 +232,12 @@ mod tests {
                 .and_then(|field| mir.types.get(field.ty))
                 .cloned()
         };
-        assert_eq!(field_ty("count"), Some(smelt_hir::Type::Float), "{}", format_compact(&mir));
+        assert_eq!(
+            field_ty("count"),
+            Some(smelt_hir::Type::Float),
+            "{}",
+            format_compact(&mir)
+        );
         assert!(
             matches!(field_ty("mixed"), Some(smelt_hir::Type::Union(members)) if members.len() == 2),
             "{}",
@@ -467,11 +490,13 @@ async function run(): Promise<number> {
             ty: bool_ty,
             kind: LocalKind::Param { symbol: None },
             span: smelt_hir::Span::new(FileId(0), 0, 0),
+            init: LocalInit::Definite,
         });
         let branch_only = function.push_local(LocalDecl {
             ty: bool_ty,
             kind: LocalKind::Temp,
             span: smelt_hir::Span::new(FileId(0), 0, 0),
+            init: LocalInit::Definite,
         });
         function.params.push(cond);
         let then_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
@@ -517,7 +542,8 @@ async function run(): Promise<number> {
     #[test]
     fn move_on_last_use_keeps_earlier_uses_as_copy() {
         // `value` is read by two separate calls; only the final read may move.
-        let output = optimized_mir("const value = \"hi\";\nconsole.log(value);\nconsole.log(value);\n");
+        let output =
+            optimized_mir("const value = \"hi\";\nconsole.log(value);\nconsole.log(value);\n");
         assert!(
             output.contains("@console_log(copy %0)"),
             "first use must stay a copy:\n{output}"
@@ -670,16 +696,21 @@ export function groupBy<T, K extends PropertyKey>(
         // `key` is defined by the call directly: `LetTempElision` removed the
         // `%9 = closure_call ..; %5 = move %9` temporary.
         assert!(
-            output.contains("%5 = closure_call copy %1(copy %4, move %16)\n    goto bb6\n"),
+            output.contains("%5 = closure_call copy %1(copy %4, move %16)\n    goto bb5\n"),
             "the guard block ends in a goto at the join: {output}"
         );
         assert!(
             output.contains("%14 = dict_entry_push copy %2[copy %5], move %4"),
             "the entry mutation still inserts the key: {output}"
         );
-        // The seeding block survives as an unreachable block: block ids are
-        // positional, so nothing renumbers it away.
-        assert!(output.contains("%2[copy %5] = move %12"), "{output}");
+        // The seeding block is gone. Old requirement: it survived as an
+        // unreachable block, because block ids are positional and nothing
+        // renumbered it away. New requirement: every pass ends by removing the
+        // blocks no edge reaches (`reachability::remove_unreachable_blocks`),
+        // so the validator checks every block and the emitter is never handed
+        // a block that reads locals no path assigned. The join the guard falls
+        // through to is renumbered from bb6 to bb5 accordingly.
+        assert!(!output.contains("%2[copy %5] = move %12"), "{output}");
     }
 
     /// Appends a second reader of the `dict_contains_key` temporary to the join
@@ -699,13 +730,15 @@ export function groupBy<T, K extends PropertyKey>(
                 .clone();
             let extra = LocalId(u32::try_from(function.locals.len()).unwrap_or(u32::MAX));
             function.locals.push(decl);
-            block_mut(function, join).statements.push(Statement::Assign {
-                dest: extra,
-                value: Rvalue::Unary {
-                    op: smelt_hir::UnaryOp::Not,
-                    operand: Operand::Copy(Place::Local(probe)),
-                },
-            });
+            block_mut(function, join)
+                .statements
+                .push(Statement::Assign {
+                    dest: extra,
+                    value: Rvalue::Unary {
+                        op: smelt_hir::UnaryOp::Not,
+                        operand: Operand::Copy(Place::Local(probe)),
+                    },
+                });
             return probe;
         }
         std::panic::resume_unwind(Box::new("a dict_contains_key probe was lowered".to_owned()))
@@ -715,13 +748,16 @@ export function groupBy<T, K extends PropertyKey>(
     /// falls through to when the key is present.
     fn find_contains_probe(function: &MirFunction) -> Option<(LocalId, BlockId)> {
         function.blocks.iter().find_map(|block| {
-            let probe = block.statements.iter().find_map(|statement| match statement {
-                Statement::Assign {
-                    dest,
-                    value: Rvalue::DictContainsKey { .. },
-                } => Some(*dest),
-                _ => None,
-            })?;
+            let probe = block
+                .statements
+                .iter()
+                .find_map(|statement| match statement {
+                    Statement::Assign {
+                        dest,
+                        value: Rvalue::DictContainsKey { .. },
+                    } => Some(*dest),
+                    _ => None,
+                })?;
             let Some(Terminator::Switch { else_block, .. }) = block.terminator else {
                 return None;
             };
@@ -807,7 +843,6 @@ export function groupBy<T, K extends PropertyKey>(
 
         assert!(output.contains("dict_contains_key"), "{output}");
     }
-
 
     /// The `countBy` accumulator shape: a read-modify-write through one entry.
     const COUNT_BY: &str = "\
@@ -897,10 +932,8 @@ export function countBy<T, K extends PropertyKey>(
             let Some((block, index, _)) = find_entry_triple(function) else {
                 continue;
             };
-            let Some(Statement::Assign { dest, .. }) = block_mut(function, block)
-                .statements
-                .get(index)
-                .cloned()
+            let Some(Statement::Assign { dest, .. }) =
+                block_mut(function, block).statements.get(index).cloned()
             else {
                 continue;
             };
@@ -913,10 +946,12 @@ export function countBy<T, K extends PropertyKey>(
                 .clone();
             let extra = LocalId(u32::try_from(function.locals.len()).unwrap_or(u32::MAX));
             function.locals.push(decl);
-            block_mut(function, block).statements.push(Statement::Assign {
-                dest: extra,
-                value: Rvalue::Use(Operand::Copy(Place::Local(dest))),
-            });
+            block_mut(function, block)
+                .statements
+                .push(Statement::Assign {
+                    dest: extra,
+                    value: Rvalue::Use(Operand::Copy(Place::Local(dest))),
+                });
             return;
         }
         std::panic::resume_unwind(Box::new("a fusable entry triple was lowered".to_owned()))
@@ -948,7 +983,9 @@ export function countBy<T, K extends PropertyKey>(
         let output = format_compact(mir);
         assert!(!output.contains("entry_update"), "{why}: {output}");
         assert!(
-            mir.functions.iter().any(|function| find_entry_triple(function).is_some()),
+            mir.functions
+                .iter()
+                .any(|function| find_entry_triple(function).is_some()),
             "{why}: the entry read, compute and write-back must survive: {output}"
         );
     }
@@ -960,7 +997,10 @@ export function countBy<T, K extends PropertyKey>(
         // container itself would panic with `already borrowed` at runtime.
         let mir = optimized_mir_after(COUNT_BY, make_update_read_the_container);
 
-        assert_entry_triple_kept(&mir, "an update reading the container must keep the two-probe form");
+        assert_entry_triple_kept(
+            &mir,
+            "an update reading the container must keep the two-probe form",
+        );
     }
 
     #[test]
@@ -1067,7 +1107,6 @@ export function countBy<T, K extends PropertyKey>(
 
     #[test]
     fn dict_default_insert_elision_keeps_a_guard_on_another_dict() {
-
         let output = optimized_mir_text(
             "\
 export function groupBy<T, K extends PropertyKey>(

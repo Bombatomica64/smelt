@@ -16,7 +16,7 @@
 //! The closure BODY is checked like any function body, by
 //! `structure::validate_body` over [`Mir::bodies`].
 
-use crate::{MirBody, Mir, SiteLookup};
+use crate::{Mir, MirBody, SiteLookup};
 
 use super::{ValidationError, error};
 
@@ -54,9 +54,9 @@ pub(super) fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
             )));
         }
         for (position, capture) in closure.captures.iter().enumerate() {
-            let target_decl_ty = capture.target_local.map(|target| {
-                closure.body().local_decl(target).map(|decl| decl.ty)
-            });
+            let target_decl_ty = capture
+                .target_local
+                .map(|target| closure.body().local_decl(target).map(|decl| decl.ty));
             if target_decl_ty == Some(None) {
                 errors.push(error(format!(
                     "closure {:?} capture targets unknown local {:?}",

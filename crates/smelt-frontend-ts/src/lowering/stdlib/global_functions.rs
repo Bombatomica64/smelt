@@ -1,10 +1,10 @@
 //! Global functions: `require`, `structuredClone`, `Object.prototype.toString`,
 //! `atob`/`btoa` and the URI codecs.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Type};
@@ -67,8 +67,7 @@ impl ModuleBuilder<'_> {
         // through the `smelt_structured_clone` runtime helper.
         // not a new erasure: only compared against the operand's type
         let unknown_ty = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
-        let operand_ty = body.expr_at(operand)
-            .map(|expr| expr.ty);
+        let operand_ty = body.expr_at(operand).map(|expr| expr.ty);
         if operand_ty != Some(unknown_ty) {
             return Ok(Some(operand));
         }

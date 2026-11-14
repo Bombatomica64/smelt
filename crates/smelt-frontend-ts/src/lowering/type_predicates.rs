@@ -24,8 +24,8 @@
 //! a generated union is read through the existing narrowing cast, which the
 //! emitter lowers to a `match` that unwraps the member — never an erasure.
 
-use crate::lowering::support::source_spelling;
 use crate::lowering::js_text::js_str_text;
+use crate::lowering::support::source_spelling;
 use oxc::ast::ast::{
     Argument, BindingPattern, CallExpression, ClassElement, Expression, FormalParameters,
     MethodDefinitionKind, PropertyKey, Statement, TSType, TSTypeAnnotation,
@@ -157,12 +157,11 @@ impl ModuleBuilder<'_> {
                     &arrow.params,
                     arrow.return_type.as_deref(),
                 ),
-                Some(Expression::FunctionExpression(function)) => self
-                    .signature_type_predicate(
-                        function.type_parameters.as_deref(),
-                        &function.params,
-                        function.return_type.as_deref(),
-                    ),
+                Some(Expression::FunctionExpression(function)) => self.signature_type_predicate(
+                    function.type_parameters.as_deref(),
+                    &function.params,
+                    function.return_type.as_deref(),
+                ),
                 _ => None,
             };
             let found = from_initializer.or_else(|| {
@@ -231,8 +230,7 @@ impl ModuleBuilder<'_> {
                 }
                 _ => continue,
             };
-            let (Some(method_name), Some((kind, narrowing))) = (member_key_name(key), found)
-            else {
+            let (Some(method_name), Some((kind, narrowing))) = (member_key_name(key), found) else {
                 continue;
             };
             self.functions.set_method_type_predicate(
@@ -290,7 +288,8 @@ impl ModuleBuilder<'_> {
                 PredicateKind::Assertion => self.functions.assertion(callee.name.as_str()),
             },
             Expression::StaticMemberExpression(member) => {
-                let (class_name, is_static) = self.predicate_receiver_class(&member.object, body)?;
+                let (class_name, is_static) =
+                    self.predicate_receiver_class(&member.object, body)?;
                 self.functions.method_type_predicate(
                     &(class_name, is_static, member.property.name.to_string()),
                     kind,

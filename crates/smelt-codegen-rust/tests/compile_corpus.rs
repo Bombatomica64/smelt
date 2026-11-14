@@ -1550,8 +1550,8 @@ fn emit_python_case_crate(case: &Case, crate_dir: &Path) -> Result<(), String> {
     let mut mir =
         smelt_mir::lower_hir(&ctx.krate).map_err(|err| format!("MIR lowering failed: {err:?}"))?;
     smelt_mir::opt::optimize(&mut mir);
-    let options = EmitOptions::new(format!("smelt_corpus_{}", case.name))
-        .with_crate_kind(CrateKind::Program);
+    let options =
+        EmitOptions::new(format!("smelt_corpus_{}", case.name)).with_crate_kind(CrateKind::Program);
     emit_crate(&mir, crate_dir, &options).map_err(|err| format!("crate emission failed: {err}"))
 }
 
@@ -1731,12 +1731,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         cause: "a borrowed callback also passed to an `unknown` parameter loses its lifetime \
                 relation (\"lifetime may not live long enough\")",
     },
-    ExpectedFailure {
-        name: "variadic_spy_as_nullary_maker",
-        errors: 2,
-        cause: "a variadic erased function supplied where `() => T` is declared emits an \
-                unstable feature use plus a mismatched adapter (E0658/E0308)",
-    },
 ];
 
 /// Reads the fixture corpus from [`FIXTURE_DIR`], sorted by name.
@@ -1800,7 +1794,10 @@ fn callback_generics_fixtures_compile() {
     let only = std::env::var("SMELT_CORPUS_ONLY").ok();
 
     let fixtures = fixture_corpus();
-    assert!(!fixtures.is_empty(), "fixture corpus is empty: {FIXTURE_DIR}");
+    assert!(
+        !fixtures.is_empty(),
+        "fixture corpus is empty: {FIXTURE_DIR}"
+    );
 
     let mut regressions: Vec<String> = Vec::new();
     let mut unexpected_passes: Vec<String> = Vec::new();

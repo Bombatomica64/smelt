@@ -13,7 +13,9 @@ impl FunctionEmitter<'_> {
         // keeps elapsed-time measurements consistent with `setTimeout`
         // deadlines under the deterministic virtual clock. An explicit
         // `vi.setSystemTime(...)` override (`SMELT_DATE_NOW`) still wins.
-        let text = RustExpr::chain("SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis().saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get) as i64))");
+        let text = RustExpr::chain(
+            "SMELT_DATE_NOW.with(::std::cell::Cell::get).unwrap_or_else(|| chrono::Utc::now().timestamp_millis().saturating_add(SMELT_VIRTUAL_MS.with(::std::cell::Cell::get) as i64))",
+        );
         self.date_timestamp_result_expr(&text, dest_ty)
     }
 
@@ -46,7 +48,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
             "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set({})); {} }}",
-            self.value_at_type(offset, self.type_id(Type::Float)?)?.delimited(),
+            self.value_at_type(offset, self.type_id(Type::Float)?)?
+                .delimited(),
             self.default_value(dest_ty)?.delimited()
         )))
     }

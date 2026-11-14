@@ -1,9 +1,9 @@
 //! Structural field lists read from annotations: the fields of a type literal,
 //! a type reference, a union, or a static `Pick`.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use indexmap::IndexMap;
 use oxc::ast::ast::{TSSignature, TSType, TSTypeName};
@@ -11,7 +11,10 @@ use smelt_hir::{ErasureReason, Field, Type, Visibility};
 
 impl ModuleBuilder<'_> {
     /// Extract named fields from a TypeScript structural type.
-    pub(in crate::lowering) fn type_fields_from_ts(&mut self, ty: &TSType<'_>) -> Result<Vec<Field>, SmeltError> {
+    pub(in crate::lowering) fn type_fields_from_ts(
+        &mut self,
+        ty: &TSType<'_>,
+    ) -> Result<Vec<Field>, SmeltError> {
         match ty {
             TSType::TSTypeLiteral(literal) => self.type_literal_fields(literal),
             TSType::TSIntersectionType(intersection) => {
@@ -147,16 +150,16 @@ impl ModuleBuilder<'_> {
                 return Ok(self.substituted_fields(&fields, &substitutions));
             }
         }
-        Ok(self.types.alias_fields(symbol)
-            .cloned()
-            .unwrap_or_default())
+        Ok(self.types.alias_fields(symbol).cloned().unwrap_or_default())
     }
 
     /// Return static string keys from the key side of `Pick<T, K>`.
     pub(in crate::lowering) fn static_pick_keys(ty: &TSType<'_>) -> Option<Vec<String>> {
         match ty {
             TSType::TSLiteralType(literal) => match &literal.literal {
-                oxc::ast::ast::TSLiteral::StringLiteral(value) if !has_lone_surrogate(value.value) => {
+                oxc::ast::ast::TSLiteral::StringLiteral(value)
+                    if !has_lone_surrogate(value.value) =>
+                {
                     Some(vec![js_str_text(value.value).into_owned()])
                 }
                 _ => None,
@@ -192,9 +195,10 @@ impl ModuleBuilder<'_> {
         for (name, fields) in grouped {
             let mut value_tys = Vec::new();
             let mut optional = fields.len() != variants.len();
-            let span = fields
-                .first()
-                .map_or_else(|| self.span(union.span.start, union.span.end), |field| field.span);
+            let span = fields.first().map_or_else(
+                || self.span(union.span.start, union.span.end),
+                |field| field.span,
+            );
             for field in fields {
                 optional |= field.optional;
                 if !value_tys.contains(&field.ty) {

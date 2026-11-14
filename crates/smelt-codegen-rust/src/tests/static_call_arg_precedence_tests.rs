@@ -36,12 +36,17 @@ export function useFill(): number[] {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "fill_with"), r"fn fill_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(f64) -> T + ?Sized>(mut xs: &mut SmeltList<T>, make: &F0) -> () {
+    assert_eq!(
+        rust_fn(&source, "fill_with"),
+        r"fn fill_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(f64) -> T + ?Sized>(mut xs: &mut SmeltList<T>, make: &F0) -> () {
 let _smelt_tmp_2: T = make(0.0);
 let _smelt_tmp_3: f64 = { let smelt_push_item = _smelt_tmp_2; xs.borrow_mut().push(smelt_push_item); xs.len() as f64 };
 return;
-}");
-    assert_eq!(rust_fn(&source, "use_fill"), r"fn use_fill() -> SmeltList<f64> {
+}"
+    );
+    assert_eq!(
+        rust_fn(&source, "use_fill"),
+        r"fn use_fill() -> SmeltList<f64> {
 let mut nums: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
 let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64| {
 let _smelt_tmp_1: f64 = closure_arg_0 + 10.0;
@@ -49,7 +54,8 @@ _smelt_tmp_1
 });
 let _ = fill_with(&mut nums, &*_smelt_tmp_2);
 return nums;
-}");
+}"
+    );
 }
 
 /// A borrowed callback that could also pass through is reborrowed at the call.
@@ -67,11 +73,16 @@ export function useApply(): number[] {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "apply_to"), r"fn apply_to<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> T + ?Sized>(xs: SmeltList<T>, fn_: &F0) -> SmeltList<T> {
+    assert_eq!(
+        rust_fn(&source, "apply_to"),
+        r"fn apply_to<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> T + ?Sized>(xs: SmeltList<T>, fn_: &F0) -> SmeltList<T> {
 let _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into({ let smelt_callback = fn_; xs.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item) }).collect::<Vec<_>>() });
 return _smelt_tmp_2;
-}");
-    assert_eq!(rust_fn(&source, "use_apply"), r"fn use_apply() -> SmeltList<f64> {
+}"
+    );
+    assert_eq!(
+        rust_fn(&source, "use_apply"),
+        r"fn use_apply() -> SmeltList<f64> {
 let nums: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64| {
 let _smelt_tmp_1: f64 = closure_arg_0 + 1.0;
@@ -79,7 +90,8 @@ _smelt_tmp_1
 });
 let _smelt_tmp_3: SmeltList<f64> = apply_to(nums, &mut { let _smelt_adapted_callback = _smelt_tmp_2.clone(); move |smelt_arg0: &f64| -> f64 { (_smelt_adapted_callback)(smelt_arg0.clone()) } });
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 /// An instance method borrows a parameter it mutates and pads one the call omits.
@@ -112,7 +124,9 @@ console.log(total);
 ",
     );
 
-    assert_eq!(rust_fn(&source, "collect"), r#"fn collect(&self) -> f64 {
+    assert_eq!(
+        rust_fn(&source, "collect"),
+        r#"fn collect(&self) -> f64 {
 let _smelt_tmp_5: SmeltRecord<JsString, f64>;
 let _smelt_tmp_7: f64;
 let mut sink: SmeltList<Row> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Row> = vec![]; smelt_list_items }));
@@ -122,5 +136,6 @@ _smelt_tmp_5 = SmeltRecord::from([(JsString::from("id"), 5.0)]);
 let _ = self._add_row(&mut sink, { let smelt_record_map = _smelt_tmp_5.clone(); Row { id: smelt_record_map.get_text("id").cloned().map_or(0.0, |smelt_value| smelt_value) } }, Some(JsString::from("twice")));
 _smelt_tmp_7 = sink.len() as f64;
 return _smelt_tmp_7;
-}"#);
+}"#
+    );
 }

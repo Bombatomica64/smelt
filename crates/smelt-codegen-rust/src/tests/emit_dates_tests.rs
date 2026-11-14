@@ -26,7 +26,13 @@ def read_write(path: str, text: str) -> str:
     return open(path).read() + parts[0]
 "#,
     );
-    assert_eq!([rust_fn(&ts_source, "main"), rust_fn(&py_source, "read_write")].join("\n\n"), r#"fn main() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        [
+            rust_fn(&ts_source, "main"),
+            rust_fn(&py_source, "read_write")
+        ]
+        .join("\n\n"),
+        r#"fn main() -> Result<(), Box<dyn std::error::Error>> {
 let host: JsString;
 let host_with_port: JsString;
 let cleaned: JsString;
@@ -56,7 +62,8 @@ let _smelt_tmp_8: String = std::fs::read_to_string(&path.clone()).expect("file r
 let _smelt_tmp_9: String = smelt_py_list_read(&parts, 0)?;
 _smelt_tmp_10 = _smelt_tmp_8 + &_smelt_tmp_9;
 return Ok(_smelt_tmp_10);
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -179,7 +186,12 @@ const iso = result.toISOString();
     );
 }
 
-/// A setter on a `D extends Date` that stays erased copies the receiver metadata onto the replacement object.
+/// A setter on a `D extends Date` that stays erased writes the new timestamp
+/// into the receiver's own field store and answers that same object, so its
+/// metadata (`__smelt_timezone`, subclass fields) survives untouched and every
+/// alias sees the write. The old requirement (copy the metadata onto a fresh
+/// replacement object) detached the result from its aliases, which a
+/// JavaScript setter never does (`node_parity::date_setter_erased_receiver`).
 #[test]
 fn preserves_erased_date_metadata_across_setters() {
     let source = source_for(
@@ -193,12 +205,15 @@ const iso = bump(value as any);
 ",
     );
 
-    assert_eq!(rust_fn(&source, "bump"), r#"fn bump(mut date: SmeltUnknown) -> JsString {
-let _smelt_tmp_1: SmeltUnknown = { let smelt_date_result = { let smelt_timestamp_ms = ({ use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = (match date.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if smelt_timestamp_ms.is_finite() && ((2024.0) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (2024.0 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }) as f64; let smelt_timestamp_ms = if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms }; SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_date".to_owned(), SmeltUnknown::Number(smelt_timestamp_ms))]))) }; if let (SmeltUnknown::Object(smelt_result), SmeltUnknown::Object(receiver)) = (&smelt_date_result, date.clone()) { for (smelt_key, smelt_value) in receiver.iter() { if smelt_key != "__smelt_date" { smelt_result.insert(smelt_key, smelt_value); } } } smelt_date_result };
+    assert_eq!(
+        rust_fn(&source, "bump"),
+        r#"fn bump(mut date: SmeltUnknown) -> JsString {
+let _smelt_tmp_1: SmeltUnknown = { let smelt_date_result = { let smelt_timestamp_ms = ({ use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = (match &date.clone() { SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if *smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if smelt_timestamp_ms.is_finite() && ((2024.0) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (2024.0 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }) as f64; let smelt_timestamp_ms = if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms }; SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_date".to_owned(), SmeltUnknown::Number(smelt_timestamp_ms))]))) }; match (&smelt_date_result, &date.clone()) { (SmeltUnknown::Object(smelt_result), SmeltUnknown::Object(smelt_receiver)) => { smelt_receiver.insert("__smelt_date", smelt_result.get("__smelt_date").unwrap_or(SmeltUnknown::Number(f64::NAN))); SmeltUnknown::Object(smelt_receiver.clone()) } _ => smelt_date_result } };
 date = _smelt_tmp_1;
 let _smelt_tmp_2: JsString = JsString::from((date.clone()).to_iso_string());
 return _smelt_tmp_2;
-}"#);
+}"#
+    );
 }
 
 /// `new Date(x)` over an erased value parses at run time; values are in `date_semantics`.
@@ -212,12 +227,15 @@ export function isoFrom(value: unknown): string {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "iso_from"), r#"fn iso_from(value: SmeltUnknown) -> JsString {
-let _smelt_tmp_1: f64 = { let smelt_timestamp_ms = (match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms } };
+    assert_eq!(
+        rust_fn(&source, "iso_from"),
+        r#"fn iso_from(value: SmeltUnknown) -> JsString {
+let _smelt_tmp_1: f64 = { let smelt_timestamp_ms = (match &value.clone() { SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if *smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms } };
 let _smelt_tmp_2: SmeltDate = SmeltDate::new((_smelt_tmp_1) as f64);
 let _smelt_tmp_3: JsString = JsString::from((_smelt_tmp_2).to_iso_string());
 return _smelt_tmp_3;
-}"#);
+}"#
+    );
 }
 
 /// `toISOString` on an `any` callback item yields a typed string list.
@@ -230,7 +248,9 @@ const isoValues = values.map((value) => value.toISOString());
 ",
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
 let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_src = smelt_get_unknown_field(&_smelt_tmp_1.clone(), "values").clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => SmeltList::with_storage(smelt_values.id, smelt_values.storage()), SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| SmeltUnknown::String(smelt_ch)).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } });
 let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, _arg0: i64, _arg1: &SmeltList<SmeltUnknown>| {
@@ -242,7 +262,8 @@ let _smelt_tmp_1: JsString = JsString::from((closure_arg_0.clone()).to_iso_strin
 _smelt_tmp_1.clone()
 }); let smelt_array = _smelt_tmp_2; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item, smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
 return;
-}"#);
+}"#
+    );
 }
 
 /// Date setters take a numeric argument read out of an erased value.
@@ -258,7 +279,9 @@ export function yearRoundTrip(value: unknown): number {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "year_round_trip"), r#"fn year_round_trip(value: SmeltUnknown) -> f64 {
+    assert_eq!(
+        rust_fn(&source, "year_round_trip"),
+        r#"fn year_round_trip(value: SmeltUnknown) -> f64 {
 let mut date: SmeltDate = SmeltDate::new((0.0) as f64);
 let _smelt_tmp_3: f64 = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
 let _smelt_tmp_4: SmeltDate = { let smelt_time_ms = ({ use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = ((date).get_time()) as f64; if smelt_timestamp_ms.is_finite() && ((_smelt_tmp_3) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (_smelt_tmp_3 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }) as f64; (date).set_time(smelt_time_ms); date };
@@ -266,7 +289,8 @@ date = _smelt_tmp_4;
 let _smelt_tmp_5: f64 = (date).get_time();
 let _smelt_tmp_6: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = (_smelt_tmp_5) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.year() as f64) } else { f64::NAN } };
 return _smelt_tmp_6;
-}"#);
+}"#
+    );
 }
 
 /// A date setter stays inside its branch, after the locals it reads.
@@ -285,7 +309,9 @@ function apply(isTwoDigitYear: boolean, year: number, date: Date): Date {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "apply"), r"fn apply(is_two_digit_year: bool, year: f64, mut date: SmeltDate) -> SmeltDate {
+    assert_eq!(
+        rust_fn(&source, "apply"),
+        r"fn apply(is_two_digit_year: bool, year: f64, mut date: SmeltDate) -> SmeltDate {
 let normalized_two_digit_year: f64;
 let _smelt_tmp_5: SmeltDate;
 if is_two_digit_year {
@@ -296,7 +322,8 @@ return date.clone();
 } else {
 return date.clone();
 }
-}");
+}"
+    );
 }
 
 /// A `Date` crossing into an erased callable goes through the date boundary adapter.
@@ -332,7 +359,9 @@ const result = format({ locale: customLocale });
 "#,
     );
 
-    assert_eq!(rust_fn(&source, "main"), r#"fn main() {
+    assert_eq!(
+        rust_fn(&source, "main"),
+        r#"fn main() {
 let result: JsString;
 let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64| {
 let _smelt_tmp_1: JsString = JsString::from(smelt_number_to_string(closure_arg_0));
@@ -358,5 +387,6 @@ let _smelt_tmp_6: SmeltRecord<JsString, SmeltRecord<JsString, SmeltRecord<JsStri
 let _smelt_tmp_7: JsString = format(Some({ let smelt_record_map = _smelt_tmp_6.clone(); FormatOptions { locale: smelt_record_map.get_text("locale").map(|smelt_value| { let smelt_record_map = smelt_value.clone(); Locale { localize: smelt_record_map.get_text("localize").map_or(Default::default(), |smelt_value| { let smelt_record_map = smelt_value.clone(); Localize { month: smelt_erased_record_member(&smelt_record_map, "month").cloned().map_or_else(|| smelt_throw_missing_record_field("value", "Localize", "month"), |smelt_value| { let smelt_source_value = smelt_value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(f64) -> JsString> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(f64) -> JsString>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_arg0: f64| (smelt_original)(smelt_arg0)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_arg0: f64| -> JsString { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::Number(smelt_arg0 as f64)); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); match smelt_result.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> JsString { smelt_value_not_callable() }); smelt_default_callback } } }), preprocessor: smelt_erased_record_member(&smelt_record_map, "preprocessor").cloned().and_then(|smelt_value| if smelt_unknown_is_nullish(&smelt_value) { None } else { Some({ let smelt_source_value = smelt_value.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(SmeltDate, &SmeltList<JsString>) -> SmeltList<JsString>> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(SmeltDate, &SmeltList<JsString>) -> SmeltList<JsString>>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_arg0: SmeltDate, smelt_arg1: &SmeltList<JsString>| (smelt_original)(smelt_arg0, smelt_arg1)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_arg0: SmeltDate, smelt_arg1: &SmeltList<JsString>| -> SmeltList<JsString> { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(smelt_arg0.clone().into_smelt_unknown()); smelt_call_args.push({ let smelt_l = smelt_arg1.clone(); let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>())) }); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); { let smelt_src = smelt_result.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_ch).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(SmeltDate, &SmeltList<JsString>) -> SmeltList<JsString>> = ::std::rc::Rc::new(move |smelt_arg0: SmeltDate, smelt_arg1: &SmeltList<JsString>| -> SmeltList<JsString> { smelt_value_not_callable() }); smelt_default_callback } } }) }) } }) } }) } }));
 result = _smelt_tmp_7;
 return;
-}"#);
+}"#
+    );
 }

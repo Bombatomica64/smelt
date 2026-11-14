@@ -27,11 +27,11 @@
 use std::collections::HashSet;
 
 use oxc::ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget,
-    BindingPattern, BlockStatement, CatchClause, Class, Expression,
-    ForInStatement, ForOfStatement, ForStatement, ForStatementInit, ForStatementLeft,
-    FormalParameters, Function, IdentifierReference, NewExpression, Statement,
-    StaticBlock, SwitchStatement, VariableDeclaration, VariableDeclarationKind,
+    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
+    BlockStatement, CatchClause, Class, Expression, ForInStatement, ForOfStatement, ForStatement,
+    ForStatementInit, ForStatementLeft, FormalParameters, Function, IdentifierReference,
+    NewExpression, Statement, StaticBlock, SwitchStatement, VariableDeclaration,
+    VariableDeclarationKind,
 };
 use oxc::ast_visit::{Visit, walk};
 use oxc::syntax::scope::ScopeFlags;
@@ -64,8 +64,15 @@ pub(in crate::lowering) struct NameUses {
 }
 
 /// Scope-aware uses of every name of `names` in `statement`, in one walk.
-pub(in crate::lowering) fn statement_name_uses(statement: &Statement<'_>, names: &HashSet<&str>) -> NameUses {
-    let mut visitor = ScopedUses { names, shadowed: Vec::new(), uses: NameUses::default() };
+pub(in crate::lowering) fn statement_name_uses(
+    statement: &Statement<'_>,
+    names: &HashSet<&str>,
+) -> NameUses {
+    let mut visitor = ScopedUses {
+        names,
+        shadowed: Vec::new(),
+        uses: NameUses::default(),
+    };
     visitor.visit_statement(statement);
     visitor.uses
 }
@@ -74,7 +81,10 @@ pub(in crate::lowering) fn statement_name_uses(statement: &Statement<'_>, names:
 pub(in crate::lowering) fn statement_uses(statement: &Statement<'_>, name: &str) -> BindingUses {
     let names = HashSet::from([name]);
     let uses = statement_name_uses(statement, &names);
-    BindingUses { referenced: uses.referenced.contains(name), constructed: uses.constructed.contains(name) }
+    BindingUses {
+        referenced: uses.referenced.contains(name),
+        constructed: uses.constructed.contains(name),
+    }
 }
 
 /// Scope-aware uses of `name` across a statement list (one scope's body).
@@ -102,20 +112,29 @@ struct ScopedUses<'names, 'name> {
 impl ScopedUses<'_, '_> {
     /// The asked-about name `text` is when it is one and no scope shadows it.
     fn visible(&self, text: &str) -> bool {
-        self.names.contains(text) && !self.shadowed.iter().any(|frame| frame.iter().any(|name| name == text))
+        self.names.contains(text)
+            && !self
+                .shadowed
+                .iter()
+                .any(|frame| frame.iter().any(|name| name == text))
     }
 
     /// The visible asked-about name `expression` (parentheses peeled) reads.
     fn visible_name(&self, expression: &Expression<'_>) -> Option<String> {
         match expression.without_parentheses() {
-            Expression::Identifier(id) if self.visible(id.name.as_str()) => Some(id.name.to_string()),
+            Expression::Identifier(id) if self.visible(id.name.as_str()) => {
+                Some(id.name.to_string())
+            }
             _ => None,
         }
     }
 
     /// Run `walk` with `bound` (filtered to the asked-about names) shadowed.
     fn within_scope(&mut self, bound: Vec<String>, walk: impl FnOnce(&mut Self)) {
-        let bound: Vec<String> = bound.into_iter().filter(|name| self.names.contains(name.as_str())).collect();
+        let bound: Vec<String> = bound
+            .into_iter()
+            .filter(|name| self.names.contains(name.as_str()))
+            .collect();
         if bound.is_empty() {
             walk(self);
             return;
@@ -127,7 +146,12 @@ impl ScopedUses<'_, '_> {
 
     /// The names `pattern` binds.
     fn pattern_names(pattern: &BindingPattern<'_>, out: &mut Vec<String>) {
-        out.extend(pattern.get_binding_identifiers().iter().map(|id| id.name.to_string()));
+        out.extend(
+            pattern
+                .get_binding_identifiers()
+                .iter()
+                .map(|id| id.name.to_string()),
+        );
     }
 
     /// The names a parameter list binds.
@@ -152,11 +176,17 @@ impl ScopedUses<'_, '_> {
     /// a function declaration.
     fn lexical_names(statement: &Statement<'_>, out: &mut Vec<String>) {
         match statement {
-            Statement::VariableDeclaration(declaration) if declaration.kind != VariableDeclarationKind::Var => {
+            Statement::VariableDeclaration(declaration)
+                if declaration.kind != VariableDeclarationKind::Var =>
+            {
                 Self::declaration_names(declaration, out);
             }
-            Statement::FunctionDeclaration(function) => out.extend(function.id.as_ref().map(|id| id.name.to_string())),
-            Statement::ClassDeclaration(class) => out.extend(class.id.as_ref().map(|id| id.name.to_string())),
+            Statement::FunctionDeclaration(function) => {
+                out.extend(function.id.as_ref().map(|id| id.name.to_string()));
+            }
+            Statement::ClassDeclaration(class) => {
+                out.extend(class.id.as_ref().map(|id| id.name.to_string()));
+            }
             _ => {}
         }
     }
@@ -175,10 +205,15 @@ impl ScopedUses<'_, '_> {
     /// not into nested functions.
     fn var_names(statement: &Statement<'_>, out: &mut Vec<String>) {
         match statement {
-            Statement::VariableDeclaration(declaration) if declaration.kind == VariableDeclarationKind::Var => {
+            Statement::VariableDeclaration(declaration)
+                if declaration.kind == VariableDeclarationKind::Var =>
+            {
                 Self::declaration_names(declaration, out);
             }
-            Statement::BlockStatement(block) => block.body.iter().for_each(|inner| Self::var_names(inner, out)),
+            Statement::BlockStatement(block) => block
+                .body
+                .iter()
+                .for_each(|inner| Self::var_names(inner, out)),
             Statement::IfStatement(statement) => {
                 Self::var_names(&statement.consequent, out);
                 if let Some(alternate) = &statement.alternate {
@@ -205,17 +240,30 @@ impl ScopedUses<'_, '_> {
             Statement::DoWhileStatement(statement) => Self::var_names(&statement.body, out),
             Statement::LabeledStatement(statement) => Self::var_names(&statement.body, out),
             Statement::TryStatement(statement) => {
-                statement.block.body.iter().for_each(|inner| Self::var_names(inner, out));
+                statement
+                    .block
+                    .body
+                    .iter()
+                    .for_each(|inner| Self::var_names(inner, out));
                 if let Some(handler) = &statement.handler {
-                    handler.body.body.iter().for_each(|inner| Self::var_names(inner, out));
+                    handler
+                        .body
+                        .body
+                        .iter()
+                        .for_each(|inner| Self::var_names(inner, out));
                 }
                 if let Some(finalizer) = &statement.finalizer {
-                    finalizer.body.iter().for_each(|inner| Self::var_names(inner, out));
+                    finalizer
+                        .body
+                        .iter()
+                        .for_each(|inner| Self::var_names(inner, out));
                 }
             }
             Statement::SwitchStatement(statement) => {
                 for case in &statement.cases {
-                    case.consequent.iter().for_each(|inner| Self::var_names(inner, out));
+                    case.consequent
+                        .iter()
+                        .for_each(|inner| Self::var_names(inner, out));
                 }
             }
             _ => {}
@@ -279,14 +327,22 @@ impl<'a> Visit<'a> for ScopedUses<'_, '_> {
     fn visit_arrow_function_expression(&mut self, arrow: &ArrowFunctionExpression<'a>) {
         let mut bound = Vec::new();
         Self::params_names(&arrow.params, &mut bound);
-        Self::function_scope_names(crate::lowering::support::arrow_block_statements(arrow), &mut bound);
-        self.within_scope(bound, |this| walk::walk_arrow_function_expression(this, arrow));
+        Self::function_scope_names(
+            crate::lowering::support::arrow_block_statements(arrow),
+            &mut bound,
+        );
+        self.within_scope(bound, |this| {
+            walk::walk_arrow_function_expression(this, arrow);
+        });
     }
 
     /// A block shadows its own lexical declarations.
     fn visit_block_statement(&mut self, block: &BlockStatement<'a>) {
         let mut bound = Vec::new();
-        block.body.iter().for_each(|statement| Self::lexical_names(statement, &mut bound));
+        block
+            .body
+            .iter()
+            .for_each(|statement| Self::lexical_names(statement, &mut bound));
         self.within_scope(bound, |this| walk::walk_block_statement(this, block));
     }
 
@@ -303,7 +359,9 @@ impl<'a> Visit<'a> for ScopedUses<'_, '_> {
         self.visit_expression(&statement.discriminant);
         let mut bound = Vec::new();
         for case in &statement.cases {
-            case.consequent.iter().for_each(|inner| Self::lexical_names(inner, &mut bound));
+            case.consequent
+                .iter()
+                .for_each(|inner| Self::lexical_names(inner, &mut bound));
         }
         self.within_scope(bound, |this| {
             for case in &statement.cases {

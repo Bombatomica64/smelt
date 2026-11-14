@@ -69,23 +69,42 @@ fn contains(types: &TypeInterner, ty: TypeId, needle: &Type, depth: usize) -> bo
     if depth > MAX_DEPTH {
         return false;
     }
-    let Some(found) = types.get(ty) else { return false };
+    let Some(found) = types.get(ty) else {
+        return false;
+    };
     if found == needle {
         return true;
     }
-    children(found).into_iter().any(|child| contains(types, child, needle, depth + 1))
+    children(found)
+        .into_iter()
+        .any(|child| contains(types, child, needle, depth + 1))
 }
 
 /// The types directly inside `ty`.
 fn children(ty: &Type) -> Vec<TypeId> {
     match ty {
-        Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => vec![*item],
+        Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
+            vec![*item]
+        }
         Type::Dict(key, value) | Type::JsMap(key, value) => vec![*key, *value],
         Type::Tuple(items) | Type::Union(items) => items.clone(),
         Type::Class { args, .. } => args.clone(),
-        Type::Function(function) => function.params.iter().copied().chain([function.return_ty]).collect(),
-        Type::Generator { yield_ty, return_ty, next_ty, .. } => vec![*yield_ty, *return_ty, *next_ty],
-        Type::GeneratorResult { yield_ty, return_ty } => vec![*yield_ty, *return_ty],
+        Type::Function(function) => function
+            .params
+            .iter()
+            .copied()
+            .chain([function.return_ty])
+            .collect(),
+        Type::Generator {
+            yield_ty,
+            return_ty,
+            next_ty,
+            ..
+        } => vec![*yield_ty, *return_ty, *next_ty],
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => vec![*yield_ty, *return_ty],
         Type::Bool
         | Type::Int
         | Type::Float
@@ -107,7 +126,9 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
     if depth > MAX_DEPTH {
         return ty;
     }
-    let Some(found) = types.get(ty).cloned() else { return ty };
+    let Some(found) = types.get(ty).cloned() else {
+        return ty;
+    };
     if found == language.foreign_text() {
         return types.intern(language.own_text());
     }
@@ -119,36 +140,56 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
         Type::Future(item) => Type::Future(each(types, item)),
         Type::Dict(key, value) => Type::Dict(each(types, key), each(types, value)),
         Type::JsMap(key, value) => Type::JsMap(each(types, key), each(types, value)),
-        Type::Tuple(items) => Type::Tuple(items.into_iter().map(|item| each(types, item)).collect()),
-        Type::Union(items) => Type::Union(items.into_iter().map(|item| each(types, item)).collect()),
-        Type::Class { name, args } => Type::Class { name, args: args.into_iter().map(|arg| each(types, arg)).collect() },
+        Type::Tuple(items) => {
+            Type::Tuple(items.into_iter().map(|item| each(types, item)).collect())
+        }
+        Type::Union(items) => {
+            Type::Union(items.into_iter().map(|item| each(types, item)).collect())
+        }
+        Type::Class { name, args } => Type::Class {
+            name,
+            args: args.into_iter().map(|arg| each(types, arg)).collect(),
+        },
         Type::Function(function) => Type::Function(FunctionType {
-            params: function.params.iter().map(|param| each(types, *param)).collect(),
+            params: function
+                .params
+                .iter()
+                .map(|param| each(types, *param))
+                .collect(),
             return_ty: each(types, function.return_ty),
             ..function
         }),
-        Type::Generator { is_async, yield_ty, return_ty, next_ty } => Type::Generator {
+        Type::Generator {
+            is_async,
+            yield_ty,
+            return_ty,
+            next_ty,
+        } => Type::Generator {
             is_async,
             yield_ty: each(types, yield_ty),
             return_ty: each(types, return_ty),
             next_ty: each(types, next_ty),
         },
-        Type::GeneratorResult { yield_ty, return_ty } => {
-            Type::GeneratorResult { yield_ty: each(types, yield_ty), return_ty: each(types, return_ty) }
-        }
+        Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        } => Type::GeneratorResult {
+            yield_ty: each(types, yield_ty),
+            return_ty: each(types, return_ty),
+        },
         leaf @ (Type::Bool
-            | Type::Int
-            | Type::Float
-            | Type::FixedInt(_)
-            | Type::BigInt
-            | Type::String
-            | Type::PyStr
-            | Type::Symbol
-            | Type::PropKey
-            | Type::Unknown
-            | Type::Never
-            | Type::TypeParam { .. }
-            | Type::None) => leaf,
+        | Type::Int
+        | Type::Float
+        | Type::FixedInt(_)
+        | Type::BigInt
+        | Type::String
+        | Type::PyStr
+        | Type::Symbol
+        | Type::PropKey
+        | Type::Unknown
+        | Type::Never
+        | Type::TypeParam { .. }
+        | Type::None) => leaf,
     };
     types.intern(mapped)
 }
@@ -173,6 +214,9 @@ mod tests {
         assert!(crosses_into(&types, optional, SourceLanguage::Python));
         assert!(!crosses_into(&types, optional, SourceLanguage::TypeScript));
         assert_eq!(view_in(&mut types, float, SourceLanguage::Python), float);
-        assert_eq!(view_in(&mut types, py_list, SourceLanguage::TypeScript), list);
+        assert_eq!(
+            view_in(&mut types, py_list, SourceLanguage::TypeScript),
+            list
+        );
     }
 }

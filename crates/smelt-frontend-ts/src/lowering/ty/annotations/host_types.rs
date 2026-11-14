@@ -39,7 +39,11 @@ impl ModuleBuilder<'_> {
                     // `undefined` without the `d` flag.
                     "indices" => {
                         let float_ty = self.ctx.krate.types.intern(Type::Float);
-                        let span_ty = self.ctx.krate.types.intern(Type::Tuple(vec![float_ty, float_ty]));
+                        let span_ty = self
+                            .ctx
+                            .krate
+                            .types
+                            .intern(Type::Tuple(vec![float_ty, float_ty]));
                         let group_ty = self.ctx.krate.types.intern(Type::Optional(span_ty));
                         let list_ty = self.ctx.krate.types.intern(Type::List(group_ty));
                         Some(self.ctx.krate.types.intern(Type::Optional(list_ty)))
@@ -94,7 +98,8 @@ impl ModuleBuilder<'_> {
             "source" | "flags" => Type::String,
             "lastIndex" | "last_index" => Type::Float,
             "global" | "ignoreCase" | "ignore_case" | "multiline" | "sticky" | "unicode"
-            | "dotAll" | "dot_all" | "hasIndices" | "has_indices" | "unicodeSets" | "unicode_sets" => Type::Bool,
+            | "dotAll" | "dot_all" | "hasIndices" | "has_indices" | "unicodeSets"
+            | "unicode_sets" => Type::Bool,
             _ => return None,
         };
         Some(self.ctx.krate.types.intern(ty))
@@ -120,7 +125,10 @@ impl ModuleBuilder<'_> {
         let string = self.ctx.krate.types.intern(Type::String);
         let number = self.ctx.krate.types.intern(Type::Float);
         let symbol = self.ctx.krate.types.intern(Type::Symbol);
-        self.ctx.krate.types.intern(Type::Union(vec![string, number, symbol]))
+        self.ctx
+            .krate
+            .types
+            .intern(Type::Union(vec![string, number, symbol]))
     }
 
     /// Return the concrete HIR type for a `RegExp` match result value.
@@ -186,12 +194,11 @@ impl ModuleBuilder<'_> {
     fn is_source_object_shape(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Dict(_, _)) => true,
-            Some(Type::Class { name, .. }) => self
-                .ctx
-                .krate
-                .symbols
-                .get(*name)
-                .is_some_and(|name| self.classes.contains(name) || self.interfaces.contains(name)),
+            Some(Type::Class { name, .. }) => {
+                self.ctx.krate.symbols.get(*name).is_some_and(|name| {
+                    self.classes.contains(name) || self.interfaces.contains(name)
+                })
+            }
             _ => false,
         }
     }
@@ -212,8 +219,15 @@ impl ModuleBuilder<'_> {
     /// array, a string, a function's arity, a `Map`) unless its constraint is
     /// a source object shape that declares the member as a property
     /// (`T extends { size: number }`).
-    pub(in crate::lowering) fn element_count_member(&self, receiver_ty: smelt_hir::TypeId, member: &str) -> bool {
-        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::TypeParam { .. })) {
+    pub(in crate::lowering) fn element_count_member(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        member: &str,
+    ) -> bool {
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::TypeParam { .. })
+        ) {
             let constraint = self.type_param_constraint_or_self(receiver_ty);
             return matches!(member, "length" | "size") && !self.is_source_object_shape(constraint);
         }

@@ -2,19 +2,22 @@
 //! lifted to items ahead of source order, queued behind the module classes their
 //! bodies read.
 
-use std::collections::HashSet;
+use super::super::ModuleBuilder;
+use super::phases::SignaturesDeclared;
 use crate::SmeltError;
 use oxc::ast::ast::{
     BindingPattern, Declaration, Expression, ObjectPropertyKind, Program, Statement,
 };
 use oxc::span::GetSpan;
 use smelt_hir::Module;
-use super::phases::SignaturesDeclared;
-use super::super::ModuleBuilder;
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Return true for top-level const-arrow declarations already emitted as items.
-    pub(in crate::lowering) fn is_predeclared_arrow_const_statement(&self, statement: &Statement<'_>) -> bool {
+    pub(in crate::lowering) fn is_predeclared_arrow_const_statement(
+        &self,
+        statement: &Statement<'_>,
+    ) -> bool {
         let Statement::VariableDeclaration(decl) = statement else {
             return false;
         };
@@ -94,7 +97,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return top-level arrow binding names declared by one variable statement.
-    pub(in crate::lowering) fn arrow_const_declaration_names(decl: &oxc::ast::ast::VariableDeclaration<'_>) -> Vec<String> {
+    pub(in crate::lowering) fn arrow_const_declaration_names(
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) -> Vec<String> {
         decl.declarations
             .iter()
             .filter_map(|declarator| {
@@ -326,18 +331,23 @@ impl ModuleBuilder<'_> {
     /// [`super::super::source_facts::SourceFacts`] records: a lifted arrow keeps its
     /// types and the closure form it would otherwise take has no statements or
     /// non-literal parameter defaults, so programs depend on the wider answer.
-    pub(in crate::lowering) fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
+    pub(in crate::lowering) fn forward_arrow_const_names(
+        &self,
+        program: &Program<'_>,
+    ) -> HashSet<String> {
         let mut arrow_consts = Vec::new();
         let mut referrer_spans = Vec::new();
         let mut self_recursive = HashSet::new();
-        let mut note_self_recursive = |binding: &oxc::ast::ast::BindingIdentifier<'_>,
-                                       init: &Option<Expression<'_>>| {
-            if let Some(Expression::ArrowFunctionExpression(arrow)) = init
-                && self.source_facts.mentions(arrow.body.span(), binding.name.as_str())
-            {
-                self_recursive.insert(binding.name.as_str().to_owned());
-            }
-        };
+        let mut note_self_recursive =
+            |binding: &oxc::ast::ast::BindingIdentifier<'_>, init: &Option<Expression<'_>>| {
+                if let Some(Expression::ArrowFunctionExpression(arrow)) = init
+                    && self
+                        .source_facts
+                        .mentions(arrow.body.span(), binding.name.as_str())
+                {
+                    self_recursive.insert(binding.name.as_str().to_owned());
+                }
+            };
         for statement in &program.body {
             match statement {
                 Statement::ClassDeclaration(class) => {
@@ -353,7 +363,9 @@ impl ModuleBuilder<'_> {
                     // names, and must be an item it can call.
                     for declarator in &variable.declarations {
                         if let BindingPattern::BindingIdentifier(binding) = &declarator.id
-                            && self.mutable_global_items.contains_key(binding.name.as_str())
+                            && self
+                                .mutable_global_items
+                                .contains_key(binding.name.as_str())
                         {
                             referrer_spans.push((declarator.span.start, declarator.span.end));
                         }
@@ -427,7 +439,8 @@ impl ModuleBuilder<'_> {
             .into_iter()
             .filter_map(|(name, const_start)| {
                 let spelled_in = |start: u32, end: u32| {
-                    self.source_facts.mentions(oxc::span::Span::new(start, end), &name)
+                    self.source_facts
+                        .mentions(oxc::span::Span::new(start, end), &name)
                 };
                 let referenced = spelled_in(0, const_start)
                     || referrer_spans
@@ -531,7 +544,10 @@ impl ModuleBuilder<'_> {
     /// same contents, and the difference is only observable through mutation --
     /// which is exactly the case that goes silently wrong. Scalars are excluded
     /// because re-materializing one is indistinguishable from reading it.
-    pub(super) fn identity_bearing_module_binding_names(&self, program: &Program<'_>) -> HashSet<String> {
+    pub(super) fn identity_bearing_module_binding_names(
+        &self,
+        program: &Program<'_>,
+    ) -> HashSet<String> {
         let mut names = HashSet::new();
         for statement in &program.body {
             let variable = match statement {
@@ -567,7 +583,9 @@ impl ModuleBuilder<'_> {
     /// arrow functions and later call them through dynamic keys. Those arrows
     /// need real callable items before the export lowering records namespace
     /// metadata for the table.
-    pub(in crate::lowering) fn object_namespace_arrow_const_names(program: &Program<'_>) -> HashSet<String> {
+    pub(in crate::lowering) fn object_namespace_arrow_const_names(
+        program: &Program<'_>,
+    ) -> HashSet<String> {
         let mut arrow_consts = HashSet::new();
         for statement in &program.body {
             let Statement::VariableDeclaration(variable) = statement else {

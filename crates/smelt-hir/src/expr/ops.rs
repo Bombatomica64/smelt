@@ -341,7 +341,10 @@ impl UriTranscodeOp {
     pub const fn is_fallible(self) -> bool {
         //~ Every one can throw a `URIError`: a decoder on malformed
         //~ percent-encoding, an encoder on a lone surrogate.
-        matches!(self, Self::Decode | Self::DecodeComponent | Self::Encode | Self::EncodeComponent)
+        matches!(
+            self,
+            Self::Decode | Self::DecodeComponent | Self::Encode | Self::EncodeComponent
+        )
     }
 }
 
@@ -377,6 +380,20 @@ pub enum StringPredicateOp {
     IsAlpha,
     /// Test for alphanumeric characters.
     IsAlnum,
+}
+
+/// The pattern-taking `String.prototype` method an erased receiver calls.
+///
+/// On an erased receiver the method is resolved at run time: a string answers
+/// `String.prototype[method]` (a non-`RegExp` pattern is `new RegExp(pattern)`),
+/// and any other value answers its own member, exactly as JavaScript's
+/// property lookup decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErasedPatternMethod {
+    /// `receiver.match(pattern)`.
+    Match,
+    /// `receiver.search(pattern)`.
+    Search,
 }
 
 /// A directly lowered regex boolean match operation.
@@ -858,6 +875,103 @@ impl Base64Op {
         match self {
             Self::Encode => "btoa",
             Self::Decode => "atob",
+        }
+    }
+}
+
+/// What a read of a source binding raises when the binding has not been
+/// assigned yet, by the rule of the language the read was written in.
+///
+/// Carried by `BindingCheck`: the definite-assignment analysis in MIR lowering
+/// picks the variant from the body's language and from where the binding
+/// lives, and codegen raises exactly that error, so a `try`/`except` or
+/// `try`/`catch` the source wrote catches it like any other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnboundRead {
+    /// JavaScript's temporal dead zone: a `let`, `const`, `class` or function
+    /// binding read before its declaration ran. `ReferenceError: Cannot access
+    /// 'x' before initialization`.
+    JsTemporalDeadZone,
+    /// A Python function local read before any assignment reached it.
+    /// `UnboundLocalError: cannot access local variable 'x' where it is not
+    /// associated with a value`.
+    PyLocal,
+    /// A Python free variable: a nested function read a local of an enclosing
+    /// function that is not assigned yet. `NameError: cannot access free
+    /// variable 'x' where it is not associated with a value in enclosing scope`.
+    PyFreeVariable,
+    /// A Python module-level name read before it is bound. `NameError: name 'x'
+    /// is not defined`.
+    PyGlobal,
+}
+
+impl UnboundRead {
+    /// How both dumps name the error the read raises.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::JsTemporalDeadZone => "tdz",
+            Self::PyLocal => "unbound_local",
+            Self::PyFreeVariable => "unbound_free",
+            Self::PyGlobal => "unbound_global",
+        }
+    }
+}
+
+/// Which `Number.prototype` formatting method a [`NumericFormat`] op runs.
+///
+/// The four methods share one shape -- a receiver, one optional integer
+/// argument checked against a fixed range, a string result -- and one
+/// runtime family, so they are one op rather than four.
+///
+/// [`NumericFormat`]: crate::ExprKind::NumericFormat
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NumericFormatMethod {
+    /// `toFixed(digits)`: fixed-point, `digits` fractional digits (default 0).
+    Fixed,
+    /// `toPrecision(digits)`: `digits` significant digits; absent is `String(x)`.
+    Precision,
+    /// `toExponential(digits)`: exponential, `digits` fractional digits;
+    /// absent is the shortest round-trip mantissa.
+    Exponential,
+    /// `toString(radix)`: the digits in base `radix`, fractions included.
+    Radix,
+}
+
+impl NumericFormatMethod {
+    /// The method's JavaScript name, which is also how both dumps print it and
+    /// what the runtime's checked formatter dispatches on.
+    #[must_use]
+    pub const fn js_name(self) -> &'static str {
+        match self {
+            Self::Fixed => "toFixed",
+            Self::Precision => "toPrecision",
+            Self::Exponential => "toExponential",
+            Self::Radix => "toString",
+        }
+    }
+
+    /// The method by its JavaScript name, for the three whose name is unique
+    /// to `Number.prototype` (`toString` is everyone's, so it is not looked up
+    /// by name).
+    #[must_use]
+    pub fn from_js_name(name: &str) -> Option<Self> {
+        match name {
+            "toFixed" => Some(Self::Fixed),
+            "toPrecision" => Some(Self::Precision),
+            "toExponential" => Some(Self::Exponential),
+            _ => None,
+        }
+    }
+
+    /// The integer range the argument must fall in after `ToIntegerOrInfinity`;
+    /// outside it the method throws a `RangeError`.
+    #[must_use]
+    pub const fn argument_range(self) -> (f64, f64) {
+        match self {
+            Self::Fixed | Self::Exponential => (0.0, 100.0),
+            Self::Precision => (1.0, 100.0),
+            Self::Radix => (2.0, 36.0),
         }
     }
 }

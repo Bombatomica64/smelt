@@ -190,7 +190,10 @@ export const hasMap: boolean = "Map" in globalThis;
 "#),
         &mut ctx,
     )?;
-    ensure!(crate_has_item(&ctx, "supported"), "no item named `supported`");
+    ensure!(
+        crate_has_item(&ctx, "supported"),
+        "no item named `supported`"
+    );
     ensure!(crate_has_item(&ctx, "has_map"), "no item named `has_map`");
     Ok(())
 }
@@ -214,7 +217,10 @@ export function bufferish(x: unknown): boolean {
     // The imported receiver flows through unknown member access, never producing
     // a bare-`Buffer` resolution failure.
     ensure_signature(&ctx, "bufferish", "bufferish(x: Unknown) -> Bool")?;
-    ensure!(crate_has_field(&ctx, "buffer"), "no member read on the imported shim");
+    ensure!(
+        crate_has_field(&ctx, "buffer"),
+        "no member read on the imported shim"
+    );
     Ok(())
 }
 
@@ -257,7 +263,11 @@ function run(size: number, length: number): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "run", "run(size: Float, length: Float) -> List<Float>")?;
+    ensure_signature(
+        &ctx,
+        "run",
+        "run(size: Float, length: Float) -> List<Float>",
+    )?;
     ensure_exprs!(&ctx, Index, BinOp);
     Ok(())
 }
@@ -574,7 +584,11 @@ export function run(values: number[]): number[] {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "with_tail", "with_tail(value: Float, index: Optional<Float>, list: Optional<List<Float>>, guard: Optional<Float>) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "with_tail",
+        "with_tail(value: Float, index: Optional<Float>, list: Optional<List<Float>>, guard: Optional<Float>) -> Float",
+    )?;
     ensure_signature(&ctx, "run", "run(values: List<Float>) -> List<Float>")?;
     ensure_exprs!(&ctx, ListCallback, OptionalCoalesce, Call);
     Ok(())
@@ -727,8 +741,8 @@ export function probe(): string {
 /// lowered by its own member path, which used to project a positional field off
 /// the function value and answer with a null, so the filter never matched.
 #[test]
-fn function_static_property_read_inside_a_callback_matches_the_written_value()
--> Result<(), String> {
+fn function_static_property_read_inside_a_callback_matches_the_written_value() -> Result<(), String>
+{
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"
@@ -812,7 +826,10 @@ export function probe(): unknown {
     )?;
     ensure_signature(&ctx, "outer", "outer(n: Float) -> Float")?;
     ensure_signature(&ctx, "probe", "probe() -> Unknown")?;
-    ensure!(crate_has_field(&ctx, "prototype"), "no read of field `prototype`");
+    ensure!(
+        crate_has_field(&ctx, "prototype"),
+        "no read of field `prototype`"
+    );
     Ok(())
 }
 
@@ -1208,8 +1225,16 @@ export function series(items: number[]) {
 "),
         &mut ctx,
     )?;
-    ensure_signature(&ctx, "list", "list(start: Float, end: Float) -> List<Float>")?;
-    ensure_signature(&ctx, "series", "series(items: List<Float>) -> fn(Float, Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "list",
+        "list(start: Float, end: Float) -> List<Float>",
+    )?;
+    ensure_signature(
+        &ctx,
+        "series",
+        "series(items: List<Float>) -> fn(Float, Float) -> Float",
+    )?;
     ensure_exprs!(&ctx, ListReduce, ClosureCall, Index);
     Ok(())
 }

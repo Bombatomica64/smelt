@@ -74,6 +74,7 @@ fn manifest_lifts_source_wrapper_and_concrete_captures() -> TestResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("manifest-aware lowering failed: {errors:?}"))?;
@@ -101,6 +102,74 @@ fn manifest_lifts_source_wrapper_and_concrete_captures() -> TestResult {
     )
 }
 
+/// Output captured at definition time replays only for a statement the
+/// frontend materializes. A decorator's write (the `@decorate` statement is
+/// materialized, never re-run) replays; a write from a module-level call
+/// (`print(render(1))` is lowered and prints again at run time) does not,
+/// which printed it twice.
+#[test]
+fn definition_time_output_replays_only_for_materialized_statements() -> TestResult {
+    let source = format!("{WRAPPED_SOURCE}print(render(1))\n");
+    let line_of = |needle: &str| {
+        source
+            .lines()
+            .position(|line| line.starts_with(needle))
+            .and_then(|index| u32::try_from(index + 1).ok())
+    };
+    let mut manifest = wrapper_manifest();
+    manifest.effects = vec![
+        smelt_specialize::EffectReplay::Output {
+            stderr: false,
+            text: "decorating\n".to_owned(),
+            path: Some("fixture.py".to_owned()),
+            line: line_of("@decorate"),
+        },
+        smelt_specialize::EffectReplay::Output {
+            stderr: false,
+            text: "from the call\n".to_owned(),
+            path: Some("fixture.py".to_owned()),
+            line: line_of("print(render(1))"),
+        },
+        smelt_specialize::EffectReplay::Output {
+            stderr: false,
+            text: "another module\n".to_owned(),
+            path: Some("other.py".to_owned()),
+            line: Some(1),
+        },
+    ];
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir_with_options(
+        &source,
+        FileId(0),
+        "fixture.py",
+        &mut ctx,
+        FrontendOptions {
+            specialization: Some(&manifest),
+            ..FrontendOptions::default()
+        },
+    )
+    .map_err(|errors| format!("manifest-aware lowering failed: {errors:?}"))?;
+    let module = module(&ctx, module_id)?;
+    let code = module_code(&ctx, module)?;
+    let replayed = |text: &str| {
+        code.exprs().any(
+            |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == text),
+        )
+    };
+    ensure(
+        replayed("decorating\n"),
+        "a materialized decorator's output must replay",
+    )?;
+    ensure(
+        !replayed("from the call\n"),
+        "a lowered statement's output must not replay",
+    )?;
+    ensure(
+        !replayed("another module\n"),
+        "another module's output must not replay here",
+    )
+}
+
 #[test]
 fn manifest_materializes_property_as_typed_descriptor() -> TestResult {
     let manifest = property_manifest();
@@ -112,6 +181,7 @@ fn manifest_materializes_property_as_typed_descriptor() -> TestResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("property lowering failed: {errors:?}"))?;
@@ -166,6 +236,7 @@ fn manifest_merges_metaclass_generated_fields() -> TestResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("metaclass lowering failed: {errors:?}"))?;
@@ -226,6 +297,7 @@ fn descriptor_state_uses_the_fully_qualified_class_owner() -> TestResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("module a lowering failed: {errors:?}"))?;
@@ -236,6 +308,7 @@ fn descriptor_state_uses_the_fully_qualified_class_owner() -> TestResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("module b lowering failed: {errors:?}"))?;
@@ -246,6 +319,7 @@ fn descriptor_state_uses_the_fully_qualified_class_owner() -> TestResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("module c lowering failed: {errors:?}"))?;

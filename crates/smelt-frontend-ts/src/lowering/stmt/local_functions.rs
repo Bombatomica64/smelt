@@ -1,11 +1,11 @@
 //! Functions declared inside a body: local arrow consts and nested `function`
 //! declarations, which become locals holding closures.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use crate::lowering::RestParam;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::state::fn_ctx::BodyKind;
 use oxc::ast::ast::BindingPattern;
 use smelt_hir::{
@@ -63,7 +63,9 @@ impl ModuleBuilder<'_> {
             // sees, `unknown` included: TypeScript infers a call through
             // `handler` from what it declares, not from the arrow behind it. The
             // body may be narrower, and its value widens to the declared return.
-            let declared_return = contextual_function.as_ref().map(|function| function.return_ty);
+            let declared_return = contextual_function
+                .as_ref()
+                .map(|function| function.return_ty);
             let no_return_hint = return_ty.is_none() && declared_return.is_none();
             let mut return_ty = return_ty
                 .or(declared_return)
@@ -136,10 +138,7 @@ impl ModuleBuilder<'_> {
             Ok(())
         })();
         self.pop_type_parameter_scope();
-        let declared_local = result
-            .as_ref()
-            .ok()
-            .and_then(|()| self.scope.lookup(name));
+        let declared_local = result.as_ref().ok().and_then(|()| self.scope.lookup(name));
         self.scope.restore_bindings(saved_outer_locals);
         if let Some(local) = declared_local {
             self.scope.bind(name.to_owned(), local);
@@ -301,7 +300,8 @@ impl ModuleBuilder<'_> {
             // cannot carry (see `lowering::arguments_forwarding`). Replace the
             // parameter list with one rest list and re-bind each declared name from
             // it. es-toolkit's `rest`/`ary`/`unary` spec helpers are this shape.
-            let arguments_forwarding = this.arguments_forwarding_params(function, &mut closure_body)?;
+            let arguments_forwarding =
+                this.arguments_forwarding_params(function, &mut closure_body)?;
             // `Function.prototype.length` is the SOURCE arity — `fn(a, b, c).length`
             // is `3` — and es-toolkit `rest(func)` reads it to choose its default
             // `start` (`func.length - 1`). The variadic rewrite replaces the
@@ -331,12 +331,17 @@ impl ModuleBuilder<'_> {
                     saved_locals.push((name.clone(), this.scope.bind(name, local)));
                 }
             }
-            for (index, param) in function
-                .params
-                .items
-                .iter()
-                .enumerate()
-                .take(if arguments_forwarding.is_some() { 0 } else { usize::MAX })
+            for (index, param) in
+                function
+                    .params
+                    .items
+                    .iter()
+                    .enumerate()
+                    .take(if arguments_forwarding.is_some() {
+                        0
+                    } else {
+                        usize::MAX
+                    })
             {
                 // A defaulted parameter takes the `Optional<T>` ABI and a body
                 // prelude applies its default, exactly like a top-level
@@ -381,8 +386,7 @@ impl ModuleBuilder<'_> {
                             param_span,
                         ));
                     }
-                    saved_locals
-                        .push((source_name.clone(), this.scope.bind(source_name, local)));
+                    saved_locals.push((source_name.clone(), this.scope.bind(source_name, local)));
                 }
             }
 
@@ -448,8 +452,8 @@ impl ModuleBuilder<'_> {
                 .transpose()?;
             // not a new erasure: provisional return, replaced by the inferred
             // one once the body is lowered.
-            let provisional_return_ty =
-                declared_return_ty.unwrap_or_else(|| this.unknown_type(NotNewErasure::ErasedUpstream));
+            let provisional_return_ty = declared_return_ty
+                .unwrap_or_else(|| this.unknown_type(NotNewErasure::ErasedUpstream));
             let provisional_fn_ty = this.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
                 rest: rest_index,
@@ -470,8 +474,12 @@ impl ModuleBuilder<'_> {
             // a weak `Rc<RefCell<…>>` knot. Binding the name to a fresh,
             // never-assigned local inside the closure body instead (what this
             // did before) emitted a reference to a name Rust has never seen.
-            let outer_local =
-                this.reserve_local_function_local(function_symbol, id, provisional_fn_ty, outer_body);
+            let outer_local = this.reserve_local_function_local(
+                function_symbol,
+                id,
+                provisional_fn_ty,
+                outer_body,
+            );
             saved_locals.push((id.name.as_str().to_owned(), Some(outer_local)));
             this.scope.bind(id.name.as_str().to_owned(), outer_local);
 
@@ -493,8 +501,7 @@ impl ModuleBuilder<'_> {
                 else {
                     continue;
                 };
-                let Some(source_decl) = outer_body.local_at(source_local)
-                else {
+                let Some(source_decl) = outer_body.local_at(source_local) else {
                     continue;
                 };
                 let symbol = source_decl
@@ -518,9 +525,9 @@ impl ModuleBuilder<'_> {
 
             let ctx = this.nested_fn_ctx(BodyKind::Function, function.r#async, declared_return_ty);
             let lowering_result = this.with_fn_ctx(ctx, |this| {
-                let generator_yields = function
-                    .generator
-                    .then(|| this.initialize_generator_yield_accumulator(function, &mut closure_body));
+                let generator_yields = function.generator.then(|| {
+                    this.initialize_generator_yield_accumulator(function, &mut closure_body)
+                });
                 this.fn_ctx.generator = generator_yields;
                 // With the variadic rewrite the whole argument list is the single rest
                 // parameter, so the FIXED arity is zero — that is what tells
@@ -536,7 +543,9 @@ impl ModuleBuilder<'_> {
                 // local, which the `saved_locals` restore below undoes.
                 let mut lowering_result =
                     this.apply_parameter_defaults(defaulted_params, &mut closure_body);
-                for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                for statement in
+                    crate::lowering::hoisting::hoisted_statements(&function_body.statements)
+                {
                     if lowering_result.is_err() {
                         break;
                     }
@@ -694,8 +703,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<smelt_hir::LocalId> {
         let local = self.scope.lookup(name)?;
-        body.local_at(local)
-            .map(|_| local)
+        body.local_at(local).map(|_| local)
     }
 
     /// Return the local slot for a local arrow declaration, updating predeclared slots.

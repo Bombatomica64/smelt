@@ -97,7 +97,8 @@ fn demoted_call_site_erases_its_bare_type_param_argument() {
         "the callback adapter is built for the erased T: {call}"
     );
     assert!(
-        call.trim_end().ends_with("SmeltUnknown::Number(0.0 as f64));")
+        call.trim_end()
+            .ends_with("SmeltUnknown::Number(0.0 as f64));")
             || call.contains(", SmeltUnknown::Number(0"),
         "the init value erases with it: {call}"
     );

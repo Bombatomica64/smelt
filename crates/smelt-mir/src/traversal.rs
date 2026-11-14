@@ -290,7 +290,9 @@ macro_rules! walk_terminator_operands {
                     $visit(arg);
                 }
             }
-            Terminator::Await { future: operand, .. }
+            Terminator::Await {
+                future: operand, ..
+            }
             | Terminator::Switch { cond: operand, .. }
             | Terminator::Match {
                 scrutinee: operand, ..
@@ -555,26 +557,54 @@ impl Terminator {
     #[must_use]
     pub fn edges(&self) -> Vec<Edge> {
         match self {
-            Self::Goto(target) => vec![Edge { target: *target, defines: None }],
-            Self::Call { dest, target, unwind, .. } | Self::Await { dest, target, unwind, .. } => {
-                unwind
-                    .iter()
-                    .map(|handler| Edge {
-                        target: handler.catch_block,
-                        defines: handler.exception_local,
-                    })
-                    .chain(std::iter::once(Edge { target: *target, defines: Some(*dest) }))
-                    .collect()
+            Self::Goto(target) => vec![Edge {
+                target: *target,
+                defines: None,
+            }],
+            Self::Call {
+                dest,
+                target,
+                unwind,
+                ..
             }
-            Self::Switch { then_block, else_block, .. } => vec![
-                Edge { target: *then_block, defines: None },
-                Edge { target: *else_block, defines: None },
+            | Self::Await {
+                dest,
+                target,
+                unwind,
+                ..
+            } => unwind
+                .iter()
+                .map(|handler| Edge {
+                    target: handler.catch_block,
+                    defines: handler.exception_local,
+                })
+                .chain(std::iter::once(Edge {
+                    target: *target,
+                    defines: Some(*dest),
+                }))
+                .collect(),
+            Self::Switch {
+                then_block,
+                else_block,
+                ..
+            } => vec![
+                Edge {
+                    target: *then_block,
+                    defines: None,
+                },
+                Edge {
+                    target: *else_block,
+                    defines: None,
+                },
             ],
             Self::Match { arms, default, .. } => arms
                 .iter()
                 .map(|arm| arm.target)
                 .chain(*default)
-                .map(|target| Edge { target, defines: None })
+                .map(|target| Edge {
+                    target,
+                    defines: None,
+                })
                 .collect(),
             Self::Return(_) | Self::Throw(_) => Vec::new(),
         }
@@ -660,7 +690,10 @@ impl<'a> MirBody<'a> {
     /// The locals-and-blocks view, for counts.
     #[must_use]
     pub const fn view(self) -> Body<'a> {
-        Body { locals: self.locals, blocks: self.blocks }
+        Body {
+            locals: self.locals,
+            blocks: self.blocks,
+        }
     }
 
     /// The declaration of `local`, if the index is in range.
@@ -672,10 +705,11 @@ impl<'a> MirBody<'a> {
     /// The locals bound before the entry block runs: the parameters and, in a
     /// closure, every capture's target local.
     pub fn defined_on_entry(self) -> impl Iterator<Item = LocalId> + 'a {
-        self.params
-            .iter()
-            .copied()
-            .chain(self.captures.iter().filter_map(|capture| capture.target_local))
+        self.params.iter().copied().chain(
+            self.captures
+                .iter()
+                .filter_map(|capture| capture.target_local),
+        )
     }
 }
 
@@ -804,7 +838,9 @@ impl<'a> Body<'a> {
         let assigned = self.assignment_counts();
         self.read_counts()
             .into_iter()
-            .filter(|(local, reads)| *reads == 1 && assigned.get(local) == Some(&1) && self.is_temp(*local))
+            .filter(|(local, reads)| {
+                *reads == 1 && assigned.get(local) == Some(&1) && self.is_temp(*local)
+            })
             .map(|(local, _)| local)
             .collect()
     }
@@ -812,13 +848,15 @@ impl<'a> Body<'a> {
     /// The declaration of `local`, if the index is in range.
     #[must_use]
     pub fn local_decl(self, local: LocalId) -> Option<&'a LocalDecl> {
-        self.locals.get(usize::try_from(local.0).unwrap_or(usize::MAX))
+        self.locals
+            .get(usize::try_from(local.0).unwrap_or(usize::MAX))
     }
 
     /// Whether `local` is a compiler temporary.
     #[must_use]
     pub fn is_temp(self, local: LocalId) -> bool {
-        self.local_decl(local).is_some_and(|decl| decl.kind == LocalKind::Temp)
+        self.local_decl(local)
+            .is_some_and(|decl| decl.kind == LocalKind::Temp)
     }
 
     /// Whether `local` is a temporary assigned once and read once.
@@ -832,7 +870,10 @@ impl MirFunction {
     /// This function's locals and blocks.
     #[must_use]
     pub fn body(&self) -> Body<'_> {
-        Body { locals: &self.locals, blocks: &self.blocks }
+        Body {
+            locals: &self.locals,
+            blocks: &self.blocks,
+        }
     }
 
     /// This body with its owner, signature and entry.
@@ -894,7 +935,10 @@ impl MirClosure {
     /// This closure's locals and blocks.
     #[must_use]
     pub fn body(&self) -> Body<'_> {
-        Body { locals: &self.locals, blocks: &self.blocks }
+        Body {
+            locals: &self.locals,
+            blocks: &self.blocks,
+        }
     }
 
     /// This body with its owner, signature and entry.
@@ -923,7 +967,10 @@ impl MirClosure {
 }
 
 #[cfg(test)]
-#[expect(clippy::indexing_slicing, reason = "fixtures index their own one block")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "fixtures index their own one block"
+)]
 mod tests {
     //! The read/define contract every analysis relies on, over one function
     //! with locals `%0`..`%2` and a single block.
@@ -947,10 +994,20 @@ mod tests {
     /// A body of temporaries running `statements` and ending in `terminator`.
     fn function(statements: Vec<Statement>, terminator: Terminator) -> MirFunction {
         let span = Span::new(FileId(0), 0, 0);
-        let mut function =
-            MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), TypeId(0), span);
+        let mut function = MirFunction::new(
+            FuncId(0),
+            Symbol(0),
+            HirOrigin::Body(BodyId(0)),
+            TypeId(0),
+            span,
+        );
         for _ in 0_i32..3_i32 {
-            function.push_local(LocalDecl { ty: TypeId(0), kind: LocalKind::Temp, span });
+            function.push_local(LocalDecl {
+                ty: TypeId(0),
+                kind: LocalKind::Temp,
+                span,
+                init: crate::LocalInit::Definite,
+            });
         }
         function.blocks[0].statements = statements;
         function.blocks[0].terminator = Some(terminator);
@@ -976,7 +1033,10 @@ mod tests {
             value: Rvalue::Use(copy(B)),
         };
         assert_eq!(whole.defs(), Some(A));
-        assert!(!whole.reads_local(A), "a whole-local write reads nothing of it");
+        assert!(
+            !whole.reads_local(A),
+            "a whole-local write reads nothing of it"
+        );
         assert!(whole.reads_local(B));
 
         let projected = Statement::AssignPlace {
@@ -987,7 +1047,11 @@ mod tests {
             },
             value: Rvalue::Use(copy(B)),
         };
-        assert_eq!(projected.defs(), None, "a projection mutates, it does not define");
+        assert_eq!(
+            projected.defs(),
+            None,
+            "a projection mutates, it does not define"
+        );
         for local in [A, B, C] {
             assert!(projected.reads_local(local), "{local:?} is read");
         }
@@ -1009,7 +1073,10 @@ mod tests {
             index: Box::new(copy(B)),
             negative: crate::NegativeIndex::OutOfRange,
         });
-        let push = Rvalue::DictEntryPush { entry: entry.clone(), item: copy(C) };
+        let push = Rvalue::DictEntryPush {
+            entry: entry.clone(),
+            item: copy(C),
+        };
         assert_eq!(push.mutated_receiver(), Some(&entry));
         let mut read = Vec::new();
         push.read_locals(|local| read.push(local));
@@ -1019,28 +1086,44 @@ mod tests {
     #[test]
     fn fallibility_is_stated_per_op_not_per_family() {
         use smelt_hir::{UriTranscodeOp, UrlField, UrlOp};
-        let uri = |op| Rvalue::UriTranscode { op, operand: copy(A) };
+        let uri = |op| Rvalue::UriTranscode {
+            op,
+            operand: copy(A),
+        };
         // Every URI transcoder can throw a `URIError`: a decoder on malformed
         // percent-encoding, an encoder on a lone surrogate (which made the
         // encoders fallible; the URL ops below still differ per op).
         assert!(uri(UriTranscodeOp::Decode).is_fallible());
         assert!(uri(UriTranscodeOp::Encode).is_fallible());
         assert!(uri(UriTranscodeOp::EncodeComponent).is_fallible());
-        let url = |op| Rvalue::UrlOp { op, url: copy(A), args: Vec::new() };
+        let url = |op| Rvalue::UrlOp {
+            op,
+            url: copy(A),
+            args: Vec::new(),
+        };
         assert!(url(UrlOp::Set(UrlField::Href)).is_fallible());
         assert!(!url(UrlOp::Set(UrlField::Hash)).is_fallible());
         assert!(!url(UrlOp::Get(UrlField::Href)).is_fallible());
-        assert!(Rvalue::UrlNew { input: copy(A), base: None }.is_fallible());
+        assert!(
+            Rvalue::UrlNew {
+                input: copy(A),
+                base: None
+            }
+            .is_fallible()
+        );
         assert!(!Rvalue::Use(copy(A)).is_fallible());
     }
 
     #[test]
     fn a_call_terminator_reads_the_operands_of_the_op_it_carries() {
         let mut terminator = Terminator::Call {
-            callee: Callee::Op(Box::new(Rvalue::UrlNew {
-                input: copy(A),
-                base: Some(copy(B)),
-            }), None),
+            callee: Callee::Op(
+                Box::new(Rvalue::UrlNew {
+                    input: copy(A),
+                    base: Some(copy(B)),
+                }),
+                None,
+            ),
             args: Vec::new(),
             dest: C,
             target: BlockId(0),
@@ -1077,9 +1160,15 @@ mod tests {
             items: Vec::new(),
             mutate,
         };
-        assert_eq!(splice(true).mutated_receiver().and_then(Operand::local), Some(A));
+        assert_eq!(
+            splice(true).mutated_receiver().and_then(Operand::local),
+            Some(A)
+        );
         assert!(splice(false).mutated_receiver().is_none());
-        let unshift = Rvalue::ListUnshift { list: copy(A), items: Vec::new() };
+        let unshift = Rvalue::ListUnshift {
+            list: copy(A),
+            items: Vec::new(),
+        };
         assert_eq!(unshift.mutated_receiver().and_then(Operand::local), Some(A));
         assert!(Rvalue::Use(copy(A)).mutated_receiver().is_none());
     }
@@ -1089,8 +1178,14 @@ mod tests {
     fn assignment_count_sees_every_definition() {
         let body = function(
             vec![
-                Statement::Assign { dest: A, value: Rvalue::Use(copy(B)) },
-                Statement::AssignPlace { place: Place::Local(A), value: Rvalue::Use(copy(B)) },
+                Statement::Assign {
+                    dest: A,
+                    value: Rvalue::Use(copy(B)),
+                },
+                Statement::AssignPlace {
+                    place: Place::Local(A),
+                    value: Rvalue::Use(copy(B)),
+                },
             ],
             indirect_call(B, Vec::new(), A),
         );

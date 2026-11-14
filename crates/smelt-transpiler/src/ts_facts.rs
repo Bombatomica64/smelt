@@ -22,10 +22,10 @@ use std::path::Path;
 use smelt_stdlib::DiagnosticCategory;
 use smelt_ts_model::{TsDiagnostic, TsDiagnosticCategory, TsTypeFacts};
 
-use crate::lowering::{ManifestDiagnostic, Severity, source_line_column};
-use crate::type_gate::LanguageCheck;
 use crate::check_program::{CrossLanguageStubs, ModuleGraph, checker_location};
+use crate::lowering::{ManifestDiagnostic, Severity, source_line_column};
 use crate::manifest::ManifestSource;
+use crate::type_gate::LanguageCheck;
 
 /// Environment switch: `SMELT_TS7=0` lowers without checker facts (A/B runs).
 const DISABLE_VAR: &str = "SMELT_TS7";
@@ -168,7 +168,10 @@ fn checker_diagnostic(
         },
     );
     Some(ManifestDiagnostic {
-        file: found.map_or_else(|| file.to_owned(), |source| source.path.display().to_string()),
+        file: found.map_or_else(
+            || file.to_owned(),
+            |source| source.path.display().to_string(),
+        ),
         category: DiagnosticCategory::TypeCheck,
         code,
         message,
@@ -185,14 +188,23 @@ const IMPLICIT_ANY_PARAMETER: [i32; 2] = [7006, 7031];
 /// For each source that imports an untyped package (one Smelt resolved to
 /// nothing, `ManifestSource::unresolved_packages`), the parameter ranges of
 /// the callbacks its calls receive.
-fn untyped_callback_parameters<'graph>(graph: &ModuleGraph<'graph>) -> HashMap<&'graph Path, Vec<(u32, u32)>> {
+fn untyped_callback_parameters<'graph>(
+    graph: &ModuleGraph<'graph>,
+) -> HashMap<&'graph Path, Vec<(u32, u32)>> {
     graph
         .sources()
         .iter()
         .filter(|source| !source.unresolved_packages.is_empty())
         .map(|source| {
-            let modules = source.unresolved_packages.iter().map(String::as_str).collect::<Vec<_>>();
-            (source.path.as_path(), smelt_frontend_ts::untyped_callback_parameter_spans(&source.source, &modules))
+            let modules = source
+                .unresolved_packages
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            (
+                source.path.as_path(),
+                smelt_frontend_ts::untyped_callback_parameter_spans(&source.source, &modules),
+            )
         })
         .collect()
 }
@@ -224,18 +236,31 @@ fn unresolved_specifier(diagnostic: &TsDiagnostic) -> Option<&str> {
 /// Facts are filed under each source's path exactly as lowered.
 #[cfg(feature = "ts7")]
 pub(crate) fn analyze_graph(graph: &ModuleGraph<'_>, stubs: &CrossLanguageStubs) -> TsCheck {
-    if !graph.sources().iter().any(|source| source.lang.is_typescript()) {
+    if !graph
+        .sources()
+        .iter()
+        .any(|source| source.lang.is_typescript())
+    {
         return TsCheck::default();
     }
     if std::env::var(DISABLE_VAR).is_ok_and(|value| value == "0") {
-        return TsCheck { facts: None, status: TsStatus::Disabled("the TypeScript checker is off (`SMELT_TS7=0`)") };
+        return TsCheck {
+            facts: None,
+            status: TsStatus::Disabled("the TypeScript checker is off (`SMELT_TS7=0`)"),
+        };
     }
     let program = crate::check_program::typescript_program(graph, stubs);
     match crate::timing::measure("manifest.ts7_check", || {
         smelt_ts_types::analyze_program(program, smelt_ts_types::Spellings::Omitted)
     }) {
-        Ok(facts) => TsCheck { facts: Some(facts), status: TsStatus::Ran },
-        Err(error) => TsCheck { facts: None, status: TsStatus::Failed(error.to_string()) },
+        Ok(facts) => TsCheck {
+            facts: Some(facts),
+            status: TsStatus::Ran,
+        },
+        Err(error) => TsCheck {
+            facts: None,
+            status: TsStatus::Failed(error.to_string()),
+        },
     }
 }
 
@@ -244,12 +269,18 @@ pub(crate) fn analyze_graph(graph: &ModuleGraph<'_>, stubs: &CrossLanguageStubs)
 #[cfg(not(feature = "ts7"))]
 pub(crate) fn analyze_graph(graph: &ModuleGraph<'_>, _stubs: &CrossLanguageStubs) -> TsCheck {
     let _ = DISABLE_VAR;
-    if !graph.sources().iter().any(|source| source.lang.is_typescript()) {
+    if !graph
+        .sources()
+        .iter()
+        .any(|source| source.lang.is_typescript())
+    {
         return TsCheck::default();
     }
     TsCheck {
         facts: None,
-        status: TsStatus::Disabled("this smelt was built without the TypeScript checker (feature `ts7`)"),
+        status: TsStatus::Disabled(
+            "this smelt was built without the TypeScript checker (feature `ts7`)",
+        ),
     }
 }
 
@@ -260,7 +291,10 @@ mod tests {
     /// A checker that failed vouches for nothing, and says why.
     #[test]
     fn a_checker_failure_is_unverified() {
-        let check = TsCheck { facts: None, status: TsStatus::Failed("thread panicked".to_owned()) };
+        let check = TsCheck {
+            facts: None,
+            status: TsStatus::Failed("thread panicked".to_owned()),
+        };
         let verdict = check.language_check(&ModuleGraph::new(&[]));
         assert!(
             matches!(&verdict, LanguageCheck::Unverified(reason) if reason.contains("thread panicked")),
@@ -271,13 +305,22 @@ mod tests {
     /// A run without TypeScript sources has nothing to vouch for.
     #[test]
     fn no_sources_is_absent() {
-        assert!(matches!(TsCheck::default().language_check(&ModuleGraph::new(&[])), LanguageCheck::Absent));
+        assert!(matches!(
+            TsCheck::default().language_check(&ModuleGraph::new(&[])),
+            LanguageCheck::Absent
+        ));
     }
 
     /// A disabled checker is not a pass: nothing vouches for the sources.
     #[test]
     fn a_disabled_checker_is_unverified() {
-        let check = TsCheck { facts: None, status: TsStatus::Disabled("off") };
-        assert!(matches!(check.language_check(&ModuleGraph::new(&[])), LanguageCheck::Unverified(_)));
+        let check = TsCheck {
+            facts: None,
+            status: TsStatus::Disabled("off"),
+        };
+        assert!(matches!(
+            check.language_check(&ModuleGraph::new(&[])),
+            LanguageCheck::Unverified(_)
+        ));
     }
 }

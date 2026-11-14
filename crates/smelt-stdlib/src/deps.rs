@@ -128,17 +128,36 @@ impl CrateRequirement {
         default_features: bool,
         features: &'static [&'static str],
     ) -> Self {
-        Self { name, version, default_features, features }
+        Self {
+            name,
+            version,
+            default_features,
+            features,
+        }
     }
 
     /// A crate at `version` with its default features and nothing more.
     const fn plain(name: &'static str, version: &'static str) -> Self {
-        Self { name, version, default_features: true, features: &[] }
+        Self {
+            name,
+            version,
+            default_features: true,
+            features: &[],
+        }
     }
 
     /// A crate at `version` with its default features plus `features`.
-    const fn with(name: &'static str, version: &'static str, features: &'static [&'static str]) -> Self {
-        Self { name, version, default_features: true, features }
+    const fn with(
+        name: &'static str,
+        version: &'static str,
+        features: &'static [&'static str],
+    ) -> Self {
+        Self {
+            name,
+            version,
+            default_features: true,
+            features,
+        }
     }
 
     /// The `name = ...` line a generated `Cargo.toml` carries for this crate.
@@ -152,7 +171,11 @@ impl CrateRequirement {
             entries.push("default-features = false".to_owned());
         }
         if !self.features.is_empty() {
-            let listed = self.features.iter().map(|feature| format!("\"{feature}\"")).collect::<Vec<_>>();
+            let listed = self
+                .features
+                .iter()
+                .map(|feature| format!("\"{feature}\""))
+                .collect::<Vec<_>>();
             entries.push(format!("features = [{}]", listed.join(", ")));
         }
         format!("{} = {{ {} }}\n", self.name, entries.join(", "))
@@ -166,7 +189,8 @@ impl CrateRequirement {
 /// generates is `Rc`-based and so cannot cross a work-stealing runtime's
 /// threads. `net` and `sync` come with it rather than with `hyper` because the
 /// accept loop's listener and its shutdown channel are tokio's.
-pub const TOKIO: CrateRequirement = CrateRequirement::with("tokio", "1", &["macros", "rt", "time", "net", "sync"]);
+pub const TOKIO: CrateRequirement =
+    CrateRequirement::with("tokio", "1", &["macros", "rt", "time", "net", "sync"]);
 
 /// `genawaiter` for resumable synchronous generator state machines.
 pub const GENAWAITER: CrateRequirement = CrateRequirement::plain("genawaiter", "0.99.1");
@@ -197,16 +221,19 @@ impl BackendDependency {
 
     /// The crates this dependency brings into a generated manifest.
     #[must_use]
-    #[expect(clippy::too_many_lines, reason = "one table entry per dependency, each with its reason")]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one table entry per dependency, each with its reason"
+    )]
     pub const fn crates(self) -> &'static [CrateRequirement] {
         match self {
             Self::Reqwest => {
                 const CRATES: &[CrateRequirement] = &[CrateRequirement {
-                name: "reqwest",
-                version: "0.12",
-                default_features: false,
-                features: &["blocking", "rustls-tls"],
-            }];
+                    name: "reqwest",
+                    version: "0.12",
+                    default_features: false,
+                    features: &["blocking", "rustls-tls"],
+                }];
                 CRATES
             }
             // `preserve_order`: a parsed JSON object keeps its source key
@@ -215,17 +242,21 @@ impl BackendDependency {
             // with its keys sorted.
             Self::SerdeJson => {
                 const CRATES: &[CrateRequirement] = &[
-                CrateRequirement::with("serde", "1", &["derive"]),
-                CrateRequirement::with("serde_json", "1", &["preserve_order"]),
-            ];
+                    CrateRequirement::with("serde", "1", &["derive"]),
+                    CrateRequirement::with("serde_json", "1", &["preserve_order"]),
+                ];
                 CRATES
             }
             Self::Regex => {
-                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("regex", "1"), CrateRequirement::plain("fancy-regex", "0.14")];
+                const CRATES: &[CrateRequirement] = &[
+                    CrateRequirement::plain("regex", "1"),
+                    CrateRequirement::plain("fancy-regex", "0.14"),
+                ];
                 CRATES
             }
             Self::Regress => {
-                const CRATES: &[CrateRequirement] = &[CrateRequirement::with("regress", "0.10", &["utf16"])];
+                const CRATES: &[CrateRequirement] =
+                    &[CrateRequirement::with("regress", "0.10", &["utf16"])];
                 CRATES
             }
             Self::Rand => {
@@ -245,7 +276,8 @@ impl BackendDependency {
                 CRATES
             }
             Self::UnicodeNormalization => {
-                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("unicode-normalization", "0.1")];
+                const CRATES: &[CrateRequirement] =
+                    &[CrateRequirement::plain("unicode-normalization", "0.1")];
                 CRATES
             }
             // `server` and `http1` are the whole of what a `createServer`
@@ -255,12 +287,12 @@ impl BackendDependency {
             // `server` features for the same reason.
             Self::Hyper => {
                 const CRATES: &[CrateRequirement] = &[
-                CrateRequirement::with("hyper", "1", &["server", "http1"]),
-                CrateRequirement::with("hyper-util", "0.1", &["tokio", "server"]),
-                CrateRequirement::plain("http-body-util", "0.1"),
-                CrateRequirement::plain("http", "1"),
-                CrateRequirement::plain("bytes", "1"),
-            ];
+                    CrateRequirement::with("hyper", "1", &["server", "http1"]),
+                    CrateRequirement::with("hyper-util", "0.1", &["tokio", "server"]),
+                    CrateRequirement::plain("http-body-util", "0.1"),
+                    CrateRequirement::plain("http", "1"),
+                    CrateRequirement::plain("bytes", "1"),
+                ];
                 CRATES
             }
             // `v4` is the only generator `randomUUID` names, and it is the only
@@ -275,7 +307,10 @@ impl BackendDependency {
                 CRATES
             }
             Self::Sha => {
-                const CRATES: &[CrateRequirement] = &[CrateRequirement::plain("sha1", "0.10"), CrateRequirement::plain("sha2", "0.10")];
+                const CRATES: &[CrateRequirement] = &[
+                    CrateRequirement::plain("sha1", "0.10"),
+                    CrateRequirement::plain("sha2", "0.10"),
+                ];
                 CRATES
             }
             // The MAC over the same `digest`-trait hashers `Sha` brings; a
@@ -293,15 +328,16 @@ impl BackendDependency {
                 CRATES
             }
             Self::Rusqlite => {
-                const CRATES: &[CrateRequirement] = &[CrateRequirement::with("rusqlite", "0.32", &["bundled"])];
+                const CRATES: &[CrateRequirement] =
+                    &[CrateRequirement::with("rusqlite", "0.32", &["bundled"])];
                 CRATES
             }
             Self::BigInt => {
                 const CRATES: &[CrateRequirement] = &[
-                CrateRequirement::plain("num-bigint", "0.4"),
-                CrateRequirement::plain("num-traits", "0.2"),
-                CrateRequirement::plain("num-integer", "0.1"),
-            ];
+                    CrateRequirement::plain("num-bigint", "0.4"),
+                    CrateRequirement::plain("num-traits", "0.2"),
+                    CrateRequirement::plain("num-integer", "0.1"),
+                ];
                 CRATES
             }
             Self::IndexMap => {
@@ -314,7 +350,10 @@ impl BackendDependency {
     /// The generated `Cargo.toml` dependency lines for this backend crate.
     #[must_use]
     pub fn cargo_dependency(self) -> String {
-        self.crates().iter().map(CrateRequirement::manifest_line).collect()
+        self.crates()
+            .iter()
+            .map(CrateRequirement::manifest_line)
+            .collect()
     }
 }
 
@@ -327,7 +366,10 @@ mod tests {
     fn every_dependency_is_listed_once() {
         for (index, dependency) in BackendDependency::ALL.iter().enumerate() {
             assert!(
-                !BackendDependency::ALL.iter().take(index).any(|earlier| earlier == dependency),
+                !BackendDependency::ALL
+                    .iter()
+                    .take(index)
+                    .any(|earlier| earlier == dependency),
                 "{dependency:?} is listed twice"
             );
         }
@@ -340,7 +382,13 @@ mod tests {
             BackendDependency::Reqwest.cargo_dependency(),
             "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n"
         );
-        assert_eq!(BackendDependency::Regex.cargo_dependency(), "regex = \"1\"\nfancy-regex = \"0.14\"\n");
-        assert_eq!(BackendDependency::Uuid.cargo_dependency(), "uuid = { version = \"1\", features = [\"v4\"] }\n");
+        assert_eq!(
+            BackendDependency::Regex.cargo_dependency(),
+            "regex = \"1\"\nfancy-regex = \"0.14\"\n"
+        );
+        assert_eq!(
+            BackendDependency::Uuid.cargo_dependency(),
+            "uuid = { version = \"1\", features = [\"v4\"] }\n"
+        );
     }
 }

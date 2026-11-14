@@ -45,8 +45,8 @@ use std::collections::{HashMap, HashSet};
 use smelt_hir::{BinOp, IntWidth, Language, PrimitiveCastOp, Type, TypeId, TypeInterner, UnaryOp};
 
 use crate::{
-    BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId,
-    LocalKind, Mir, Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, BlockId, Constant, GlobalProjection, LocalDecl, LocalId, LocalKind, Mir, Operand,
+    Place, Rvalue, Statement, Terminator,
 };
 
 /// Largest magnitude at which every integer is exactly an `f64`.
@@ -104,7 +104,12 @@ impl IntegerRange {
                 continue;
             }
             let mut excluded: HashSet<LocalId> = closure.params.iter().copied().collect();
-            excluded.extend(closure.captures.iter().filter_map(|capture| capture.target_local));
+            excluded.extend(
+                closure
+                    .captures
+                    .iter()
+                    .filter_map(|capture| capture.target_local),
+            );
             changed |= retype_body(
                 &mut closure.locals,
                 &mut closure.blocks,
@@ -327,9 +332,9 @@ fn integral_constant(constant: &Constant) -> Option<i128> {
 fn is_integer_operand(operand: &Operand, candidates: &Candidates) -> bool {
     match operand {
         Operand::Const(constant) => integral_constant(constant).is_some(),
-        Operand::Copy(_) | Operand::Move(_) => {
-            operand.local().is_some_and(|local| candidates.contains(local))
-        }
+        Operand::Copy(_) | Operand::Move(_) => operand
+            .local()
+            .is_some_and(|local| candidates.contains(local)),
     }
 }
 
@@ -428,8 +433,10 @@ fn retype_body(
     // Interned in local order, not `widths`' hash order: a new width's
     // `TypeId` is its position in the table, which must not depend on hash
     // iteration.
-    let mut ordered: Vec<(LocalId, IntWidth)> =
-        widths.iter().map(|(local, width)| (*local, *width)).collect();
+    let mut ordered: Vec<(LocalId, IntWidth)> = widths
+        .iter()
+        .map(|(local, width)| (*local, *width))
+        .collect();
     ordered.sort_by_key(|(local, _)| local.0);
     let retyped: Vec<(LocalId, TypeId)> = ordered
         .into_iter()
@@ -510,7 +517,9 @@ fn useful_locals(
         let terminator_operands: Vec<&Operand> = match &block.terminator {
             Some(Terminator::Call { args, .. }) => args.iter().collect(),
             Some(
-                Terminator::Await { future: operand, .. }
+                Terminator::Await {
+                    future: operand, ..
+                }
                 | Terminator::Switch { cond: operand, .. }
                 | Terminator::Match {
                     scrutinee: operand, ..
@@ -541,10 +550,7 @@ fn useful_locals(
 }
 
 /// Candidates defined at least once as `a + b` or `a - b`.
-fn stepped_locals(
-    blocks: &[BasicBlock],
-    definitions: &Definitions,
-) -> HashSet<LocalId> {
+fn stepped_locals(blocks: &[BasicBlock], definitions: &Definitions) -> HashSet<LocalId> {
     definitions
         .iter()
         .filter(|(_, sites)| {
@@ -578,7 +584,9 @@ fn widening_thresholds(blocks: &[BasicBlock]) -> Vec<i128> {
     };
     for block in blocks {
         for statement in &block.statements {
-            if let Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } = statement {
+            if let Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } =
+                statement
+            {
                 value.reads(&mut record);
             }
         }
@@ -615,8 +623,9 @@ fn collect_escaping_locals(blocks: &[BasicBlock], excluded: &mut HashSet<LocalId
                 }
             }
         }
-        if let Some(Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. }) =
-            &block.terminator
+        if let Some(
+            Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. },
+        ) = &block.terminator
         {
             excluded.insert(*dest);
             if let Some(local) = unwind.and_then(|handler| handler.exception_local) {
@@ -697,13 +706,7 @@ impl Analysis<'_> {
 
     /// The state that assumes nothing: every candidate may hold any integer.
     fn top_state(&self) -> Vec<Option<Interval>> {
-        vec![
-            Some(Interval {
-                lo: None,
-                hi: None
-            });
-            self.candidates.locals.len()
-        ]
+        vec![Some(Interval { lo: None, hi: None }); self.candidates.locals.len()]
     }
 
     /// Blocks that an exception handler enters.
@@ -875,10 +878,7 @@ impl Analysis<'_> {
                     .sub(self.operand_interval(rhs, state)?),
             ),
             Rvalue::Len { .. } => Some(Interval::new(Some(0), Some(MAX_LENGTH))),
-            _ => Some(Interval {
-                lo: None,
-                hi: None,
-            }),
+            _ => Some(Interval { lo: None, hi: None }),
         }
     }
 
@@ -886,20 +886,17 @@ impl Analysis<'_> {
     /// local holds nothing yet. Anything else is unbounded.
     fn operand_interval(&self, operand: &Operand, state: &[Option<Interval>]) -> Option<Interval> {
         if let Operand::Const(constant) = operand {
-            return Some(integral_constant(constant).map_or(
-                Interval {
-                    lo: None,
-                    hi: None,
-                },
-                Interval::point,
-            ));
+            return Some(
+                integral_constant(constant)
+                    .map_or(Interval { lo: None, hi: None }, Interval::point),
+            );
         }
-        match operand.local().and_then(|local| self.candidates.index.get(&local)) {
+        match operand
+            .local()
+            .and_then(|local| self.candidates.index.get(&local))
+        {
             Some(&position) => state[position],
-            None => Some(Interval {
-                lo: None,
-                hi: None,
-            }),
+            None => Some(Interval { lo: None, hi: None }),
         }
     }
 
@@ -942,20 +939,18 @@ impl Analysis<'_> {
         let mut negated = false;
         let mut cursor = statements.len();
         loop {
-            let (position, value) = statements[..cursor]
-                .iter()
-                .enumerate()
-                .rev()
-                .find_map(|(position, statement)| match statement {
-                    Statement::Assign { dest, value } if *dest == target => {
-                        Some((position, value))
-                    }
+            let (position, value) = statements[..cursor].iter().enumerate().rev().find_map(
+                |(position, statement)| match statement {
+                    Statement::Assign { dest, value } if *dest == target => Some((position, value)),
                     Statement::AssignPlace {
                         place: Place::Local(dest),
                         value,
                     } if *dest == target => Some((position, value)),
-                    Statement::Assign { .. } | Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => None,
-                })?;
+                    Statement::Assign { .. }
+                    | Statement::AssignPlace { .. }
+                    | Statement::DictEntryUpdate { .. } => None,
+                },
+            )?;
             match value {
                 Rvalue::Unary {
                     op: UnaryOp::Not,
@@ -1017,7 +1012,9 @@ impl Analysis<'_> {
                     place: Place::Local(dest),
                     value,
                 } if *dest == compared => Some((position, value)),
-                Statement::Assign { .. } | Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => None,
+                Statement::Assign { .. }
+                | Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. } => None,
             },
         )?;
         let (base, offset) = match value {
@@ -1084,8 +1081,9 @@ impl Analysis<'_> {
             return None;
         }
         for (operand, refined) in [(lhs, left), (rhs, right)] {
-            if let Some(&position) =
-                operand.local().and_then(|local| self.candidates.index.get(&local))
+            if let Some(&position) = operand
+                .local()
+                .and_then(|local| self.candidates.index.get(&local))
             {
                 state[position] = Some(refined);
             }
@@ -1123,15 +1121,17 @@ impl Analysis<'_> {
         // Each block is swept once, stopping at its definitions in statement
         // order: replaying the prefix per definition is quadratic in a long block.
         let mut by_block: HashMap<usize, Vec<DefinitionStop>> = HashMap::new();
-        let mut values: Vec<Vec<DefinitionValue>> = Vec::with_capacity(self.candidates.locals.len());
+        let mut values: Vec<Vec<DefinitionValue>> =
+            Vec::with_capacity(self.candidates.locals.len());
         for (position, local) in self.candidates.locals.iter().enumerate() {
             let local_definitions = definitions.get(local).map_or(&[][..], Vec::as_slice);
             values.push(vec![None; local_definitions.len()]);
             for (ordinal, definition) in local_definitions.iter().enumerate() {
-                by_block
-                    .entry(definition.block)
-                    .or_default()
-                    .push((definition.statement, position, ordinal));
+                by_block.entry(definition.block).or_default().push((
+                    definition.statement,
+                    position,
+                    ordinal,
+                ));
             }
         }
         for (block, mut stops) in by_block {
@@ -1230,20 +1230,25 @@ fn accepted_locals(
             .iter()
             .copied()
             .filter(|local| {
-                definitions.get(local).into_iter().flatten().any(|definition| {
-                    let mut reads_rejected = false;
-                    if let Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } =
-                        &blocks[definition.block].statements[definition.statement]
-                        && !matches!(value, Rvalue::Len { .. })
-                    {
-                        value.reads(|operand| {
-                            if let Some(read) = operand.local() {
-                                reads_rejected |= !accepted.contains(&read);
-                            }
-                        });
-                    }
-                    reads_rejected
-                })
+                definitions
+                    .get(local)
+                    .into_iter()
+                    .flatten()
+                    .any(|definition| {
+                        let mut reads_rejected = false;
+                        if let Statement::Assign { value, .. }
+                        | Statement::AssignPlace { value, .. } =
+                            &blocks[definition.block].statements[definition.statement]
+                            && !matches!(value, Rvalue::Len { .. })
+                        {
+                            value.reads(|operand| {
+                                if let Some(read) = operand.local() {
+                                    reads_rejected |= !accepted.contains(&read);
+                                }
+                            });
+                        }
+                        reads_rejected
+                    })
             })
             .collect();
         if rejected.is_empty() {
@@ -1291,7 +1296,11 @@ fn choose_widths(
     let mut signed_members: Vec<LocalId> = accepted
         .iter()
         .copied()
-        .filter(|local| hulls.get(local).is_some_and(|hull| hull.lo.is_none_or(|lo| lo < 0)))
+        .filter(|local| {
+            hulls
+                .get(local)
+                .is_some_and(|hull| hull.lo.is_none_or(|lo| lo < 0))
+        })
         .collect();
     for block in blocks {
         for statement in &block.statements {
@@ -1378,12 +1387,17 @@ fn accepted_comparison(
     let Rvalue::Binary { op, lhs, rhs } = value else {
         return None;
     };
-    if !is_comparison(*op) || !is_integer_operand(lhs, candidates) || !is_integer_operand(rhs, candidates)
+    if !is_comparison(*op)
+        || !is_integer_operand(lhs, candidates)
+        || !is_integer_operand(rhs, candidates)
     {
         return None;
     }
-    let side_ok =
-        |operand: &Operand| operand.local().is_none_or(|local| accepted.contains(&local));
+    let side_ok = |operand: &Operand| {
+        operand
+            .local()
+            .is_none_or(|local| accepted.contains(&local))
+    };
     let any_local = [lhs, rhs]
         .into_iter()
         .any(|operand| operand.local().is_some());
@@ -1496,7 +1510,11 @@ impl Rewriter<'_> {
                 if width == IntWidth::Usize
                     && let Some(magnitude) = negative_constant_magnitude(rhs)
                 {
-                    *op = if *op == BinOp::Add { BinOp::Sub } else { BinOp::Add };
+                    *op = if *op == BinOp::Add {
+                        BinOp::Sub
+                    } else {
+                        BinOp::Add
+                    };
                     *rhs = Operand::Const(Constant::Int(magnitude));
                 } else if width == IntWidth::Usize
                     && *op == BinOp::Add
@@ -1585,7 +1603,9 @@ impl Rewriter<'_> {
                     self.rewrite_number_operand(arg, prelude);
                 }
             }
-            Terminator::Await { future: operand, .. }
+            Terminator::Await {
+                future: operand, ..
+            }
             | Terminator::Switch { cond: operand, .. }
             | Terminator::Match {
                 scrutinee: operand, ..
@@ -1604,6 +1624,7 @@ impl Rewriter<'_> {
             ty: self.float,
             kind: LocalKind::Temp,
             span,
+            init: crate::LocalInit::Definite,
         });
         prelude.push(Statement::Assign {
             dest: temp,
@@ -1675,7 +1696,11 @@ mod tests {
             .lines()
             .find(|line| line.contains(&needle))
             .unwrap_or_else(|| panic!("no binding {name} in {function}:\n{body}"));
-        line.split(&needle).nth(1).unwrap_or_default().trim().to_owned()
+        line.split(&needle)
+            .nth(1)
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
     }
 
     #[test]

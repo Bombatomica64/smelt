@@ -1,7 +1,7 @@
 //! Rendering a call: the callee shape decides the call form and its arguments.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 use smelt_hir::FunctionType;
 
 /// A rendered call, and whether it propagates the callee's error.
@@ -15,6 +15,10 @@ pub(super) struct RenderedCall {
     call: RustExpr,
     /// Whether the call yields a `Result` this body propagates with `?`.
     propagates: bool,
+    /// Whether the call text suspends (holds an `.await`): a `try` must then
+    /// match on its `Result` in place instead of running it in a
+    /// `catch_unwind` closure, which cannot await.
+    suspends: bool,
 }
 
 impl From<RustExpr> for RenderedCall {
@@ -30,6 +34,7 @@ impl RenderedCall {
         Self {
             call: call.into(),
             propagates: false,
+            suspends: false,
         }
     }
 
@@ -38,6 +43,7 @@ impl RenderedCall {
         Self {
             call: call.into(),
             propagates: true,
+            suspends: false,
         }
     }
 
@@ -46,6 +52,7 @@ impl RenderedCall {
         Self {
             call: call.into(),
             propagates,
+            suspends: false,
         }
     }
 
@@ -56,6 +63,20 @@ impl RenderedCall {
         } else {
             self.call
         }
+    }
+
+    /// A `Result`-valued call whose text suspends (see [`Self::suspends`]).
+    pub(super) fn propagating_suspending(call: impl Into<RustExpr>) -> Self {
+        Self {
+            call: call.into(),
+            propagates: true,
+            suspends: true,
+        }
+    }
+
+    /// Whether the call text holds an `.await`, so it cannot run in a closure.
+    pub(super) const fn suspends(&self) -> bool {
+        self.suspends
     }
 
     /// Whether the call propagates the callee's error.
@@ -71,7 +92,11 @@ impl RenderedCall {
     /// This call with its text rewritten by `rewrite`, keeping whether it
     /// propagates (the text is a `Result` exactly when it does).
     pub(super) fn map_call(self, rewrite: impl FnOnce(&RustExpr) -> String) -> Self {
-        Self { call: RustExpr::chain(rewrite(&self.call)), propagates: self.propagates }
+        Self {
+            call: RustExpr::chain(rewrite(&self.call)),
+            propagates: self.propagates,
+            suspends: self.suspends,
+        }
     }
 }
 
@@ -83,9 +108,16 @@ impl From<String> for RenderedCall {
 
 impl FunctionEmitter<'_> {
     /// Converts a function call to its Rust text representation.
-    pub(super) fn rendered_call(&self, callee: &Callee, args: &[Operand]) -> Result<RenderedCall, EmitError> {
+    pub(super) fn rendered_call(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest_ty: Option<TypeId>,
+    ) -> Result<RenderedCall, EmitError> {
         match callee {
-            Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => self.console_log_call(*absent, args),
+            Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
+                self.console_log_call(*absent, args)
+            }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
                 // `process.stdout.write` takes a string, so the optional arm is
                 // unreachable from here; the TypeScript spelling is the right
@@ -100,10 +132,13 @@ impl FunctionEmitter<'_> {
                 } else {
                     "eprint"
                 };
-                Ok(RustExpr::atom(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}")).into())
+                Ok(
+                    RustExpr::atom(format!("{{ {macro_name}!(\"{format_spec}\", {value}); }}"))
+                        .into(),
+                )
             }
             Callee::Op(op, Some(ty)) => Ok(self.rvalue_expr_for_dest(op, *ty)?.into()),
-            Callee::Op(op, None) => Ok(self.fallible_op_call(op)?.text),
+            Callee::Op(op, None) => Ok(self.fallible_op_call(op, dest_ty)?.text),
             Callee::BaseInit(func) => self.base_initializer_call(*func, args),
             Callee::Static(func) => self.static_call(*func, args),
             Callee::Indirect(indirect_callee) => self.indirect_call(indirect_callee, args),
@@ -113,10 +148,7 @@ impl FunctionEmitter<'_> {
     /// Render arguments for a call into an erased `SmeltErasedFunction`, erasing
     /// each to `SmeltUnknown` and packing them into the `vec![..]` the runtime
     /// `.call(..)` method consumes.
-    pub(super) fn erased_call_args_expr(
-        &self,
-        args: &[Operand],
-    ) -> Result<RustExpr, EmitError> {
+    pub(super) fn erased_call_args_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let rendered = args
             .iter()
@@ -145,7 +177,8 @@ impl FunctionEmitter<'_> {
         function: &FunctionType,
         args: &[Operand],
     ) -> Result<RustExpr, EmitError> {
-        self.indirect_call_args_text_with_abi(function, args, None, None).map(RustExpr::from)
+        self.indirect_call_args_text_with_abi(function, args, None, None)
+            .map(RustExpr::from)
     }
 
     /// `indirect_call_args_expr`, with the DECLARED parameter types that decide
@@ -181,35 +214,34 @@ impl FunctionEmitter<'_> {
                 .and_then(|params| params.get(index).copied())
                 .unwrap_or(substituted)
         };
-        let mut rendered_args = args
-            .iter()
-            .enumerate()
-            .map(|(index, arg)| {
-                let target_ty = function
-                    .params
-                    .get(index)
-                    .copied()
-                    .ok_or_else(|| EmitError::new("indirect call has too many arguments"))?;
-                if function.mutable_params.contains(&index) {
-                    self.mutable_reference_argument_expr(arg, target_ty, None)
-                } else if self.callback_param_is_shared_reference(
-                    function,
-                    index,
-                    abi_param(index, target_ty),
-                ) {
-                    // The parameter is `&T` (see `callback_param_is_shared_reference`).
-                    self.shared_reference_argument_expr(arg, target_ty)
-                } else {
-                    let value = self.closure_value_argument_expr(arg, target_ty)?;
-                    match slot_callee {
-                        Some(callee) => {
-                            self.slot_argument_at_declared_abi(callee, index, target_ty, value)
+        let mut rendered_args =
+            args.iter()
+                .enumerate()
+                .map(|(index, arg)| {
+                    let target_ty =
+                        function.params.get(index).copied().ok_or_else(|| {
+                            EmitError::new("indirect call has too many arguments")
+                        })?;
+                    if self.param_passed_by_mut_ref(function, index) {
+                        self.mutable_reference_argument_expr(arg, target_ty, None)
+                    } else if self.callback_param_is_shared_reference(
+                        function,
+                        index,
+                        abi_param(index, target_ty),
+                    ) {
+                        // The parameter is `&T` (see `callback_param_is_shared_reference`).
+                        self.shared_reference_argument_expr(arg, target_ty)
+                    } else {
+                        let value = self.closure_value_argument_expr(arg, target_ty)?;
+                        match slot_callee {
+                            Some(callee) => {
+                                self.slot_argument_at_declared_abi(callee, index, target_ty, value)
+                            }
+                            None => Ok(value),
                         }
-                        None => Ok(value),
                     }
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+                })
+                .collect::<Result<Vec<_>, _>>()?;
         for (index, target_ty) in function
             .params
             .iter()
@@ -221,7 +253,7 @@ impl FunctionEmitter<'_> {
             // which has no value-shaped default expression to pad with; such a
             // parameter is only reachable through an explicit argument, so stop
             // padding rather than inventing a temporary place for it.
-            if function.mutable_params.contains(&index) {
+            if self.param_passed_by_mut_ref(function, index) {
                 break;
             }
             // A padded argument is a fresh temporary, so a by-shared-reference
@@ -261,18 +293,30 @@ impl FunctionEmitter<'_> {
         let raw_call = if self.function_value_call_is_fallible(function) {
             if unwrap_errors {
                 RustExpr::atom(format!(
-                    "(smelt_function)({rendered_args}).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))", rendered_args = rendered_args.delimited()
+                    "(smelt_function)({rendered_args}).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error))",
+                    rendered_args = rendered_args.delimited()
                 ))
             } else {
-                RustExpr::loose(format!("(smelt_function)({rendered_args})?", rendered_args = rendered_args.delimited()))
+                RustExpr::loose(format!(
+                    "(smelt_function)({rendered_args})?",
+                    rendered_args = rendered_args.delimited()
+                ))
             }
         } else {
-            RustExpr::atom(format!("(smelt_function)({rendered_args})", rendered_args = rendered_args.delimited()))
+            RustExpr::atom(format!(
+                "(smelt_function)({rendered_args})",
+                rendered_args = rendered_args.delimited()
+            ))
         };
-        let coerced_call =
-            self.rendered_at_type(&raw_call, function.return_ty, *inner_dest_ty, &self.render_scope())?;
+        let coerced_call = self.rendered_at_type(
+            &raw_call,
+            function.return_ty,
+            *inner_dest_ty,
+            &self.render_scope(),
+        )?;
         Ok(Some(callee_text.postfix(format!(
-            ".clone().map(|smelt_function| {coerced_call})", coerced_call = coerced_call.delimited()
+            ".clone().map(|smelt_function| {coerced_call})",
+            coerced_call = coerced_call.delimited()
         ))))
     }
 
@@ -301,7 +345,9 @@ impl FunctionEmitter<'_> {
         // rendering and compare.
         #[cfg(debug_assertions)]
         let monomorphization_before_arguments = self.sampled_call_monomorphization(callee, args);
-        let mut call_text = self.rendered_call(callee, args)?.into_expression();
+        let mut call_text = self
+            .rendered_call(callee, args, Some(dest_ty))?
+            .into_expression();
         #[cfg(debug_assertions)]
         self.debug_assert_call_monomorphization_stable(
             &self.sampled_callee_name(callee),
@@ -378,7 +424,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or(function.return_ty)
                 }
             }
-            _ => self.call_source_ty(callee)?,
+            _ => self.call_source_ty(callee, Some(dest_ty))?,
         };
         Ok(source_ty)
     }
@@ -401,7 +447,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(call_text);
         }
-        let rendered = self.rendered_call(callee, args)?;
+        let rendered = self.rendered_call(callee, args, Some(dest_ty))?;
         // A closure body that is itself fallible returns
         // `Result<_, Box<dyn std::error::Error>>`, so a throwing call inside it
         // keeps its `?` and the error stays recoverable for whoever invokes the
@@ -409,7 +455,9 @@ impl FunctionEmitter<'_> {
         // an error (a non-throwing body, or a generator whose `?` would target
         // the step output) collapses the error into a `panic!`.
         let mut call_text = if rendered.propagates() && !self.body_can_propagate_error() {
-            rendered.into_call().postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
+            rendered
+                .into_call()
+                .postfix(".unwrap_or_else(|error| smelt_panic_throw(error))")
         } else {
             rendered.into_expression()
         };
@@ -448,7 +496,9 @@ impl FunctionEmitter<'_> {
                 Some(param) => {
                     self.parameter_needs_mutable_reference_in(function, param)
                         || (matches!(
-                            self.mir.types.get(self.function_local_decl(function, param)?.ty),
+                            self.mir
+                                .types
+                                .get(self.function_local_decl(function, param)?.ty),
                             Some(Type::Function(_))
                         ) && !self.function_parameter_requires_owned_in(function, param)?)
                 }
@@ -458,7 +508,11 @@ impl FunctionEmitter<'_> {
                 continue;
             }
             let name = RustExpr::opaque(format!("smelt_call_arg_{index}"));
-            bindings.push(format!("let {name} = {rendered};", name = name.delimited(), rendered = rendered.delimited()));
+            bindings.push(format!(
+                "let {name} = {rendered};",
+                name = name.delimited(),
+                rendered = rendered.delimited()
+            ));
             *rendered = name;
         }
         Ok(bindings)
@@ -473,7 +527,11 @@ impl FunctionEmitter<'_> {
     /// takes that type's default, as a `Base::new(..)` call does. A throwing
     /// base constructor makes the initializer fallible, so the call carries the
     /// same `?` suffix a throwing `new` does.
-    fn base_initializer_call(&self, func: FuncId, args: &[Operand]) -> Result<RenderedCall, EmitError> {
+    fn base_initializer_call(
+        &self,
+        func: FuncId,
+        args: &[Operand],
+    ) -> Result<RenderedCall, EmitError> {
         let function = self
             .mir
             .functions
@@ -482,7 +540,9 @@ impl FunctionEmitter<'_> {
         let class = crate::base_init::constructor_class(function)
             .ok_or_else(|| EmitError::new("base initializer callee is not a constructor"))?;
         let Some((receiver, rest)) = args.split_first() else {
-            return Err(EmitError::new("base initializer call is missing its receiver"));
+            return Err(EmitError::new(
+                "base initializer call is missing its receiver",
+            ));
         };
         // The initializer is emitted into THIS impl, so its parameters are
         // rendered in the same type-parameter scope as this call: coercing each
@@ -494,9 +554,9 @@ impl FunctionEmitter<'_> {
         // The initializer's parameters are spelled in the derived class's scope
         // (`extends Base<string>` makes `value: T` a `JsString`), so the targets
         // come from the same substituted copy the initializer is emitted from.
-        let substituted = self
-            .base_initializer_owner()
-            .and_then(|owner| crate::classes::substituted_inherited_member(self.mir, function, owner));
+        let substituted = self.base_initializer_owner().and_then(|owner| {
+            crate::classes::substituted_inherited_member(self.mir, function, owner)
+        });
         let declared = substituted.as_ref().unwrap_or(function);
         let mut rendered_args = vec![self.operand_expr(receiver)?];
         for (index, arg) in rest.iter().enumerate() {
@@ -531,13 +591,19 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns the static return type of a call expression.
-    pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
+    pub(super) fn call_source_ty(
+        &self,
+        callee: &Callee,
+        dest_ty: Option<TypeId>,
+    ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Builtin(
-                BuiltinFn::ConsoleLog { .. } | BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite,
+                BuiltinFn::ConsoleLog { .. }
+                | BuiltinFn::ConsoleWrite
+                | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
             Callee::Op(_, Some(ty)) => return Ok(*ty),
-            Callee::Op(op, None) => return Ok(self.fallible_op_call(op)?.source_ty),
+            Callee::Op(op, None) => return Ok(self.fallible_op_call(op, dest_ty)?.source_ty),
             Callee::Static(func) | Callee::BaseInit(func) => {
                 let function = self
                     .mir
@@ -598,7 +664,6 @@ impl FunctionEmitter<'_> {
             })
     }
 
-
     /// `console.log`.
     fn console_log_call(
         &self,
@@ -644,12 +709,7 @@ impl FunctionEmitter<'_> {
                         return self.operand_expr(arg);
                     };
                     let target_ty = self.function_local_decl(function, param)?.ty;
-                    self.callee_generic_argument_expr(
-                        arg,
-                        function,
-                        target_ty,
-                        &class_type_params,
-                    )
+                    self.callee_generic_argument_expr(arg, function, target_ty, &class_type_params)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             for param in function.params.iter().skip(args.len()) {
@@ -671,7 +731,9 @@ impl FunctionEmitter<'_> {
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) || self.is_erased_class_type(self.operand_ty(receiver)?)
             {
-                return self.default_value(function.return_ty).map(RenderedCall::from);
+                return self
+                    .default_value(function.return_ty)
+                    .map(RenderedCall::from);
             }
             let receiver_text = match receiver {
                 Operand::Copy(place) | Operand::Move(place) => self.place_expr(place)?,
@@ -682,7 +744,9 @@ impl FunctionEmitter<'_> {
             // `super.method()` reaches the ancestor's copy, not the override
             // the receiver's own method and slot hold.
             let super_copy = match self.mir.types.get(self.operand_ty(receiver)?) {
-                Some(Type::Class { name, .. }) if crate::classes::is_super_call(self.mir, *name, func) => {
+                Some(Type::Class { name, .. })
+                    if crate::classes::is_super_call(self.mir, *name, func) =>
+                {
                     crate::classes::super_copy_name(self.context, function)
                 }
                 _ => None,
@@ -747,19 +811,12 @@ impl FunctionEmitter<'_> {
                         )?;
                         return self.borrowed_function_argument_expr(arg, callback_ty, None);
                     }
-                    if let Some(bound_text) = self
-                        .receiver_bound_class_param_argument_expr(
-                            function, receiver, arg, target_ty,
-                        )?
-                    {
+                    if let Some(bound_text) = self.receiver_bound_class_param_argument_expr(
+                        function, receiver, arg, target_ty,
+                    )? {
                         return Ok(bound_text);
                     }
-                    self.callee_generic_argument_expr(
-                        arg,
-                        function,
-                        target_ty,
-                        &class_type_params,
-                    )
+                    self.callee_generic_argument_expr(arg, function, target_ty, &class_type_params)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             // A parameter the call OMITS is padded with its default, the
@@ -806,9 +863,16 @@ impl FunctionEmitter<'_> {
             let call = if prebound.is_empty() {
                 call
             } else {
-                RustExpr::atom(format!("{{ {} {call} }}", prebound.join(" "), call = call.delimited()))
+                RustExpr::atom(format!(
+                    "{{ {} {call} }}",
+                    prebound.join(" "),
+                    call = call.delimited()
+                ))
             };
-            return Ok(RenderedCall::propagating_if(call, self.call_is_throwing(function)));
+            return Ok(RenderedCall::propagating_if(
+                call,
+                self.call_is_throwing(function),
+            ));
         }
         if let HirOrigin::ClassStaticMethod { class, .. } = function.origin {
             // `Class.staticMethod(args)` lowers to the receiver-free
@@ -880,15 +944,16 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        if let Some((rest_index, next_index)) = function
-            .params
-            .iter()
-            .enumerate()
-            .find_map(|(index, param)| {
-                let ty = self.function_local_decl(function, *param).ok()?.ty;
-                self.is_unknown_list_type(ty)
-                .then(|| index.checked_add(1).map(|next_index| (index, next_index)))?
-            })
+        if let Some((rest_index, next_index)) =
+            function
+                .params
+                .iter()
+                .enumerate()
+                .find_map(|(index, param)| {
+                    let ty = self.function_local_decl(function, *param).ok()?.ty;
+                    self.is_unknown_list_type(ty)
+                        .then(|| index.checked_add(1).map(|next_index| (index, next_index)))?
+                })
             && next_index == function.params.len()
             && args.len() >= rest_index
             && !(args.len() == next_index && {
@@ -907,10 +972,10 @@ impl FunctionEmitter<'_> {
                 let Some(arg) = args.get(rest_index) else {
                     return Err(EmitError::new("call is missing rest argument"));
                 };
-                    matches!(
-                        self.mir.types.get(self.operand_ty(arg)?),
-                        Some(Type::List(_))
-                    )
+                matches!(
+                    self.mir.types.get(self.operand_ty(arg)?),
+                    Some(Type::List(_))
+                )
             })
         {
             // The rest-parameter pre-pass: the SECOND, shorter argument
@@ -924,18 +989,18 @@ impl FunctionEmitter<'_> {
             // deciding whether those three missing rungs belong here.
             let mut rendered_args = Vec::new();
             for (index, arg) in args.iter().take(rest_index).enumerate() {
-                let param = function.params.get(index).copied().ok_or_else(|| {
-                    EmitError::new("call argument has no target parameter")
-                })?;
+                let param = function
+                    .params
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| EmitError::new("call argument has no target parameter"))?;
                 let target_ty = self.function_local_decl(function, param)?.ty;
                 if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
                     && !self
                         .function_parameter_requires_owned_in(function, param)
                         .unwrap_or(false)
                 {
-                    rendered_args.push(self.borrowed_function_argument_expr(
-                        arg, target_ty, None,
-                    )?);
+                    rendered_args.push(self.borrowed_function_argument_expr(arg, target_ty, None)?);
                 } else if self.parameter_needs_mutable_reference_in(function, param) {
                     rendered_args.push(self.mutable_reference_argument_expr(
                         arg,
@@ -952,7 +1017,9 @@ impl FunctionEmitter<'_> {
                 .map(|arg| self.erase(arg))
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
-            rendered_args.push(RustExpr::atom(format!("SmeltList::from(vec![{rest_items}])")));
+            rendered_args.push(RustExpr::atom(format!(
+                "SmeltList::from(vec![{rest_items}])"
+            )));
             for param in function.params.iter().skip(next_index) {
                 rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
             }
@@ -962,8 +1029,7 @@ impl FunctionEmitter<'_> {
                 self.call_is_throwing(function),
             ));
         }
-        let free_function_type_params =
-            self.callee_free_function_type_params(function);
+        let free_function_type_params = self.callee_free_function_type_params(function);
         // One decision per call site, shared with the return side in
         // `call_emitted_source_ty`: either this call monomorphizes the
         // callee at the caller's concrete types (arguments pass through,
@@ -988,8 +1054,7 @@ impl FunctionEmitter<'_> {
             // this argument, and the dispatch below matches that
             // decision exhaustively. `Surplus` renders nothing, so this
             // loop can push fewer arguments than it classifies.
-            let callee_bindings =
-                monomorphization.as_ref().map(|pinned| &pinned.bindings);
+            let callee_bindings = monomorphization.as_ref().map(|pinned| &pinned.bindings);
             let kind = self.classify_static_call_argument(
                 function,
                 index,
@@ -1019,10 +1084,13 @@ impl FunctionEmitter<'_> {
                     .function_parameter_requires_owned_in(function, *param)
                     .unwrap_or(false)
             {
-                rendered_args.push(self.borrowed_default_function_expr(
-                    target_ty,
-                    monomorphization.as_ref().map(|pinned| &pinned.bindings),
-                )?.into_string());
+                rendered_args.push(
+                    self.borrowed_default_function_expr(
+                        target_ty,
+                        monomorphization.as_ref().map(|pinned| &pinned.bindings),
+                    )?
+                    .into_string(),
+                );
             } else {
                 rendered_args.push(self.default_value(target_ty)?.into_string());
             }
@@ -1055,7 +1123,14 @@ impl FunctionEmitter<'_> {
                 .map(|arg| self.erase(arg))
                 .collect::<Result<Vec<_>, EmitError>>()?;
             let args_expr = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
-            return Ok(self.dynamic_callable_dispatch_expr(&callee_text, &args_expr, self.prototype_method_not_callable(indirect_callee).as_deref())?.into());
+            return Ok(self
+                .dynamic_callable_dispatch_expr(
+                    &callee_text,
+                    &args_expr,
+                    self.prototype_method_not_callable(indirect_callee)
+                        .as_deref(),
+                )?
+                .into());
         }
         let Some(Type::Function(function)) = self.mir.types.get(callee_ty) else {
             // The statement form of `closure_call_rvalue_expr`'s fallback.
@@ -1074,8 +1149,11 @@ impl FunctionEmitter<'_> {
         if self.callee_uses_erased_call_method(indirect_callee)? {
             return Ok(RustExpr::atom(format!(
                 "({callee_text}).call({})",
-                self.erased_call_argument_vector_expr(indirect_callee, args)?.delimited(), callee_text = callee_text.delimited()
-            )).into());
+                self.erased_call_argument_vector_expr(indirect_callee, args)?
+                    .delimited(),
+                callee_text = callee_text.delimited()
+            ))
+            .into());
         }
         let declared_abi = self
             .class_field_declared_function_type(indirect_callee)
@@ -1115,7 +1193,10 @@ impl FunctionEmitter<'_> {
             )).into());
         }
         Ok(RenderedCall::propagating_if(
-            RustExpr::atom(format!("({callee_text})({rendered_args})", callee_text = callee_text.delimited())),
+            RustExpr::atom(format!(
+                "({callee_text})({rendered_args})",
+                callee_text = callee_text.delimited()
+            )),
             self.function_value_call_is_fallible(function),
         ))
     }

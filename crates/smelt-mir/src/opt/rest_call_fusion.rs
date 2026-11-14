@@ -87,7 +87,9 @@ fn fuse_body(locals: &[LocalDecl], blocks: &mut [BasicBlock], types: &TypeIntern
                 _ => None,
             });
             if let Some(statement) = fused {
-                block.statements.splice(index..index.saturating_add(2), [statement]);
+                block
+                    .statements
+                    .splice(index..index.saturating_add(2), [statement]);
                 changed = true;
             }
             index = index.saturating_add(1);
@@ -107,7 +109,11 @@ fn fused_call(
     let Statement::Assign { dest: temp, value } = definition else {
         return None;
     };
-    let Statement::Assign { dest, value: Rvalue::ClosureCall { callee, args } } = call else {
+    let Statement::Assign {
+        dest,
+        value: Rvalue::ClosureCall { callee, args },
+    } = call
+    else {
         return None;
     };
     let [argument] = args.as_slice() else {
@@ -116,7 +122,10 @@ fn fused_call(
     if !single_use.contains(temp) || argument.local() != Some(*temp) {
         return None;
     }
-    let body = Body { locals, blocks: &[] };
+    let body = Body {
+        locals,
+        blocks: &[],
+    };
     let temp_ty = body.local_decl(*temp)?.ty;
     let callee_ty = body.local_decl(callee.local()?)?.ty;
     let Some(Type::Function(function)) = types.get(callee_ty) else {
@@ -126,19 +135,28 @@ fn fused_call(
         return None;
     }
     let fused = match value {
-        Rvalue::List(items) => {
-            Rvalue::ClosureCallRest { callee: callee.clone(), items: items.clone() }
-        }
-        Rvalue::Use(list @ (Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)))) => {
+        Rvalue::List(items) => Rvalue::ClosureCallRest {
+            callee: callee.clone(),
+            items: items.clone(),
+        },
+        Rvalue::Use(
+            list @ (Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source))),
+        ) => {
             let source_ty = body.local_decl(*source)?.ty;
             if source_ty == temp_ty || !matches!(types.get(source_ty), Some(Type::List(_))) {
                 return None;
             }
-            Rvalue::ClosureCallSpread { callee: callee.clone(), args: list.clone() }
+            Rvalue::ClosureCallSpread {
+                callee: callee.clone(),
+                args: list.clone(),
+            }
         }
         _ => return None,
     };
-    Some(Statement::Assign { dest: *dest, value: fused })
+    Some(Statement::Assign {
+        dest: *dest,
+        value: fused,
+    })
 }
 
 /// Whether `function` is one synchronous, non-throwing rest parameter of type
@@ -207,7 +225,10 @@ mod tests {
 
     /// `%2 = [copy %1]`.
     fn list() -> Statement {
-        Statement::Assign { dest: TEMP, value: Rvalue::List(vec![copy(ITEM)]) }
+        Statement::Assign {
+            dest: TEMP,
+            value: Rvalue::List(vec![copy(ITEM)]),
+        }
     }
 
     /// Builds the callee's function type from the erased list type and the element type.
@@ -221,7 +242,13 @@ mod tests {
         let erased = types.intern(Type::List(unknown));
         let floats = types.intern(Type::List(float));
         let callee = types.intern(Type::Function(make_function(erased, unknown)));
-        let mut function = MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), unknown, span());
+        let mut function = MirFunction::new(
+            FuncId(0),
+            Symbol(0),
+            HirOrigin::Body(BodyId(0)),
+            unknown,
+            span(),
+        );
         for (ty, kind) in [
             (callee, LocalKind::Param { symbol: None }),
             (unknown, LocalKind::Param { symbol: None }),
@@ -229,7 +256,12 @@ mod tests {
             (unknown, LocalKind::UserBinding(Symbol(1))),
             (floats, LocalKind::Param { symbol: None }),
         ] {
-            function.push_local(LocalDecl { ty, kind, span: span() });
+            function.push_local(LocalDecl {
+                ty,
+                kind,
+                span: span(),
+                init: crate::LocalInit::Definite,
+            });
         }
         function.blocks[0].statements = statements;
         function.blocks[0].terminator = Some(Terminator::Return(copy(RESULT)));
@@ -249,7 +281,11 @@ mod tests {
     }
 
     /// A synchronous, non-throwing function type.
-    fn function(params: Vec<smelt_hir::TypeId>, rest: Option<usize>, return_ty: smelt_hir::TypeId) -> FunctionType {
+    fn function(
+        params: Vec<smelt_hir::TypeId>,
+        rest: Option<usize>,
+        return_ty: smelt_hir::TypeId,
+    ) -> FunctionType {
         FunctionType {
             params,
             rest,
@@ -278,8 +314,12 @@ mod tests {
     fn folds_a_packed_list_into_the_call() {
         let mut mir = mir(vec![list(), call()], all_rest);
         assert!(RestCallFusion.run(&mut mir));
-        let [Statement::Assign { dest, value: Rvalue::ClosureCallRest { items, .. } }] =
-            mir.functions[0].blocks[0].statements.as_slice()
+        let [
+            Statement::Assign {
+                dest,
+                value: Rvalue::ClosureCallRest { items, .. },
+            },
+        ] = mir.functions[0].blocks[0].statements.as_slice()
         else {
             panic!("{:?}", mir.functions[0].blocks[0].statements);
         };
@@ -290,11 +330,18 @@ mod tests {
     /// A list of another element type is a spread of that list.
     #[test]
     fn a_converting_copy_becomes_a_spread() {
-        let define = Statement::Assign { dest: TEMP, value: Rvalue::Use(copy(FLOATS)) };
+        let define = Statement::Assign {
+            dest: TEMP,
+            value: Rvalue::Use(copy(FLOATS)),
+        };
         let mut mir = mir(vec![define, call()], all_rest);
         assert!(RestCallFusion.run(&mut mir));
-        let [Statement::Assign { value: Rvalue::ClosureCallSpread { args, .. }, .. }] =
-            mir.functions[0].blocks[0].statements.as_slice()
+        let [
+            Statement::Assign {
+                value: Rvalue::ClosureCallSpread { args, .. },
+                ..
+            },
+        ] = mir.functions[0].blocks[0].statements.as_slice()
         else {
             panic!("{:?}", mir.functions[0].blocks[0].statements);
         };
@@ -324,7 +371,10 @@ mod tests {
     #[test]
     fn declines_a_throwing_callee() {
         fn throwing(list: smelt_hir::TypeId, unknown: smelt_hir::TypeId) -> FunctionType {
-            FunctionType { may_throw: true, ..all_rest(list, unknown) }
+            FunctionType {
+                may_throw: true,
+                ..all_rest(list, unknown)
+            }
         }
         assert_declined(mir(vec![list(), call()], throwing));
     }
@@ -332,14 +382,20 @@ mod tests {
     /// A list the program reads again is a value of the program.
     #[test]
     fn declines_a_list_read_twice() {
-        let again = Statement::Assign { dest: RESULT, value: Rvalue::Use(copy(TEMP)) };
+        let again = Statement::Assign {
+            dest: RESULT,
+            value: Rvalue::Use(copy(TEMP)),
+        };
         assert_declined(mir(vec![list(), call(), again], all_rest));
     }
 
     /// A same-type copy is not this pass's to take.
     #[test]
     fn declines_a_copy_of_the_same_type() {
-        let define = Statement::Assign { dest: TEMP, value: Rvalue::Use(copy(ITEM)) };
+        let define = Statement::Assign {
+            dest: TEMP,
+            value: Rvalue::Use(copy(ITEM)),
+        };
         assert_declined(mir(vec![define, call()], all_rest));
     }
 }

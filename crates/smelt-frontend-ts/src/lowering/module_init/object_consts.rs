@@ -2,16 +2,18 @@
 //! items (namespaces of functions, maps, records of literals) whose entries reads
 //! can resolve statically.
 
-use crate::{ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue, SmeltError};
+use super::super::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_literal, js_str_text};
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::support::source_spelling;
+use crate::{ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue, SmeltError};
 use indexmap::IndexMap;
-use oxc::ast::ast::{Argument, ArrayExpressionElement, Expression, ObjectPropertyKind, PropertyKey};
+use oxc::ast::ast::{
+    Argument, ArrayExpressionElement, Expression, ObjectPropertyKind, PropertyKey,
+};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ConstItem, ErasureReason, Expr, ExprKind, Item, Literal, Span, Type};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Return a directly written object initializer without stripping assertions.
@@ -44,8 +46,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         expression: &Expression<'_>,
     ) -> Option<ObjectConst> {
-        let Expression::NewExpression(new_expr) = peel(expression, Wrappers::Transparent)
-        else {
+        let Expression::NewExpression(new_expr) = peel(expression, Wrappers::Transparent) else {
             return None;
         };
         let host = self.host_global(&new_expr.callee)?;
@@ -70,7 +71,11 @@ impl ModuleBuilder<'_> {
             let (value, value_ty) = self.object_const_entry_value(value_expr).ok()?;
             entries.push(ObjectConstEntry {
                 key: js_str_text(key_lit.value).into_owned(),
-                key_units: key_lit.value.as_str().is_none().then(|| key_lit.value.encode_utf16().collect()),
+                key_units: key_lit
+                    .value
+                    .as_str()
+                    .is_none()
+                    .then(|| key_lit.value.encode_utf16().collect()),
                 value,
                 value_ty,
             });
@@ -132,7 +137,8 @@ impl ModuleBuilder<'_> {
             }
             // A namespace member is a named item, which a lone surrogate cannot
             // name; such an object stays an ordinary object constant.
-            if matches!(&object_property.key, PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value)) {
+            if matches!(&object_property.key, PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value))
+            {
                 return Ok(false);
             }
             let key_text = match &object_property.key {
@@ -181,8 +187,13 @@ impl ModuleBuilder<'_> {
             members.insert(key_text, item);
         }
         self.object_namespaces
-            .write().insert(name_text.to_owned(), members.clone());
-        self.publish_export(|ctx| &mut ctx.object_namespaces, name_text.to_owned(), members);
+            .write()
+            .insert(name_text.to_owned(), members.clone());
+        self.publish_export(
+            |ctx| &mut ctx.object_namespaces,
+            name_text.to_owned(),
+            members,
+        );
         Ok(true)
     }
 
@@ -251,8 +262,13 @@ impl ModuleBuilder<'_> {
         self.publish_export_alias(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), value.ty);
         if let Some(collection) = self.const_collection_from_object_const(&value) {
-            self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
-            self.publish_export(|ctx| &mut ctx.object_value_collections, name_text.to_owned(), collection);
+            self.consts
+                .set_object_value_collection(name_text.to_owned(), collection.clone());
+            self.publish_export(
+                |ctx| &mut ctx.object_value_collections,
+                name_text.to_owned(),
+                collection,
+            );
         }
         self.consts.set_object(name_text.to_owned(), value.clone());
         self.publish_export(|ctx| &mut ctx.object_consts, name_text.to_owned(), value);
@@ -288,8 +304,13 @@ impl ModuleBuilder<'_> {
         self.publish_export_alias(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_unknown_value_collection_from_object(object) {
-            self.consts.set_object_value_collection(name_text.to_owned(), collection.clone());
-            self.publish_export(|ctx| &mut ctx.object_value_collections, name_text.to_owned(), collection);
+            self.consts
+                .set_object_value_collection(name_text.to_owned(), collection.clone());
+            self.publish_export(
+                |ctx| &mut ctx.object_value_collections,
+                name_text.to_owned(),
+                collection,
+            );
         }
         Ok(item)
     }
@@ -328,7 +349,9 @@ impl ModuleBuilder<'_> {
                 }
             };
             let key_units = match &object_property.key {
-                PropertyKey::StringLiteral(lit) if lit.value.as_str().is_none() => Some(lit.value.encode_utf16().collect()),
+                PropertyKey::StringLiteral(lit) if lit.value.as_str().is_none() => {
+                    Some(lit.value.encode_utf16().collect())
+                }
                 _ => None,
             };
             let (value, value_ty) = self.object_const_entry_value(&object_property.value)?;
@@ -413,7 +436,13 @@ impl ModuleBuilder<'_> {
                             })
                     })
                     .collect::<Option<Vec<_>>>()?;
-                Some((ObjectConstValue::Object(ObjectConst { entries, ty: target }), target))
+                Some((
+                    ObjectConstValue::Object(ObjectConst {
+                        entries,
+                        ty: target,
+                    }),
+                    target,
+                ))
             }
             _ => None,
         }
@@ -475,7 +504,8 @@ impl ModuleBuilder<'_> {
             let mut body = Body::new(None, span);
             let expr = self.expression(expression, &mut body)?;
             let value_ty = Self::expr_ty(&body, expr);
-            let kind = body.expr_at(expr)
+            let kind = body
+                .expr_at(expr)
                 .map(|expr| expr.kind.clone())
                 .ok_or_else(|| {
                     SmeltError::unsupported(
@@ -520,8 +550,8 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
                 ArrayExpressionElement::BigIntLiteral(literal) => {
-                    let digits = Self::canonical_bigint_digits(literal.value.as_str())
-                        .ok_or_else(|| {
+                    let digits =
+                        Self::canonical_bigint_digits(literal.value.as_str()).ok_or_else(|| {
                             SmeltError::unsupported(
                                 self.span(literal.span.start, literal.span.end),
                                 "bigint literal is not a decimal integer",
@@ -630,8 +660,7 @@ impl ModuleBuilder<'_> {
             && let Ok(Some(fields)) = self.plain_record_fields(ty)
             && entries.iter().all(|entry| {
                 fields.iter().any(|field| {
-                    source_spelling(&self.ctx.krate, field.name)
-                        == Some(entry.key.as_str())
+                    source_spelling(&self.ctx.krate, field.name) == Some(entry.key.as_str())
                 })
             })
         {

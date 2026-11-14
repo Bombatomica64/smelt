@@ -69,8 +69,14 @@ struct LiftSource {
 fn file_aligned_lift_source(offset: usize, callable: &str) -> LiftSource {
     const PREFIX: &str = "const __smelt_lifted = ";
     offset.checked_sub(PREFIX.len()).map_or_else(
-        || LiftSource { text: format!("{PREFIX}{callable};"), aligned: false },
-        |padding| LiftSource { text: format!("{}{PREFIX}{callable};", " ".repeat(padding)), aligned: true },
+        || LiftSource {
+            text: format!("{PREFIX}{callable};"),
+            aligned: false,
+        },
+        |padding| LiftSource {
+            text: format!("{}{PREFIX}{callable};", " ".repeat(padding)),
+            aligned: true,
+        },
     )
 }
 
@@ -83,9 +89,13 @@ fn file_aligned_lift_source(offset: usize, callable: &str) -> LiftSource {
 fn source_is_function_expression(source: &str) -> bool {
     let wrapped = format!("const __smelt_probe = {source}");
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, &wrapped, SourceType::default().with_typescript(true))
-        .with_options(ParseOptions::default())
-        .parse();
+    let parsed = Parser::new(
+        &allocator,
+        &wrapped,
+        SourceType::default().with_typescript(true),
+    )
+    .with_options(ParseOptions::default())
+    .parse();
     parsed.diagnostics.is_empty()
         && parsed.program.body.len() == 1
         && matches!(
@@ -166,7 +176,8 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let callable_source = &source[function_start..=function_end];
-        let wrapped = file_aligned_lift_source(start.saturating_add(function_start), callable_source);
+        let wrapped =
+            file_aligned_lift_source(start.saturating_add(function_start), callable_source);
         let allocator = Allocator::default();
         let parsed = Parser::new(
             &allocator,
@@ -208,9 +219,9 @@ impl ModuleBuilder<'_> {
                     ),
                 )
             })?;
-        let hint = self.materialized_static_type(
-            &smelt_specialize::StaticType::Function(Box::new(signature.clone())),
-        );
+        let hint = self.materialized_static_type(&smelt_specialize::StaticType::Function(
+            Box::new(signature.clone()),
+        ));
         let capture_items = provenance
             .captures
             .iter()
@@ -238,7 +249,8 @@ impl ModuleBuilder<'_> {
                 // same-named function of another file is not it, however close
                 // its offset.
                 let capture_file = self.ctx.krate.modules.iter().find_map(|module| {
-                    paths_match(&module.source.path, &capture.span.file).then_some(module.source.file)
+                    paths_match(&module.source.path, &capture.span.file)
+                        .then_some(module.source.file)
                 });
                 let item = self
                     .ctx
@@ -250,13 +262,15 @@ impl ModuleBuilder<'_> {
                         let Item::Function(candidate_function) = item else {
                             return None;
                         };
-                        let candidate_file =
-                            if paths_match(&self.path, &capture.span.file) { Some(self.file_id) } else { capture_file };
+                        let candidate_file = if paths_match(&self.path, &capture.span.file) {
+                            Some(self.file_id)
+                        } else {
+                            capture_file
+                        };
                         if candidate_file != Some(candidate_function.span.file) {
                             return None;
                         }
-                        let function_name =
-                            self.ctx.krate.symbols.get(candidate_function.name)?;
+                        let function_name = self.ctx.krate.symbols.get(candidate_function.name)?;
                         let owner_name = match candidate_function.owner {
                             smelt_hir::FunctionOwner::ClassMethod { method, .. } => {
                                 self.ctx.krate.symbols.get(method)
@@ -289,7 +303,11 @@ impl ModuleBuilder<'_> {
         // aligned to its offset; otherwise they address unrelated nodes, so the
         // checker facts keyed by span are switched off for the lift, as
         // `lower_respelled_annotation` does.
-        let saved_facts = if wrapped.aligned { None } else { self.ts_facts.take() };
+        let saved_facts = if wrapped.aligned {
+            None
+        } else {
+            self.ts_facts.take()
+        };
         let lifted = self.function_expression_item_with_receiver(
             hidden_name,
             function,
@@ -348,12 +366,10 @@ impl ModuleBuilder<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         let this_symbol = self.ctx.krate.symbols.intern("this");
         let body_index = usize::try_from(body_id.0).unwrap_or(usize::MAX);
-        let body = self
-            .ctx
-            .krate
-            .bodies
-            .get_mut(body_index)
-            .ok_or_else(|| SmeltError::unsupported(span, "class constructor body is missing"))?;
+        let body =
+            self.ctx.krate.bodies.get_mut(body_index).ok_or_else(|| {
+                SmeltError::unsupported(span, "class constructor body is missing")
+            })?;
         let this_local = body
             .locals
             .iter()
@@ -365,7 +381,9 @@ impl ModuleBuilder<'_> {
             })
             .and_then(|index| u32::try_from(index).ok())
             .map(smelt_hir::LocalId)
-            .ok_or_else(|| SmeltError::unsupported(span, "class constructor receiver is missing"))?;
+            .ok_or_else(|| {
+                SmeltError::unsupported(span, "class constructor receiver is missing")
+            })?;
         let none = self.ctx.krate.types.intern(Type::None);
         let mut inserted = Vec::new();
         for (order, (method, kind, target_name)) in methods.into_iter().enumerate() {
@@ -491,8 +509,13 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Option<smelt_hir::ItemId> {
         let class_name = self.static_class_receiver(&member.object)?;
-        let (field, own) = self.class_static_field_named(&class_name, member.property.name.as_str())?;
-        if own && field.mutable { field.storage } else { None }
+        let (field, own) =
+            self.class_static_field_named(&class_name, member.property.name.as_str())?;
+        if own && field.mutable {
+            field.storage
+        } else {
+            None
+        }
     }
 
     /// The class `this` names in a static field initializer, when one is
@@ -510,7 +533,10 @@ impl ModuleBuilder<'_> {
     /// not registered yet, so only a LEXICAL binding of the spelling
     /// disqualifies an identifier (a parameter named like the class is that
     /// parameter, A4); the callers ask the class tables.
-    pub(in crate::lowering) fn static_class_receiver(&self, object: &Expression<'_>) -> Option<String> {
+    pub(in crate::lowering) fn static_class_receiver(
+        &self,
+        object: &Expression<'_>,
+    ) -> Option<String> {
         match object {
             Expression::Identifier(class_name) => (!matches!(
                 self.resolve_value(class_name.name.as_str()),
@@ -533,13 +559,18 @@ impl ModuleBuilder<'_> {
         let Some(class_name) = self.static_class_receiver(&member.object) else {
             return Ok(None);
         };
-        let Some((field, _own)) = self.class_static_field_named(&class_name, member.property.name.as_str())
+        let Some((field, _own)) =
+            self.class_static_field_named(&class_name, member.property.name.as_str())
         else {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
         if let Some(item) = field.storage {
-            return Ok(Some(body.push_expr(Expr { kind: ExprKind::GlobalGet { item }, ty: field.ty, span })));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::GlobalGet { item },
+                ty: field.ty,
+                span,
+            })));
         }
         let Some(value) = field.value else {
             return Err(SmeltError::native_specialization_adapter_required(
@@ -853,16 +884,32 @@ mod tests {
     /// A span is a function expression by its syntax, not by a text prefix.
     #[test]
     fn function_expression_is_read_from_the_syntax() {
-        assert!(source_is_function_expression("function (value) { return value; }"));
+        assert!(source_is_function_expression(
+            "function (value) { return value; }"
+        ));
         assert!(source_is_function_expression("  function named() {}"));
-        assert!(!source_is_function_expression("functionName => functionName + 1"), "an arrow whose parameter starts with `function`");
-        assert!(!source_is_function_expression("(value) => value"));
-        assert!(!source_is_function_expression("function () {} + 1"), "a larger expression");
         assert!(
-            source_is_function_expression("function (this: any, name: string): string {\n    return name;\n};\n"),
+            !source_is_function_expression("functionName => functionName + 1"),
+            "an arrow whose parameter starts with `function`"
+        );
+        assert!(!source_is_function_expression("(value) => value"));
+        assert!(
+            !source_is_function_expression("function () {} + 1"),
+            "a larger expression"
+        );
+        assert!(
+            source_is_function_expression(
+                "function (this: any, name: string): string {\n    return name;\n};\n"
+            ),
             "a span that runs on to the end of its statement"
         );
-        assert!(!source_is_function_expression("function () {}; other()"), "a second statement");
-        assert!(!source_is_function_expression("function () {}, 1"), "a sequence expression");
+        assert!(
+            !source_is_function_expression("function () {}; other()"),
+            "a second statement"
+        );
+        assert!(
+            !source_is_function_expression("function () {}, 1"),
+            "a sequence expression"
+        );
     }
 }

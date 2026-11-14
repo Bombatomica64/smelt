@@ -1,7 +1,7 @@
 //! Control-flow-graph reachability queries over a function's MIR blocks: whether a block can re-execute, sits under a repeating region, or can reach a target block.
 
-use super::*;
 use super::core::terminator_successors;
+use super::*;
 
 impl FunctionEmitter<'_> {
     /// Return whether control flow from `block_id` can reach `block_id` again.
@@ -40,7 +40,10 @@ impl FunctionEmitter<'_> {
     /// loop body even when later control flow always exits, so locals assigned
     /// in blocks reached from repeatable regions need mutable bindings.
     #[cfg(test)]
-    pub(super) fn block_is_reached_from_repeating_region(&self, block_id: smelt_mir::BlockId) -> bool {
+    pub(super) fn block_is_reached_from_repeating_region(
+        &self,
+        block_id: smelt_mir::BlockId,
+    ) -> bool {
         self.function
             .blocks
             .iter()
@@ -73,7 +76,6 @@ impl FunctionEmitter<'_> {
                     .any(|next| self.block_can_reach(next, target, visited))
             })
     }
-
 
     /// Return whether `block_id` reaches `target` along blocks numbered above
     /// `floor`.
