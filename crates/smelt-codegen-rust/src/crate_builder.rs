@@ -504,7 +504,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
             ));
         }
         for (key, body) in context.minted.function_item_accessors.borrow().iter() {
-            let body = if links_identity {
+            let linked_body = if links_identity {
                 format!(
                     "{{ let smelt_value = {body}; if let SmeltUnknown::Function(smelt_function) = &smelt_value {{ smelt_join_function_identity(smelt_function, &__smelt_fn_identity_{key}()); }} smelt_value }}"
                 )
@@ -512,7 +512,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
                 body.clone()
             };
             out.push_str(&format!(
-                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|smelt_cell| smelt_cell.get_or_init(|| {body}).clone())\n}}\n"
+                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|smelt_cell| smelt_cell.get_or_init(|| {linked_body}).clone())\n}}\n"
             ));
         }
 
