@@ -2191,8 +2191,12 @@ macro_rules! op_group_transcribed {
                 /// method arguments).
                 args: many,
             }
-                // A static method or constructor body may throw.
-                fallible(true)
+                // A static method or constructor body may throw; a static
+                // field read or write and the class value do not.
+                fallible(matches!(
+                    member,
+                    $crate::StaticMember::Construct | $crate::StaticMember::Call(_)
+                ))
                 call(format!("@static_dispatch_{member:?}"))
                 => (format!(
                     "static_dispatch {receiver:?}.{member:?}({}) of class{}",

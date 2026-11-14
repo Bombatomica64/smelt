@@ -394,8 +394,13 @@ function run(): boolean { const a = new Box(); const b = new Box(); return a ===
         source.contains("impl PartialEq for Box"),
         "reference class should implement PartialEq: {source}"
     );
+    // The identity is the cell's ADDRESS: a polymorphic handle's
+    // `Rc<dyn ..>` also carries a vtable, which is no part of identity
+    // (`crate::class_polymorphism`), so the comparison drops the metadata.
     assert!(
-        source.contains("::std::rc::Rc::ptr_eq(&self.0, &other.0)"),
+        source.contains(
+            "::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))"
+        ),
         "reference-class PartialEq should compare identity: {source}"
     );
 }

@@ -48,6 +48,7 @@ impl FunctionEmitter<'_> {
         if !self.context.is_polymorphic_class(to)
             || !polymorphic_ancestors(self.mir, self.context.polymorphic_classes(), from)
                 .contains(&to)
+            || !self.upcast_keeps_type_arguments(source, target)
         {
             return Ok(None);
         }
@@ -63,6 +64,57 @@ impl FunctionEmitter<'_> {
             format!("{}.0.clone()", value.tight())
         };
         Ok(Some(RustExpr::atom(format!("{constructor}({cell})"))))
+    }
+
+    /// Whether viewing `source` (a class type) as its ancestor `target` keeps
+    /// the ancestor's type arguments: the arguments `source`'s class passes
+    /// its ancestor, read at `source`'s own arguments, are `target`'s.
+    ///
+    /// Only then is the shared cell's ancestor record the record `target`
+    /// names. TypeScript also accepts an upcast that changes them
+    /// (`Parser<number>` to `Parser<any>`); the cell's record is typed at the
+    /// arguments it was built with, so such an upcast keeps the field-wise
+    /// conversion (a copy, as before).
+    fn upcast_keeps_type_arguments(&self, source: TypeId, target: TypeId) -> bool {
+        let (
+            Some(Type::Class {
+                name: from,
+                args: source_args,
+            }),
+            Some(Type::Class {
+                name: to,
+                args: target_args,
+            }),
+        ) = (self.mir.types.get(source), self.mir.types.get(target))
+        else {
+            return false;
+        };
+        if target_args.is_empty() {
+            return true;
+        }
+        let (Some(source_class), Some(target_class)) = (
+            crate::classes::find_class(self.mir, *from),
+            crate::classes::find_class(self.mir, *to),
+        ) else {
+            return false;
+        };
+        let own: std::collections::HashMap<Symbol, TypeId> = source_class
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .zip(source_args.iter().copied())
+            .collect();
+        let inherited = crate::classes::inherited_type_substitution(self.mir, *from, *to);
+        target_class
+            .type_params
+            .iter()
+            .zip(target_args)
+            .all(|(param, target_arg)| {
+                inherited.get(&param.name).is_some_and(|declared| {
+                    crate::generic_bindings::substitute_existing_type(self.mir, *declared, &own)
+                        == *target_arg
+                })
+            })
     }
 
     /// The checked downcast of the handle bound to `smelt_struct_value` (of

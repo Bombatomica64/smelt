@@ -618,7 +618,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
         writer.block(
             format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
             |impl_writer| {
-                impl_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown { self.0.smelt_erase() }");
+                impl_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }");
             },
         );
         (

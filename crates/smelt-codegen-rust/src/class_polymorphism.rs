@@ -582,8 +582,12 @@ pub(crate) fn upcast_handle_expr(
     })
 }
 
+/// The binder an upcast of a recovered subclass origin reads
+/// (`reference_origin`).
+pub(crate) const SUBCLASS_ORIGIN_BINDER: &str = "smelt_subclass_origin";
+
 /// The subclass handle types `class`'s `SmeltFromUnknown` takes back as the
-/// same object, each with the upcast of the recovered `origin`.
+/// same object, each with the upcast of the recovered `smelt_subclass_origin`.
 ///
 /// A subclass whose type arguments do not follow from `class`'s own
 /// parameters ([`descendant_binding`], or a generic `class` the subclass
@@ -652,7 +656,7 @@ pub(crate) fn subclass_origins_at(
         };
         origins.push((
             handle,
-            upcast_handle_expr(context, descendant, class.name, "origin")?,
+            upcast_handle_expr(context, descendant, class.name, SUBCLASS_ORIGIN_BINDER)?,
         ));
     }
     Ok(origins)

@@ -515,12 +515,27 @@ impl FunctionEmitter<'_> {
         } else {
             call
         };
-        let body = self.rendered_at_type(
-            &adjusted_call,
-            source_return_ty,
+        let scope = self.render_scope();
+        // A slot declared over its class's parameters renders them erased
+        // here when the target instantiates them at `any`/`unknown`
+        // (`Parser<number>` stored as a `Parser<any>`): the source method's
+        // concrete answer (`Result<number>`) crosses that erased boundary,
+        // so it is erased and recovered at the slot's own spelling.
+        let mut mentioned = HashSet::new();
+        crate::generic_bindings::collect_type_param_occurrences(
+            self.mir,
             function_ty.return_ty,
-            &self.render_scope(),
-        )?;
+            &mut mentioned,
+        );
+        let body = if source_return_ty != function_ty.return_ty
+            && !mentioned.is_empty()
+            && mentioned.iter().any(|name| !scope.spells(*name))
+        {
+            let erased = self.erase_rendered(&adjusted_call, source_return_ty)?;
+            self.extract_rendered(&erased, function_ty.return_ty, &scope)?
+        } else {
+            self.rendered_at_type(&adjusted_call, source_return_ty, function_ty.return_ty, &scope)?
+        };
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, {ERROR_BOX}>",

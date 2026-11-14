@@ -127,7 +127,19 @@ impl StaticReceiverPlan {
                 plan.traits.push((class, Vec::new()));
             }
         }
+        // A class no other class extends is its methods' only receiver: its
+        // `this` is the class itself, reached directly (pay-for-use).
+        plan.traits
+            .retain(|(class, _)| receiver_classes(mir, *class).len() > 1);
+        let kept: HashSet<Symbol> = plan.traits.iter().map(|(class, _)| *class).collect();
+        plan.generic.retain(|_, class| kept.contains(class));
         plan
+    }
+
+    /// Whether `class` has a statics trait: a static method of it uses `this`
+    /// and some class extends it.
+    pub(crate) fn has_trait(&self, class: Symbol) -> bool {
+        self.traits.iter().any(|(name, _)| *name == class)
     }
 
     /// The class bounding `function`'s receiver, when it takes one.

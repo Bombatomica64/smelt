@@ -82,7 +82,7 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 ///
 /// A polymorphic record type also takes back an erased instance of a subclass
 /// as the same object: each pair of `subclass_origins` is a subclass handle
-/// type and the upcast of the recovered `origin`
+/// type and the upcast of the recovered `smelt_subclass_origin`
 /// (`crate::class_polymorphism::subclass_origins_at`); empty for every other
 /// record type.
 pub(crate) fn restore_subclass_or_rebuild_expr(
@@ -93,7 +93,7 @@ pub(crate) fn restore_subclass_or_rebuild_expr(
     let mut fallback = rebuild.delimited().to_string();
     for (subclass, upcast) in subclass_origins.iter().rev() {
         fallback = format!(
-            "match {record}.smelt_origin::<{subclass}>() {{ Some(origin) => {upcast}, None => {fallback} }}",
+            "match {record}.smelt_origin::<{subclass}>() {{ Some(smelt_subclass_origin) => {upcast}, None => {fallback} }}",
             record = record.parenthesized_if_needed(),
         );
     }
@@ -122,7 +122,7 @@ pub(crate) fn restore_subclass_or_rebuild_expr(
 /// (`type_supports_from_unknown`); anything else keeps its `Default`.
 ///
 /// `subclass_origins` pairs each subclass handle type a polymorphic handle can
-/// recover (`Sub`) with the upcast of the recovered `origin` into `Self`.
+/// recover (`Sub`) with the upcast of the recovered `smelt_subclass_origin` into `Self`.
 pub(crate) fn emit_reference_from_smelt_unknown_impl(
     writer: &mut crate::rust::CodeWriter,
     mir: &smelt_mir::Mir,
@@ -173,7 +173,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
                 // subclass, as the same object (`crate::class_polymorphism`).
                 for (subclass, upcast) in subclass_origins {
                     fn_writer.line(format!(
-                        "if let Some(origin) = smelt_object.smelt_origin::<{subclass}>() {{ return {upcast}; }}"
+                        "if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<{subclass}>() {{ return {upcast}; }}"
                     ));
                 }
                 fn_writer.line("let result = Self::default();");

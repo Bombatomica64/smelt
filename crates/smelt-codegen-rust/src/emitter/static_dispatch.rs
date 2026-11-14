@@ -27,6 +27,9 @@ struct MemberSignature {
     ret_ty: TypeId,
     /// That type's Rust text.
     ret_text: String,
+    /// Whether it answers in a `Result` (a constructor or static method can
+    /// throw; a static field and the class value cannot).
+    fallible: bool,
 }
 
 /// Where a static field of a class is read and written.
@@ -178,6 +181,7 @@ impl FunctionEmitter<'_> {
                     param_tys,
                     ret_ty: access.ty,
                     ret_text: ty_text,
+                    fallible: false,
                 })
             }
             StaticMember::Construct => {
@@ -201,6 +205,7 @@ impl FunctionEmitter<'_> {
                 param_tys: Vec::new(),
                 ret_ty: self.type_id(Type::Unknown)?,
                 ret_text: "SmeltUnknown".to_owned(),
+                fallible: false,
             }),
         }
     }
@@ -232,6 +237,7 @@ impl FunctionEmitter<'_> {
             param_tys,
             ret_ty: function.return_ty,
             ret_text,
+            fallible: true,
         })
     }
 
@@ -253,10 +259,17 @@ impl FunctionEmitter<'_> {
                 .map(|(name, ty)| format!("{name}: {ty}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!(
-                "fn {}{}({params}) -> Result<{}, {MEMBER_ERROR}>",
-                signature.name, signature.generics, signature.ret_text
-            )
+            if signature.fallible {
+                format!(
+                    "fn {}{}({params}) -> Result<{}, {MEMBER_ERROR}>",
+                    signature.name, signature.generics, signature.ret_text
+                )
+            } else {
+                format!(
+                    "fn {}{}({params}) -> {}",
+                    signature.name, signature.generics, signature.ret_text
+                )
+            }
         };
         let class_source = self.symbol_source_name(class)?;
         let mut out = format!(
@@ -296,11 +309,10 @@ impl FunctionEmitter<'_> {
             .collect::<Vec<_>>();
         Ok(match member {
             StaticMember::Get(field) => match self.static_field_access(receiver, field)? {
-                Some(access) => {
-                    let read = self.rendered_at_type(&access.read, access.ty, signature.ret_ty, &scope)?;
-                    format!("Ok({})", read.delimited())
-                }
-                None => format!("Ok({})", self.default_value(signature.ret_ty)?.delimited()),
+                Some(access) => self
+                    .rendered_at_type(&access.read, access.ty, signature.ret_ty, &scope)?
+                    .into_string(),
+                None => self.default_value(signature.ret_ty)?.into_string(),
             },
             StaticMember::Set(field) => {
                 let store = match self.static_field_access(receiver, field)? {
@@ -333,7 +345,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => String::new(),
                 };
-                format!("{store} Ok(smelt_value)")
+                format!("{store} smelt_value")
             }
             StaticMember::Construct => {
                 let receiver_class = crate::classes::find_class(self.mir, receiver);
@@ -398,9 +410,7 @@ impl FunctionEmitter<'_> {
                     format!("Ok({call})")
                 }
             }
-            StaticMember::ClassValue => {
-                format!("Ok({})", self.class_value(receiver, None)?.delimited())
-            }
+            StaticMember::ClassValue => self.class_value(receiver, None)?.into_string(),
         })
     }
 
@@ -433,7 +443,65 @@ impl FunctionEmitter<'_> {
                 .map_or(target.return_ty, |pinned| pinned.return_ty);
             return Ok((call, source_ty));
         }
+        // A class no other class extends is its static methods' only
+        // receiver (`StaticReceiverPlan::has_trait`): the member is the
+        // class's own, called directly.
+        if !self.context.static_receivers().has_trait(class) {
+            return match member {
+                StaticMember::Call(method) => {
+                    let target = self.implementing_static_method(class, method).ok_or_else(|| {
+                        EmitError::new("a static method called through `this` is not declared")
+                    })?;
+                    let HirOrigin::ClassStaticMethod { class: owner, .. } = target.origin else {
+                        return Err(EmitError::new("a static method is not a static method"));
+                    };
+                    let call = self.class_static_method_call(target, owner, args, None)?;
+                    let source_ty = self
+                        .static_call_monomorphization(target, args)?
+                        .map_or(target.return_ty, |pinned| pinned.return_ty);
+                    Ok((call, source_ty))
+                }
+                StaticMember::Construct => {
+                    let constructor = crate::classes::find_class(self.mir, class)
+                        .and_then(|found| found.constructor)
+                        .and_then(|id| self.function_by_id(id))
+                        .ok_or_else(|| EmitError::new("`new this()` needs a constructor"))?;
+                    Ok((self.static_call(constructor.id, args)?, constructor.return_ty))
+                }
+                _ => Err(EmitError::new(
+                    "a static field or class value reached the fallible dispatch path",
+                )),
+            };
+        }
         let signature = self.member_signature(class, member)?;
+        let rendered = self.member_arguments(&signature, args)?;
+        let trait_name = crate::static_receiver::statics_trait_name(&self.type_rust_name(class)?);
+        let call = RustExpr::atom(format!(
+            "<{RECEIVER_GENERIC} as {trait_name}>::{}({})",
+            signature.name,
+            rendered.join(", ")
+        ));
+        let source_ty = match member {
+            StaticMember::Call(method) => {
+                match self.implementing_static_method(class, method) {
+                    Some(target) => self
+                        .static_call_monomorphization(target, args)?
+                        .map_or(signature.ret_ty, |pinned| pinned.return_ty),
+                    None => signature.ret_ty,
+                }
+            }
+            _ => signature.ret_ty,
+        };
+        Ok((RenderedCall::propagating(call), source_ty))
+    }
+
+    /// `args` rendered at `signature`'s parameters (a borrowed callback
+    /// reborrowed, a missing trailing argument defaulted).
+    fn member_arguments(
+        &self,
+        signature: &MemberSignature,
+        args: &[Operand],
+    ) -> Result<Vec<String>, EmitError> {
         let mut rendered = Vec::new();
         for (index, arg) in args.iter().enumerate() {
             let Some(target_ty) = signature.param_tys.get(index).copied() else {
@@ -454,23 +522,80 @@ impl FunctionEmitter<'_> {
         for target_ty in signature.param_tys.iter().skip(args.len()) {
             rendered.push(self.missing_argument_value(*target_ty)?.into_string());
         }
-        let trait_name = crate::static_receiver::statics_trait_name(&self.type_rust_name(class)?);
-        let call = RustExpr::atom(format!(
-            "<{RECEIVER_GENERIC} as {trait_name}>::{}({})",
-            signature.name,
-            rendered.join(", ")
-        ));
-        let source_ty = match member {
-            StaticMember::Call(method) => {
-                match self.implementing_static_method(class, method) {
-                    Some(target) => self
-                        .static_call_monomorphization(target, args)?
-                        .map_or(signature.ret_ty, |pinned| pinned.return_ty),
-                    None => signature.ret_ty,
+        Ok(rendered)
+    }
+
+    /// One `Rvalue::StaticDispatch` that cannot throw (a static field read or
+    /// write, or the class value), as the value it answers at `dest_ty`.
+    pub(super) fn static_dispatch_value(
+        &self,
+        class: Symbol,
+        member: StaticMember,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let scope = self.render_scope();
+        let (value, value_ty) = if self.context.static_receivers().has_trait(class) {
+            let signature = self.member_signature(class, member)?;
+            let rendered = self.member_arguments(&signature, args)?;
+            let trait_name =
+                crate::static_receiver::statics_trait_name(&self.type_rust_name(class)?);
+            (
+                RustExpr::atom(format!(
+                    "<{RECEIVER_GENERIC} as {trait_name}>::{}({})",
+                    signature.name,
+                    rendered.join(", ")
+                )),
+                signature.ret_ty,
+            )
+        } else {
+            // The class's own static, read and written directly.
+            match member {
+                StaticMember::Get(field) | StaticMember::Set(field) => {
+                    let access = self.static_field_access(class, field)?.ok_or_else(|| {
+                        EmitError::new("a static reached through `this` is not declared")
+                    })?;
+                    if matches!(member, StaticMember::Get(_)) {
+                        (access.read, access.ty)
+                    } else {
+                        let Some(arg) = args.first() else {
+                            return Err(EmitError::new("a static write has no value"));
+                        };
+                        let value = self.value_at_type(arg, access.ty)?;
+                        let store = match access.store {
+                            Some(StaticStoreTarget::Global(global)) => format!(
+                                "{};",
+                                self.global_store_text(global, &RustExpr::path("smelt_value").cloned_value())?
+                            ),
+                            Some(StaticStoreTarget::Inherited(entry)) => format!(
+                                "let _ = {};",
+                                crate::classes::inherited_static_write_text(
+                                    self.mir,
+                                    self.context,
+                                    &entry,
+                                    "smelt_value.clone()",
+                                )
+                                .ok_or_else(|| EmitError::new("inherited static has no setter"))?
+                            ),
+                            None => String::new(),
+                        };
+                        (
+                            RustExpr::atom(format!(
+                                "{{ let smelt_value = {}; {store} smelt_value }}",
+                                value.delimited()
+                            )),
+                            access.ty,
+                        )
+                    }
+                }
+                StaticMember::ClassValue => (self.class_value(class, None)?, self.type_id(Type::Unknown)?),
+                StaticMember::Construct | StaticMember::Call(_) => {
+                    return Err(EmitError::new(
+                        "a static construction or call reached the assignment path",
+                    ));
                 }
             }
-            _ => signature.ret_ty,
         };
-        Ok((RenderedCall::propagating(call), source_ty))
+        self.rendered_at_type(&value, value_ty, dest_ty, &scope)
     }
 }
