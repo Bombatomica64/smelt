@@ -336,6 +336,17 @@ impl ModuleBuilder<'_> {
                 let mut frame_fields = Vec::new();
                 let mut frame_methods = Vec::new();
                 if let Some(evaluation) = &evaluation {
+                    // The bindings of the enclosing body the members use live
+                    // in the frame (`decls::evaluation_statics`, "Captures").
+                    for capture in &evaluation.captures {
+                        frame_fields.push(Field {
+                            name: capture.field,
+                            ty: capture.ty,
+                            visibility: Visibility::Hidden,
+                            optional: false,
+                            span: class_span,
+                        });
+                    }
                     fields.push(Field {
                         name: evaluation.frame_field,
                         ty: evaluation.frame_ty,

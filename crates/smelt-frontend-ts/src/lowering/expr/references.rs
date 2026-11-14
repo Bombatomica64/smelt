@@ -222,6 +222,11 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // A binding of the function a per-evaluation class was declared in,
+        // which lives in that evaluation's frame (`FrameAlias`).
+        if let Some(alias) = self.scope.alias(name) {
+            return Ok(Self::frame_alias_expr(alias, self.span(start, end), body));
+        }
         // `this` in a static method is the class it was called on
         // (`ModuleBuilder::static_method_this`), a class value like any.
         if name == "this"
@@ -564,6 +569,40 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(local_expr)
+    }
+
+    /// The place a [`FrameAlias`] names: the frame field, reached from its
+    /// base local (through the instance's hidden frame field when the base is
+    /// an instance). A read and an assignment target alike.
+    pub(in crate::lowering) fn frame_alias_expr(
+        alias: crate::lowering::state::local_scope::FrameAlias,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let base_ty = Self::local_ty(body, alias.base);
+        let mut receiver = body.push_expr(Expr {
+            kind: ExprKind::Local(alias.base),
+            ty: base_ty,
+            span,
+        });
+        if let Some((frame_field, frame_ty)) = alias.via {
+            receiver = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: frame_field,
+                },
+                ty: frame_ty,
+                span,
+            });
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver,
+                field: alias.field,
+            },
+            ty: alias.ty,
+            span,
+        })
     }
 
     /// A read of optional `local` at the surviving arm `ty`: the unwrap at the

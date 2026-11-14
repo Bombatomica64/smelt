@@ -638,6 +638,9 @@ impl ModuleBuilder<'_> {
         let mut closure_params = Vec::new();
         let mut param_names = HashSet::new();
         let mut saved_locals = Vec::new();
+        // Names standing for statics-frame fields (`FrameAlias`), which the
+        // in-place rebinding below must not lose.
+        let saved_aliases = self.scope.alias_snapshot();
         let mut defaulted_params = Vec::new();
 
         for (index, param) in params.items.iter().enumerate() {
@@ -823,6 +826,48 @@ impl ModuleBuilder<'_> {
         // closure, as TypeScript's own control flow does: the type the guard
         // established still holds whenever the closure runs.
         let mut captured_narrowings = HashMap::new();
+        // A name standing for a statics-frame field is reached through the
+        // frame's local, which the closure captures once for every such name.
+        let mut captured_frames: Vec<(smelt_hir::LocalId, smelt_hir::LocalId)> = Vec::new();
+        for name in &capture_names {
+            let Some(alias) = self.scope.alias(name.as_str()) else {
+                continue;
+            };
+            let body_base = if let Some((_, inner)) =
+                captured_frames.iter().find(|(outer, _)| *outer == alias.base)
+            {
+                *inner
+            } else {
+                let Some(source_decl) = outer_body.local_at(alias.base) else {
+                    continue;
+                };
+                let symbol = source_decl
+                    .name
+                    .unwrap_or_else(|| self.ctx.krate.symbols.intern("__smelt_frame"));
+                let inner = closure_body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty: source_decl.ty,
+                    mutable: false,
+                    span: source_decl.span,
+                });
+                captures.push(ClosureCapture {
+                    source_local: alias.base,
+                    body_local: Some(inner),
+                    symbol,
+                    ty: source_decl.ty,
+                    mode: CaptureMode::ByRef,
+                });
+                captured_frames.push((alias.base, inner));
+                inner
+            };
+            self.scope.bind_alias(
+                name.clone(),
+                crate::lowering::state::local_scope::FrameAlias {
+                    base: body_base,
+                    ..alias
+                },
+            );
+        }
         for name in capture_names {
             let Some(source_local) = saved_locals
                 .iter()
@@ -1028,6 +1073,11 @@ impl ModuleBuilder<'_> {
                 self.scope.bind(name, local);
             } else {
                 self.scope.unbind(name.as_str());
+            }
+        }
+        for (name, alias) in saved_aliases {
+            if self.scope.lookup(name.as_str()).is_none() {
+                self.scope.bind_alias(name, alias);
             }
         }
         lowering_result?;

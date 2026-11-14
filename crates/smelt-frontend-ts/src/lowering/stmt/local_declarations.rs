@@ -497,7 +497,22 @@ impl ModuleBuilder<'_> {
             // binding held a placeholder instance and `new Foo()` erased into a
             // dynamic construction whose methods answered `null` (H68).
             if let Some((name, class)) = Self::const_class_expression(declarator) {
-                self.class_declaration_named(class, Some(name))?;
+                let item = self.class_declaration_named(class, Some(name))?;
+                // A per-evaluation class (`decls::evaluation_statics`) builds
+                // this evaluation's frame where it is declared, as a class
+                // declaration does; the name then stands for that frame.
+                self.touch_class_static_initializers(item, body, block);
+                let owner = match self.item_ref(item) {
+                    smelt_hir::Item::Class(owner) => Some(owner.name),
+                    _ => None,
+                };
+                if let Some(owner) = owner
+                    && let Some(evaluation) = self.evaluation_statics.get_mut(&owner)
+                    && evaluation.binding.is_none()
+                {
+                    evaluation.binding = Some(name.to_owned());
+                }
+                self.evaluate_class_statics(item, class, body)?;
                 continue;
             }
             // `const { placeholder } = partial;` destructures a static property off
