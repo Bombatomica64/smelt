@@ -178,6 +178,13 @@ impl FunctionEmitter<'_> {
     /// trial-render its body to decide whether real generics are safe (the body
     /// must keep each type parameter opaque).
     pub(super) fn emit_body(&self, out: &mut String) -> Result<(), EmitError> {
+        // A generator takes its receiver when CALLED, in its wrapper, not on
+        // its first resume (`emit_generator_wrapper`).
+        if !self.function.is_generator
+            && let Some(prologue) = self.this_frame_prologue()
+        {
+            out.push_str(&format!("    {prologue}\n"));
+        }
         self.emit_shared_parameter_preludes(out)?;
         if self.function.is_test && self.context.test_runtime_resets.date_now {
             out.push_str("    SMELT_DATE_NOW.with(|value| value.set(None));\n");
@@ -241,6 +248,10 @@ impl FunctionEmitter<'_> {
     /// Wraps a generator's rendered `body` in the `genawaiter` producer and the
     /// `SmeltGenerator` or `SmeltAsyncGenerator` handle a call returns.
     fn emit_generator_wrapper(&self, body: &str, out: &mut String) {
+        // The receiver is taken at the call, then moved into the producer.
+        if let Some(prologue) = self.this_frame_prologue() {
+            out.push_str(&format!("    {prologue}\n"));
+        }
         out.push_str("    let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));\n");
         out.push_str("    let smelt_generator_producer_input = smelt_generator_input.clone();\n");
         out.push_str("    let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {\n");
@@ -629,6 +640,9 @@ impl FunctionEmitter<'_> {
             // arm instead, so the sibling assignment referred to a name that was
             // out of scope: E0425 by the thousand in a branchy method (Hono's
             // routers), with no diagnostic anywhere before rustc.
+            if let Some(prologue) = self.this_frame_prologue() {
+                out.push_str(&format!("    {prologue}\n"));
+            }
             self.emit_mutable_local_preludes(out)?;
             self.emit_block(self.entry_block()?, out)?;
         }

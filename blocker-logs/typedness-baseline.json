@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8338,
+      "concrete": 8341,
       "generic": 147,
       "erased": 56
     },
@@ -870,7 +870,7 @@
     },
     "examples/typescript/end-to-end/152_callable_interface_fields/input.ts": {
       "values": {
-        "concrete": 80,
+        "concrete": 83,
         "generic": 0,
         "erased": 0
       },
@@ -1548,7 +1548,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/192_array_constrained_type_parameters/input.ts": {
+    "examples/typescript/end-to-end/193_array_constrained_type_parameters/input.ts": {
       "values": {
         "concrete": 49,
         "generic": 8,

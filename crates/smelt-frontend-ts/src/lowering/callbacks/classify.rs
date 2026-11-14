@@ -107,6 +107,7 @@ impl ModuleBuilder<'_> {
                 // references to this named function share one cached runtime
                 // wrapper and compare equal under JavaScript `===`.
                 function_item: Some(item),
+                this_binding: smelt_hir::ClosureThis::Forwarded,
                 span,
             }),
             ty: function_ty,

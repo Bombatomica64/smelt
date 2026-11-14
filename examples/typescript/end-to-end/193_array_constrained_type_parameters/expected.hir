@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/192_array_constrained_type_parameters/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/193_array_constrained_type_parameters/input.ts (ModuleId(0))
   body BodyId(6)
   items
     type IterableContainer = List<T>

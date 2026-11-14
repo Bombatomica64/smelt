@@ -465,6 +465,18 @@ pub mod markers {
     /// which every enumeration, copy and serialization of an erased object
     /// already skips.
     pub const SMELT_CLASS_FRAME: &str = "__smelt_class_frame";
+    /// A class prototype's class tag.
+    ///
+    /// Carried by the one prototype object of each class, under the
+    /// [`SMELT_METHOD`] prefix (`__smelt_method:__smelt_class_proto`), which
+    /// every enumeration, copy and serialization of an erased object already
+    /// skips (docs/design/class-prototypes.md).
+    pub const SMELT_CLASS_PROTO: &str = "__smelt_class_proto";
+    /// A class value the runtime created before the program read the class.
+    ///
+    /// Carried under the [`SMELT_METHOD`] prefix until the program's first
+    /// read of the class fills the value in (docs/design/class-prototypes.md).
+    pub const SMELT_CLASS_PENDING: &str = "__smelt_class_pending";
     /// `__smelt_crypto_key`.
     pub const SMELT_CRYPTO_KEY: &str = "__smelt_crypto_key";
     /// `__smelt_databasesync`.
@@ -648,6 +660,8 @@ pub mod markers {
         SMELT_CLASS_FIELDS,
         SMELT_CLASS_METHODS,
         SMELT_CLASS_FRAME,
+        SMELT_CLASS_PENDING,
+        SMELT_CLASS_PROTO,
         SMELT_CRYPTO_KEY,
         SMELT_DATABASESYNC,
         SMELT_DATAVIEW,
@@ -782,10 +796,14 @@ pub mod boundary {
     pub const THIS_CALL: &str = "smelt_this()";
     /// Binding a receiver.
     pub const BIND_THIS_CALL: &str = "smelt_bind_this(";
+    /// The running frame's own `this`, taken off the channel at entry.
+    pub const FRAME_THIS: &str = "smelt_frame_this";
     /// A class's prototype entries, as the generated local.
     pub const PROTO_ENTRIES_LOCAL: &str = "__smelt_proto_entries";
     /// A class's prototype entries.
     pub const PROTO_ENTRIES: &str = "smelt_proto_entries";
+    /// A class prototype's methods, as the generated builder.
+    pub const PROTOTYPE_METHODS: &str = "__smelt_prototype_methods";
     /// An erased member read.
     pub const GET_UNKNOWN_FIELD_CALL: &str = "smelt_get_unknown_field(";
     /// `globalThis`.
