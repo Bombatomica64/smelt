@@ -118,9 +118,31 @@ impl FunctionEmitter<'_> {
                     "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|smelt_item| smelt_item.same_js_key(&smelt_needle)) }}", item_text = item_text.delimited(), list_text = list_text.tight()
                 ))));
             }
+            // An erased side can hold a value of the other side's type (an
+            // `unknown[]` holding functions searched for `sameFn`), so both
+            // sides meet as erased values and compare with SameValueZero. A
+            // constant `false` answered `fs.includes(sameFn)` wrongly.
+            if self.renders_erased(item_ty)? || self.renders_erased(needle_ty)? {
+                let needle_text = self.erase_rendered(&self.operand_expr(item)?, needle_ty)?;
+                let erased_item =
+                    self.erase_rendered(&RustExpr::path("smelt_item").cloned_value(), item_ty)?;
+                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "{{ let smelt_needle = {needle_text}; {list_text}.iter().any(|smelt_item| ({erased_item}).same_js_key(&smelt_needle)) }}", needle_text = needle_text.delimited(), erased_item = erased_item.delimited(), list_text = list_text.tight()
+                ))));
+            }
             return Ok(RustExpr::path("false"));
         }
         let item_text = self.operand_expr(item)?;
+        // A function is found by identity: `Rc<dyn Fn>` has no `PartialEq`,
+        // and two representations of one function (a typed `Rc`, an erased
+        // wrapper) are linked rather than equal allocations.
+        if let Some(compare) = self.function_identity_compare(item_ty) {
+            return Ok(RustExpr::atom(format!(
+                "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|smelt_item| {compare}(smelt_item, &smelt_needle)) }}",
+                item_text = item_text.delimited(),
+                list_text = list_text.tight()
+            )));
+        }
         if self.list_item_uses_same_value_zero(item_ty) {
             if self.mir.types.get(item_ty) == Some(&Type::Float) {
                 return Ok(RustExpr::atom(format!(
@@ -137,6 +159,20 @@ impl FunctionEmitter<'_> {
             ".contains(&{item_text})",
             item_text = item_text.tight()
         )))
+    }
+
+    /// How two values of the function type `ty` compare by JavaScript
+    /// identity, or `None` when `ty` is not a function type. Identity links
+    /// live in the erased runtime; without it pointer identity is the answer.
+    pub(super) fn function_identity_compare(&self, ty: TypeId) -> Option<&'static str> {
+        if !matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
+            return None;
+        }
+        Some(if self.context.demand().has(Need::Unknown) {
+            "smelt_same_function_identity"
+        } else {
+            "::std::rc::Rc::ptr_eq"
+        })
     }
 
     /// Whether `union` is a union type with `member` among its members.
@@ -219,6 +255,13 @@ impl FunctionEmitter<'_> {
     /// optional has been narrowed to `smelt_needle`. `item` is the closure
     /// binding for each `&element`.
     fn list_element_match_predicate(&self, item_ty: TypeId) -> &'static str {
+        if matches!(self.mir.types.get(item_ty), Some(Type::Function(_))) {
+            return if self.context.demand().has(Need::Unknown) {
+                "smelt_same_function_identity(item, &smelt_needle)"
+            } else {
+                "::std::rc::Rc::ptr_eq(item, &smelt_needle)"
+            };
+        }
         if self.list_item_uses_same_value_zero(item_ty) {
             if self.mir.types.get(item_ty) == Some(&Type::Float) {
                 "*item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())"

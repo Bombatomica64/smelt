@@ -1192,6 +1192,19 @@ fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derive
 /// Link `derived` to an already-resolved canonical identity.
 fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
+/// Make `function` one more representation of the function `token` names.
+#[allow(dead_code)]
+fn smelt_join_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, token: &SmeltFunctionIdentity) {
+    let own = smelt_canonical_function_identity(function);
+    if own == *token { return; }
+    if token.0.length.get().is_none() { token.0.length.set(own.0.length.get()); }
+    if token.0.properties.borrow().is_none() {
+        let moved = own.0.properties.borrow_mut().take();
+        *token.0.properties.borrow_mut() = moved;
+    }
+    smelt_link_function_identity_key(function, token.clone());
+}
+
 /// Return the stable key for an erased callback wrapper.
 #[allow(dead_code)]
 fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
@@ -4374,13 +4387,23 @@ impl App {
     fn __smelt_get_callable_field(&self, key: &str) -> SmeltUnknown { match key { "get" => { let smelt_function_value = self.0.borrow().get.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } }, "post" => { let smelt_function_value = self.0.borrow().post.clone(); if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } }, _ => SmeltUnknown::Undefined } }
 }
 
+fn __smelt_fn_identity_0() -> SmeltFunctionIdentity {
+    thread_local! { static SMELT_FN_IDENTITY: SmeltFunctionIdentity = SmeltFunctionIdentity::default(); }
+    SMELT_FN_IDENTITY.with(Clone::clone)
+}
+
+fn __smelt_fn_identity_1() -> SmeltFunctionIdentity {
+    thread_local! { static SMELT_FN_IDENTITY: SmeltFunctionIdentity = SmeltFunctionIdentity::default(); }
+    SMELT_FN_IDENTITY.with(Clone::clone)
+}
+
 type SmeltFnTyped0_0 = ::std::rc::Rc<dyn Fn(JsString, JsString) -> SmeltList<JsString>>;
 fn __smelt_fn_typed_0_0() -> SmeltFnTyped0_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped0_0> = ::std::cell::OnceCell::new(); }
     SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped0_0 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString| {
     let _smelt_tmp_2: SmeltList<JsString> = match_(closure_arg_0.clone(), closure_arg_1.clone());
     _smelt_tmp_2.clone()
-    }); smelt_function }).clone())
+    }); smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_0()); smelt_function }).clone())
 }
 
 type SmeltFnTyped1_0 = ::std::rc::Rc<dyn Fn(JsString) -> JsString>;
@@ -4389,7 +4412,7 @@ fn __smelt_fn_typed_1_0() -> SmeltFnTyped1_0 {
     SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped1_0 = ::std::rc::Rc::new(|closure_arg_0: JsString| {
     let _smelt_tmp_1: JsString = greet(closure_arg_0.clone());
     _smelt_tmp_1.clone()
-    }); smelt_function }).clone())
+    }); smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_1()); smelt_function }).clone())
 }
 
 // ==== source_main.rs

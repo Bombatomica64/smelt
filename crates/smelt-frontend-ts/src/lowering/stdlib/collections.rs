@@ -1001,17 +1001,23 @@ impl ModuleBuilder<'_> {
                 // Only honor the hint when it is a Set; a non-Set hint comes
                 // from the surrounding expression (spread, argument slot) and
                 // must not reject the constructor.
+                // An explicit `new Set<T>([..])` states the element type; the
+                // first item's type is only the fallback inference. An `any`
+                // argument opts out of checking rather than declaring a
+                // boundary, so the items still refine it (an `unknown` one must
+                // hold any value and is kept).
                 let ty = if let Some(hint) = type_hint
                     && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
                 {
                     hint
-                } else if let Some(first_item) = items.first().copied() {
-                    let item_ty = Self::expr_ty(body, first_item);
-                    self.ctx.krate.types.intern(Type::Set(item_ty))
                 } else if let Some(type_args) = &new_expr.type_arguments
                     && let [item] = type_args.params.as_slice()
+                    && !matches!(item, oxc::ast::ast::TSType::TSAnyKeyword(_))
                 {
                     let item_ty = self.ts_type_to_hir(item)?;
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else if let Some(first_item) = items.first().copied() {
+                    let item_ty = Self::expr_ty(body, first_item);
                     self.ctx.krate.types.intern(Type::Set(item_ty))
                 } else {
                     let item_ty = self.erase_with(ErasureReason::MissingAnnotation, "new Set([])");
@@ -1193,7 +1199,29 @@ impl ModuleBuilder<'_> {
             }
             [Argument::ArrayExpression(array)] => {
                 let entries = self.map_constructor_entries(array, body)?;
-                let type_hint = type_hint.map(|hint| self.map_arm_of_hint(hint));
+                // Explicit `new Map<K, V>([..])` type arguments state the entry
+                // types the way an annotation does; inference from the entries
+                // is only the fallback.
+                // `any` opts out rather than declares (see the `Set` arm).
+                let explicit = match new_expr
+                    .type_arguments
+                    .as_ref()
+                    .map(|args| args.params.as_slice())
+                {
+                    Some([key, value])
+                        if ![key, value]
+                            .iter()
+                            .any(|arg| matches!(arg, oxc::ast::ast::TSType::TSAnyKeyword(_))) =>
+                    {
+                        let key_ty = self.ts_type_to_hir(key)?;
+                        let value_ty = self.ts_type_to_hir(value)?;
+                        Some(self.ctx.krate.types.intern(Type::JsMap(key_ty, value_ty)))
+                    }
+                    _ => None,
+                };
+                let type_hint = type_hint
+                    .map(|hint| self.map_arm_of_hint(hint))
+                    .or(explicit);
                 let ty = if let Some(hint) = type_hint {
                     let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
                         self.ctx.krate.types.get(hint)

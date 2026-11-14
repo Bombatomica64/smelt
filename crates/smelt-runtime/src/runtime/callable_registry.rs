@@ -365,6 +365,26 @@ fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derive
 //~ its identity has to be read before the move.
 fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
+/// Make `function` one more representation of the function `token` names.
+//~
+//~ A function item has several allocations (its erased value, a typed `Rc`
+//~ per callable type), each of which may already have recorded metadata on its
+//~ own identity (the erased value registers `Function.prototype.length`).
+//~ Linking alone would drop that; joining moves what the token lacks onto it
+//~ first, then links, so every representation reads one length and one
+//~ property bag.
+#[allow(dead_code)]
+fn smelt_join_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, token: &SmeltFunctionIdentity) {
+    let own = smelt_canonical_function_identity(function);
+    if own == *token { return; }
+    if token.0.length.get().is_none() { token.0.length.set(own.0.length.get()); }
+    if token.0.properties.borrow().is_none() {
+        let moved = own.0.properties.borrow_mut().take();
+        *token.0.properties.borrow_mut() = moved;
+    }
+    smelt_link_function_identity_key(function, token.clone());
+}
+
 /// Return the stable key for an erased callback wrapper.
 #[allow(dead_code)]
 fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {

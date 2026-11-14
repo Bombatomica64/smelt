@@ -471,9 +471,48 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         // reference to the same named function value shares one inner `Rc`, keeping
         // JavaScript reference identity (`===`) stable across references. Sorted by
         // item key via the `BTreeMap` for deterministic golden output.
-        for (key, body) in context.minted.function_item_accessors.borrow().iter() {
+        // One JavaScript function has several representations: its erased
+        // value and a typed `Rc` per callable type it is used at. Each accessor
+        // links its allocation to the item's one identity token, so a value
+        // erased from ANY of them compares equal (`fs.indexOf(f)` with `fs`
+        // holding the erased value and `f` read at its typed accessor answered
+        // -1). The token lives in the erased runtime, so it is only minted when
+        // that runtime is emitted; without it nothing compares across forms.
+        let links_identity = context.demand().has(Need::Unknown);
+        let mut identity_keys = std::collections::BTreeSet::new();
+        if links_identity {
+            identity_keys.extend(
+                context
+                    .minted
+                    .function_item_accessors
+                    .borrow()
+                    .keys()
+                    .copied(),
+            );
+            identity_keys.extend(
+                context
+                    .minted
+                    .function_item_typed_accessors
+                    .borrow()
+                    .keys()
+                    .map(|(key, _)| *key),
+            );
+        }
+        for key in &identity_keys {
             out.push_str(&format!(
-                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|smelt_cell| smelt_cell.get_or_init(|| {body}).clone())\n}}\n"
+                "\nfn __smelt_fn_identity_{key}() -> SmeltFunctionIdentity {{\n    thread_local! {{ static SMELT_FN_IDENTITY: SmeltFunctionIdentity = SmeltFunctionIdentity::default(); }}\n    SMELT_FN_IDENTITY.with(Clone::clone)\n}}\n"
+            ));
+        }
+        for (key, body) in context.minted.function_item_accessors.borrow().iter() {
+            let linked_body = if links_identity {
+                format!(
+                    "{{ let smelt_value = {body}; if let SmeltUnknown::Function(smelt_function) = &smelt_value {{ smelt_join_function_identity(smelt_function, &__smelt_fn_identity_{key}()); }} smelt_value }}"
+                )
+            } else {
+                body.clone()
+            };
+            out.push_str(&format!(
+                "\nfn __smelt_fn_value_{key}() -> SmeltUnknown {{\n    thread_local! {{ static SMELT_FN_VALUE: ::std::cell::OnceCell<SmeltUnknown> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_VALUE.with(|smelt_cell| smelt_cell.get_or_init(|| {linked_body}).clone())\n}}\n"
             ));
         }
 
@@ -504,8 +543,15 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
         for ((key, rendered_type), (ordinal, body)) in
             context.minted.function_item_typed_accessors.borrow().iter()
         {
+            let link = if links_identity {
+                format!(
+                    " smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_{key}());"
+                )
+            } else {
+                String::new()
+            };
             out.push_str(&format!(
-                "\ntype SmeltFnTyped{key}_{ordinal} = {rendered_type};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body}; smelt_function }}).clone())\n}}\n"
+                "\ntype SmeltFnTyped{key}_{ordinal} = {rendered_type};\nfn __smelt_fn_typed_{key}_{ordinal}() -> SmeltFnTyped{key}_{ordinal} {{\n    thread_local! {{ static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped{key}_{ordinal}> = ::std::cell::OnceCell::new(); }}\n    SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| {{ let smelt_function: SmeltFnTyped{key}_{ordinal} = {body};{link} smelt_function }}).clone())\n}}\n"
             ));
         }
 

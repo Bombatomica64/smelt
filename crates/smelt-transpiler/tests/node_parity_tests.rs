@@ -156,6 +156,14 @@ fn function_value_semantics() -> TestResult {
     verify_node_parity("function_value_semantics")
 }
 
+/// A function keeps one identity across its representations: erased into
+/// `unknown`, read at a typed slot, stored in a list, a `Set` or a `Map`, and
+/// found again with `===`, `indexOf`, `includes`, `has` and `get`.
+#[test]
+fn function_identity() -> TestResult {
+    verify_node_parity("function_identity")
+}
+
 /// A `catch` runs wherever its `try` sits: a loop, a closure, an `if` arm, a callback.
 #[test]
 fn throw_and_catch_forms() -> TestResult {

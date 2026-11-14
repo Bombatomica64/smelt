@@ -1218,6 +1218,19 @@ fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derive
 /// Link `derived` to an already-resolved canonical identity.
 fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
+/// Make `function` one more representation of the function `token` names.
+#[allow(dead_code)]
+fn smelt_join_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, token: &SmeltFunctionIdentity) {
+    let own = smelt_canonical_function_identity(function);
+    if own == *token { return; }
+    if token.0.length.get().is_none() { token.0.length.set(own.0.length.get()); }
+    if token.0.properties.borrow().is_none() {
+        let moved = own.0.properties.borrow_mut().take();
+        *token.0.properties.borrow_mut() = moved;
+    }
+    smelt_link_function_identity_key(function, token.clone());
+}
+
 /// Return the stable key for an erased callback wrapper.
 #[allow(dead_code)]
 fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
@@ -4715,6 +4728,11 @@ smelt_local.block_on(&smelt_runtime, async move {
 })
 }
 
+fn __smelt_fn_identity_5() -> SmeltFunctionIdentity {
+    thread_local! { static SMELT_FN_IDENTITY: SmeltFunctionIdentity = SmeltFunctionIdentity::default(); }
+    SMELT_FN_IDENTITY.with(Clone::clone)
+}
+
 type SmeltFnTyped5_0 = ::std::rc::Rc<dyn Fn() -> SmeltFuture<()>>;
 fn __smelt_fn_typed_5_0() -> SmeltFnTyped5_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped5_0> = ::std::cell::OnceCell::new(); }
@@ -4724,7 +4742,7 @@ fn __smelt_fn_typed_5_0() -> SmeltFnTyped5_0 {
     Ok::<SmeltFuture<()>, Box<dyn std::error::Error>>(_smelt_tmp_0)
         };
         let smelt_async_output = smelt_async_value?.await?; Ok::<(), Box<dyn std::error::Error>>(smelt_async_output)
-    }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>>) }); smelt_function }).clone())
+    }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>>) }); smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_5()); smelt_function }).clone())
 }
 
 // ==== source_main.rs
