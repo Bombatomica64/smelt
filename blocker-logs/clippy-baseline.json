@@ -11,7 +11,7 @@
       "clippy::missing_docs_in_private_items": 1,
       "clippy::shadow_reuse": 82,
       "clippy::shadow_same": 16,
-      "clippy::shadow_unrelated": 9,
+      "clippy::shadow_unrelated": 8,
       "clippy::unwrap_used": 8,
       "clippy::wildcard_enum_match_arm": 1,
       "unused_qualifications": 7
@@ -66,7 +66,7 @@
       "clippy::cast_precision_loss": 73,
       "clippy::cast_sign_loss": 77,
       "clippy::chunks_exact_to_as_chunks": 1,
-      "clippy::collapsible_if": 30,
+      "clippy::collapsible_if": 29,
       "clippy::default_trait_access": 1,
       "clippy::doc_markdown": 12,
       "clippy::explicit_iter_loop": 5,

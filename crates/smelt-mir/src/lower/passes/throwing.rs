@@ -131,7 +131,7 @@ fn projected_bind_locals(
         .filter_map(|statement| {
             if let Statement::Assign {
                 dest,
-                value: Rvalue::BindThis { callee, .. },
+                value: Rvalue::BindThis { callee, .. } | Rvalue::BindOwnThis { callee },
             } = statement
                 && callee.local().is_none()
                 && typed_callable(*dest)

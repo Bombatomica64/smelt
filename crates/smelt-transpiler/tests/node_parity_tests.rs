@@ -400,6 +400,24 @@ fn json_type_only_interface() -> TestResult {
     verify_node_parity_with("json_type_only_interface", &["types.ts"])
 }
 
+/// A class's prototype is one object with identity: `.constructor` is the
+/// class, the chain runs through the base prototype, and `Object.create`,
+/// `setPrototypeOf`, `isPrototypeOf` and `instanceof` agree with it
+/// (docs/design/class-prototypes.md).
+#[test]
+fn class_prototypes() -> TestResult {
+    verify_node_parity("class_prototypes")
+}
+
+/// Methods on the class prototype, shared by instances, clones and
+/// `Object.create(C.prototype)` objects; an early `.constructor` is the class;
+/// host classes have one chained prototype object each
+/// (docs/design/class-prototypes.md, section 7).
+#[test]
+fn prototype_methods_and_hosts() -> TestResult {
+    verify_node_parity("prototype_methods_and_hosts")
+}
+
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {
@@ -1494,4 +1512,22 @@ fn optional_erased_calls() -> TestResult {
 #[test]
 fn callee_value_calls() -> TestResult {
     verify_node_parity("callee_value_calls")
+}
+
+/// `fn.apply(thisArg, list)` on a typed callee: a fixed-arity callee reads its
+/// parameters from the list by index (`apply(x, [])` on `() => T` is a
+/// zero-argument call), a leading-positional callee splits the list into its
+/// positionals and its rest, and the leading operand is the receiver.
+#[test]
+fn apply_argument_lists() -> TestResult {
+    verify_node_parity("apply_argument_lists")
+}
+
+/// Every call supplies its callee's `this`: a member call, `.call`/`.apply`/
+/// `.bind` supply a receiver and a plain call supplies `undefined`, typed or
+/// erased; an arrow sees its enclosing plain function's `this`; a callable
+/// object forwarding its receiver (es-toolkit's `throttle`) keeps it.
+#[test]
+fn receiver_frames() -> TestResult {
+    verify_node_parity("receiver_frames")
 }

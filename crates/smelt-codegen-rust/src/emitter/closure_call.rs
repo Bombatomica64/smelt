@@ -7,19 +7,51 @@ use smelt_hir::{FunctionType, Symbol};
 
 impl FunctionEmitter<'_> {
     /// Install a receiver on a callable value.
+    ///
+    /// `receiver` is `None` for `BindOwnThis`: the receiver is the running
+    /// frame's own `this` (`smelt_frame_this`, already a `SmeltUnknown`), so
+    /// no MIR temporary reads it and it always takes the eager install path.
     pub(super) fn bind_this_expr(
         &self,
         callee: &Operand,
-        receiver: &Operand,
+        receiver: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let receiver_text = self.erase(receiver)?;
+        let receiver_text = match receiver {
+            Some(operand) => self.erase(operand)?,
+            None => RustExpr::chain(self.this_read_text()),
+        };
         // A callee that still has its `Type::Function` keeps it: the
         // typed `smelt_bind_this` method returns a `SmeltErasedFunction`
         // so binding a receiver never costs the callable its static
         // shape. Only an already-erased callee goes through the free
         // function, which also handles a callable OBJECT receiver.
         let callee_ty = self.operand_ty(callee)?;
+        // A callable OBJECT (a callable interface's struct, such as es-toolkit's
+        // `DebouncedFunction<F>`) carries its receiver on a copy whose call slot
+        // installs it: `debounced.apply(this, args)` then passes `this`
+        // explicitly instead of relying on the caller's channel.
+        if let Some(call_ty) = self.callable_interface_call_field_ty(callee_ty)
+            && let Some(Type::Function(function)) = self.mir.types.get(call_ty).cloned()
+        {
+            let slot = if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
+                format!("smelt_bound_object.{SMELT_CALL}.smelt_bind_this(smelt_bound_this.clone())")
+            } else {
+                let params = (0..function.params.len())
+                    .map(|index| format!("smelt_bound_arg_{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ let smelt_bound_callee = smelt_bound_object.{SMELT_CALL}.clone(); let smelt_bound_receiver = smelt_bound_this.clone(); let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{ let _smelt_this_guard = smelt_push_this(smelt_bound_receiver.clone()); (smelt_bound_callee)({params}) }}); smelt_bound }}",
+                    ty = self.rendered_type(call_ty)?,
+                )
+            };
+            return Ok(RustExpr::atom(format!(
+                "{{ let mut smelt_bound_object = {object}.clone(); let smelt_bound_this = {receiver_text}; smelt_bound_object.{SMELT_CALL} = {slot}; smelt_bound_object }}",
+                object = self.operand_expr(callee)?.tight(),
+                receiver_text = receiver_text.delimited(),
+            )));
+        }
         if let Some(Type::Function(function)) = self.mir.types.get(callee_ty).cloned() {
             // A `Type::Function` has two Rust spellings (see `rust_type`):
             // the erased `SmeltErasedFunction` struct, which carries the
@@ -51,8 +83,8 @@ impl FunctionEmitter<'_> {
                     return self.value_at_type(callee, dest_ty);
                 }
                 return Ok({
-                    let receiver = self.operand_expr(callee)?;
-                    receiver.postfix(format!(
+                    let bound_callee = self.operand_expr(callee)?;
+                    bound_callee.postfix(format!(
                         ".smelt_bind_this({receiver_text})",
                         receiver_text = receiver_text.delimited()
                     ))
@@ -69,32 +101,38 @@ impl FunctionEmitter<'_> {
             // it eagerly would rebuild the instance's whole erased
             // view — every prototype member included — on every call
             // through a function-valued field.
-            let receiver_ty = self.operand_ty(receiver)?;
-            let (bind_receiver, install) = if matches!(
-                self.mir.types.get(receiver_ty),
-                Some(Type::Unknown)
-            ) {
-                (
-                    format!(
-                        "let smelt_bound_this = {receiver_text};",
-                        receiver_text = receiver_text.delimited()
-                    ),
-                    "smelt_push_this(smelt_bound_this.clone())".to_owned(),
-                )
-            } else {
-                let lazy_erase = self.erase_rendered(
+            let typed_receiver = match receiver {
+                Some(operand) => {
+                    let receiver_ty = self.operand_ty(operand)?;
+                    (!matches!(self.mir.types.get(receiver_ty), Some(Type::Unknown)))
+                        .then_some((operand, receiver_ty))
+                }
+                None => None,
+            };
+            let (bind_receiver, install) = if let Some((typed_operand, receiver_ty)) =
+                typed_receiver
+            {
+                let lazy_erase = self.lazy_receiver_erasure(
                     &RustExpr::path("smelt_bound_receiver").cloned_value(),
                     receiver_ty,
                 )?;
                 (
                     format!(
                         "let smelt_bound_receiver = {}.clone();",
-                        self.operand_expr(receiver)?.tight()
+                        self.operand_expr(typed_operand)?.tight()
                     ),
                     format!(
                         "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})",
                         lazy_erase = lazy_erase.delimited()
                     ),
+                )
+            } else {
+                (
+                    format!(
+                        "let smelt_bound_this = {receiver_text};",
+                        receiver_text = receiver_text.delimited()
+                    ),
+                    "smelt_push_this(smelt_bound_this.clone())".to_owned(),
                 )
             };
             // A generic class's function-valued field is STORED with
@@ -694,7 +732,7 @@ impl FunctionEmitter<'_> {
             // stands alone.
             let call_text = if split_args.is_some() {
                 RustExpr::atom(format!(
-                    "{{ let smelt_spread_args = {args_text}; {inner_call} }}",
+                    "{{ let smelt_spread_args: Vec<SmeltUnknown> = ::std::iter::IntoIterator::into_iter({args_text}).collect(); {inner_call} }}",
                     args_text = args_text.delimited(),
                     inner_call = inner_call.delimited()
                 ))
@@ -802,9 +840,10 @@ impl FunctionEmitter<'_> {
     /// parameters before its rest (`(data: T, ...rest: U[]) => …`, i.e. `rest`
     /// starts after index 0), the packed list must be redistributed: the first
     /// `rest` elements fill the positional parameters and the remainder becomes
-    /// the rest `SmeltList`. Returns `None` when the callee has no leading
-    /// positional before the rest (index-0 rest is handled by the plain spread
-    /// path) or when the shape does not match `[positionals…, rest_list]`.
+    /// the rest `SmeltList`. A callee with NO rest reads every parameter by
+    /// index. Returns `None` when the rest starts at index 0 (handled by the
+    /// plain spread path) or when the shape does not match
+    /// `[positionals…, rest_list]`.
     ///
     /// The returned string is the comma-separated argument list that reads from
     /// an in-scope `smelt_spread_args` binding; the caller wraps the whole call
@@ -813,8 +852,31 @@ impl FunctionEmitter<'_> {
         &self,
         function: &FunctionType,
     ) -> Result<Option<RustExpr>, EmitError> {
+        // A FIXED-arity callee (no rest parameter, possibly no parameters at
+        // all) takes its parameters from the list by index and nothing else:
+        // `f.apply(this, [])` on a `() => void` is a zero-argument call, and
+        // `g.apply(this, xs)` on `(a, b) => ..` reads `xs[0]`, `xs[1]`.
+        // Handing it the packed list as ONE argument does not type-check.
         let Some(rest_index) = function.rest else {
-            return Ok(None);
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            let mut rendered = Vec::with_capacity(function.params.len());
+            for (index, param) in function.params.iter().enumerate() {
+                let element = RustExpr::chain(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "smelt_spread_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                    ),
+                ));
+                let coerced =
+                    self.rendered_at_type(&element, unknown_ty, *param, &self.render_scope())?;
+                rendered.push(self.callback_call_arg_expr(
+                    function,
+                    index,
+                    *param,
+                    coerced.into_string(),
+                ));
+            }
+            return Ok(Some(RustExpr::from(rendered.join(", "))));
         };
         if rest_index == 0 {
             return Ok(None);

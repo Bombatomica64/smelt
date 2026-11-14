@@ -33,120 +33,123 @@ module examples/typescript/end-to-end/152_callable_interface_fields/input.ts (Mo
     #19: Get = #18.get
     #20: Context = %0
     #21: String = "a"
-    #22: fn(String) -> Float = assert_type #19
-    #23: Float = closure_call #22(#21)
-    #24: None = @8(console_log)
-    #25: None = call #24(#23)
-    #26: Context = %0
+    #22: Get = bind_this #19, #18
+    #23: fn(String) -> Float = assert_type #22
+    #24: Float = closure_call #23(#21)
+    #25: None = @8(console_log)
+    #26: None = call #25(#24)
     #27: Context = %0
-    #28: Get = #27.get
-    #29: Context = %0
-    #30: String = "b"
-    #31: fn(String) -> Float = assert_type #28
-    #32: Float = closure_call #31(#30)
-    #33: None = @9(console_log)
-    #34: None = call #33(#32)
-    #35: Context = %0
-    #36: fn() -> Float = #35.touch
+    #28: Context = %0
+    #29: Get = #28.get
+    #30: Context = %0
+    #31: String = "b"
+    #32: Get = bind_this #29, #28
+    #33: fn(String) -> Float = assert_type #32
+    #34: Float = closure_call #33(#31)
+    #35: None = @9(console_log)
+    #36: None = call #35(#34)
     #37: Context = %0
-    #38: Float = #37.touch()
-    #39: None = @10(console_log)
-    #40: None = call #39(#38)
-    #41: Context = %0
-    #42: Echo = #41.echo
+    #38: fn() -> Float = #37.touch
+    #39: Context = %0
+    #40: Float = #39.touch()
+    #41: None = @10(console_log)
+    #42: None = call #41(#40)
     #43: Context = %0
-    #44: String = "zz"
-    #45: fn(String) -> String = assert_type #42
-    #46: String = closure_call #45(#44)
-    #47: None = @11(console_log)
-    #48: None = call #47(#46)
-    #49: Context = %0
-    #50: SetHeader = #49.header
-    #51: Context = %0
-    #52: String = "x-one"
-    #53: String = "1"
-    #54: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #50
-    #55: None = closure_call #54(#52, #53)
-    #56: Context = %0
-    #57: SetHeader = #56.header
-    #58: Context = %0
-    #59: String = "x-one"
-    #60: String = "2"
-    #61: String = "append"
-    #62: Bool = true
-    #63: Dict<String, Bool> = {#61: #62}
-    #64: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #57
-    #65: None = closure_call #64(#59, #60, #63)
-    #66: Context = %0
-    #67: SetHeader = #66.header
-    #68: Context = %0
-    #69: String = "x-two"
-    #70: String = "2"
-    #71: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #67
-    #72: None = closure_call #71(#69, #70)
-    #73: Context = %0
-    #74: SetHeader = #73.header
-    #75: Context = %0
-    #76: String = "x-two"
-    #77: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #74
-    #78: None = closure_call #77(#76)
-    #79: Context = %0
-    #80: Context = %0
-    #81: Context = %0
+    #44: Echo = #43.echo
+    #45: Context = %0
+    #46: String = "zz"
+    #47: Echo = bind_this #44, #43
+    #48: fn(String) -> String = assert_type #47
+    #49: String = closure_call #48(#46)
+    #50: None = @11(console_log)
+    #51: None = call #50(#49)
+    #52: Context = %0
+    #53: SetHeader = #52.header
+    #54: Context = %0
+    #55: String = "x-one"
+    #56: String = "1"
+    #57: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #53
+    #58: None = closure_call #57(#55, #56)
+    #59: Context = %0
+    #60: SetHeader = #59.header
+    #61: Context = %0
+    #62: String = "x-one"
+    #63: String = "2"
+    #64: String = "append"
+    #65: Bool = true
+    #66: Dict<String, Bool> = {#64: #65}
+    #67: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #60
+    #68: None = closure_call #67(#62, #63, #66)
+    #69: Context = %0
+    #70: SetHeader = #69.header
+    #71: Context = %0
+    #72: String = "x-two"
+    #73: String = "2"
+    #74: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #70
+    #75: None = closure_call #74(#72, #73)
+    #76: Context = %0
+    #77: SetHeader = #76.header
+    #78: Context = %0
+    #79: String = "x-two"
+    #80: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None = assert_type #77
+    #81: None = closure_call #80(#79)
     #82: Context = %0
-    #83: Map<String, String> = #82.headers
-    #84: String = "x-one"
-    #85: Optional<String> = dict_get #83, #84, _
-    #86: None = @12(console_log)
-    #87: None = call #86(#85)
-    #88: Context = %0
-    #89: Context = %0
-    #90: Context = %0
+    #83: Context = %0
+    #84: Context = %0
+    #85: Context = %0
+    #86: Map<String, String> = #85.headers
+    #87: String = "x-one"
+    #88: Optional<String> = dict_get #86, #87, _
+    #89: None = @12(console_log)
+    #90: None = call #89(#88)
     #91: Context = %0
-    #92: Map<String, String> = #91.headers
-    #93: String = "x-two"
-    #94: Bool = dict_contains_key #92, #93, own
-    #95: None = @13(console_log)
-    #96: None = call #95(#94)
-    #97: Context = %0
-    #98: Context = %0
-    #99: Context = %0
+    #92: Context = %0
+    #93: Context = %0
+    #94: Context = %0
+    #95: Map<String, String> = #94.headers
+    #96: String = "x-two"
+    #97: Bool = dict_contains_key #95, #96, own
+    #98: None = @13(console_log)
+    #99: None = call #98(#97)
     #100: Context = %0
-    #101: Map<String, String> = #100.headers
-    #102: String = "x-inner"
-    #103: Optional<String> = dict_get #101, #102, _
-    #104: None = @14(console_log)
-    #105: None = call #104(#103)
-    #106: Context = %0
-    #107: Get = #106.get
-    #108: Get = %1
-    #109: fn(String) -> Float = assert_type #108
-    #110: String = "a"
-    #111: Float = closure_call #109(#110)
-    #112: None = @15(console_log)
-    #113: None = call #112(#111)
-    #114: Context = %0
-    #115: Float = #114.reads
-    #116: None = @16(console_log)
-    #117: None = call #116(#115)
+    #101: Context = %0
+    #102: Context = %0
+    #103: Context = %0
+    #104: Map<String, String> = #103.headers
+    #105: String = "x-inner"
+    #106: Optional<String> = dict_get #104, #105, _
+    #107: None = @14(console_log)
+    #108: None = call #107(#106)
+    #109: Context = %0
+    #110: Get = #109.get
+    #111: Get = %1
+    #112: fn(String) -> Float = assert_type #111
+    #113: String = "a"
+    #114: Float = closure_call #112(#113)
+    #115: None = @15(console_log)
+    #116: None = call #115(#114)
+    #117: Context = %0
+    #118: Float = #117.reads
+    #119: None = @16(console_log)
+    #120: None = call #119(#118)
   stmts
     s0: let %0: Context = #0
     s1: #8
     s2: #16
-    s3: #25
-    s4: #34
-    s5: #40
-    s6: #48
-    s7: #55
-    s8: #65
-    s9: #72
-    s10: #78
-    s11: #87
-    s12: #96
-    s13: #105
-    s14: let %1: Get = #107
-    s15: #113
-    s16: #117
+    s3: #26
+    s4: #36
+    s5: #42
+    s6: #51
+    s7: #58
+    s8: #68
+    s9: #75
+    s10: #81
+    s11: #90
+    s12: #99
+    s13: #108
+    s14: let %1: Get = #110
+    s15: #116
+    s16: #120
 
 interned types
   t0 = Float

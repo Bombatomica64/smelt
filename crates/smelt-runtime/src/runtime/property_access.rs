@@ -137,7 +137,12 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ An own `constructor` field still wins (source code can assign one), and a
     //~ plain object keeps `undefined` — which is what lets two plain objects pass
     //~ the `isPlainObject(a) && isPlainObject(b)` arm instead.
-    if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); } }
+    if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { smelt_note_class_builder(map, &class_name); return smelt_class_value_of(&class_name.to_string_lossy()); } }
+    //~ A class prototype answers `constructor` with its class, and a class
+    //~ value answers `prototype` with its prototype: `C.prototype.constructor
+    //~ === C` (docs/design/class-prototypes.md).
+    if field == "constructor" && !map.contains_key("constructor") && let Some(tag) = smelt_class_prototype_tag(map) { return smelt_class_value_of(&tag.to_string_lossy()); }
+    if field == "prototype" && !map.contains_key("prototype") && map.contains_key("__smelt_class_value") && let Some(SmeltUnknown::String(tag)) = map.get("name") { return smelt_class_prototype(&tag.to_string_lossy()); }
     //~ Byte-backed host objects (`ArrayBuffer`, `Buffer`, `DataView`, ...) hold
     //~ their storage in a `bytes` list, so an indexed read (`buffer[1]`, and the
     //~ `a[i]` walk es-toolkit's `isEqualWith` runs over a typed-array-tagged
@@ -182,7 +187,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ unmodeled member stays `undefined` rather than becoming a callable that
     //~ cannot run.
     if !map.contains_key(field) { if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_namespace").and_then(|_| map.get("name")) { if field == "prototype" { return smelt_builtin_prototype_object(&class.to_string_lossy()); } if let Some(member) = smelt_builtin_member_value(&class.to_string_lossy(), "static", field) { return member; } } }
-    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if let Some(member) = smelt_builtin_member_value(&class.to_string_lossy(), "prototype", field) { return member; } }
+    if let Some(SmeltUnknown::String(class)) = map.get("__smelt_builtin_prototype") { if field == "constructor" && !map.contains_key("constructor") { return smelt_builtin_namespace(&class.to_string_lossy()); } if let Some(member) = smelt_builtin_member_value(&class.to_string_lossy(), "prototype", field) { return member; } }
     if field == "size" { if let Some(SmeltUnknown::Array(pairs)) = map.get("__smelt_map") { return SmeltUnknown::Number(pairs.len() as f64); } }
     //~ Same synthesis for an erased `Set` (`{ __smelt_set: [members...] }`):
     //~ real Sets expose `.size` through `Set.prototype`, absent from the marker
@@ -274,7 +279,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ same way `Object.create(proto)` answers an inherited property from
     //~ `__smelt_proto:`. Both are consulted only after the own property
     //~ misses, exactly as JavaScript's prototype chain does.
-    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")) } };
+    let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")).or_else(|| match map.get("__smelt_class") { Some(SmeltUnknown::String(tag)) => smelt_class_inherited_method(&tag.to_string_lossy(), field), _ => None }) } };
     smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
 }
 
@@ -320,17 +325,34 @@ fn smelt_object_prototype_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnkn
         "Object.prototype.valueOf" => smelt_unbox_primitive(receiver),
         "Object.prototype.hasOwnProperty" | "Object.prototype.propertyIsEnumerable" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(smelt_has_own_property(&receiver, &key)) }
         //~ `isPrototypeOf` asks whether the receiver appears on the argument's
-        //~ prototype CHAIN. Smelt represents a prototype as an opaque sentinel
-        //~ (`smelt_prototype_sentinel`) rather than as a linked object, so there is
-        //~ no chain to walk: the honest answer for the only receivers that can
-        //~ reach here — a plain object or the `Object.prototype` sentinel read as a
-        //~ value — is `false`, which is also what JavaScript answers for every
-        //~ plain object receiver.
+        //~ prototype CHAIN: walk `smelt_prototype_sentinel` from the argument,
+        //~ comparing each link with the receiver by identity (an object) or by
+        //~ spelling (an opaque `"__smelt_proto:*"` sentinel). The walk stops at
+        //~ `null`, or where a link no longer advances.
+        "Object.prototype.isPrototypeOf" => {
+            let mut current = args.next().unwrap_or(SmeltUnknown::Undefined);
+            //~ A chain is finite (`setPrototypeOf` refuses a cycle in JavaScript),
+            //~ so the bound only guards against a link table Smelt got wrong.
+            let mut steps = 0_u32;
+            if !matches!(current, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Promise(_) | SmeltUnknown::Function(_)) { return SmeltUnknown::Bool(false); }
+            loop {
+                let next = smelt_prototype_sentinel(&current);
+                let same = |left: &SmeltUnknown, right: &SmeltUnknown| match (left, right) { (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, _ => false };
+                steps += 1;
+                if steps > 10_000 || matches!(next, SmeltUnknown::Null | SmeltUnknown::Undefined) || same(&next, &current) { return SmeltUnknown::Bool(false); }
+                if same(&next, &receiver) { return SmeltUnknown::Bool(true); }
+                current = next;
+            }
+        }
         _ => SmeltUnknown::Bool(false),
     }
 }
 
 /// Read an `Object.prototype` member, or `None` when the name is not one.
+//~ Its `this` is the receiver: a method call (`proto.isPrototypeOf(x)`) and
+//~ `.call(receiver, ..)` both install it on the `this` channel, and the
+//~ member passes it on as the leading argument `smelt_object_prototype_apply`
+//~ reads. A program with no channel never reaches a member that way.
 fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
     let key: &'static str = match field {
         "toString" => "Object.prototype.toString",
@@ -341,7 +363,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
         "propertyIsEnumerable" => "Object.prototype.propertyIsEnumerable",
         _ => return None,
     };
-    Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_object_prototype_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))
+    Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { /*@if this_channel*/let args = { let mut all = ::std::vec![smelt_this()]; all.extend(args); all };/*@end*/ Ok(smelt_object_prototype_apply(key, args)) }); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))
 }
 
 // @smelt:item-end
