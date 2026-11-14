@@ -1495,3 +1495,38 @@ pub(crate) fn function_impl_generics_list(
         })
         .collect()
 }
+
+/// Whether `function` is a function whose OWN type parameters may become Rust
+/// generics: a free function, or a class method or static method declaring
+/// its own (`map<U>(f: (x: T) => U): U[]`).
+///
+/// A method that is also a virtual slot (overridden by a subclass, abstract, or
+/// read as a value through `this.m`) is excluded: the slot stores the method as
+/// an `Rc<dyn Fn(..)>` field (`decls::virtual_methods`), and a trait object
+/// cannot be generic over the method's own parameters, so such a method keeps
+/// its erased signature. A constructor takes its class's parameters only.
+pub(crate) fn may_declare_own_generics(mir: &Mir, function: &MirFunction) -> bool {
+    match function.origin {
+        smelt_mir::HirOrigin::Body(_) => true,
+        smelt_mir::HirOrigin::ClassStaticMethod { .. } => !function.type_params.is_empty(),
+        smelt_mir::HirOrigin::ClassMethod { class, method, .. } => {
+            !function.type_params.is_empty() && !method_is_virtual_slot(mir, class, method)
+        }
+        smelt_mir::HirOrigin::ClassConstructor { .. } => false,
+    }
+}
+
+/// Whether the method `method` of `class` is dispatched through a callable
+/// slot anywhere in `class`'s hierarchy: a slot field of that name on the
+/// class, any ancestor or any descendant.
+fn method_is_virtual_slot(mir: &Mir, class: Symbol, method: Symbol) -> bool {
+    let method_name = mir.symbols.get(method);
+    mir.classes.iter().any(|candidate| {
+        let related = crate::classes::class_chain_contains(mir, candidate.name, class)
+            || crate::classes::class_chain_contains(mir, class, candidate.name);
+        related
+            && crate::classes::own_virtual_slot_names(mir, candidate)
+                .into_iter()
+                .any(|slot| slot == method || mir.symbols.get(slot) == method_name)
+    })
+}

@@ -101,7 +101,7 @@ pub use ids::{
 };
 pub use item::{
     Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field,
-    FieldDecodeFacts, Function, FunctionOwner, Interface, InterfaceHeritage, Item, MethodSig,
+    FieldDecodeFacts, Function, FunctionOwner, InheritedStaticAccess, Interface, InterfaceHeritage, Item, MethodSig,
     MutableGlobalInit, MutableGlobalItem, Param, ParamSig, StaticField, TypeAlias, TypeDecodeFacts,
     TypeParamDef, Visibility,
 };

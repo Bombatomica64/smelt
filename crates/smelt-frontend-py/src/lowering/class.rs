@@ -1341,6 +1341,7 @@ impl ModuleBuilder<'_> {
             mutable: false,
             storage: None,
             span: self.span(assign.range),
+            inherited: None,
         }))
     }
 

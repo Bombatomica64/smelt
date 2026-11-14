@@ -521,6 +521,7 @@ impl FunctionEmitter<'_> {
         type_arg_count: usize,
     ) -> Result<RustExpr, EmitError> {
         self.push_phantom_field(&mut fields, class, type_arg_count);
+        self.push_class_identity_field(&mut fields, class, None);
         let type_name = self.type_rust_name(class)?;
         Ok(RustExpr::loose(format!(
             "{type_name} {{ {} }}",

@@ -152,13 +152,42 @@ impl FunctionEmitter<'_> {
         let mut current = crate::classes::find_class(self.mir, class);
         let mut own = true;
         let mut seen = std::collections::HashSet::new();
+        // The class's accessor pairs for the statics it inherits
+        // (`smelt_hir::StaticField::inherited`), by key. Each is listed where
+        // its ancestor declares it, so the enumeration keeps JavaScript's
+        // order (the class's own statics, then each ancestor's in definition
+        // order), and is read through the getter, written through the setter
+        // and own only once written. An intermediate ancestor's own inherited
+        // entry for the same static is the ancestor's, not this class's.
+        let mut inherited: std::collections::HashMap<String, &smelt_mir::MirStaticField> =
+            std::collections::HashMap::new();
         while let Some(found) = current {
             for field in &found.static_fields {
                 if matches!(field.visibility, smelt_hir::Visibility::Hidden) {
                     continue;
                 }
                 let key = self.symbol_source_name(field.name)?.to_owned();
+                if field.inherited.is_some() {
+                    if own {
+                        inherited.insert(key, field);
+                    }
+                    continue;
+                }
                 if !seen.insert(key.clone()) {
+                    continue;
+                }
+                if let Some(accessor) = inherited.get(&key).copied()
+                    && let Some(access) = accessor.inherited
+                {
+                    let read = crate::classes::inherited_static_read_text(
+                        self.mir,
+                        self.context,
+                        accessor,
+                    )
+                    .ok_or_else(|| EmitError::new("inherited static has no getter"))?;
+                    readable.push((key.clone(), RustExpr::chain(read), accessor.ty));
+                    enumerable.push((key.clone(), false, Some(access.own)));
+                    writable.push((key, StaticStore::Inherited(accessor.clone()), accessor.ty));
                     continue;
                 }
                 let read = match field.global {
@@ -170,12 +199,12 @@ impl FunctionEmitter<'_> {
                     None => continue,
                 };
                 readable.push((key.clone(), read, field.ty));
-                enumerable.push((key.clone(), own));
+                enumerable.push((key.clone(), own, None));
                 if own
                     && field.mutable
                     && let Some(global) = field.global
                 {
-                    writable.push((key, global, field.ty));
+                    writable.push((key, StaticStore::Global(global), field.ty));
                 }
             }
             own = false;
@@ -186,10 +215,20 @@ impl FunctionEmitter<'_> {
         let carrier = self.carrier()?;
         let fields_text = enumerable
             .iter()
-            .map(|(key, is_own)| {
-                format!("SmeltUnknown::Array(vec![SmeltUnknown::String({key:?}.into()), SmeltUnknown::Bool({is_own})].into())")
+            .map(|(key, is_own, own_flag)| {
+                // A declared static's ownership is settled; an inherited one's
+                // is asked when the view is built, through a probe of its own
+                // flag: the class owns it from its first write on.
+                let ownership = match own_flag {
+                    None => format!("SmeltUnknown::Bool({is_own})"),
+                    Some(flag) => format!(
+                        "SmeltUnknown::Function(::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Bool({}))))",
+                        self.global_get_expr(*flag)?.delimited()
+                    ),
+                };
+                Ok(format!("SmeltUnknown::Array(vec![SmeltUnknown::String({key:?}.into()), {ownership}].into())"))
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
         let methods_text = methods
             .iter()
@@ -216,14 +255,26 @@ impl FunctionEmitter<'_> {
             get_arms.push_str(&format!("{key:?} => {}, ", erased_read.delimited()));
         }
         let mut set_arms = String::new();
-        for (key, global, ty) in &writable {
+        for (key, store, ty) in &writable {
             let value = self.extract_rendered(
                 &RustExpr::path("smelt_static_value"),
                 *ty,
                 &self.render_scope(),
             )?;
-            let store = self.global_store_text(*global, &value)?;
-            set_arms.push_str(&format!("{key:?} => {{ {store}; true }}, "));
+            let store_text = match store {
+                StaticStore::Global(global) => self.global_store_text(*global, &value)?,
+                StaticStore::Inherited(field) => format!(
+                    "let _ = {}",
+                    crate::classes::inherited_static_write_text(
+                        self.mir,
+                        self.context,
+                        field,
+                        value.delimited(),
+                    )
+                    .ok_or_else(|| EmitError::new("inherited static has no setter"))?
+                ),
+            };
+            set_arms.push_str(&format!("{key:?} => {{ {store_text}; true }}, "));
         }
         entries.push(self.carrier_format(carrier, format_args!(
             "(\"__smelt_method:{get_hook}\".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {{ {key_text} Ok(match smelt_static_key.as_str() {{ {get_arms}_ => SmeltUnknown::Undefined }}) }})))",
@@ -255,4 +306,12 @@ impl FunctionEmitter<'_> {
             target_text = target_text.tight()
         )))
     }
+}
+
+/// Where a write through the class value stores a static field.
+enum StaticStore {
+    /// A static the class declares: its live global.
+    Global(u32),
+    /// A static the class inherits: its setter.
+    Inherited(smelt_mir::MirStaticField),
 }

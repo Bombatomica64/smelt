@@ -320,17 +320,18 @@ fn smelt_array_prototype_apply(receiver: &SmeltArray, name: &str, args: Vec<Smel
         "flat" => { let depth = match args.first() { None | Some(SmeltUnknown::Undefined) => 1.0, Some(value) => smelt_erased_integer(value) }; let mut out = Vec::new(); smelt_erased_flatten_into(receiver.clone().into_vec(), depth, &mut out); SmeltUnknown::Array(out.into()) }
         "flatMap" => { let function = smelt_erased_callback(args.first()); let mapped = (0..len).map(|index| call(&function, index)).collect::<Vec<_>>(); let mut out = Vec::new(); smelt_erased_flatten_into(mapped, 1.0, &mut out); SmeltUnknown::Array(out.into()) }
         "push" => { for argument in args { receiver.push(argument); } SmeltUnknown::Number(receiver.len() as f64) }
-        "pop" => { let storage = receiver.storage(); let popped = storage.borrow_mut().pop(); popped.unwrap_or(SmeltUnknown::Undefined) }
-        "shift" => { let storage = receiver.storage(); let shifted = { let mut values = storage.borrow_mut(); if values.is_empty() { None } else { Some(values.remove(0)) } }; shifted.unwrap_or(SmeltUnknown::Undefined) }
-        "unshift" => { let storage = receiver.storage(); storage.borrow_mut().splice(0..0, args).for_each(drop); SmeltUnknown::Number(receiver.len() as f64) }
+        //~ Every mutator goes through the array's own operations, which reach
+        //~ the typed list behind a live view (`SmeltLiveList`) as well.
+        "pop" => { let end = receiver.len(); if end == 0 { SmeltUnknown::Undefined } else { receiver.splice(end - 1, 1, Vec::new()).pop().unwrap_or(SmeltUnknown::Undefined) } }
+        "shift" => { if receiver.is_empty() { SmeltUnknown::Undefined } else { receiver.splice(0, 1, Vec::new()).pop().unwrap_or(SmeltUnknown::Undefined) } }
+        "unshift" => { receiver.splice(0, 0, args); SmeltUnknown::Number(receiver.len() as f64) }
         "splice" => {
             let start = smelt_erased_relative_position(args.first(), len, 0);
             let delete_count = match args.len() { 0 => 0, 1 => len - start, _ => { let count = smelt_erased_integer(&arg(1)); if count > 0.0 { (count as usize).min(len - start) } else { 0 } } };
-            let storage = receiver.storage();
-            let removed = storage.borrow_mut().splice(start..start + delete_count, args.into_iter().skip(2)).collect::<Vec<_>>();
+            let removed = receiver.splice(start, delete_count, args.into_iter().skip(2).collect());
             SmeltUnknown::Array(removed.into())
         }
-        "reverse" => { receiver.storage().borrow_mut().reverse(); array() }
+        "reverse" => { let mut values = receiver.clone().into_vec(); values.reverse(); receiver.replace_all(values); array() }
         "sort" => {
             let compare = match args.first() { None | Some(SmeltUnknown::Undefined) => None, Some(value) => match smelt_erased_callable(value) { Some(function) => Some(function), None => smelt_throw_builtin_error("TypeError", "The comparison function must be either a function or undefined".to_owned()) } };
             //~ Sort a snapshot: the comparator is user code and may read the

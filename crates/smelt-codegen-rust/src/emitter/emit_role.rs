@@ -140,7 +140,17 @@ fn empty_substitution() -> &'static HashMap<Symbol, TypeId> {
 /// [`FunctionEmitter::emit_python_add_impl`]) and the typedness measurement all
 /// apply THIS function, so what is measured and what is emitted cannot drift.
 pub(crate) fn crate_generic_decision(context: &EmitContext, function: &MirFunction) -> OwnGenerics {
-    if matches!(function.origin, HirOrigin::Body(_)) && !context.is_generic_function(function.id) {
+    // A free function, or a method declaring its own type parameters, keeps
+    // them only when the crate-wide trial admitted it; a method without own
+    // parameters has nothing of its own to erase.
+    let declares_own = match function.origin {
+        HirOrigin::Body(_) => true,
+        HirOrigin::ClassMethod { .. } | HirOrigin::ClassStaticMethod { .. } => {
+            !function.type_params.is_empty()
+        }
+        HirOrigin::ClassConstructor { .. } => false,
+    };
+    if declares_own && !context.is_generic_function(function.id) {
         OwnGenerics::Erased
     } else {
         OwnGenerics::Declared

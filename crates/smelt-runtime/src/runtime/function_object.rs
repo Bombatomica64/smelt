@@ -357,8 +357,11 @@ fn smelt_class_value_view(map: &SmeltObject) -> Option<SmeltRecord<JsString, Sme
     for field in fields.into_vec() {
         let SmeltUnknown::Array(pair) = field else { continue };
         let pair = pair.into_vec();
-        let (Some(SmeltUnknown::String(key)), Some(SmeltUnknown::Bool(own))) = (pair.first(), pair.get(1)) else { continue };
-        if *own { view.insert(key.clone(), smelt_get_object_field(map, &*key.to_string_lossy())); } else { inherited.push(key.clone()); }
+        // `own` is a flag, or a probe answering it now: an inherited static
+        // becomes own when the class writes it.
+        let (Some(SmeltUnknown::String(key)), Some(ownership)) = (pair.first(), pair.get(1)) else { continue };
+        let own = match ownership { SmeltUnknown::Bool(own) => *own, SmeltUnknown::Function(probe) => matches!(probe(Vec::new()), Ok(SmeltUnknown::Bool(true))), _ => continue };
+        if own { view.insert(key.clone(), smelt_get_object_field(map, &*key.to_string_lossy())); } else { inherited.push(key.clone()); }
     }
     for (key, value) in map.iter() {
         let text = key.to_string_lossy();

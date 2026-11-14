@@ -386,13 +386,17 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                     emitter.emit_method(out)?;
                 }
             }
-            for static_method in &class.static_methods {
-                if let Some(function) = mir.functions.get(id_index(
-                    static_method.0,
-                    "static method index does not fit usize",
-                )?) {
-                    let mut emitter = FunctionEmitter::new(mir, context, function)?;
-                    emitter.emit_method(out)?;
+            // A generic class's statics get an impl of their own (below).
+            let statics_impl = classes::static_methods_impl_args(context, class, needs_unknown);
+            if statics_impl.is_none() {
+                for static_method in &class.static_methods {
+                    if let Some(function) = mir.functions.get(id_index(
+                        static_method.0,
+                        "static method index does not fit usize",
+                    )?) {
+                        let mut emitter = FunctionEmitter::new(mir, context, function)?;
+                        emitter.emit_method(out)?;
+                    }
                 }
             }
             // A class instance that crosses into erased code keeps its methods, as
@@ -430,6 +434,19 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 }
             }
             out.push_str("}\n");
+            if let Some(static_args) = statics_impl {
+                out.push_str(&format!("\nimpl {name}{static_args} {{\n"));
+                for static_method in &class.static_methods {
+                    if let Some(function) = mir.functions.get(id_index(
+                        static_method.0,
+                        "static method index does not fit usize",
+                    )?) {
+                        let mut emitter = FunctionEmitter::new(mir, context, function)?;
+                        emitter.emit_method(out)?;
+                    }
+                }
+                out.push_str("}\n");
+            }
             for protocol in &class.protocols {
                 match protocol {
                     MirClassProtocol::Add { method } => {

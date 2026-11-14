@@ -8,7 +8,7 @@ use crate::lowering::{
     ObjectPropertyKind, PrimitiveCastOp, PropertyKey, SetProjectionOp, SmeltError, Span, Type,
 };
 use oxc::span::GetSpan;
-use smelt_hir::ErasureReason;
+use smelt_hir::{ErasureReason, ListCallbackOp};
 use std::borrow::Cow;
 
 impl ModuleBuilder<'_> {
@@ -56,48 +56,56 @@ impl ModuleBuilder<'_> {
                     source, list_ty, span, body,
                 )));
             }
-            let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
-                Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
-                Some(Type::List(item_ty)) => self.ctx.krate.types.intern(Type::List(item_ty)),
+            // `Array.from(iterable)` is a NEW array holding the iterable's
+            // elements, never the source itself: `Array.from(a).push(x)` leaves
+            // `a` alone. A list (or an erased value read as one) is copied by
+            // the fresh-list idiom `ListConcat(source, [])`, as `[...source]` is.
+            let span = self.span(call.span.start, call.span.end);
+            let elements = match self.ctx.krate.types.get(source_ty).cloned() {
+                Some(Type::List(_)) => Self::fresh_list_copy(source, source_ty, span, body),
                 Some(Type::Set(item_ty)) => {
                     let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                    return Ok(Some(body.push_expr(Expr {
+                    body.push_expr(Expr {
                         kind: ExprKind::SetProjection {
                             op: SetProjectionOp::Values,
                             set: source,
                         },
                         ty,
-                        span: self.span(call.span.start, call.span.end),
-                    })));
+                        span,
+                    })
                 }
                 Some(Type::Dict(key_ty, _)) => {
                     let ty = self.ctx.krate.types.intern(Type::List(key_ty));
-                    return Ok(Some(body.push_expr(Expr {
+                    body.push_expr(Expr {
                         kind: ExprKind::DictProjection {
                             op: DictProjectionOp::Keys,
                             dict: source,
                         },
                         ty,
-                        span: self.span(call.span.start, call.span.end),
-                    })));
+                        span,
+                    })
                 }
                 _ => {
                     let unknown_ty =
                         self.erase_with(ErasureReason::UntypedBuiltin, "Array.from(iterable)");
-                    self.ctx.krate.types.intern(Type::List(unknown_ty))
+                    let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                    let cast = body.push_expr(Expr {
+                        kind: ExprKind::UnknownCast {
+                            value: source,
+                            target: list_ty,
+                        },
+                        ty: list_ty,
+                        span,
+                    });
+                    Self::fresh_list_copy(cast, list_ty, span, body)
                 }
             };
-            if let Some(mapper_arg) = mapper_arg {
-                let _ = self.argument(mapper_arg, body)?;
-            }
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast {
-                    value: source,
-                    target: list_ty,
-                },
-                ty: list_ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            let Some(mapper_arg) = mapper_arg else {
+                return Ok(Some(elements));
+            };
+            // `Array.from(iterable, mapper)` maps each element with its index,
+            // exactly as `Array.from(iterable).map(mapper)` would.
+            return self.array_from_mapped(elements, mapper_arg, span, body).map(Some);
         }
         let mut length = self.array_from_length_argument(source_arg, body)?;
         let length_ty = Self::expr_ty(body, length);
@@ -440,5 +448,67 @@ impl ModuleBuilder<'_> {
             expr.ty = hint;
         }
         value
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// A new list holding `list`'s elements (`ListConcat(list, [])`, whose
+    /// emission copies the elements and mints a fresh array identity).
+    fn fresh_list_copy(
+        list: smelt_hir::ExprId,
+        list_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let empty = body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
+            ty: list_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::ListConcat {
+                left: list,
+                right: empty,
+            },
+            ty: list_ty,
+            span,
+        })
+    }
+
+    /// `Array.from(source, mapper)` over the fresh list `elements`: the mapper
+    /// called with each element and its index, as `Array.prototype.map` calls
+    /// its callback (`ListCallbackOp::Map`), typed by the mapper's result.
+    fn array_from_mapped(
+        &mut self,
+        elements: smelt_hir::ExprId,
+        mapper: &Argument<'_>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list_ty = Self::expr_ty(body, elements);
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty).cloned() else {
+            return Err(SmeltError::unsupported(span, "Array.from source is not a list"));
+        };
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
+        // not a new erasure: an `unknown` return hint means "no hint" to
+        // closure-body lowering.
+        let unknown_ty = self.unknown_type(NotNewErasure::NoHint);
+        let callback = self.callback_argument_with_return_hint(
+            mapper,
+            &[element_ty, index_ty],
+            unknown_ty,
+            "Array.from mapper",
+            body,
+        )?;
+        let ty = self.ctx.krate.types.intern(Type::List(callback.return_ty));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ListCallback {
+                op: ListCallbackOp::Map,
+                list: elements,
+                callback: callback.expr,
+            },
+            ty,
+            span,
+        }))
     }
 }

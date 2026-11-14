@@ -309,6 +309,9 @@ pub(crate) struct EmitContext {
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
     reference_classes: HashSet<Symbol>,
+    /// Classes whose instances carry the hidden runtime class tag, computed
+    /// once by [`crate::class_identity::identity_classes`].
+    identity_classes: HashSet<Symbol>,
     /// Closures stored on the instance they capture, which capture it weakly
     /// (see [`weak_receiver`]).
     weak_receivers: weak_receiver::WeakReceiverPlan,
@@ -438,6 +441,7 @@ impl EmitContext {
             generic_reads: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &reference_classes),
             reference_classes,
+            identity_classes: crate::class_identity::identity_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
@@ -552,6 +556,12 @@ impl EmitContext {
         self.reference_classes.contains(&symbol)
     }
 
+    /// Return whether instances of the class named `symbol` carry the hidden
+    /// runtime class tag ([`crate::class_identity`]).
+    pub(crate) fn carries_class_identity(&self, symbol: Symbol) -> bool {
+        self.identity_classes.contains(&symbol)
+    }
+
     /// Return which type-parameter positions the emitted Rust declares.
     pub(crate) fn type_param_elision(&self) -> &crate::generic_elision::TypeParamElision {
         &self.type_param_elision
@@ -599,7 +609,7 @@ impl EmitContext {
         let signature_safe: Vec<&MirFunction> = mir
             .functions
             .iter()
-            .filter(|function| matches!(function.origin, HirOrigin::Body(_)))
+            .filter(|function| crate::generic_lifting::may_declare_own_generics(mir, function))
             .filter(|function| {
                 crate::generic_lifting::function_emits_rust_generics(
                     mir,

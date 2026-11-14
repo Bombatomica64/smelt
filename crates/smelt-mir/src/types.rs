@@ -401,9 +401,27 @@ pub struct MirStaticField {
     /// Whether the field is live storage; see `smelt_hir::StaticField::mutable`.
     #[serde(default)]
     pub mutable: bool,
-    /// The `Mir::globals` index holding a mutable static's live value.
+    /// The `Mir::globals` index holding a mutable static's live value (for an
+    /// inherited static, the class's own shadow value).
     #[serde(default)]
     pub global: Option<u32>,
+    /// For a static the class inherits, its accessor pair; see
+    /// `smelt_hir::StaticField::inherited`.
+    #[serde(default)]
+    pub inherited: Option<MirInheritedStatic>,
+}
+
+/// How a class reaches a mutable static it inherits; the MIR form of
+/// `smelt_hir::InheritedStaticAccess`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MirInheritedStatic {
+    /// The `Mir::globals` index of the `bool` saying whether the class has
+    /// its own value yet.
+    pub own: u32,
+    /// The static method answering the class's value.
+    pub getter: FuncId,
+    /// The static method storing an own value.
+    pub setter: FuncId,
 }
 
 /// MIR representation of a function with basic blocks and locals.

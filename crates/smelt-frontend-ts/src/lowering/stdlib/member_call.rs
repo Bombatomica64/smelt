@@ -125,16 +125,32 @@ impl ModuleBuilder<'_> {
         // A resolved generic method instantiates its OWN type parameters (to
         // `unknown`, what its erased definition returns); class parameters
         // were already substituted from the receiver by `resolve_method`.
+        let has_rest = rest_signature.is_some();
         if let Some((rest_index, params)) = rest_signature {
             let span = self.span(call.span.start, call.span.end);
             args =
                 self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
+        // A generic method's own type parameters are bound per call the way
+        // a generic free function's are (from the arguments and the
+        // checker's answer, `instantiated_call_return`): the method is
+        // emitted with real Rust generics, so its call is as typed as theirs.
         let return_ty = if method_item.0 == u32::MAX {
             return_ty
         } else {
             let method_type_params = self.callee_own_type_params(method_item);
-            self.instantiate_generic_method_result(&method_type_params, return_ty)
+            match self.class_method_fixed_params(access_receiver_ty, method) {
+                Some(params) if !method_type_params.is_empty() && !has_rest => self
+                    .instantiated_call_return(
+                        &method_type_params,
+                        &params,
+                        &args,
+                        return_ty,
+                        call,
+                        body,
+                    )?,
+                _ => self.instantiate_generic_method_result(&method_type_params, return_ty),
+            }
         };
         if method_item.0 == u32::MAX
             && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
@@ -911,7 +927,11 @@ impl ModuleBuilder<'_> {
             args =
                 self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
-        let return_ty = self.instantiate_generic_method_result(&method_type_params, return_ty);
+        let return_ty = if rest.is_none() && !method_type_params.is_empty() {
+            self.instantiated_call_return(&method_type_params, &params, &args, return_ty, call, body)?
+        } else {
+            self.instantiate_generic_method_result(&method_type_params, return_ty)
+        };
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(static_item),
             ty: self.item_expr_type(static_item, span)?,

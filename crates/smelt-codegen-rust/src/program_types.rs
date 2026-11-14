@@ -255,6 +255,7 @@ fn emit_interface_type(
             &fields,
             &phantom_args,
             &scoped_type_params,
+            None,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &impl_generics, &type_params);
     }
@@ -274,6 +275,7 @@ fn emit_interface_type(
             &fields,
             &phantom_args,
             &scoped_type_params,
+            None,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &type_params, &type_params);
         let field_names = fields
@@ -323,6 +325,7 @@ fn emit_interface_type(
             &type_params,
             &fields,
             &interface.decode_facts,
+            None,
         )?;
         emit_record_from_smelt_unknown_impl(
             writer,
@@ -333,6 +336,7 @@ fn emit_interface_type(
             &type_params,
             &fields,
             &scoped_type_params,
+            None,
         )?;
     }
     writer.blank_line();
@@ -417,6 +421,14 @@ fn emit_class_type(
     // Rust: it declares no parameters, so the ordinary derives apply and no
     // hand-written bounded impl is needed.
     let is_generic = !class_param_idents.is_empty();
+    // A class carrying the runtime class tag (`crate::class_identity`) writes
+    // its `Default` by hand: a derived one would leave the tag empty, and a
+    // defaulted instance is an instance of this class.
+    let identity = context
+        .carries_class_identity(class.name)
+        .then(|| crate::class_identity::identity_literal(mir, class.name));
+    let default_derive = if identity.is_some() { "" } else { ", Default" };
+    let mut serde_derived = false;
     if has_function_field {
         writer.line("#[derive(Clone)]");
         writer.line("#[allow(dead_code)]");
@@ -425,12 +437,13 @@ fn emit_class_type(
     } else if needs_serde_json
         && class_is_json_serializable(mir, &|shape| context.is_reference_class(shape), class)
     {
+        serde_derived = true;
         writer.line(format!(
-            "#[derive(Clone, Debug, Default{partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
+            "#[derive(Clone, Debug{default_derive}{partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
         ));
     } else {
         writer.line(format!(
-            "#[derive(Clone, Debug, Default{partial_eq_derive})]"
+            "#[derive(Clone, Debug{default_derive}{partial_eq_derive})]"
         ));
     }
     // The field types are kept as text as well: a hand-written `Clone` or
@@ -456,12 +469,15 @@ fn emit_class_type(
             "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
         ));
     }
+    if identity.is_some() {
+        field_lines.push(crate::class_identity::field_declaration(serde_derived));
+    }
     writer.block(format!("struct {name}{type_params}"), |block_writer| {
         for field_line in field_lines {
             block_writer.line(field_line);
         }
     });
-    if has_function_field || is_generic {
+    if has_function_field || is_generic || identity.is_some() {
         let phantom_args = class_param_idents.join(", ");
         // The generated bound set, plus the field-type `where` clause the
         // emitter adds. See `derive_generics_text` for why both are needed,
@@ -483,14 +499,19 @@ fn emit_class_type(
             &fields,
             &phantom_args,
             &scoped_type_params,
+            identity.as_deref(),
         )?;
         // `Debug` names the struct and stops, so it needs no bound at all.
-        let debug_generics = if is_generic {
-            type_params.clone()
-        } else {
-            impl_generics.clone()
-        };
-        emit_debug_impl_for_storage_type(writer, &name, &debug_generics, &type_params);
+        // A class that only lost its derived `Default` to the tag keeps its
+        // derived `Debug`.
+        if has_function_field || is_generic {
+            let debug_generics = if is_generic {
+                type_params.clone()
+            } else {
+                impl_generics.clone()
+            };
+            emit_debug_impl_for_storage_type(writer, &name, &debug_generics, &type_params);
+        }
     }
     // A generic value class also loses its `Clone` and `PartialEq` derives
     // for the same reason, so those are spelled out too. The callback case
@@ -506,17 +527,22 @@ fn emit_class_type(
     // the whole generated bound set — a requirement of `Node`, not of
     // `TrieRouter`, and one only its own use sites can discharge.
     if is_generic && !has_function_field {
-        let field_names = fields
+        let mut field_names = fields
             .iter()
             .map(|field| context.names().field_text(mir, field.name))
             .collect::<Vec<_>>();
+        let mut impl_field_types = field_types;
+        if identity.is_some() {
+            field_names.push(crate::class_identity::CLASS_IDENTITY_FIELD.to_owned());
+            impl_field_types.push(crate::rust::RustType::raw("&'static str"));
+        }
         emit_clone_impl_for_value_class(
             writer,
             &name,
             &type_params,
             &type_params,
             &field_names,
-            &field_types,
+            &impl_field_types,
             true,
         );
         if supports_partial_eq {
@@ -526,7 +552,7 @@ fn emit_class_type(
                 &type_params,
                 &type_params,
                 &field_names,
-                &field_types,
+                &impl_field_types,
             );
         }
     }
@@ -543,8 +569,14 @@ fn emit_class_type(
                         &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
-                    // A mutable static's accessor reads its live storage.
-                    let value = field.global.map_or_else(
+                    // A mutable static's accessor reads its live storage; an
+                    // inherited one asks its getter (`crate::classes`).
+                    let value = if let Some(read) =
+                        classes::inherited_static_read_text(mir, context, field)
+                    {
+                        crate::rust::RustExpr::chain(read)
+                    } else {
+                        field.global.map_or_else(
                         || {
                             materialized_static_value(
                                 field.value.as_ref(),
@@ -556,7 +588,8 @@ fn emit_class_type(
                                 mir, global,
                             ))
                         },
-                    );
+                    )
+                    };
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),
                         |function_writer| function_writer.line(value),
@@ -577,6 +610,7 @@ fn emit_class_type(
             &type_params,
             &fields,
             &[],
+            Some(class.name),
         )?;
         emit_record_from_smelt_unknown_impl(
             writer,
@@ -587,6 +621,7 @@ fn emit_class_type(
             &type_params,
             &fields,
             &scoped_type_params,
+            Some(class.name),
         )?;
     }
     writer.blank_line();

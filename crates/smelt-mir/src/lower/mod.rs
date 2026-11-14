@@ -607,6 +607,13 @@ fn lower_class_table_entry(
                 global: field
                     .storage
                     .and_then(|item| global_ids.get(&item).copied()),
+                inherited: field.inherited.and_then(|access| {
+                    Some(crate::MirInheritedStatic {
+                        own: global_ids.get(&access.own).copied()?,
+                        getter: item_functions.get(&access.getter).copied()?,
+                        setter: item_functions.get(&access.setter).copied()?,
+                    })
+                }),
             })
             .collect(),
         descriptors: class

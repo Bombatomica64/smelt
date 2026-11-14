@@ -904,3 +904,101 @@ pub(crate) fn inherited_static_slots(mir: &Mir, class: &MirClass) -> Vec<Inherit
         })
         .collect()
 }
+
+/// The read of an inherited static `field` of a class, from inside or outside
+/// the class's `impl`: a call of its getter (`Class::__smelt_get_x()`), which
+/// answers the class's own value once written and the base class's before
+/// (`smelt_hir::StaticField::inherited`). `None` for a declared static.
+pub(crate) fn inherited_static_read_text(
+    mir: &Mir,
+    context: &EmitContext,
+    field: &smelt_mir::MirStaticField,
+) -> Option<String> {
+    let access = field.inherited?;
+    let class = static_method_owner_text(mir, context, access.getter)?;
+    let getter = crate::emitter::static_method_rust_name(context, access.getter).ok()?;
+    Some(format!("{class}::{getter}()"))
+}
+
+/// The write of `value` (an expression of the static's type) into an
+/// inherited static `field` of a class: a call of its setter.
+pub(crate) fn inherited_static_write_text(
+    mir: &Mir,
+    context: &EmitContext,
+    field: &smelt_mir::MirStaticField,
+    value: &str,
+) -> Option<String> {
+    let access = field.inherited?;
+    let class = static_method_owner_text(mir, context, access.setter)?;
+    let setter = crate::emitter::static_method_rust_name(context, access.setter).ok()?;
+    Some(format!("{class}::{setter}({value})"))
+}
+
+/// The Rust path of the class owning the static method `function`.
+fn static_method_owner_text(
+    mir: &Mir,
+    context: &EmitContext,
+    function: FuncId,
+) -> Option<String> {
+    let found = mir.functions.get(usize::try_from(function.0).ok()?)?;
+    let smelt_mir::HirOrigin::ClassStaticMethod { class, .. } = found.origin else {
+        return None;
+    };
+    context.names().type_name(class).ok().map(ToString::to_string)
+}
+
+/// Whether `ancestor` is `class` or one of its declared base classes.
+pub(crate) fn class_chain_contains(mir: &Mir, class: Symbol, ancestor: Symbol) -> bool {
+    let mut current = Some(class);
+    let mut seen = HashSet::new();
+    while let Some(symbol) = current {
+        if symbol == ancestor {
+            return true;
+        }
+        if !seen.insert(symbol) {
+            return false;
+        }
+        current = find_class(mir, symbol).and_then(|found| found.base);
+    }
+    false
+}
+
+/// The type arguments of the `impl` a generic class's static methods are
+/// emitted in, or `None` when they share the class's own `impl`.
+///
+/// TypeScript forbids a static member to name a class type parameter, so a
+/// static method of `class Box<T>` is generic in nothing of the class. Emitted
+/// inside `impl<T> Box_<T>` it left `T` unconstrained at every call
+/// (`Box_::create(..)` was E0283), and a static declaring its own `T` clashed
+/// with the impl's (E0403). Its own impl names one fixed instantiation instead:
+/// `SmeltUnknown` for every carried parameter when the crate has the erased
+/// carrier (it meets every generated bound, should a body name `Self`), `()`
+/// otherwise. A call `Box_::create(..)` then resolves through the only impl
+/// that declares `create`.
+pub(crate) fn static_methods_impl_args(
+    context: &EmitContext,
+    class: &MirClass,
+    needs_unknown: bool,
+) -> Option<String> {
+    if class.static_methods.is_empty() {
+        return None;
+    }
+    let carried = context
+        .type_param_elision()
+        .retain_carried(class.name, class.type_params.iter().collect::<Vec<_>>())
+        .len();
+    if carried == 0 {
+        return None;
+    }
+    let placeholder = if needs_unknown { "SmeltUnknown" } else { "()" };
+    Some(format!("<{}>", vec![placeholder; carried].join(", ")))
+}
+
+/// Whether the static methods of `class` are emitted outside its generic
+/// `impl` ([`static_methods_impl_args`]), so the class's type parameters are
+/// not in scope in them.
+pub(crate) fn statics_outside_class_impl(mir: &Mir, context: &EmitContext, class: Symbol) -> bool {
+    find_class(mir, class).is_some_and(|found| {
+        static_methods_impl_args(context, found, true).is_some()
+    })
+}

@@ -935,8 +935,10 @@ pub(in crate::emitter) fn erased_to_list_expr(
     let array_arm = match item_text {
         // The aliasing re-wrap: same identity, same buffer, no copy.
         None => "SmeltList::with_storage(smelt_values.id, smelt_values.storage())".to_owned(),
+        // A live view of a typed list of this element type is that list
+        // itself (`SmeltLiveList`); anything else is converted element-wise.
         Some(item) => format!(
-            "{{ let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| {item}).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }}"
+            "match smelt_values.live_list() {{ Some(smelt_live) => smelt_live, None => {{ let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| {item}).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }} }}"
         ),
     };
     // A string iterates by code point; each `ch` is the `JsString` of one.

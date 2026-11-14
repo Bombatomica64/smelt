@@ -947,10 +947,13 @@ export function fill(b: string[], n: number[], nested: string[][], i: number): u
         3,
         "each of the three reads keeps its own fallibility:\n{source}"
     );
+    // The nested-list read used to erase its element by copying it
+    // (`..collect::<Vec<_>>())) })`); it is now the element's live view
+    // (`SmeltLiveList`). The miss still erases as `undefined`.
     for tail in [
         ".cloned().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).unwrap_or(SmeltUnknown::Undefined)",
         ".cloned().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).unwrap_or(SmeltUnknown::Undefined)",
-        "collect::<Vec<_>>())) }).unwrap_or(SmeltUnknown::Undefined)",
+        ".into_live_smelt_unknown()).unwrap_or(SmeltUnknown::Undefined)",
     ] {
         assert!(
             source.contains(tail),

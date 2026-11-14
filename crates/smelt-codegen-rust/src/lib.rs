@@ -75,6 +75,7 @@ mod accessor_prelude;
 pub(crate) mod base_init;
 mod bigint_prelude;
 pub(crate) mod bound_traits;
+pub(crate) mod class_identity;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;

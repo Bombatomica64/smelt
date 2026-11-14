@@ -301,6 +301,9 @@ impl FunctionEmitter<'_> {
                 )));
             }
         }
+        if let Some(check) = self.tagged_instance_of_expr(value, value_ty, class)? {
+            return Ok(check);
+        }
         // Nothing above recognized the pair. For a CONCRETE operand that is a
         // real static answer: the class hierarchy settles whether the operand's
         // class is or extends the target.
@@ -346,6 +349,9 @@ impl FunctionEmitter<'_> {
         value_ty: TypeId,
         class: Symbol,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(check) = self.tagged_instance_of_expr(value, value_ty, class)? {
+            return Ok(check);
+        }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
             return Ok(RustExpr::from(
                 self.class_extends_or_equals(*name, class).to_string(),
@@ -355,6 +361,59 @@ impl FunctionEmitter<'_> {
             return Ok(check);
         }
         Ok(RustExpr::path("false"))
+    }
+
+    /// Answer `value instanceof Sub` for a value statically typed as a STRICT
+    /// ancestor `Base` of `Sub` (or an optional one).
+    ///
+    /// The static type cannot settle it: a `Base` slot holds any instance of
+    /// `Base` or of a subclass (`function f(): Base { return new Sub(); }`).
+    /// The instance's runtime class tag does (`crate::class_identity`), so the
+    /// check compares it with `Sub` and every class extending `Sub`. Answers
+    /// `None` when the pair is static (the operand's class is or extends the
+    /// target, or the two are unrelated) or the class carries no tag.
+    fn tagged_instance_of_expr(
+        &self,
+        value: &Operand,
+        value_ty: TypeId,
+        class: Symbol,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let (static_class, optional) = match self.mir.types.get(value_ty) {
+            Some(Type::Class { name, .. }) => (*name, false),
+            Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
+                Some(Type::Class { name, .. }) => (*name, true),
+                _ => return Ok(None),
+            },
+            _ => return Ok(None),
+        };
+        if !self.context.carries_class_identity(static_class)
+            || self.class_extends_or_equals(static_class, class)
+            || !self.class_extends_or_equals(class, static_class)
+        {
+            return Ok(None);
+        }
+        let accepted = crate::class_identity::identity_literals_extending(self.mir, class).join(" | ");
+        let field = crate::class_identity::CLASS_IDENTITY_FIELD;
+        let tag_of = |base: &str| {
+            if self.context.is_reference_class(static_class) {
+                format!("{base}.0.borrow().{field}")
+            } else {
+                format!("{base}.{field}")
+            }
+        };
+        let value_text = self.operand_expr(value)?;
+        Ok(Some(RustExpr::atom(if optional {
+            format!(
+                "{value}.as_ref().is_some_and(|smelt_value| matches!({tag}, {accepted}))",
+                value = value_text.tight(),
+                tag = tag_of("smelt_value"),
+            )
+        } else {
+            format!(
+                "matches!({tag}, {accepted})",
+                tag = tag_of(value_text.tight().as_ref()),
+            )
+        })))
     }
 
     /// Answer `value instanceof C` for an ERASED operand and a source class `C`.

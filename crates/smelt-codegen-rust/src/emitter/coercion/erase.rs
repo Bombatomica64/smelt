@@ -33,6 +33,20 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether a typed list of `item`s erases to a LIVE view of itself
+    /// (`SmeltList::into_live_smelt_unknown`, the runtime's `SmeltLiveList`).
+    ///
+    /// A JavaScript array is one object: `C.items.push(1)` through an erased
+    /// class value must be seen by `Box.items`, and a typed push after the
+    /// erasure by the erased handle. The view converts each element it touches
+    /// through `SmeltFromUnknown`, so it is chosen under the same rule as a live
+    /// `Map`/`Set` ([`Self::container_erasure_method`]); otherwise the erasure
+    /// copies, as it did before.
+    fn list_erases_live(&self, item: TypeId) -> bool {
+        self.context.demand().has(Need::LiveArrays) && self.context.demand().has(Need::Unknown)
+            && self.container_erasure_method(&[item]) == ".into_live_smelt_unknown()"
+    }
+
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     ///
     /// The operand-shaped twin of [`Self::erase_value`]; the two must agree
@@ -65,6 +79,16 @@ impl FunctionEmitter<'_> {
                     text = text.delimited()
                 ),
             ))),
+            Some(Type::List(item))
+                if !self.list_items_render_as_unknown(ty, &self.render_scope())
+                    && self.list_erases_live(*item) =>
+            {
+                // Genuine dynamic boundary: the live view IS the erased array.
+                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "SmeltList::clone(&{text}).into_live_smelt_unknown()",
+                    text = text.delimited()
+                ))))
+            }
             Some(Type::List(item))
                 if !self.list_items_render_as_unknown(ty, &self.render_scope()) =>
             {
@@ -487,6 +511,14 @@ impl FunctionEmitter<'_> {
                         value.parenthesized_if_needed()
                     ))))
                 }
+            }
+            Some(Type::List(item)) if self.list_erases_live(*item) => {
+                // Genuine dynamic boundary: the live view IS the erased array
+                // (see the operand-based erasure above).
+                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "SmeltList::clone(&{}).into_live_smelt_unknown()",
+                    value.parenthesized_if_needed()
+                ))))
             }
             Some(Type::List(item)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *item)?;
@@ -1009,6 +1041,18 @@ impl FunctionEmitter<'_> {
             || self.is_statics_frame_class(name)
         {
             String::new()
+        } else if self.context.carries_class_identity(name) {
+            // The instance names the class it was constructed as, which an
+            // upcast keeps (`crate::class_identity`).
+            let tag_base = if self.is_reference_class_type(target) {
+                "smelt_struct_value.0.borrow()"
+            } else {
+                "smelt_struct_value"
+            };
+            self.carrier_format(self.carrier()?, format_args!(
+                "smelt_object_entries.push((\"{SMELT_CLASS}\".to_owned(), SmeltUnknown::String({tag_base}.{field}.into()))); ",
+                field = crate::class_identity::CLASS_IDENTITY_FIELD
+            ))
         } else {
             let class_name = self.symbol_source_name(name)?;
             self.carrier_format(self.carrier()?, format_args!(

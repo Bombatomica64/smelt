@@ -216,6 +216,8 @@ declare_needs! {
     HostOrigins,
     /// Live erased views of typed `Map`s and `Set`s (`smelt_live_container`).
     LiveContainers,
+    /// Live erased views of typed arrays (`SmeltLiveList`).
+    LiveArrays,
     /// The erased `SmeltErasedFunction` adapter.
     ErasedFunction,
     /// The erased generic list aliases.
@@ -723,6 +725,8 @@ impl RuntimeDemand {
                 Type::Future(_) => self.add(Need::Unknown),
                 Type::List(item) => {
                     self.add(Need::SmeltList);
+                    // An erased array is a live view of the typed one.
+                    self.add(Need::LiveArrays);
                     if matches!(mir.types.get(*item), Some(Type::TypeParam { .. })) {
                         self.add(Need::ErasedListAlias);
                     }
