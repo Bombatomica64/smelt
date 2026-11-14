@@ -202,6 +202,12 @@ fn erased_map_exposes_its_prototype_methods() {
     // ran, so two same-size Maps holding completely different entries compared
     // EQUAL. The `deepEqualMaps` helper below is that walk; it must reject
     // `{a: 1}` against `{b: 2}`.
+    //
+    // Requirement changed: the third test asserted `erased.keys().length` was
+    // 2, which held only because `keys()` returned an ARRAY. In Node it is an
+    // iterator (`new Map([['a', 1]]).keys().length` is `undefined`); the erased
+    // Map's `keys()`/`values()` are live iterators now, so the count is taken
+    // through `Array.from`, and `.length` is `undefined` as in Node.
     let source = r#"
 import { test, expect } from "vitest";
 function deepEqualMaps(a: any, b: any): boolean {
@@ -236,8 +242,10 @@ test("erased keys, values, get and has see the entries", () => {
   source.set("a", 1);
   source.set("b", 2);
   const erased: any = source;
-  expect(erased.keys().length).toBe(2);
-  expect(erased.values().length).toBe(2);
+  // keys()/values() are iterators, as in Node: no `length`, two items each.
+  expect(erased.keys().length).toBe(undefined);
+  expect(Array.from(erased.keys()).length).toBe(2);
+  expect(Array.from(erased.values()).length).toBe(2);
   expect(erased.get("b")).toBe(2);
   expect(erased.get("missing")).toBe(undefined);
   expect(erased.has("a")).toBe(true);

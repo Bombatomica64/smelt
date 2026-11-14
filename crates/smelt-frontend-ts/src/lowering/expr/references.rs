@@ -162,39 +162,12 @@ impl ModuleBuilder<'_> {
         if name == "arguments" {
             return self.arguments_object_expression(start, end, body).map(Some);
         }
-        if name == "Date" {
-            let symbol = self.intern_type_name("Date");
-            let ty = self.ctx.krate.types.intern(Type::Class {
-                name: symbol,
-                args: Vec::new(),
-            });
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty,
-                span: self.span(start, end),
-            })));
-        }
-        // A typed-array constructor used as a bare *value* rather than through
-        // `new` — e.g. an `instanceof Uint8Array` / `toBeInstanceOf(Uint8Array)`
-        // target, or a constructor passed to a helper. Mirror the `Date` model:
-        // resolve the name to a `Type::Class` marker value so it is a first-class
-        // constructor reference instead of an unresolved identifier. A
-        // user-declared class of the same name is handled by the branch above and
-        // takes priority. Smelt has no first-class class objects, so the value
-        // itself carries no callable payload; the `instanceof`/matcher lowering
-        // reads the class *name*, not this placeholder.
-        if smelt_stdlib::is_typed_array_class_name(name) {
-            let symbol = self.intern_type_name(name);
-            let ty = self.ctx.krate.types.intern(Type::Class {
-                name: symbol,
-                args: Vec::new(),
-            });
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty,
-                span: self.span(start, end),
-            })));
-        }
+        // `Date` and the typed-array constructors read as VALUES are the
+        // interned constructor objects (`builtin_namespace_value_expression`),
+        // like every host constructor: callable through `new`, `===` to
+        // `instance.constructor`, carrying `name` and `prototype`. They were a
+        // `null` placeholder typed as the class, which `instanceof` never read
+        // (it resolves the source name) and every other use got wrong.
         if matches!(name, "RegExp" | "Temporal") {
             let ty = self.erase_with(ErasureReason::ByName, "RegExp/Temporal value");
             return Ok(Some(body.push_expr(Expr {
@@ -769,9 +742,6 @@ impl ModuleBuilder<'_> {
             // synthesized closure constructs the default empty collection and
             // erases it at the dynamic boundary; dynamic `new` lowers to a
             // closure call, so the value composes with the erased-new path.
-            "Map" | "Set" => {
-                self.builtin_collection_constructor_closure_expression(name, span, outer_body)
-            }
             // The `Proxy` constructor used as a first-class value (`if (Proxy)`,
             // `isFunction(Proxy)`, a `Proxy` entry in a value table). JavaScript
             // proxies are transparent about their target's identity, and Smelt's
@@ -864,81 +834,6 @@ impl ModuleBuilder<'_> {
                 outer_body,
             ),
             _ => return None,
-        })
-    }
-
-    /// Build a first-class constructor closure for a bare `Map`/`Set` value.
-    ///
-    /// The closure takes no parameters (dynamic dispatch tolerates extra
-    /// arguments) and returns the empty collection erased to `unknown`, the
-    /// same value `new Map()` / `new Set()` would produce before erasure.
-    fn builtin_collection_constructor_closure_expression(
-        &mut self,
-        name: &str,
-        span: Span,
-        outer_body: &mut Body,
-    ) -> smelt_hir::ExprId {
-        let unknown_ty = self.erase_with(ErasureReason::ByName, "Map/Set constructor value");
-        let mut closure_body = Body::new(None, span);
-        let constructed = if name == "Set" {
-            // not a new erasure: element of the erased constructor result recorded above
-            let item_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
-            let set_ty = self.ctx.krate.types.intern(Type::Set(item_ty));
-            let empty_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-            let list = closure_body.push_expr(Expr {
-                kind: ExprKind::ListLit(Vec::new()),
-                ty: empty_list_ty,
-                span,
-            });
-            closure_body.push_expr(Expr {
-                kind: ExprKind::ListToSet { list },
-                ty: set_ty,
-                span,
-            })
-        } else {
-            // not a new erasure: key/value of the erased constructor result recorded above
-            let key_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
-            let value_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
-            let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-            closure_body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty: dict_ty,
-                span,
-            })
-        };
-        let erased = closure_body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: constructed,
-                target: unknown_ty,
-            },
-            ty: unknown_ty,
-            span,
-        });
-        closure_body.push_stmt(Stmt::Return(Some(erased)));
-        let body_id = self.ctx.krate.push_body(closure_body);
-        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: Vec::new(),
-            rest: None,
-            required_params: None,
-            mutable_params: Vec::new(),
-            return_ty: unknown_ty,
-            is_async: false,
-            may_throw: false,
-        }));
-        outer_body.push_expr(Expr {
-            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
-                params: Vec::new(),
-                rest: None,
-                required_params: None,
-                return_ty: unknown_ty,
-                captures: Vec::new(),
-                body: body_id,
-                function_item: None,
-                this_binding: smelt_hir::ClosureThis::Own,
-                span,
-            }),
-            ty: closure_ty,
-            span,
         })
     }
 
@@ -1091,17 +986,39 @@ impl ModuleBuilder<'_> {
         //
         // `Promise`/`Array`/`Function` stay listed here: they are CONSTRUCTORS,
         // not namespace objects, and keep the value model they had.
+        // Every host CONSTRUCTOR is a value too: `Date`, `Map`, `TypeError`,
+        // `Blob` read as values are the one interned constructor object per
+        // name, callable through `new`, with its `name` and `prototype`, and
+        // `===` across reads and to `instance.constructor`
+        // (docs/design/class-prototypes.md, gap 5). They used to lower to
+        // whatever the name meant elsewhere: `null` for `Date`, the string
+        // `"TypeError"`, a closure building a plain object for `Map`.
+        let host_constructor = smelt_stdlib::is_global_function_value(name)
+            && name.starts_with(|first: char| first.is_ascii_uppercase());
         if smelt_stdlib::global_namespace(name).is_none()
+            && !host_constructor
             && !matches!(name, "Promise" | "Array" | "Function" | "Object" | "Symbol")
             && !Self::is_known_defined_global_constructor(host)
-            && name != "Blob"
-            && name != "ArrayBuffer"
-            && name != "DOMException"
         {
             return None;
         }
         let span = self.span(start, end);
-        let unknown_ty = self.erase_with(ErasureReason::ByName, "global namespace");
+        // A host constructor keeps a concrete type, its name
+        // (`StdlibClass::HostConstructor`), and becomes the interned object only
+        // at an `unknown` boundary. The five with a value model of their own
+        // (`Promise`, `Array`, `Function`, `Object`, `Symbol`) and the namespace
+        // objects stay the erased record.
+        let unknown_ty = if host_constructor
+            && !matches!(name, "Promise" | "Array" | "Function" | "Object" | "Symbol")
+        {
+            let class = self.intern_type_name(smelt_stdlib::HOST_CONSTRUCTOR_CLASS_NAME);
+            self.ctx.krate.types.intern(Type::Class {
+                name: class,
+                args: Vec::new(),
+            })
+        } else {
+            self.erase_with(ErasureReason::ByName, "global namespace")
+        };
         // Interned, not a fresh record per reference: JavaScript exposes one object
         // per global name, so `Blob === Blob` and `blob.constructor === Blob` both
         // hold. A record literal mints an identity on construction, which made both

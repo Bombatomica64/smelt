@@ -90,35 +90,40 @@ const mapEntries = mapping.entries();
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure_eq!(
-        body.exprs
-            .iter()
-            .filter(|expr| matches!(expr.kind, ExprKind::DictProjection { .. }))
-            .count(),
-        3,
+    // Requirement changed: `keys()`/`values()`/`entries()` used to lower to
+    // projections producing ARRAYS (`DictProjection`/`SetProjection` typed as
+    // lists), which JavaScript's are not. They are live, single-pass
+    // iterators (`JSON.stringify(map.keys())` is `{}`, a second spread of the
+    // same iterator is empty, and an entry added later is seen), so each now
+    // lowers to a `CollectionIterator` typed as a synchronous generator of the
+    // same element type. Behaviour is pinned by the `collection_iterators`
+    // Node-parity fixture.
+    let iterators = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match expr.kind {
+            ExprKind::CollectionIterator { op, set, .. } => Some((op, set, expr.ty)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure_eq!(iterators.len(), 6);
+    ensure_eq!(iterators.iter().filter(|(_, set, _)| *set).count(), 3);
+    ensure!(
+        iterators.iter().all(|(_, _, ty)| matches!(
+            ctx.krate.types.get(*ty),
+            Some(Type::Generator {
+                is_async: false,
+                ..
+            })
+        )),
+        "every collection iterator is typed as a synchronous generator"
     );
     ensure_eq!(
-        body.exprs
+        iterators
             .iter()
-            .filter(|expr| matches!(
-                expr.kind,
-                ExprKind::SetProjection {
-                    op: SetProjectionOp::Values,
-                    ..
-                }
-            ))
+            .filter(|(op, _, _)| matches!(op, DictProjectionOp::Entries))
             .count(),
         2,
-    );
-    ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            expr.kind,
-            ExprKind::SetProjection {
-                op: SetProjectionOp::Entries,
-                ..
-            }
-        )),
-        "expected Set.entries lowering",
     );
     Ok(())
 }
@@ -711,20 +716,32 @@ for (let item: number of values) {
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    // Requirement changed: a `for...of` over a Set iterated a snapshot of its
+    // members (`SetProjection` + `Stmt::For`), so a member added during the
+    // loop was never visited, which JavaScript's live iteration does. It now
+    // walks the set by position below its live size (`CollectionLen`,
+    // `CollectionAt`, `Stmt::WhileUpdate`); the `collection_iterators`
+    // Node-parity fixture pins the behaviour.
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             expr.kind,
-            ExprKind::SetProjection {
-                op: SetProjectionOp::Values,
+            ExprKind::CollectionAt {
+                op: DictProjectionOp::Values,
+                set: true,
                 ..
             }
         )),
-        "expected set for-of projection",
+        "expected the set for-of to read members by position",
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::CollectionLen { set: true, .. }))
     );
     ensure!(
         body.stmts
             .iter()
-            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+            .any(|stmt| matches!(stmt, Stmt::WhileUpdate { .. }))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -746,20 +763,25 @@ for (const entry: [string, number] of mapping) {
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    // Requirement changed: a `for...of` over a Map iterated a snapshot of its
+    // entries (`DictProjection` + `Stmt::For`); it now walks the map's entries
+    // by position below its live size, as JavaScript's live iteration does
+    // (see `lowers_set_for_of_to_projection`).
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             expr.kind,
-            ExprKind::DictProjection {
+            ExprKind::CollectionAt {
                 op: DictProjectionOp::Entries,
+                set: false,
                 ..
             }
         )),
-        "expected Map for-of to project entries",
+        "expected the Map for-of to read entries by position",
     );
     ensure!(
         body.stmts
             .iter()
-            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+            .any(|stmt| matches!(stmt, Stmt::WhileUpdate { .. }))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

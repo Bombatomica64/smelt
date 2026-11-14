@@ -4,9 +4,8 @@ use super::*;
 use smelt_hir::{
     BinOp, DatePart, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp,
     ListProjectionOp, ListSearchOp, Literal, ModuleId, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, SetProjectionOp, SetRemoveOp, Stmt,
-    StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide,
-    Type,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, SetRemoveOp, Stmt, StringAffixOp,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.

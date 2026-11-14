@@ -306,6 +306,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "concat_spread" => Need::ConcatSpread,
         "define_properties" => Need::DefineProperties,
         "set_prototype_of" => Need::SetPrototypeOf,
+        "host_constructor" => Need::HostConstructor,
         "this_channel" => Need::ThisChannel,
         "this_read" => Need::ThisRead,
         "construct" => Need::Construct,

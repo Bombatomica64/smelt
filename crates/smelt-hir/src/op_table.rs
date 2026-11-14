@@ -1728,6 +1728,51 @@ macro_rules! op_group_transcribed {
             }
                 fresh(true)
                 => (format!("dict_{op} {dict}"));
+            /// The live number of entries of a `Map` or members of a `Set`, as a
+            /// number: the bound a `for...of` over the collection re-reads at
+            /// every step (see `CollectionAt`).
+            CollectionLen {
+                /// Whether the collection is a `Set` rather than a `Map`.
+                set: [bool],
+                /// The collection.
+                collection: one,
+            }
+                => (format!("collection_len set={set} {collection}"));
+            /// The key, value or `[key, value]` entry at insertion position
+            /// `index` of a `Map`, or the member of a `Set`, read live. A
+            /// `for...of` over the collection reads its items this way, below
+            /// the live `CollectionLen`, so it sees entries added while it runs,
+            /// as JavaScript's does, with no iterator object or resume call.
+            CollectionAt {
+                /// What the item is: a key, a value or an entry.
+                op: [$crate::DictProjectionOp],
+                /// Whether the collection is a `Set` rather than a `Map`.
+                set: [bool],
+                /// The collection.
+                collection: one,
+                /// The position, a number below the live length.
+                index: one,
+            }
+                => (format!("collection_at {op} set={set} {collection}[{index}]"));
+            /// A live, single-pass iterator over a `Map` or `Set`
+            /// (`map.keys()`, `set.values()`, `map.entries()`), typed as a
+            /// generator of the collection's keys, values or entries.
+            ///
+            /// It reads the collection's store by insertion position at each
+            /// step, so it sees entries added after it was made, as
+            /// JavaScript's does; it has `next()`, is consumed once by
+            /// `for...of`/spread/`Array.from`, and is its own iterator.
+            CollectionIterator {
+                /// What each step yields: keys, values or `[key, value]` entries.
+                op: [$crate::DictProjectionOp],
+                /// Whether the collection is a `Set` (its members are both its
+                /// keys and its values) rather than a `Map`.
+                set: [bool],
+                /// The collection.
+                collection: one,
+            }
+                fresh(true)
+                => (format!("collection_iterator {op} set={set} {collection}"));
             /// Split a string into a list of strings.
             StringSplit {
                 /// String value to split.

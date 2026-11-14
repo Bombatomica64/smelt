@@ -198,6 +198,8 @@ declare_needs! {
     DefineProperties,
     /// `Object.setPrototypeOf`.
     SetPrototypeOf,
+    /// A host constructor held as a value (`SmeltHostConstructor`).
+    HostConstructor,
     /// A class prototype reached reflectively (`Object.getPrototypeOf`,
     /// `Object.create`, `Object.setPrototypeOf`, `C.prototype`): class
     /// prototypes carry their methods (`class_proto::class_prototype_methods_fn`).
@@ -329,6 +331,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
     (Need::SetPrototypeOf, &[Need::Unknown]),
+    // It erases to the interned constructor object.
+    (Need::HostConstructor, &[Need::Unknown]),
     // The prototype methods read their receiver from the `this` channel.
     (
         Need::ClassPrototypeMethods,
@@ -764,6 +768,7 @@ impl RuntimeDemand {
             StdlibClass::Date => self.add(Need::Date),
             StdlibClass::Url => self.add(Need::Url),
             StdlibClass::CryptoKey => self.add(Need::CryptoKey),
+            StdlibClass::HostConstructor => self.add(Need::HostConstructor),
             StdlibClass::FormData => self.add(Need::FormData),
             StdlibClass::TextEncoder => self.add(Need::TextEncoder),
             StdlibClass::TextDecoder => self.add(Need::TextDecoder),

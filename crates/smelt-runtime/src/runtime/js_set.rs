@@ -171,6 +171,14 @@ impl<T> Clone for SmeltJsSet<T> { fn clone(&self) -> Self { Self { id: self.id, 
 impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsSet<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltJsSet").field("id", &self.id).field("entries", &self.store.borrow().entries).finish() } }
 
 impl<T> SmeltJsSet<T> {
+    //~ The member at insertion position `index`, read live (see
+    //~ `SmeltJsMap::smelt_key_at`).
+    #[allow(dead_code)]
+    fn smelt_live_len(&self) -> usize { self.store.borrow().entries.len() }
+    #[allow(dead_code)]
+    fn smelt_member_at(&self, index: usize) -> Option<T> where T: Clone { self.store.borrow().entries.get(index).cloned() }
+    #[allow(dead_code)]
+    fn smelt_entry_at(&self, index: usize) -> Option<(T, T)> where T: Clone { self.smelt_member_at(index).map(|member| (member.clone(), member)) }
     fn new() -> Self { Self::with_id(smelt_next_object_id()) }
     //~ Build an empty set that keeps a caller-supplied JavaScript object identity.
     fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsSetStore::new())) } }

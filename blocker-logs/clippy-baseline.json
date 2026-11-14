@@ -86,7 +86,7 @@
       "clippy::needless_pass_by_value": 22,
       "clippy::option_if_let_else": 32,
       "clippy::ptr_as_ptr": 4,
-      "clippy::redundant_clone": 21,
+      "clippy::redundant_clone": 15,
       "clippy::redundant_closure_for_method_calls": 2,
       "clippy::single_match_else": 6,
       "clippy::struct_excessive_bools": 1,
