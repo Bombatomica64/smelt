@@ -51,6 +51,22 @@ use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
 
 use super::ModuleBuilder;
 
+/// The outermost kind of a value, as far as overload selection compares kinds
+/// (see [`ModuleBuilder::checker_call_value_kind`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(in crate::lowering) enum CheckerValueKind {
+    /// A callable value (a function type, or an object with only call signatures).
+    Function,
+    /// An array or tuple.
+    List,
+    /// A string.
+    String,
+    /// A number.
+    Number,
+    /// A boolean.
+    Boolean,
+}
+
 /// Nesting depth beyond which a re-spelling gives up.
 const MAX_DEPTH: usize = 12;
 
@@ -139,6 +155,32 @@ impl ModuleBuilder<'_> {
             return Some(self.erase(ErasureReason::SourceUnknown));
         }
         self.respell_and_lower(facts, id, start, end)
+    }
+
+    /// The outermost kind of the type the checker resolved the call at
+    /// `start..end` to, read straight off the checker's type: no re-spelling,
+    /// so it answers for types Smelt cannot spell in this scope too. `None`
+    /// when the checker has no answer or the kind is none of
+    /// [`CheckerValueKind`]'s.
+    pub(in crate::lowering) fn checker_call_value_kind(
+        &self,
+        start: u32,
+        end: u32,
+    ) -> Option<CheckerValueKind> {
+        let facts = self.ts_facts?;
+        let id = facts.type_id_at(&self.path, start, end)?;
+        match &facts.types.get(id)?.kind {
+            TsTypeKind::Object(object)
+                if !object.call_signatures.is_empty() && object.properties.is_empty() =>
+            {
+                Some(CheckerValueKind::Function)
+            }
+            TsTypeKind::Array { .. } | TsTypeKind::Tuple { .. } => Some(CheckerValueKind::List),
+            TsTypeKind::String | TsTypeKind::StringLiteral(_) => Some(CheckerValueKind::String),
+            TsTypeKind::Number | TsTypeKind::NumberLiteral(_) => Some(CheckerValueKind::Number),
+            TsTypeKind::Boolean | TsTypeKind::BooleanLiteral(_) => Some(CheckerValueKind::Boolean),
+            _ => None,
+        }
     }
 
     /// `resolved` where it widens `inferred`, else `inferred`.
