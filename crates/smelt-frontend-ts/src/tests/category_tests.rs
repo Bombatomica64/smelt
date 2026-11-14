@@ -1167,6 +1167,31 @@ export function isTypedArray(x: unknown): boolean {
     Ok(())
 }
 
+/// A trapped Proxy cannot flow into a concretely valued record: the conversion
+/// would drop the traps, so it is a transpile-time error instead.
+#[test]
+fn trapped_proxy_into_a_concrete_record_is_rejected() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"function make(): Record<string, string> { return new Proxy({}, { get: () => "x" }); }"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "cannot flow into a Record")
+}
+
+/// The refusal is about concrete values only: an erased or generic record keeps
+/// its traps through the erased view.
+#[test]
+fn trapped_proxy_into_an_erased_record_lowers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let _ = lower_ok(
+        ts!(r"function make<K>(): Record<string, K> { return new Proxy({}, { get: () => undefined as K }); }
+function erased(): Record<string, unknown> { return new Proxy({}, { get: () => 1 }); }"),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
 /// A bare `Proxy` reference used as a value (`if (Proxy)`, `isFunction(Proxy)`,
 /// a `Proxy` entry in a value table) lowers to a first-class closure — the
 /// transparent-construction value form matching `new Proxy(target, handler)`

@@ -118,8 +118,8 @@ impl FunctionEmitter<'_> {
             Rvalue::OptionalField { receiver, field } => {
                 self.optional_field_expr_for_dest(receiver, *field, dest_ty)
             }
-            Rvalue::OptionalIndex { receiver, index } => {
-                self.optional_index_expr(receiver, index, dest_ty)
+            Rvalue::OptionalIndex { receiver, index, from_end } => {
+                self.optional_index_expr(receiver, index, *from_end, dest_ty)
             }
             Rvalue::OptionalMethod {
                 receiver,
@@ -562,7 +562,7 @@ impl FunctionEmitter<'_> {
                 key,
                 reverse,
             } => self.list_sort_expr(list, comparator.as_ref(), key.as_ref(), *reverse, dest_ty),
-            Rvalue::ListPop { list } => self.list_pop_expr(list, dest_ty),
+            Rvalue::ListPop { list, .. } => self.list_pop_expr(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_expr(list, dest_ty),
             Rvalue::ListNext { list } => self.list_next_expr(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_expr(tuple, item),

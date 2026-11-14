@@ -207,6 +207,10 @@ impl RuntimeDemand {
             Rvalue::DictPopItem { .. } => {
                 self.add(Need::PythonDictRead);
             }
+            Rvalue::ListPop { raises_when_empty: true, .. } => {
+                self.add(Need::PyException);
+                self.add(Need::SmeltList);
+            }
             Rvalue::StringSplit { .. } => {
                 self.add(Need::RegexOps);
             }

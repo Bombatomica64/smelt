@@ -222,8 +222,11 @@ async function main(): Promise<void> {
   console.log("throwing value", await throwingValue());
 
   setTimeout(greet, 1, "hi", 3);
-  setTimeout(note, 2, "with-optional", "extra");
   fire("payload");
+  await sleep(5);
+  // Scheduled after the sleep: two timers armed a few microseconds apart with
+  // delays 1 and 2 fire in either order in Node, depending on the clock tick.
+  setTimeout(note, 2, "with-optional", "extra");
   await sleep(5);
 
   let ticks = 0;

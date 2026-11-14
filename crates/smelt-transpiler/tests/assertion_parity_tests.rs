@@ -53,11 +53,13 @@ build = false
     )?;
     // `@fast-check/vitest` has no installed types here.
     smelt_in(root, &["build", "--allow-type-errors"])?;
-    let output = Command::new("cargo")
-        .args(["test", "--manifest-path", "dist/Cargo.toml", "--no-fail-fast"])
-        .current_dir(root)
-        .env("RUSTFLAGS", "-Awarnings")
-        .output()?;
+    let binaries = common::build_generated_tests(
+        Command::new("cargo").current_dir(root).env("RUSTFLAGS", "-Awarnings"),
+        &root.join("dist/Cargo.toml"),
+    )?;
+    let output = common::run_generated_tests(&binaries, |run| {
+        run.current_dir(root);
+    })?;
     let stdout = String::from_utf8(output.stdout)?;
     let outcomes: BTreeMap<String, bool> = stdout
         .lines()
