@@ -959,7 +959,7 @@ impl FunctionEmitter<'_> {
         // throw still reaches the enclosing `catch` (a locale whose
         // `formatDistance` throws, in date-fns' specs). Before, the `Result`
         // was handed back as the accumulator (E0308).
-        let call_expr = if function_ty.may_throw {
+        let callback_result = if function_ty.may_throw {
             RustExpr::atom(format!(
                 "({call_expr}).unwrap_or_else(|smelt_error: {ERROR_BOX}| smelt_panic_throw(smelt_error))",
                 call_expr = call_expr.delimited()
@@ -968,7 +968,7 @@ impl FunctionEmitter<'_> {
             call_expr
         };
         let callback_result_text = self.rendered_at_type(
-            &call_expr,
+            &callback_result,
             callback_return_ty,
             dest_ty,
             &self.render_scope(),
