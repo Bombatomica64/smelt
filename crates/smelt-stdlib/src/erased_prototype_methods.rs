@@ -129,6 +129,25 @@ pub fn is_erased_prototype_call(name: &str, argument_count: usize) -> bool {
         && prototype_method_max_arguments(name).is_none_or(|max| argument_count <= max)
 }
 
+/// Every `Number.prototype` method an erased number answers: the formatting
+/// methods and `valueOf`.
+pub const ERASED_NUMBER_PROTOTYPE_METHODS: &[&str] = &[
+    "toFixed",
+    "toPrecision",
+    "toExponential",
+    "toString",
+    "valueOf",
+];
+
+/// Look an erased `Number.prototype` method up by name.
+#[must_use]
+pub fn erased_number_prototype_method(name: &str) -> Option<&'static str> {
+    ERASED_NUMBER_PROTOTYPE_METHODS
+        .iter()
+        .copied()
+        .find(|method| *method == name)
+}
+
 /// Look an erased `Array.prototype` method up by name.
 #[must_use]
 pub fn erased_array_prototype_method(name: &str) -> Option<&'static str> {

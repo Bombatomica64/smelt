@@ -191,6 +191,106 @@ impl FunctionEmitter<'_> {
         )
     }
 
+    /// Wrap the dispatch of a call through an erased `callee` so the call
+    /// installs JavaScript's receiver: the base of a member call, `undefined`
+    /// for a plain call.
+    ///
+    /// JavaScript takes `this` from the CALL: `arr.map(f)` runs
+    /// `Array.prototype.map` with `this = arr`, and `const m = arr.map; m(f)`
+    /// runs the same function with `this = undefined`, which throws. The
+    /// runtime's prototype methods are unbound and read the channel
+    /// (`smelt_unbound_prototype_method`), so every erased call states its
+    /// receiver here. What decides is the callee's SHAPE, followed through the
+    /// compiler temporaries a call is lowered with (see
+    /// [`Self::erased_call_receiver`]); an explicit receiver
+    /// (`.call`/`.apply`/`.bind`) is installed inside the callee, over this one.
+    pub(super) fn with_erased_call_receiver(
+        &self,
+        callee: &Operand,
+        call_text: RustExpr,
+    ) -> Result<RustExpr, EmitError> {
+        // A program that cannot observe a receiver carries no channel (see
+        // `Need::ThisChannel`), and its calls install nothing.
+        if !self.context.demand().has(Need::ThisChannel) {
+            return Ok(call_text);
+        }
+        let install = match self.erased_call_receiver(callee) {
+            ErasedCallReceiver::Base(base) => format!(
+                "smelt_push_this({})",
+                self.erase(&Operand::Copy(Place::Local(base)))?.delimited()
+            ),
+            ErasedCallReceiver::Plain => "smelt_push_no_this()".to_owned(),
+            ErasedCallReceiver::Unresolved => return Ok(call_text),
+        };
+        Ok(RustExpr::atom(format!(
+            "{{ let _smelt_this_guard = {install}; {} }}",
+            call_text.delimited()
+        )))
+    }
+
+    /// [`Self::with_erased_call_receiver`] for a callee with a static function
+    /// type: only a MEMBER call installs its receiver.
+    ///
+    /// The frontend can type a member read off an erased object as a function
+    /// (`n.toFixed` inside an arrow lowers to `fn(Float) -> Unknown`), and the
+    /// value is still the runtime's unbound prototype method, so the member
+    /// call has to supply `this`. A plain call through a typed callee leaves
+    /// the channel alone: a typed function value never reads it unless it came
+    /// from such a read, and then the program wrote the detached call itself.
+    pub(super) fn with_member_call_receiver(
+        &self,
+        callee: &Operand,
+        call_text: RustExpr,
+    ) -> Result<RustExpr, EmitError> {
+        if matches!(
+            self.erased_call_receiver(callee),
+            ErasedCallReceiver::Base(_)
+        ) {
+            return self.with_erased_call_receiver(callee, call_text);
+        }
+        Ok(call_text)
+    }
+
+    /// The receiver a call through `callee` supplies.
+    ///
+    /// A callee that is (or forwards from) a field or index read of an erased
+    /// object is a member call, whose receiver is that object. A callee that is
+    /// a user binding, a parameter, a global or a constant is a plain call. A
+    /// compiler temporary whose definition is anything else (a call result, a
+    /// typed-receiver bind) is left to whatever installed the channel before,
+    /// which is what every call did before this rule existed.
+    fn erased_call_receiver(&self, callee: &Operand) -> ErasedCallReceiver {
+        let (Operand::Copy(place) | Operand::Move(place)) = callee else {
+            return ErasedCallReceiver::Plain;
+        };
+        self.place_call_receiver(place, 0)
+    }
+
+    /// [`Self::erased_call_receiver`] for a place, `depth` steps into its chain.
+    fn place_call_receiver(&self, place: &Place, depth: usize) -> ErasedCallReceiver {
+        match place {
+            Place::Field { base, .. } | Place::Index { base, .. } => {
+                let erased_base = self
+                    .local_decl(*base)
+                    .is_ok_and(|decl| self.has_dynamic_shape(decl.ty));
+                if erased_base {
+                    ErasedCallReceiver::Base(*base)
+                } else {
+                    ErasedCallReceiver::Unresolved
+                }
+            }
+            Place::Local(local) => match self.local_decl(*local).map(|decl| &decl.kind) {
+                Ok(LocalKind::Temp) => self
+                    .single_assigned_source(*local, depth)
+                    .map_or(ErasedCallReceiver::Unresolved, |source| {
+                        self.place_call_receiver(source, depth.saturating_add(1))
+                    }),
+                _ => ErasedCallReceiver::Plain,
+            },
+            Place::Global { .. } => ErasedCallReceiver::Plain,
+        }
+    }
+
     /// The field name a callee's single-assignment chain ends in, if any.
     fn terminal_field_name(&self, place: &Place, depth: usize) -> Option<&str> {
         match place {
@@ -409,4 +509,15 @@ impl FunctionEmitter<'_> {
             fields.join(", ")
         )))
     }
+}
+
+/// The JavaScript receiver a call through an erased callee supplies (see
+/// `FunctionEmitter::with_erased_call_receiver`).
+enum ErasedCallReceiver {
+    /// A member call: `this` is this erased local.
+    Base(LocalId),
+    /// A plain call: `this` is `undefined`.
+    Plain,
+    /// Not decidable from the callee's shape; the channel is left as it is.
+    Unresolved,
 }

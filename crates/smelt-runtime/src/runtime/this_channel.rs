@@ -39,6 +39,9 @@ fn smelt_push_this(receiver: SmeltUnknown) -> SmeltThisGuard {
     SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Value(receiver))) }
 }
 
+/// Install `undefined` as `this` for a plain call (`f(..)`) until the guard is dropped.
+fn smelt_push_no_this() -> SmeltThisGuard { smelt_push_this(SmeltUnknown::Undefined) }
+
 /// Install a concrete receiver as `this`, erased by `erase` only when first read.
 #[allow(dead_code)]
 fn smelt_push_this_lazy(erase: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>) -> SmeltThisGuard {

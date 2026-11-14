@@ -199,10 +199,13 @@ impl FunctionEmitter<'_> {
             // so a single array argument is delivered as one value instead of
             // being mistaken for a spread and flattened into its elements.
             let smelt_call_args = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
-            let call_text = self.dynamic_callable_dispatch_expr(
-                &callee_text,
-                &smelt_call_args,
-                self.prototype_method_not_callable(callee).as_deref(),
+            let call_text = self.with_erased_call_receiver(
+                callee,
+                self.dynamic_callable_dispatch_expr(
+                    &callee_text,
+                    &smelt_call_args,
+                    self.prototype_method_not_callable(callee).as_deref(),
+                )?,
             )?;
             let unknown_ty = self.type_id(Type::Unknown)?;
             if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
@@ -283,7 +286,8 @@ impl FunctionEmitter<'_> {
             let call_text = self.erased_callee_call_expr(callee, args)?;
             return self.rendered_at_type(&call_text, unknown_ty, dest_ty, &self.render_scope());
         }
-        self.typed_closure_call_expr(callee, args, dest_ty, callee_ty)
+        let call_text = self.typed_closure_call_expr(callee, args, dest_ty, callee_ty)?;
+        self.with_member_call_receiver(callee, call_text)
     }
 
     /// `receiver.call(..)` / `receiver.apply(..)` on an erased receiver
@@ -342,10 +346,13 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, EmitError>>()?;
         let args_expr = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
-        self.dynamic_callable_dispatch_expr(
-            &callee_text,
-            &args_expr,
-            self.prototype_method_not_callable(callee).as_deref(),
+        self.with_erased_call_receiver(
+            callee,
+            self.dynamic_callable_dispatch_expr(
+                &callee_text,
+                &args_expr,
+                self.prototype_method_not_callable(callee).as_deref(),
+            )?,
         )
     }
 
@@ -739,10 +746,13 @@ impl FunctionEmitter<'_> {
             unknown_ty,
             &self.render_scope(),
         )?;
-        let call_text = self.dynamic_callable_dispatch_expr(
-            &erased_callee,
-            args_text,
-            self.prototype_method_not_callable(callee).as_deref(),
+        let call_text = self.with_erased_call_receiver(
+            callee,
+            self.dynamic_callable_dispatch_expr(
+                &erased_callee,
+                args_text,
+                self.prototype_method_not_callable(callee).as_deref(),
+            )?,
         )?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
             return Ok(call_text);
