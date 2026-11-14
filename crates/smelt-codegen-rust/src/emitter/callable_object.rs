@@ -221,7 +221,7 @@ impl FunctionEmitter<'_> {
             ),
             ErasedCallReceiver::TypedBase(base) => {
                 let base_ty = self.local_decl(base)?.ty;
-                let lazy_erase = self.erase_rendered(
+                let lazy_erase = self.lazy_receiver_erasure(
                     &RustExpr::path("smelt_bound_receiver").cloned_value(),
                     base_ty,
                 )?;
@@ -764,4 +764,39 @@ enum ErasedCallReceiver {
     Plain,
     /// Not decidable from the callee's shape; the channel is left as it is.
     Unresolved,
+}
+
+impl FunctionEmitter<'_> {
+    /// The erased view of a typed receiver, built inside a lazy `this` thunk.
+    ///
+    /// An instance of a generic class or interface erases through its own
+    /// `IntoSmeltUnknown` impl, which renders each callable field with the
+    /// type's parameters in scope (`with: Rc<dyn Fn(&T, ..)>` at
+    /// `T = SmeltUnion1344`). The inline record erasure renders a callable
+    /// field at its declared type from the CALLER's scope, where `T` is not
+    /// bound, and spelled it `&SmeltUnknown`: the thunk did not compile
+    /// (ts-pattern's `match(x).with(..)`, date-fns' `Parser<Value>`).
+    pub(super) fn lazy_receiver_erasure(
+        &self,
+        receiver: &RustExpr,
+        receiver_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        if self.is_generic_instance(receiver_ty) {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                receiver.delimited()
+            )));
+        }
+        self.erase_rendered(receiver, receiver_ty)
+    }
+
+    /// Whether `ty` is a class or interface instance with type arguments: the
+    /// generated type's generic `IntoSmeltUnknown` impl then erases it. Every
+    /// argument meets that impl's bounds: a concrete type or an out-of-scope
+    /// parameter (rendered as the erased carrier) by its own impls, and an
+    /// in-scope parameter because generated generics all carry the same bound
+    /// set (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`).
+    fn is_generic_instance(&self, ty: TypeId) -> bool {
+        matches!(self.mir.types.get(ty), Some(Type::Class { args, .. }) if !args.is_empty())
+    }
 }

@@ -99,3 +99,21 @@ function nestedArrows(this: any): unknown {
 }
 const nestedHost: any = { name: "nested", nestedArrows };
 attempt("nested arrows", () => nestedHost.nestedArrows());
+
+// A generic instance's function-valued field, called as a member, reads the
+// instance as its receiver; the instance's erased view also carries a field
+// taking a callback over the type argument (ts-pattern's `Match.with`).
+class Holder<T> {
+  value: T;
+  show: (this: Holder<T>, label: string) => string;
+  format: (render: (value: T) => string) => string;
+  constructor(value: T) {
+    this.value = value;
+    this.format = (render) => render(this.value);
+    this.show = function (this: Holder<T>, label: string) {
+      return label + ":" + String(this.value);
+    };
+  }
+}
+const numberHolder = new Holder<number>(7);
+attempt("generic field method", () => numberHolder.show("held"));

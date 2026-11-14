@@ -112,7 +112,7 @@ impl FunctionEmitter<'_> {
             let (bind_receiver, install) = if let Some((typed_operand, receiver_ty)) =
                 typed_receiver
             {
-                let lazy_erase = self.erase_rendered(
+                let lazy_erase = self.lazy_receiver_erasure(
                     &RustExpr::path("smelt_bound_receiver").cloned_value(),
                     receiver_ty,
                 )?;
