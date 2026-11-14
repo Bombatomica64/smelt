@@ -904,7 +904,15 @@ fn operand_is_erased_local(mir: &Mir, locals: &[LocalDecl], target: &Operand) ->
     usize::try_from(local.0)
         .ok()
         .and_then(|index| locals.get(index))
-        .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Unknown)))
+        .is_some_and(|decl| {
+            // A type parameter merges in place only where it renders erased
+            // (`map::dict_assign_expr`); asking for the helper wherever one
+            // could is harmless, since the item is emitted on demand.
+            matches!(
+                mir.types.get(decl.ty),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        })
 }
 
 /// Whether `operand` reads a local of a class type.
