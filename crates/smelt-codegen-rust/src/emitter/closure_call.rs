@@ -911,6 +911,6 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(param), Some(Type::Optional(_))) {
             return Ok(RustExpr::path("None"));
         }
-        self.default_value(param)
+        self.missing_argument_value(param)
     }
 }

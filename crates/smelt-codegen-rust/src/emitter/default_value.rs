@@ -21,6 +21,21 @@ impl FunctionEmitter<'_> {
         self.default_value(item_ty)
     }
 
+    /// The value a parameter takes when the call passes no argument for it.
+    ///
+    /// JavaScript binds a missing argument to `undefined`, never `null`, and an
+    /// erased parameter can tell the two apart: `p === undefined` and
+    /// `String(p)` answered `null` for an omitted argument (ts-pattern's
+    /// `select(...args: [keyOrPattern?, pattern?])` then read `args[1]` as a
+    /// pattern to match, and `P.select()` matched nothing). A typed parameter
+    /// keeps its ordinary default; an optional one is `None` either way.
+    pub(super) fn missing_argument_value(&self, ty: TypeId) -> Result<RustExpr, EmitError> {
+        if matches!(self.mir.types.get(ty), Some(Type::Unknown)) {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
+        }
+        self.default_value(ty)
+    }
+
     /// Gets the default value for a given type.
     pub(super) fn default_value(&self, ty: TypeId) -> Result<RustExpr, EmitError> {
         match self
