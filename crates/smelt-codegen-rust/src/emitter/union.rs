@@ -373,29 +373,6 @@ impl FunctionEmitter<'_> {
                 inner = inner.delimited()
             ))));
         }
-        // An integer value (`Date.now()`, a `length`) is a JavaScript number:
-        // with no `Int` arm it belongs in the union's one `Float` arm,
-        // converted. Without this rule `constructFrom(d, Date.now())` passed an
-        // `i64` where `Date | number | string` was expected (E0308).
-        if matches!(
-            self.mir.types.get(source),
-            Some(Type::Int | Type::FixedInt(_))
-        ) && let [index] = members
-            .iter()
-            .enumerate()
-            .filter(|(_, member)| matches!(self.mir.types.get(**member), Some(Type::Float)))
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>()
-            .as_slice()
-            && let Some(float_member) = members.get(*index).copied()
-        {
-            let coerced = self.rendered_at_type(value_text, source, float_member, scope)?;
-            return Ok(Some(RustExpr::opaque(format!(
-                "{}::M{index}({coerced})",
-                union_name(target),
-                coerced = coerced.delimited()
-            ))));
-        }
         // Structural injection: the source is not an exact member but shares a
         // single member's collection shape (for example an empty
         // `SmeltList<SmeltUnknown>` default flowing into a `SmeltList<String>`

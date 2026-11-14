@@ -2,9 +2,12 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, Literal, NumericPredicateOp, PrimitiveCastOp, Type};
+use smelt_hir::{
+    Body, Expr, ExprKind, Literal, NumericFormatMethod, NumericPredicateOp, PrimitiveCastOp, Type,
+};
 
 impl ModuleBuilder<'_> {
     /// Lower direct TypeScript numeric predicate calls.
@@ -411,6 +414,18 @@ impl ModuleBuilder<'_> {
             if let Some(call) = self.bigint_to_string_radix(operand, radix, span, body) {
                 return Ok(Some(call));
             }
+            if matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Ok(Some(self.numeric_format_expr(
+                    NumericFormatMethod::Radix,
+                    operand,
+                    Some(radix),
+                    span,
+                    body,
+                )));
+            }
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::NumericToStringRadix { operand, radix },
                 ty,
@@ -456,13 +471,13 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Lower direct TypeScript `.toFixed(digits)` calls on a numeric receiver.
+    /// Lower `.toFixed(digits)`, `.toPrecision(digits)` and
+    /// `.toExponential(digits)` on a numeric receiver.
     ///
-    /// `Number.prototype.toFixed` renders the receiver as a fixed-point decimal
-    /// string with the given number of fractional digits (defaulting to `0`).
-    /// Only numeric receivers and an optional numeric digit count are accepted;
-    /// other shapes are left for later dispatch.
-    pub(in crate::lowering) fn number_to_fixed_call(
+    /// Each is one [`ExprKind::NumericFormat`]; other receivers are left for
+    /// later dispatch (an erased receiver reaches the same runtime formatter
+    /// through its `Number.prototype` member read).
+    pub(in crate::lowering) fn number_format_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -470,9 +485,9 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "toFixed" {
+        let Some(method) = NumericFormatMethod::from_js_name(&member.property.name) else {
             return Ok(None);
-        }
+        };
         let operand = self.expression(&member.object, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, operand)),
@@ -483,34 +498,68 @@ impl ModuleBuilder<'_> {
         if call.arguments.len() > 1 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "number.toFixed accepts at most one digit-count argument",
+                format!("number.{} accepts at most one argument", method.js_name()),
             ));
         }
-        let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let digits = if let Some(argument) = call.arguments.first() {
-            let digits = self.argument(argument, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, digits)),
-                Some(Type::Int | Type::Float)
-            ) {
-                return Err(SmeltError::unsupported(
-                    self.span(argument.span().start, argument.span().end),
-                    "number.toFixed digit-count argument must be numeric",
-                ));
+        let digits = match call.arguments.first() {
+            Some(argument) => {
+                let digits = self.argument(argument, body)?;
+                if !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, digits)),
+                    Some(Type::Int | Type::Float)
+                ) {
+                    return Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        format!("number.{} argument must be numeric", method.js_name()),
+                    ));
+                }
+                Some(digits)
             }
-            digits
-        } else {
-            body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(0.0)),
-                ty: float_ty,
-                span: self.span(call.span.start, call.span.end),
-            })
+            None => None,
         };
+        let span = self.span(call.span.start, call.span.end);
+        Ok(Some(
+            self.numeric_format_expr(method, operand, digits, span, body),
+        ))
+    }
+
+    /// Push a [`ExprKind::NumericFormat`] over a numeric `operand`.
+    ///
+    /// The op is fallible exactly when the argument may fall outside the
+    /// method's range after `ToIntegerOrInfinity`: an absent argument and a
+    /// numeric literal inside the range cannot throw, so `x.toFixed(2)` stays a
+    /// plain expression and only a computed digit count carries the
+    /// `RangeError` edge to an enclosing `try`.
+    pub(in crate::lowering) fn numeric_format_expr(
+        &mut self,
+        method: NumericFormatMethod,
+        operand: smelt_hir::ExprId,
+        digits: Option<smelt_hir::ExprId>,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let (low, high) = method.argument_range();
+        let digits_checked = digits.is_some_and(|digits| {
+            let constant = match body.expr_at(digits).map(|expr| &expr.kind) {
+                Some(ExprKind::Literal(Literal::Float(value))) => Some(*value),
+                // An integer outside `i32` is outside every method's range.
+                Some(ExprKind::Literal(Literal::Int(value))) => {
+                    i32::try_from(*value).ok().map(f64::from)
+                }
+                _ => None,
+            };
+            !constant.is_some_and(|value| (low..=high).contains(&value.trunc()))
+        });
         let ty = self.ctx.krate.types.intern(Type::String);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::NumericToFixed { operand, digits },
+        body.push_expr(Expr {
+            kind: ExprKind::NumericFormat {
+                method,
+                operand,
+                digits,
+                digits_checked,
+            },
             ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
+            span,
+        })
     }
 }

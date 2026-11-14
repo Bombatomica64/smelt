@@ -255,6 +255,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "optional_unknown_read" => Need::OptionalUnknownRead,
         "accessors" => Need::Accessors,
         "python_number_format" => Need::PythonNumberFormat,
+        "number_methods" => Need::NumberMethods,
         "dep_tokio" => Need::DepTokio,
         "dep_genawaiter" => Need::DepGenawaiter,
         "dep_reqwest" => Need::DepReqwest,

@@ -492,7 +492,7 @@ export function hex(bytes: Uint8Array): string {
     assert!(!program.contains("\"prototype\""), "{program}");
     assert!(program.contains("to_elements()"), "{program}");
     assert!(
-        program.contains("let smelt_radix ="),
+        program.contains("smelt_number_to_string_radix(closure_arg_0, 16.0 as u32)"),
         "the callback keeps its radix:\n{program}"
     );
 }

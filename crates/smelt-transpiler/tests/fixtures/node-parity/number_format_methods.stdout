@@ -1,0 +1,10 @@
+3 1 -3 1.3 1.00
+1e+21 Infinity NaN 0.00 -0.00
+2.50 3e+1 1.00e+21 0.0000012 123.456
+2.50e+0 1.23456e+2 0.00e+0 -1.5e-7
+ff 0.1 -11.11 3f.gez4w97ry
+1.00 RangeError: toFixed() digits argument must be between 0 and 100 RangeError: toFixed() digits argument must be between 0 and 100
+toString() radix argument must be between 2 and 36
+function 1 0
+3.14 3.14 3.14159e+0 11.00100 3.14159
+RangeError toPrecision() argument must be between 1 and 100

@@ -1248,7 +1248,7 @@ impl<'builder> ModuleBuilder<'builder> {
             Self::promise_continuation_call,
             Self::timer_call,
             Self::number_to_string_call,
-            Self::number_to_fixed_call,
+            Self::number_format_call,
             Self::commonjs_require_call,
             Self::object_metadata_mutation_call,
             Self::object_get_own_property_symbols_call,

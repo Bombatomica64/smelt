@@ -1250,7 +1250,7 @@ _smelt_tmp_3 = bytes.clone().length();
 _smelt_tmp_4 = index < _smelt_tmp_3;
 if !(_smelt_tmp_4) { break; }
 _smelt_tmp_5 = bytes.get(index).unwrap_or(0.0);
-_smelt_tmp_6 = JsString::from({ let smelt_value = (_smelt_tmp_5 as f64).trunc() as i128; let smelt_radix = ((16.0 as f64).trunc() as u32).clamp(2, 36); let smelt_negative = smelt_value < 0; let mut smelt_n = smelt_value.unsigned_abs(); let mut smelt_digits = Vec::new(); if smelt_n == 0 { smelt_digits.push('0'); } while smelt_n > 0 { let smelt_digit = (smelt_n % u128::from(smelt_radix)) as u8; smelt_digits.push(if smelt_digit < 10 { (b'0' + smelt_digit) as char } else { (b'a' + smelt_digit - 10) as char }); smelt_n /= u128::from(smelt_radix); } if smelt_negative { smelt_digits.push('-'); } smelt_digits.iter().rev().collect::<String>() });
+_smelt_tmp_6 = JsString::from(smelt_number_to_string_radix(_smelt_tmp_5, 16.0 as u32));
 _smelt_tmp_7 = out + &_smelt_tmp_6;
 out = _smelt_tmp_7;
 _smelt_tmp_8 = index + 1.0;

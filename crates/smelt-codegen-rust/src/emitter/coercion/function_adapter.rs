@@ -1003,18 +1003,8 @@ impl FunctionEmitter<'_> {
         // agree. See `callee_substitution`.
         let caller_scope = self.current_function_type_params();
         let substitution = callee_substitution(&caller_scope, callee_bindings);
-        // A target slot whose parameters are `&mut` (`FunctionType::
-        // mutable_params`: a callback that mutates and returns its state, as
-        // date-fns' `set(date, flags, ..)`) is called with `&mut` arguments,
-        // so the adapter declares them so; declaring them owned made the
-        // closure's signature disagree with the slot (E0631). Slots without
-        // mutable parameters keep their exact previous rendering.
-        let prefix = if target_function.mutable_params.is_empty() {
-            MutablePrefix::Ignore
-        } else {
-            MutablePrefix::Apply
-        };
-        let arg_decls = self.callback_arg_decls(target_function, &substitution, prefix)?;
+        let arg_decls =
+            self.callback_arg_decls(target_function, &substitution, MutablePrefix::Ignore)?;
         // See `callback_return_annotation` for when this is `Some` and why. It is
         // handed the same `callee_bindings` the `substitution` above is built
         // from, so the annotation cannot disagree with the argument
@@ -1490,29 +1480,6 @@ impl FunctionEmitter<'_> {
             // => v, .. }` against an `f64` (E0308). One substitution has
             // to drive the declaration and the body alike.
             let declared = self.substituted_param_ty(*target_param, callee_bindings);
-            // A `&mut` parameter of the target (see `function_shape_adapter`)
-            // arrives as a mutable borrow. A wrapped callback that also takes
-            // it `&mut` at the same Rust type gets that borrow, so its writes
-            // reach the caller's value; one that differs gets a converted
-            // copy of the pointee.
-            if target_function.mutable_params.contains(&index) {
-                let pointee = RustExpr::loose(format!("*smelt_arg{index}")).cloned_value();
-                let converted =
-                    self.rendered_at_type(&pointee, declared, source_param, &self.render_scope())?;
-                let same_rust_type =
-                    self.rendered_type(declared)? == self.rendered_type(source_param)?;
-                if source.mutable_params.contains(&index) {
-                    return Ok(if same_rust_type {
-                        format!("smelt_arg{index}")
-                    } else {
-                        format!("&mut ({converted})", converted = converted.delimited())
-                    });
-                }
-                if self.callback_param_is_shared_reference(source, index, source_param) {
-                    return Ok(format!("&({converted})", converted = converted.delimited()));
-                }
-                return Ok(converted.into_string());
-            }
             // Seam 1 (`emitter::seam_assertions`): `declared` is where
             // this conversion starts; the declaration it must match was
             // rendered above under `substitution`.

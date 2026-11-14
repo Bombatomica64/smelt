@@ -411,6 +411,9 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         //~ `__smelt_proto:` strings are prototype SENTINELS rather than source
         //~ text, so they keep answering `undefined` as before.
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
+        //~ An erased NUMBER answers `Number.prototype`'s methods, then
+        //~ `Object.prototype`'s, as the function arm below does.
+        SmeltUnknown::Number(value) => smelt_number_prototype_member(*value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
         //~ Every function inherits `constructor` from `Function.prototype`:
         //~ `value.constructor && value.call && value.apply` is how libraries
         //~ recognise one.

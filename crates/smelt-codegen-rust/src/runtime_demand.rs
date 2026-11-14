@@ -219,6 +219,9 @@ declare_needs! {
     Accessors,
     /// Python's number formatting.
     PythonNumberFormat,
+    /// `Number.prototype`'s formatting methods (`toFixed`, `toPrecision`,
+    /// `toExponential`, `toString(radix)`).
+    NumberMethods,
     /// The `tokio` crate.
     DepTokio,
     /// The `genawaiter` crate.
@@ -288,6 +291,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::DepTokio,
             // The erased string payload is a `JsString`.
             Need::JsString,
+            // An erased number answers its `Number.prototype` members.
+            Need::NumberMethods,
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
