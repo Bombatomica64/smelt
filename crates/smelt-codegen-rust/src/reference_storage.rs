@@ -60,10 +60,17 @@ pub(crate) fn emit_reference_class_storage(
             // fields as storage it never reads (its inherited statics are
             // accessors delegating to the base frame), so its erasure
             // projects only the statics it declares itself.
+            // A method's callable slot is storage, not an own property: the
+            // method is a prototype member (`__smelt_proto_entries`), so the
+            // erased projection leaves it out, as the inline erasure does.
             projected_fields: if class.statics_of.is_some() {
                 class.fields.clone()
             } else {
+                let slots = classes::own_virtual_slot_names(mir, class);
                 effective_class_fields(mir, class)
+                    .into_iter()
+                    .filter(|field| !slots.contains(&field.name))
+                    .collect()
             },
             inherited_statics: inherited_static_slots(mir, class),
             static_fields: &class.static_fields,

@@ -756,6 +756,10 @@ pub(crate) fn own_erasure_method(
         .into_iter()
         .chain(crate::classes::effective_class_methods(mir, class))
         .find_map(|function| mir.functions.get(usize::try_from(function.0).ok()?));
+    // A generic class erases through its generated projection: the inline
+    // projection renders each callable slot's erased adapter, whose
+    // by-reference `&T` parameters it cannot spell for a class parameter.
+    let host = host.filter(|_| class.type_params.is_empty());
     let Some(host) = host else {
         return Ok(format!(
             "    #[allow(dead_code)]\n    fn {OWN_ERASURE_METHOD}(self) -> SmeltUnknown {{ let smelt_own = self; {fallback} }}\n"

@@ -381,8 +381,18 @@ impl FunctionEmitter<'_> {
                 )?,
             ));
         };
-        // Same deliberate erasure as the dispatches-to-source-field arm above.
-        let field_substitution = TypeSubstitution::erased();
+        // Same deliberate erasure as the dispatches-to-source-field arm above,
+        // except for a class binding its OWN slots in its constructor: the
+        // slot field is declared at the class's own parameters
+        // (`Rc<dyn Fn(&T) -> ..>` inside `impl<T> Base<T>`), which are in
+        // scope there, so the closure takes them as declared rather than
+        // erased (`Fn(&SmeltUnknown)` did not coerce to the field's type).
+        let lexical = self.render_scope();
+        let field_substitution = if matches!(receiver, SlotReceiver::WeakSelf { .. }) {
+            lexical.substitution()
+        } else {
+            TypeSubstitution::erased()
+        };
         let params = self
             .callback_arg_decls(&function_ty, &field_substitution, MutablePrefix::Apply)?
             .join(", ");

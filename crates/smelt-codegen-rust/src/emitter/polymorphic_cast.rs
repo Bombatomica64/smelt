@@ -276,10 +276,8 @@ impl FunctionEmitter<'_> {
     /// that follows is the class's own implementation.
     ///
     /// An override is forwarded to when its class's type arguments follow
-    /// from the owner's (`descendant_binding`); one that fixes them to a
-    /// concrete type is forwarded to only when the method's signature does not
-    /// mention the owner's type parameters, since the forwarded arguments are
-    /// typed at the owner's parameters. Empty when nothing is forwarded.
+    /// from the owner's (`descendant_binding`, a parameter passed through or
+    /// fixed to a concrete type). Empty when nothing is forwarded.
     pub(super) fn override_dispatch_prologue(&self) -> Result<String, EmitError> {
         let HirOrigin::ClassMethod { method, .. } = self.function.origin else {
             return Ok(String::new());
@@ -303,25 +301,6 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|param| param.name)
             .collect();
-        let signature_mentions_owner_params = {
-            let mut mentioned = HashSet::new();
-            for ty in self
-                .function
-                .params
-                .iter()
-                .skip(1)
-                .filter_map(|param| self.function.locals.get(usize::try_from(param.0).ok()?))
-                .map(|local| local.ty)
-                .chain(std::iter::once(self.function.return_ty))
-            {
-                crate::generic_bindings::collect_type_param_occurrences(
-                    self.mir,
-                    ty,
-                    &mut mentioned,
-                );
-            }
-            owner_params.iter().any(|param| mentioned.contains(param))
-        };
         let owner_param_idents = owner_params
             .iter()
             .map(|param| {
@@ -355,9 +334,11 @@ impl FunctionEmitter<'_> {
             let Some(binding) = descendant_binding(self.mir, concrete, owner) else {
                 continue;
             };
-            if !binding.fixed.is_empty() && signature_mentions_owner_params {
-                continue;
-            }
+            // A subclass fixing the owner's parameters (`Sub extends
+            // Base<string>`) is forwarded to all the same: the forward
+            // converts each argument and the answer between the two
+            // signatures (`override_forward_expr`), through the erased
+            // boundary where they differ only by that runtime fact.
             let Some(concrete_args) = binding
                 .param_sources
                 .iter()
@@ -381,8 +362,27 @@ impl FunctionEmitter<'_> {
             } else {
                 format!("::{generics}")
             };
-            let Some(forward) =
-                self.override_forward_expr(implementation, &format!("{concrete_type}{turbofish}(smelt_cell).{method_name}"), own_throws, &scope)?
+            // The override's types are spelled in its class's scope; its
+            // class parameters are the owner's they follow from.
+            let concrete_class = crate::classes::find_class(self.mir, concrete);
+            let mut substitution = std::collections::HashMap::new();
+            if let Some(concrete_class) = concrete_class {
+                for (param, source) in concrete_class.type_params.iter().zip(&binding.param_sources) {
+                    if let Some(owner_param) = owner_params.get(*source)
+                        && let Some(owner_ty) =
+                            self.existing_type_id(Type::TypeParam { name: *owner_param })
+                    {
+                        substitution.insert(param.name, owner_ty);
+                    }
+                }
+            }
+            let Some(forward) = self.override_forward_expr(
+                implementation,
+                &format!("{concrete_type}{turbofish}(smelt_cell).{method_name}"),
+                own_throws,
+                &substitution,
+                &scope,
+            )?
             else {
                 continue;
             };
@@ -413,8 +413,11 @@ impl FunctionEmitter<'_> {
         implementation: FuncId,
         callee: &str,
         own_throws: bool,
+        substitution: &std::collections::HashMap<Symbol, TypeId>,
         scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
+        let in_owner_scope =
+            |ty: TypeId| crate::generic_bindings::substitute_existing_type(self.mir, ty, substitution);
         let Some(target) = self.function_by_id(implementation) else {
             return Ok(None);
         };
@@ -425,7 +428,7 @@ impl FunctionEmitter<'_> {
         let own_params = self.function.params.get(1..).unwrap_or_default();
         let mut args = Vec::new();
         for (index, param) in target.params.iter().skip(1).enumerate() {
-            let target_ty = self.function_local_decl(target, *param)?.ty;
+            let target_ty = in_owner_scope(self.function_local_decl(target, *param)?.ty);
             let target_mut = self.parameter_needs_mutable_reference_in(target, *param);
             let Some(own) = own_params.get(index) else {
                 if target_mut {
@@ -439,11 +442,26 @@ impl FunctionEmitter<'_> {
                 return Ok(None);
             }
             let name = self.local_name(*own)?.into_owned();
+            let mut own_params_mentioned = HashSet::new();
+            crate::generic_bindings::collect_type_param_occurrences(
+                self.mir,
+                own_ty,
+                &mut own_params_mentioned,
+            );
             if own_ty == target_ty
                 || target_mut
                 || matches!(self.mir.types.get(own_ty), Some(Type::Function(_)))
             {
                 args.push(name);
+            } else if own_params_mentioned.iter().any(|param| scope.spells(*param)) {
+                // A value typed at the owner's own parameters (`x: T` where
+                // the override takes `string`) is that type only at run time:
+                // it crosses as an erased value and is recovered at the
+                // override's type.
+                let erased = RustExpr::atom(format!(
+                    "IntoSmeltUnknown::into_smelt_unknown({name}.clone())"
+                ));
+                args.push(self.extract_rendered(&erased, target_ty, scope)?.into_string());
             } else {
                 args.push(
                     self.rendered_at_type(&RustExpr::path(name), own_ty, target_ty, scope)?
@@ -456,12 +474,13 @@ impl FunctionEmitter<'_> {
             args.join(", "),
             if target_throws { "?" } else { "" }
         );
-        let value = if target.return_ty == self.function.return_ty {
+        let target_return_ty = in_owner_scope(target.return_ty);
+        let value = if target_return_ty == self.function.return_ty {
             call
         } else {
             self.rendered_at_type(
                 &RustExpr::atom(call),
-                target.return_ty,
+                target_return_ty,
                 self.function.return_ty,
                 scope,
             )?
