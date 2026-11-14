@@ -862,11 +862,38 @@ impl RuntimeDemand {
 
     /// Records what one terminator demands.
     fn scan_terminator(&mut self, mir: &Mir, locals: &[LocalDecl], terminator: &Terminator) {
-        let Terminator::Call { callee, unwind, .. } = terminator else {
+        // A member read can also be a terminator's own operand (`return
+        // base.m`, `throw`, an awaited or switched value).
+        if let Terminator::Return(operand)
+        | Terminator::Throw(operand)
+        | Terminator::Await {
+            future: operand, ..
+        }
+        | Terminator::Switch { cond: operand, .. }
+        | Terminator::Match {
+            scrutinee: operand, ..
+        } = terminator
+            && operand_may_read_prototype_method(mir, locals, operand)
+        {
+            self.add(Need::ThisChannel);
+        }
+        let Terminator::Call {
+            callee,
+            args,
+            unwind,
+            ..
+        } = terminator
+        else {
             return;
         };
         if let Callee::Indirect(operand) = callee
             && operand_may_read_prototype_method(mir, locals, operand)
+        {
+            self.add(Need::ThisChannel);
+        }
+        if args
+            .iter()
+            .any(|operand| operand_may_read_prototype_method(mir, locals, operand))
         {
             self.add(Need::ThisChannel);
         }

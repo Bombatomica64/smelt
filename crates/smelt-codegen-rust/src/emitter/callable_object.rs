@@ -219,6 +219,10 @@ impl FunctionEmitter<'_> {
                 "smelt_push_this({})",
                 self.erase(&Operand::Copy(Place::Local(base)))?.delimited()
             ),
+            ErasedCallReceiver::Snapshot(slot) => format!(
+                "smelt_push_this({}.clone())",
+                self.receiver_snapshot_name(slot)?
+            ),
             ErasedCallReceiver::Plain => "smelt_push_no_this()".to_owned(),
             ErasedCallReceiver::Unresolved => return Ok(call_text),
         };
@@ -244,7 +248,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if matches!(
             self.erased_call_receiver(callee),
-            ErasedCallReceiver::Base(_)
+            ErasedCallReceiver::Base(_) | ErasedCallReceiver::Snapshot(_)
         ) {
             return self.with_erased_call_receiver(callee, call_text);
         }
@@ -254,7 +258,8 @@ impl FunctionEmitter<'_> {
     /// The receiver a call through `callee` supplies.
     ///
     /// A callee that is (or forwards from) a field or index read of an erased
-    /// object is a member call, whose receiver is that object. A callee that is
+    /// object is a member call, whose receiver is that object (read in place,
+    /// or snapshotted at the read when a temporary carries the member). A callee that is
     /// a user binding, a parameter, a global or a constant is a plain call. A
     /// compiler temporary whose definition is anything else (a call result, a
     /// typed-receiver bind) is left to whatever installed the channel before,
@@ -280,11 +285,11 @@ impl FunctionEmitter<'_> {
                 }
             }
             Place::Local(local) => match self.local_decl(*local).map(|decl| &decl.kind) {
-                Ok(LocalKind::Temp) => self
-                    .single_assigned_source(*local, depth)
-                    .map_or(ErasedCallReceiver::Unresolved, |source| {
-                        self.place_call_receiver(source, depth.saturating_add(1))
-                    }),
+                // A member read in an EARLIER statement: its receiver was
+                // snapshotted there, while the base was certainly live (see
+                // `receiver_snapshot_slots`), so what a later statement does
+                // to the base cannot change the receiver this call installs.
+                Ok(LocalKind::Temp) => self.temp_call_receiver(*local, depth),
                 _ => ErasedCallReceiver::Plain,
             },
             Place::Global { .. } => ErasedCallReceiver::Plain,
@@ -511,11 +516,191 @@ impl FunctionEmitter<'_> {
     }
 }
 
+impl FunctionEmitter<'_> {
+    /// The temporaries whose value is a member read off an erased object that
+    /// a later erased call invokes, through any number of forwarding copies.
+    ///
+    /// Each gets a receiver SLOT: the statement assigning the temporary
+    /// copies the member read's base into it (an erased value's handle, so a
+    /// reference-count bump), and the call installs `this` from the slot. The
+    /// base is live at the read by construction -- the read reads it -- so the
+    /// receiver never depends on whether a statement between the read and the
+    /// call moves the base. Empty in a program without the receiver channel.
+    pub(super) fn receiver_snapshot_slots(&self) -> &HashSet<LocalId> {
+        self.receiver_snapshot_slots.get_or_init(|| {
+            let mut slots = HashSet::new();
+            if !self.context.demand().has(Need::ThisChannel) {
+                return slots;
+            }
+            let mut note = |callee: &Operand| {
+                if let Operand::Copy(place) | Operand::Move(place) = callee
+                    && let Some(slot) = self.snapshot_slot_of_place(place, 0)
+                {
+                    slots.insert(slot);
+                }
+            };
+            for block in &self.function.blocks {
+                for statement in &block.statements {
+                    match statement.value() {
+                        Rvalue::ClosureCall { callee, .. }
+                        | Rvalue::ClosureCallSpread { callee, .. }
+                        | Rvalue::ClosureCallRest { callee, .. } => note(callee),
+                        _ => {}
+                    }
+                }
+                if let Some(Terminator::Call {
+                    callee: Callee::Indirect(operand),
+                    ..
+                }) = &block.terminator
+                {
+                    note(operand);
+                }
+            }
+            slots
+        })
+    }
+
+    /// The temporary in `place`'s forwarding chain whose own value is a member
+    /// read off an erased value, when `place` is a temporary (a member read
+    /// the call reads in place has no slot: the call reads its base itself).
+    fn snapshot_slot_of_place(&self, place: &Place, depth: usize) -> Option<LocalId> {
+        let Place::Local(local) = place else {
+            return None;
+        };
+        match self.temp_call_receiver(*local, depth) {
+            ErasedCallReceiver::Snapshot(slot) => Some(slot),
+            _ => None,
+        }
+    }
+
+    /// What a call through the compiler temporary `local` supplies as `this`.
+    ///
+    /// Followed through forwarding copies and receiver binds: a member read
+    /// off an erased value is a member call (`Snapshot`), a chain ending at a
+    /// user binding, a parameter, or any other single value (a call's result,
+    /// a closure) is a plain call. A temporary assigned more than once (a join
+    /// of branches) or a member read off a TYPED object is left `Unresolved`:
+    /// the first may hold a member read from one branch, and the second is a
+    /// typed method call that installs its own receiver (`BindThis`).
+    fn temp_call_receiver(&self, local: LocalId, depth: usize) -> ErasedCallReceiver {
+        const MAX_DEPTH: usize = 8;
+        if depth >= MAX_DEPTH {
+            return ErasedCallReceiver::Unresolved;
+        }
+        if self.member_read_receiver(local).is_some() {
+            return ErasedCallReceiver::Snapshot(local);
+        }
+        match self.single_assigned_temp_value(local) {
+            None => ErasedCallReceiver::Unresolved,
+            Some(
+                Rvalue::Use(
+                    Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)),
+                )
+                | Rvalue::BindThis {
+                    callee:
+                        Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)),
+                    ..
+                },
+            ) => match self.local_decl(*source).map(|decl| &decl.kind) {
+                Ok(LocalKind::Temp) => self.temp_call_receiver(*source, depth.saturating_add(1)),
+                _ => ErasedCallReceiver::Plain,
+            },
+            Some(
+                Rvalue::Use(
+                    Operand::Copy(Place::Field { .. } | Place::Index { .. })
+                    | Operand::Move(Place::Field { .. } | Place::Index { .. }),
+                )
+                | Rvalue::BindThis { .. }
+                | Rvalue::OptionalField { .. },
+            ) => ErasedCallReceiver::Unresolved,
+            Some(_) => ErasedCallReceiver::Plain,
+        }
+    }
+
+    /// The one rvalue a compiler temporary is assigned, if it is assigned once.
+    fn single_assigned_temp_value(&self, local: LocalId) -> Option<&Rvalue> {
+        if !matches!(self.local_decl(local).ok()?.kind, LocalKind::Temp) {
+            return None;
+        }
+        let mut assigned = self
+            .function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter_map(|statement| match statement {
+                Statement::Assign { dest, value } if *dest == local => Some(value),
+                _ => None,
+            });
+        let value = assigned.next()?;
+        assigned.next().is_none().then_some(value)
+    }
+
+    /// The receiver of the member read a temporary is assigned, when that read
+    /// is off an erased value: `base` of `base.m` / `base[k]`, and the
+    /// receiver of an optional `receiver?.m`.
+    fn member_read_receiver(&self, local: LocalId) -> Option<Operand> {
+        match self.single_assigned_temp_value(local)? {
+            Rvalue::Use(
+                Operand::Copy(Place::Field { base, .. } | Place::Index { base, .. })
+                | Operand::Move(Place::Field { base, .. } | Place::Index { base, .. }),
+            )
+            | Rvalue::BindThis {
+                callee:
+                    Operand::Copy(Place::Field { base, .. } | Place::Index { base, .. })
+                    | Operand::Move(Place::Field { base, .. } | Place::Index { base, .. }),
+                ..
+            } => self
+                .local_decl(*base)
+                .is_ok_and(|decl| self.has_dynamic_shape(decl.ty))
+                .then_some(Operand::Copy(Place::Local(*base))),
+            Rvalue::OptionalField {
+                receiver: Operand::Copy(place) | Operand::Move(place),
+                ..
+            } => {
+                let receiver = Operand::Copy(place.clone());
+                let erased = self.operand_ty(&receiver).is_ok_and(|ty| {
+                    self.has_dynamic_shape(ty)
+                        || matches!(self.mir.types.get(ty), Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner))
+                });
+                erased.then_some(receiver)
+            }
+            _ => None,
+        }
+    }
+
+    /// The Rust name of `slot`'s receiver snapshot.
+    pub(super) fn receiver_snapshot_name(&self, slot: LocalId) -> Result<String, EmitError> {
+        Ok(format!("smelt_receiver_{}", self.local_name(slot)?))
+    }
+
+    /// The statement that snapshots `slot`'s receiver, emitted just before the
+    /// member read assigning `slot`; `None` for any other local.
+    pub(super) fn receiver_snapshot_statement(
+        &self,
+        slot: LocalId,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.receiver_snapshot_slots().contains(&slot) {
+            return Ok(None);
+        }
+        let Some(receiver) = self.member_read_receiver(slot) else {
+            return Ok(None);
+        };
+        Ok(Some(format!(
+            "    {} = {};\n",
+            self.receiver_snapshot_name(slot)?,
+            self.erase(&receiver)?.delimited()
+        )))
+    }
+}
+
 /// The JavaScript receiver a call through an erased callee supplies (see
 /// `FunctionEmitter::with_erased_call_receiver`).
 enum ErasedCallReceiver {
-    /// A member call: `this` is this erased local.
+    /// A member call reading its member in place: `this` is this erased local.
     Base(LocalId),
+    /// A member call through a temporary: `this` is that temporary's
+    /// receiver snapshot (`FunctionEmitter::receiver_snapshot_slots`).
+    Snapshot(LocalId),
     /// A plain call: `this` is `undefined`.
     Plain,
     /// Not decidable from the callee's shape; the channel is left as it is.

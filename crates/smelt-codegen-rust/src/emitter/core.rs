@@ -70,6 +70,7 @@ impl<'mir> FunctionEmitter<'mir> {
             declared_locals: RefCell::new(HashSet::new()),
             predeclared_locals: HashSet::new(),
             deferred_capture_cells: RefCell::new(HashSet::new()),
+            receiver_snapshot_slots: std::cell::OnceCell::new(),
             static_typeof_str_locals: HashSet::new(),
             folded_throw_payloads: HashSet::new(),
             borrowed_callback_locals: HashSet::new(),

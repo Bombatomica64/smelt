@@ -59,3 +59,22 @@ attempt("typed string", () => { const f = ts.slice; return f(1); });
 attempt("typed array", () => { const m = ta.map; return m((x: number) => x); });
 attempt("typed call", () => { const f = tn.toFixed; return [f.call(tn, 0), ts.slice.call(ts, 2), ta.map.call(ta, (x: number) => x * 10)]; });
 attempt("typed identity", () => [ts.slice === s.slice, ta.map === a.map]);
+
+// A member call whose arguments move the receiver after the member is read
+// still calls the method on that receiver.
+function take(value: any): number {
+  return value.length;
+}
+function movedReceiver(): unknown {
+  const list: any = [1, 2];
+  return list.concat(take(list));
+}
+function movedTemporary(): unknown {
+  return ([3, 4] as any).concat(take([9]));
+}
+attempt("moved receiver", () => [movedReceiver(), movedTemporary()]);
+
+// A method returned from a function and called on the result is a plain call.
+const methodOf = (value: any): any => value.map;
+attempt("returned method", () => methodOf(a)((x: number) => x));
+attempt("returned method call", () => methodOf(a).call(b, (x: number) => x + 1));
