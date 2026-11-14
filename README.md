@@ -178,10 +178,12 @@ Node.
 Input must pass its own type checker: `smelt build` refuses a program with
 TypeScript or ty errors unless `--allow-type-errors` is given. Constructs with
 no static meaning are rejected with a source-located error rather than lowered
-to something approximate: `any`, `eval` and `new Function`, `with`, and
-runtime-shaped metaprogramming. Definition-time metaprogramming that produces a
-stable shape is specialized at build time in a sandbox and never runs in the
-generated program. Detail lives in:
+to something approximate: `eval` and `new Function`, `with`, and
+runtime-shaped metaprogramming. `any` is accepted: the value is erased to the
+tagged runtime value and counted as an avoidable `explicit-any` erasure
+([`docs/erasure-reasons.md`](docs/erasure-reasons.md)). Definition-time
+metaprogramming that produces a stable shape is specialized at build time in a
+sandbox and never runs in the generated program. Detail lives in:
 
 - [`specs/frontend-ts.md`](specs/frontend-ts.md): TypeScript rules and the check pipeline.
 - [`docs/metaprogramming.md`](docs/metaprogramming.md): what specializes, what fails loud, what is rejected.
@@ -344,24 +346,24 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 78.96% |
-| Lines | 81.50% |
-| Regions | 74.50% |
-| Branches | 69.39% |
+| Functions | 78.97% |
+| Lines | 81.54% |
+| Regions | 74.52% |
+| Branches | 69.44% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 90.77% | 84.67% | 71.34% |
+| `smelt-codegen-rust` | 90.87% | 84.78% | 71.48% |
 | `smelt-frontend-py` | 87.04% | 79.90% | 71.66% |
-| `smelt-frontend-ts` | 90.19% | 83.18% | 72.19% |
+| `smelt-frontend-ts` | 90.20% | 83.24% | 72.24% |
 | `smelt-hir` | 84.69% | 80.20% | 72.19% |
 | `smelt-mir` | 92.27% | 91.33% | 76.89% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
-| `smelt-runtime` | 27.80% | 32.53% | 30.47% |
+| `smelt-runtime` | 27.70% | 32.33% | 30.30% |
 | `smelt-specialize` | 70.02% | 78.90% | 62.31% |
-| `smelt-stdlib` | 88.00% | 85.48% | 91.46% |
+| `smelt-stdlib` | 88.11% | 85.54% | 91.46% |
 | `smelt-transpiler` | 82.69% | 81.76% | 70.78% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 85.94% | 90.58% | 84.72% |

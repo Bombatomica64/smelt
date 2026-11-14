@@ -4179,12 +4179,23 @@ impl Ctx {
 use super::*;
 
 pub(crate) fn pair(args__0: JsString, args__1: Option<f64>) -> JsString {
+    let smelt_args_length: f64;
+    let mut _smelt_tmp_6: f64;
+    let _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: Option<f64>;
+    let _smelt_tmp_11: f64;
+    let _smelt_tmp_12: JsString;
     let args: (JsString, Option<f64>) = (args__0.clone(), args__1.clone());
-    let _smelt_tmp_4: JsString = args.clone().0.clone();
-    let _smelt_tmp_5: JsString = JsString::new() + &_smelt_tmp_4;
-    let _smelt_tmp_6: JsString = _smelt_tmp_5 + &JsString::from(":");
-    let _smelt_tmp_7: Option<f64> = args.1.clone();
-    let _smelt_tmp_8: f64 = _smelt_tmp_7.clone().unwrap_or(0.0);
-    let _smelt_tmp_9: JsString = _smelt_tmp_6 + &JsString::from(smelt_number_to_string(_smelt_tmp_8));
-    return _smelt_tmp_9;
+    let _smelt_tmp_5: bool = !(args__1.clone().is_none());
+    let _smelt_tmp_6: f64 = if _smelt_tmp_5 { 2.0 } else { 1.0 };
+    smelt_args_length = _smelt_tmp_6;
+    _smelt_tmp_7 = args.clone().0.clone();
+    _smelt_tmp_8 = JsString::new() + &_smelt_tmp_7;
+    _smelt_tmp_9 = _smelt_tmp_8 + &JsString::from(":");
+    _smelt_tmp_10 = args.1.clone();
+    _smelt_tmp_11 = _smelt_tmp_10.clone().unwrap_or(0.0);
+    _smelt_tmp_12 = _smelt_tmp_9 + &JsString::from(smelt_number_to_string(_smelt_tmp_11));
+    return _smelt_tmp_12;
 }

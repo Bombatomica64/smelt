@@ -654,6 +654,11 @@ impl ModuleBuilder<'_> {
         {
             return Ok(expr);
         }
+        // `args.length` on a tuple rest with optional elements counts the
+        // arguments given (`lowering::tuple_rest`).
+        if !is_assignment_target && let Some(expr) = self.optional_tuple_rest_length(member, body) {
+            return Ok(expr);
+        }
         // The exemption an assignment target carries follows the whole target
         // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
         // locate the slot the (discarded) write targets, so rejecting it would

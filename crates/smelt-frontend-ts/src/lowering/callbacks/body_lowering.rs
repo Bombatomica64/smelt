@@ -737,6 +737,7 @@ impl ModuleBuilder<'_> {
                 binding.name.as_str(),
                 tuple_ty,
                 &elements,
+                crate::lowering::tuple_rest::tuple_rest_required(rest.type_annotation.as_deref()),
                 span,
                 &mut closure_body,
             ) {
@@ -1281,6 +1282,12 @@ impl ModuleBuilder<'_> {
                 let name = identifier.name.as_str();
                 if !param_names.contains(name) && self.scope.is_bound(name) {
                     captures.push(name.to_owned());
+                    // A rest tuple's argument count travels with it
+                    // (`lowering::tuple_rest`).
+                    let length = crate::lowering::tuple_rest::tuple_rest_length_key(name);
+                    if self.scope.is_bound(&length) {
+                        captures.push(length);
+                    }
                 }
             }
             Expression::CallExpression(call) => {
