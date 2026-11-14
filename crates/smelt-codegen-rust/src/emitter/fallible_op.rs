@@ -267,7 +267,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Renders the call of a fallible operation and states what it answers.
-    pub(super) fn fallible_op_call(&self, op: &Rvalue) -> Result<FallibleOpCall, EmitError> {
+    pub(super) fn fallible_op_call(
+        &self,
+        op: &Rvalue,
+        dest_ty: Option<TypeId>,
+    ) -> Result<FallibleOpCall, EmitError> {
         let mut args = Vec::new();
         op.reads(|operand| args.push(operand.clone()));
         let (text, source_ty) = match op {
@@ -324,6 +328,15 @@ impl FunctionEmitter<'_> {
                 ),
                 self.type_id(Type::Unknown)?,
             ),
+            Rvalue::GeneratorCollect { generator } => self.generator_collect_call(generator)?,
+            Rvalue::GeneratorDelegate { generator } => {
+                self.generator_delegate_call(generator, dest_ty)?
+            }
+            Rvalue::GeneratorNext {
+                generator,
+                value,
+                kind,
+            } => self.generator_next_call(generator, value.as_ref(), *kind)?,
             Rvalue::ListIndex { list, item } => (
                 RenderedCall::propagating(self.list_index_expr(list, item)?),
                 self.type_id(Type::Int)?,

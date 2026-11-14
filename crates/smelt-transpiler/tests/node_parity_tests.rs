@@ -178,6 +178,14 @@ fn timer_values() -> TestResult {
     verify_node_parity("timer_values")
 }
 
+/// A throw from a generator body reaches the `try` around whatever resumed
+/// it (`.next()`, `for...of`, a spread, `Array.from`, a `yield*` in another
+/// generator), whatever value is thrown, and the generator is done afterwards.
+#[test]
+fn generator_throws() -> TestResult {
+    verify_node_parity("generator_throws")
+}
+
 /// A throw delivers its operand whole through one channel, whatever it is, and
 /// a `try` around a call that cannot throw still builds and runs.
 #[test]

@@ -1,0 +1,17 @@
+1
+caught boom
+true
+done 0,1 | caught at 2 after 0,1
+1
+2
+cleanup
+a false
+caught plain
+undefined true
+outside inner
+from inner
+[ 1, 2 ]
+caught inner
+[ 1, 99 ]
+outside inner
+5 7 8 { value: 'r!', done: true }

@@ -67,8 +67,13 @@ async function consume(): Promise<string> {
         source.contains("SmeltAsyncGenerator<f64, JsString, SmeltUnknown>"),
         "{source}"
     );
+    // Each `await iterator.next()` binds the typed step, not an erased one.
     assert!(
-        source.contains("SmeltFuture<SmeltGeneratorResult<f64, JsString>>"),
+        source.contains("let first: SmeltGeneratorResult<f64, JsString>;"),
+        "{source}"
+    );
+    assert!(
+        source.contains("iterator.clone().resume(SmeltGeneratorCommand::Next(Default::default()))"),
         "{source}"
     );
 }

@@ -243,12 +243,8 @@ impl FunctionEmitter<'_> {
             out.push_str(&format!("    SmeltAsyncGenerator::new(move |smelt_value| {{ *smelt_generator_input.borrow_mut() = Some(smelt_value); let smelt_generator = smelt_generator.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_state = {{ let mut smelt_generator = smelt_generator.borrow_mut(); smelt_generator.async_resume().await }}; Ok::<_, {ERROR_BOX}>(match smelt_state {{ genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete(smelt_value?) }}) }})) }})\n"));
         } else {
             out.push_str("    let mut smelt_generator = smelt_generator;\n");
-            let completion = if self.function.can_throw {
-                "smelt_value.unwrap_or_else(|error| smelt_panic_throw(error))"
-            } else {
-                "smelt_value"
-            };
-            out.push_str(&format!("    SmeltGenerator::new(move |smelt_value| {{ *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() {{ genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete({completion}) }} }})\n"));
+            let resume = FunctionEmitter::sync_generator_resume_closure(self.function.can_throw);
+            out.push_str(&format!("    SmeltGenerator::new({resume})\n"));
         }
     }
 

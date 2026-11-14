@@ -107,14 +107,8 @@ impl FunctionEmitter<'_> {
                 unwind,
                 cleanup,
             } => self.generator_yield_expr(value, unwind.as_ref(), cleanup.as_ref()),
-            Rvalue::GeneratorNext {
-                generator,
-                value,
-                kind,
-            } => self.generator_next_expr(generator, value.as_ref(), *kind),
             Rvalue::GeneratorDone { result } => self.generator_done_expr(result),
             Rvalue::GeneratorValue { result } => self.generator_value_expr(result, dest_ty),
-            Rvalue::GeneratorDelegate { generator } => self.generator_delegate_expr(generator, dest_ty),
             Rvalue::List(items) => self.list_literal_expr(value, items, dest_ty),
             Rvalue::Set(items) => self.set_literal_expr(items, dest_ty),
             Rvalue::Dict(entries) => self.dict_literal_expr(entries, dest_ty),
@@ -192,6 +186,9 @@ impl FunctionEmitter<'_> {
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
             | Rvalue::ErasedPatternCall { .. }
+            | Rvalue::GeneratorNext { .. }
+            | Rvalue::GeneratorCollect { .. }
+            | Rvalue::GeneratorDelegate { .. }
             | Rvalue::ListRemove { .. }
             | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }
