@@ -198,6 +198,10 @@ declare_needs! {
     DefineProperties,
     /// `Object.setPrototypeOf`.
     SetPrototypeOf,
+    /// A class prototype reached reflectively (`Object.getPrototypeOf`,
+    /// `Object.create`, `Object.setPrototypeOf`, `C.prototype`): class
+    /// prototypes carry their methods (`class_proto::class_prototype_methods_fn`).
+    ClassPrototypeMethods,
     /// The dynamically scoped `this` channel.
     ThisChannel,
     /// A read of that channel.
@@ -325,6 +329,11 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
     (Need::SetPrototypeOf, &[Need::Unknown]),
+    // The prototype methods read their receiver from the `this` channel.
+    (
+        Need::ClassPrototypeMethods,
+        &[Need::Unknown, Need::ThisChannel],
+    ),
     (Need::ThisChannel, &[Need::Unknown]),
     (Need::ThisRead, &[Need::ThisChannel]),
     (Need::Construct, &[Need::Unknown, Need::ThisChannel]),
@@ -806,6 +815,25 @@ impl RuntimeDemand {
     fn scan_statement(&mut self, mir: &Mir, locals: &[LocalDecl], statement: &Statement) {
         let value = statement.value();
         self.scan_rvalue(value);
+        // A program that reaches a class prototype reflectively can call the
+        // methods the prototype carries (docs/design/class-prototypes.md,
+        // section 7). Only such a program pays for them: a class read only
+        // through its static type never needs its methods by runtime name.
+        if !mir.classes.is_empty() && !self.has(Need::ClassPrototypeMethods) {
+            let reflects = matches!(
+                value,
+                Rvalue::PrototypeSentinel { .. }
+                    | Rvalue::ObjectFromPrototype { .. }
+                    | Rvalue::SetPrototypeOf { .. }
+            );
+            let mut reads_prototype = false;
+            value.reads(|operand| {
+                reads_prototype |= operand_reads_erased_prototype(mir, locals, operand);
+            });
+            if reflects || reads_prototype {
+                self.add(Need::ClassPrototypeMethods);
+            }
+        }
         if let Statement::Assign {
             value: Rvalue::DictAssign { target, .. },
             ..
@@ -941,6 +969,21 @@ fn operand_may_read_prototype_method(mir: &Mir, locals: &[LocalDecl], operand: &
         Place::Index { base, index, .. } => erased(base) && !matches!(**index, Operand::Const(_)),
         Place::Local(_) | Place::Global { .. } => false,
     }
+}
+
+/// Whether `operand` reads `prototype` off an erased value (`C.prototype`
+/// once `C` is a class value), which reaches a class prototype by name.
+fn operand_reads_erased_prototype(mir: &Mir, locals: &[LocalDecl], operand: &Operand) -> bool {
+    let (Operand::Copy(Place::Field { base, field }) | Operand::Move(Place::Field { base, field })) =
+        operand
+    else {
+        return false;
+    };
+    usize::try_from(base.0)
+        .ok()
+        .and_then(|index| locals.get(index))
+        .is_some_and(|local| matches!(mir.types.get(local.ty), Some(Type::Unknown)))
+        && mir.names.get(*field).or_else(|| mir.symbols.get(*field)) == Some("prototype")
 }
 
 /// The bit of a [`Need`].

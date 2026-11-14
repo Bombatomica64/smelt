@@ -155,17 +155,42 @@ const SMELT_CLASS_PROTO_KEY: &str = "__smelt_method:__smelt_class_proto";
 //~ Two classes of one source name in different modules share a tag, so a
 //~ table keyed by it cannot tell them apart: such a tag is neither interned
 //~ nor linked to a base.
-fn smelt_program_class(tag: &str) -> Option<&'static str> {
-    const SMELT_PROGRAM_CLASSES: &[(&str, &str)] = &[
+fn smelt_program_class(tag: &str) -> Option<&'static str> { SMELT_PROGRAM_CLASSES.iter().find(|(name, _, _)| *name == tag).map(|(_, base, _)| *base) }
+
+/// The methods the prototype of the program class tagged `tag` carries.
+type SmeltPrototypeMethods = fn() -> Vec<(String, SmeltUnknown)>;
+
+/// Every uniquely tagged program class: its tag, its base's tag (`""` for a
+/// root) and the generated builder of its prototype's methods, if it has any.
+//~ The methods are `this`-taking erased functions under `__smelt_method:`
+//~ keys, linked to the same identities as an instance's own adapters, so
+//~ `C.prototype.m === instance.m` (docs/design/class-prototypes.md, section 7).
+const SMELT_PROGRAM_CLASSES: &[(&str, &str, Option<SmeltPrototypeMethods>)] = &[
 // @smelt:slot program_classes
-    ];
-    SMELT_PROGRAM_CLASSES.iter().find(|(name, _)| *name == tag).map(|(_, base)| *base)
+];
+
+/// The tags `instanceof` the class tagged `tag` accepts: itself and every
+/// program class whose base chain reaches it, comma separated.
+fn smelt_program_class_coverage(tag: &str) -> String {
+    let mut covered = Vec::from([tag]);
+    for (name, _, _) in SMELT_PROGRAM_CLASSES {
+        let mut base = smelt_program_class(name).unwrap_or_default();
+        let mut steps = 0_usize;
+        while !base.is_empty() && steps < SMELT_PROGRAM_CLASSES.len() {
+            if base == tag { covered.push(name); break; }
+            base = smelt_program_class(base).unwrap_or_default();
+            steps = steps.saturating_add(1);
+        }
+    }
+    covered.join(",")
 }
 
 /// The interned prototype object of the class tagged `tag`.
 fn smelt_class_prototype(tag: &str) -> SmeltUnknown {
     if let Some(found) = SMELT_CLASS_PROTOTYPES.with(|prototypes| prototypes.borrow().get(tag).cloned()) { return found; }
-    let prototype = SmeltObject::new(Vec::from([(SMELT_CLASS_PROTO_KEY.to_owned(), SmeltUnknown::String(tag.into()))]));
+    let mut entries = Vec::from([(SMELT_CLASS_PROTO_KEY.to_owned(), SmeltUnknown::String(tag.into()))]);
+    if let Some((_, _, Some(methods))) = SMELT_PROGRAM_CLASSES.iter().find(|(name, _, _)| *name == tag) { entries.extend(methods()); }
+    let prototype = SmeltObject::new(entries);
     let value = SmeltUnknown::Object(prototype.clone());
     SMELT_CLASS_PROTOTYPES.with(|prototypes| { prototypes.borrow_mut().insert(tag.to_owned(), value.clone()); });
     let base = match smelt_program_class(tag) { Some(base) if !base.is_empty() && base != tag => smelt_class_prototype(base), _ => SmeltUnknown::String("__smelt_proto:object".into()) };
@@ -173,27 +198,66 @@ fn smelt_class_prototype(tag: &str) -> SmeltUnknown {
     value
 }
 
+/// A method an instance of the class tagged `tag` inherits: the nearest class
+/// prototype on its chain that carries `__smelt_method:<field>`.
+//~ A read of a class instance (or of an `Object.create(C.prototype)` object,
+//~ which carries the tag too) that misses its own entries ends here, as
+//~ JavaScript's chain walk ends at the class prototypes.
+fn smelt_class_inherited_method(tag: &str, field: &str) -> Option<SmeltUnknown> {
+    let key = format!("__smelt_method:{field}");
+    let mut current = smelt_class_prototype(tag);
+    for _ in 0..=SMELT_PROGRAM_CLASSES.len() {
+        let SmeltUnknown::Object(prototype) = &current else { return None };
+        smelt_class_prototype_tag(prototype)?;
+        if let Some(method) = prototype.get(&*key) { return Some(method); }
+        current = smelt_recorded_object_prototype(prototype.id)?;
+    }
+    None
+}
+
 /// The class tag a class prototype object carries, if `map` is one.
 fn smelt_class_prototype_tag(map: &SmeltObject) -> Option<JsString> { match map.get(SMELT_CLASS_PROTO_KEY) { Some(SmeltUnknown::String(tag)) => Some(tag), _ => None } }
 
-/// Intern the class value built for `tag`: the first one built is the class
-/// from then on, so every read of the class is the same value.
-//~ A later build can only fill in a constructor the first one lacked.
+/// The key marking a class value the runtime created before the program read
+/// the class; the program's first read fills it in.
+const SMELT_CLASS_PENDING_KEY: &str = "__smelt_method:__smelt_class_pending";
+
+/// Intern the class value built for `tag`: the first one is the class from
+/// then on, so every read of the class is the same value.
+//~ A value the runtime created first (`smelt_class_value_of`) is filled in
+//~ place from the program's build, which knows the real constructor and the
+//~ statics, so a `.constructor` handed out earlier IS the class. A later build
+//~ can only fill in a constructor the first one lacked.
 fn smelt_intern_class_value(tag: &str, value: SmeltUnknown) -> SmeltUnknown {
-    SMELT_CLASS_VALUES.with(|values| {
-        let mut values = values.borrow_mut();
-        if let Some(found) = values.get(tag) {
-            if let (SmeltUnknown::Object(found), SmeltUnknown::Object(built)) = (found, &value) && matches!(found.get("__smelt_call"), None | Some(SmeltUnknown::Undefined)) && let Some(call) = built.get("__smelt_call") { found.insert("__smelt_call", call); }
-            return found.clone();
+    let Some(found) = SMELT_CLASS_VALUES.with(|values| values.borrow().get(tag).cloned()) else {
+        SMELT_CLASS_VALUES.with(|values| { values.borrow_mut().insert(tag.to_owned(), value.clone()); });
+        return value;
+    };
+    if let (SmeltUnknown::Object(found), SmeltUnknown::Object(built)) = (&found, &value) {
+        if found.remove(SMELT_CLASS_PENDING_KEY).is_some() {
+            for (key, entry) in built.iter() { found.insert(key, entry); }
+        } else if matches!(found.get("__smelt_call"), None | Some(SmeltUnknown::Undefined)) && let Some(call) = built.get("__smelt_call") {
+            found.insert("__smelt_call", call);
         }
-        values.insert(tag.to_owned(), value.clone());
-        value
-    })
+    }
+    found
 }
 
-/// The class value of the class tagged `tag`: the interned one once the
-/// program has read the class, else the per-tag constructor stand-in.
-fn smelt_class_value_of(tag: &str) -> SmeltUnknown { SMELT_CLASS_VALUES.with(|values| values.borrow().get(tag).cloned()).unwrap_or_else(|| smelt_class_constructor(tag.to_owned())) }
+/// The class value of the class tagged `tag`, created on first need.
+//~ Before the program reads the class, the runtime creates it: named, covering
+//~ the tag and its subclasses for `instanceof` (`smelt_program_class_coverage`),
+//~ and callable through the per-tag constructor (`smelt_class_constructor`,
+//~ which builds through the class's erased constructor once an instance
+//~ recorded it). The program's first read fills it in
+//~ (`smelt_intern_class_value`). A tag no unique program class claims keeps
+//~ the per-tag constructor function itself.
+fn smelt_class_value_of(tag: &str) -> SmeltUnknown {
+    if let Some(found) = SMELT_CLASS_VALUES.with(|values| values.borrow().get(tag).cloned()) { return found; }
+    if smelt_program_class(tag).is_none() { return smelt_class_constructor(tag.to_owned()); }
+    let value = SmeltUnknown::Object(SmeltObject::new(Vec::from([("name".to_owned(), SmeltUnknown::String(tag.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(smelt_program_class_coverage(tag).as_str().into())), ("__smelt_call".to_owned(), smelt_class_constructor(tag.to_owned())), (SMELT_CLASS_PENDING_KEY.to_owned(), SmeltUnknown::Bool(true))])));
+    SMELT_CLASS_VALUES.with(|values| { values.borrow_mut().insert(tag.to_owned(), value.clone()); });
+    value
+}
 // @smelt:item-end
 
 // @smelt:item smelt_set_prototype_of when set_prototype_of

@@ -409,6 +409,15 @@ fn class_prototypes() -> TestResult {
     verify_node_parity("class_prototypes")
 }
 
+/// Methods on the class prototype, shared by instances, clones and
+/// `Object.create(C.prototype)` objects; an early `.constructor` is the class;
+/// host classes have one chained prototype object each
+/// (docs/design/class-prototypes.md, section 7).
+#[test]
+fn prototype_methods_and_hosts() -> TestResult {
+    verify_node_parity("prototype_methods_and_hosts")
+}
+
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {

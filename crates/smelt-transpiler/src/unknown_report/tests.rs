@@ -285,6 +285,7 @@ fn erased_class_prototype_slot_is_a_boundary() {
         "    fn __smelt_proto_entries(&self) -> Vec<(String, SmeltUnknown)> {",
         "        let mut smelt_proto_entries: Vec<(String, SmeltUnknown)> = Vec::new();",
         "        smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries());",
+        "    pub(crate) fn __smelt_prototype_methods() -> Vec<(String, SmeltUnknown)> {",
     ] {
         assert_eq!(
             classify_line(line, false),

@@ -189,7 +189,7 @@ the class.
 * Defect injections, each detected by the `class_prototypes` Node-parity fixture: interning disabled,
   base link dropped, `Bool` tag restored in `Object.create`.
 
-## 7. Closing the gaps (next PR)
+## 7. Closing the gaps (implemented)
 
 Each item below is one of the known gaps, fixed by a general rule rather than a special case.
 
@@ -216,3 +216,26 @@ Each item below is one of the known gaps, fixed by a general rule rather than a 
    and the reflected one (`smelt_reflected_prototype`) are separate caches. After this they are one.
 4. **`Date.prototype` as a value.** It falls out of 3: the read no longer goes through the value of `Date`,
    which lowers to a default `SmeltDate`, so it no longer reads a struct field that does not exist.
+
+### Implementation notes for section 7
+
+* Prototype methods are emitted only under `Need::ClassPrototypeMethods`. That need is set by a reflective
+  prototype operation (`PrototypeSentinel`, `ObjectFromPrototype`, `SetPrototypeOf`) or by a `prototype` read off
+  an erased value, and it pulls in the `this` channel. A class used through its static type pays nothing.
+  `src/tests/class_prototype_methods_tests.rs` pins this. The builder's `SmeltUnknown` signature is classified
+  as a boundary (`boundary::PROTOTYPE_METHODS`); the justification is at the emit site
+  (`class_prototype_methods_fn`) and at the classifier entry.
+* Instances keep their receiver-bound adapters. They and the prototype methods share one identity key per
+  method, so `C.prototype.m === instance.m`. A reference class recovers its live instance as the receiver.
+* `X.prototype` for a host constructor lowers to `BuiltinNamespace { name: "X.prototype" }`, a global path like
+  `crypto.subtle`, rather than to an erased index read.
+* Node-parity fixture `prototype_methods_and_hosts`. Defect injections, each detected:
+  * prototype methods not populated;
+  * the per-tag stand-in brought back;
+  * the `TypeError` → `Error` link dropped;
+  * separate host prototype caches;
+  * the builder gated on the `this` channel instead of reflection (codegen test);
+  * the classifier entry removed (classifier test).
+* Still open (gap 5): a host constructor used as a plain value lowers wrongly. `const c: unknown = Date` is
+  `null`, `TypeError` is a string, and `Map` is a factory closure. So `Date.prototype.constructor === Date` is
+  false.
