@@ -338,6 +338,12 @@ pub struct HirCtx {
     /// name, would alias a same-named parameter of the caller. Keyed by the
     /// callee's item id.
     pub erased_item_type_params: HashMap<ItemId, Vec<TypeParamDef>>,
+    /// Function type parameters carried as their element type: the source
+    /// constrains them to an array, and inside their declaration their name
+    /// resolves to a list of the parameter (`lowering/ty/element_params.rs`).
+    /// An explicit type argument for one names the whole list and binds the
+    /// element.
+    pub element_carried_type_params: HashSet<smelt_hir::Symbol>,
     /// Value types declared by class string index signatures (`[k: string]: T`).
     ///
     /// Populated when a class declaration carries a `TSIndexSignature`, and read
@@ -476,6 +482,7 @@ impl HirCtx {
             class_constructor_params: HashMap::new(),
             derived_records: HashMap::new(),
             erased_item_type_params: HashMap::new(),
+            element_carried_type_params: HashSet::new(),
             interface_extends: Published::default(),
             interface_index_values: Published::default(),
             class_index_values: Published::default(),

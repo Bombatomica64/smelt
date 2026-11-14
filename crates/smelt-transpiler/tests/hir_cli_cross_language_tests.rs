@@ -1428,6 +1428,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "190_type_parameter_scope_ends_with_its_class",
     "191_checker_typed_array_literals_and_generic_calls",
     "192_lifted_caller_forwards_mutable_list",
+    "193_array_constrained_type_parameters",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

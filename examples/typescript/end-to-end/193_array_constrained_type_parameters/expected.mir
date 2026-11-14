@@ -1,0 +1,173 @@
+fn drop_while (FuncId(0)) -> List<T>
+  locals
+    %0 param data: List<T>
+    %1 param predicate: fn(T, Float, List<T>) -> Bool
+    %2 user __smelt_for_item: (Int, T)
+    %3 user index: Int
+    %4 user item: T
+    %5 temp: List<(Int, T)>
+    %6 temp: usize
+    %7 temp: usize
+    %8 temp: Bool
+    %9 temp: Int
+    %10 temp: T
+    %11 temp: Bool
+    %12 temp: Bool
+    %13 temp: List<T>
+    %14 temp: List<T>
+  bb0:
+    %5 = list_entries copy %0
+    %6 = 0
+    goto bb1
+  bb1:
+    %7 = len copy %5
+    %8 = copy %6 < move %7
+    switch move %8 ? bb2 : bb4
+  bb2:
+    %2 = copy %5[copy %6]
+    %3 = tuple_index copy %2, 0
+    %4 = tuple_index move %2, 1
+    %11 = closure_call copy %1(move %4, copy %3, copy %0)
+    %12 = !move %11
+    switch move %12 ? bb5 : bb6
+  bb3:
+    %6 = copy %6 + 1
+    goto bb1
+  bb4:
+    %14 = []
+    return move %14
+  bb5:
+    %13 = list_slice copy %0, move %3, _
+    return move %13
+  bb6:
+    goto bb3
+
+fn first_item (FuncId(1)) -> Optional<T>
+  locals
+    %0 param items: List<T>
+  bb0:
+    return copy %0[0.0]
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user numbers: List<Float>
+    %1 user words: List<String>
+    %2 user explicit: List<Float>
+    %3 user tagged: String | Bool
+    %4 user first: Optional<String>
+    %5 temp: List<Float>
+    %6 temp: fn(Float) -> Bool
+    %7 temp: List<Float>
+    %8 temp: String
+    %9 temp: Float
+    %10 temp: None
+    %11 temp: List<String>
+    %12 temp: fn(String, Float) -> Bool
+    %13 temp: List<String>
+    %14 temp: fn(String, Int, List<String>) -> String
+    %15 temp: List<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: List<Float>
+    %19 temp: fn(Float) -> Bool
+    %20 temp: List<Float>
+    %21 temp: Float
+    %22 temp: Float
+    %23 temp: None
+    %24 temp: Bool
+    %25 temp: None
+    %26 temp: List<String>
+    %27 temp: Optional<String>
+    %28 temp: Bool
+    %29 temp: String
+    %30 temp: String
+    %31 temp: String
+    %32 temp: None
+  bb0:
+    %5 = [1.0, 2.0, 10.0, 3.0, 4.0]
+    %6 = closure ClosureId(0) []
+    %7 = call fn0(move %5, move %6) -> bb1
+  bb1:
+    %0 = move %7
+    %8 = string_join copy %0, ","
+    %9 = copy %0[0.0] + 1.0
+    %10 = call @console_log(move %8, move %9) -> bb2
+  bb2:
+    %11 = ["a", "bb", "ccc"]
+    %12 = closure ClosureId(1) []
+    %13 = call fn0(move %11, move %12) -> bb3
+  bb3:
+    %1 = move %13
+    %14 = closure ClosureId(2) []
+    %15 = list_map move %1, move %14
+    %16 = string_join move %15, " "
+    %17 = call @console_log(move %16) -> bb4
+  bb4:
+    %18 = [5.0, 1.0, 7.0]
+    %19 = closure ClosureId(3) []
+    %20 = call fn0(move %18, move %19) -> bb5
+  bb5:
+    %2 = move %20
+    %21 = len copy %2
+    %22 = copy %2[1.0] * 2.0
+    %23 = call @console_log(move %21, move %22) -> bb6
+  bb6:
+    %3 = "label"
+    %24 = move %3 == "label"
+    %25 = call @console_log(move %24) -> bb7
+  bb7:
+    %26 = ["x", "y"]
+    %27 = call fn1(move %26) -> bb8
+  bb8:
+    %4 = move %27
+    %28 = copy %4 == undefined
+    switch move %28 ? bb9 : bb10
+  bb9:
+    %29 = "none"
+    goto bb11
+  bb10:
+    %30 = move %4
+    %29 = string_repeat move %30, 2.0
+    goto bb11
+  bb11:
+    %32 = call @console_log(move %29) -> bb12
+  bb12:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param x: Float
+    %1 temp: Bool
+  bb0:
+    %1 = copy %0 < 10.0
+    return copy %1
+
+closure ClosureId(1) -> Bool
+  locals
+    %0 param word: String
+    %1 param index: Float
+    %2 temp: Float
+    %3 temp: Float
+    %4 temp: Bool
+  bb0:
+    %2 = len copy %0
+    %3 = copy %2 + copy %1
+    %4 = copy %3 < 3.0
+    return copy %4
+
+closure ClosureId(2) -> String
+  locals
+    %0 param word: String
+    %1 temp: String
+  bb0:
+    %1 = string_upper copy %0
+    return copy %1
+
+closure ClosureId(3) -> Bool
+  locals
+    %0 param x: Float
+    %1 temp: Bool
+  bb0:
+    %1 = copy %0 > 3.0
+    return copy %1
+

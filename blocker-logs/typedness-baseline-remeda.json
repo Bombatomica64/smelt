@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13549,
-      "generic": 225,
-      "erased": 9401
+      "concrete": 13667,
+      "generic": 268,
+      "erased": 9187
     },
     "reads": {
       "concrete": 345,
-      "generic": 22,
-      "erased": 807
+      "generic": 29,
+      "erased": 800
     },
     "calls": {
-      "concrete": 1659,
-      "generic": 47,
-      "erased": 2733
+      "concrete": 1733,
+      "generic": 51,
+      "erased": 2655
     }
   },
   "programs": {
@@ -684,8 +684,8 @@
     "packages/remeda/src/drop.ts": {
       "values": {
         "concrete": 11,
-        "generic": 0,
-        "erased": 18
+        "generic": 5,
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -734,9 +734,9 @@
     },
     "packages/remeda/src/dropLast.test.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 27,
         "generic": 0,
-        "erased": 24
+        "erased": 10
       },
       "reads": {
         "concrete": 0,
@@ -744,16 +744,16 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 7
+        "erased": 1
       }
     },
     "packages/remeda/src/dropLast.ts": {
       "values": {
         "concrete": 6,
-        "generic": 0,
-        "erased": 10
+        "generic": 5,
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -768,9 +768,9 @@
     },
     "packages/remeda/src/dropLastWhile.test.ts": {
       "values": {
-        "concrete": 46,
+        "concrete": 62,
         "generic": 0,
-        "erased": 50
+        "erased": 30
       },
       "reads": {
         "concrete": 0,
@@ -778,33 +778,33 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 8,
         "generic": 0,
-        "erased": 15
+        "erased": 7
       }
     },
     "packages/remeda/src/dropLastWhile.ts": {
       "values": {
-        "concrete": 10,
-        "generic": 0,
-        "erased": 10
+        "concrete": 9,
+        "generic": 4,
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       }
     },
     "packages/remeda/src/dropWhile.test.ts": {
       "values": {
-        "concrete": 49,
+        "concrete": 67,
         "generic": 0,
-        "erased": 47
+        "erased": 25
       },
       "reads": {
         "concrete": 0,
@@ -812,26 +812,26 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 9,
         "generic": 0,
-        "erased": 15
+        "erased": 6
       }
     },
     "packages/remeda/src/dropWhile.ts": {
       "values": {
         "concrete": 6,
-        "generic": 0,
-        "erased": 13
+        "generic": 7,
+        "erased": 6
       },
       "reads": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 2
+        "generic": 2,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       }
     },
     "packages/remeda/src/endsWith.test.ts": {
@@ -1603,7 +1603,7 @@
       "values": {
         "concrete": 6,
         "generic": 0,
-        "erased": 19
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -3964,9 +3964,9 @@
     },
     "packages/remeda/src/mean.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 8,
         "generic": 0,
-        "erased": 8
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
@@ -3974,9 +3974,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
-        "erased": 3
+        "erased": 2
       }
     },
     "packages/remeda/src/meanBy.test.ts": {
@@ -4032,9 +4032,9 @@
     },
     "packages/remeda/src/median.ts": {
       "values": {
-        "concrete": 23,
+        "concrete": 27,
         "generic": 0,
-        "erased": 6
+        "erased": 2
       },
       "reads": {
         "concrete": 3,
@@ -4042,9 +4042,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       }
     },
     "packages/remeda/src/merge.test.ts": {
@@ -4185,9 +4185,9 @@
     },
     "packages/remeda/src/nthBy.test.ts": {
       "values": {
-        "concrete": 98,
+        "concrete": 130,
         "generic": 0,
-        "erased": 156
+        "erased": 96
       },
       "reads": {
         "concrete": 0,
@@ -4195,9 +4195,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 32,
         "generic": 0,
-        "erased": 80
+        "erased": 48
       }
     },
     "packages/remeda/src/nthBy.ts": {
@@ -4272,7 +4272,7 @@
       "values": {
         "concrete": 9,
         "generic": 0,
-        "erased": 19
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -4544,7 +4544,7 @@
       "values": {
         "concrete": 4,
         "generic": 0,
-        "erased": 13
+        "erased": 12
       },
       "reads": {
         "concrete": 0,
@@ -4680,7 +4680,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 8
+        "erased": 7
       },
       "reads": {
         "concrete": 0,
@@ -5171,9 +5171,9 @@
     },
     "packages/remeda/src/shuffle.test.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 25,
         "generic": 0,
-        "erased": 16
+        "erased": 12
       },
       "reads": {
         "concrete": 0,
@@ -5181,9 +5181,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 4,
         "generic": 0,
-        "erased": 5
+        "erased": 3
       }
     },
     "packages/remeda/src/shuffle.ts": {
@@ -5239,9 +5239,9 @@
     },
     "packages/remeda/src/sort.test.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 16,
         "generic": 0,
-        "erased": 8
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
@@ -5249,16 +5249,16 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
-        "erased": 3
+        "erased": 1
       }
     },
     "packages/remeda/src/sort.ts": {
       "values": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 11
+        "generic": 5,
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
@@ -5273,9 +5273,9 @@
     },
     "packages/remeda/src/sortBy.test.ts": {
       "values": {
-        "concrete": 146,
+        "concrete": 152,
         "generic": 0,
-        "erased": 130
+        "erased": 124
       },
       "reads": {
         "concrete": 0,
@@ -5283,9 +5283,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 3,
         "generic": 0,
-        "erased": 37
+        "erased": 34
       }
     },
     "packages/remeda/src/sortBy.ts": {
@@ -5734,7 +5734,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 8
+        "erased": 7
       },
       "reads": {
         "concrete": 0,
@@ -5851,9 +5851,9 @@
     },
     "packages/remeda/src/take.test.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 31,
         "generic": 0,
-        "erased": 46
+        "erased": 36
       },
       "reads": {
         "concrete": 0,
@@ -5861,9 +5861,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 4,
         "generic": 0,
-        "erased": 16
+        "erased": 12
       }
     },
     "packages/remeda/src/take.ts": {
@@ -5919,9 +5919,9 @@
     },
     "packages/remeda/src/takeLast.test.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 28,
         "generic": 0,
-        "erased": 24
+        "erased": 10
       },
       "reads": {
         "concrete": 0,
@@ -5929,16 +5929,16 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 6,
         "generic": 0,
-        "erased": 7
+        "erased": 1
       }
     },
     "packages/remeda/src/takeLast.ts": {
       "values": {
         "concrete": 6,
-        "generic": 0,
-        "erased": 9
+        "generic": 4,
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -5970,19 +5970,19 @@
     },
     "packages/remeda/src/takeLastWhile.ts": {
       "values": {
-        "concrete": 10,
-        "generic": 0,
-        "erased": 11
+        "concrete": 9,
+        "generic": 5,
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       }
     },
     "packages/remeda/src/takeWhile.test.ts": {
@@ -6005,18 +6005,18 @@
     "packages/remeda/src/takeWhile.ts": {
       "values": {
         "concrete": 7,
-        "generic": 0,
-        "erased": 12
+        "generic": 6,
+        "erased": 6
       },
       "reads": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 2
+        "generic": 2,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       }
     },
     "packages/remeda/src/tap.test.ts": {
@@ -6549,13 +6549,13 @@
     "packages/remeda/src/zip.ts": {
       "values": {
         "concrete": 9,
-        "generic": 0,
-        "erased": 31
+        "generic": 2,
+        "erased": 27
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       },
       "calls": {
         "concrete": 0,
@@ -6584,7 +6584,7 @@
       "values": {
         "concrete": 11,
         "generic": 0,
-        "erased": 56
+        "erased": 54
       },
       "reads": {
         "concrete": 0,

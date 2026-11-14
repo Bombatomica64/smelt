@@ -336,6 +336,7 @@ mod closure_argument_hint_tests;
 mod constructor_function_tests;
 mod determinism_tests;
 mod drifted_helper_tests;
+mod element_param_tests;
 mod enum_switch_tests;
 mod erasure_tests;
 mod estk6_coverage_tests;

@@ -74,7 +74,10 @@ impl ModuleBuilder<'_> {
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
     ) -> Result<OverloadSignature, SmeltError> {
-        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let type_params = self.push_function_type_parameter_scope(
+            function.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_function(function),
+        )?;
         let result = (|| {
             let mut params = Vec::new();
             // Recorded alongside the lowered type because the lowering erases
@@ -208,8 +211,10 @@ impl ModuleBuilder<'_> {
         let Some(id) = &function.id else {
             return;
         };
-        let Ok(_type_params) = self.push_type_parameter_scope(function.type_parameters.as_deref())
-        else {
+        let Ok(_type_params) = self.push_function_type_parameter_scope(
+            function.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_function(function),
+        ) else {
             return;
         };
         let result = self.forward_function_type(function, id.name.as_str());
@@ -429,7 +434,10 @@ impl ModuleBuilder<'_> {
         if self.classes.is_constructor_function(id.name.as_str()) {
             return Ok(());
         }
-        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let type_params = self.push_function_type_parameter_scope(
+            function.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_function(function),
+        )?;
         let predicate_return = function
             .return_type
             .as_ref()

@@ -2,18 +2,18 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8292,
-      "generic": 139,
+      "concrete": 8341,
+      "generic": 147,
       "erased": 56
     },
     "reads": {
-      "concrete": 858,
-      "generic": 39,
+      "concrete": 861,
+      "generic": 42,
       "erased": 20
     },
     "calls": {
-      "concrete": 2273,
-      "generic": 14,
+      "concrete": 2282,
+      "generic": 15,
       "erased": 2
     }
   },
@@ -1544,6 +1544,23 @@
       },
       "calls": {
         "concrete": 11,
+        "generic": 1,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/193_array_constrained_type_parameters/input.ts": {
+      "values": {
+        "concrete": 49,
+        "generic": 8,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 3,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
         "generic": 1,
         "erased": 0
       }

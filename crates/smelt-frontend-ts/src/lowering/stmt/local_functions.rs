@@ -26,7 +26,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        self.push_function_type_parameter_scope(
+            arrow.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_arrow(arrow),
+        )?;
         let saved_outer_locals = self.scope.snapshot_bindings();
         let result = (|| {
             let contextual_function = self.contextual_function_type(type_hint);
@@ -279,7 +282,10 @@ impl ModuleBuilder<'_> {
         let Some(function_body) = &function.body else {
             return Ok(());
         };
-        self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        self.push_function_type_parameter_scope(
+            function.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_function(function),
+        )?;
         // Everything below lowers this function's OWN body, where its name does
         // not denote a value it can reach (see `defining_local_functions`).
         let defining = id.name.as_str().to_owned();
@@ -658,7 +664,26 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build the public function type for a local arrow declaration.
+    ///
+    /// The annotations are lowered in the arrow's own type-parameter scope,
+    /// pushed as a closure's ([`Self::push_closure_type_parameter_scope`]):
+    /// this is the type of the binding's VALUE, a closure slot that cannot be
+    /// generic, so a constrained parameter reads as its constraint exactly as
+    /// it does in the closure body. Outside any scope `T[number]` named no
+    /// type at all and erased.
     pub(in crate::lowering) fn local_arrow_function_type(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        self.push_closure_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let result = self.local_arrow_function_type_in_scope(arrow, type_hint);
+        self.pop_type_parameter_scope();
+        result
+    }
+
+    /// [`Self::local_arrow_function_type`] once the arrow's scope is pushed.
+    fn local_arrow_function_type_in_scope(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
