@@ -45,7 +45,7 @@ pub(in crate::lower) fn abstract_classes_as_unions(mir: &mut Mir) {
             HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
                 replacements.contains_key(&class)
             }
-            _ => false,
+            HirOrigin::Body(_) | HirOrigin::ClassStaticMethod { .. } => false,
         };
         if !own {
             function.map_types(&mut map);
@@ -114,7 +114,7 @@ fn descends_from(mir: &Mir, class: Symbol, ancestor: Symbol) -> bool {
         if base == ancestor {
             return true;
         }
-        steps += 1;
+        steps = steps.saturating_add(1);
         if steps > mir.classes.len() {
             return false;
         }
@@ -141,9 +141,16 @@ fn rewrite(
     let Some(kind) = types.get(ty).cloned() else {
         return ty;
     };
-    let rewritten = match &kind {
-        Type::Class { name, args } if args.is_empty() && replacements.contains_key(name) => {
-            let members = replacements[name]
+    let replaced = if let Type::Class { name, args } = &kind
+        && args.is_empty()
+    {
+        replacements.get(name)
+    } else {
+        None
+    };
+    let rewritten = match replaced {
+        Some(descendants) => {
+            let members = descendants
                 .iter()
                 .map(|member| {
                     types.intern(Type::Class {
@@ -157,7 +164,7 @@ fn rewrite(
                 _ => types.intern(Type::Union(members)),
             }
         }
-        _ => {
+        None => {
             match kind.try_map_children(|child| Some(rewrite(types, child, replacements, cache))) {
                 Some(mapped) if mapped != kind => types.intern(mapped),
                 _ => ty,

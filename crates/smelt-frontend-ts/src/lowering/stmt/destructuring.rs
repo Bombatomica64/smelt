@@ -46,14 +46,13 @@ impl ModuleBuilder<'_> {
                     }
                     (annotated, _) => annotated,
                 };
-                let value = typed_value;
                 let ty = annotated_ty
-                    .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
+                    .or_else(|| typed_value.map(|expr_id| Self::expr_ty(body, expr_id)))
                     .unwrap_or_else(|| {
                         self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
                     });
                 if annotated_ty.is_some()
-                    && value.is_some()
+                    && typed_value.is_some()
                     && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
                 {
                     return Err(SmeltError::unsupported(
@@ -69,7 +68,8 @@ impl ModuleBuilder<'_> {
                     mutable,
                     span: self.span(binding.span.start, binding.span.end),
                 });
-                if value.is_some_and(|value| self.expression_is_known_date_value(value, body))
+                if typed_value
+                    .is_some_and(|expr_id| self.expression_is_known_date_value(expr_id, body))
                     || self.type_is_known_date_value(ty)
                 {
                     self.scope.mark_date_value(local);
@@ -84,7 +84,14 @@ impl ModuleBuilder<'_> {
                 }
                 self.scope.bind(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
-                body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::Let {
+                        pat,
+                        ty,
+                        value: typed_value,
+                    },
+                );
                 Ok(())
             }
             BindingPattern::ObjectPattern(object) => {
@@ -624,7 +631,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Create a string key expression for a static object destructuring property.
     /// Whether a value of `ty` is erased at run time: the carrier, an optional
     /// of it, or a list or tuple of it.
     fn type_is_erased_container(&self, ty: smelt_hir::TypeId) -> bool {
@@ -727,7 +733,7 @@ impl ModuleBuilder<'_> {
             let unknown =
                 self.unknown_type(crate::lowering::erasure::NotNewErasure::ErasedUpstream);
             let undefined = body.push_expr(Expr {
-                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                kind: ExprKind::Literal(Literal::None),
                 ty: unknown,
                 span,
             });
@@ -752,6 +758,7 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Create a string key expression for a static object destructuring property.
     pub(in crate::lowering) fn object_destructuring_static_key_expr(
         &mut self,
         key: &PropertyKey<'_>,

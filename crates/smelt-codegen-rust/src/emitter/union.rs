@@ -2011,7 +2011,6 @@ impl FunctionEmitter<'_> {
     }
 }
 
-/// Emit every canonical concrete union enum used by the MIR type table.
 /// Whether `ty` holds a type parameter inside a generated nominal type (a
 /// class or interface argument, or a nested union), where `inside_nominal`
 /// says the walk is already under one. See `emit_union_definitions`.
@@ -2031,6 +2030,7 @@ fn member_nests_type_param_in_nominal(mir: &Mir, ty: TypeId, inside_nominal: boo
     }
 }
 
+/// Emit every canonical concrete union enum used by the MIR type table.
 pub(crate) fn emit_union_definitions(
     mir: &Mir,
     context: &EmitContext,
