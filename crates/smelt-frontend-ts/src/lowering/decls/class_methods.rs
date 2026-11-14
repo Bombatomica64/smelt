@@ -280,10 +280,15 @@ impl ModuleBuilder<'_> {
     /// the payload, and every read is typed `T | undefined`. The declared type
     /// is the annotation, else the type TypeScript gave the property, else
     /// (`static x;`, which is `any`) an erased value.
+    ///
+    /// Also answers whether the declared type hides that `undefined`: `true`
+    /// for `static x: number;`, `false` for `static x?: number;`,
+    /// `static x: number | undefined;` or an erased/generic type, which
+    /// already represent `undefined` themselves.
     pub(in crate::lowering) fn class_uninitialized_static_field(
         &mut self,
         property: &oxc::ast::ast::PropertyDefinition<'_>,
-    ) -> Result<smelt_hir::StaticField, SmeltError> {
+    ) -> Result<(smelt_hir::StaticField, bool), SmeltError> {
         let name = self.property_key_symbol(&property.key)?;
         let key_span = property.key.span();
         let declared = if let Some(annotation) = &property.type_annotation {
@@ -293,21 +298,30 @@ impl ModuleBuilder<'_> {
         } else {
             self.erase(ErasureReason::MissingAnnotation)
         };
+        let hides_undefined = !property.optional
+            && !self.is_nullishable_type(declared)
+            && !matches!(
+                self.ctx.krate.types.get(declared),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            );
         let ty = self.field_type_with_optional(declared, true);
         let visibility = if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
             Visibility::Hidden
         } else {
             visibility(property.accessibility)
         };
-        Ok(smelt_hir::StaticField {
-            name,
-            ty,
-            visibility,
-            value: None,
-            mutable: !property.readonly,
-            storage: None,
-            span: self.span(property.span.start, property.span.end),
-        })
+        Ok((
+            smelt_hir::StaticField {
+                name,
+                ty,
+                visibility,
+                value: None,
+                mutable: !property.readonly,
+                storage: None,
+                span: self.span(property.span.start, property.span.end),
+            },
+            hides_undefined,
+        ))
     }
 
     /// Lower the initializer of class `class_item`'s static field `field`
@@ -595,6 +609,14 @@ impl ModuleBuilder<'_> {
                 }
 
                 let saved_class = this.current_class.replace(class_text.to_owned());
+                // `this` in a static method of a class with module-global
+                // statics is the class itself, exactly as in a static field
+                // initializer: `this.n` is the class's static `n`, read and
+                // written through its storage, and `new this()` constructs
+                // the class. (A per-evaluation class's static methods are its
+                // frame's methods instead, where `this` is the frame.)
+                let saved_static_this =
+                    is_static.then(|| this.static_initializer_class.replace(class_text.to_owned()));
                 let ctx =
                     this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
                 let scope = ScopeGroups::MEMBER_BODY;
@@ -634,20 +656,18 @@ impl ModuleBuilder<'_> {
                     // its constructor takes the frame first
                     // (`decls::evaluation_statics`).
                     if !is_static {
-                        let names_class = this
-                            .lowering_evaluation_statics
-                            .as_ref()
-                            .and_then(|evaluation| evaluation.binding.as_deref())
-                            .is_some_and(|binding| {
-                                Self::function_body_names(function_body, binding)
-                            });
+                        let named = if this.lowering_evaluation_statics.is_some() {
+                            Self::function_body_identifiers(function_body)
+                        } else {
+                            std::collections::HashSet::new()
+                        };
                         let span = this.span(method.span.start, method.span.start);
                         if let Some(param) = this.bind_evaluation_frame(
                             class_name,
                             class_ty,
                             this_local,
                             is_constructor,
-                            names_class,
+                            &named,
                             span,
                             &mut body,
                         ) {
@@ -942,6 +962,9 @@ impl ModuleBuilder<'_> {
                     Ok((body, params, rest, errors))
                 });
                 this.current_class = saved_class;
+                if let Some(saved) = saved_static_this {
+                    this.static_initializer_class = saved;
+                }
                 Ok((method_type_params, return_ty, lowered))
             },
         )?;

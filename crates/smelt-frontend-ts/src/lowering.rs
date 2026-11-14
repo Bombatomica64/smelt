@@ -950,6 +950,10 @@ struct ModuleBuilder<'ctx> {
     /// constructor takes the frame, its methods and its frame's methods bind
     /// the class name to it.
     lowering_evaluation_statics: Option<decls::evaluation_statics::EvaluationStatics>,
+    /// The module global holding the statics frame of each module-level
+    /// per-evaluation class (one whose base is a class a function returns),
+    /// with the frame's type, by owner class.
+    module_class_frames: HashMap<smelt_hir::Symbol, (smelt_hir::ItemId, smelt_hir::TypeId)>,
     /// The context of the function body being lowered: async-ness, return
     /// type, generator types, `arguments` arity, statement sink, postfix-update
     /// mode and specialization receiver.

@@ -91,7 +91,7 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.new_through_statics_frame(new_expr, body)? {
+        if let Some(expr) = self.new_through_statics_frame(new_expr, body, type_hint)? {
             return Ok(expr);
         }
         // `Set`, `Map` and `Promise` are host constructors only where the
@@ -502,6 +502,67 @@ impl ModuleBuilder<'_> {
                 self.argument_with_hint(arg, body, hints.get(index).copied().flatten())
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let constructor_params = class
+            .constructor
+            .and_then(|constructor| match self.item_ref(constructor) {
+                Item::Function(function) => Some(
+                    function
+                        .params
+                        .iter()
+                        .map(|param| param.ty)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let class_args = self.class_instantiation_args(
+            class_name,
+            &class.type_params,
+            &constructor_params,
+            &mut args,
+            new_expr,
+            type_hint,
+            body,
+        )?;
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name: class_name,
+            args: class_args,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: class_name,
+                args,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// The type arguments of the class `class_name` that `new_expr`
+    /// constructs, given its type parameters, its constructor's parameter
+    /// types (without any hidden leading parameter) and the lowered `args`.
+    ///
+    /// Explicit type arguments win. Otherwise each parameter is inferred as
+    /// TypeScript does: from the contextual type `type_hint`, then from the
+    /// constructor arguments, widened to what the checker resolved; one still
+    /// unpinned takes its default, else stays the class's own parameter. An
+    /// argument for a parameter that widened to `unknown` is asserted to it,
+    /// so Rust binds the parameter from it.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the instantiation reads the class, its constructor, the call and its context"
+    )]
+    pub(in crate::lowering) fn class_instantiation_args(
+        &mut self,
+        class_name: smelt_hir::Symbol,
+        type_params: &[smelt_hir::TypeParamDef],
+        constructor_params: &[smelt_hir::TypeId],
+        args: &mut [smelt_hir::ExprId],
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
+        let span = self.span(new_expr.span.start, new_expr.span.end);
         let explicit_type_args = new_expr
             .type_arguments
             .as_ref()
@@ -515,12 +576,11 @@ impl ModuleBuilder<'_> {
             .transpose()?;
         let class_args = if let Some(explicit_type_args) = explicit_type_args {
             let substitutions = self.type_argument_substitution(
-                &class.type_params,
+                type_params,
                 &explicit_type_args,
                 self.span(new_expr.span.start, new_expr.span.end),
             )?;
-            class
-                .type_params
+            type_params
                 .iter()
                 .map(|param| {
                     substitutions.get(&param.name).copied().unwrap_or_else(|| {
@@ -546,50 +606,33 @@ impl ModuleBuilder<'_> {
                     args: hint_args,
                 }) = self.ctx.krate.types.get(hint).cloned()
                 && name == class_name
-                && hint_args.len() == class.type_params.len()
+                && hint_args.len() == type_params.len()
             {
-                for (param, arg) in class.type_params.iter().zip(hint_args) {
+                for (param, arg) in type_params.iter().zip(hint_args) {
                     inferred.insert(param.name, arg);
                 }
             }
-            let constructor_params = class
-                .constructor
-                .and_then(|constructor| match self.item_ref(constructor) {
-                    Item::Function(function) => Some(
-                        function
-                            .params
-                            .iter()
-                            .map(|param| param.ty)
-                            .collect::<Vec<_>>(),
-                    ),
-                    _ => None,
-                })
-                .unwrap_or_default();
-            for (param_ty, arg) in constructor_params.iter().zip(&args) {
+            for (param_ty, arg) in constructor_params.iter().zip(&*args) {
                 let arg_ty = Self::expr_ty(body, *arg);
-                let _ = self.infer_callee_type_bindings(
-                    &class.type_params,
-                    *param_ty,
-                    arg_ty,
-                    &mut inferred,
-                );
+                let _ =
+                    self.infer_callee_type_bindings(type_params, *param_ty, arg_ty, &mut inferred);
             }
             let resolved = self.checker_call_type(new_expr.span.start, new_expr.span.end);
             match resolved.and_then(|ty| self.ctx.krate.types.get(ty).cloned()) {
                 Some(Type::Class {
                     name,
                     args: resolved_args,
-                }) if name == class_name && resolved_args.len() == class.type_params.len() => {
-                    for (param, resolved_arg) in class.type_params.iter().zip(resolved_args) {
+                }) if name == class_name && resolved_args.len() == type_params.len() => {
+                    for (param, resolved_arg) in type_params.iter().zip(resolved_args) {
                         if let Some(bound) = inferred.get_mut(&param.name) {
                             *bound = self.widened_call_type(Some(resolved_arg), *bound);
                         }
                     }
                 }
                 _ => self.widen_call_bindings(
-                    &class.type_params,
-                    &constructor_params,
-                    &args,
+                    type_params,
+                    constructor_params,
+                    args,
                     body,
                     &mut inferred,
                 ),
@@ -597,7 +640,7 @@ impl ModuleBuilder<'_> {
             // Rust binds the class parameter from a bare `T` argument, so one
             // that widened to `unknown` takes the argument erased: `new Pair(0, h)`
             // with `h` returning `unknown` is a `Pair<unknown>`.
-            for (param_ty, arg) in constructor_params.iter().zip(&mut args) {
+            for (param_ty, arg) in constructor_params.iter().zip(args.iter_mut()) {
                 let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(*param_ty) else {
                     continue;
                 };
@@ -614,8 +657,7 @@ impl ModuleBuilder<'_> {
                     });
                 }
             }
-            class
-                .type_params
+            type_params
                 .iter()
                 .map(|param| {
                     inferred
@@ -631,18 +673,7 @@ impl ModuleBuilder<'_> {
                 })
                 .collect()
         };
-        let ty = self.ctx.krate.types.intern(Type::Class {
-            name: class_name,
-            args: class_args,
-        });
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::New {
-                class: class_name,
-                args,
-            },
-            ty,
-            span: self.span(new_expr.span.start, new_expr.span.end),
-        }))
+        Ok(class_args)
     }
 
     /// Argument hints and class type arguments for `new C<..>(..)` while `C` is
@@ -656,7 +687,7 @@ impl ModuleBuilder<'_> {
     /// The class arguments are the explicit ones when written, so
     /// `new Hono<E, S>(..)` inside `Hono` keeps `Hono<E, S>` rather than a bare
     /// `Hono`; without them the result stays as before.
-    fn pending_constructor_hints(
+    pub(in crate::lowering) fn pending_constructor_hints(
         &mut self,
         declared: smelt_hir::Symbol,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -964,6 +995,16 @@ impl ModuleBuilder<'_> {
         let class = lowered
             .as_ref()
             .map_or_else(|| self.intern_type_name(name), |class| class.name);
+        // A module-level per-evaluation class (one extending a class a
+        // function returns) is its statics frame, held in a module global
+        // (`decls::evaluation_statics`).
+        if let Some(&(frame_global, frame_ty)) = self.module_class_frames.get(&class) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::GlobalGet { item: frame_global },
+                ty: frame_ty,
+                span: self.span(start, end),
+            }));
+        }
         let params = lowered.as_ref().map(|lowered| {
             lowered
                 .constructor

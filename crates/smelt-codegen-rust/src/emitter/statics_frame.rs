@@ -48,17 +48,35 @@ impl FunctionEmitter<'_> {
         {
             return self.statics_frame_class_value_markers(class, owner);
         }
-        let Some(frame_field) = self.owner_frame_field(class) else {
+        let frame_fields = self.owner_frame_fields(class);
+        if frame_fields.is_empty() {
             return Ok(String::new());
-        };
-        let field_name = self.context.names().field_text(self.mir, frame_field);
-        let frame = if reference {
-            format!("smelt_struct_value.0.borrow().{field_name}")
+        }
+        let identities = frame_fields
+            .iter()
+            .map(|frame_field| {
+                let field_name = self.context.names().field_text(self.mir, *frame_field);
+                let frame = if reference {
+                    format!("smelt_struct_value.0.borrow().{field_name}")
+                } else {
+                    format!("smelt_struct_value.{field_name}")
+                };
+                format!("SmeltUnknown::Number(smelt_reference_object_identity(&{frame}.0) as f64)")
+            })
+            .collect::<Vec<_>>();
+        // One frame (a class with no per-evaluation base) is its identity;
+        // a subclass instance is an instance of every class in its chain, so
+        // it carries the frame of each level (`smelt_instance_of_value`).
+        let identity = if let [only] = identities.as_slice() {
+            only.clone()
         } else {
-            format!("smelt_struct_value.{field_name}")
+            format!(
+                "SmeltUnknown::Array(::std::vec::Vec::<SmeltUnknown>::from([{}]).into())",
+                identities.join(", ")
+            )
         };
         Ok(self.carrier_format(self.carrier()?, format_args!(
-            "smelt_object_entries.push((\"{SMELT_METHOD}:{SMELT_CLASS_FRAME}\".to_owned(), SmeltUnknown::Number(smelt_reference_object_identity(&{frame}.0) as f64))); "
+            "smelt_object_entries.push((\"{SMELT_METHOD}:{SMELT_CLASS_FRAME}\".to_owned(), {identity})); "
         )))
     }
 
@@ -78,19 +96,48 @@ impl FunctionEmitter<'_> {
         crate::classes::find_class(self.mir, class).is_some_and(|found| found.statics_of.is_some())
     }
 
-    /// The hidden field of owner class `class` that holds its statics frame.
-    fn owner_frame_field(&self, class: Symbol) -> Option<Symbol> {
-        let frame = self
-            .mir
-            .classes
+    /// The hidden fields of owner class `class` holding the statics frames of
+    /// its per-evaluation chain: its own frame and, flattened in from each
+    /// per-evaluation base, that base's frame. Empty for a class with
+    /// module-global statics.
+    fn owner_frame_fields(&self, class: Symbol) -> Vec<Symbol> {
+        let Some(found) = crate::classes::find_class(self.mir, class) else {
+            return Vec::new();
+        };
+        crate::classes::effective_class_fields(self.mir, found)
             .iter()
-            .find(|candidate| candidate.statics_of == Some(class))?;
-        let found = crate::classes::find_class(self.mir, class)?;
-        found
-            .fields
-            .iter()
-            .find(|field| matches!(self.mir.types.get(field.ty), Some(Type::Class { name, .. }) if *name == frame.name))
+            .filter(|field| {
+                matches!(
+                    self.mir.types.get(field.ty),
+                    Some(Type::Class { name, .. })
+                        if crate::classes::find_class(self.mir, *name)
+                            .is_some_and(|frame| frame.statics_of.is_some())
+                )
+            })
             .map(|field| field.name)
+            .collect()
+    }
+
+    /// The source names of `owner` and of every per-evaluation class whose
+    /// frame descends from `frame`: what the class value of `frame` covers
+    /// for `instanceof` (an instance of a subclass is an instance of its
+    /// base), comma-joined as `smelt_class_value` takes them.
+    fn statics_frame_covered(&self, frame: Symbol, owner: &str) -> Result<String, EmitError> {
+        let mut covered = vec![owner.to_owned()];
+        for candidate in &self.mir.classes {
+            let Some(candidate_owner) = candidate.statics_of else {
+                continue;
+            };
+            let mut base = candidate.base;
+            while let Some(name) = base {
+                if name == frame {
+                    covered.push(self.symbol_source_name(candidate_owner)?.to_owned());
+                    break;
+                }
+                base = crate::classes::find_class(self.mir, name).and_then(|found| found.base);
+            }
+        }
+        Ok(covered.join(","))
     }
 
     /// The class-value markers of frame class `frame` (statics of `owner`).
@@ -111,8 +158,9 @@ impl FunctionEmitter<'_> {
         };
         let frame_class = crate::classes::find_class(self.mir, frame)
             .ok_or_else(|| EmitError::new("statics frame class is missing"))?;
+        let covered = self.statics_frame_covered(frame, &owner_name)?;
         let mut markers = String::new();
-        let fields = frame_class
+        let mut fields = frame_class
             .fields
             .iter()
             .filter(|field| field.visibility.is_own_property())
@@ -120,8 +168,22 @@ impl FunctionEmitter<'_> {
                 let key = self.symbol_source_name(field.name)?;
                 Ok(format!("SmeltUnknown::Array(vec![SmeltUnknown::String({key:?}.into()), SmeltUnknown::Bool(true)].into())"))
             })
-            .collect::<Result<Vec<_>, EmitError>>()?
-            .join(", ");
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        // An inherited static is an own property of the subclass only once
+        // the subclass has written it (`decls::evaluation_statics`); until
+        // then `for...in` reaches it through the prototype chain.
+        for (descriptor, own_flag) in self.inherited_static_descriptors(frame_class) {
+            let key = self.symbol_source_name(descriptor.name)?;
+            let own = match own_flag {
+                Some(flag) => format!(
+                    "smelt_struct_value.0.borrow().{}",
+                    self.context.names().field_text(self.mir, flag)
+                ),
+                None => "false".to_owned(),
+            };
+            fields.push(format!("SmeltUnknown::Array(vec![SmeltUnknown::String({key:?}.into()), SmeltUnknown::Bool({own})].into())"));
+        }
+        let field_list = fields.join(", ");
         let methods = frame_class
             .methods
             .iter()
@@ -129,6 +191,11 @@ impl FunctionEmitter<'_> {
             .filter_map(|function| match function.origin {
                 smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
                 _ => None,
+            })
+            // The frame's synthesized members (inherited-static accessors,
+            // chain-level and constructor hooks) are not source statics.
+            .filter(|method| {
+                self.mir.symbols.origin(*method) != smelt_hir::SymbolOrigin::Synthesized
             })
             .map(|method| {
                 let key = self.symbol_source_name(method)?;
@@ -138,8 +205,8 @@ impl FunctionEmitter<'_> {
             .join(", ");
         markers.push_str(&self.carrier_format(carrier, format_args!(
             "smelt_object_entries.push((\"name\".to_owned(), SmeltUnknown::String({display_name:?}.into()))); \
-             smelt_object_entries.push((\"__smelt_class_value\".to_owned(), SmeltUnknown::String({owner_name:?}.into()))); \
-             smelt_object_entries.push((\"{SMELT_CLASS_FIELDS}\".to_owned(), SmeltUnknown::Array(::std::vec::Vec::<SmeltUnknown>::from([{fields}]).into()))); \
+             smelt_object_entries.push((\"__smelt_class_value\".to_owned(), SmeltUnknown::String({covered:?}.into()))); \
+             smelt_object_entries.push((\"{SMELT_CLASS_FIELDS}\".to_owned(), SmeltUnknown::Array(::std::vec::Vec::<SmeltUnknown>::from([{field_list}]).into()))); \
              smelt_object_entries.push((\"{SMELT_CLASS_METHODS}\".to_owned(), SmeltUnknown::Array(::std::vec::Vec::<SmeltUnknown>::from([{methods}]).into()))); \
              smelt_object_entries.push((\"{SMELT_METHOD}:{SMELT_CLASS_FRAME}\".to_owned(), SmeltUnknown::Number(smelt_reference_object_identity(&smelt_struct_value.0) as f64))); "
         )));
@@ -185,6 +252,43 @@ impl FunctionEmitter<'_> {
                 value.delimited()
             ));
         }
+        for (descriptor, _) in self.inherited_static_descriptors(frame_class) {
+            let (Some(getter), Some(setter)) = (
+                descriptor.getter.and_then(|id| self.function_by_id(id)),
+                descriptor.setter.and_then(|id| self.function_by_id(id)),
+            ) else {
+                continue;
+            };
+            let (
+                smelt_mir::HirOrigin::ClassMethod {
+                    method: get_method, ..
+                },
+                smelt_mir::HirOrigin::ClassMethod {
+                    method: set_method, ..
+                },
+            ) = (getter.origin, setter.origin)
+            else {
+                continue;
+            };
+            let key = self.symbol_source_name(descriptor.name)?.to_owned();
+            let get_name = self.method_rust_name(get_method)?;
+            let set_name = self.method_rust_name(set_method)?;
+            let read = self.erase_rendered(
+                &RustExpr::chain(format!("smelt_frame.{get_name}()")),
+                descriptor.read_ty,
+            )?;
+            get_arms.push_str(&format!("{key:?} => {}, ", read.delimited()));
+            let write_ty = descriptor.write_ty.unwrap_or(descriptor.read_ty);
+            let value = self.extract_rendered(
+                &RustExpr::path("smelt_static_value"),
+                write_ty,
+                &self.render_scope(),
+            )?;
+            set_arms.push_str(&format!(
+                "{key:?} => {{ let smelt_stored = {}; smelt_frame.{set_name}(smelt_stored); true }}, ",
+                value.delimited()
+            ));
+        }
         if get_arms.is_empty() {
             return Ok(String::new());
         }
@@ -197,23 +301,77 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// The accessor descriptors of a subclass frame's inherited statics, each
+    /// with the hidden field recording whether the subclass has written its
+    /// own value (`crate::classes::inherited_static_slots`).
+    fn inherited_static_descriptors<'class>(
+        &self,
+        frame_class: &'class smelt_mir::MirClass,
+    ) -> Vec<(&'class smelt_mir::MirDescriptor, Option<Symbol>)> {
+        let slots = crate::classes::inherited_static_slots(self.mir, frame_class);
+        frame_class
+            .descriptors
+            .iter()
+            .map(|descriptor| {
+                let own = slots
+                    .iter()
+                    .find(|slot| slot.name == descriptor.name)
+                    .map(|slot| slot.own);
+                (descriptor, own)
+            })
+            .collect()
+    }
+
     /// The erased constructor of per-evaluation class `owner` for the frame
     /// `smelt_struct_value`: each argument rebuilt from the erased carrier,
     /// the frame passed as the hidden leading argument, and the instance
     /// erased back out as a class instance (with its methods and its frame's
     /// identity). `None` when an argument cannot be rebuilt, or the class is
-    /// abstract or generic (no `new` can be spelled for it).
+    /// abstract (no `new` can be spelled for it).
+    ///
+    /// A generic owner is constructed at `SmeltUnknown` for each of its type
+    /// parameters. This is a genuine dynamic boundary, not an erasure of known
+    /// shape: `new K(v)` through an erased class value has no static type
+    /// arguments at all (the class value, the arguments and the result are
+    /// all erased), so the instantiation an erased caller can name is the
+    /// carrier itself. A typed `new` through the frame keeps its real
+    /// instantiation (`decls::evaluation_statics::new_through_statics_frame`).
     fn statics_frame_constructor(&self, owner: Symbol) -> Result<Option<RustExpr>, EmitError> {
         let Some(class) = crate::classes::find_class(self.mir, owner) else {
             return Ok(None);
         };
-        if !class.type_params.is_empty() || class.is_abstract {
+        if class.is_abstract {
             return Ok(None);
         }
-        let (Some(self_ty), Some(function)) = (
-            crate::classes::class_self_type(self.mir, owner),
-            class.constructor.and_then(|id| self.function_by_id(id)),
-        ) else {
+        let Some(function) = class.constructor.and_then(|id| self.function_by_id(id)) else {
+            return Ok(None);
+        };
+        let erased_args = if class.type_params.is_empty() {
+            None
+        } else {
+            let unknown = self.mir.types.intern_late(Type::Unknown);
+            Some(
+                class
+                    .type_params
+                    .iter()
+                    .map(|param| (param.name, unknown))
+                    .collect::<std::collections::HashMap<_, _>>(),
+            )
+        };
+        let constructed_ty = match &erased_args {
+            None => crate::classes::class_self_type(self.mir, owner),
+            Some(substitutions) => Some(
+                self.mir.types.intern_late(Type::Class {
+                    name: owner,
+                    args: class
+                        .type_params
+                        .iter()
+                        .map(|param| substitutions[&param.name])
+                        .collect(),
+                }),
+            ),
+        };
+        let Some(self_ty) = constructed_ty else {
             return Ok(None);
         };
         if function.rest.is_some() || function.is_async {
@@ -227,7 +385,11 @@ impl FunctionEmitter<'_> {
             else {
                 return Ok(None);
             };
-            if !super::record_coercion::type_supports_from_unknown(self.mir, self.context, local.ty)
+            let param_ty = match &erased_args {
+                Some(substitutions) => self.substitute_type_params_late(local.ty, substitutions),
+                None => local.ty,
+            };
+            if !super::record_coercion::type_supports_from_unknown(self.mir, self.context, param_ty)
             {
                 return Ok(None);
             }
@@ -237,12 +399,16 @@ impl FunctionEmitter<'_> {
                     &RustExpr::chain(format!(
                         "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
                     )),
-                    local.ty,
+                    param_ty,
                 )?
                 .into_string(),
             );
         }
-        let rust_class = self.context.names().type_name(owner)?.as_str().to_owned();
+        let mut rust_class = self.context.names().type_name(owner)?.as_str().to_owned();
+        if erased_args.is_some() {
+            let carriers = vec!["SmeltUnknown"; class.type_params.len()].join(", ");
+            rust_class = format!("{rust_class}::<{carriers}>");
+        }
         let try_operator = if function.can_throw { "?" } else { "" };
         let built = self.erase_rendered(&RustExpr::path("smelt_built"), self_ty)?;
         Ok(Some(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(

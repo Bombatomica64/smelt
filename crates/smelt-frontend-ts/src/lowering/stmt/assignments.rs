@@ -246,7 +246,7 @@ impl ModuleBuilder<'_> {
         };
         let right = self.expression_with_hint(&assign.right, body, right_ty_hint)?;
         let value = match assign.operator {
-            AssignmentOperator::Assign => right,
+            AssignmentOperator::Assign => self.absent_static_at_slot(right, Some(store_ty), body),
             AssignmentOperator::LogicalNullish => body.push_expr(Expr {
                 kind: ExprKind::OptionalCoalesce {
                     optional: target,

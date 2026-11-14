@@ -395,6 +395,7 @@ impl ModuleBuilder<'_> {
                     .map(|(item, _)| item)
             {
                 let root = body.root;
+                self.touch_module_class_frame(item, &mut body, root);
                 self.touch_class_static_initializers(item, &mut body, root);
             }
             if matches!(

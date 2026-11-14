@@ -69,7 +69,19 @@ impl ModuleBuilder<'_> {
         // Anonymous expressions already get a collision-free synthetic name;
         // there is no spelling to take away from the host class.
         class.id.as_ref()?;
-        smelt_stdlib::typescript_stdlib_class(class_source_name)?;
+        // A class expression's name is bound only inside its own body, so it
+        // also gives way to an earlier class of the same spelling anywhere in
+        // the crate (`function a() { class Box {} }` beside
+        // `function b() { return class Box {} }`): one symbol for both would
+        // be one Rust type for two classes.
+        let span = self.span(class.span.start, class.span.end);
+        let plain = self.intern_type_name(class_source_name);
+        let taken = self.ctx.krate.items.iter().any(|item| {
+            matches!(item, Item::Class(lowered) if lowered.name == plain && lowered.span != span)
+        });
+        if !taken {
+            smelt_stdlib::typescript_stdlib_class(class_source_name)?;
+        }
         let internal_name = format!(
             "{class_source_name}SmeltClassExprF{}S{}",
             self.file_id.0, class.span.start,
@@ -81,7 +93,6 @@ impl ModuleBuilder<'_> {
         // disambiguation exists for the Rust type system, not for the program.
         // The same expression lowered again keeps its identity; a different
         // declaration whose internal name is somehow taken gets a fresh one.
-        let span = self.span(class.span.start, class.span.end);
         if let Some((_, existing)) = self.class_item_lowered_at(span) {
             return Some(existing);
         }
@@ -267,927 +278,1008 @@ impl ModuleBuilder<'_> {
         }
         let statics_depth = self.classes.statics_in_flight_depth();
         let saved_evaluation = self.lowering_evaluation_statics.take();
-        let item = self.with_type_parameter_scope(class.type_parameters.as_deref(), |this, type_params| {
-            let class_type_args = type_params
-                .iter()
-                .map(|param| {
-                    this.ctx
-                        .krate
-                        .types
-                        .intern(Type::TypeParam { name: param.name })
-                })
-                .collect::<Vec<_>>();
-            let class_ty = this.ctx.krate.types.intern(Type::Class {
-                name: class_name,
-                args: class_type_args,
-            });
-            let (base, base_args) = this.class_extends_clause(class)?;
-            // A subclass of a class with per-evaluation statics would inherit
-            // that evaluation's static fields (shared with the base, shadowed
-            // by its own writes) and pass the base's frame to `super(...)`;
-            // neither is modeled, so it is reported rather than miscompiled.
-            if let Some(base) = base
-                && this.evaluation_statics.contains_key(&base)
-            {
-                return Err(SmeltError::unsupported(
-                    this.span(class.span.start, class.span.end),
-                    "a class extending a class whose static initializers read its enclosing function's locals \
-                     (per-evaluation statics) is not lowered yet",
-                ));
-            }
-            if let Some(base_name) = base {
-                this.classes
-                    .set_base(class_text.to_owned(), class_name, base_name, base_args.clone());
-            }
-            let mut fields = Vec::new();
-            // A class declared in a function whose static initializers read the
-            // function's locals keeps its statics in one frame per evaluation
-            // (`decls::evaluation_statics`): its static fields become the
-            // frame's fields, its static methods the frame's methods, and each
-            // instance carries the frame it was constructed by.
-            let evaluation = if materialized.is_none() {
-                this.begin_evaluation_statics(class, &class_source_name, class_name)
-            } else {
-                None
-            };
-            if evaluation.is_some() && !type_params.is_empty() {
-                return Err(SmeltError::unsupported(
-                    this.span(class.span.start, class.span.end),
-                    "a generic class whose static initializers read its enclosing function's locals \
-                     (per-evaluation statics) is not lowered yet",
-                ));
-            }
-            this.lowering_evaluation_statics.clone_from(&evaluation);
-            let mut frame_fields = Vec::new();
-            let mut frame_methods = Vec::new();
-            if let Some(evaluation) = &evaluation {
-                fields.push(Field {
-                    name: evaluation.frame_field,
-                    ty: evaluation.frame_ty,
-                    // Compiler-synthesized, never a source property.
-                    visibility: Visibility::Hidden,
-                    optional: false,
-                    span: class_span,
+        let item = self.with_type_parameter_scope(
+            class.type_parameters.as_deref(),
+            |this, type_params| {
+                let class_type_args = type_params
+                    .iter()
+                    .map(|param| {
+                        this.ctx
+                            .krate
+                            .types
+                            .intern(Type::TypeParam { name: param.name })
+                    })
+                    .collect::<Vec<_>>();
+                let class_ty = this.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: class_type_args,
                 });
-            }
-            // Methods this class reassigns through `this`, which are carried as
-            // function-typed fields instead of inherent methods. Scanned once here
-            // because both loops below need it: the field loop converts them, the
-            // method loop skips them.
-            let assigned_methods = methods_assigned_on_this(&class.body);
-            let mut field_initializers = Vec::new();
-            let mut constructor = None;
-            let mut methods = Vec::new();
-            let mut static_methods = Vec::new();
-            // Static class constants declared directly in source (`static NAME =
-            // <literal>`), as opposed to `static_fields` merged from specialization.
-            let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
-            // Source static fields whose initializer is an expression, in
-            // declaration order: lowered once the class is registered.
-            let mut static_initializers: Vec<(smelt_hir::Symbol, &Expression<'_>)> = Vec::new();
-            // Source static fields declared without an initializer, whose
-            // storage starts at `undefined`.
-            let mut uninitialized_statics: Vec<smelt_hir::Symbol> = Vec::new();
-            let mut abstract_methods = Vec::new();
-            let mut descriptor_accessors = Vec::new();
-            // Accessor descriptors built directly from plain source getters on a
-            // non-materialized class. Materialized classes derive their descriptors
-            // from the manifest instead (see `merge_materialized_class_descriptors`).
-            let mut source_descriptors: Vec<smelt_hir::Descriptor> = Vec::new();
-            // Value type declared by a class string/number index signature, if any.
-            // Recorded from the `TSIndexSignature` element below and published to the
-            // index-value maps after the class is fully lowered.
-            let mut class_index_value_ty = None;
+                // `extends` of a per-evaluation class VALUE (`extends B1`,
+                // `extends make(2)`) names that class, whose frame the clause
+                // evaluates to (`decls::evaluation_statics`).
+                let (base, base_args) = match this.heritage_statics_owner(class) {
+                    Some(owner) => (Some(owner), Vec::new()),
+                    None => this.class_extends_clause(class)?,
+                };
+                // A subclass of a per-evaluation class is per-evaluation too: each
+                // evaluation of the base is a different class, so each evaluation
+                // of the subclass extends a different base and inherits that
+                // base's statics (`decls::evaluation_statics`, "Subclasses").
+                let base_evaluation =
+                    base.and_then(|base| this.evaluation_statics.get(&base).cloned());
+                if let Some(base_name) = base {
+                    this.classes.set_base(
+                        class_text.to_owned(),
+                        class_name,
+                        base_name,
+                        base_args.clone(),
+                    );
+                }
+                let mut fields = Vec::new();
+                // A class declared in a function whose static initializers read the
+                // function's locals keeps its statics in one frame per evaluation
+                // (`decls::evaluation_statics`): its static fields become the
+                // frame's fields, its static methods the frame's methods, and each
+                // instance carries the frame it was constructed by.
+                let mut evaluation = if materialized.is_none() {
+                    this.begin_evaluation_statics(
+                        class,
+                        &class_source_name,
+                        class_name,
+                        &type_params,
+                        base_evaluation,
+                    )
+                } else {
+                    None
+                };
+                this.lowering_evaluation_statics.clone_from(&evaluation);
+                let mut frame_fields = Vec::new();
+                let mut frame_methods = Vec::new();
+                if let Some(evaluation) = &evaluation {
+                    fields.push(Field {
+                        name: evaluation.frame_field,
+                        ty: evaluation.frame_ty,
+                        // Compiler-synthesized, never a source property.
+                        visibility: Visibility::Hidden,
+                        optional: false,
+                        span: class_span,
+                    });
+                }
+                // Methods this class reassigns through `this`, which are carried as
+                // function-typed fields instead of inherent methods. Scanned once here
+                // because both loops below need it: the field loop converts them, the
+                // method loop skips them.
+                let assigned_methods = methods_assigned_on_this(&class.body);
+                let mut field_initializers = Vec::new();
+                let mut constructor = None;
+                let mut methods = Vec::new();
+                let mut static_methods = Vec::new();
+                // Static class constants declared directly in source (`static NAME =
+                // <literal>`), as opposed to `static_fields` merged from specialization.
+                let mut source_static_fields: Vec<smelt_hir::StaticField> = Vec::new();
+                // Source static fields whose initializer is an expression, in
+                // declaration order: lowered once the class is registered.
+                let mut static_initializers: Vec<(smelt_hir::Symbol, &Expression<'_>)> = Vec::new();
+                // Source static fields declared without an initializer, whose
+                // storage starts at `undefined`.
+                let mut uninitialized_statics: Vec<smelt_hir::Symbol> = Vec::new();
+                // Those of them whose declared type does not admit `undefined`
+                // (`HirCtx::absent_static_storage`).
+                let mut absent_statics: Vec<smelt_hir::Symbol> = Vec::new();
+                let mut abstract_methods = Vec::new();
+                let mut descriptor_accessors = Vec::new();
+                // Accessor descriptors built directly from plain source getters on a
+                // non-materialized class. Materialized classes derive their descriptors
+                // from the manifest instead (see `merge_materialized_class_descriptors`).
+                let mut source_descriptors: Vec<smelt_hir::Descriptor> = Vec::new();
+                // Value type declared by a class string/number index signature, if any.
+                // Recorded from the `TSIndexSignature` element below and published to the
+                // index-value maps after the class is fully lowered.
+                let mut class_index_value_ty = None;
 
-            for element in &class.body.body {
-                match element {
-                    // A method this class reassigns through `this` is carried as a
-                    // function-typed field rather than as an inherent method, which
-                    // cannot be assigned. The field's type is the method's own
-                    // signature and its initializer is the method's own body, so a
-                    // class that never actually assigns behaves exactly as before.
-                    ClassElement::MethodDefinition(method)
-                        if !method.r#static
-                            && method.kind == MethodDefinitionKind::Method
-                            && method.value.body.is_some()
-                            && property_key_plain_name(&method.key)
-                                .is_some_and(|name| assigned_methods.contains(name.as_ref())) =>
-                    {
-                        let name = this.property_key_symbol(&method.key)?;
-                        let ty = this.method_signature_function_type(method)?;
-                        field_initializers.push((
-                            name,
-                            ClassFieldInit::Method(&method.value),
-                            ty,
-                            this.span(method.span.start, method.span.end),
-                        ));
-                        fields.push(Field {
-                            name,
-                            ty,
-                            visibility: visibility(method.accessibility),
-                            optional: false,
-                            span: this.span(method.span.start, method.span.end),
-                        });
-                    }
-                    ClassElement::PropertyDefinition(property) => {
-                        if !property.decorators.is_empty() && materialized.is_none() {
-                            return Err(SmeltError::specialization_required(
-                                this.span(property.span.start, property.span.end),
-                                class_text,
+                for element in &class.body.body {
+                    match element {
+                        // A method this class reassigns through `this` is carried as a
+                        // function-typed field rather than as an inherent method, which
+                        // cannot be assigned. The field's type is the method's own
+                        // signature and its initializer is the method's own body, so a
+                        // class that never actually assigns behaves exactly as before.
+                        ClassElement::MethodDefinition(method)
+                            if !method.r#static
+                                && method.kind == MethodDefinitionKind::Method
+                                && method.value.body.is_some()
+                                && property_key_plain_name(&method.key).is_some_and(|name| {
+                                    assigned_methods.contains(name.as_ref())
+                                }) =>
+                        {
+                            let name = this.property_key_symbol(&method.key)?;
+                            let ty = this.method_signature_function_type(method)?;
+                            field_initializers.push((
+                                name,
+                                ClassFieldInit::Method(&method.value),
+                                ty,
+                                this.span(method.span.start, method.span.end),
                             ));
+                            fields.push(Field {
+                                name,
+                                ty,
+                                visibility: visibility(method.accessibility),
+                                optional: false,
+                                span: this.span(method.span.start, method.span.end),
+                            });
                         }
-                        if property.computed && !this.is_resolvable_property_key(&property.key) {
-                            return Err(SmeltError::unsupported(
-                                this.span(property.span.start, property.span.end),
-                                "dynamic computed property names are not lowered yet",
-                            ));
-                        }
-                        if property.r#static {
-                            if materialized.is_some() {
-                                continue;
+                        ClassElement::PropertyDefinition(property) => {
+                            if !property.decorators.is_empty() && materialized.is_none() {
+                                return Err(SmeltError::specialization_required(
+                                    this.span(property.span.start, property.span.end),
+                                    class_text,
+                                ));
                             }
-                            if evaluation.is_some() {
-                                // A function-valued static stays unemitted, as on
-                                // the module-global path below.
-                                if !matches!(
+                            if property.computed && !this.is_resolvable_property_key(&property.key)
+                            {
+                                return Err(SmeltError::unsupported(
+                                    this.span(property.span.start, property.span.end),
+                                    "dynamic computed property names are not lowered yet",
+                                ));
+                            }
+                            if property.r#static {
+                                if materialized.is_some() {
+                                    continue;
+                                }
+                                if evaluation.is_some() {
+                                    // A function-valued static stays unemitted, as on
+                                    // the module-global path below.
+                                    if !matches!(
+                                        property.value,
+                                        Some(
+                                            Expression::FunctionExpression(_)
+                                                | Expression::ArrowFunctionExpression(_)
+                                        )
+                                    ) {
+                                        frame_fields.push(this.evaluation_static_field(property)?);
+                                    }
+                                    continue;
+                                }
+                                // A `static NAME: T = <literal>` declares a class-level
+                                // field resolvable via `Class.NAME` whose value is the
+                                // literal; any other initializer is an expression the
+                                // class definition evaluates (below).
+                                if let Some(static_field) = this.class_static_field(property)? {
+                                    source_static_fields.push(static_field);
+                                    continue;
+                                }
+                                // A static field initialized to a function or arrow
+                                // expression (`static c = function () {};`) is a static
+                                // *callable* member, not a data constant. Materializing it
+                                // as an associated function needs the static-method
+                                // lowering path, which is not wired to property
+                                // initializers yet; until then the field is not emitted
+                                // rather than blocking the whole class. This keeps classes
+                                // that merely *carry* such a member lowerable (its value is
+                                // a function, never a data value read back structurally);
+                                // an actual `Class.c(...)` use would fail at the call site
+                                // rather than silently reading a wrong value.
+                                if matches!(
                                     property.value,
                                     Some(
                                         Expression::FunctionExpression(_)
                                             | Expression::ArrowFunctionExpression(_)
                                     )
                                 ) {
-                                    frame_fields.push(this.evaluation_static_field(property)?);
+                                    continue;
                                 }
-                                continue;
-                            }
-                            // A `static NAME: T = <literal>` declares a class-level
-                            // field resolvable via `Class.NAME` whose value is the
-                            // literal; any other initializer is an expression the
-                            // class definition evaluates (below).
-                            if let Some(static_field) = this.class_static_field(property)? {
+                                // Any other initializer (`static count = compute()`,
+                                // `static items: string[] = []`, `static next =
+                                // Box.count + 1`) is evaluated once, when the class
+                                // definition runs, with `this` bound to the class:
+                                // the field gets storage whose lazy initializer is
+                                // that expression, lowered once the class exists.
+                                if let Some(value) = &property.value {
+                                    let static_field = this.class_static_expression_field(
+                                        &class_source_name,
+                                        property,
+                                        value,
+                                    )?;
+                                    static_initializers.push((static_field.name, value));
+                                    source_static_fields.push(static_field);
+                                    continue;
+                                }
+                                // `static x: T;` (or `static x?: T;`): JavaScript
+                                // defines the property as `undefined` when the class
+                                // definition runs, whatever `T` says. The field is
+                                // live storage of `T | undefined`, starting at
+                                // `undefined` (`class_uninitialized_static_field`).
+                                let (static_field, hides_undefined) =
+                                    this.class_uninitialized_static_field(property)?;
+                                uninitialized_statics.push(static_field.name);
+                                if hides_undefined {
+                                    absent_statics.push(static_field.name);
+                                }
                                 source_static_fields.push(static_field);
                                 continue;
                             }
-                            // A static field initialized to a function or arrow
-                            // expression (`static c = function () {};`) is a static
-                            // *callable* member, not a data constant. Materializing it
-                            // as an associated function needs the static-method
-                            // lowering path, which is not wired to property
-                            // initializers yet; until then the field is not emitted
-                            // rather than blocking the whole class. This keeps classes
-                            // that merely *carry* such a member lowerable (its value is
-                            // a function, never a data value read back structurally);
-                            // an actual `Class.c(...)` use would fail at the call site
-                            // rather than silently reading a wrong value.
-                            if matches!(
-                                property.value,
-                                Some(
-                                    Expression::FunctionExpression(_)
-                                        | Expression::ArrowFunctionExpression(_)
-                                )
-                            ) {
-                                continue;
-                            }
-                            // Any other initializer (`static count = compute()`,
-                            // `static items: string[] = []`, `static next =
-                            // Box.count + 1`) is evaluated once, when the class
-                            // definition runs, with `this` bound to the class:
-                            // the field gets storage whose lazy initializer is
-                            // that expression, lowered once the class exists.
-                            if let Some(value) = &property.value {
-                                let static_field =
-                                    this.class_static_expression_field(&class_source_name, property, value)?;
-                                static_initializers.push((static_field.name, value));
-                                source_static_fields.push(static_field);
-                                continue;
-                            }
-                            // `static x: T;` (or `static x?: T;`): JavaScript
-                            // defines the property as `undefined` when the class
-                            // definition runs, whatever `T` says. The field is
-                            // live storage of `T | undefined`, starting at
-                            // `undefined` (`class_uninitialized_static_field`).
-                            let static_field = this.class_uninitialized_static_field(property)?;
-                            uninitialized_statics.push(static_field.name);
-                            source_static_fields.push(static_field);
-                            continue;
-                        }
-                        let name = this.property_key_symbol(&property.key)?;
-                        let mut ty = if let Some(annotation) = &property.type_annotation {
-                            this.ts_type_to_hir(&annotation.type_annotation)?
-                        } else if let Some(value) = &property.value {
-                            let mut field_body =
-                                Body::new(None, this.span(value.span().start, value.span().end));
-                            // In a per-evaluation class the initializer reads
-                            // the class's statics through its frame, as the
-                            // constructor that runs it does.
-                            let frame_binding = this.bind_scratch_evaluation_frame(
-                                &mut field_body,
-                                this.span(value.span().start, value.span().end),
-                            );
-                            let value = this.expression(value, &mut field_body);
-                            this.restore_scratch_evaluation_frame(frame_binding);
-                            Self::expr_ty(&field_body, value?)
-                        } else {
-                            return Err(SmeltError::unsupported(
-                                this.span(property.span.start, property.span.end),
-                                "class fields require explicit type annotations",
-                            ));
-                        };
-                        if property.optional {
-                            ty = this.field_type_with_optional(ty, true);
-                        }
-                        if let Some(value) = &property.value {
-                            field_initializers.push((
-                                name,
-                                ClassFieldInit::Expression(value),
-                                ty,
-                                this.span(property.span.start, property.span.end),
-                            ));
-                        }
-                        // A `#name` field is an ECMAScript *private name*, so it is not an
-                        // own property of the instance (`obj['#name']` is `undefined`, and
-                        // it never shows up in `Object.keys`/`JSON`/a structural compare).
-                        // A source `private`/`protected` modifier is only a compile-time
-                        // restriction, so such a field stays an ordinary own property.
-                        let field_visibility =
-                            if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
-                                Visibility::Hidden
+                            let name = this.property_key_symbol(&property.key)?;
+                            let mut ty = if let Some(annotation) = &property.type_annotation {
+                                this.ts_type_to_hir(&annotation.type_annotation)?
+                            } else if let Some(value) = &property.value {
+                                let mut field_body = Body::new(
+                                    None,
+                                    this.span(value.span().start, value.span().end),
+                                );
+                                // In a per-evaluation class the initializer reads
+                                // the class's statics through its frame, as the
+                                // constructor that runs it does.
+                                let frame_binding = this.bind_scratch_evaluation_frame(
+                                    &mut field_body,
+                                    this.span(value.span().start, value.span().end),
+                                );
+                                let value = this.expression(value, &mut field_body);
+                                this.restore_scratch_evaluation_frame(frame_binding);
+                                Self::expr_ty(&field_body, value?)
                             } else {
-                                visibility(property.accessibility)
+                                return Err(SmeltError::unsupported(
+                                    this.span(property.span.start, property.span.end),
+                                    "class fields require explicit type annotations",
+                                ));
                             };
-                        fields.push(Field {
-                            name,
-                            ty,
-                            visibility: field_visibility,
-                            optional: property.optional,
-                            span: this.span(property.span.start, property.span.end),
-                        });
-                    }
-                    ClassElement::MethodDefinition(method)
-                        if method.kind == MethodDefinitionKind::Get =>
-                    {
-                        if !method.decorators.is_empty() {
-                            if materialized.is_some() {
-                                continue;
+                            if property.optional {
+                                ty = this.field_type_with_optional(ty, true);
                             }
-                            return Err(SmeltError::specialization_required(
-                                this.span(method.span.start, method.span.end),
-                                class_text,
-                            ));
-                        }
-                        if method.computed && !this.is_resolvable_property_key(&method.key) {
-                            return Err(SmeltError::unsupported(
-                                this.span(method.span.start, method.span.end),
-                                "dynamic computed method names are not lowered yet",
-                            ));
-                        }
-                        if method.r#static {
-                            if materialized.is_some() {
-                                continue;
+                            if let Some(value) = &property.value {
+                                field_initializers.push((
+                                    name,
+                                    ClassFieldInit::Expression(value),
+                                    ty,
+                                    this.span(property.span.start, property.span.end),
+                                ));
                             }
-                            // Static getters need associated-accessor lowering that
-                            // is not implemented yet; static *methods* are handled in
-                            // the method-lowering pass below.
-                            return Err(SmeltError::unsupported(
-                                this.span(method.span.start, method.span.end),
-                                "static accessors are not lowered yet",
-                            ));
-                        }
-                        // A plain source getter (`get x() { … }`) lowers to a `&self`
-                        // method plus an accessor descriptor in the second class pass
-                        // below, so reads of `obj.x` dispatch to the computed method
-                        // instead of a dropped stored field (see the reference-class
-                        // spec's finding #3). For a materialized/auto-accessor class
-                        // the getter still keeps its backing field.
-                        if materialized.is_some() {
-                            let name = this.property_key_symbol(&method.key)?;
-                            let ty = method
-                                .value
-                                .return_type
-                                .as_ref()
-                                .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
-                                .transpose()?
-                                .unwrap_or_else(|| this.erase(ErasureReason::MissingAnnotation));
+                            // A `#name` field is an ECMAScript *private name*, so it is not an
+                            // own property of the instance (`obj['#name']` is `undefined`, and
+                            // it never shows up in `Object.keys`/`JSON`/a structural compare).
+                            // A source `private`/`protected` modifier is only a compile-time
+                            // restriction, so such a field stays an ordinary own property.
+                            let field_visibility =
+                                if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+                                    Visibility::Hidden
+                                } else {
+                                    visibility(property.accessibility)
+                                };
                             fields.push(Field {
-                                // The accessor's backing storage, not a source
-                                // property: it must stay out of every erased view.
-                                visibility: Visibility::Hidden,
                                 name,
                                 ty,
-                                optional: false,
-                                span: this.span(method.span.start, method.span.end),
+                                visibility: field_visibility,
+                                optional: property.optional,
+                                span: this.span(property.span.start, property.span.end),
                             });
                         }
-                    }
-                    ClassElement::TSIndexSignature(sig) => {
-                        // A class string/number index signature `[key: string]: T`
-                        // (or `[key: number]: T`) declares a keyed store whose value
-                        // type is the statically known `T`. Record `T` here (in the
-                        // field-collection pass, before the index-value maps are
-                        // published below) so member and computed access can fall
-                        // back to it when no declared named field or method matches.
-                        // Declared named fields are collected separately and keep
-                        // their concrete types; the index value is only the
-                        // dynamic-keyed fallback shape, never a replacement for named
-                        // members.
-                        let value_ty =
-                            this.ts_type_to_hir(&sig.type_annotation.type_annotation)?;
-                        class_index_value_ty = Some(value_ty);
-                    }
-                    _ => {}
-                }
-            }
-            for element in &class.body.body {
-                let ClassElement::MethodDefinition(method) = element else {
-                    continue;
-                };
-                if method.kind != MethodDefinitionKind::Constructor {
-                    continue;
-                }
-                for param in &method.value.params.items {
-                    // `readonly x` (with no explicit accessibility) is still a
-                    // parameter property and declares a public instance field, so a
-                    // constructor arg such as `constructor(readonly innerError: Error)`
-                    // must produce a field.
-                    if param.accessibility.is_none() && !param.readonly {
-                        continue;
-                    }
-                    let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                        return Err(SmeltError::unsupported(
-                            this.span(param.span.start, param.span.end),
-                            "destructured constructor parameter properties are not lowered yet",
-                        ));
-                    };
-                    let name = this.intern_source_name(binding.name.as_str());
-                    let ty = if let Some(annotation) = &param.type_annotation {
-                        this.ts_type_to_hir(&annotation.type_annotation)?
-                    } else if let Some(default) = &param.initializer {
-                        let mut initializer_body =
-                            Body::new(None, this.span(default.span().start, default.span().end));
-                        let value = this.expression(default, &mut initializer_body)?;
-                        Self::expr_ty(&initializer_body, value)
-                    } else {
-                        this.erase(ErasureReason::MissingAnnotation)
-                    };
-                    // `constructor(public n?: number)` stores `n` whether or
-                    // not it was passed, so the field holds `number |
-                    // undefined`: the same `Optional` the parameter has. A
-                    // defaulted property (`public n = 1`) stores the applied
-                    // default and keeps the declared type.
-                    let ty = if param.optional
-                        && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-                    {
-                        this.ctx.krate.types.intern(Type::Optional(ty))
-                    } else {
-                        ty
-                    };
-                    fields.push(Field {
-                        name,
-                        ty,
-                        visibility: visibility(param.accessibility),
-                        optional: false,
-                        span: this.span(param.span.start, param.span.end),
-                    });
-                }
-            }
-            let mut static_fields = materialized
-                .as_ref()
-                .map_or_else(Vec::new, |materialized_class| {
-                    this.merge_materialized_class_members(materialized_class, &mut fields, class_span)
-                });
-            // Source-declared `static NAME = <literal>` constants extend the
-            // materialized set; a materialized value takes precedence when a member
-            // is named by both, so only append source statics not already present.
-            for static_field in source_static_fields {
-                if !static_fields
-                    .iter()
-                    .any(|existing| existing.name == static_field.name)
-                {
-                    static_fields.push(static_field);
-                }
-            }
-            // A mutable static is live storage: one module mutable global per
-            // field, which every read and write (direct, or through the class
-            // used as a value) goes through. A literal initializer is stored
-            // inline; an expression one is `Pending` until the class exists.
-            // A `readonly` static with an expression initializer gets storage
-            // too: it is evaluated once, not folded, and TypeScript rejects
-            // every write to it. A `readonly` literal stays a constant.
-            for static_field in &mut static_fields {
-                if static_field.storage.is_some() {
-                    continue;
-                }
-                let init = match &static_field.value {
-                    Some(literal) if static_field.mutable => smelt_hir::MutableGlobalInit::Literal(literal.clone()),
-                    None if static_initializers.iter().any(|(name, _)| *name == static_field.name) => {
-                        smelt_hir::MutableGlobalInit::Pending
-                    }
-                    None if uninitialized_statics.contains(&static_field.name) => {
-                        smelt_hir::MutableGlobalInit::Literal(Literal::Undefined)
-                    }
-                    _ => continue,
-                };
-                {
-                    let field_text = super::super::support::source_spelling(&this.ctx.krate, static_field.name)
-                        .unwrap_or_default()
-                        .to_owned();
-                    let symbol = this.intern_source_name(&format!("{class_source_name}_{field_text}"));
-                    static_field.storage = Some(this.ctx.krate.push_item(Item::MutableGlobal(
-                        smelt_hir::MutableGlobalItem {
-                            name: symbol,
-                            ty: static_field.ty,
-                            init,
-                            visibility: Visibility::Public,
-                            span: static_field.span,
-                        },
-                    )));
-                }
-            }
-            this.classes.push_statics_in_flight(class_source_name.clone(), static_fields.clone());
-            let method_sigs = this.class_method_signatures(&class.body.body)?;
-            let virtual_method_fields =
-                this.virtual_method_field_names(&class.body.body, class.r#abstract);
-            this.add_virtual_class_method_fields(&mut fields, &method_sigs, &virtual_method_fields);
-            // Runtime keyed store for a class index signature.
-            //
-            // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
-            // real backing store so dynamic keyed writes round-trip at runtime:
-            // `x[k] = v; x[k]` must return `v`, and a missing key must read as
-            // `undefined`. The store is a synthesized private `Record<string, T>`
-            // field that sits ALONGSIDE the declared named fields (which stay
-            // concrete). It is added to the class field list here, so it flows
-            // through MIR, struct emission, the `Default`/`Clone` derives, and the
-            // constructor's default struct literal automatically; codegen only has
-            // to route keyed access to it. The field is `Hidden` so it is excluded
-            // from erased object projection. Number-keyed signatures still use a
-            // string-keyed store because JavaScript object property keys are strings.
-            //
-            // Value type `T` stays concrete (`string`, `number`, a class, ...). A
-            // union index value type (`[key: string]: string | number`) has the same
-            // limitation as a plain union-typed class field: the generated union enum
-            // lacks `Debug`/`Default`, so a struct storing it does not derive them.
-            if let Some(value_ty) = class_index_value_ty {
-                let store_name = this.intern_synthesized_name(CLASS_INDEX_STORE_FIELD);
-                let key_ty = this.ctx.krate.types.intern(Type::String);
-                let store_ty = this.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-                if !fields.iter().any(|field| field.name == store_name) {
-                    fields.push(Field {
-                        name: store_name,
-                        ty: store_ty,
-                        // Compiler-synthesized keyed storage, never a source property.
-                        visibility: Visibility::Hidden,
-                        optional: false,
-                        span: class_span,
-                    });
-                }
-            }
-            this.classes.set_fields(class_text.to_owned(), fields.clone());
-            this.classes.set_methods(class_text.to_owned(), method_sigs.clone());
-            if let Some(evaluation) = &evaluation {
-                let frame_sigs = this.evaluation_static_method_signatures(&class.body.body)?;
-                this.classes.set_fields(evaluation.frame_text.clone(), frame_fields.clone());
-                this.classes.set_methods(evaluation.frame_text.clone(), frame_sigs);
-            }
-            // Publish the class index-signature value type (if any) so member and
-            // computed access can resolve keyed reads/writes through it while the
-            // class's own method bodies are still being lowered, and so later
-            // modules see it too. Named fields resolve first; this is the fallback.
-            //
-            // This drives the *type* level of the index signature: the
-            // statically known value type `T` types keyed reads as `Optional<T>`
-            // (missing key -> undefined) and undeclared member reads as `T`, while
-            // declared named fields keep their concrete types. The matching runtime
-            // keyed *store* — the synthesized `__smelt_index_store` field added above
-            // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
-            // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
-            if let Some(value_ty) = class_index_value_ty {
-                this.classes.set_index_value(class_name, value_ty);
-                this.ctx.class_index_values.write().insert(class_name, value_ty);
-            }
-            this.add_overridden_base_method_fields(base, &method_sigs);
-
-            for element in &class.body.body {
-                match element {
-                    ClassElement::PropertyDefinition(_) => {}
-                    ClassElement::MethodDefinition(method) => {
-                        // Already lowered as a function-typed field above, because
-                        // this class assigns over it through `this`.
-                        if !method.r#static
-                            && method.kind == MethodDefinitionKind::Method
-                            && method.value.body.is_some()
-                            && property_key_plain_name(&method.key)
-                                .is_some_and(|name| assigned_methods.contains(name.as_ref()))
+                        ClassElement::MethodDefinition(method)
+                            if method.kind == MethodDefinitionKind::Get =>
                         {
-                            continue;
-                        }
-                        // An overload declaration has no JavaScript body. TypeScript
-                        // validates overload applicability before Smelt runs; when
-                        // the class also contains the matching concrete method, only
-                        // that runtime implementation becomes HIR.
-                        if method.value.body.is_none()
-                            && this.class_method_has_implementation(&class.body.body, method)?
-                        {
-                            continue;
-                        }
-                        if !method.decorators.is_empty() && materialized.is_none() {
-                            return Err(SmeltError::specialization_required(
-                                this.span(method.span.start, method.span.end),
-                                class_text,
-                            ));
-                        }
-                        // Plain source getters AND setters are lowered as class
-                        // methods (`__smelt_get_x` / `__smelt_set_x`) and registered
-                        // as one accessor descriptor per property name below, which
-                        // is what routes `obj.x` and `obj.x = v` to them.
-                        if method.computed && !this.is_resolvable_property_key(&method.key) {
-                            return Err(SmeltError::unsupported(
-                                this.span(method.span.start, method.span.end),
-                                "dynamic computed method names are not lowered yet",
-                            ));
-                        }
-                        if method.r#static {
-                            if materialized.is_some() {
-                                continue;
+                            if !method.decorators.is_empty() {
+                                if materialized.is_some() {
+                                    continue;
+                                }
+                                return Err(SmeltError::specialization_required(
+                                    this.span(method.span.start, method.span.end),
+                                    class_text,
+                                ));
                             }
-                            // Only plain `static foo(..)` methods are lowered as
-                            // receiver-free associated functions. Static
-                            // getters/setters and computed static keys are deferred.
-                            if method.kind != MethodDefinitionKind::Method {
+                            if method.computed && !this.is_resolvable_property_key(&method.key) {
+                                return Err(SmeltError::unsupported(
+                                    this.span(method.span.start, method.span.end),
+                                    "dynamic computed method names are not lowered yet",
+                                ));
+                            }
+                            if method.r#static {
+                                if materialized.is_some() {
+                                    continue;
+                                }
+                                // Static getters need associated-accessor lowering that
+                                // is not implemented yet; static *methods* are handled in
+                                // the method-lowering pass below.
                                 return Err(SmeltError::unsupported(
                                     this.span(method.span.start, method.span.end),
                                     "static accessors are not lowered yet",
                                 ));
                             }
-                            if let Some(evaluation) = &evaluation {
-                                // A static method of a per-evaluation class is a
-                                // method of its frame: `this` is the frame.
+                            // A plain source getter (`get x() { … }`) lowers to a `&self`
+                            // method plus an accessor descriptor in the second class pass
+                            // below, so reads of `obj.x` dispatch to the computed method
+                            // instead of a dropped stored field (see the reference-class
+                            // spec's finding #3). For a materialized/auto-accessor class
+                            // the getter still keeps its backing field.
+                            if materialized.is_some() {
+                                let name = this.property_key_symbol(&method.key)?;
+                                let ty = method
+                                    .value
+                                    .return_type
+                                    .as_ref()
+                                    .map(|annotation| {
+                                        this.ts_type_to_hir(&annotation.type_annotation)
+                                    })
+                                    .transpose()?
+                                    .unwrap_or_else(|| {
+                                        this.erase(ErasureReason::MissingAnnotation)
+                                    });
+                                fields.push(Field {
+                                    // The accessor's backing storage, not a source
+                                    // property: it must stay out of every erased view.
+                                    visibility: Visibility::Hidden,
+                                    name,
+                                    ty,
+                                    optional: false,
+                                    span: this.span(method.span.start, method.span.end),
+                                });
+                            }
+                        }
+                        ClassElement::TSIndexSignature(sig) => {
+                            // A class string/number index signature `[key: string]: T`
+                            // (or `[key: number]: T`) declares a keyed store whose value
+                            // type is the statically known `T`. Record `T` here (in the
+                            // field-collection pass, before the index-value maps are
+                            // published below) so member and computed access can fall
+                            // back to it when no declared named field or method matches.
+                            // Declared named fields are collected separately and keep
+                            // their concrete types; the index value is only the
+                            // dynamic-keyed fallback shape, never a replacement for named
+                            // members.
+                            let value_ty =
+                                this.ts_type_to_hir(&sig.type_annotation.type_annotation)?;
+                            class_index_value_ty = Some(value_ty);
+                        }
+                        _ => {}
+                    }
+                }
+                for element in &class.body.body {
+                    let ClassElement::MethodDefinition(method) = element else {
+                        continue;
+                    };
+                    if method.kind != MethodDefinitionKind::Constructor {
+                        continue;
+                    }
+                    for param in &method.value.params.items {
+                        // `readonly x` (with no explicit accessibility) is still a
+                        // parameter property and declares a public instance field, so a
+                        // constructor arg such as `constructor(readonly innerError: Error)`
+                        // must produce a field.
+                        if param.accessibility.is_none() && !param.readonly {
+                            continue;
+                        }
+                        let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                            return Err(SmeltError::unsupported(
+                                this.span(param.span.start, param.span.end),
+                                "destructured constructor parameter properties are not lowered yet",
+                            ));
+                        };
+                        let name = this.intern_source_name(binding.name.as_str());
+                        let ty = if let Some(annotation) = &param.type_annotation {
+                            this.ts_type_to_hir(&annotation.type_annotation)?
+                        } else if let Some(default) = &param.initializer {
+                            let mut initializer_body = Body::new(
+                                None,
+                                this.span(default.span().start, default.span().end),
+                            );
+                            let value = this.expression(default, &mut initializer_body)?;
+                            Self::expr_ty(&initializer_body, value)
+                        } else {
+                            this.erase(ErasureReason::MissingAnnotation)
+                        };
+                        // `constructor(public n?: number)` stores `n` whether or
+                        // not it was passed, so the field holds `number |
+                        // undefined`: the same `Optional` the parameter has. A
+                        // defaulted property (`public n = 1`) stores the applied
+                        // default and keeps the declared type.
+                        let ty = if param.optional
+                            && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+                        {
+                            this.ctx.krate.types.intern(Type::Optional(ty))
+                        } else {
+                            ty
+                        };
+                        fields.push(Field {
+                            name,
+                            ty,
+                            visibility: visibility(param.accessibility),
+                            optional: false,
+                            span: this.span(param.span.start, param.span.end),
+                        });
+                    }
+                }
+                let mut static_fields =
+                    materialized
+                        .as_ref()
+                        .map_or_else(Vec::new, |materialized_class| {
+                            this.merge_materialized_class_members(
+                                materialized_class,
+                                &mut fields,
+                                class_span,
+                            )
+                        });
+                // Source-declared `static NAME = <literal>` constants extend the
+                // materialized set; a materialized value takes precedence when a member
+                // is named by both, so only append source statics not already present.
+                for static_field in source_static_fields {
+                    if !static_fields
+                        .iter()
+                        .any(|existing| existing.name == static_field.name)
+                    {
+                        static_fields.push(static_field);
+                    }
+                }
+                // A mutable static is live storage: one module mutable global per
+                // field, which every read and write (direct, or through the class
+                // used as a value) goes through. A literal initializer is stored
+                // inline; an expression one is `Pending` until the class exists.
+                // A `readonly` static with an expression initializer gets storage
+                // too: it is evaluated once, not folded, and TypeScript rejects
+                // every write to it. A `readonly` literal stays a constant.
+                for static_field in &mut static_fields {
+                    if static_field.storage.is_some() {
+                        continue;
+                    }
+                    let init = match &static_field.value {
+                        Some(literal) if static_field.mutable => {
+                            smelt_hir::MutableGlobalInit::Literal(literal.clone())
+                        }
+                        None if static_initializers
+                            .iter()
+                            .any(|(name, _)| *name == static_field.name) =>
+                        {
+                            smelt_hir::MutableGlobalInit::Pending
+                        }
+                        None if uninitialized_statics.contains(&static_field.name) => {
+                            smelt_hir::MutableGlobalInit::Literal(Literal::Undefined)
+                        }
+                        _ => continue,
+                    };
+                    {
+                        let field_text = super::super::support::source_spelling(
+                            &this.ctx.krate,
+                            static_field.name,
+                        )
+                        .unwrap_or_default()
+                        .to_owned();
+                        let symbol =
+                            this.intern_source_name(&format!("{class_source_name}_{field_text}"));
+                        let storage = this.ctx.krate.push_item(Item::MutableGlobal(
+                            smelt_hir::MutableGlobalItem {
+                                name: symbol,
+                                ty: static_field.ty,
+                                init,
+                                visibility: Visibility::Public,
+                                span: static_field.span,
+                            },
+                        ));
+                        if absent_statics.contains(&static_field.name) {
+                            this.ctx.absent_static_storage.insert(storage);
+                        }
+                        static_field.storage = Some(storage);
+                    }
+                }
+                this.classes
+                    .push_statics_in_flight(class_source_name.clone(), static_fields.clone());
+                let method_sigs = this.class_method_signatures(&class.body.body)?;
+                let virtual_method_fields =
+                    this.virtual_method_field_names(&class.body.body, class.r#abstract);
+                this.add_virtual_class_method_fields(
+                    &mut fields,
+                    &method_sigs,
+                    &virtual_method_fields,
+                );
+                // Runtime keyed store for a class index signature.
+                //
+                // A class declaring `[key: string]: T` (or `[key: number]: T`) needs a
+                // real backing store so dynamic keyed writes round-trip at runtime:
+                // `x[k] = v; x[k]` must return `v`, and a missing key must read as
+                // `undefined`. The store is a synthesized private `Record<string, T>`
+                // field that sits ALONGSIDE the declared named fields (which stay
+                // concrete). It is added to the class field list here, so it flows
+                // through MIR, struct emission, the `Default`/`Clone` derives, and the
+                // constructor's default struct literal automatically; codegen only has
+                // to route keyed access to it. The field is `Hidden` so it is excluded
+                // from erased object projection. Number-keyed signatures still use a
+                // string-keyed store because JavaScript object property keys are strings.
+                //
+                // Value type `T` stays concrete (`string`, `number`, a class, ...). A
+                // union index value type (`[key: string]: string | number`) has the same
+                // limitation as a plain union-typed class field: the generated union enum
+                // lacks `Debug`/`Default`, so a struct storing it does not derive them.
+                if let Some(value_ty) = class_index_value_ty {
+                    let store_name = this.intern_synthesized_name(CLASS_INDEX_STORE_FIELD);
+                    let key_ty = this.ctx.krate.types.intern(Type::String);
+                    let store_ty = this.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                    if !fields.iter().any(|field| field.name == store_name) {
+                        fields.push(Field {
+                            name: store_name,
+                            ty: store_ty,
+                            // Compiler-synthesized keyed storage, never a source property.
+                            visibility: Visibility::Hidden,
+                            optional: false,
+                            span: class_span,
+                        });
+                    }
+                }
+                this.classes
+                    .set_fields(class_text.to_owned(), fields.clone());
+                this.classes
+                    .set_methods(class_text.to_owned(), method_sigs.clone());
+                if let Some(evaluation) = &mut evaluation {
+                    // A subclass frame links to its base frame and shadows each
+                    // static it inherits (`evaluation_inherited_fields`).
+                    let inherited =
+                        this.evaluation_inherited_fields(evaluation, &frame_fields, class_span);
+                    frame_fields.extend(inherited);
+                    this.evaluation_statics
+                        .insert(evaluation.owner, evaluation.clone());
+                    this.lowering_evaluation_statics = Some(evaluation.clone());
+                    let frame_sigs = this.evaluation_static_method_signatures(&class.body.body)?;
+                    this.classes
+                        .set_fields(evaluation.frame_text.clone(), frame_fields.clone());
+                    this.classes
+                        .set_methods(evaluation.frame_text.clone(), frame_sigs);
+                }
+                // Publish the class index-signature value type (if any) so member and
+                // computed access can resolve keyed reads/writes through it while the
+                // class's own method bodies are still being lowered, and so later
+                // modules see it too. Named fields resolve first; this is the fallback.
+                //
+                // This drives the *type* level of the index signature: the
+                // statically known value type `T` types keyed reads as `Optional<T>`
+                // (missing key -> undefined) and undeclared member reads as `T`, while
+                // declared named fields keep their concrete types. The matching runtime
+                // keyed *store* — the synthesized `__smelt_index_store` field added above
+                // — makes dynamic writes round-trip: codegen routes `x[k] = v` to
+                // `x.__smelt_index_store.insert(k, v)` and `x[k]` to a store lookup.
+                if let Some(value_ty) = class_index_value_ty {
+                    this.classes.set_index_value(class_name, value_ty);
+                    this.ctx
+                        .class_index_values
+                        .write()
+                        .insert(class_name, value_ty);
+                }
+                this.add_overridden_base_method_fields(base, &method_sigs);
+
+                for element in &class.body.body {
+                    match element {
+                        ClassElement::PropertyDefinition(_) => {}
+                        ClassElement::MethodDefinition(method) => {
+                            // Already lowered as a function-typed field above, because
+                            // this class assigns over it through `this`.
+                            if !method.r#static
+                                && method.kind == MethodDefinitionKind::Method
+                                && method.value.body.is_some()
+                                && property_key_plain_name(&method.key)
+                                    .is_some_and(|name| assigned_methods.contains(name.as_ref()))
+                            {
+                                continue;
+                            }
+                            // An overload declaration has no JavaScript body. TypeScript
+                            // validates overload applicability before Smelt runs; when
+                            // the class also contains the matching concrete method, only
+                            // that runtime implementation becomes HIR.
+                            if method.value.body.is_none()
+                                && this.class_method_has_implementation(&class.body.body, method)?
+                            {
+                                continue;
+                            }
+                            if !method.decorators.is_empty() && materialized.is_none() {
+                                return Err(SmeltError::specialization_required(
+                                    this.span(method.span.start, method.span.end),
+                                    class_text,
+                                ));
+                            }
+                            // Plain source getters AND setters are lowered as class
+                            // methods (`__smelt_get_x` / `__smelt_set_x`) and registered
+                            // as one accessor descriptor per property name below, which
+                            // is what routes `obj.x` and `obj.x = v` to them.
+                            if method.computed && !this.is_resolvable_property_key(&method.key) {
+                                return Err(SmeltError::unsupported(
+                                    this.span(method.span.start, method.span.end),
+                                    "dynamic computed method names are not lowered yet",
+                                ));
+                            }
+                            if method.r#static {
+                                if materialized.is_some() {
+                                    continue;
+                                }
+                                // Only plain `static foo(..)` methods are lowered as
+                                // receiver-free associated functions. Static
+                                // getters/setters and computed static keys are deferred.
+                                if method.kind != MethodDefinitionKind::Method {
+                                    return Err(SmeltError::unsupported(
+                                        this.span(method.span.start, method.span.end),
+                                        "static accessors are not lowered yet",
+                                    ));
+                                }
+                                if let Some(evaluation) = &evaluation {
+                                    // A static method of a per-evaluation class is a
+                                    // method of its frame: `this` is the frame.
+                                    let item = this.class_function(
+                                        &evaluation.frame_text,
+                                        evaluation.frame,
+                                        evaluation.frame_ty,
+                                        method,
+                                        false,
+                                        &[],
+                                    )?;
+                                    frame_methods.push(item);
+                                    continue;
+                                }
+                                let item =
+                                    this.class_static_function(class_text, class_name, method)?;
+                                static_methods.push(item);
+                                continue;
+                            }
+                            if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
+                                if !matches!(method.kind, MethodDefinitionKind::Method) {
+                                    return Err(SmeltError::unsupported(
+                                        this.span(method.span.start, method.span.end),
+                                        "abstract constructors are not lowered yet",
+                                    ));
+                                }
+                                let sig = this.abstract_class_method_sig(method)?;
+                                abstract_methods.push(sig);
+                                continue;
+                            }
+                            if !matches!(
+                                method.kind,
+                                MethodDefinitionKind::Constructor
+                                    | MethodDefinitionKind::Method
+                                    | MethodDefinitionKind::Get
+                                    | MethodDefinitionKind::Set
+                            ) {
+                                return Err(SmeltError::unsupported(
+                                    this.span(method.span.start, method.span.end),
+                                    "getters and setters are not lowered yet",
+                                ));
+                            }
+                            let item = if method.kind == MethodDefinitionKind::Constructor {
+                                if constructor.is_some() {
+                                    return Err(SmeltError::unsupported(
+                                        this.span(method.span.start, method.span.end),
+                                        "duplicate constructors are not allowed",
+                                    ));
+                                }
                                 let item = this.class_function(
-                                    &evaluation.frame_text,
-                                    evaluation.frame,
-                                    evaluation.frame_ty,
+                                    class_text,
+                                    class_name,
+                                    class_ty,
+                                    method,
+                                    true,
+                                    &field_initializers,
+                                )?;
+                                constructor = Some(item);
+                                item
+                            } else {
+                                let item = this.class_function(
+                                    class_text,
+                                    class_name,
+                                    class_ty,
                                     method,
                                     false,
                                     &[],
                                 )?;
-                                frame_methods.push(item);
-                                continue;
-                            }
-                            let item = this.class_static_function(
-                                class_text,
-                                class_name,
-                                method,
-                            )?;
-                            static_methods.push(item);
-                            continue;
-                        }
-                        if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
-                            if !matches!(method.kind, MethodDefinitionKind::Method) {
-                                return Err(SmeltError::unsupported(
-                                    this.span(method.span.start, method.span.end),
-                                    "abstract constructors are not lowered yet",
-                                ));
-                            }
-                            let sig = this.abstract_class_method_sig(method)?;
-                            abstract_methods.push(sig);
-                            continue;
-                        }
-                        if !matches!(
-                            method.kind,
-                            MethodDefinitionKind::Constructor
-                                | MethodDefinitionKind::Method
-                                | MethodDefinitionKind::Get
-                                | MethodDefinitionKind::Set
-                        ) {
-                            return Err(SmeltError::unsupported(
-                                this.span(method.span.start, method.span.end),
-                                "getters and setters are not lowered yet",
-                            ));
-                        }
-                        let item = if method.kind == MethodDefinitionKind::Constructor {
-                            if constructor.is_some() {
-                                return Err(SmeltError::unsupported(
-                                    this.span(method.span.start, method.span.end),
-                                    "duplicate constructors are not allowed",
-                                ));
-                            }
-                            let item = this.class_function(
-                                class_text,
-                                class_name,
-                                class_ty,
-                                method,
-                                true,
-                                &field_initializers,
-                            )?;
-                            constructor = Some(item);
-                            item
-                        } else {
-                            let item = this.class_function(
-                                class_text,
-                                class_name,
-                                class_ty,
-                                method,
-                                false,
-                                &[],
-                            )?;
-                            if matches!(
-                                method.kind,
-                                MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                            ) {
-                                descriptor_accessors.push((
-                                    this.property_key_symbol(&method.key)?,
-                                    method.kind,
-                                    item,
-                                ));
-                            }
-                            // Register a source-level accessor descriptor for a plain
-                            // getter or setter so member reads dispatch to the
-                            // computed method and member WRITES dispatch to the
-                            // setter. A property with both accessors is ONE
-                            // descriptor carrying both halves, whichever order the
-                            // two appear in the class body, because that is what the
-                            // read and write emitters look up by property name.
-                            if materialized.is_none()
-                                && matches!(
+                                if matches!(
                                     method.kind,
                                     MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                                )
-                            {
-                                let name = this.property_key_symbol(&method.key)?;
-                                match method.kind {
-                                    MethodDefinitionKind::Get => {
-                                        // `Unknown` is interned only when an
-                                        // accessor genuinely has no annotation:
-                                        // interning it unconditionally would add an
-                                        // `Unknown` entry to the type table of every
-                                        // crate that declares any class method,
-                                        // which flips crate-wide erasure decisions
-                                        // (record backing, the erased prelude) for
-                                        // code that has no erased value at all.
-                                        let read_ty = match method.value.return_type.as_ref() {
-                                            Some(annotation) => {
-                                                this.ts_type_to_hir(&annotation.type_annotation)?
-                                            }
-                                            None => this.erase(ErasureReason::MissingAnnotation),
-                                        };
-                                        if let Some(existing) = source_descriptors
-                                            .iter_mut()
-                                            .find(|descriptor| descriptor.name == name)
-                                        {
-                                            existing.read_ty = read_ty;
-                                            existing.getter = Some(item);
-                                        } else {
-                                            source_descriptors.push(smelt_hir::Descriptor {
-                                                name,
-                                                read_ty,
-                                                write_ty: None,
-                                                getter: Some(item),
-                                                setter: None,
-                                                data_descriptor: false,
-                                                is_static: false,
-                                                value_fields: Vec::new(),
-                                            });
-                                        }
-                                    }
-                                    MethodDefinitionKind::Set => {
-                                        // The written type is the setter's own
-                                        // parameter type; a setter takes exactly one
-                                        // parameter, and an unannotated one is the
-                                        // erased boundary the same way an
-                                        // unannotated getter return is.
-                                        let write_ty = match method
-                                            .value
-                                            .params
-                                            .items
-                                            .first()
-                                            .and_then(|param| param.type_annotation.as_ref())
-                                        {
-                                            Some(annotation) => {
-                                                this.ts_type_to_hir(&annotation.type_annotation)?
-                                            }
-                                            None => this.erase(ErasureReason::MissingAnnotation),
-                                        };
-                                        if let Some(existing) = source_descriptors
-                                            .iter_mut()
-                                            .find(|descriptor| descriptor.name == name)
-                                        {
-                                            existing.write_ty = Some(write_ty);
-                                            existing.setter = Some(item);
-                                        } else {
-                                            source_descriptors.push(smelt_hir::Descriptor {
-                                                name,
-                                                // A set-only property has no getter,
-                                                // so no READ ever dispatches through
-                                                // this descriptor (a getterless
-                                                // descriptor read is an emit error,
-                                                // and JavaScript answers `undefined`
-                                                // for one). The slot mirrors the
-                                                // written type rather than interning
-                                                // `Unknown`, which would add an
-                                                // erased entry to the crate's type
-                                                // table for a value that never
-                                                // exists.
-                                                read_ty: write_ty,
-                                                write_ty: Some(write_ty),
-                                                getter: None,
-                                                setter: Some(item),
-                                                data_descriptor: false,
-                                                is_static: false,
-                                                value_fields: Vec::new(),
-                                            });
-                                        }
-                                    }
-                                    _ => {}
+                                ) {
+                                    descriptor_accessors.push((
+                                        this.property_key_symbol(&method.key)?,
+                                        method.kind,
+                                        item,
+                                    ));
                                 }
-                            }
-                            methods.push(item);
-                            item
-                        };
-                        let _ = item;
-                    }
-                    ClassElement::AccessorProperty(accessor) => {
-                        if materialized.is_some() {
-                            continue;
+                                // Register a source-level accessor descriptor for a plain
+                                // getter or setter so member reads dispatch to the
+                                // computed method and member WRITES dispatch to the
+                                // setter. A property with both accessors is ONE
+                                // descriptor carrying both halves, whichever order the
+                                // two appear in the class body, because that is what the
+                                // read and write emitters look up by property name.
+                                if materialized.is_none()
+                                    && matches!(
+                                        method.kind,
+                                        MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                                    )
+                                {
+                                    let name = this.property_key_symbol(&method.key)?;
+                                    match method.kind {
+                                        MethodDefinitionKind::Get => {
+                                            // `Unknown` is interned only when an
+                                            // accessor genuinely has no annotation:
+                                            // interning it unconditionally would add an
+                                            // `Unknown` entry to the type table of every
+                                            // crate that declares any class method,
+                                            // which flips crate-wide erasure decisions
+                                            // (record backing, the erased prelude) for
+                                            // code that has no erased value at all.
+                                            let read_ty = match method.value.return_type.as_ref() {
+                                                Some(annotation) => this
+                                                    .ts_type_to_hir(&annotation.type_annotation)?,
+                                                None => {
+                                                    this.erase(ErasureReason::MissingAnnotation)
+                                                }
+                                            };
+                                            if let Some(existing) = source_descriptors
+                                                .iter_mut()
+                                                .find(|descriptor| descriptor.name == name)
+                                            {
+                                                existing.read_ty = read_ty;
+                                                existing.getter = Some(item);
+                                            } else {
+                                                source_descriptors.push(smelt_hir::Descriptor {
+                                                    name,
+                                                    read_ty,
+                                                    write_ty: None,
+                                                    getter: Some(item),
+                                                    setter: None,
+                                                    data_descriptor: false,
+                                                    is_static: false,
+                                                    value_fields: Vec::new(),
+                                                });
+                                            }
+                                        }
+                                        MethodDefinitionKind::Set => {
+                                            // The written type is the setter's own
+                                            // parameter type; a setter takes exactly one
+                                            // parameter, and an unannotated one is the
+                                            // erased boundary the same way an
+                                            // unannotated getter return is.
+                                            let write_ty =
+                                                match method.value.params.items.first().and_then(
+                                                    |param| param.type_annotation.as_ref(),
+                                                ) {
+                                                    Some(annotation) => this.ts_type_to_hir(
+                                                        &annotation.type_annotation,
+                                                    )?,
+                                                    None => {
+                                                        this.erase(ErasureReason::MissingAnnotation)
+                                                    }
+                                                };
+                                            if let Some(existing) = source_descriptors
+                                                .iter_mut()
+                                                .find(|descriptor| descriptor.name == name)
+                                            {
+                                                existing.write_ty = Some(write_ty);
+                                                existing.setter = Some(item);
+                                            } else {
+                                                source_descriptors.push(smelt_hir::Descriptor {
+                                                    name,
+                                                    // A set-only property has no getter,
+                                                    // so no READ ever dispatches through
+                                                    // this descriptor (a getterless
+                                                    // descriptor read is an emit error,
+                                                    // and JavaScript answers `undefined`
+                                                    // for one). The slot mirrors the
+                                                    // written type rather than interning
+                                                    // `Unknown`, which would add an
+                                                    // erased entry to the crate's type
+                                                    // table for a value that never
+                                                    // exists.
+                                                    read_ty: write_ty,
+                                                    write_ty: Some(write_ty),
+                                                    getter: None,
+                                                    setter: Some(item),
+                                                    data_descriptor: false,
+                                                    is_static: false,
+                                                    value_fields: Vec::new(),
+                                                });
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                methods.push(item);
+                                item
+                            };
+                            let _ = item;
                         }
-                        if !accessor.decorators.is_empty() {
-                            return Err(SmeltError::specialization_required(
+                        ClassElement::AccessorProperty(accessor) => {
+                            if materialized.is_some() {
+                                continue;
+                            }
+                            if !accessor.decorators.is_empty() {
+                                return Err(SmeltError::specialization_required(
+                                    this.span(accessor.span.start, accessor.span.end),
+                                    class_text,
+                                ));
+                            }
+                            return Err(SmeltError::unsupported(
                                 this.span(accessor.span.start, accessor.span.end),
-                                class_text,
+                                "accessor properties are not lowered yet",
                             ));
                         }
-                        return Err(SmeltError::unsupported(
-                            this.span(accessor.span.start, accessor.span.end),
-                            "accessor properties are not lowered yet",
-                        ));
-                    }
-                    ClassElement::StaticBlock(block) => {
-                        return Err(SmeltError::unsupported(
-                            this.span(block.span.start, block.span.end),
-                            "static blocks are not lowered yet",
-                        ));
-                    }
-                    ClassElement::TSIndexSignature(_) => {
-                        // The class index signature's value type is collected in the
-                        // field-collection pass above and published to the
-                        // index-value maps; nothing further is emitted for the
-                        // signature member itself here.
+                        ClassElement::StaticBlock(block) => {
+                            return Err(SmeltError::unsupported(
+                                this.span(block.span.start, block.span.end),
+                                "static blocks are not lowered yet",
+                            ));
+                        }
+                        ClassElement::TSIndexSignature(_) => {
+                            // The class index signature's value type is collected in the
+                            // field-collection pass above and published to the
+                            // index-value maps; nothing further is emitted for the
+                            // signature member itself here.
+                        }
                     }
                 }
-            }
 
-            if let Some(materialized_class) = &materialized {
-                let lifted_methods = materialized_class
-                    .methods
-                    .iter()
-                    .filter(|method| {
-                        method.binding_mode == smelt_specialize::BindingMode::Instance
-                            && this.materialized_callable_needs_lift(&method.callable)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for materialized_method in lifted_methods {
-                    let method_name =
-                        this.intern_source_name(specialization::materialized_member_name(
-                            &materialized_method.name,
-                        ));
-                    let lifted = this.lift_materialized_class_callable(
-                        &materialized_method.callable,
-                        &materialized_method.signature,
-                        specialization::materialized_member_name(&materialized_method.name),
-                        class_name,
-                        class_ty,
-                    )?;
-                    let original_name =
-                        this.intern_synthesized_name(&format!("__smelt_original_{}", materialized_method.name));
-                    let originals = methods
+                if let Some(materialized_class) = &materialized {
+                    let lifted_methods = materialized_class
+                        .methods
                         .iter()
-                        .copied()
-                        .filter(|item| {
-                            matches!(
-                                this.item_ref(*item),
-                                Item::Function(function) if function.name == method_name
-                            )
+                        .filter(|method| {
+                            method.binding_mode == smelt_specialize::BindingMode::Instance
+                                && this.materialized_callable_needs_lift(&method.callable)
                         })
+                        .cloned()
                         .collect::<Vec<_>>();
-                    for original in originals {
-                        let index = usize::try_from(original.0).unwrap_or(usize::MAX);
-                        if let Some(Item::Function(function)) =
-                            this.ctx.krate.items.get_mut(index)
-                        {
-                            function.name = original_name;
-                            function.owner = FunctionOwner::ClassMethod {
-                                class: class_name,
-                                method: original_name,
-                            };
+                    for materialized_method in lifted_methods {
+                        let method_name = this.intern_source_name(
+                            specialization::materialized_member_name(&materialized_method.name),
+                        );
+                        let lifted = this.lift_materialized_class_callable(
+                            &materialized_method.callable,
+                            &materialized_method.signature,
+                            specialization::materialized_member_name(&materialized_method.name),
+                            class_name,
+                            class_ty,
+                        )?;
+                        let original_name = this.intern_synthesized_name(&format!(
+                            "__smelt_original_{}",
+                            materialized_method.name
+                        ));
+                        let originals = methods
+                            .iter()
+                            .copied()
+                            .filter(|item| {
+                                matches!(
+                                    this.item_ref(*item),
+                                    Item::Function(function) if function.name == method_name
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        for original in originals {
+                            let index = usize::try_from(original.0).unwrap_or(usize::MAX);
+                            if let Some(Item::Function(function)) =
+                                this.ctx.krate.items.get_mut(index)
+                            {
+                                function.name = original_name;
+                                function.owner = FunctionOwner::ClassMethod {
+                                    class: class_name,
+                                    method: original_name,
+                                };
+                            }
                         }
+                        methods.push(lifted);
                     }
-                    methods.push(lifted);
                 }
-            }
 
-            if constructor.is_none() {
-                constructor = Some(this.synthesize_default_class_constructor(
-                    class_text,
-                    class_name,
-                    class_ty,
-                    base.is_some(),
-                    &field_initializers,
-                    this.span(class.span.start, class.span.end),
-                )?);
-            }
-            let mut instance_initializers = Vec::new();
-            if let Some(materialized_class) = &materialized {
-                let initializer_signature = smelt_specialize::FunctionSignature {
-                    parameters: Vec::new(),
-                    return_type: smelt_specialize::StaticType::Null,
-                    is_async: false,
-                    throws: false,
-                };
-                for initializer in materialized_class.initializers.iter().filter(|initializer| {
-                    initializer.kind == smelt_specialize::InitializerKind::Instance
-                }) {
-                    let hidden_name = format!("__smelt_initializer_{}", initializer.order);
-                    let item = this.lift_materialized_class_callable(
-                        &initializer.callable,
-                        &initializer_signature,
-                        &hidden_name,
+                if constructor.is_none() {
+                    constructor = Some(this.synthesize_default_class_constructor(
+                        class_text,
                         class_name,
                         class_ty,
-                    )?;
-                    // The hidden initializer method's name is minted here.
-                    let minted = this.intern_synthesized_name(&hidden_name);
-                    if let Some(Item::Function(function)) =
-                        usize::try_from(item.0).ok().and_then(|index| this.ctx.krate.items.get_mut(index))
-                    {
-                        function.name = minted;
-                        if let FunctionOwner::ClassMethod { class: owner, .. } = function.owner {
-                            function.owner = FunctionOwner::ClassMethod { class: owner, method: minted };
-                        }
-                    }
-                    methods.push(item);
-                    instance_initializers.push((
-                        item,
-                        initializer.target_kind.clone(),
-                        initializer.target_name.clone(),
-                    ));
+                        base.is_some(),
+                        &field_initializers,
+                        this.span(class.span.start, class.span.end),
+                    )?);
                 }
-            }
-            if let Some(constructor) = constructor {
-                this.prepend_materialized_initializer_calls(
-                    constructor,
-                    &instance_initializers,
-                    class_ty,
-                    class_span,
-                )?;
-            }
-            let descriptors = materialized.as_ref().map_or_else(
-                || source_descriptors,
-                |materialized_class| {
-                    this.merge_materialized_class_descriptors(
-                        materialized_class,
-                        &descriptor_accessors,
+                let mut instance_initializers = Vec::new();
+                if let Some(materialized_class) = &materialized {
+                    let initializer_signature = smelt_specialize::FunctionSignature {
+                        parameters: Vec::new(),
+                        return_type: smelt_specialize::StaticType::Null,
+                        is_async: false,
+                        throws: false,
+                    };
+                    for initializer in
+                        materialized_class
+                            .initializers
+                            .iter()
+                            .filter(|initializer| {
+                                initializer.kind == smelt_specialize::InitializerKind::Instance
+                            })
+                    {
+                        let hidden_name = format!("__smelt_initializer_{}", initializer.order);
+                        let item = this.lift_materialized_class_callable(
+                            &initializer.callable,
+                            &initializer_signature,
+                            &hidden_name,
+                            class_name,
+                            class_ty,
+                        )?;
+                        // The hidden initializer method's name is minted here.
+                        let minted = this.intern_synthesized_name(&hidden_name);
+                        if let Some(Item::Function(function)) = usize::try_from(item.0)
+                            .ok()
+                            .and_then(|index| this.ctx.krate.items.get_mut(index))
+                        {
+                            function.name = minted;
+                            if let FunctionOwner::ClassMethod { class: owner, .. } = function.owner
+                            {
+                                function.owner = FunctionOwner::ClassMethod {
+                                    class: owner,
+                                    method: minted,
+                                };
+                            }
+                        }
+                        methods.push(item);
+                        instance_initializers.push((
+                            item,
+                            initializer.target_kind.clone(),
+                            initializer.target_name.clone(),
+                        ));
+                    }
+                }
+                if let Some(constructor) = constructor {
+                    this.prepend_materialized_initializer_calls(
+                        constructor,
+                        &instance_initializers,
+                        class_ty,
                         class_span,
-                    )
-                },
-            );
+                    )?;
+                }
+                let descriptors = materialized.as_ref().map_or_else(
+                    || source_descriptors,
+                    |materialized_class| {
+                        this.merge_materialized_class_descriptors(
+                            materialized_class,
+                            &descriptor_accessors,
+                            class_span,
+                        )
+                    },
+                );
 
-            let implements = class
-                .implements
-                .iter()
-                .filter_map(|imp| this.implements_reference(imp).transpose())
-                .collect::<Result<Vec<_>, _>>()?;
-            this.inject_error_marker_fields(base, class_span, &mut fields);
-            let item = this.ctx.krate.push_item(Item::Class(Class {
-                name: class_name,
-                span: this.span(class.span.start, class.span.end),
-                kind: if class.r#abstract {
-                    smelt_hir::ClassKind::Abstract
-                } else {
-                    smelt_hir::ClassKind::Plain
-                },
-                type_params,
-                base,
-                base_args,
-                fields,
-                static_fields,
-                descriptors,
-                constructor,
-                methods,
-                static_methods,
-                abstract_methods,
-                implements,
-                protocols: Vec::new(),
-                statics_of: None,
-            }));
-            if let Some(evaluation) = &evaluation {
-                this.finish_evaluation_statics(evaluation, frame_fields, frame_methods, class_span)?;
-            }
-            Ok((item, static_initializers))
-        });
+                let implements = class
+                    .implements
+                    .iter()
+                    .filter_map(|imp| this.implements_reference(imp).transpose())
+                    .collect::<Result<Vec<_>, _>>()?;
+                this.inject_error_marker_fields(base, class_span, &mut fields);
+                let item = this.ctx.krate.push_item(Item::Class(Class {
+                    name: class_name,
+                    span: this.span(class.span.start, class.span.end),
+                    kind: if class.r#abstract {
+                        smelt_hir::ClassKind::Abstract
+                    } else {
+                        smelt_hir::ClassKind::Plain
+                    },
+                    type_params,
+                    base,
+                    base_args,
+                    fields,
+                    static_fields,
+                    descriptors,
+                    constructor,
+                    methods,
+                    static_methods,
+                    abstract_methods,
+                    implements,
+                    protocols: Vec::new(),
+                    statics_of: None,
+                }));
+                if let Some(evaluation) = &evaluation {
+                    this.finish_evaluation_statics(
+                        evaluation,
+                        frame_fields,
+                        frame_methods,
+                        class_span,
+                    )?;
+                }
+                Ok((item, static_initializers))
+            },
+        );
         self.classes.truncate_statics_in_flight(statics_depth);
         self.lowering_evaluation_statics = saved_evaluation;
         let (item, static_initializers) = item?;
         self.classes.register(class_source_name.clone(), item);
         self.validate_implements(item)?;
+        // A per-evaluation class declared at module level (it extends a
+        // class a function returns) keeps its frame in a module global.
+        if !self.classes.in_body() {
+            self.module_class_frame(item, class, &class_source_name)?;
+        }
         for (field, value) in static_initializers {
             self.lower_static_field_initializer(&class_source_name, item, field, value)?;
         }

@@ -18,6 +18,16 @@
 //! - **Self-reading constructor-function fields**: `this.count = this.count +
 //!   1` in a prototype method keeps the field the `number` its other writes
 //!   give it (a fixed point over the field's own type), instead of erasing it.
+//! - **Per-evaluation subclasses and generics**: a class extending a class
+//!   declared in a function (beside it, or at module level through the value
+//!   the function returns) inherits that evaluation's statics live and
+//!   shadows them on write; a generic per-evaluation class keeps its type
+//!   parameters.
+//! - **Uninitialized statics in typed slots**: `static x: number;` read before
+//!   any write is `undefined` wherever TypeScript types it `number`.
+//! - **Live erased containers**: a static `Map`/`Set` reached through an
+//!   erased class value is the static itself.
+//! - **Static `this`**: `this` in a static method is the class.
 
 mod common;
 
@@ -600,5 +610,547 @@ fn factory_class_expressions_are_class_values_per_evaluation() -> TestResult {
         &output,
         &FACTORY_CLASS_EXPRESSION_OUTPUT.to_owned(),
         "the per-evaluation class-expression program's output",
+    )
+}
+
+/// The text of every generated Rust file of the project at `root`.
+fn generated_text(root: &Path) -> TestResult<String> {
+    let main = fs::read_to_string(root.join("dist/src/main.rs"))?;
+    let source = fs::read_to_string(root.join("dist/src/source_main.rs")).unwrap_or_default();
+    Ok(format!("{main}\n{source}"))
+}
+
+/// The body of the generated `struct {name} { .. }`.
+fn struct_text<'a>(generated: &'a str, name: &str) -> TestResult<&'a str> {
+    impl_text(generated, &format!("struct {name} {{"))
+}
+
+/// The text from `header` to the end of its item (the next line that is a
+/// lone closing brace).
+fn impl_text<'a>(generated: &'a str, header: &str) -> TestResult<&'a str> {
+    let start = generated
+        .find(header)
+        .ok_or_else(|| format!("`{header}` is not in the generated Rust"))?;
+    let rest = &generated[start..];
+    let end = rest
+        .find("\n}\n")
+        .map_or(rest.len(), |end| end.saturating_add(3));
+    Ok(&rest[..end])
+}
+
+/// Per-evaluation subclasses declared beside their base in a function: inherited
+/// statics read live from the base until the subclass writes its own (through
+/// `Sub.grow()` with `this` = `Sub`), a three-level chain, the base name
+/// inside a subclass method, `new this()` in an inherited static method,
+/// in-place mutation of an inherited container static (which leaves it
+/// inherited), and `Object.keys` listing the statics the subclass owns.
+const FACTORY_SUBCLASS_TS: &str = r#"function run(n: number): string {
+  class Base {
+    static size = n;
+    static made = 0;
+    v: number;
+    constructor(v: number) { this.v = v; Base.made++; }
+    static grow(): number { this.size += 1; return this.size; }
+    static baseSize(): number { return Base.size; }
+    static create(v: number): Base { return new this(v); }
+    describe(): string { return `B${this.v}/${Base.size}`; }
+  }
+  class Sub extends Base {
+    static tag = "t" + n;
+    describe(): string { return `S${this.v}/${Sub.size}/${Sub.tag}`; }
+  }
+  class Deep extends Sub {
+    static extra = n * 3;
+    w: number;
+    constructor(v: number, w: number) { super(v); this.w = w; }
+    static deepGrow(): number { Deep.extra += Deep.size; return Deep.extra; }
+  }
+  const out: string[] = [];
+  out.push(`${Sub.size} ${Deep.size} ${Sub.grow()} ${Base.size} ${Sub.size} ${Sub.baseSize()} ${Deep.size}`);
+  Base.size = 100;
+  out.push(`${Sub.size} ${Deep.size} ${Deep.grow()} ${Sub.size} ${Deep.deepGrow()}`);
+  const d = new Deep(4, 5);
+  const c = Sub.create(9);
+  out.push(`${d.describe()} ${d.w} ${c.describe()} ${Base.made} ${d instanceof Base} ${d instanceof Sub}`);
+  out.push(`${Object.keys(Sub).join(",")}|${Object.keys(Deep).join(",")}`);
+  return out.join("\n");
+}
+console.log(run(1));
+console.log(run(10));
+function makeLog(n: number) {
+  class Base {
+    static history: number[] = [n];
+    static counts: Map<string, number> = new Map();
+    static log(v: number): number { this.history.push(v); this.counts.set("k", v); return this.history.length; }
+  }
+  class Sub extends Base {
+    static note(): string { return Sub.history.join("+") + "/" + Base.history.join("+") + "/" + Sub.counts.get("k"); }
+  }
+  const logged = [Base.log(1), Sub.log(2), Sub.note(), Base.history.length].join(" ");
+  Base.history = [99];
+  return `${logged} ${Sub.history.join("+")} ${Object.keys(Sub).join(",")}`;
+}
+console.log(makeLog(7));
+console.log(makeLog(8));
+"#;
+
+/// What Node prints for [`FACTORY_SUBCLASS_TS`].
+const FACTORY_SUBCLASS_OUTPUT: &str = concat!(
+    "1 1 2 1 2 1 2\n",
+    "2 2 3 2 6\n",
+    "S4/2/t1 5 S9/2/t1 2 true true\n",
+    "tag,size|extra,size\n",
+    "10 10 11 10 11 10 11\n",
+    "11 11 12 11 42\n",
+    "S4/11/t10 5 S9/11/t10 2 true true\n",
+    "tag,size|extra,size\n",
+    "2 3 7+1+2/7+1+2/2 3 99 \n",
+    "2 3 8+1+2/8+1+2/2 3 99 \n",
+);
+
+/// A subclass of a per-evaluation class is per-evaluation too, and resolves its
+/// statics through its base exactly as JavaScript's constructor prototype chain.
+#[test]
+fn per_evaluation_subclasses_inherit_and_shadow_statics() -> TestResult {
+    let sources = [("main.ts", FACTORY_SUBCLASS_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        FACTORY_SUBCLASS_OUTPUT,
+        "per-evaluation subclasses",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &FACTORY_SUBCLASS_OUTPUT.to_owned(),
+        "the per-evaluation subclasses program's output",
+    )?;
+    let all = generated_text(root)?;
+    // Type preservation: the subclass frame links to its base frame by its
+    // concrete type, shadows each inherited static at its own type, keeps no
+    // copy of the base's storage, and no frame holds an erased value.
+    let sub_frame = struct_text(&all, "Sub__smelt_staticsInner")?;
+    ensure(
+        sub_frame.contains("__smelt_base_1: Base__smelt_statics,")
+            && sub_frame.contains("__smelt_shadow_size_1: Option<f64>,")
+            && sub_frame.contains("tag: JsString,"),
+        "the subclass frame links to the base frame and shadows `size` as `Option<f64>`",
+    )?;
+    ensure(
+        !sub_frame.contains("    size: f64,"),
+        "the subclass frame stores no copy of the base's `size`",
+    )?;
+    ensure(
+        all.contains("__smelt_statics_2: Deep__smelt_statics,"),
+        "a `Deep` instance holds its own frame",
+    )?;
+    for frame in [
+        "Base__smelt_staticsInner",
+        "Sub__smelt_staticsInner",
+        "Deep__smelt_staticsInner",
+    ] {
+        ensure(
+            !struct_text(&all, frame)?.contains("SmeltUnknown"),
+            format!("`{frame}` holds no erased value"),
+        )?;
+    }
+    Ok(())
+}
+
+/// A factory returning a per-evaluation class and its subclass inside an erased
+/// record: construction, inherited and own statics, static methods and
+/// `instanceof` across two evaluations, all through erased class values.
+const ERASED_SUBCLASS_TS: &str = r"function make(n: number) {
+  class Base {
+    static size = n;
+    static count = 0;
+    v: number;
+    constructor(v: number) { this.v = v; Base.count++; }
+    describe(): string { return `${this.v}/${Base.size}/${Base.count}`; }
+    static grow(): number { this.size += 1; return this.size; }
+  }
+  class Sub extends Base {
+    static extra = n * 100;
+    w: number;
+    constructor(v: number, w: number) { super(v); this.w = w; Sub.extra++; }
+    describe(): string { return super.describe() + `:${this.w}:${Sub.extra}:${Sub.size}`; }
+  }
+  return { Base, Sub };
+}
+const one = make(1);
+const two = make(10);
+const s = new one.Sub(5, 6);
+const t = new two.Sub(7, 8);
+console.log(s.describe(), t.describe(), one.Base.count, two.Base.count, one.Sub.grow(), one.Base.size, two.Sub.size);
+console.log(s instanceof one.Base, s instanceof two.Base, s instanceof one.Sub, t instanceof two.Sub);
+";
+
+/// What Node prints for [`ERASED_SUBCLASS_TS`].
+const ERASED_SUBCLASS_OUTPUT: &str = concat!(
+    "5/1/1:6:101:1 7/10/1:8:1001:10 1 1 2 1 10\n",
+    "true false true true\n",
+);
+
+/// Erased class values of a per-evaluation subclass answer statics and
+/// `instanceof` along the evaluation's own chain.
+#[test]
+fn per_evaluation_subclasses_through_erased_class_values() -> TestResult {
+    let sources = [("main.ts", ERASED_SUBCLASS_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        ERASED_SUBCLASS_OUTPUT,
+        "erased per-evaluation subclasses",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &ERASED_SUBCLASS_OUTPUT.to_owned(),
+        "the erased per-evaluation subclasses program's output",
+    )?;
+    let all = generated_text(root)?;
+    ensure(
+        all.contains("struct Sub__smelt_statics(::std::rc::Rc<::std::cell::RefCell<Sub__smelt_staticsInner>>)"),
+        "the subclass frame is a reference class",
+    )
+}
+
+/// Module-level classes extending a class a function returns: through a
+/// binding (`extends B1`) and through the call itself (`extends make(20)`).
+const MODULE_SUBCLASS_TS: &str = r#"function make(n: number) {
+  class Base {
+    static size = n;
+    v: number;
+    constructor(v: number) { this.v = v; }
+    static grow(): number { this.size += 1; return this.size; }
+    describe(): string { return `${this.v}/${Base.size}`; }
+  }
+  return Base;
+}
+const B1 = make(1);
+class Ext extends B1 {
+  static label = "ext";
+  describe(): string { return `ext:${super.describe()}:${Ext.size}`; }
+}
+class Ext2 extends make(20) {}
+const e = new Ext(3);
+console.log(e.describe(), Ext.size, Ext.grow(), B1.size, Ext.size, Ext.label, Ext2.size, new Ext2(4).describe());
+console.log(e instanceof B1, e instanceof Ext, new Ext2(1) instanceof B1);
+"#;
+
+/// What Node prints for [`MODULE_SUBCLASS_TS`].
+const MODULE_SUBCLASS_OUTPUT: &str =
+    concat!("ext:3/1:1 1 2 1 2 ext 20 4/20\n", "true true false\n",);
+
+/// A module-level subclass of a per-evaluation class keeps its frame in a module
+/// global, linked to the base the `extends` clause evaluated to.
+#[test]
+fn module_level_subclasses_of_returned_classes() -> TestResult {
+    let sources = [("main.ts", MODULE_SUBCLASS_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        MODULE_SUBCLASS_OUTPUT,
+        "module-level subclasses",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &MODULE_SUBCLASS_OUTPUT.to_owned(),
+        "the module-level subclasses program's output",
+    )?;
+    let all = generated_text(root)?;
+    ensure(
+        all.contains("static SMELT_GLOBAL_EXT__SMELT_STATICS_VALUE_1: ::std::cell::RefCell<Ext__smelt_statics>"),
+        "the module-level subclass frame is a typed module global",
+    )
+}
+
+/// Generic per-evaluation classes: instantiated by argument inference and by
+/// explicit type arguments, a generic static method, and construction through an
+/// erased class value.
+const GENERIC_FACTORY_TS: &str = r#"function make(tag: string) {
+  class Box<T> {
+    static label = tag;
+    static count = 0;
+    value: T;
+    constructor(value: T) { this.value = value; Box.count++; }
+    get(): T { return this.value; }
+    describe(): string { return `${Box.label}:${String(this.value)}:${Box.count}`; }
+    static of<U>(value: U): Box<U> { return new Box(value); }
+  }
+  return Box;
+}
+const A = make("a");
+const B = make("b");
+const a = new A(1);
+const s = new A<string>("x");
+const b = B.of(true);
+console.log(a.get() + 1, s.get().toUpperCase(), b.get(), a.describe(), s.describe(), b.describe(), A.count, B.count);
+console.log(a instanceof A, a instanceof B, b instanceof B);
+function makeExpr(tag: string) {
+  return class Box<T> {
+    static label = tag;
+    value: T;
+    constructor(value: T) { this.value = value; }
+    get(): T { return this.value; }
+  };
+}
+const GA = makeExpr("a");
+function erasedValue(K: unknown) { return K; }
+const EA = erasedValue(GA) as typeof GA;
+const e = new EA<number>(7);
+console.log(e.get(), EA.label, e instanceof GA, Object.keys(GA).join(","));
+"#;
+
+/// What Node prints for [`GENERIC_FACTORY_TS`].
+const GENERIC_FACTORY_OUTPUT: &str = concat!(
+    "2 X true a:1:2 a:x:2 b:true:1 2 1\n",
+    "true false true\n",
+    "7 a true label\n",
+);
+
+/// A per-evaluation class keeps its type parameters as Rust generics.
+#[test]
+fn generic_per_evaluation_classes_keep_type_parameters() -> TestResult {
+    let sources = [("main.ts", GENERIC_FACTORY_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        GENERIC_FACTORY_OUTPUT,
+        "generic per-evaluation classes",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &GENERIC_FACTORY_OUTPUT.to_owned(),
+        "the generic per-evaluation classes program's output",
+    )?;
+    let all = generated_text(root)?;
+    // Type preservation: the owner stays generic and each construction keeps
+    // its instantiation.
+    ensure(
+        all.contains("struct Box_<T> {"),
+        "the owner is a generic struct",
+    )?;
+    ensure(
+        all.contains(": Box_<f64>;") && all.contains(": Box_<JsString>;"),
+        "`new A(1)` is a `Box_<f64>` and `new A<string>(..)` a `Box_<JsString>`",
+    )
+}
+
+/// Statics declared without an initializer at a type that does not admit
+/// `undefined`, read before any write into typed slots: locals (annotated,
+/// inferred, reassigned), parameters of each primitive type, and a
+/// per-evaluation class's static.
+const ABSENT_STATIC_TS: &str = r#"class Box { static x: number; static s: string; static flag: boolean; static maybe?: number; }
+const y: number = Box.x;
+console.log(y, y + 1, y === undefined, typeof y, `${y}`, y * 2 > 1, y !== undefined);
+function twice(n: number): number { return n * 2; }
+function shout(s: string): string { return s + "!"; }
+function either(b: boolean): string { return b ? "yes" : "no"; }
+console.log(twice(Box.x), shout(Box.s), either(Box.flag));
+const t: string = Box.s;
+console.log(t, t === undefined, `${t}!`, typeof t);
+let z: number = Box.x;
+z = z + 1;
+console.log(z, typeof z);
+const inferred = Box.x;
+console.log(inferred, typeof inferred, inferred === undefined);
+const m = Box.maybe;
+console.log(m, m === undefined);
+Box.x = 4;
+const w: number = Box.x;
+console.log(w + 1, typeof w, w === undefined);
+function make(seed: number) {
+  class Counter { static base = seed; static total: number; }
+  const first: number = Counter.total;
+  Counter.total = Counter.base * 2;
+  const second: number = Counter.total;
+  return `${first} ${typeof first} ${first + 1} ${second} ${second + 1}`;
+}
+console.log(make(3));
+"#;
+
+/// What Node prints for [`ABSENT_STATIC_TS`].
+const ABSENT_STATIC_OUTPUT: &str = concat!(
+    "undefined NaN true undefined undefined false false\n",
+    "NaN undefined! no\n",
+    "undefined true undefined! undefined\n",
+    "NaN number\n",
+    "undefined undefined true\n",
+    "undefined true\n",
+    "5 number false\n",
+    "undefined undefined NaN 6 7\n",
+);
+
+/// A read of a static that is still `undefined` behaves as `undefined` in every
+/// slot TypeScript types `T`: printed, compared, `typeof`, and converted by
+/// arithmetic, concatenation and conditions, with no panic.
+#[test]
+fn uninitialized_static_reads_stay_undefined_in_typed_slots() -> TestResult {
+    let sources = [("main.ts", ABSENT_STATIC_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        ABSENT_STATIC_OUTPUT,
+        "absent static reads",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &ABSENT_STATIC_OUTPUT.to_owned(),
+        "the absent static reads program's output",
+    )?;
+    let all = generated_text(root)?;
+    // Type preservation: a binding initialized from such a read keeps the
+    // storage's `Option<T>`; it is never erased.
+    for binding in [
+        "let y: Option<f64>",
+        "let t: Option<JsString>",
+        "let first: Option<f64>",
+    ] {
+        ensure(
+            all.contains(binding),
+            format!("`{binding}` keeps `T | undefined`"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Static `Map`s and `Set`s mutated through an erased class value, a held
+/// erased view, an erased parameter, and narrowed back to the typed container.
+const STATIC_CONTAINERS_TS: &str = r#"class Box {
+  static m: Map<string, number> = new Map();
+  static s: Set<number> = new Set();
+  static tags: Set<string> = new Set(["a"]);
+  static o: { n: number } = { n: 1 };
+}
+const C: any = Box;
+C.m.set("k", 1);
+C.s.add(3);
+C.tags.add("b");
+C.o.n = 5;
+console.log(Box.m.get("k"), Box.m.size, Box.s.has(3), Box.s.size, [...Box.tags].join(","), Box.o.n);
+const held = C.m;
+Box.m.set("z", 3);
+console.log(held.size, held.get("z"), held.has("k"), C.m.get("z"));
+held.delete("k");
+console.log(Box.m.has("k"), Box.m.size, [...Box.m.keys()].join(","));
+function viaUnknown(K: unknown) { (K as any).m.set("j", 2); (K as any).s.delete(3); }
+viaUnknown(Box);
+console.log(Box.m.get("j"), Box.s.size, C.m.get(5), C.m.has(5));
+const back = C.m as Map<string, number>;
+back.set("w", 9);
+console.log(Box.m.get("w"), back === Box.m);
+function fill(target: any) { target.set("p", 7); target.clear; }
+const local: Map<string, number> = new Map();
+fill(local);
+const ls: Set<number> = new Set();
+((x: any) => { x.add(4); x.add(4); })(ls);
+console.log(local.get("p"), local.size, ls.size, ls.has(4));
+C.tags.clear();
+console.log(Box.tags.size);
+"#;
+
+/// What Node prints for [`STATIC_CONTAINERS_TS`].
+const STATIC_CONTAINERS_OUTPUT: &str = concat!(
+    "1 1 true 1 a,b 5\n",
+    "2 3 true 3\n",
+    "false 1 z\n",
+    "2 0 undefined false\n",
+    "9 true\n",
+    "7 1 1 true\n",
+    "0\n",
+);
+
+/// An erased `Map` or `Set` is the typed container itself: every write through
+/// either side is seen by the other.
+#[test]
+fn static_containers_share_identity_through_erased_values() -> TestResult {
+    let sources = [("main.ts", STATIC_CONTAINERS_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        STATIC_CONTAINERS_OUTPUT,
+        "static containers",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &STATIC_CONTAINERS_OUTPUT.to_owned(),
+        "the static containers program's output",
+    )?;
+    let all = generated_text(root)?;
+    // Type preservation: the statics keep their typed containers; only the
+    // erasure boundary changes to the live view.
+    ensure(
+        all.contains(
+            "static SMELT_GLOBAL_BOX_M_1: ::std::cell::RefCell<SmeltJsMap<JsString, f64>>",
+        ),
+        "the static `Map` keeps its typed storage",
+    )?;
+    ensure(
+        all.contains(".into_live_smelt_unknown()"),
+        "a typed container erases to its live view",
+    )
+}
+
+/// A class with module-global statics whose static methods read and write
+/// statics through `this`, call another static through `this` in an arrow,
+/// and construct with `new this()`.
+const STATIC_THIS_TS: &str = r#"class Counter {
+  static total = 0;
+  static label = "c";
+  static add(n: number): number { this.total += n; return this.total; }
+  static twice(): number { const run = () => this.add(1); run(); return run(); }
+  static make(): Counter { return new this(); }
+  static describe(): string { return `${this.label}:${this.total}`; }
+}
+console.log(Counter.add(2), Counter.total, Counter.twice(), Counter.describe(), Counter.make() instanceof Counter);
+"#;
+
+/// What Node prints for [`STATIC_THIS_TS`].
+const STATIC_THIS_OUTPUT: &str = "2 2 4 c:4 true\n";
+
+/// `this` in a static method is the class, read and written through typed
+/// storage rather than the dynamic receiver channel.
+#[test]
+fn static_methods_bind_this_to_their_class() -> TestResult {
+    let sources = [("main.ts", STATIC_THIS_TS)];
+    ensure_node_agrees(&sources, "main.ts", STATIC_THIS_OUTPUT, "static `this`")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &STATIC_THIS_OUTPUT.to_owned(),
+        "the static `this` program's output",
+    )?;
+    let all = generated_text(root)?;
+    ensure(all.contains("fn add(n: f64) -> f64 {"), "`add` is typed")?;
+    let counter = impl_text(&all, "impl Counter {")?;
+    ensure(
+        !counter.contains("smelt_this()"),
+        "no static method reads the dynamic `this` channel",
     )
 }

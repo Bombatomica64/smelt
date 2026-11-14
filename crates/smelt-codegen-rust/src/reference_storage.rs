@@ -11,9 +11,9 @@ use std::collections::HashSet;
 use smelt_mir::{Mir, MirFunction};
 
 use crate::classes::{
-    NominalStorage, class_impl_generics_text, class_name_text, class_type_args_text,
-    class_type_params_text, effective_class_fields, effective_class_methods,
-    materialized_static_value, type_holds_function,
+    InheritedStaticSlot, NominalStorage, class_impl_generics_text, class_name_text,
+    class_type_args_text, class_type_params_text, effective_class_fields, effective_class_methods,
+    inherited_static_slots, materialized_static_value, type_holds_function,
 };
 use crate::derive_impls::{
     derive_generics_text, emit_debug_impl_for_storage_type, emit_default_impl_for_storage_type,
@@ -56,6 +56,16 @@ pub(crate) fn emit_reference_class_storage(
             type_args: class_type_args_text(mir, context, class)?,
             impl_generics: class_impl_generics_text(mir, context, class)?,
             fields: effective_class_fields(mir, class),
+            // A subclass statics frame flattens its base frame's static
+            // fields as storage it never reads (its inherited statics are
+            // accessors delegating to the base frame), so its erasure
+            // projects only the statics it declares itself.
+            projected_fields: if class.statics_of.is_some() {
+                class.fields.clone()
+            } else {
+                effective_class_fields(mir, class)
+            },
+            inherited_statics: inherited_static_slots(mir, class),
             static_fields: &class.static_fields,
             type_param_names: class.type_params.iter().map(|param| param.name).collect(),
             declared_name: class.name,
@@ -84,6 +94,13 @@ pub(crate) struct ReferenceRecordShape<'a> {
     pub(crate) impl_generics: String,
     /// Stored fields, heritage included, in declaration order.
     pub(crate) fields: Vec<smelt_mir::MirField>,
+    /// The fields its erasure projects as own properties: [`Self::fields`],
+    /// except for a statics frame (see `emit_reference_class_storage`).
+    pub(crate) projected_fields: Vec<smelt_mir::MirField>,
+    /// A subclass statics frame's inherited statics: its erasure projects
+    /// each one the subclass has written as an own property, as JavaScript
+    /// makes a write through the subclass an own property of it.
+    pub(crate) inherited_statics: Vec<InheritedStaticSlot>,
     /// Materialized class-level fields; always empty for a shape.
     pub(crate) static_fields: &'a [smelt_mir::MirStaticField],
     /// Generic parameter symbols, for the lexical type-parameter scope.
@@ -120,6 +137,8 @@ pub(crate) fn emit_reference_record_storage(
         type_args,
         impl_generics,
         fields,
+        projected_fields,
+        inherited_statics,
         static_fields,
         type_param_names,
         declared_name,
@@ -375,7 +394,8 @@ pub(crate) fn emit_reference_record_storage(
             name,
             impl_generics,
             type_args,
-            fields,
+            projected_fields,
+            inherited_statics,
             &weak_fields,
             *has_proto_entries,
             *has_field_setter,
@@ -464,6 +484,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    inherited_statics: &[InheritedStaticSlot],
     weak_fields: &HashSet<smelt_hir::Symbol>,
     has_proto_entries: bool,
     has_field_setter: bool,
@@ -532,6 +553,21 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
                 fn_writer.line("]);");
+                for slot in inherited_statics {
+                    let key = mir.names.get(slot.name).or_else(|| mir.symbols.get(slot.name)).unwrap_or("field");
+                    let own = context.names().field(mir, slot.own).into_string();
+                    let shadow = context.names().field(mir, slot.shadow).into_string();
+                    let value = record_field_unknown_expr(
+                        mir,
+                        &RustExpr::path(format!("__smelt_inner.{shadow}")).cloned_value(),
+                        slot.shadow_ty,
+                    )
+                    .unwrap_or_else(|_| RustExpr::atom("SmeltUnknown::Undefined"));
+                    fn_writer.line(format!(
+                        "if __smelt_inner.{own} {{ __smelt_entries.push(({key:?}.to_owned(), {value})); }}",
+                        value = value.delimited()
+                    ));
+                }
                 // As in the value-record view: an optional field holding `None`
                 // has no key at all, which `Object.keys`, `in` and spread observe.
                 let declared = mir.interfaces.iter().find(|interface| mir.symbols.get(interface.name) == Some(name));

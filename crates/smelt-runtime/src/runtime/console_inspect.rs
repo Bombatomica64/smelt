@@ -449,6 +449,7 @@ impl SmeltInspect for SmeltUnknown {
                 smelt_inspect_array(ctx, depth, &entries)
             }
             Self::Object(object) => {
+                /*@if live_containers*/smelt_live_container_refresh(object);/*@end*/
                 if let Some(Self::Array(members)) = object.get("__smelt_set") {
                     let members = members.iter().collect::<Vec<_>>();
                     let entries = members.iter().map(|member| (member as &dyn SmeltInspect, None)).collect::<Vec<_>>();

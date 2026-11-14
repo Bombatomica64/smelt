@@ -229,7 +229,7 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 42] = [
+const BOUNDARY_MARKERS: [&str; 43] = [
     boundary::FUNCTION_TAG,
     boundary::PROMISE_TAG,
     // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -323,6 +323,12 @@ const BOUNDARY_MARKERS: [&str; 42] = [
     boundary::SQLITE_GET_CALL,
     boundary::INTO_TRAIT,
     boundary::INTO_METHOD,
+    // The live twin of `into_smelt_unknown` for a typed `Map`/`Set`: the
+    // same typed-to-erased crossing (the value leaves typed code at exactly
+    // the site the snapshot adapter used), only the erased object answers
+    // from the typed store instead of a copy. Proven in
+    // `live_container_erasure_is_a_boundary`.
+    boundary::INTO_LIVE_METHOD,
     boundary::TO_METHOD,
     boundary::JS_TYPEOF,
     // `typeof` over an erased value reads that value's runtime tag: the same

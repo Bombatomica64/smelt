@@ -325,8 +325,24 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
     let level_substitutions = chain_type_substitutions(mir, &chain);
     let mut fields: Vec<MirField> = Vec::new();
     let mut slots: HashMap<Symbol, usize> = HashMap::new();
+    // A subclass statics frame reaches each static it inherits through its
+    // own accessor, which delegates to the base frame it links to
+    // (`inherited_static_slots`), so it stores no copy of those fields: a
+    // copy would be state nothing reads.
+    let redirected: HashSet<Symbol> = if class.statics_of.is_some() {
+        class
+            .descriptors
+            .iter()
+            .map(|descriptor| descriptor.name)
+            .collect()
+    } else {
+        HashSet::new()
+    };
     for (owner, substitutions) in chain.iter().zip(&level_substitutions).rev() {
         for declared in &owner.fields {
+            if owner.name != class.name && redirected.contains(&declared.name) {
+                continue;
+            }
             let mut field = declared.clone();
             field.ty = generic_bindings::substitute_existing_type(mir, declared.ty, substitutions);
             if let Some(existing) = slots
@@ -834,4 +850,57 @@ pub(crate) fn is_self_or_ancestor(mir: &Mir, ancestor: Symbol, class: Symbol) ->
         current = find_class(mir, name).and_then(|found| found.base);
     }
     false
+}
+
+/// One static field a per-evaluation subclass's statics frame inherits from
+/// its base frame (`decls::evaluation_statics` in the TypeScript frontend):
+/// read through the frame's accessor descriptor, and an own property of the
+/// subclass only once the subclass has written it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InheritedStaticSlot {
+    /// The static field's name, the descriptor's.
+    pub(crate) name: Symbol,
+    /// The hidden bool field saying whether the subclass wrote its own value.
+    pub(crate) own: Symbol,
+    /// The hidden field holding that value.
+    pub(crate) shadow: Symbol,
+    /// The shadow field's type (`T | undefined`).
+    pub(crate) shadow_ty: TypeId,
+}
+
+/// The inherited statics of statics frame `class`: one per accessor
+/// descriptor whose hidden own-flag (`__smelt_own_<name>`) and shadow
+/// (`__smelt_shadow_<name>`) fields the frame declares, each suffixed by the
+/// frame's chain level. Empty for any other class.
+pub(crate) fn inherited_static_slots(mir: &Mir, class: &MirClass) -> Vec<InheritedStaticSlot> {
+    if class.statics_of.is_none() {
+        return Vec::new();
+    }
+    let field_named = |prefix: &str| {
+        class.fields.iter().find(|candidate| {
+            mir.symbols.get(candidate.name).is_some_and(|name| {
+                name.strip_prefix(prefix).is_some_and(|rest| {
+                    rest.is_empty()
+                        || rest.strip_prefix('_').is_some_and(|level| {
+                            !level.is_empty() && level.bytes().all(|byte| byte.is_ascii_digit())
+                        })
+                })
+            })
+        })
+    };
+    class
+        .descriptors
+        .iter()
+        .filter_map(|descriptor| {
+            let spelling = mir.symbols.get(descriptor.name)?;
+            let own = field_named(&format!("__smelt_own_{spelling}"))?;
+            let shadow = field_named(&format!("__smelt_shadow_{spelling}"))?;
+            Some(InheritedStaticSlot {
+                name: descriptor.name,
+                own: own.name,
+                shadow: shadow.name,
+                shadow_ty: shadow.ty,
+            })
+        })
+        .collect()
 }

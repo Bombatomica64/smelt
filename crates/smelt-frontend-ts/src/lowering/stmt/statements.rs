@@ -232,7 +232,8 @@ impl ModuleBuilder<'_> {
                     .argument
                     .as_ref()
                     .map(|argument| self.expression_with_hint(argument, body, return_hint))
-                    .transpose()?;
+                    .transpose()?
+                    .map(|value| self.absent_static_at_slot(value, return_hint, body));
                 // A bare `return;` in a constructor still answers the instance.
                 let value = match (value, self.fn_ctx.constructor_this) {
                     (None, Some(this_local)) => Some(body.push_expr(Expr {
