@@ -338,6 +338,281 @@ impl<'builder> ModuleBuilder<'builder> {
         })
     }
 
+    /// Lower an optional call on an ERASED receiver: `receiver?.m(args)`,
+    /// `receiver?.b.m(args)` and `receiver.m?.(args)`. The tested value (the
+    /// receiver of the nearest optional link, or the callee member for `?.()`)
+    /// decides: when it is `null` or `undefined` the whole call is `undefined`
+    /// and its arguments are not evaluated, which is what `?.` means;
+    /// otherwise the call runs on the same receiver, evaluated once.
+    ///
+    /// The member read on an erased receiver answers `undefined` for a nullish
+    /// receiver, so without this the call went on to call `undefined` and
+    /// threw "value is not a function". The receiver is pinned to a temporary
+    /// (see [`Self::optional_builtin_receiver_value_call`]), so the call
+    /// re-lowered inside the present arm reads it, not a second evaluation,
+    /// and keeps it as the call's receiver.
+    fn optional_erased_receiver_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // The call's own `?.()` tests the callee member's value; otherwise the
+        // nearest optional link of the callee chain tests its receiver, and a
+        // nullish one ends the whole chain (`n?.b.map(f)` is `undefined`).
+        let tests_callee = call.optional;
+        let object = if tests_callee {
+            match &call.callee {
+                Expression::StaticMemberExpression(member) => &member.object,
+                Expression::ComputedMemberExpression(member) => &member.object,
+                _ => return Ok(None),
+            }
+        } else {
+            let mut current = &call.callee;
+            loop {
+                let (object, optional) = match current {
+                    Expression::StaticMemberExpression(member) => (&member.object, member.optional),
+                    Expression::ComputedMemberExpression(member) => {
+                        (&member.object, member.optional)
+                    }
+                    _ => return Ok(None),
+                };
+                if optional {
+                    break object;
+                }
+                current = object;
+            }
+        };
+        let span = self.span(call.span.start, call.span.end);
+        let node = std::ptr::from_ref(object).addr();
+        let call_node = std::ptr::from_ref(call).addr();
+        // The call re-lowered inside the present arm must not be claimed again.
+        if self.claimed_optional_calls.contains(&call_node)
+            || self.pinned_nodes.iter().any(|(entry, _, _)| *entry == node)
+        {
+            return Ok(None);
+        }
+        self.speculate(body, |this, body| {
+            let block = body.push_block(span);
+            let lowered = this.with_stmt_block(
+                block,
+                |this| -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+                    let receiver = this.expression(object, body)?;
+                    let receiver_ty = Self::expr_ty(body, receiver);
+                    if !matches!(this.ctx.krate.types.get(receiver_ty), Some(Type::Unknown)) {
+                        return Ok(None);
+                    }
+                    // A receiver that is a READ of a binding (possibly through a
+                    // narrowing cast) is read again for the test and the call:
+                    // that has no effect, and both reads precede the arguments.
+                    // Anything else is evaluated once into its own local,
+                    // pinned there for the re-lowered call.
+                    let reads_binding = match body.expr_at(receiver).map(|expr| &expr.kind) {
+                        Some(ExprKind::Local(_)) => true,
+                        Some(
+                            ExprKind::UnknownCast { value, .. } | ExprKind::TypeAssert { value },
+                        ) => matches!(
+                            body.expr_at(*value).map(|expr| &expr.kind),
+                            Some(ExprKind::Local(_))
+                        ),
+                        _ => false,
+                    };
+                    let pinned = if reads_binding {
+                        None
+                    } else {
+                        let temp = body.push_local(smelt_hir::LocalDecl {
+                            name: Some(this.intern_synthesized_name("smelt_optional_receiver")),
+                            ty: receiver_ty,
+                            mutable: false,
+                            span,
+                        });
+                        let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
+                        this.push_stmt_to_sink(
+                            body,
+                            smelt_hir::Stmt::Let {
+                                pat,
+                                ty: receiver_ty,
+                                value: Some(receiver),
+                            },
+                        );
+                        this.pinned_nodes.push((node, temp, receiver_ty));
+                        Some(temp)
+                    };
+                    this.claimed_optional_calls.push(call_node);
+                    let lowered = Self::optional_erased_call_arms(
+                        this,
+                        call,
+                        object,
+                        receiver,
+                        reads_binding,
+                        pinned,
+                        tests_callee,
+                        span,
+                        body,
+                    );
+                    this.claimed_optional_calls.pop();
+                    if pinned.is_some() {
+                        this.pinned_nodes.pop();
+                    }
+                    let Some((tested, op)) = lowered? else {
+                        return Ok(None);
+                    };
+                    let bool_ty = this.ctx.krate.types.intern(Type::Bool);
+                    let mut reads = [Some(tested.first), Some(tested.second)].into_iter();
+                    let mut tag_check = |kind| {
+                        let read = reads.next().flatten().unwrap_or(tested.first);
+                        body.push_expr(Expr {
+                            kind: ExprKind::UnknownIs { value: read, kind },
+                            ty: bool_ty,
+                            span,
+                        })
+                    };
+                    let is_null = tag_check(smelt_hir::UnknownKind::Null);
+                    let is_undefined = tag_check(smelt_hir::UnknownKind::Undefined);
+                    let nullish = body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: smelt_hir::BinOp::Or,
+                            lhs: is_null,
+                            rhs: is_undefined,
+                        },
+                        ty: bool_ty,
+                        span,
+                    });
+                    let op_ty = Self::expr_ty(body, op);
+                    // An erased call stays erased: its absent arm is the
+                    // `undefined` tag, not an `Option`'s `None` (`null`).
+                    let result_ty =
+                        if matches!(this.ctx.krate.types.get(op_ty), Some(Type::Unknown)) {
+                            op_ty
+                        } else {
+                            this.optional_chain_result_type(op_ty)
+                        };
+                    // `?.` answers `undefined`, which an erased result spells
+                    // as the `undefined` tag (`Literal::None` would be `null`).
+                    let absent =
+                        if matches!(this.ctx.krate.types.get(result_ty), Some(Type::Unknown)) {
+                            body.push_expr(Expr {
+                                kind: ExprKind::Literal(smelt_hir::Literal::Undefined),
+                                ty: result_ty,
+                                span,
+                            })
+                        } else {
+                            let none_ty = this.ctx.krate.types.intern(Type::None);
+                            body.push_expr(Expr {
+                                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                                ty: none_ty,
+                                span,
+                            })
+                        };
+                    Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::Conditional {
+                            cond: nullish,
+                            then_expr: absent,
+                            else_expr: op,
+                        },
+                        ty: result_ty,
+                        span,
+                    })))
+                },
+            )?;
+            let Some(conditional) = lowered else {
+                return Ok(None);
+            };
+            if let Some(entry) = body.block_at_mut(block) {
+                entry.tail = Some(conditional);
+            }
+            let ty = Self::expr_ty(body, conditional);
+            Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Block(block),
+                ty,
+                span,
+            })))
+        })
+    }
+
+    /// The two reads of the tested value and the call of an optional erased
+    /// call (see [`Self::optional_erased_receiver_call`]); `None` when the
+    /// tested value turns out not to be erased.
+    ///
+    /// The tested value is the receiver, or for `?.()` the callee member read
+    /// off it, stored in its own local because reading it again could run an
+    /// accessor. A receiver that reads a binding is lowered again for each
+    /// read; a pinned one reads its pin.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the two arms of one optional call share its lowered receiver, pin and span"
+    )]
+    fn optional_erased_call_arms(
+        this: &mut Self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        object: &Expression<'_>,
+        receiver: smelt_hir::ExprId,
+        reads_binding: bool,
+        pinned: Option<smelt_hir::LocalId>,
+        tests_callee: bool,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> Result<Option<(TestedReads, smelt_hir::ExprId)>, SmeltError> {
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let read_receiver =
+            |builder: &mut Self, arena: &mut Body| -> Result<smelt_hir::ExprId, SmeltError> {
+                match pinned {
+                    Some(temp) => Ok(arena.push_expr(Expr {
+                        kind: ExprKind::Local(temp),
+                        ty: receiver_ty,
+                        span,
+                    })),
+                    None => builder.expression(object, arena),
+                }
+            };
+        let tested = if tests_callee {
+            let value = this.expression(&call.callee, body)?;
+            let value_ty = Self::expr_ty(body, value);
+            if !matches!(this.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
+                return Ok(None);
+            }
+            let callee_temp = body.push_local(smelt_hir::LocalDecl {
+                name: Some(this.intern_synthesized_name("smelt_optional_callee")),
+                ty: value_ty,
+                mutable: false,
+                span,
+            });
+            let callee_pat = body.push_pattern(smelt_hir::Pattern::Binding(callee_temp));
+            this.push_stmt_to_sink(
+                body,
+                smelt_hir::Stmt::Let {
+                    pat: callee_pat,
+                    ty: value_ty,
+                    value: Some(value),
+                },
+            );
+            let read = |arena: &mut Body| {
+                arena.push_expr(Expr {
+                    kind: ExprKind::Local(callee_temp),
+                    ty: value_ty,
+                    span,
+                })
+            };
+            TestedReads {
+                first: read(body),
+                second: read(body),
+            }
+        } else if reads_binding {
+            let second = read_receiver(this, body)?;
+            TestedReads {
+                first: receiver,
+                second,
+            }
+        } else {
+            TestedReads {
+                first: read_receiver(this, body)?,
+                second: read_receiver(this, body)?,
+            }
+        };
+        let op =
+            this.lower_conditional_arm(body, span, |this, body| this.call_expression(call, body))?;
+        Ok(Some((tested, op)))
+    }
+
     /// The present type of a `T | undefined` / `T | null` receiver type: the
     /// inner `T` of an `Optional`, or the one non-nullish arm of a union.
     fn optional_present_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
@@ -599,6 +874,9 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Some(expr) = self.optional_builtin_receiver_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.optional_erased_receiver_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::ComputedMemberExpression(member) = &call.callee
             && let Some(expr) = self.computed_method_call_over_members(call, member, body)?
         {
@@ -674,10 +952,104 @@ impl<'builder> ModuleBuilder<'builder> {
         if let Expression::Identifier(callee_ident) = &call.callee {
             return self.identifier_call(call, callee_ident, body);
         }
+        if let Some(expr) = self.computed_value_callee_call(call, body)? {
+            return Ok(expr);
+        }
         Err(SmeltError::unsupported(
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Call a callee that is a computed VALUE: a conditional (`c ? f : g`), a
+    /// comma sequence (`(0, f)`) or a logical (`f || g`, `f ?? g`) expression,
+    /// or a parenthesized member (`(a.m)(x)`).
+    ///
+    /// None of these is a reference, so JavaScript calls the value it yields
+    /// with `this = undefined` even when that value was read off an object:
+    /// `(c ? a.map : b.map)(f)` and `(0, a.map)(f)` throw. The callee is
+    /// lowered as an ordinary value and called; the emitter installs
+    /// `undefined` for a callee that is not a member read (see codegen's
+    /// `erased_call_receiver`). `None` for any other callee.
+    fn computed_value_callee_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // A PARENTHESIZED member (`(a.map)(f)`) is still a reference, so it
+        // keeps its receiver: lowered as a value, its member read is the
+        // callee's one assignment, which the emitter treats as a member call.
+        let parenthesized_member = matches!(&call.callee, Expression::ParenthesizedExpression(_))
+            && matches!(
+                peel(&call.callee, Wrappers::Parens),
+                Expression::StaticMemberExpression(_) | Expression::ComputedMemberExpression(_)
+            );
+        if !parenthesized_member
+            && !matches!(
+                peel(&call.callee, Wrappers::Parens),
+                Expression::ConditionalExpression(_)
+                    | Expression::SequenceExpression(_)
+                    | Expression::LogicalExpression(_)
+            )
+        {
+            return Ok(None);
+        }
+        let span = self.span(call.span.start, call.span.end);
+        let mut callee = self.expression(&call.callee, body)?;
+        let callee_ty = Self::expr_ty(body, callee);
+        // A conditional, comma or logical callee yields a VALUE, not a
+        // reference: bound to its own local, the call goes through a binding,
+        // which the emitter calls with `this = undefined`, whatever expression
+        // produced the value (`(0, a.map)` ends in a member read).
+        if !parenthesized_member {
+            let temp = body.push_local(smelt_hir::LocalDecl {
+                name: Some(self.intern_synthesized_name("smelt_callee_value")),
+                ty: callee_ty,
+                mutable: false,
+                span,
+            });
+            let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
+            self.push_stmt_to_sink(
+                body,
+                smelt_hir::Stmt::Let {
+                    pat,
+                    ty: callee_ty,
+                    value: Some(callee),
+                },
+            );
+            callee = body.push_expr(Expr {
+                kind: ExprKind::Local(temp),
+                ty: callee_ty,
+                span,
+            });
+        }
+        let function = match self.ctx.krate.types.get(callee_ty).cloned() {
+            Some(Type::Function(function)) => Some(function),
+            _ => None,
+        };
+        if Self::call_has_spread_arguments(call) {
+            return Err(SmeltError::unsupported(
+                span,
+                "a spread argument to a computed callee is not lowered yet",
+            ));
+        }
+        let mut args = Vec::with_capacity(call.arguments.len());
+        for (index, argument) in call.arguments.iter().enumerate() {
+            let hint = function
+                .as_ref()
+                .and_then(|function| function.params.get(index).copied());
+            args.push(self.argument_with_hint(argument, body, hint)?);
+        }
+        // not a new erasure: a callee value with no function type is already erased
+        let ty = function.as_ref().map_or_else(
+            || self.unknown_type(crate::lowering::erasure::NotNewErasure::ErasedUpstream),
+            |function| function.return_ty,
+        );
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty,
+            span,
+        })))
     }
 
     /// The contextual type of an object-literal argument passed where the
@@ -1505,4 +1877,13 @@ impl<'builder> ModuleBuilder<'builder> {
             _ => None,
         }
     }
+}
+
+/// The two reads of an optional erased call's tested value (its `null` and
+/// `undefined` tag checks), each a distinct expression.
+struct TestedReads {
+    /// The read the `null` check takes.
+    first: smelt_hir::ExprId,
+    /// The read the `undefined` check takes.
+    second: smelt_hir::ExprId,
 }

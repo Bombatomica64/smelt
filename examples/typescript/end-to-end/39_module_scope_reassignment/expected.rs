@@ -737,24 +737,16 @@ fn main() {
     let _smelt_tmp_19: f64;
     let _smelt_tmp_20: bool;
     let mut _smelt_tmp_21: f64;
-    let _smelt_tmp_22: f64;
-    let _smelt_tmp_23: f64;
     let _smelt_tmp_26: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
     let _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: f64;
-    let _smelt_tmp_29: f64;
     let _smelt_tmp_30: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
-    let _smelt_tmp_31: f64;
     let _smelt_tmp_33: bool;
     let mut _smelt_tmp_34: f64;
-    let _smelt_tmp_35: f64;
     let _smelt_tmp_36: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
-    let _smelt_tmp_37: f64;
     let _smelt_tmp_39: bool;
     let mut _smelt_tmp_40: f64;
-    let _smelt_tmp_41: f64;
     let _smelt_tmp_42: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
-    let _smelt_tmp_43: f64;
     let _smelt_tmp_45: f64;
     let mut annotated: Option<f64> = None::<f64>;
     annotated = Some(5.0);
@@ -830,48 +822,35 @@ fn main() {
     direct = _smelt_tmp_18.clone();
     _smelt_tmp_19 = annotated.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_20 = false;
-    let mut _smelt_tmp_21: f64 = 0.0;
-    if _smelt_tmp_20 {
-    _smelt_tmp_22 = -1.0;
-    _smelt_tmp_21 = _smelt_tmp_22;
-    } else {
-    _smelt_tmp_23 = annotated.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_21 = _smelt_tmp_23;
-    }
+    let _smelt_tmp_21: f64 = if _smelt_tmp_20 { -1.0 } else { annotated.clone().expect("optional value was absent after narrowing") };
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
     let _ = { println!("{}", smelt_console_number(initialized)); };
     _smelt_tmp_26 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
     _smelt_tmp_27 = false;
     let mut _smelt_tmp_28: f64 = 0.0;
     if _smelt_tmp_27 {
-    _smelt_tmp_29 = -1.0;
-    _smelt_tmp_28 = _smelt_tmp_29;
+    _smelt_tmp_28 = -1.0;
     } else {
     _smelt_tmp_30 = via_iife.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_31 = (_smelt_tmp_30)(JsString::from("ab"));
-    _smelt_tmp_28 = _smelt_tmp_31;
+    _smelt_tmp_28 = (_smelt_tmp_30)(JsString::from("ab"));
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_28)); };
     _smelt_tmp_33 = via_or_assign.clone().is_none();
     let mut _smelt_tmp_34: f64 = 0.0;
     if _smelt_tmp_33 {
-    _smelt_tmp_35 = -1.0;
-    _smelt_tmp_34 = _smelt_tmp_35;
+    _smelt_tmp_34 = -1.0;
     } else {
     _smelt_tmp_36 = via_or_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_37 = (_smelt_tmp_36)(JsString::from("ab"));
-    _smelt_tmp_34 = _smelt_tmp_37;
+    _smelt_tmp_34 = (_smelt_tmp_36)(JsString::from("ab"));
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_34)); };
     _smelt_tmp_39 = via_nullish_assign.clone().is_none();
     let mut _smelt_tmp_40: f64 = 0.0;
     if _smelt_tmp_39 {
-    _smelt_tmp_41 = -1.0;
-    _smelt_tmp_40 = _smelt_tmp_41;
+    _smelt_tmp_40 = -1.0;
     } else {
     _smelt_tmp_42 = via_nullish_assign.clone().unwrap_or_else(|| { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { 0.0 }); smelt_default_callback });
-    _smelt_tmp_43 = (_smelt_tmp_42)(JsString::from("ab"));
-    _smelt_tmp_40 = _smelt_tmp_43;
+    _smelt_tmp_40 = (_smelt_tmp_42)(JsString::from("ab"));
     }
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_40)); };
     _smelt_tmp_45 = (direct)(JsString::from("ab"));
@@ -890,8 +869,6 @@ use super::*;
 
 pub(crate) fn inside_a_function() -> JsString {
     let mut _smelt_tmp_4: f64;
-    let _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
     let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: JsString;
     let _smelt_tmp_9: JsString;
@@ -901,14 +878,7 @@ pub(crate) fn inside_a_function() -> JsString {
     seeded = 8.0;
     let _smelt_tmp_2: f64 = local.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_3: bool = false;
-    let mut _smelt_tmp_4: f64 = 0.0;
-    if _smelt_tmp_3 {
-    _smelt_tmp_5 = -1.0;
-    _smelt_tmp_4 = _smelt_tmp_5;
-    } else {
-    _smelt_tmp_6 = local.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_4 = _smelt_tmp_6;
-    }
+    let _smelt_tmp_4: f64 = if _smelt_tmp_3 { -1.0 } else { local.clone().expect("optional value was absent after narrowing") };
     _smelt_tmp_7 = JsString::new() + &JsString::from(smelt_number_to_string(_smelt_tmp_4));
     _smelt_tmp_8 = _smelt_tmp_7 + &JsString::from("/");
     _smelt_tmp_9 = _smelt_tmp_8 + &JsString::from(smelt_number_to_string(seeded));

@@ -1,0 +1,14 @@
+{"years":1,"days":3}
+{}
+[{"years":2},{"months":2.5,"label":"x"}]
+{"from":{"days":4},"parts":[{"years":1}]}
+{
+  "from": {
+    "days": 4
+  },
+  "parts": [
+    {
+      "years": 1
+    }
+  ]
+}

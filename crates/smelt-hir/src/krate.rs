@@ -144,6 +144,17 @@ pub struct Module {
     /// `main` an `async fn` with a drain at the end rather than a synchronous
     /// function that returns while work is still queued.
     pub is_async: bool,
+    /// Where this module's body runs when the program starts, or `None` when
+    /// it does not run (a test module, a module no entry reaches).
+    ///
+    /// A JavaScript or Python program evaluates its module graph once,
+    /// dependencies before the modules that import them, its entries in the
+    /// order the manifest lists them: each module body runs exactly once, at
+    /// its position in that order. The transpiler numbers the modules so
+    /// (`crate::lowering`'s `module_run_order`) and the backend runs the bodies
+    /// in that order from `main`.
+    #[serde(default)]
+    pub run_order: Option<u32>,
 }
 
 impl Module {
@@ -155,6 +166,7 @@ impl Module {
             name: name.into(),
             source,
             is_async: false,
+            run_order: None,
             imports: Vec::new(),
             items: Vec::new(),
             reexports: Vec::new(),

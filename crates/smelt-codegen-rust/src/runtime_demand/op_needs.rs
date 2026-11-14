@@ -15,7 +15,9 @@ impl RuntimeDemand {
             Rvalue::ThisRead => {
                 self.add(Need::ThisRead);
             }
-            Rvalue::BindThis { .. } | Rvalue::ErasedFunctionMethodCall { .. } => {
+            Rvalue::BindThis { .. }
+            | Rvalue::BindOwnThis { .. }
+            | Rvalue::ErasedFunctionMethodCall { .. } => {
                 self.add(Need::ThisChannel);
             }
             Rvalue::Construct { .. } => {
@@ -348,6 +350,9 @@ impl RuntimeDemand {
             }
             Rvalue::DefineProperties { .. } => {
                 self.add(Need::DefineProperties);
+            }
+            Rvalue::SetPrototypeOf { .. } => {
+                self.add(Need::SetPrototypeOf);
             }
             Rvalue::UnknownCast { .. } => {
                 self.add(Need::Unknown);

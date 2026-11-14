@@ -219,16 +219,28 @@ impl FunctionEmitter<'_> {
                 "smelt_push_this({})",
                 self.erase(&Operand::Copy(Place::Local(base)))?.delimited()
             ),
+            ErasedCallReceiver::TypedBase(base) => {
+                let base_ty = self.local_decl(base)?.ty;
+                let lazy_erase = self.lazy_receiver_erasure(
+                    &RustExpr::path("smelt_bound_receiver").cloned_value(),
+                    base_ty,
+                )?;
+                format!(
+                    "smelt_push_this_lazy({{ let smelt_bound_receiver = {}.clone(); ::std::rc::Rc::new(move || {}) }})",
+                    self.operand_expr(&Operand::Copy(Place::Local(base)))?
+                        .tight(),
+                    lazy_erase.delimited()
+                )
+            }
             ErasedCallReceiver::Snapshot(slot) => format!(
                 "smelt_push_this({}.clone())",
                 self.receiver_snapshot_name(slot)?
             ),
-            // Only an ERASED callee can be one of the runtime's unbound
-            // prototype methods, which is what a plain call's `undefined`
-            // receiver exists for. A callee with a concrete static type (a
-            // callable struct such as es-toolkit's `DebouncedFunction<F>`,
-            // which `bind_this_receiver` cannot bind) keeps the channel as the
-            // caller left it, as every call did before this rule.
+            // A generated callee with a concrete static type resets the
+            // channel itself, at its frame's entry (`this_frame`), so its plain
+            // call installs nothing. Only an ERASED callee can be a runtime
+            // prototype method, a frame of the runtime's own that reads the
+            // channel without a generated prologue.
             ErasedCallReceiver::Plain
                 if !self
                     .operand_ty(callee)
@@ -261,7 +273,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if matches!(
             self.erased_call_receiver(callee),
-            ErasedCallReceiver::Base(_) | ErasedCallReceiver::Snapshot(_)
+            ErasedCallReceiver::Base(_)
+                | ErasedCallReceiver::Snapshot(_)
+                | ErasedCallReceiver::TypedBase(_)
         ) {
             return self.with_erased_call_receiver(callee, call_text);
         }
@@ -293,6 +307,12 @@ impl FunctionEmitter<'_> {
                     .is_ok_and(|decl| self.has_dynamic_shape(decl.ty));
                 if erased_base {
                     ErasedCallReceiver::Base(*base)
+                } else if depth == 0 {
+                    // A member call through a function-valued field of a TYPED
+                    // object (`router.match(..)` on an interface view) supplies
+                    // that object as its receiver too; it is erased only if the
+                    // callee reads `this`.
+                    ErasedCallReceiver::TypedBase(*base)
                 } else {
                     ErasedCallReceiver::Unresolved
                 }
@@ -591,10 +611,10 @@ impl FunctionEmitter<'_> {
     /// Followed through forwarding copies and receiver binds: a member read
     /// off an erased value is a member call (`Snapshot`), a chain ending at a
     /// user binding, a parameter, or any other single value (a call's result,
-    /// a closure) is a plain call. A temporary assigned more than once (a join
-    /// of branches) or a member read off a TYPED object is left `Unresolved`:
-    /// the first may hold a member read from one branch, and the second is a
-    /// typed method call that installs its own receiver (`BindThis`).
+    /// a closure) is a plain call, and so is a temporary assigned in more than
+    /// one branch (a conditional, comma or logical callee, none of which is a
+    /// reference). A member read off a TYPED object is left `Unresolved`: it
+    /// is a typed method call that installs its own receiver (`BindThis`).
     fn temp_call_receiver(&self, local: LocalId, depth: usize) -> ErasedCallReceiver {
         const MAX_DEPTH: usize = 8;
         if depth >= MAX_DEPTH {
@@ -604,6 +624,11 @@ impl FunctionEmitter<'_> {
             return ErasedCallReceiver::Snapshot(local);
         }
         match self.single_assigned_temp_value(local) {
+            // A JOIN of branches: the value of a conditional, comma or logical
+            // callee (`(c ? a.map : b.map)(f)`), none of which is a reference,
+            // so JavaScript calls it with `this = undefined`. A member call's
+            // callee is never a join: its member read is the one assignment.
+            None if self.temp_assignment_count(local) > 1 => ErasedCallReceiver::Plain,
             None => ErasedCallReceiver::Unresolved,
             Some(
                 Rvalue::Use(
@@ -624,10 +649,24 @@ impl FunctionEmitter<'_> {
                     | Operand::Move(Place::Field { .. } | Place::Index { .. }),
                 )
                 | Rvalue::BindThis { .. }
-                | Rvalue::OptionalField { .. },
+                | Rvalue::BindOwnThis { .. }
+                | Rvalue::OptionalField { .. }
+                | Rvalue::OptionalIndex { .. },
             ) => ErasedCallReceiver::Unresolved,
             Some(_) => ErasedCallReceiver::Plain,
         }
+    }
+
+    /// How many statements of the body assign `local`.
+    fn temp_assignment_count(&self, local: LocalId) -> usize {
+        self.function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter(
+                |statement| matches!(statement, Statement::Assign { dest, .. } if *dest == local),
+            )
+            .count()
     }
 
     /// The one rvalue a compiler temporary is assigned, if it is assigned once.
@@ -667,6 +706,10 @@ impl FunctionEmitter<'_> {
                 .is_ok_and(|decl| self.has_dynamic_shape(decl.ty))
                 .then_some(Operand::Copy(Place::Local(*base))),
             Rvalue::OptionalField {
+                receiver: Operand::Copy(place) | Operand::Move(place),
+                ..
+            }
+            | Rvalue::OptionalIndex {
                 receiver: Operand::Copy(place) | Operand::Move(place),
                 ..
             } => {
@@ -711,6 +754,9 @@ impl FunctionEmitter<'_> {
 enum ErasedCallReceiver {
     /// A member call reading its member in place: `this` is this erased local.
     Base(LocalId),
+    /// A member call through a function-valued field of a TYPED object: `this`
+    /// is that object, erased only when the callee reads it.
+    TypedBase(LocalId),
     /// A member call through a temporary: `this` is that temporary's
     /// receiver snapshot (`FunctionEmitter::receiver_snapshot_slots`).
     Snapshot(LocalId),
@@ -718,4 +764,39 @@ enum ErasedCallReceiver {
     Plain,
     /// Not decidable from the callee's shape; the channel is left as it is.
     Unresolved,
+}
+
+impl FunctionEmitter<'_> {
+    /// The erased view of a typed receiver, built inside a lazy `this` thunk.
+    ///
+    /// An instance of a generic class or interface erases through its own
+    /// `IntoSmeltUnknown` impl, which renders each callable field with the
+    /// type's parameters in scope (`with: Rc<dyn Fn(&T, ..)>` at
+    /// `T = SmeltUnion1344`). The inline record erasure renders a callable
+    /// field at its declared type from the CALLER's scope, where `T` is not
+    /// bound, and spelled it `&SmeltUnknown`: the thunk did not compile
+    /// (ts-pattern's `match(x).with(..)`, date-fns' `Parser<Value>`).
+    pub(super) fn lazy_receiver_erasure(
+        &self,
+        receiver: &RustExpr,
+        receiver_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        if self.is_generic_instance(receiver_ty) {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                receiver.delimited()
+            )));
+        }
+        self.erase_rendered(receiver, receiver_ty)
+    }
+
+    /// Whether `ty` is a class or interface instance with type arguments: the
+    /// generated type's generic `IntoSmeltUnknown` impl then erases it. Every
+    /// argument meets that impl's bounds: a concrete type or an out-of-scope
+    /// parameter (rendered as the erased carrier) by its own impls, and an
+    /// in-scope parameter because generated generics all carry the same bound
+    /// set (`Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static`).
+    fn is_generic_instance(&self, ty: TypeId) -> bool {
+        matches!(self.mir.types.get(ty), Some(Type::Class { args, .. }) if !args.is_empty())
+    }
 }

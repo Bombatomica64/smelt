@@ -90,15 +90,13 @@ export function pickStatus(arg?: number | PlainInit | Response): number {
         r#"fn pick_status(arg: Option<SmeltUnion3>) -> f64 {
 let mut _smelt_tmp_2: f64;
 let _smelt_tmp_3: Option<f64>;
-let _smelt_tmp_4: f64;
 let _smelt_tmp_1: bool = arg.clone().as_ref().is_some_and(|smelt_value| matches!(smelt_value, SmeltUnion3::M0(_)));
 let mut _smelt_tmp_2: f64 = 0.0;
 if _smelt_tmp_1 {
 _smelt_tmp_2 = arg.clone().clone().map_or(0.0, |smelt_value| match smelt_value { SmeltUnion3::M0(value) => value, _ => unreachable!("union guard selected an excluded member") });
 } else {
 _smelt_tmp_3 = arg.clone().as_ref().and_then(|_smelt_value| match &_smelt_value { SmeltUnion3::M0(_) => None, SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.status.clone(), SmeltUnion3::M2(smelt_union_arm) => Some(smelt_union_arm.status()) });
-_smelt_tmp_4 = _smelt_tmp_3.clone().unwrap_or(200.0);
-_smelt_tmp_2 = _smelt_tmp_4;
+_smelt_tmp_2 = _smelt_tmp_3.clone().unwrap_or(200.0);
 }
 return _smelt_tmp_2;
 }"#

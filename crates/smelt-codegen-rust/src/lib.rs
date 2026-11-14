@@ -104,6 +104,7 @@ pub(crate) mod runtime_demand;
 pub(crate) mod runtime_prelude;
 mod runtime_symbols_check;
 pub mod rust;
+pub(crate) mod startup;
 pub(crate) mod stdlib;
 pub(crate) mod thrown;
 pub(crate) mod type_substitution;

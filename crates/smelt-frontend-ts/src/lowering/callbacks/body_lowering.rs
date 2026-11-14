@@ -792,6 +792,14 @@ impl ModuleBuilder<'_> {
                 .position(|param| param.optional || Self::formal_parameter_has_default(param))
                 .unwrap_or(params.items.len()),
         );
+        // A non-arrow function has its own `this` (its frame takes it), never
+        // the enclosing one: it is not a capture, and the enclosing binding is
+        // shadowed for its body (`own_this`), restored with the parameters.
+        if matches!(kind, BodyKind::Function) {
+            param_names.insert("this".to_owned());
+            let prior = self.shadow_enclosing_this();
+            saved_locals.push(("this".to_owned(), prior));
+        }
         let mut capture_names = Vec::new();
         for (_, _, initializer, ..) in &defaulted_params {
             self.collect_expression_capture_names(initializer, &param_names, &mut capture_names);
@@ -1056,6 +1064,11 @@ impl ModuleBuilder<'_> {
                 captures,
                 body: body_id,
                 function_item: None,
+                this_binding: if matches!(kind, BodyKind::Arrow) {
+                    smelt_hir::ClosureThis::Lexical
+                } else {
+                    smelt_hir::ClosureThis::Own
+                },
                 span,
             }),
             ty: closure_ty,
