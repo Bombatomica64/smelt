@@ -1731,12 +1731,6 @@ const EXPECTED_FIXTURE_FAILURES: &[ExpectedFailure] = &[
         cause: "a borrowed callback also passed to an `unknown` parameter loses its lifetime \
                 relation (\"lifetime may not live long enough\")",
     },
-    ExpectedFailure {
-        name: "variadic_spy_as_nullary_maker",
-        errors: 2,
-        cause: "a variadic erased function supplied where `() => T` is declared emits an \
-                unstable feature use plus a mismatched adapter (E0658/E0308)",
-    },
 ];
 
 /// Reads the fixture corpus from [`FIXTURE_DIR`], sorted by name.

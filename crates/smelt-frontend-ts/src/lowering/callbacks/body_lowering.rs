@@ -388,6 +388,40 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Type an unannotated rest parameter of `argument` that is called with the
+    /// FIXED arguments `param_tys` (an array method calls its callback with
+    /// `value, index, array`) as the tuple of those arguments, as TypeScript
+    /// does; its elements become fixed parameters (`lowering::tuple_rest`).
+    /// Typing it as a list of the last argument (the array) did not compile.
+    /// Only for argument lists known to be fixed: a contextual signature that
+    /// ends in its own rest keeps that rest.
+    pub(in crate::lowering) fn type_rest_from_fixed_arguments(
+        &mut self,
+        argument: &Argument<'_>,
+        param_tys: &[smelt_hir::TypeId],
+    ) {
+        let Argument::ArrowFunctionExpression(arrow) = argument else {
+            return;
+        };
+        let rest_index = arrow.params.items.len();
+        let Some(rest) = &arrow.params.rest else {
+            return;
+        };
+        if rest.type_annotation.is_some() || param_tys.len() <= rest_index {
+            return;
+        }
+        let elements = param_tys.get(rest_index..).unwrap_or_default().to_vec();
+        let tuple_ty = self.ctx.krate.types.intern(Type::Tuple(elements.clone()));
+        if self.fixed_tuple_rest_elements(tuple_ty).is_some()
+            && elements
+                .iter()
+                .all(|element| !self.type_contains_unknown(*element))
+        {
+            self.tuple_rest_arrows
+                .insert((arrow.params.span.start, arrow.params.span.end), tuple_ty);
+        }
+    }
+
     /// Lower a local arrow function through a real HIR closure body.
     ///
     /// Async arrows use the same body lowering as async function items: the

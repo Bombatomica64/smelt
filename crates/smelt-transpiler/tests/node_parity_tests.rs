@@ -136,6 +136,16 @@ fn throw_and_catch_forms() -> TestResult {
     verify_node_parity("throw_and_catch_forms")
 }
 
+/// Callback ABI forms: a callback writing its parameter's field reaches the
+/// caller's object, rest callbacks in `forEach`/`map` get the tuple of their
+/// arguments, `===` on borrowed callbacks compares identity, a borrowed
+/// erased-rest callback forwards to a typed slot, a `switch` with no default
+/// returns from an arrow, and a method fits a generic interface field.
+#[test]
+fn closure_abi_forms() -> TestResult {
+    verify_node_parity("closure_abi_forms")
+}
+
 /// Async closures, generators and timers behave as Node runs them.
 #[test]
 fn async_forms() -> TestResult {

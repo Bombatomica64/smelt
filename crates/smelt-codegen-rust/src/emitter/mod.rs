@@ -778,7 +778,9 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
             if !matches!(mir.types.get(local.ty), Some(Type::Function(_))) {
                 continue;
             }
-            if callback_param_escapes_locally(mir, function, *param)? {
+            if callback_param_escapes_locally(mir, function, *param)?
+                || callback_param_compared_by_identity(function, *param)
+            {
                 owned.insert((function.id, *param));
             }
         }
@@ -864,6 +866,26 @@ fn callee_param_is_owned_callback_sink(mir: &Mir, callee: &MirFunction, param: L
         }
         _ => false,
     }
+}
+
+/// Whether the callback parameter `local` is an operand of an equality.
+///
+/// `a === b` asks for the callers' function identities, which only an owned
+/// handle carries: a borrowed parameter is whatever adapter the call site
+/// built for it, so `same(f, f)` compared two fresh adapters and answered
+/// `false`. Owning the parameter makes each caller pass its shared `Rc`.
+fn callback_param_compared_by_identity(function: &MirFunction, local: LocalId) -> bool {
+    function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .any(|statement| {
+            matches!(
+                statement,
+                Statement::Assign { value: Rvalue::Binary { op, lhs, rhs }, .. }
+                    if op.is_equality() && (lhs.reads_local(local) || rhs.reads_local(local))
+            )
+        })
 }
 
 /// Returns whether a callback parameter escapes inside its own function body.

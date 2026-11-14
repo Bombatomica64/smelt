@@ -279,7 +279,7 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    if function_ty.mutable_params.contains(&index) {
+                    if self.param_passed_by_mut_ref(&function_ty, index) {
                         Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
                         self.rendered_at_type(
@@ -388,7 +388,7 @@ impl FunctionEmitter<'_> {
                             self.source_class_substituted_ty(source, decl.ty)
                         })
                 };
-                let arg_source_text = if function_ty.mutable_params.contains(&index) {
+                let arg_source_text = if self.param_passed_by_mut_ref(&function_ty, index) {
                     RustExpr::loose(format!("*smelt_arg{index}")).cloned_value()
                 } else {
                     RustExpr::path(format!("smelt_arg{index}")).cloned_value()
@@ -404,7 +404,7 @@ impl FunctionEmitter<'_> {
                         source_function.params.get(index.saturating_add(1)).copied()
                     && self.parameter_needs_mutable_reference_in(source_function, source_local)
                 {
-                    if function_ty.mutable_params.contains(&index) {
+                    if self.param_passed_by_mut_ref(&function_ty, index) {
                         Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
                         let local_name = format!("smelt_arg_{index}");

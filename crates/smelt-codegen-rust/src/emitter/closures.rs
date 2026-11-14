@@ -1633,6 +1633,12 @@ impl FunctionEmitter<'_> {
         in_loop: bool,
     ) -> Result<(), EmitError> {
         let join = self.match_join(arms, default)?;
+        // With a join after the `match`, the `match` is a statement, not the
+        // closure's tail: an arm that returns must say `return`, as inside a
+        // loop, or its value became the arm's (mismatched) tail and control
+        // fell through to the join (`switch` with no `default` whose cases
+        // all return, E0308).
+        let arm_in_loop = in_loop || join.is_some();
         let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
         out.push_str(&format!(
             "    match {scrutinee_text} {{\n",
@@ -1644,13 +1650,19 @@ impl FunctionEmitter<'_> {
                 "        {} => {{\n",
                 self.match_label_expr(&arm.label).delimited()
             ));
-            self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, in_loop)?;
+            self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, arm_in_loop)?;
             out.push_str("        }\n");
             match_declared.reset();
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
-            self.emit_closure_block_inner(self.block(default_block)?, out, active, join, in_loop)?;
+            self.emit_closure_block_inner(
+                self.block(default_block)?,
+                out,
+                active,
+                join,
+                arm_in_loop,
+            )?;
             out.push_str("        }\n");
         } else {
             out.push_str("        _ => {}\n");

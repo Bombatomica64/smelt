@@ -412,10 +412,12 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .find(|(field_name, _)| *field_name == field.name)
             {
-                parts.push(format!(
-                    "{name}: {}",
-                    self.operand_expr(field_value)?.delimited()
-                ));
+                let value = self.record_field_value_at_slot_abi(
+                    self.operand_expr(field_value)?.into_string(),
+                    dest_ty,
+                    &field,
+                )?;
+                parts.push(format!("{name}: {}", value.delimited()));
             } else {
                 parts.push(format!(
                     "{name}: {}",
@@ -587,7 +589,15 @@ impl FunctionEmitter<'_> {
                         &self.value_at_type(entry_value, field.ty)?,
                     )
                 } else {
-                    self.value_at_type(entry_value, field.ty)?
+                    // A callable at a generic record's field takes the slot's
+                    // DECLARED ABI (`&T` for a type parameter), which the
+                    // substituted field type renders by value; see
+                    // `record_slot_abi`. Inert where the ABI did not move.
+                    self.record_field_value_at_slot_abi(
+                        self.value_at_type(entry_value, field.ty)?.into_string(),
+                        dest_ty,
+                        &field,
+                    )?
                 }
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
                 let default = self.default_value(field.ty)?;

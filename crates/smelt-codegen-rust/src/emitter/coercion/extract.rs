@@ -623,7 +623,7 @@ impl FunctionEmitter<'_> {
                 // (`callback_param_is_shared_reference`) — both have to be
                 // cloned out before they can be pushed, or the vector infers
                 // `Vec<&SmeltUnknown>` and every later push mismatches (E0308).
-                let arg_text = if function.mutable_params.contains(&index)
+                let arg_text = if self.param_passed_by_mut_ref(function, index)
                     || self.callback_param_is_shared_reference(function, index, *param_ty)
                 {
                     RustExpr::path(format!("smelt_arg{index}")).cloned_value()

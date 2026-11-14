@@ -143,7 +143,7 @@ impl FunctionEmitter<'_> {
         index: usize,
         param: TypeId,
     ) -> bool {
-        !function.mutable_params.contains(&index)
+        !self.param_passed_by_mut_ref(function, index)
             && function.rest != Some(index)
             && self.param_type_is_by_shared_reference(param)
     }
