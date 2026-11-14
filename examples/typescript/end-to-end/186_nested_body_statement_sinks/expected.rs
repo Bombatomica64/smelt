@@ -742,8 +742,7 @@ impl K {
     fn new(a: f64) -> Self {
     let mut this: Self = K { v: 0.0 };
     let mut b: f64 = a;
-    let _smelt_tmp_3: f64 = b + 1.0;
-    b = _smelt_tmp_3;
+    b = b + 1.0;
     this.v = b;
     return this;
     }
@@ -751,15 +750,15 @@ impl K {
     let __smelt_update_tmp: f64;
     let x_1: f64;
     let mut _smelt_tmp_6: f64;
-    let _smelt_tmp_9: f64;
+    let _smelt_tmp_8: f64;
     let _smelt_tmp_11: f64;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_5: bool = x.clone().is_none();
     let mut _smelt_tmp_6: f64 = 0.0;
     if _smelt_tmp_5 {
     __smelt_update_tmp = a;
-    _smelt_tmp_9 = a + 1.0;
-    a = _smelt_tmp_9;
+    _smelt_tmp_8 = a;
+    a = _smelt_tmp_8 + 1.0;
     _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
     } else {
     _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
@@ -792,15 +791,15 @@ impl Scaled {
     let __smelt_update_tmp: f64;
     let x_1: f64;
     let mut _smelt_tmp_6: f64;
-    let _smelt_tmp_9: f64;
+    let _smelt_tmp_8: f64;
     let _smelt_tmp_11: f64;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_5: bool = x.clone().is_none();
     let mut _smelt_tmp_6: f64 = 0.0;
     if _smelt_tmp_5 {
     __smelt_update_tmp = a;
-    _smelt_tmp_9 = a + 1.0;
-    a = _smelt_tmp_9;
+    _smelt_tmp_8 = a;
+    a = _smelt_tmp_8 + 1.0;
     _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
     } else {
     _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
@@ -821,15 +820,15 @@ impl C {
     let __smelt_update_tmp: f64;
     let x_1: f64;
     let mut _smelt_tmp_6: f64;
-    let _smelt_tmp_9: f64;
+    let _smelt_tmp_8: f64;
     let _smelt_tmp_11: f64;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_5: bool = x.clone().is_none();
     let mut _smelt_tmp_6: f64 = 0.0;
     if _smelt_tmp_5 {
     __smelt_update_tmp = a;
-    _smelt_tmp_9 = a + 1.0;
-    a = _smelt_tmp_9;
+    _smelt_tmp_8 = a;
+    a = _smelt_tmp_8 + 1.0;
     _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
     } else {
     _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
@@ -846,7 +845,7 @@ impl Pair {
     let __smelt_update_tmp: f64;
     let x_1: f64;
     let mut _smelt_tmp_6: f64;
-    let _smelt_tmp_9: f64;
+    let _smelt_tmp_8: f64;
     let _smelt_tmp_11: f64;
     let _smelt_tmp_12: f64;
     let mut this: Self = Pair { v: 0.0 };
@@ -854,8 +853,8 @@ impl Pair {
     let mut _smelt_tmp_6: f64 = 0.0;
     if _smelt_tmp_5 {
     __smelt_update_tmp = a;
-    _smelt_tmp_9 = a + 1.0;
-    a = _smelt_tmp_9;
+    _smelt_tmp_8 = a;
+    a = _smelt_tmp_8 + 1.0;
     _smelt_tmp_6 = x.clone().unwrap_or(__smelt_update_tmp);
     } else {
     _smelt_tmp_6 = x.clone().expect("optional value was absent after narrowing");
@@ -904,8 +903,6 @@ pub(crate) fn field_initializer(n: f64) -> f64 {
 
 pub(crate) fn method_default_in_loop(n: f64) -> f64 {
     let mut _smelt_tmp_3: bool;
-    let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut total: f64 = 0.0;
     let mut r: f64 = 0.0;
     loop {
@@ -913,10 +910,8 @@ pub(crate) fn method_default_in_loop(n: f64) -> f64 {
     if !(_smelt_tmp_3) { break; }
     let _smelt_tmp_4: Scaled = Scaled::new();
     let _smelt_tmp_5: f64 = _smelt_tmp_4.get(r, None::<f64>);
-    _smelt_tmp_6 = total + _smelt_tmp_5;
-    total = _smelt_tmp_6;
-    _smelt_tmp_7 = r + 1.0;
-    r = _smelt_tmp_7;
+    total = total + _smelt_tmp_5;
+    r = r + 1.0;
     }
     return total;
 }
@@ -926,8 +921,7 @@ pub(crate) fn class_expression_in_deferring_declaration(n: f64) -> f64 {
     let _smelt_tmp_8: f64;
     let mut i: f64 = n;
     let g: f64 = i;
-    let _smelt_tmp_3: f64 = i + 1.0;
-    i = _smelt_tmp_3;
+    i = i + 1.0;
     let _smelt_tmp_4: f64 = g * 1000.0;
     let _smelt_tmp_5: C = C::new();
     let _smelt_tmp_6: f64 = _smelt_tmp_5.m(i, None::<f64>);

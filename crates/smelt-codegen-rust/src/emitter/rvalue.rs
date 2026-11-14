@@ -565,6 +565,29 @@ impl FunctionEmitter<'_> {
             Rvalue::ListClear { list } => self.collection_clear_expr(list, dest_ty, "list"),
             Rvalue::ListCopy { list } => self.list_copy_expr(list, dest_ty),
             Rvalue::TupleToList { tuple } => self.tuple_to_list_expr(tuple, dest_ty),
+            Rvalue::ErasedIterableTake {
+                value: source,
+                count,
+            } => {
+                let list = coercion::erased_to_bounded_list_expr(
+                    &self.operand_expr(source)?,
+                    None,
+                    &self.carrier_expr(
+                        self.carrier()?,
+                        &RustExpr::atom("SmeltUnknown::String(smelt_ch)"),
+                    ),
+                    *count,
+                );
+                // Taken in place into an erased local, the items are an erased
+                // array (same identity as the list just built).
+                if matches!(self.mir.types.get(dest_ty), Some(Type::Unknown)) {
+                    return Ok(RustExpr::chain(format!(
+                        "IntoSmeltUnknown::into_smelt_unknown({})",
+                        list.delimited()
+                    )));
+                }
+                Ok(list)
+            }
             Rvalue::ListToTuple { list } => self.list_to_tuple_expr(list, dest_ty),
             Rvalue::TupleToSet { tuple } => self.tuple_to_set_expr(tuple, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_expr(list, item, dest_ty),

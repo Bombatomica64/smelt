@@ -46,7 +46,7 @@ closure ClosureId(2) -> None
     %3 temp: usize
     %4 temp: Bool
     %5 temp: None
-    %6 temp: usize
+    %6 temp: Float
     %7 temp: Float
   bb0:
     %2 = 0
@@ -60,8 +60,7 @@ closure ClosureId(2) -> None
     %5 = closure_call copy %1(copy %0[copy %2], move %7)
     goto bb3
   bb3:
-    %6 = copy %2 + 1
-    %2 = copy %6
+    %2 = copy %2 + 1
     goto bb1
   bb4:
     return none

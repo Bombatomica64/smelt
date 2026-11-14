@@ -65,8 +65,7 @@ fn total (FuncId(1)) -> String
     %10 = tuple_index copy %2, 0
     %11 = tuple_index move %2, 1
     %12 = move %10 * move %11
-    %13 = move %1 + move %12
-    %1 = move %13
+    %1 = move %1 + move %12
     goto bb5
   bb5:
     %7 = copy %7 + 1

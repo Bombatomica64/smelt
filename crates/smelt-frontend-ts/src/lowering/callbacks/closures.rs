@@ -383,6 +383,22 @@ impl ModuleBuilder<'_> {
                 "function expression return",
             )
         };
+        // An async function returns a promise of what its body returns. When
+        // neither an annotation nor a contextual signature already says
+        // `Promise<T>` (an unannotated method of an object literal typed `any`,
+        // or a hint whose return is erased), the body's return type is the
+        // awaited value and the closure's return is its `Future`, exactly as
+        // for an async arrow. Without this the closure ran synchronously and
+        // handed back the bare value, so `.then` on its result was read off a
+        // number.
+        let async_wrapped = function.r#async
+            && !function.generator
+            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)));
+        let return_ty = if async_wrapped {
+            self.ctx.krate.types.intern(Type::Future(return_ty))
+        } else {
+            return_ty
+        };
 
         // A postfix update inside this body belongs to this body, not to the
         // deferral list of a declaration this expression initializes (`const
@@ -637,8 +653,10 @@ impl ModuleBuilder<'_> {
         // (`lowering::arguments_forwarding`), so a hint taken here would type the
         // closure at an arity its body does not have. The rewritten signature is
         // the only one that describes what was lowered.
+        // An async wrap above changed the return the hint describes, so the
+        // hint no longer types the closure either.
         let function_ty = match hint_function {
-            Some((ty, _)) if !forwards_arguments => ty,
+            Some((ty, _)) if !forwards_arguments && !async_wrapped => ty,
             _ => self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: params.iter().map(|param| param.ty).collect(),
                 rest: rest_index,

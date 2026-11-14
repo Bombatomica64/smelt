@@ -468,3 +468,70 @@ fn closures_stored_on_their_receiver_do_not_keep_it_alive() {
         RECEIVER_CYCLE_PROBE,
     );
 }
+
+/// An erased generator answers `[Symbol.iterator]()` with itself, through a
+/// handle in one of its own slots.
+const ERASED_GENERATOR_FIXTURE: &str = r#"
+import { test, expect } from "vitest";
+
+function* count(limit: number) {
+  for (let i = 1; i <= limit; i++) {
+    yield i;
+  }
+}
+
+export function eraseGenerator(limit: number): unknown {
+  return count(limit);
+}
+
+test("an erased generator is its own iterator", () => {
+  const generator: any = eraseGenerator(3);
+  expect(generator[Symbol.iterator]() === generator).toBe(true);
+  expect([...generator]).toEqual([1, 2, 3]);
+});
+"#;
+
+/// Rust appended to the emitted crate: the erased generator's self handle is
+/// weak, so the object is freed once its last outside handle goes.
+const ERASED_GENERATOR_PROBE: &str = r#"
+#[cfg(test)]
+mod smelt_erased_generator_probe {
+    use super::*;
+
+    #[test]
+    fn an_erased_generator_answering_itself_is_freed() {
+        for limit in 0..1000 {
+            let SmeltUnknown::Object(generator) = erase_generator(f64::from(limit)) else {
+                panic!("an erased generator is an object");
+            };
+            let store = ::std::rc::Rc::downgrade(&generator.store);
+            drop(generator);
+            assert!(store.upgrade().is_none(), "an erased generator leaked through its own iterator slot");
+        }
+    }
+
+    #[test]
+    fn the_self_iterator_answers_the_live_generator() {
+        let SmeltUnknown::Object(generator) = erase_generator(2.0) else {
+            panic!("an erased generator is an object");
+        };
+        let Some(SmeltUnknown::Function(iterator)) = generator.get("__smelt_symbol_iterator") else {
+            panic!("an erased generator has an iterator slot");
+        };
+        let Ok(SmeltUnknown::Object(answered)) = iterator(Vec::new()) else {
+            panic!("the iterator slot answers an object");
+        };
+        assert_eq!(answered.id, generator.id, "the iterator slot answered another object");
+    }
+}
+"#;
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn an_erased_generator_is_its_own_iterator_without_a_cycle() {
+    run_fixture(
+        ERASED_GENERATOR_FIXTURE,
+        "erased_generator_runtime",
+        ERASED_GENERATOR_PROBE,
+    );
+}

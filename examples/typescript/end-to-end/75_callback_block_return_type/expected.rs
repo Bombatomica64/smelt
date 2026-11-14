@@ -2286,13 +2286,20 @@ async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnkno
     }
 }
 
+#[allow(dead_code)]
+fn smelt_scheduled_continuation(future: SmeltPromiseFuture) -> SmeltUnknown {
+    let promise = SmeltPromise::from_future(future);
+    
+    SmeltUnknown::Promise(promise)
+}
+
 /// Read a modeled member off an erased promise (`then`/`catch`/`finally`).
 #[allow(dead_code)]
 fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {
     let member: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = match field {
-        "then" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } })))) }) }
-        "catch" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } })))) }) }
-        "finally" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled })))) }) }
+        "then" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(smelt_scheduled_continuation(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } }))) }) }
+        "catch" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(smelt_scheduled_continuation(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } }))) }) }
+        "finally" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(smelt_scheduled_continuation(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled }))) }) }
         _ => return SmeltUnknown::Undefined,
     };
     SmeltUnknown::Function(member)
@@ -2366,6 +2373,9 @@ impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> 
 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
 fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().map(SmeltUnknown::String).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get("next").or_else(|| object.get("__smelt_method:next")) else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!("unknown iterator did not return an iterable") } }
+/// The first `limit` items of an erased `[Symbol.iterator]()` result, stepping
+/// an iterator no further than that (array destructuring's reads).
+fn smelt_unknown_iterator_take(source: SmeltUnknown, limit: usize) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Object(object) if object.get("next").or_else(|| object.get("__smelt_method:next")).is_some() => { let Some(SmeltUnknown::Function(next)) = object.get("next").or_else(|| object.get("__smelt_method:next")) else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); while items.len() < limit { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } other => smelt_unknown_iterator_items(other).into_iter().take(limit).collect() } }
 
 /// Bind `Function.prototype.apply`/`call`/`bind` on an erased receiver, or read the field of an object receiver.
 fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
@@ -4127,7 +4137,6 @@ pub(crate) fn joined(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     let mut ch: JsString;
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: JsString;
     let mut _smelt_tmp_7: f64;
     let mut out: JsString = JsString::new();
     let mut _smelt_tmp_3: usize = 0;
@@ -4137,8 +4146,7 @@ pub(crate) fn joined(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     if _smelt_tmp_5 {
     _smelt_tmp_7 = _smelt_tmp_3 as f64;
     ch = closure_arg_0.char_at({ let smelt_normalized = _smelt_tmp_7 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default();
-    _smelt_tmp_6 = out.clone() + &ch.clone();
-    out = _smelt_tmp_6.clone();
+    out = out.clone() + &ch.clone();
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return out.clone();
@@ -4149,7 +4157,6 @@ pub(crate) fn joined(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     let mut ch: JsString;
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: JsString;
     let mut _smelt_tmp_7: f64;
     let mut out: JsString = JsString::new();
     let mut _smelt_tmp_3: usize = 0;
@@ -4159,8 +4166,7 @@ pub(crate) fn joined(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     if _smelt_tmp_5 {
     _smelt_tmp_7 = _smelt_tmp_3 as f64;
     ch = closure_arg_0.char_at({ let smelt_normalized = _smelt_tmp_7 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default();
-    _smelt_tmp_6 = out.clone() + &ch.clone();
-    out = _smelt_tmp_6.clone();
+    out = out.clone() + &ch.clone();
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return out.clone();
@@ -4173,14 +4179,12 @@ pub(crate) fn joined(keys: SmeltList<JsString>) -> SmeltList<JsString> {
 pub(crate) fn shouted(keys: SmeltList<JsString>) -> SmeltList<JsString> {
     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut out: JsString = closure_arg_0.clone();
-    let _smelt_tmp_2: JsString = out.clone() + &JsString::from("!");
-    out = _smelt_tmp_2.clone();
+    out = out.clone() + &JsString::from("!");
     out.clone()
     });
     let _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut out: JsString = closure_arg_0.clone();
-    let _smelt_tmp_2: JsString = out.clone() + &JsString::from("!");
-    out = _smelt_tmp_2.clone();
+    out = out.clone() + &JsString::from("!");
     out.clone()
     }); let smelt_array = keys.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
     return _smelt_tmp_2;
@@ -4230,7 +4234,6 @@ pub(crate) fn widths(keys: SmeltList<JsString>) -> SmeltList<f64> {
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: f64;
     let mut total: f64 = 0.0;
     let mut _smelt_tmp_3: usize = 0;
@@ -4241,8 +4244,7 @@ pub(crate) fn widths(keys: SmeltList<JsString>) -> SmeltList<f64> {
     _smelt_tmp_8 = _smelt_tmp_3 as f64;
     ch = closure_arg_0.char_at({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default();
     _smelt_tmp_6 = ch.len() as f64;
-    _smelt_tmp_7 = total + _smelt_tmp_6;
-    total = _smelt_tmp_7;
+    total = total + _smelt_tmp_6;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return total;
@@ -4254,7 +4256,6 @@ pub(crate) fn widths(keys: SmeltList<JsString>) -> SmeltList<f64> {
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: f64;
     let mut total: f64 = 0.0;
     let mut _smelt_tmp_3: usize = 0;
@@ -4265,8 +4266,7 @@ pub(crate) fn widths(keys: SmeltList<JsString>) -> SmeltList<f64> {
     _smelt_tmp_8 = _smelt_tmp_3 as f64;
     ch = closure_arg_0.char_at({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default();
     _smelt_tmp_6 = ch.len() as f64;
-    _smelt_tmp_7 = total + _smelt_tmp_6;
-    total = _smelt_tmp_7;
+    total = total + _smelt_tmp_6;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return total;

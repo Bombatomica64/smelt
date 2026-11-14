@@ -358,7 +358,7 @@ impl RuntimeDemand {
             Rvalue::SetPrototypeOf { .. } => {
                 self.add(Need::SetPrototypeOf);
             }
-            Rvalue::UnknownCast { .. } => {
+            Rvalue::UnknownCast { .. } | Rvalue::ErasedIterableTake { .. } => {
                 self.add(Need::Unknown);
             }
             Rvalue::AsyncOp { op, .. } => {

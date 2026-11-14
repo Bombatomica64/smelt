@@ -21,8 +21,7 @@ fn range (FuncId(0)) -> Generator<Float, None, None>
     %8 = yield copy %4
     goto bb3
   bb3:
-    %9 = move %4 + copy %3
-    %4 = move %9
+    %4 = move %4 + copy %3
     goto bb1
   bb4:
     return none
@@ -47,8 +46,7 @@ fn labels (FuncId(1)) -> Generator<String, None, None>
     %5 = yield move %4
     goto bb3
   bb3:
-    %6 = move %1 + 1.0
-    %1 = move %6
+    %1 = move %1 + 1.0
     goto bb1
   bb4:
     return none

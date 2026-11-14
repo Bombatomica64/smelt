@@ -1538,6 +1538,22 @@ fn apply_argument_lists() -> TestResult {
     verify_node_parity("apply_argument_lists")
 }
 
+/// A generator reached through an erased value is iterable: spread, `for...of`,
+/// `Array.from` and destructuring drive its `[Symbol.iterator]`, and a partly
+/// consumed generator resumes where it stopped.
+#[test]
+fn erased_generator_iteration() -> TestResult {
+    verify_node_parity("erased_generator_iteration")
+}
+
+/// A promise reached through an erased value settles and runs its
+/// continuations, and an async method of an `any` object literal returns a
+/// promise rather than its bare value.
+#[test]
+fn erased_async_calls() -> TestResult {
+    verify_node_parity("erased_async_calls")
+}
+
 /// Every call supplies its callee's `this`: a member call, `.call`/`.apply`/
 /// `.bind` supply a receiver and a plain call supplies `undefined`, typed or
 /// erased; an arrow sees its enclosing plain function's `this`; a callable

@@ -105,8 +105,7 @@ fn main (FuncId(0)) -> None
     %28 = list_push copy %3, move %6
     goto bb9
   bb9:
-    %29 = move %5 + 1.0
-    %5 = move %29
+    %5 = move %5 + 1.0
     goto bb7
   bb10:
     %30 = string_join move %3, "|"
