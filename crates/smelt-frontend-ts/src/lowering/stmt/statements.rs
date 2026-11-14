@@ -227,6 +227,15 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|argument| self.expression_with_hint(argument, body, return_hint))
                     .transpose()?;
+                // A bare `return;` in a constructor still answers the instance.
+                let value = match (value, self.fn_ctx.constructor_this) {
+                    (None, Some(this_local)) => Some(body.push_expr(Expr {
+                        kind: ExprKind::Local(this_local),
+                        ty: Self::local_ty(body, this_local),
+                        span: self.span(return_stmt.span.start, return_stmt.span.end),
+                    })),
+                    (value, _) => value,
+                };
                 if self.fn_ctx.verifies_assertion_plan {
                     self.verify_planned_assertions(return_stmt.span, body);
                 }

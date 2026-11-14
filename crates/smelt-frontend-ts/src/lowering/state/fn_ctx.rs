@@ -127,6 +127,13 @@ pub(in crate::lowering) struct FnCtx {
     forward_referenced_locals: HashSet<String>,
     /// Whether a `return` in this body ends a test that planned its assertions.
     pub(in crate::lowering) verifies_assertion_plan: bool,
+    /// The receiver local of a constructor body.
+    ///
+    /// A constructor answers its instance, so a bare `return;` inside it
+    /// (an early exit after a guard) returns `this`, as `new` does in
+    /// JavaScript. Without it the statement returned `()` from a Rust
+    /// `fn new(..) -> Self` (E0308).
+    pub(in crate::lowering) constructor_this: Option<smelt_hir::LocalId>,
 }
 
 impl FnCtx {
@@ -167,6 +174,7 @@ impl FnCtx {
             preserve_receiver,
             forward_referenced_locals: HashSet::new(),
             verifies_assertion_plan: false,
+            constructor_this: None,
         }
     }
 }
