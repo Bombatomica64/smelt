@@ -62,21 +62,30 @@ pub(crate) fn emit_mapped_sources(
         module_functions,
         erasures,
         dependencies,
-    } = emit_root(mir, allocator, |function, context| {
-        let HirOrigin::Body(body) = function.origin else {
-            return FreeFunctionHome::Root;
-        };
-        if is_root_main_function(mir, function, context.none_ty) {
-            return FreeFunctionHome::Root;
-        }
-        let Some(module_info) = body_modules.get(&body).cloned() else {
-            return FreeFunctionHome::Root;
-        };
-        module_paths
-            .entry(module_info.name.clone())
-            .or_insert(module_info.source_path);
-        FreeFunctionHome::Module(module_info.name)
-    })?;
+    } = emit_root(
+        mir,
+        allocator,
+        crate::startup::startup_functions(krate, mir, |body| {
+            body_modules
+                .get(&body)
+                .map(|info| generated_source_module_ident(&info.name))
+        }),
+        |function, context| {
+            let HirOrigin::Body(body) = function.origin else {
+                return FreeFunctionHome::Root;
+            };
+            if is_root_main_function(mir, function, context.none_ty) {
+                return FreeFunctionHome::Root;
+            }
+            let Some(module_info) = body_modules.get(&body).cloned() else {
+                return FreeFunctionHome::Root;
+            };
+            module_paths
+                .entry(module_info.name.clone())
+                .or_insert(module_info.source_path);
+            FreeFunctionHome::Module(module_info.name)
+        },
+    )?;
     for (module, source) in module_functions {
         module_chunks.entry(module).or_default().push(source);
     }
