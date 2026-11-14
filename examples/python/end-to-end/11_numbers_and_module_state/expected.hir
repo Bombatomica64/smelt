@@ -25,10 +25,10 @@ module examples/python/end-to-end/11_numbers_and_module_state/input.py (ModuleId
     s3: #8
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Counter
-  t3 = Int
+  t0 = Counter
+  t1 = Int
+  t2 = None
+  t3 = PyStr
   t4 = __SmeltPyException
   t5 = Float
   t6 = Bool

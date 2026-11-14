@@ -58,8 +58,12 @@ def load() -> str:
     )
 }
 
+/// `json.dumps` lowers to its own Python op, not `JSON.stringify`: `CPython`'s
+/// defaults (`", "`/`": "` separators, a float's repr, `ensure_ascii`) differ
+/// from JavaScript's, and the `python-parity/json_dumps_defaults` fixture runs
+/// the output against `python3`.
 #[test]
-fn json_dumps_lowers_to_stringify() -> TestResult {
+fn json_dumps_lowers_to_py_json_dumps() -> TestResult {
     let source = py!(r"
 import json
 values: list[int] = [1, 2]
@@ -71,8 +75,9 @@ text: str = json.dumps(values)
     let code = module_code(&ctx, module)?;
     ensure(
         code.exprs()
-            .any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
-        "expected json.dumps lowering",
+            .any(|expr| matches!(expr.kind, ExprKind::PyJsonDumps { .. }))
+            && !code.exprs().any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
+        "expected json.dumps to lower to PyJsonDumps, not JSON.stringify",
     )
 }
 

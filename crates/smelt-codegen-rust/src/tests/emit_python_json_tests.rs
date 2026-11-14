@@ -93,10 +93,13 @@ text: str = json.dumps(values)
 ",
     );
 
+    // JavaScript's encoder goes through the erased carrier; Python's is typed
+    // (`SmeltPyJson` at `SmeltList<i64>`), since its output depends on `int`
+    // versus `float` and on CPython's own separators.
     assert!(ts_source.contains("smelt_json_stringify(&"));
-    assert!(py_source.contains("smelt_json_stringify(&"));
     assert!(ts_source.contains(".expect(\"JSON serialization failed\")"));
-    assert!(py_source.contains(".expect(\"JSON serialization failed\")"));
+    assert!(py_source.contains("smelt_py_json_dumps(&"));
+    assert!(!py_source.contains("smelt_json_stringify("));
 }
 
 #[test]

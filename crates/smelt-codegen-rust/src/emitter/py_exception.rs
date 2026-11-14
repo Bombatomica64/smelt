@@ -22,6 +22,43 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!("SmeltPyRepr::{method}(&{text})", text = text.tight())))
     }
 
+    /// `json.dumps(value)`: the runtime's `SmeltPyJson` encoding of the value
+    /// at its own static type (`runtime/py_repr.rs`), never through the
+    /// erased carrier, which cannot tell an `int` from a `float`.
+    pub(super) fn py_json_dumps_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
+        let ty = self.operand_ty(value)?;
+        if !self.type_has_py_json(ty) {
+            return Err(EmitError::new(format!(
+                "json.dumps() of a value with no Python JSON form, got {}",
+                self.rendered_type(ty)?
+            )));
+        }
+        let text = self.operand_borrow_expr(value)?;
+        Ok(RustExpr::atom(format!("smelt_py_json_dumps(&{text})", text = text.tight())))
+    }
+
+    /// Whether a value of type `ty` has a `SmeltPyJson` impl: Python's
+    /// scalars, `None`, and lists, tuples and hash-map dicts of such values,
+    /// with `str`, `int`, `float` or `bool` keys.
+    fn type_has_py_json(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Int | Type::Float | Type::Bool | Type::PyStr | Type::String | Type::None) => true,
+            Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_json(*inner),
+            Some(Type::Tuple(items)) => {
+                !items.is_empty() && items.len() <= 6 && items.iter().all(|item| self.type_has_py_json(*item))
+            }
+            Some(Type::Dict(key, value)) => {
+                !self.dict_uses_js_key_map(*key)
+                    && matches!(
+                        self.mir.types.get(*key),
+                        Some(Type::PyStr | Type::String | Type::Int | Type::Float | Type::Bool)
+                    )
+                    && self.type_has_py_json(*value)
+            }
+            _ => false,
+        }
+    }
+
     /// Whether `ty` is a Python exception, rendered as `SmeltPyException`.
     pub(super) fn is_py_exception_type(&self, ty: TypeId) -> bool {
         self.py_stdlib_class_of(ty) == Some(smelt_stdlib::StdlibClass::PyException)

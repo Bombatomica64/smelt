@@ -211,6 +211,7 @@ fn assert_specialized_parity(source: &str, fixture_name: &str) -> ParityResult {
         &mut ctx,
         FrontendOptions {
             specialization: Some(&manifest),
+            ..FrontendOptions::default()
         },
     )
     .map_err(|errors| format!("manifest-aware HIR lowering failed: {errors:?}"))?;

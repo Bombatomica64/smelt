@@ -238,6 +238,7 @@ impl PredeclaredLowering {
                         file_id,
                         &file_string,
                         inputs.specialization.python(),
+                        source.is_entry,
                     );
                 self.ts.krate = krate;
                 self.py = PyLoweringState { module_namespaces, enum_members };

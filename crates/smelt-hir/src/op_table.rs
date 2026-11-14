@@ -2416,6 +2416,13 @@ macro_rules! op_group_transcribed {
                 value: one,
             }
                 => (format!("py_repr {value}"));
+            /// Python's `json.dumps(value)` with its default arguments, encoded
+            /// by the value's static type (`int` and `float` stay distinct).
+            PyJsonDumps {
+                /// The JSON-compatible value.
+                value: one @READ,
+            }
+                => (format!("py_json_dumps {value}"));
             /// `e.args`: the constructor arguments of an exception, as the
             /// runtime's `SmeltPyExceptionArgs`.
             PyExceptionArgs {

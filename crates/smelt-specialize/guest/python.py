@@ -39,14 +39,27 @@ class EventStream:
         self.stderr = stderr
 
     def write(self, text: str) -> int:
-        """Record output emitted from an active definition-time callable."""
+        """Record output emitted from an active definition-time callable.
+
+        Each event names the project module and the line of the top-level
+        statement that was executing (the innermost ``<module>`` frame), so the
+        frontend can replay it in place of a statement it materializes and drop
+        it for a statement it lowers to run-time code, which prints again.
+        """
         caller = inspect.currentframe()
         caller = None if caller is None else caller.f_back
         definition_time = (
             caller is not None and caller.f_code.co_name != "<module>"
         )
         if text and definition_time:
-            self.events.append({"kind": "output", "stderr": self.stderr, "text": text})
+            event: dict[str, object] = {"kind": "output", "stderr": self.stderr, "text": text}
+            frame = caller
+            while frame is not None and frame.f_code.co_name != "<module>":
+                frame = frame.f_back
+            if frame is not None and frame.f_code.co_filename:
+                event["path"] = str(pathlib.Path(frame.f_code.co_filename).resolve())
+                event["line"] = frame.f_lineno
+            self.events.append(event)
         return len(text)
 
     def flush(self) -> None:

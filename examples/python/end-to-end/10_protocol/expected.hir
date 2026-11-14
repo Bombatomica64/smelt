@@ -21,14 +21,14 @@ module examples/python/end-to-end/10_protocol/input.py (ModuleId(0))
     s0: #1
 
 interned types
-  t0 = None
+  t0 = Named
   t1 = PyStr
-  t2 = Named
-  t3 = Shape
-  t4 = Int
-  t5 = fn() -> Int
-  t6 = fn(PyStr) -> PyStr
-  t7 = Square
+  t2 = Shape
+  t3 = Int
+  t4 = fn() -> Int
+  t5 = fn(PyStr) -> PyStr
+  t6 = Square
+  t7 = None
   t8 = __SmeltPyException
   t9 = Rect
   t10 = Bool

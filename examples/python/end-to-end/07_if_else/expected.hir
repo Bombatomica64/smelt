@@ -26,7 +26,6 @@ module examples/python/end-to-end/07_if_else/input.py (ModuleId(0))
     s4: if #2 then BlockId(1) else BlockId(2)
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Int
-  t3 = Bool
+  t0 = Int
+  t1 = Bool
+  t2 = None

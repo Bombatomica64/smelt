@@ -14,7 +14,6 @@ module examples/python/end-to-end/06_function/input.py (ModuleId(0))
     s1: #3
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Int
-  t3 = fn(Int, Int) -> Int
+  t0 = Int
+  t1 = fn(Int, Int) -> Int
+  t2 = None

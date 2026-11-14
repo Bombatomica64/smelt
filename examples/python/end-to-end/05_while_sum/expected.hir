@@ -25,7 +25,6 @@ module examples/python/end-to-end/05_while_sum/input.py (ModuleId(0))
     s3: #13
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Int
-  t3 = Bool
+  t0 = Int
+  t1 = Bool
+  t2 = None

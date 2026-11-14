@@ -808,11 +808,11 @@ fn nested_class_statement_runs_in_the_enclosing_class_body() -> TestResult {
     )
 }
 
-/// Whether lowering `source` produced a JSON-to-text expression.
-fn lowers_to_json_stringify(source: &str) -> Result<bool, String> {
+/// Whether lowering `source` produced the `json.dumps` expression.
+fn lowers_to_json_dumps(source: &str) -> Result<bool, String> {
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
-    Ok(format!("{:?}", ctx.krate.bodies).contains("JsonStringify"))
+    Ok(format!("{:?}", ctx.krate.bodies).contains("PyJsonDumps"))
 }
 
 #[test]
@@ -823,7 +823,7 @@ fn stdlib_call_is_recognized_through_an_import_alias() -> TestResult {
         py!("from json import dumps as encode\ntext: str = encode(1)\n"),
         py!("import json\ntext: str = json.dumps(1)\n"),
     ] {
-        ensure(lowers_to_json_stringify(source)?, format!("expected a rule for {source}"))?;
+        ensure(lowers_to_json_dumps(source)?, format!("expected a rule for {source}"))?;
     }
     Ok(())
 }
@@ -840,7 +840,7 @@ class Encoder:
 def encode(json: Encoder) -> str:
     return json.dumps(1)
 ");
-    ensure(!lowers_to_json_stringify(source)?, "a parameter `json` must not reach the rule")?;
+    ensure(!lowers_to_json_dumps(source)?, "a parameter `json` must not reach the rule")?;
     Ok(())
 }
 

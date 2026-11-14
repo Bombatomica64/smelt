@@ -10,5 +10,5 @@ module examples/python/end-to-end/02_string/input.py (ModuleId(0))
     s0: #2
 
 interned types
-  t0 = None
-  t1 = PyStr
+  t0 = PyStr
+  t1 = None

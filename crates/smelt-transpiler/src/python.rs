@@ -67,6 +67,7 @@ pub(crate) fn lower_manifest_source(
     file_id: FileId,
     file_string: &str,
     specialization: Option<&smelt_specialize::SpecializationManifest>,
+    is_entry: bool,
 ) -> (
     Crate,
     PyModuleNamespaces,
@@ -83,7 +84,7 @@ pub(crate) fn lower_manifest_source(
         file_id,
         file_string,
         &mut ctx,
-        smelt_frontend_py::FrontendOptions { specialization },
+        smelt_frontend_py::FrontendOptions { specialization, is_entry },
     )
     .map_err(|errors| {
         crate::lowering::manifest_diagnostics(
@@ -293,6 +294,7 @@ pub(crate) fn lower_manifest_source(
     _file_id: FileId,
     file_string: &str,
     _specialization: Option<&smelt_specialize::SpecializationManifest>,
+    _is_entry: bool,
 ) -> (
     Crate,
     PyModuleNamespaces,

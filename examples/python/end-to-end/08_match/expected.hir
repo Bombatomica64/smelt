@@ -20,6 +20,5 @@ module examples/python/end-to-end/08_match/input.py (ModuleId(0))
     s3: match #0 {1 => BlockId(1), 2 => BlockId(2)} default BlockId(3)
 
 interned types
-  t0 = None
-  t1 = PyStr
-  t2 = Int
+  t0 = Int
+  t1 = None
