@@ -1,7 +1,7 @@
 fn total_down (FuncId(0)) -> Float
   locals
     %0 param start: Float
-    %1 user sum_down: fn(Float) -> Float
+    %1 user sum_down: fn(Float) -> Float (maybe unbound)
     %2 temp: fn(Float) -> Float
     %3 temp: Float
   bb0:
@@ -14,7 +14,7 @@ fn banner (FuncId(1)) -> String
   locals
     %0 param text: String
     %1 param times: Float
-    %2 user repeat: fn(Float, String) -> String
+    %2 user repeat: fn(Float, String) -> String (maybe unbound)
     %3 temp: fn(Float, String) -> String
     %4 temp: String
   bb0:
@@ -26,7 +26,7 @@ fn banner (FuncId(1)) -> String
 fn trim (FuncId(2)) -> String
   locals
     %0 param label: String
-    %1 user strip: fn(String) -> String
+    %1 user strip: fn(String) -> String (maybe unbound)
     %2 user suffix: String
     %3 temp: fn(String) -> String
     %4 temp: String
@@ -63,7 +63,7 @@ fn main (FuncId(3)) -> None
 closure ClosureId(0) -> Float
   locals
     %0 param value: Float
-    %1 user sum_down: fn(Float) -> Float
+    %1 user sum_down: fn(Float) -> Float (maybe unbound)
     %2 temp: Bool
     %3 temp: Float
     %4 temp: Float
@@ -83,7 +83,7 @@ closure ClosureId(1) -> String
   locals
     %0 param left: Float
     %1 param acc: String
-    %2 user repeat: fn(Float, String) -> String
+    %2 user repeat: fn(Float, String) -> String (maybe unbound)
     %3 user text: String
     %4 temp: Bool
     %5 temp: Float
@@ -103,7 +103,7 @@ closure ClosureId(1) -> String
 closure ClosureId(2) -> String
   locals
     %0 param value: String
-    %1 user strip: fn(String) -> String
+    %1 user strip: fn(String) -> String (maybe unbound)
     %2 user suffix: String
     %3 temp: String
     %4 temp: String

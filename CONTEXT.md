@@ -40,6 +40,19 @@ Smelt lowers source through four stages, each behind a small interface:
 - **HIR** — high-level IR produced by a frontend (`to_hir`). Closest to source shape.
 - **MIR** — mid-level IR with an explicit CFG and a flat `Rvalue` algebra (`lower_hir`).
 - **codegen-rust** — emits Rust source text from MIR (`emit_source`).
+- **Definite assignment** — the per-edge dataflow over a MIR body
+  (`smelt_mir::definite_assignment`) that says which locals are assigned at
+  each point. No local is assumed assigned but the parameters and a closure's
+  initialized captures, and every block is reachable (`smelt_mir::reachability`
+  removes the rest), so the validator checks every read.
+- **MaybeUnbound binding** — a source binding a read, or a closure capturing
+  it, can reach before its first assignment (`LocalInit::MaybeUnbound`): a
+  Python name assigned on one path, a JavaScript `let` read in its temporal
+  dead zone, a recursive closure's own binding. Stored as `SmeltBinding<T>`;
+  every other binding keeps its plain `T`. A read the analysis cannot prove
+  assigned is preceded by a **binding check** (`Rvalue::BindingCheck`), which
+  raises the source language's error (`ReferenceError`, `UnboundLocalError`,
+  `NameError`) through the ordinary error channel.
 
 ## Frontend name resolution
 

@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14070,
+      "concrete": 14098,
       "generic": 228,
-      "erased": 7975
+      "erased": 7928
     },
     "reads": {
       "concrete": 341,
       "generic": 33,
-      "erased": 1041
+      "erased": 1032
     },
     "calls": {
-      "concrete": 2138,
+      "concrete": 2141,
       "generic": 39,
-      "erased": 1276
+      "erased": 1258
     }
   },
   "programs": {
@@ -923,7 +923,7 @@
       "values": {
         "concrete": 6,
         "generic": 0,
-        "erased": 6
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -1329,19 +1329,19 @@
     },
     "src/array/maxBy.spec.ts": {
       "values": {
-        "concrete": 47,
+        "concrete": 53,
         "generic": 0,
-        "erased": 46
+        "erased": 31
       },
       "reads": {
         "concrete": 3,
         "generic": 0,
-        "erased": 6
+        "erased": 3
       },
       "calls": {
         "concrete": 6,
         "generic": 0,
-        "erased": 9
+        "erased": 3
       }
     },
     "src/array/maxBy.ts": {
@@ -1363,19 +1363,19 @@
     },
     "src/array/minBy.spec.ts": {
       "values": {
-        "concrete": 47,
+        "concrete": 53,
         "generic": 0,
-        "erased": 46
+        "erased": 31
       },
       "reads": {
         "concrete": 3,
         "generic": 0,
-        "erased": 6
+        "erased": 3
       },
       "calls": {
         "concrete": 6,
         "generic": 0,
-        "erased": 9
+        "erased": 3
       }
     },
     "src/array/minBy.ts": {
@@ -8843,7 +8843,7 @@
     },
     "src/function/debounce.ts": {
       "values": {
-        "concrete": 33,
+        "concrete": 34,
         "generic": 1,
         "erased": 55
       },
@@ -8853,7 +8853,7 @@
         "erased": 3
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
         "erased": 9
       }
@@ -9591,19 +9591,19 @@
     },
     "src/math/percentile.spec.ts": {
       "values": {
-        "concrete": 73,
+        "concrete": 75,
         "generic": 0,
-        "erased": 8
+        "erased": 3
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "calls": {
         "concrete": 19,
         "generic": 0,
-        "erased": 2
+        "erased": 0
       }
     },
     "src/math/percentile.ts": {
@@ -10424,19 +10424,19 @@
     },
     "src/object/toMerged.spec.ts": {
       "values": {
-        "concrete": 136,
+        "concrete": 138,
         "generic": 0,
-        "erased": 101
+        "erased": 97
       },
       "reads": {
         "concrete": 13,
         "generic": 0,
-        "erased": 17
+        "erased": 16
       },
       "calls": {
         "concrete": 0,
         "generic": 0,
-        "erased": 17
+        "erased": 15
       }
     },
     "src/object/toMerged.ts": {
@@ -10970,7 +10970,7 @@
       "values": {
         "concrete": 20,
         "generic": 0,
-        "erased": 10
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -11223,7 +11223,7 @@
     },
     "src/predicate/isPlainObject.spec.ts": {
       "values": {
-        "concrete": 141,
+        "concrete": 145,
         "generic": 0,
         "erased": 33
       },
@@ -11631,24 +11631,24 @@
     },
     "src/promise/delay.spec.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 43,
         "generic": 0,
-        "erased": 64
+        "erased": 58
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 13
+        "erased": 12
       },
       "calls": {
         "concrete": 5,
         "generic": 0,
-        "erased": 10
+        "erased": 8
       }
     },
     "src/promise/delay.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 11,
         "generic": 0,
         "erased": 26
       },
@@ -11658,7 +11658,7 @@
         "erased": 4
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
         "erased": 6
       }
@@ -11750,7 +11750,7 @@
     },
     "src/promise/timeout.spec.ts": {
       "values": {
-        "concrete": 36,
+        "concrete": 40,
         "generic": 0,
         "erased": 43
       },
@@ -11767,7 +11767,7 @@
     },
     "src/promise/timeout.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 9,
         "generic": 0,
         "erased": 21
       },
@@ -11777,7 +11777,7 @@
         "erased": 4
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
         "erased": 3
       }

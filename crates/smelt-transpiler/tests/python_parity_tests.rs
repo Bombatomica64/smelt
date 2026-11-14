@@ -76,6 +76,16 @@ fn lambda_arithmetic() -> TestResult {
     verify_python_parity("lambda_arithmetic")
 }
 
+/// A name read before an assignment bound it raises: `UnboundLocalError` for a
+/// function local, `NameError` for a free variable or a module-level name. Each
+/// is caught by an `except` naming it (or `NameError`, its base), propagates
+/// out of a function that does not catch it, and a path that did assign the
+/// name reads its value (C8).
+#[test]
+fn unbound_names() -> TestResult {
+    verify_python_parity("unbound_names")
+}
+
 /// A raise from a `map`, `filter` or `sorted` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {

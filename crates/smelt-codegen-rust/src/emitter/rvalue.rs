@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
     /// function carries erased renders as that same carrier, so
     /// `defaultValue as TDefault` with `defaultValue?: TDefault` is
     /// `undefined` too (radash `get(null, 'a')`), not a panic.
-    fn use_expr(&self, operand: &Operand, dest_ty: TypeId) -> Result<RustExpr, EmitError> {
+    pub(super) fn use_expr(&self, operand: &Operand, dest_ty: TypeId) -> Result<RustExpr, EmitError> {
         if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
             || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
                 && self.renders_erased(dest_ty).unwrap_or(false))
@@ -175,6 +175,7 @@ impl FunctionEmitter<'_> {
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
             | Rvalue::PythonDictRead { .. }
+            | Rvalue::BindingCheck { .. }
             | Rvalue::DictPopItem { .. }
             | Rvalue::PythonSequenceRead { .. }
             | Rvalue::PythonStepSlice { .. }

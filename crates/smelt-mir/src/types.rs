@@ -572,6 +572,36 @@ pub struct LocalDecl {
     pub kind: LocalKind,
     /// Source span of the local.
     pub span: Span,
+    /// Whether the local can be read while it is unassigned, which decides
+    /// its storage. See [`LocalInit`].
+    #[serde(default)]
+    pub init: LocalInit,
+}
+
+/// Whether a local can be observed before its first assignment.
+///
+/// Decided by the definite-assignment pass at the end of MIR lowering
+/// (`lower::passes::unbound_bindings`) and enforced by the validator
+/// (`validate::assignment`), so codegen can trust it: a [`Self::Definite`]
+/// local is stored as its plain type, with no flag and no check, and only a
+/// [`Self::MaybeUnbound`] one pays for a representation that knows it is
+/// empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LocalInit {
+    /// Every read is preceded by an assignment on every path into it.
+    #[default]
+    Definite,
+    /// A source binding that a read, or a closure that captures it, can reach
+    /// before any assignment: a Python name assigned in only one branch, a
+    /// JavaScript `let` read through a closure called in its temporal dead
+    /// zone, a recursive closure's binding captured before it is assigned.
+    ///
+    /// Such a local is read only where it is definitely assigned, which a
+    /// [`crate::Rvalue::BindingCheck`] before the read establishes where
+    /// nothing else does; it is captured by reference and written only by
+    /// [`crate::Statement::Assign`]. Codegen stores it as `SmeltBinding<T>`,
+    /// reads it through `bound()` and fills it with `bind`.
+    MaybeUnbound,
 }
 
 /// The kind of a local variable.

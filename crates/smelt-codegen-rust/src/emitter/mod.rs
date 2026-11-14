@@ -102,6 +102,7 @@ pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 mod proto_argument;
 mod render_state;
 mod aggregate_literal;
+mod binding_storage;
 mod backend_erasure;
 pub(crate) mod bound_dispatch;
 mod bigint;

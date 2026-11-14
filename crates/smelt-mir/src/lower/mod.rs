@@ -107,7 +107,36 @@ pub struct LowerError {
 }
 
 /// Function lowering output with any closures discovered inside the function body.
-type LoweredFunction = (MirFunction, Vec<MirClosure>);
+struct LoweredFunction {
+    /// The lowered body.
+    function: MirFunction,
+    /// Every closure constructed inside it, nested ones included.
+    closures: Vec<MirClosure>,
+    /// The [`scope::HandlerMarks`] of the body itself.
+    handler_marks: scope::HandlerMarks,
+    /// The [`scope::HandlerMarks`] of every closure in `closures`.
+    closure_handler_marks: Vec<(ClosureId, scope::HandlerMarks)>,
+}
+
+/// What lowering knows about the bodies it produced that the MIR does not
+/// record, for the finalization passes.
+#[derive(Debug, Default)]
+struct LoweringFacts {
+    /// The handler each statement of each body was lowered under.
+    handler_marks: HashMap<crate::BodyOwner, scope::HandlerMarks>,
+    /// The functions that are module bodies (the top level of a source file).
+    module_bodies: std::collections::HashSet<FuncId>,
+}
+
+impl LoweringFacts {
+    /// Keeps the marks of one lowered function and its closures.
+    fn record(&mut self, id: FuncId, handler_marks: scope::HandlerMarks, closures: Vec<(ClosureId, scope::HandlerMarks)>) {
+        self.handler_marks.insert(crate::BodyOwner::Function(id), handler_marks);
+        self.handler_marks.extend(
+            closures.into_iter().map(|(closure, marks)| (crate::BodyOwner::Closure(closure), marks)),
+        );
+    }
+}
 
 /// Mapping from HIR function-item ids to their assigned MIR [`FuncId`]s.
 type FunctionIds = HashMap<smelt_hir::ItemId, FuncId>;
@@ -302,19 +331,20 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             .map(|duplicate| duplicate_declaration_error(krate, &mir, duplicate))
             .collect());
     }
-    lower_item_functions(krate, &mut mir, &mut slots, &tables, helpers, &mut errors);
+    let mut facts = LoweringFacts::default();
+    lower_item_functions(krate, &mut mir, &mut slots, &tables, helpers, &mut errors, &mut facts);
 
     if !errors.is_empty() {
         return Err(errors);
     }
 
-    lower_module_bodies(krate, &mut mir, &mut slots, &tables, helpers, &mut errors);
+    lower_module_bodies(krate, &mut mir, &mut slots, &tables, helpers, &mut errors, &mut facts);
 
     if !errors.is_empty() {
         return Err(errors);
     }
     mir.functions = slots.finish()?;
-    run_finalization_passes(&mut mir).map_err(|error| vec![error])?;
+    run_finalization_passes(&mut mir, &facts).map_err(|error| vec![error])?;
     Ok(mir)
 }
 
@@ -645,6 +675,7 @@ fn lower_item_functions(
     tables: &LoweringTables<'_>,
     helpers: HelperTypes,
     errors: &mut Vec<LowerError>,
+    facts: &mut LoweringFacts,
 ) {
     for (idx, item) in krate.items.iter().enumerate() {
         let item_id = match u32_from_usize(idx, "HIR item index does not fit in u32") {
@@ -714,9 +745,10 @@ fn lower_item_functions(
             is_async: function.is_async,
         };
         match LoweringCtx::new(shared, spec, body).and_then(LoweringCtx::lower) {
-            Ok((lowered_function, closures)) => {
-                mir.closures.extend(closures);
-                if let Err(error) = slots.fill(function_id, lowered_function) {
+            Ok(lowered) => {
+                mir.closures.extend(lowered.closures);
+                facts.record(function_id, lowered.handler_marks, lowered.closure_handler_marks);
+                if let Err(error) = slots.fill(function_id, lowered.function) {
                     errors.push(error);
                     break;
                 }
@@ -747,6 +779,7 @@ fn lower_module_bodies(
     tables: &LoweringTables<'_>,
     helpers: HelperTypes,
     errors: &mut Vec<LowerError>,
+    facts: &mut LoweringFacts,
 ) {
     for module in &krate.modules {
         let Some(body_id) = module.body else {
@@ -799,7 +832,9 @@ fn lower_module_bodies(
             is_async: module.is_async,
         };
         match LoweringCtx::new(shared, spec, body).and_then(LoweringCtx::lower) {
-            Ok((mut function, closures)) => {
+            Ok(LoweredFunction { mut function, closures, handler_marks, closure_handler_marks }) => {
+                facts.record(function_id, handler_marks, closure_handler_marks);
+                facts.module_bodies.insert(function_id);
                 // An async module body awaits, and a statement-form await is
                 // emitted as `future.await?` -- so the entry point's signature
                 // has to carry the error channel its own body uses. The
@@ -830,7 +865,16 @@ fn lower_module_bodies(
 /// # Errors
 ///
 /// The throwing fixpoint did not converge within its round cap.
-fn run_finalization_passes(mir: &mut Mir) -> Result<(), LowerError> {
+fn run_finalization_passes(mir: &mut Mir, facts: &LoweringFacts) -> Result<(), LowerError> {
+    // Requires: every body lowered, with the statement positions `facts`
+    // recorded (nothing has rewritten a body yet). Establishes: every source
+    // binding a read or a capture can reach unassigned is `MaybeUnbound`, and
+    // every read of one the analysis cannot prove assigned is preceded by a
+    // `BindingCheck`, which can throw -- so it runs before the throwing fixpoint.
+    passes::unbound_bindings::check_unbound_bindings(mir, facts)?;
+    // Requires: nothing. Establishes: every block is reachable from its body's
+    // entry, so the validator checks every block it is given.
+    crate::reachability::remove_unreachable_blocks(mir);
     // Requires: every body lowered. Establishes: each generic record
     // instantiation the program uses is in the table, so its declaration and
     // record helpers are emitted.

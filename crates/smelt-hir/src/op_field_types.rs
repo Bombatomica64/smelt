@@ -127,6 +127,7 @@ holds_no_types!(
     crate::TextEncoderOp,
     crate::TypedArrayElement,
     crate::UnknownKind,
+    crate::UnboundRead,
     crate::UriTranscodeOp,
     crate::UrlField,
     crate::UrlOp,

@@ -37,7 +37,7 @@ const STRING: TypeId = TypeId(1);
 
 /// A local of `ty` and `kind`.
 fn local(ty: TypeId, kind: LocalKind) -> LocalDecl {
-    LocalDecl { ty, kind, span: span() }
+    LocalDecl { ty, kind, span: span(), init: crate::LocalInit::Definite }
 }
 
 /// `copy %local`.
@@ -265,12 +265,11 @@ fn a_call_destination_is_undefined_on_the_unwind_edge() {
     assert!(reports(&call_with_handler(true), "reads local LocalId(0)"));
 }
 
-/// The definite-assignment contract with the emitter (C8): a user binding
-/// may be read before its first write (the emitter seeds it), a temporary may
-/// not, and a block no path reaches is not checked (the emitter never renders
-/// it).
+/// No local is assigned on entry but the parameters (C8): a source binding
+/// read before any assignment is rejected exactly like a temporary, since a
+/// default value standing in for it would be a silent miscompile.
 #[test]
-fn user_bindings_and_dead_blocks_follow_the_emitter_contract() {
+fn a_binding_read_before_any_assignment_is_rejected() {
     let read_first = |kind| {
         let mut mir = program();
         mir.push_function(function(
@@ -279,9 +278,14 @@ fn user_bindings_and_dead_blocks_follow_the_emitter_contract() {
         ));
         mir
     };
-    assert_eq!(validate(&read_first(LocalKind::UserBinding(Symbol(1)))), []);
+    assert!(reports(&read_first(LocalKind::UserBinding(Symbol(1))), "reads local LocalId(0)"));
     assert!(reports(&read_first(LocalKind::Temp), "reads local LocalId(0)"));
+}
 
+/// Every block is reachable from the entry (C8): lowering removes the blocks
+/// no edge reaches, so one left behind is reported rather than skipped.
+#[test]
+fn an_unreachable_block_is_rejected() {
     let mut dead = program();
     dead.push_function(function(
         vec![local(FLOAT, LocalKind::Temp)],
@@ -290,7 +294,193 @@ fn user_bindings_and_dead_blocks_follow_the_emitter_contract() {
             block(1, Vec::new(), Terminator::Return(copy(0))),
         ],
     ));
-    assert_eq!(validate(&dead), []);
+    assert!(reports(&dead, "has block BlockId(1), which no edge reaches from the entry"));
+}
+
+/// A possibly-unbound binding.
+fn maybe_unbound(ty: TypeId) -> LocalDecl {
+    LocalDecl {
+        ty,
+        kind: LocalKind::UserBinding(Symbol(1)),
+        span: span(),
+        init: crate::LocalInit::MaybeUnbound,
+    }
+}
+
+/// `%dest = call @binding_check(%binding)` raising a temporal-dead-zone error,
+/// continuing to `target`.
+fn check(binding: u32, dest: u32, target: u32) -> Terminator {
+    Terminator::Call {
+        callee: Callee::Op(
+            Box::new(Rvalue::BindingCheck {
+                binding: copy(binding),
+                unbound: smelt_hir::UnboundRead::JsTemporalDeadZone,
+            }),
+            None,
+        ),
+        args: Vec::new(),
+        dest: LocalId(dest),
+        target: BlockId(target),
+        unwind: None,
+    }
+}
+
+/// `%dest = copy %source`.
+fn read_into(source: u32, dest: u32) -> Statement {
+    Statement::Assign { dest: LocalId(dest), value: Rvalue::Use(copy(source)) }
+}
+
+/// A `MaybeUnbound` binding is read only where it is definitely assigned
+/// (C8): a check may name it unassigned and leaves it assigned on its normal
+/// edge, so the read after it is accepted, while the same read with no check
+/// and no assignment before it is rejected.
+#[test]
+fn a_maybe_unbound_binding_is_read_only_past_an_assignment_or_a_check() {
+    let body = |blocks| {
+        let mut mir = program();
+        mir.push_function(function(
+            vec![maybe_unbound(FLOAT), local(FLOAT, LocalKind::Temp), local(FLOAT, LocalKind::Temp)],
+            blocks,
+        ));
+        mir
+    };
+    let checked = body(vec![
+        block(0, Vec::new(), check(0, 1, 1)),
+        block(1, vec![read_into(0, 2)], Terminator::Return(copy(2))),
+    ]);
+    assert_eq!(validate(&checked), []);
+    let unchecked = body(vec![block(0, vec![read_into(0, 1)], Terminator::Return(copy(1)))]);
+    assert!(reports(&unchecked, "reads local LocalId(0)"));
+    let assigned = Statement::Assign {
+        dest: LocalId(0),
+        value: Rvalue::Use(Operand::Const(Constant::Float(1.0))),
+    };
+    let assigned_first = body(vec![block(0, vec![assigned, read_into(0, 1)], Terminator::Return(copy(1)))]);
+    assert_eq!(validate(&assigned_first), []);
+    // A check is a call terminator, never a statement.
+    let statement_check = body(vec![block(
+        0,
+        vec![Statement::Assign {
+            dest: LocalId(1),
+            value: Rvalue::BindingCheck { binding: copy(0), unbound: smelt_hir::UnboundRead::PyLocal },
+        }],
+        Terminator::Return(Operand::Const(Constant::Float(0.0))),
+    )]);
+    assert!(reports(&statement_check, "has a binding check outside a call terminator"));
+}
+
+/// A `MaybeUnbound` binding is written only by a whole-local assignment (C8):
+/// codegen fills its `SmeltBinding` with `bind`, which a call's destination
+/// write does not go through.
+#[test]
+fn a_maybe_unbound_binding_is_written_only_by_assignment() {
+    let mut mir = program();
+    mir.push_function(function(
+        vec![maybe_unbound(FLOAT), local(FLOAT, LocalKind::Temp)],
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Terminator::Call {
+                    callee: Callee::Static(FuncId(0)),
+                    args: Vec::new(),
+                    dest: LocalId(0),
+                    target: BlockId(1),
+                    unwind: None,
+                },
+            ),
+            block(1, vec![read_into(0, 1)], Terminator::Return(copy(1))),
+        ],
+    ));
+    assert!(reports(&mir, "writes MaybeUnbound local LocalId(0)"));
+}
+
+/// A closure capturing `%0` of `function` into its own `%0`, read back by the
+/// closure; `init` is the closure copy's [`crate::LocalInit`].
+fn capturing_closure(read: Statement, init: crate::LocalInit) -> MirClosure {
+    let mut capture_local = maybe_unbound(FLOAT);
+    capture_local.init = init;
+    closure(
+        vec![capture_local, local(FLOAT, LocalKind::Temp)],
+        vec![MirClosureCapture {
+            source_local: LocalId(0),
+            target_local: Some(LocalId(0)),
+            symbol: Symbol(1),
+            ty: FLOAT,
+            mode: CaptureMode::ByRef,
+        }],
+        vec![block(0, vec![read], Terminator::Return(copy(1)))],
+    )
+}
+
+/// A function that captures its `%0` (of `source_init`) into closure 0 before
+/// assigning it, then returns 0. `leak` passes the closure value to a call
+/// before the binding is assigned, so the closure may run first.
+fn capture_before_assignment(source_init: crate::LocalInit, leak: bool) -> MirFunction {
+    let mut source = maybe_unbound(FLOAT);
+    source.init = source_init;
+    let closure_ty = TypeId(1);
+    let make = Statement::Assign {
+        dest: LocalId(1),
+        value: Rvalue::Closure { id: ClosureId(0), captures: vec![copy(0)] },
+    };
+    let assign = Statement::Assign {
+        dest: LocalId(0),
+        value: Rvalue::Use(Operand::Const(Constant::Float(1.0))),
+    };
+    let finish = Terminator::Return(Operand::Const(Constant::Float(0.0)));
+    let blocks = if leak {
+        vec![
+            block(
+                0,
+                vec![make],
+                Terminator::Call {
+                    callee: Callee::Indirect(copy(1)),
+                    args: Vec::new(),
+                    dest: LocalId(2),
+                    target: BlockId(1),
+                    unwind: None,
+                },
+            ),
+            block(1, vec![assign], finish),
+        ]
+    } else {
+        vec![block(0, vec![make, assign], finish)]
+    };
+    function(vec![source, local(closure_ty, LocalKind::Temp), local(FLOAT, LocalKind::Temp)], blocks)
+}
+
+/// A capture of a binding that is not yet assigned (C8): the binding and the
+/// closure's copy must both be `MaybeUnbound`. When nothing can invoke the
+/// closure before the binding is assigned (its value is only read after), the
+/// closure's reads are proven; when the closure value leaks first, they need a
+/// check.
+#[test]
+fn a_capture_before_assignment_shares_maybe_unbound_storage() {
+    use crate::LocalInit::{Definite, MaybeUnbound};
+    let program_with = |source_init, target_init, read, leak| {
+        let mut mir = program();
+        mir.push_function(capture_before_assignment(source_init, leak));
+        mir.push_closure(capturing_closure(read, target_init));
+        mir
+    };
+    // A plain binding captured unassigned.
+    assert!(reports(
+        &program_with(Definite, Definite, read_into(0, 1), false),
+        "into closure ClosureId(0) before it is definitely defined, but it is not MaybeUnbound"
+    ));
+    // Source and target disagree.
+    assert!(reports(
+        &program_with(MaybeUnbound, Definite, read_into(0, 1), false),
+        "whose target disagrees on whether it may be unassigned"
+    ));
+    // Not leaked: the closure's read is proven.
+    assert_eq!(validate(&program_with(MaybeUnbound, MaybeUnbound, read_into(0, 1), false)), []);
+    // Leaked: the read needs a check.
+    assert!(reports(
+        &program_with(MaybeUnbound, MaybeUnbound, read_into(0, 1), true),
+        "closure ClosureId(0) reads local LocalId(0)"
+    ));
 }
 
 /// Two classes of one name are rejected (C12).

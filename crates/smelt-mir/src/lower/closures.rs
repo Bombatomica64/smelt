@@ -155,7 +155,14 @@ impl LoweringCtx<'_> {
         )?;
         // A closure sees the type parameters of the body it is written in.
         closure_ctx.type_param_bounds.clone_from(&self.type_param_bounds);
-        let (function, nested_closures) = closure_ctx.lower()?;
+        let super::LoweredFunction {
+            function,
+            closures: nested_closures,
+            handler_marks,
+            closure_handler_marks,
+        } = closure_ctx.lower()?;
+        self.closure_handler_marks.push((closure_id, handler_marks));
+        self.closure_handler_marks.extend(closure_handler_marks);
         // Carry the function-item identity tag from HIR so codegen can cache one
         // runtime wrapper per named function item. The `ItemId` index is a
         // crate-unique, stable cache key shared by every reference to the item.
@@ -560,22 +567,7 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                 let Some(closure) = mir.closures.get(closure_index) else {
                     continue;
                 };
-                closure
-                    .blocks
-                    .iter()
-                    .flat_map(|block| block.statements.iter())
-                    .filter_map(|statement| {
-                        let Statement::Assign {
-                            dest,
-                            value: Rvalue::Use(operand),
-                        } = statement
-                        else {
-                            return None;
-                        };
-                        let source = operand.local()?;
-                        Some((*dest, source))
-                    })
-                    .collect::<Vec<_>>()
+                local_alias_assignments(&closure.blocks)
             };
             for (dest, source) in assignments {
                 let Some(closure) = mir.closures.get_mut(closure_index) else {

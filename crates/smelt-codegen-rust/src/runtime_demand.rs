@@ -161,6 +161,13 @@ declare_needs! {
     PythonListRead,
     /// A raised Python exception, `SmeltPyException`.
     PyException,
+    /// `SmeltBinding`, the storage of a source binding that can be read
+    /// before its first assignment.
+    Binding,
+    /// The `ReferenceError` of a JavaScript binding read in its temporal dead zone.
+    BindingTdz,
+    /// The `UnboundLocalError`/`NameError` of a Python name read unbound.
+    BindingPy,
     /// The shared, ordered `SmeltRecord` dict and its property store.
     Record,
     /// A Python program: dicts keep plain insertion order.
@@ -285,6 +292,9 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
     (Need::PythonDictRead, &[Need::PyException]),
+    // A checked binding read raises through the error its language throws.
+    (Need::BindingTdz, &[Need::Binding, Need::Unknown]),
+    (Need::BindingPy, &[Need::Binding, Need::PyException]),
     // The checked read indexes the identity-bearing list it is handed.
     (Need::PythonListRead, &[Need::PyException, Need::SmeltList]),
     (Need::PrimSet, &[Need::ObjectIds]),
@@ -674,6 +684,9 @@ impl RuntimeDemand {
 
     /// Records what one function or closure body demands.
     fn scan_body(&mut self, mir: &Mir, locals: &[LocalDecl], blocks: &[BasicBlock], return_ty: smelt_hir::TypeId) {
+        if locals.iter().any(|local| local.init == smelt_mir::LocalInit::MaybeUnbound) {
+            self.add(Need::Binding);
+        }
         for block in blocks {
             for statement in &block.statements {
                 self.scan_statement(mir, locals, statement);

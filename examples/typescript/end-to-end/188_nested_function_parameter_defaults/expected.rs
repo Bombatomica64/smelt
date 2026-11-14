@@ -679,6 +679,25 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     }
 }
 
+/// A source binding that may not be assigned yet.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct SmeltBinding<T>(Option<T>);
+
+#[allow(dead_code)]
+impl<T> SmeltBinding<T> {
+    /// A binding before its first assignment.
+    const fn unbound() -> Self { Self(None) }
+    /// Assigns the binding.
+    fn bind(&mut self, value: T) { self.0 = Some(value); }
+    /// Reads a binding the compiler proved assigned at this read.
+    fn bound(&self) -> &T { self.0.as_ref().unwrap_or_else(|| unreachable!("a binding proved assigned was read unassigned")) }
+    /// Writes through a binding the compiler proved assigned at this write.
+    fn bound_mut(&mut self) -> &mut T { self.0.as_mut().unwrap_or_else(|| unreachable!("a binding proved assigned was written unassigned")) }
+    /// Raises `unbound()` if the binding is not assigned.
+    fn checked(&self, unbound: impl FnOnce() -> Box<dyn ::std::error::Error>) -> Result<&T, Box<dyn ::std::error::Error>> { self.0.as_ref().ok_or_else(unbound) }
+}
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -804,7 +823,7 @@ pub(crate) fn hoisted_call(n: f64) -> f64 {
 }
 
 pub(crate) fn recursive(n: f64) -> f64 {
-    let smelt_capture_count: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: f64, smelt_arg1: Option<f64>| -> f64 { 0.0 }); smelt_default_callback }));
+    let smelt_capture_count: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64, Option<f64>) -> f64>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let smelt_capture_count = ::std::rc::Rc::downgrade(&smelt_capture_count);
     move |closure_arg_0: f64, closure_arg_1: Option<f64>| {
@@ -819,13 +838,13 @@ pub(crate) fn recursive(n: f64) -> f64 {
     } else {
     _smelt_tmp_7 = closure_arg_0 - 1.0;
     _smelt_tmp_8 = acc_1 * 2.0;
-    _smelt_tmp_9 = ((*smelt_capture_count.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_7, Some(_smelt_tmp_8));
+    _smelt_tmp_9 = ((*(*smelt_capture_count.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_7, Some(_smelt_tmp_8));
     _smelt_tmp_6 = _smelt_tmp_9;
     }
     _smelt_tmp_6
     }
 });
-    (*smelt_capture_count.borrow_mut()) = _smelt_tmp_2.clone();
-    let _smelt_tmp_3: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_count.borrow())); (smelt_callable)(n, None) };
+    { let smelt_next_value = _smelt_tmp_2.clone(); (*smelt_capture_count.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_3: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_count.borrow()).bound())); (smelt_callable)(n, None) };
     return _smelt_tmp_3;
 }

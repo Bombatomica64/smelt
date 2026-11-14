@@ -399,6 +399,10 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.rvalue_expr_for_dest(value, local.ty)?.into_string(),
                 };
+                if self.local_is_maybe_unbound(*dest)? {
+                    // Declared up front as `SmeltBinding<T>`; an assignment fills it.
+                    return self.emit_binding_assignment(*dest, &RustExpr::from(rendered_value), out);
+                }
                 if self.deferred_capture_cells.borrow().contains(dest) {
                     // The cell was declared without a value; its one
                     // assignment creates it (see `capture_cell_created_at_assignment`).

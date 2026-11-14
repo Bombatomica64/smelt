@@ -696,6 +696,25 @@ fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_p
 fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let Some(payload) = panic.downcast_ref::<SmeltPanic>() { return payload.message.clone(); } if let Some(message) = panic.downcast_ref::<String>() { return message.clone(); } if let Some(message) = panic.downcast_ref::<&'static str>() { return (*message).to_owned(); } "JavaScript exception".to_owned() }
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
+/// A source binding that may not be assigned yet.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct SmeltBinding<T>(Option<T>);
+
+#[allow(dead_code)]
+impl<T> SmeltBinding<T> {
+    /// A binding before its first assignment.
+    const fn unbound() -> Self { Self(None) }
+    /// Assigns the binding.
+    fn bind(&mut self, value: T) { self.0 = Some(value); }
+    /// Reads a binding the compiler proved assigned at this read.
+    fn bound(&self) -> &T { self.0.as_ref().unwrap_or_else(|| unreachable!("a binding proved assigned was read unassigned")) }
+    /// Writes through a binding the compiler proved assigned at this write.
+    fn bound_mut(&mut self) -> &mut T { self.0.as_mut().unwrap_or_else(|| unreachable!("a binding proved assigned was written unassigned")) }
+    /// Raises `unbound()` if the binding is not assigned.
+    fn checked(&self, unbound: impl FnOnce() -> Box<dyn ::std::error::Error>) -> Result<&T, Box<dyn ::std::error::Error>> { self.0.as_ref().ok_or_else(unbound) }
+}
+
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -3613,7 +3632,7 @@ fn main() {
     let _smelt_tmp_1 = ::std::rc::Rc::new({
     let smelt_captured_closure_arg_0 = closure_arg_0.clone();
     move |closure_arg_0: JsString| {
-    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<::std::rc::Rc<dyn Fn(f64) -> JsString>>> = ::std::rc::Rc::new(::std::cell::RefCell::new({ let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> JsString> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> JsString { JsString::new() }); smelt_default_callback }));
+    let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64) -> JsString>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
     let smelt_captured_closure_arg_0_0 = closure_arg_0.clone();
     let smelt_captured_closure_arg_0 = smelt_captured_closure_arg_0.clone();
@@ -3630,14 +3649,14 @@ fn main() {
     } else {
     _smelt_tmp_6 = smelt_captured_closure_arg_0.borrow().get({ let smelt_normalized = closure_arg_0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new()).clone() + &JsString::from(">");
     _smelt_tmp_7 = closure_arg_0 + 1.0;
-    _smelt_tmp_8 = ((*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()))(_smelt_tmp_7);
+    _smelt_tmp_8 = ((*(*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_7);
     _smelt_tmp_9 = _smelt_tmp_6.clone() + &_smelt_tmp_8.clone();
     _smelt_tmp_9.clone()
     }
     }
 });
-    (*smelt_capture_walk.borrow_mut()) = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*smelt_capture_walk.borrow())); (smelt_callable)(0.0) };
+    { let smelt_next_value = _smelt_tmp_3.clone(); (*smelt_capture_walk.borrow_mut()).bind(smelt_next_value); }
+    let _smelt_tmp_4: JsString = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_walk.borrow()).bound())); (smelt_callable)(0.0) };
     _smelt_tmp_4.clone()
     }
 });

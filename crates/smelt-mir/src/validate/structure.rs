@@ -22,6 +22,7 @@ use super::{ValidationError, assignment, block_index, error, local_index};
 pub(super) fn validate_body(
     mir: &Mir,
     body: MirBody<'_>,
+    captures: &crate::definite_assignment::CaptureInit,
     errors: &mut Vec<ValidationError>,
 ) {
     validate_entry(body, errors);
@@ -31,7 +32,7 @@ pub(super) fn validate_body(
     for &param in body.params {
         validate_local_exists(body, param, errors);
     }
-    assignment::validate_definite_assignment(mir, body, errors);
+    assignment::validate_definite_assignment(mir, body, captures, errors);
 }
 
 /// Check that the function's declared entry block exists.

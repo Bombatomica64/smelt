@@ -1,6 +1,7 @@
 //! Local declarations: `var`/`let`/`const` statements, `catch` bindings, and the
 //! forward declarations a body needs before its statements run.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
@@ -567,6 +568,7 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
+            let mut provisional_self = None;
             let predeclared_self = if let BindingPattern::BindingIdentifier(binding) =
                 &declarator.id
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
@@ -580,10 +582,12 @@ impl ModuleBuilder<'_> {
                     mutable: false,
                     span: self.span(binding.span.start, binding.span.end),
                 });
+                provisional_self = Some(local);
                 self.scope.bind(binding.name.as_str().to_owned(), local)
             } else {
                 None
             };
+            let exprs_before_initializer = body.exprs.len();
             // Postfix stores move after the binding only when no later part of
             // the initializer can observe them; otherwise each one stores where
             // JavaScript evaluates it (see `postfix_deferral`).
@@ -649,6 +653,17 @@ impl ModuleBuilder<'_> {
                         body,
                         block,
                     )?;
+                    if let (BindingPattern::BindingIdentifier(binding), Some(provisional)) =
+                        (&declarator.id, provisional_self)
+                    {
+                        self.assign_provisional_self(
+                            binding.name.as_str(),
+                            provisional,
+                            exprs_before_initializer,
+                            body,
+                            block,
+                        );
+                    }
                 }
             }
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
@@ -659,6 +674,49 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Assign the provisional self-binding of `const name = function () {..}`
+    /// once the declaration has bound `name`, when the function captured it.
+    ///
+    /// The function expression's body may name its own binding (a recursive
+    /// call, `this instanceof name`), but that binding does not exist while the
+    /// initializer lowers, so the body captures a provisional local instead.
+    /// The declaration then binds `name` to a local of its own. Before this,
+    /// nothing ever assigned the provisional one, so the function read a slot
+    /// its declaration never filled: a default value stood in for itself
+    /// (es-toolkit's `curry` tested `this instanceof null`). JavaScript's
+    /// binding holds the function by the time the body can run, so the
+    /// provisional local is assigned the declared value right after the
+    /// declaration. A function that never names itself is left alone.
+    fn assign_provisional_self(
+        &self,
+        name: &str,
+        provisional: smelt_hir::LocalId,
+        first_initializer_expr: usize,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) {
+        let captured = body.exprs.get(first_initializer_expr..).is_some_and(|exprs| {
+            exprs.iter().any(|expr| {
+                matches!(&expr.kind, smelt_hir::ExprKind::Closure(closure)
+                    if closure.captures.iter().any(|capture| capture.source_local == provisional))
+            })
+        });
+        let Some(declared) = self.scope.lookup(name).filter(|declared| *declared != provisional) else {
+            return;
+        };
+        if !captured {
+            return;
+        }
+        let (Some(declared_decl), Some(provisional_decl)) = (body.local_at(declared), body.local_at(provisional))
+        else {
+            return;
+        };
+        let (declared_ty, provisional_ty, span) = (declared_decl.ty, provisional_decl.ty, provisional_decl.span);
+        let value = body.push_expr(smelt_hir::Expr { kind: smelt_hir::ExprKind::Local(declared), ty: declared_ty, span });
+        let pat = body.push_pattern(Pattern::Binding(provisional));
+        body.push_stmt_to_block(block, Stmt::Let { pat, ty: provisional_ty, value: Some(value) });
     }
 
     /// The declared type of a local the program assigns a keyed read and

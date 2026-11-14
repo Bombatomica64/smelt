@@ -202,6 +202,8 @@ pub fn optimize(mir: &mut Mir) {
 /// Re-establish the facts every pass may have made stale: capture sources
 /// derived from their sites, and the lazily built name/call index.
 fn after_pass(mir: &mut Mir) {
+    // A pass that settles a branch strands the block it no longer takes.
+    crate::reachability::remove_unreachable_blocks(mir);
     crate::sync_capture_sources(mir);
     mir.clear_index();
 }
@@ -470,7 +472,7 @@ mod fixpoint_tests {
         let mut function =
             MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), float, span);
         for kind in [LocalKind::UserBinding(Symbol(1)), LocalKind::UserBinding(Symbol(2)), LocalKind::Temp] {
-            function.locals.push(LocalDecl { ty: float, kind, span });
+            function.locals.push(LocalDecl { ty: float, kind, span, init: crate::LocalInit::Definite });
         }
         let local = |index| Place::Local(LocalId(index));
         function.blocks[0].statements = vec![

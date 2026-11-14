@@ -238,7 +238,7 @@ mod tests {
         let mut function = MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), tys[2], span());
         let kinds = [LocalKind::Param { symbol: None }, LocalKind::Temp, LocalKind::UserBinding(Symbol(1))];
         for (ty, kind) in tys.into_iter().zip(kinds) {
-            function.push_local(LocalDecl { ty, kind, span: span() });
+            function.push_local(LocalDecl { ty, kind, span: span(), init: crate::LocalInit::Definite });
         }
         function.params = vec![PARAM];
         let entry = &mut function.blocks[0];

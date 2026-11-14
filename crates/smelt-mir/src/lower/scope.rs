@@ -87,6 +87,47 @@ pub(super) struct FinallyClause {
     pub(super) cleanup: GeneratorCleanup,
 }
 
+/// The exception handler in effect at each statement of one lowered body.
+///
+/// MIR records a handler only on the terminators that can throw, so once a
+/// body is lowered nothing says which `try` encloses a plain statement. The
+/// definite-assignment pass (`passes::unbound_bindings`) needs exactly that:
+/// it turns a read of a possibly-unassigned binding into a checked read, a
+/// call terminator, and that call's unwind edge must go where a throw at the
+/// read would have gone. Lowering knows it at the moment it appends the
+/// statement, so it writes it down here.
+///
+/// The marks are positions as lowering appended them; they are read once, by
+/// that pass, before anything else rewrites the body.
+#[derive(Debug, Clone, Default)]
+pub(super) struct HandlerMarks {
+    /// Per block, each statement index at which the handler changed, with the
+    /// handler from there on, in increasing index order.
+    blocks: std::collections::HashMap<BlockId, Vec<HandlerMark>>,
+}
+
+/// A statement index and the handler in effect from it on.
+type HandlerMark = (usize, Option<ExceptionHandler>);
+
+impl HandlerMarks {
+    /// Records that statements of `block` from `index` on run under `handler`.
+    pub(super) fn record(&mut self, block: BlockId, index: usize, handler: Option<ExceptionHandler>) {
+        let marks = self.blocks.entry(block).or_default();
+        if marks.last().is_none_or(|(_, last)| *last != handler) {
+            marks.push((index, handler));
+        }
+    }
+
+    /// The handler in effect at statement `index` of `block` (an index one
+    /// past the last statement is the terminator).
+    pub(super) fn at(&self, block: BlockId, index: usize) -> Option<ExceptionHandler> {
+        self.blocks
+            .get(&block)
+            .and_then(|marks| marks.iter().take_while(|(start, _)| *start <= index).last())
+            .and_then(|(_, handler)| *handler)
+    }
+}
+
 /// Which loop edge an abrupt loop exit takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoopExit {
@@ -349,6 +390,11 @@ impl LoweringCtx<'_> {
             ));
         }
         slot.terminator = Some(terminator);
+        if block == self.current_block {
+            let at = slot.statements.len();
+            let handler = self.current_exception_handler();
+            self.handler_marks.record(block, at, handler);
+        }
         Ok(())
     }
 

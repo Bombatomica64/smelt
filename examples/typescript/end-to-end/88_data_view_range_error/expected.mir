@@ -12,21 +12,19 @@ fn read_at (FuncId(0)) -> String
   bb0:
     goto bb1
   bb1:
-    %3 = call @data_view_getInt16(copy %0, copy %1) -> bb4 unwind bb3
+    %3 = call @data_view_getInt16(copy %0, copy %1) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %5 = instanceof copy %2, class14
-    switch move %5 ? bb5 : bb6
-  bb4:
+    switch move %5 ? bb4 : bb5
+  bb3:
     %4 = "ok:" + move %3
     return move %4
-  bb5:
+  bb4:
     %6 = "E:" + copy %2.field15
     %7 = move %6 + ":"
     %8 = move %7 + copy %2.field16
     return move %8
-  bb6:
+  bb5:
     return "E:unexpected"
 
 fn write_at (FuncId(1)) -> String
@@ -40,18 +38,16 @@ fn write_at (FuncId(1)) -> String
   bb0:
     goto bb1
   bb1:
-    %3 = call @data_view_setInt32(copy %0, copy %1, 7.0) -> bb4 unwind bb3
+    %3 = call @data_view_setInt32(copy %0, copy %1, 7.0) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %4 = instanceof copy %2, class14
-    switch move %4 ? bb5 : bb6
-  bb4:
+    switch move %4 ? bb4 : bb5
+  bb3:
     return "wrote"
-  bb5:
+  bb4:
     %5 = "E:" + copy %2.field15
     return move %5
-  bb6:
+  bb5:
     return "E:unexpected"
 
 fn read_wide (FuncId(2)) -> String
@@ -73,34 +69,32 @@ fn read_wide (FuncId(2)) -> String
     goto bb1
   bb1:
     %3 = copy %1 == 2.0
-    switch move %3 ? bb4 : bb5
+    switch move %3 ? bb3 : bb4
   bb2:
-    return none
-  bb3:
     %11 = instanceof copy %2, class14
-    switch move %11 ? bb11 : bb12
+    switch move %11 ? bb10 : bb11
+  bb3:
+    %4 = call @data_view_getUint16(copy %0, 0.0) -> bb5 unwind bb2
   bb4:
-    %4 = call @data_view_getUint16(copy %0, 0.0) -> bb6 unwind bb3
-  bb5:
     %6 = copy %1 == 4.0
-    switch move %6 ? bb7 : bb8
-  bb6:
+    switch move %6 ? bb6 : bb7
+  bb5:
     %5 = "ok:" + move %4
     return move %5
+  bb6:
+    %7 = call @data_view_getUint32(copy %0, 0.0) -> bb8 unwind bb2
   bb7:
-    %7 = call @data_view_getUint32(copy %0, 0.0) -> bb9 unwind bb3
+    %9 = call @data_view_getFloat64(copy %0, 0.0) -> bb9 unwind bb2
   bb8:
-    %9 = call @data_view_getFloat64(copy %0, 0.0) -> bb10 unwind bb3
-  bb9:
     %8 = "ok:" + move %7
     return move %8
-  bb10:
+  bb9:
     %10 = "ok:" + move %9
     return move %10
-  bb11:
+  bb10:
     %12 = "E:" + copy %2.field15
     return move %12
-  bb12:
+  bb11:
     return "E:unexpected"
 
 fn read_byte (FuncId(3)) -> String
@@ -115,19 +109,17 @@ fn read_byte (FuncId(3)) -> String
   bb0:
     goto bb1
   bb1:
-    %3 = call @data_view_getUint8(copy %0, copy %1) -> bb4 unwind bb3
+    %3 = call @data_view_getUint8(copy %0, copy %1) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %5 = instanceof copy %2, class14
-    switch move %5 ? bb5 : bb6
-  bb4:
+    switch move %5 ? bb4 : bb5
+  bb3:
     %4 = "ok:" + move %3
     return move %4
-  bb5:
+  bb4:
     %6 = "E:" + copy %2.field15
     return move %6
-  bb6:
+  bb5:
     return "E:unexpected"
 
 fn brand_of (FuncId(4)) -> String
@@ -143,17 +135,15 @@ fn brand_of (FuncId(4)) -> String
   bb0:
     goto bb1
   bb1:
-    %2 = call @data_view_getFloat64(copy %0, 0.0) -> bb4 unwind bb3
+    %2 = call @data_view_getFloat64(copy %0, 0.0) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %3 = instanceof copy %1, class14
     %4 = "" + move %3
     %5 = move %4 + " "
     %6 = instanceof move %1, class22
     %7 = move %5 + move %6
     return move %7
-  bb4:
+  bb3:
     return "no throw"
 
 fn uncaught (FuncId(5)) -> Float throws
@@ -176,19 +166,17 @@ fn propagated (FuncId(6)) -> String
   bb0:
     goto bb1
   bb1:
-    %2 = call fn5(copy %0) -> bb4 unwind bb3
+    %2 = call fn5(copy %0) -> bb3 unwind bb2
   bb2:
-    return none
-  bb3:
     %4 = instanceof copy %1, class14
-    switch move %4 ? bb5 : bb6
-  bb4:
+    switch move %4 ? bb4 : bb5
+  bb3:
     %3 = "ok:" + move %2
     return move %3
-  bb5:
+  bb4:
     %5 = "E:" + copy %1.field15
     return move %5
-  bb6:
+  bb5:
     return "E:unexpected"
 
 fn main (FuncId(7)) -> None throws

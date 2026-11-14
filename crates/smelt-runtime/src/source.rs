@@ -91,6 +91,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/bigint.rs"),
     },
     RuntimeModule {
+        name: "binding",
+        source: include_str!("runtime/binding.rs"),
+    },
+    RuntimeModule {
         name: "blob",
         source: include_str!("runtime/blob.rs"),
     },

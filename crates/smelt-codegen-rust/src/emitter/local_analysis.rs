@@ -29,7 +29,15 @@ impl FunctionEmitter<'_> {
                                     .captures
                                     .iter()
                                     .filter(|capture| {
+                                        // A binding that can be unassigned when
+                                        // captured is shared with the closure,
+                                        // which reads the same `SmeltBinding`.
                                         self.closure_capture_needs_shared_access(closure, capture)
+                                            || self
+                                                .function
+                                                .locals
+                                                .get(capture.source_local.index())
+                                                .is_some_and(|decl| decl.init == smelt_mir::LocalInit::MaybeUnbound)
                                     })
                                     .map(|capture| capture.source_local),
                             );

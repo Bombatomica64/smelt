@@ -425,7 +425,7 @@ mod tests {
             LocalKind::Param { symbol: None },
         ];
         for kind in kinds {
-            function.push_local(LocalDecl { ty: float, kind, span: span() });
+            function.push_local(LocalDecl { ty: float, kind, span: span(), init: crate::LocalInit::Definite });
         }
         function.params = vec![SOURCE, OTHER];
         function.blocks[0].statements = statements;
@@ -462,7 +462,7 @@ mod tests {
             params: Vec::new(),
             rest: None,
             required_params: None,
-            locals: vec![LocalDecl { ty: float, kind: LocalKind::UserBinding(Symbol(2)), span: span() }],
+            locals: vec![LocalDecl { ty: float, kind: LocalKind::UserBinding(Symbol(2)), span: span(), init: crate::LocalInit::Definite }],
             captures: vec![MirClosureCapture {
                 source_local: SOURCE,
                 target_local: Some(LocalId(0)),

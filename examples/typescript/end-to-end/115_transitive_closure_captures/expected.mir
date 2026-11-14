@@ -74,7 +74,7 @@ closure ClosureId(1) -> String
   locals
     %0 param label: String
     %1 user steps: List<String>
-    %2 user walk: fn(Float) -> String
+    %2 user walk: fn(Float) -> String (maybe unbound)
     %3 temp: fn(Float) -> String
     %4 temp: String
   bb0:
@@ -88,7 +88,7 @@ closure ClosureId(2) -> String
     %0 param i: Float
     %1 user label: String
     %2 user steps: List<String>
-    %3 user walk: fn(Float) -> String
+    %3 user walk: fn(Float) -> String (maybe unbound)
     %4 temp: Float
     %5 temp: Bool
     %6 temp: String

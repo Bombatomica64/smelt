@@ -26,6 +26,6 @@ pub use ops::{
     NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp,
     AbortSignalOp, Base64Op, PythonDivisionOp, CryptoOp, HashOp, HostModuleOp, PathOp, SqliteOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ServerResponseOp, RegexMatchOp, RegexReplaceArg, RequestInitMember, RequestOp, ResponseOp, SetBinaryOp, SetProjectionOp, UrlSearchParamsOp, TextDecoderOp, TextEncoderOp, ByteArrayOp, BlobOp, SetRelationOp, SetRemoveOp, StringAffixOp,
     StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringSliceKind, StringTrimSide, UriTranscodeOp, UrlField, UrlOp,
+    StringSearchOp, StringSliceKind, StringTrimSide, UnboundRead, UriTranscodeOp, UrlField, UrlOp,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

@@ -862,6 +862,45 @@ impl Base64Op {
     }
 }
 
+/// What a read of a source binding raises when the binding has not been
+/// assigned yet, by the rule of the language the read was written in.
+///
+/// Carried by `BindingCheck`: the definite-assignment analysis in MIR lowering
+/// picks the variant from the body's language and from where the binding
+/// lives, and codegen raises exactly that error, so a `try`/`except` or
+/// `try`/`catch` the source wrote catches it like any other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnboundRead {
+    /// JavaScript's temporal dead zone: a `let`, `const`, `class` or function
+    /// binding read before its declaration ran. `ReferenceError: Cannot access
+    /// 'x' before initialization`.
+    JsTemporalDeadZone,
+    /// A Python function local read before any assignment reached it.
+    /// `UnboundLocalError: cannot access local variable 'x' where it is not
+    /// associated with a value`.
+    PyLocal,
+    /// A Python free variable: a nested function read a local of an enclosing
+    /// function that is not assigned yet. `NameError: cannot access free
+    /// variable 'x' where it is not associated with a value in enclosing scope`.
+    PyFreeVariable,
+    /// A Python module-level name read before it is bound. `NameError: name 'x'
+    /// is not defined`.
+    PyGlobal,
+}
+
+impl UnboundRead {
+    /// How both dumps name the error the read raises.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::JsTemporalDeadZone => "tdz",
+            Self::PyLocal => "unbound_local",
+            Self::PyFreeVariable => "unbound_free",
+            Self::PyGlobal => "unbound_global",
+        }
+    }
+}
+
 /// One of Python's division operators over two `int`s or two `float`s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PythonDivisionOp {

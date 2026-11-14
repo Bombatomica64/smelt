@@ -86,6 +86,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     start: 0,
                     end: 0,
                 },
+                init: smelt_mir::LocalInit::Definite,
             },
             role: emit_role::EmitRole::Own {
                 generics: emit_role::OwnGenerics::Declared,
@@ -279,6 +280,9 @@ impl<'mir> FunctionEmitter<'mir> {
     /// borrows a shared capture and evaluates a call. See the regression test
     /// `shared_capture_borrow_never_spans_a_sibling_closure_call`.
     pub(super) fn local_value(&self, local: LocalId) -> Result<RustExpr, EmitError> {
+        if self.local_is_maybe_unbound(local)? {
+            return self.binding_value(local, false);
+        }
         match self.local_shared_cell(local)? {
             Some(cell) => Ok(cell.read_expr()),
             None => self.local_expr(local),
@@ -314,6 +318,9 @@ impl<'mir> FunctionEmitter<'mir> {
     /// call. Callers must not construct a single statement that both takes this
     /// mutable borrow and evaluates a call.
     pub(super) fn local_mut_value(&self, local: LocalId) -> Result<RustExpr, EmitError> {
+        if self.local_is_maybe_unbound(local)? {
+            return self.binding_value(local, true);
+        }
         match self.local_shared_cell(local)? {
             Some(cell) => {
                 self.binding_uses.record_mut_borrow(&cell);

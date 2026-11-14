@@ -40,7 +40,7 @@ impl LoweringCtx<'_> {
 
         let root = self.hir_block(self.body.root)?;
         if self.is_terminated()? {
-            return Ok((self.function, self.closures));
+            return Ok(self.finish());
         }
 
         if let Some(tail) = root.tail {
@@ -52,7 +52,17 @@ impl LoweringCtx<'_> {
             self.terminate(Terminator::Return(self.valueless_return_operand()))?;
         }
 
-        Ok((self.function, self.closures))
+        Ok(self.finish())
+    }
+
+    /// Hands the lowered body over with everything lowering made for it.
+    fn finish(self) -> LoweredFunction {
+        LoweredFunction {
+            function: self.function,
+            closures: self.closures,
+            handler_marks: self.handler_marks,
+            closure_handler_marks: self.closure_handler_marks,
+        }
     }
 
     /// The operand a value-less `return` yields.
@@ -937,6 +947,7 @@ impl FinallyPlan {
             ty: thrown_ty,
             kind: LocalKind::UserBinding(name),
             span,
+            init: crate::LocalInit::Definite,
         });
         let pending = ctx.push_temp(ctx.loop_bool_ty, span);
         let handler_block = ctx.function.push_block(span);

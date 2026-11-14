@@ -1,0 +1,8 @@
+x=1
+caught UnboundLocalError: cannot access local variable 'x' where it is not associated with a value
+set
+caught NameError: cannot access local variable 'y' where it is not associated with a value
+read 42
+caught NameError: cannot access free variable 'captured' where it is not associated with a value in enclosing scope
+propagated UnboundLocalError: cannot access local variable 'z' where it is not associated with a value
+module NameError: name 'module_name' is not defined

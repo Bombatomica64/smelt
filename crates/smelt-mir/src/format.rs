@@ -81,7 +81,7 @@ pub fn format_compact(mir: &Mir) -> String {
                         "    {} {}: {}\n",
                         local_ref(LocalId(local_id)),
                         local_kind_text(mir, local.kind),
-                        type_ref(mir, local.ty)
+                        local_type_text(mir, local)
                     ),
                 );
             }
@@ -120,7 +120,7 @@ pub fn format_compact(mir: &Mir) -> String {
                         "    {} {}: {}\n",
                         local_ref(LocalId(local_id)),
                         local_kind_text(mir, local.kind),
-                        type_ref(mir, local.ty)
+                        local_type_text(mir, local)
                     ),
                 );
             }
@@ -139,6 +139,15 @@ pub fn format_compact(mir: &Mir) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Formats a local's type, marking a binding that can be read unassigned
+/// (`LocalInit::MaybeUnbound`): `Float (maybe unbound)`.
+fn local_type_text(mir: &Mir, local: &crate::LocalDecl) -> String {
+    match local.init {
+        crate::LocalInit::Definite => type_ref(mir, local.ty),
+        crate::LocalInit::MaybeUnbound => format!("{} (maybe unbound)", type_ref(mir, local.ty)),
+    }
 }
 
 /// Formats a local kind to human-readable text.

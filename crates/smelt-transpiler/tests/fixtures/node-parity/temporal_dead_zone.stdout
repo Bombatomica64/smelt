@@ -1,0 +1,9 @@
+caught true Cannot access 'late' before initialization / then 42
+zero
+switch caught true Cannot access 'v' before initialization
+none
+33
+caught ReferenceError: Cannot access 'later' before initialization
+120
+true false
+false true

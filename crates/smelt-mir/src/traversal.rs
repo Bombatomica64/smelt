@@ -950,7 +950,7 @@ mod tests {
         let mut function =
             MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), TypeId(0), span);
         for _ in 0_i32..3_i32 {
-            function.push_local(LocalDecl { ty: TypeId(0), kind: LocalKind::Temp, span });
+            function.push_local(LocalDecl { ty: TypeId(0), kind: LocalKind::Temp, span, init: crate::LocalInit::Definite });
         }
         function.blocks[0].statements = statements;
         function.blocks[0].terminator = Some(terminator);
