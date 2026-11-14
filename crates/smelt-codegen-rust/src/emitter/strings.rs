@@ -1199,10 +1199,19 @@ impl FunctionEmitter<'_> {
                 text = self.operand_expr(operand)?.delimited(),
             ))),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
-                let text = self.erase_concrete_union_expr(
-                    &self.operand_expr(operand)?,
-                    self.operand_ty(operand)?,
-                )?;
+                let operand_ty = self.operand_ty(operand)?;
+                // A type parameter this scope spells as a real Rust generic
+                // (`impl<T> Box<T>`) is a `T`, not the carrier: it crosses into
+                // the erased coercion through its `IntoSmeltUnknown` bound.
+                // Matching `SmeltUnknown` arms against the `T` itself did not
+                // compile (E0308, `String(this.value)` in a generic class).
+                let text = if matches!(self.mir.types.get(operand_ty), Some(Type::TypeParam { .. }))
+                    && !self.renders_erased(operand_ty)?
+                {
+                    self.erase(operand)?
+                } else {
+                    self.erase_concrete_union_expr(&self.operand_expr(operand)?, operand_ty)?
+                };
                 Ok(self.js_string_coercion_match_expr(
                     &text,
                     self.absent_spelling(),
