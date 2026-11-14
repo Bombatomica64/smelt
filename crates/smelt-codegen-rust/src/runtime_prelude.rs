@@ -55,7 +55,7 @@ pub(crate) fn emit_entries(
                 for line in lines {
                     match line {
                         RenderedLine::Text(text) => writer.line(text),
-                        RenderedLine::Slot(slot) => emit_slot(writer, slot, mir)?,
+                        RenderedLine::Slot(slot) => emit_slot(writer, slot, mir, context)?,
                         _ => return Err(EmitError::new("unknown rendered runtime line")),
                     }
                 }
@@ -97,7 +97,12 @@ pub(crate) fn rendered_entries(entries: &[Entry], flags: &dyn Fn(&str) -> bool) 
 }
 
 /// Writes the lines of a program-dependent `slot`.
-fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitError> {
+fn emit_slot(
+    writer: &mut CodeWriter,
+    slot: &str,
+    mir: &Mir,
+    context: &EmitContext,
+) -> Result<(), EmitError> {
     match slot {
         "host_override_slots" => {
             use smelt_stdlib::runtime_symbols::host_override::{OVERRIDE_ENUM, SLOT_PREFIX};
@@ -109,7 +114,7 @@ fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitE
             Ok(())
         }
         "program_classes" => {
-            for line in program_class_arms(mir) {
+            for line in program_class_arms(mir, context)? {
                 writer.line(line);
             }
             Ok(())
@@ -123,7 +128,8 @@ fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitE
 /// The table rows of the runtime's `smelt_program_class`: one per class tag
 /// (the source name its erased instances carry in `__smelt_class`) that
 /// exactly one program class claims, with the base class's tag (`""` for a
-/// root).
+/// root) and its prototype methods' builder, when it has one
+/// (`class_proto::class_prototype_methods_fn`).
 ///
 /// A tag two classes share (one source name in two modules) gets no arm, so
 /// the runtime neither interns a class value for it nor links its prototype
@@ -131,7 +137,7 @@ fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitE
 /// base is named only when it is itself a uniquely tagged program class;
 /// otherwise the prototype chain ends at `Object.prototype`, as it did before.
 /// See docs/design/class-prototypes.md.
-fn program_class_arms(mir: &Mir) -> Vec<String> {
+fn program_class_arms(mir: &Mir, context: &EmitContext) -> Result<Vec<String>, EmitError> {
     let tag = |symbol| mir.names.get(symbol).or_else(|| mir.symbols.get(symbol));
     let mut claims = std::collections::HashMap::<&str, usize>::new();
     for class in &mir.classes {
@@ -155,9 +161,18 @@ fn program_class_arms(mir: &Mir) -> Vec<String> {
             .and_then(tag)
             .filter(|base| unique(base))
             .unwrap_or_default();
-        arms.push(format!("        ({name:?}, {base:?}),"));
+        let methods = if crate::class_proto::class_has_prototype_methods(mir, context, class)? {
+            format!(
+                "Some({}::{})",
+                crate::classes::class_name_text(context, class)?,
+                smelt_stdlib::runtime_symbols::boundary::PROTOTYPE_METHODS
+            )
+        } else {
+            "None".to_owned()
+        };
+        arms.push(format!("        ({name:?}, {base:?}, {methods}),"));
     }
-    arms
+    Ok(arms)
 }
 
 /// The facts about a program, beyond its [`RuntimeDemand`], that a runtime

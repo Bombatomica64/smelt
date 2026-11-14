@@ -4,12 +4,12 @@
     "values": {
       "concrete": 13827,
       "generic": 228,
-      "erased": 7841
+      "erased": 7837
     },
     "reads": {
       "concrete": 341,
       "generic": 33,
-      "erased": 1032
+      "erased": 1028
     },
     "calls": {
       "concrete": 2141,
@@ -4323,12 +4323,12 @@
       "values": {
         "concrete": 31,
         "generic": 0,
-        "erased": 15
+        "erased": 14
       },
       "reads": {
         "concrete": 1,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       },
       "calls": {
         "concrete": 6,
@@ -5972,12 +5972,12 @@
       "values": {
         "concrete": 80,
         "generic": 0,
-        "erased": 78
+        "erased": 77
       },
       "reads": {
         "concrete": 8,
         "generic": 0,
-        "erased": 21
+        "erased": 20
       },
       "calls": {
         "concrete": 13,
@@ -7145,12 +7145,12 @@
       "values": {
         "concrete": 15,
         "generic": 0,
-        "erased": 12
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 4
+        "erased": 3
       },
       "calls": {
         "concrete": 1,
@@ -10885,12 +10885,12 @@
       "values": {
         "concrete": 49,
         "generic": 0,
-        "erased": 26
+        "erased": 25
       },
       "reads": {
         "concrete": 0,
         "generic": 0,
-        "erased": 2
+        "erased": 1
       },
       "calls": {
         "concrete": 16,

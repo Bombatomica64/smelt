@@ -131,19 +131,22 @@ fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> Sme
     }
 }
 //~ Emit the cached per-class prototype object.
-//~ One cached prototype object per reflected class, so
+//~ One prototype object per reflected class, so
 //~ `Object.getPrototypeOf(a) === Object.getPrototypeOf(b)` holds for two values
-//~ of the same class (`SmeltObject` `===` compares the stable `id`). Its
-//~ `constructor` slot is the interned constructor value, so it is both callable
-//~ and `===` the bare global reference.
-thread_local! { static SMELT_MARKER_PROTOS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
-fn smelt_reflected_prototype(class: String) -> SmeltUnknown { SMELT_MARKER_PROTOS.with(|cache| cache.borrow_mut().entry(class.clone()).or_insert_with(|| { let ctor = smelt_builtin_namespace(&class); SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), ctor)]))) }).clone()) }
+//~ of the same class (`SmeltObject` `===` compares the stable `id`), and it is
+//~ the class's own `X.prototype` (`smelt_builtin_prototype_object`), whose
+//~ `constructor` read answers the interned constructor value.
+fn smelt_reflected_prototype(class: String) -> SmeltUnknown { smelt_builtin_prototype_object(&class) }
 //~ Emit the interned per-name global constructor / namespace value.
 /// The kind a global constructor name constructs, when it names a modeled host
 /// identity.
 //~ `None` for pure namespaces (`Math`, `JSON`), which are not callable.
 fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Int8Array", "int8array"), ("Uint8Array", "uint8array"), ("Uint8ClampedArray", "uint8clampedarray"), ("Int16Array", "int16array"), ("Uint16Array", "uint16array"), ("Int32Array", "int32array"), ("Uint32Array", "uint32array"), ("Float32Array", "float32array"), ("Float64Array", "float64array"), ("BigInt64Array", "bigint64array"), ("BigUint64Array", "biguint64array"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "Error"), ("EvalError", "EvalError"), ("RangeError", "RangeError"), ("ReferenceError", "ReferenceError"), ("SyntaxError", "SyntaxError"), ("TypeError", "TypeError"), ("URIError", "URIError"), ("AggregateError", "AggregateError")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
 /// The interned value for a global builtin *name* used as a value.
+//~ A `Host.prototype` path (`ExprKind::BuiltinNamespace` for a host
+//~ constructor's `prototype` read) is the host's one prototype object.
+//~ A `Host.prototype` path (`ExprKind::BuiltinNamespace` for a host
+//~ constructor's `prototype` read) is the host's one prototype object.
 //~
 //~ JavaScript exposes one object per global name, so `Blob === Blob` and
 //~ `blob.constructor === Blob` both hold. A record mints its identity on
@@ -152,5 +155,5 @@ fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBu
 //~ a modeled host constructor get a `__smelt_call` slot, so `new Ctor(...)`
 //~ through a captured reference constructs instead of answering `null`.
 thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
-fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
+fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { if let Some(class) = name.strip_suffix(".prototype") { return smelt_builtin_prototype_object(class); } SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
 // @smelt:item-end
