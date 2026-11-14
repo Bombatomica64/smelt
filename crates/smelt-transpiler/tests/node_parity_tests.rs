@@ -1250,6 +1250,14 @@ fn assertion_view_probes() -> TestResult {
 
 /// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
 /// empty collection at the present type, as JavaScript's constructors do.
+/// A `value is Object` guard leaves an erased value erased, as tsc does, so
+/// `Array.isArray` still answers for it, while a union still narrows; in a
+/// condition, the right operand of `&&` is tested for truthiness.
+#[test]
+fn object_guard_and_condition() -> TestResult {
+    verify_node_parity("object_guard_and_condition")
+}
+
 #[test]
 fn absent_iterable_constructors() -> TestResult {
     verify_node_parity("absent_iterable_constructors")

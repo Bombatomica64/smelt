@@ -324,6 +324,19 @@ impl ModuleBuilder<'_> {
         let Ok(rhs) = rhs else {
             return Ok(None);
         };
+        // The condition observes the right operand's truthiness. An optional
+        // operand (`x.flag?: boolean`) is tested here, absent being falsy: in
+        // the boolean arm as it stands, the backend reads an `Option` at `bool`
+        // as a narrowed unwrap and panicked ("absent after narrowing") for an
+        // absent member. Other operands keep the backend's coercion at `bool`.
+        let rhs = if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, rhs)),
+            Some(Type::Optional(_))
+        ) {
+            self.lowered_condition_expression(rhs, self.expression_span(&logical.right), body)?
+        } else {
+            rhs
+        };
         // A `Conditional`, not a boolean `BinOp`: MIR lowers the arms into
         // branches, so the right operand's own statements only run when the
         // left operand did not already decide the answer. A `BinOp` would hoist

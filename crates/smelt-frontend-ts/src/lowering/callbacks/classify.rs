@@ -528,7 +528,10 @@ impl ModuleBuilder<'_> {
     /// Return whether `name` refers to a concrete nominal type — a `class` or
     /// `interface` declared in this lowering unit — as opposed to an unresolved
     /// (imported, definition-not-present) type reference.
-    fn symbol_names_concrete_nominal_type(&self, name: smelt_hir::Symbol) -> bool {
+    pub(in crate::lowering) fn symbol_names_concrete_nominal_type(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> bool {
         if self.find_interface(name).is_some() {
             return true;
         }
