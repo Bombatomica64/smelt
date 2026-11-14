@@ -19,12 +19,10 @@ fn inside_a_function (FuncId(0)) -> String
     %3 = move %2 == undefined
     switch move %3 ? bb1 : bb2
   bb1:
-    %5 = -1.0
-    %4 = move %5
+    %4 = -1.0
     goto bb3
   bb2:
-    %6 = move %0
-    %4 = move %6
+    %4 = move %0
     goto bb3
   bb3:
     %7 = "" + move %4
@@ -120,12 +118,10 @@ fn main (FuncId(1)) -> None
     %20 = move %19 == undefined
     switch move %20 ? bb5 : bb6
   bb5:
-    %22 = -1.0
-    %21 = move %22
+    %21 = -1.0
     goto bb7
   bb6:
-    %23 = move %0
-    %21 = move %23
+    %21 = move %0
     goto bb7
   bb7:
     %24 = call @console_log(move %21) -> bb8
@@ -136,13 +132,11 @@ fn main (FuncId(1)) -> None
     %27 = move %26 == undefined
     switch move %27 ? bb10 : bb11
   bb10:
-    %29 = -1.0
-    %28 = move %29
+    %28 = -1.0
     goto bb12
   bb11:
     %30 = move %2
-    %31 = closure_call move %30("ab")
-    %28 = move %31
+    %28 = closure_call move %30("ab")
     goto bb12
   bb12:
     %32 = call @console_log(move %28) -> bb13
@@ -150,13 +144,11 @@ fn main (FuncId(1)) -> None
     %33 = copy %3 == undefined
     switch move %33 ? bb14 : bb15
   bb14:
-    %35 = -1.0
-    %34 = move %35
+    %34 = -1.0
     goto bb16
   bb15:
     %36 = move %3
-    %37 = closure_call move %36("ab")
-    %34 = move %37
+    %34 = closure_call move %36("ab")
     goto bb16
   bb16:
     %38 = call @console_log(move %34) -> bb17
@@ -164,13 +156,11 @@ fn main (FuncId(1)) -> None
     %39 = copy %5 == undefined
     switch move %39 ? bb18 : bb19
   bb18:
-    %41 = -1.0
-    %40 = move %41
+    %40 = -1.0
     goto bb20
   bb19:
     %42 = move %5
-    %43 = closure_call move %42("ab")
-    %40 = move %43
+    %40 = closure_call move %42("ab")
     goto bb20
   bb20:
     %44 = call @console_log(move %40) -> bb21

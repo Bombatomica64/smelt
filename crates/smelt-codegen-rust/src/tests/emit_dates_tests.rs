@@ -251,13 +251,14 @@ const isoValues = values.map((value) => value.toISOString());
     assert_eq!(
         rust_fn(&source, "main"),
         r#"fn main() {
+smelt_reset_this();
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
 let _smelt_tmp_2: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into({ let smelt_src = smelt_get_unknown_field(&_smelt_tmp_1.clone(), "values").clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => SmeltList::with_storage(smelt_values.id, smelt_values.storage()), SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| SmeltUnknown::String(smelt_ch)).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } });
-let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, _arg0: i64, _arg1: &SmeltList<SmeltUnknown>| {
+let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, _arg0: i64, _arg1: &SmeltList<SmeltUnknown>| { smelt_reset_this();
 let _smelt_tmp_1: JsString = JsString::from((closure_arg_0.clone()).to_iso_string());
 _smelt_tmp_1.clone()
 });
-let iso_values: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, _arg0: i64, _arg1: &SmeltList<SmeltUnknown>| {
+let iso_values: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown, _arg0: i64, _arg1: &SmeltList<SmeltUnknown>| { smelt_reset_this();
 let _smelt_tmp_1: JsString = JsString::from((closure_arg_0.clone()).to_iso_string());
 _smelt_tmp_1.clone()
 }); let smelt_array = _smelt_tmp_2; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item, smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
@@ -369,15 +370,13 @@ _smelt_tmp_1.clone()
 });
 let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: SmeltDate, closure_arg_1: &SmeltList<JsString>| {
 let mut _smelt_tmp_5: SmeltList<JsString>;
-let _smelt_tmp_6: SmeltList<JsString>;
 let _smelt_tmp_2: f64 = (closure_arg_0.clone()).get_time();
 let _smelt_tmp_3: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = (_smelt_tmp_2) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.day() as f64) } else { f64::NAN } };
 let _smelt_tmp_4: bool = _smelt_tmp_3 == 1.0;
 if _smelt_tmp_4 {
 _smelt_tmp_5 = Into::<SmeltList<_>>::into(closure_arg_1.clone());
 } else {
-_smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
-_smelt_tmp_5 = Into::<SmeltList<_>>::into(_smelt_tmp_6.clone());
+_smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
 }
 _smelt_tmp_5.clone()
 });

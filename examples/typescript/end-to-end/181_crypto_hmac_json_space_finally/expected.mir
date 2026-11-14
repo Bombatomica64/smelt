@@ -128,8 +128,7 @@ async fn get_key__module_main (FuncId(1)) -> CryptoKey
     %3 = move %6
     goto bb3
   bb2:
-    %7 = unknown_cast copy %0 as t6
-    %3 = move %7
+    %3 = unknown_cast copy %0 as t6
     goto bb3
   bb3:
     %1 = move %3

@@ -292,8 +292,7 @@ async fn main (FuncId(6)) -> None throws
     switch move %59 ? bb16 : bb17
   bb16:
     %61 = move %6
-    %62 = string_join move %61, ","
-    %60 = move %62
+    %60 = string_join move %61, ","
     goto bb18
   bb17:
     %60 = "none"

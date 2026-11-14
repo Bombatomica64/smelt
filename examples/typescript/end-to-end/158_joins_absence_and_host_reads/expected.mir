@@ -32,12 +32,10 @@ fn pick (FuncId(0)) -> String
     %8 = copy %2 == "/"
     switch move %8 ? bb5 : bb6
   bb5:
-    %10 = ["", "", "label"]
-    %9 = move %10
+    %9 = ["", "", "label"]
     goto bb7
   bb6:
-    %11 = ["", "", "prefixed"]
-    %9 = move %11
+    %9 = ["", "", "prefixed"]
     goto bb7
   bb7:
     %7 = move %9
@@ -51,8 +49,7 @@ fn pick (FuncId(0)) -> String
     switch move %12 ? bb10 : bb11
   bb10:
     %14 = copy %3
-    %15 = move %3?.[2.0]
-    %13 = move %15
+    %13 = move %3?.[2.0]
     goto bb12
   bb11:
     %13 = "none"

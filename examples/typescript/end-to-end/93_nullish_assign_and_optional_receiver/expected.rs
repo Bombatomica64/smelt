@@ -1287,14 +1287,12 @@ impl Bag {
     let __smelt_logical_value_4: SmeltHeaders;
     let headers: Option<SmeltHeaders>;
     let mut _smelt_tmp_7: Option<SmeltHeaders>;
-    let _smelt_tmp_8: Option<SmeltHeaders>;
     let _smelt_tmp_9: bool;
     let _smelt_tmp_11: SmeltHeaders;
     let _smelt_tmp_12: ();
     let _smelt_tmp_6: bool = !(self.0.borrow().current.clone().is_none());
     if _smelt_tmp_6 {
-    _smelt_tmp_8 = self.0.borrow().current.clone();
-    _smelt_tmp_7 = _smelt_tmp_8;
+    _smelt_tmp_7 = self.0.borrow().current.clone();
     headers = _smelt_tmp_7;
     _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_12 = _smelt_tmp_11.set(&name.clone(), &value.clone());
@@ -1323,7 +1321,6 @@ impl Bag {
     let mut _smelt_tmp_6: JsString;
     let _smelt_tmp_7: SmeltHeaders;
     let _smelt_tmp_8: Option<JsString>;
-    let _smelt_tmp_9: JsString;
     let _smelt_tmp_3: bool = !(self.0.borrow().current.clone().is_none());
     let _smelt_tmp_4: Option<SmeltHeaders> = if _smelt_tmp_3 { self.0.borrow().current.clone() } else { self.0.borrow().prepared.clone() };
     headers = _smelt_tmp_4;
@@ -1332,8 +1329,7 @@ impl Bag {
     if _smelt_tmp_5 {
     _smelt_tmp_7 = headers.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_8 = (_smelt_tmp_7.get(&name.clone())).map(JsString::from);
-    _smelt_tmp_9 = _smelt_tmp_8.clone().unwrap_or(JsString::from("absent"));
-    _smelt_tmp_6 = _smelt_tmp_9;
+    _smelt_tmp_6 = _smelt_tmp_8.clone().unwrap_or(JsString::from("absent"));
     } else {
     _smelt_tmp_6 = JsString::from("none");
     }

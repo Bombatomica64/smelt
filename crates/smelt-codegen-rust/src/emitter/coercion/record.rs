@@ -534,9 +534,26 @@ fn erased_function_field_expr(
     } else {
         format!("(smelt_function_value)({args})")
     };
+    // A result holding functions (`() => { match: (v) => boolean }`) has no
+    // blanket `IntoSmeltUnknown`: it erases by its type, its function values
+    // through their own adapters. Any other result keeps the blanket
+    // conversion, which also covers a result spelled with the record's own
+    // type parameters (`T: IntoSmeltUnknown`), which this renderer has no scope
+    // for.
+    let returned = if type_holds_function(mir, function.return_ty) {
+        let result = emitter
+            .erase_rendered(&RustExpr::path("smelt_result"), function.return_ty)
+            .ok()?;
+        format!(
+            "{{ let smelt_result = {call}; Ok::<SmeltUnknown, {ERROR_BOX}>({result}) }}",
+            result = result.delimited()
+        )
+    } else {
+        format!("Ok::<SmeltUnknown, {ERROR_BOX}>(({call}).into_smelt_unknown())")
+    };
     let adapter = |callable: &str| {
         format!(
-            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(({call}).into_smelt_unknown())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
+            "{{ let smelt_function_value: {rendered} = {callable}; let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {returned}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); SmeltUnknown::Function(smelt_erased_function) }}"
         )
     };
     Some(if optional {
@@ -550,6 +567,23 @@ fn erased_function_field_expr(
             value_text = value_text.tight()
         )))
     })
+}
+
+/// Whether a value of `ty` holds a function anywhere inside it.
+fn type_holds_function(mir: &Mir, ty: TypeId) -> bool {
+    let mut pending = vec![ty];
+    let mut seen = HashSet::new();
+    while let Some(current) = pending.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+        match mir.types.get(current) {
+            Some(Type::Function(_)) => return true,
+            Some(other) => pending.extend(other.children()),
+            None => {}
+        }
+    }
+    false
 }
 
 /// Renders a generated record field as a `SmeltUnknown` expression.

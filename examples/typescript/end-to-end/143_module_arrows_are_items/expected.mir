@@ -109,8 +109,7 @@ fn fact__module_main (FuncId(3)) -> Float
     %3 = copy %0 - 1.0
     %4 = call fn3(move %3) -> bb3
   bb3:
-    %5 = copy %0 * move %4
-    %2 = move %5
+    %2 = copy %0 * move %4
     goto bb4
   bb4:
     return move %2
@@ -140,8 +139,7 @@ fn join (FuncId(4)) -> String
     %4 = copy %0
     goto bb4
   bb3:
-    %9 = move %6 + move %8
-    %4 = move %9
+    %4 = move %6 + move %8
     goto bb4
   bb4:
     return move %4
@@ -201,8 +199,7 @@ fn scan__module_main (FuncId(5)) -> Optional<String>
     %11 = !copy %2
     switch move %11 ? bb1 : bb2
   bb1:
-    %13 = primitive_cast_bool copy %1
-    %12 = move %13
+    %12 = primitive_cast_bool copy %1
     goto bb3
   bb2:
     %12 = false
@@ -213,8 +210,7 @@ fn scan__module_main (FuncId(5)) -> Optional<String>
     %15 = copy %1
     %16 = string_find move %15, "%"
     %17 = -1.0
-    %18 = move %16 == move %17
-    %14 = move %18
+    %14 = move %16 == move %17
     goto bb6
   bb5:
     %14 = false
@@ -248,8 +244,7 @@ fn scan__module_main (FuncId(5)) -> Optional<String>
     return move %5
   bb14:
     %30 = -1.0
-    %31 = copy %6 != move %30
-    %29 = move %31
+    %29 = copy %6 != move %30
     goto bb16
   bb15:
     %29 = false

@@ -477,7 +477,21 @@ fn smelt_global_object() -> SmeltUnknown { thread_local! { static SMELT_GLOBAL_O
 // enumerable static fields (`smelt_class_value_view`), not its markers.
 // @smelt:item smelt_unknown_assign when unknown & unknown_assign
 /// `Object.assign(target, source)` onto an erased target, in place.
-fn smelt_unknown_assign(target: &mut SmeltUnknown, source: &SmeltUnknown) { let entries: Vec<(String, SmeltUnknown)> = match source { SmeltUnknown::Object(object) => /*@if class_value*/smelt_class_value_view(object).map_or_else(|| /*@end*/{ let shape = smelt_for_in_object_shape(object); object.iter().filter(|(key, _)| smelt_is_for_in_shape_key(shape, key) || (key.eq_str_prefix("__smelt_symbol") && !shape.host)).map(|(key, value)| (key.to_string_lossy(), value)).collect() }/*@if class_value*/, |view| view.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt_proto:")).map(|(key, value)| (key.to_string_lossy(), value)).collect())/*@end*/, SmeltUnknown::Array(values) => values.clone().into_vec().into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(text) => text.units().iter().enumerate().map(|(index, unit)| (index.to_string(), SmeltUnknown::String(JsString::from_units(&[*unit])))).collect(), _ => Vec::new() }; for (key, value) in entries { smelt_index_assign(target, key, value); } }
+fn smelt_unknown_assign(target: &mut SmeltUnknown, source: &SmeltUnknown) { let entries: Vec<(String, SmeltUnknown)> = match source { SmeltUnknown::Object(object) => /*@if class_value*/smelt_class_value_view(object).map_or_else(|| /*@end*/{ let shape = smelt_for_in_object_shape(object); object.iter().filter(|(key, _)| smelt_is_for_in_shape_key(shape, key) || (key.eq_str_prefix("__smelt_symbol") && !shape.host)).map(|(key, value)| (key.to_string_lossy(), value)).collect() }/*@if class_value*/, |view| view.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt_proto:")).map(|(key, value)| (key.to_string_lossy(), value)).collect())/*@end*/, SmeltUnknown::Array(values) => values.clone().into_vec().into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(text) => text.units().iter().enumerate().map(|(index, unit)| (index.to_string(), SmeltUnknown::String(JsString::from_units(&[*unit])))).collect(), _ => Vec::new() }; for (key, value) in entries { smelt_index_assign(target, key, value); } smelt_assign_host_slots(target, source); }
+//~ A class instance target needs nothing: its methods are on its class
+//~ prototype (`smelt_class_inherited_method`), as in JavaScript.
+/// Give an erased target created from a host object's own prototype that
+/// object's slots.
+fn smelt_assign_host_slots(target: &SmeltUnknown, source: &SmeltUnknown) {
+    let (SmeltUnknown::Object(into), SmeltUnknown::Object(from)) = (target, source) else { return };
+    //~ A host object (a Blob, a Date) keeps its state in hidden marker entries,
+    //~ its internal slots; a target created from the source's own reflected
+    //~ prototype takes them, as the copy `Object.assign` made before it wrote
+    //~ in place did.
+    if smelt_reflected_marker_class(from).is_some() && let (Some(SmeltUnknown::Object(own)), SmeltUnknown::Object(theirs)) = (smelt_recorded_object_prototype(into.id), smelt_prototype_sentinel(source)) && own.id == theirs.id {
+        for (key, value) in from.iter() { if into.get(&*key).is_none() { into.insert(key, value); } }
+    }
+}
 // @smelt:item-end
 
 // Emits the fallible `new RegExp(pattern, flags)` adapter into the prelude.

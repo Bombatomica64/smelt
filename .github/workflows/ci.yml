@@ -740,7 +740,7 @@ jobs:
             --manifest-path target/compat-repos/ts-pattern/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee ts-pattern-tests.log || true
           # A compile error prints no `test result` line, so it fails the pin too.
-          grep -F "test result: FAILED. 382 passed; 56 failed;" ts-pattern-tests.log
+          grep -F "test result: FAILED. 419 passed; 19 failed;" ts-pattern-tests.log
 
       - name: Save sccache
         if: ${{ always() }}
@@ -796,7 +796,7 @@ jobs:
             --manifest-path target/compat-repos/date-fns/dist-smelt/Cargo.toml \
             --no-fail-fast 2>&1 | tee date-fns-tests.log || true
           # A compile error prints no `test result` line, so it fails the pin too.
-          grep -F "test result: FAILED. 273 passed; 57 failed;" date-fns-tests.log
+          grep -F "test result: FAILED. 287 passed; 43 failed;" date-fns-tests.log
 
       - name: Save sccache
         if: ${{ always() }}

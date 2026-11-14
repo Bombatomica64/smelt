@@ -781,6 +781,9 @@ impl ModuleBuilder<'_> {
                                     binding.name.as_str(),
                                     declared,
                                     &elements,
+                                    crate::lowering::tuple_rest::tuple_rest_required(
+                                        rest.type_annotation.as_deref(),
+                                    ),
                                     span,
                                     &mut body,
                                 ) {

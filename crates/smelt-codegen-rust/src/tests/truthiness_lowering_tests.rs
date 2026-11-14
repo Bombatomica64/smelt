@@ -139,15 +139,8 @@ export function count(values?: string[]): number {
         rust_fn(&source, "count"),
         r"fn count(values: Option<SmeltList<JsString>>) -> f64 {
 let mut _smelt_tmp_2: f64;
-let _smelt_tmp_3: f64;
 let _smelt_tmp_1: bool = values.clone().is_some();
-let mut _smelt_tmp_2: f64 = 0.0;
-if _smelt_tmp_1 {
-_smelt_tmp_3 = values.as_ref().map_or(0, |smelt_value| smelt_value.len()) as f64;
-_smelt_tmp_2 = _smelt_tmp_3;
-} else {
-_smelt_tmp_2 = 0.0;
-}
+let _smelt_tmp_2: f64 = if _smelt_tmp_1 { values.as_ref().map_or(0, |smelt_value| smelt_value.len()) as f64 } else { 0.0 };
 return _smelt_tmp_2;
 }"
     );

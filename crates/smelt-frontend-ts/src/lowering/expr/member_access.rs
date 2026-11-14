@@ -654,6 +654,11 @@ impl ModuleBuilder<'_> {
         {
             return Ok(expr);
         }
+        // `args.length` on a tuple rest with optional elements counts the
+        // arguments given (`lowering::tuple_rest`).
+        if !is_assignment_target && let Some(expr) = self.optional_tuple_rest_length(member, body) {
+            return Ok(expr);
+        }
         // The exemption an assignment target carries follows the whole target
         // chain: in `fn.prop.inner = value` the base `fn.prop` is read only to
         // locate the slot the (discarded) write targets, so rejecting it would
@@ -999,6 +1004,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1230,6 +1236,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty,
@@ -1280,6 +1287,41 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower `X.prototype` for a host global constructor `X` (`Date`, `Map`,
+    /// `TypeError`, `Blob`, ...) as the global value at that path.
+    ///
+    /// The runtime answers one prototype object per host class there, the same
+    /// object `Object.getPrototypeOf` reflects for an instance, so
+    /// `Object.getPrototypeOf(new Date()) === Date.prototype` holds. Reading it
+    /// through the value `X` lowers to instead went wrong for every host whose
+    /// name is also a type: `Date` lowers to a default `SmeltDate`, which has no
+    /// `prototype` field (docs/design/class-prototypes.md, section 7). A name the
+    /// module declares shadows the global and answers `None`, as do the
+    /// namespace objects (`Math`, `JSON`), which have no prototype.
+    fn host_prototype_read(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let host = self.host_global(&member.object)?;
+        let name = host.name();
+        if !smelt_stdlib::is_global_function_value(name)
+            || !name.starts_with(|first: char| first.is_ascii_uppercase())
+        {
+            return None;
+        }
+        // The global path names the value, as `crypto.subtle` names a
+        // sub-namespace: the runtime answers it from the one prototype table.
+        let ty = self.erase_with(ErasureReason::ByName, "host prototype");
+        Some(body.push_expr(Expr {
+            kind: ExprKind::BuiltinNamespace {
+                name: format!("{name}.prototype"),
+            },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
     /// Lower opaque static Object metadata reads such as `Object.prototype`.
     pub(in crate::lowering) fn object_static_member(
         &mut self,
@@ -1289,8 +1331,11 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "prototype" {
+        if member.property.name != "prototype" {
             return None;
+        }
+        if !self.names_host(object.name.as_str(), "Object") {
+            return self.host_prototype_read(member, body);
         }
         let ty = self.erase_with(ErasureReason::ByName, "Object.prototype");
         // `Object.prototype` is a sentinel string so prototype comparisons
@@ -1417,6 +1462,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,

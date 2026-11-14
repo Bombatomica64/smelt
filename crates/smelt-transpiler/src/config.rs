@@ -265,7 +265,12 @@ impl Config {
 #[derive(Deserialize, Debug, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Source {
-    /// List of source file paths.
+    /// The program's entry modules. Running the generated program runs them
+    /// as JavaScript evaluates a module graph (Python imports likewise): every
+    /// module an entry reaches runs its top-level code once, a module's
+    /// imports before it, and several entries run in the order listed here,
+    /// as `import "./a"; import "./b"` would. A module other than a single
+    /// entry that awaits at top level is a build error.
     entries: Vec<PathBuf>,
     /// Optional list of root directories.
     roots: Option<Vec<PathBuf>>,

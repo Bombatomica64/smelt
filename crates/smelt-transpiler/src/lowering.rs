@@ -115,6 +115,9 @@ pub(crate) struct ManifestLowering {
     project_dir: PathBuf,
     /// The source a single-file command prints, by position in `sources`.
     focus: Option<usize>,
+    /// Where each source's module body runs at program start, by position in
+    /// `sources`; see [`module_run_order`].
+    run_order: Vec<Option<u32>>,
 }
 
 impl ManifestLowering {
@@ -140,13 +143,12 @@ impl ManifestLowering {
                 Some(sound_settings(config, manifest_dir)),
             )
         })?;
-        mark_entries(
-            &mut sources,
-            config
-                .entries()
-                .iter()
-                .map(|path| resolve_manifest_path(manifest_dir, path)),
-        );
+        let entry_paths = config
+            .entries()
+            .iter()
+            .map(|path| resolve_manifest_path(manifest_dir, path))
+            .collect::<Vec<_>>();
+        mark_entries(&mut sources, entry_paths.iter().cloned());
         // Ordering cannot fail (import cycles are cut deliberately).
         let Ok(sources) = timing::measure("manifest.order_sources", || {
             Ok::<_, std::convert::Infallible>(in_dependency_order(sources))
@@ -163,10 +165,22 @@ impl ManifestLowering {
             crate::specialization::prepare(config, manifest_path, &ordered)
         })?;
         let outside_crate = sources_outside_crate(config, manifest_dir, &ordered);
-        let module_names =
-            manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
+        // The program's entry module is the crate's `main`: its top-level code
+        // is what running the program runs, as `for_file` names its target.
+        // Named by its file stem, an entry not spelled `main.ts` left
+        // `fn main() {}` empty and its body never ran.
+        let entry_count = ordered.iter().filter(|source| source.is_entry).count();
+        let module_names = manifest_module_names(&ordered, |source| {
+            if source.is_entry && entry_count == 1 {
+                ENTRY_MODULE_NAME.to_owned()
+            } else {
+                manifest_module_name(&source.path)
+            }
+        });
+        let run_order = module_run_order(&sources, &entry_paths);
         let file_ids = file_ids(sources.len())?;
         Ok(Self {
+            run_order,
             sources,
             file_ids,
             module_names,
@@ -197,7 +211,9 @@ impl ManifestLowering {
             }
         });
         let file_ids = file_ids(sources.len())?;
+        let run_order = module_run_order(&sources, std::slice::from_ref(&target));
         Ok(Self {
+            run_order,
             sources,
             file_ids,
             module_names,
@@ -295,6 +311,7 @@ impl ManifestLowering {
         let module_names =
             manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
         let run = Self {
+            run_order: vec![None; sources.len()],
             file_ids: file_ids(sources.len())?,
             module_names,
             sources,
@@ -357,6 +374,11 @@ fn lower_run(
                 && let Some(module_value) = lowering.krate_mut().modules.get_mut(module_idx)
             {
                 module_value.name.clone_from(name);
+                module_value.run_order = run
+                    .sources
+                    .iter()
+                    .position(|candidate| std::ptr::eq(candidate, *source))
+                    .and_then(|index| run.run_order.get(index).copied().flatten());
             }
             modules.push((source.path.display().to_string(), module));
         }
@@ -589,6 +611,67 @@ fn sound_settings(config: &crate::config::Config, manifest_dir: &Path) -> SoundS
         root: root.canonicalize().unwrap_or_else(|_| root.to_path_buf()),
         defines: config.defines(),
     }
+}
+
+/// The position of each source's module body in program start-up, by
+/// position in `sources`: `None` for a module that does not run.
+///
+/// JavaScript evaluates a module graph depth-first, each module once, a
+/// module's imports before its own body; Python runs an imported module's body
+/// at its first import the same way. Several entries run in the order the
+/// manifest lists them, as `import "./a"; import "./b"` would, and a module two
+/// entries share runs once, before the first. Only modules an entry reaches
+/// run: a test module or a source no entry imports is `None`.
+pub(crate) fn module_run_order(
+    sources: &[ManifestSource],
+    entries: &[PathBuf],
+) -> Vec<Option<u32>> {
+    let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let index: HashMap<PathBuf, usize> = sources
+        .iter()
+        .enumerate()
+        .map(|(position, source)| (canonical(&source.path), position))
+        .collect();
+    let mut order = vec![None; sources.len()];
+    let mut entered = vec![false; sources.len()];
+    let mut next = 0_u32;
+    for entry in entries {
+        let Some(&root) = index.get(&canonical(entry)) else {
+            continue;
+        };
+        // Iterative post-order: (module, whether its imports are done).
+        let mut stack = vec![(root, false)];
+        while let Some((current, imports_done)) = stack.pop() {
+            if imports_done {
+                if order.get(current).is_some_and(Option::is_none)
+                    && let Some(slot) = order.get_mut(current)
+                {
+                    *slot = Some(next);
+                    next = next.saturating_add(1);
+                }
+                continue;
+            }
+            if entered.get(current).copied().unwrap_or(true) {
+                continue;
+            }
+            if let Some(flag) = entered.get_mut(current) {
+                *flag = true;
+            }
+            stack.push((current, true));
+            let Some(source) = sources.get(current) else {
+                continue;
+            };
+            // Pushed in reverse so the first import runs first.
+            for dependency in source.dependencies.iter().rev() {
+                if let Some(&target) = index.get(&canonical(dependency))
+                    && !entered.get(target).copied().unwrap_or(true)
+                {
+                    stack.push((target, false));
+                }
+            }
+        }
+    }
+    order
 }
 
 /// Marks every source whose path is one of `entries` as a program entry.

@@ -41,11 +41,12 @@ export function use1(ns: number[]): number[] {
 }
 ",
     );
-    let Ok(root) =
-        crate::crate_builder::emit_root(&mir, GeneratedAllocator::System, |_function, _context| {
-            crate::crate_builder::FreeFunctionHome::Root
-        })
-    else {
+    let Ok(root) = crate::crate_builder::emit_root(
+        &mir,
+        GeneratedAllocator::System,
+        Vec::new(),
+        |_function, _context| crate::crate_builder::FreeFunctionHome::Root,
+    ) else {
         panic!("emission failed");
     };
     let source = root.source();
