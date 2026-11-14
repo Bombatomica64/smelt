@@ -834,7 +834,9 @@ impl FunctionEmitter<'_> {
         if !lhs_contains_function && !rhs_contains_function {
             return Ok(None);
         }
-        let equal_text = if lhs_ty == rhs_ty && lhs_contains_function && rhs_contains_function {
+        let equal_text = if let Some(by_key) = self.function_identity_key_equality(lhs, rhs)? {
+            by_key
+        } else if lhs_ty == rhs_ty && lhs_contains_function && rhs_contains_function {
             self.structural_leaf_equality_expr(
                 &self.operand_expr(lhs)?,
                 &self.operand_expr(rhs)?,
@@ -851,6 +853,75 @@ impl FunctionEmitter<'_> {
         } else {
             equal_text
         }))
+    }
+
+    /// `===` of two function operands by their identity keys, when either one
+    /// is held in a form `Rc::ptr_eq` cannot take: a borrowed `&dyn Fn`
+    /// parameter, or a `SmeltErasedFunction` (an erased-rest callable).
+    /// `None` keeps the shared-`Rc` comparison for every other pair.
+    ///
+    /// A borrowed callback points at the callable allocation itself, so its
+    /// address is the same key `smelt_callable_object_key` gives that
+    /// allocation's `Rc`; an erased-rest callable is keyed by its inner
+    /// callback. Keys then compare through the identity links when the erased
+    /// runtime exists, so two representations of one function are equal.
+    fn function_identity_key_equality(
+        &self,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let special = |operand: &Operand| -> Result<bool, EmitError> {
+            let is_borrowed = match operand.place() {
+                Some(place) => self.is_function_parameter_place(place)?,
+                None => false,
+            };
+            let is_erased_rest = matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::Function(function)) if self.is_erased_unknown_rest_function(function)
+            );
+            Ok(is_borrowed || is_erased_rest)
+        };
+        let both_functions = [lhs, rhs].iter().all(|operand| {
+            self.operand_ty(operand)
+                .is_ok_and(|ty| matches!(self.mir.types.get(ty), Some(Type::Function(_))))
+        });
+        if !both_functions || !(special(lhs)? || special(rhs)?) {
+            return Ok(None);
+        }
+        let with_runtime = self.context.demand().has(Need::Unknown);
+        let key = |operand: &Operand| -> Result<String, EmitError> {
+            let text = self.operand_expr(operand)?;
+            let is_borrowed = match operand.place() {
+                Some(place) => self.is_function_parameter_place(place)?,
+                None => false,
+            };
+            let erased_rest = matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::Function(function)) if self.is_erased_unknown_rest_function(function)
+            );
+            Ok(if is_borrowed {
+                format!(
+                    "(({text}) as *const _ as *const () as usize)",
+                    text = text.delimited()
+                )
+            } else if erased_rest {
+                format!(
+                    "::std::rc::Rc::as_ptr(&{text}.callback) as *const () as usize",
+                    text = text.tight()
+                )
+            } else {
+                format!(
+                    "::std::rc::Rc::as_ptr(&{text}) as *const () as usize",
+                    text = text.tight()
+                )
+            })
+        };
+        let (left, right) = (key(lhs)?, key(rhs)?);
+        Ok(Some(RustExpr::loose(if with_runtime {
+            format!("smelt_function_identity_of({left}) == smelt_function_identity_of({right})")
+        } else {
+            format!("({left}) == ({right})")
+        })))
     }
 
     /// Emits structural equality for a value that NESTS floats.
@@ -1222,8 +1293,16 @@ impl FunctionEmitter<'_> {
                     rhs_text = rhs_text.delimited()
                 ))
             }
-            (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => self
-                .function_ptr_eq_expr(&self.operand_expr(lhs)?, &self.operand_expr(rhs)?, lhs_ty)?,
+            (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => {
+                match self.function_identity_key_equality(lhs, rhs)? {
+                    Some(by_key) => by_key,
+                    None => self.function_ptr_eq_expr(
+                        &self.operand_expr(lhs)?,
+                        &self.operand_expr(rhs)?,
+                        lhs_ty,
+                    )?,
+                }
+            }
             _ if self.is_reference_type(lhs_ty) || self.is_reference_type(rhs_ty) => {
                 let lhs_identity = self.reference_identity_expr(&self.operand_expr(lhs)?, lhs_ty);
                 let rhs_identity = self.reference_identity_expr(&self.operand_expr(rhs)?, rhs_ty);

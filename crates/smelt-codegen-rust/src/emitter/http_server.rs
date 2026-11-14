@@ -61,7 +61,7 @@ impl FunctionEmitter<'_> {
         if matches!(fetch, Operand::Copy(_)) {
             text = text.cloned_value();
         }
-        let request_by_reference = function.mutable_params.contains(&0)
+        let request_by_reference = self.param_passed_by_mut_ref(function, 0)
             || self.callback_param_is_shared_reference(function, 0, request_ty);
         let mut args = vec![if request_by_reference {
             "&smelt_fetch_request".to_owned()

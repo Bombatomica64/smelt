@@ -312,7 +312,7 @@ impl FunctionEmitter<'_> {
                         // without it a single reference-typed parameter fixed the
                         // vector's element type to `&SmeltUnknown` and every other
                         // element became an E0308.
-                        let base = if target_function.mutable_params.contains(&index)
+                        let base = if self.param_passed_by_mut_ref(target_function, index)
                             || self.callback_param_is_shared_reference(
                                 target_function,
                                 index,
@@ -439,7 +439,7 @@ impl FunctionEmitter<'_> {
                     // The list owns its elements, so a parameter the
                     // adapter receives by reference is cloned first,
                     // as the packed-vector branch below does.
-                    let base = if target_function.mutable_params.contains(&target_index)
+                    let base = if self.param_passed_by_mut_ref(target_function, target_index)
                         || self.callback_param_is_shared_reference(
                             target_function,
                             target_index,
@@ -506,7 +506,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item)) = self.mir.types.get(param) else {
             return Ok(None);
         };
-        let by_reference = function.mutable_params.contains(&index)
+        let by_reference = self.param_passed_by_mut_ref(function, index)
             || self.callback_param_is_shared_reference(function, index, param);
         let list = if by_reference {
             format!("smelt_arg{index}.clone()")
@@ -833,7 +833,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     value.into_string()
                 };
-                if function.mutable_params.contains(&index) {
+                if self.param_passed_by_mut_ref(function, index) {
                     Ok(format!("&mut ({arg})"))
                 } else if target_abi == ErasedCallTargetAbi::Declared
                     && self.callback_param_is_shared_reference(function, index, *param_ty)
@@ -1055,14 +1055,18 @@ impl FunctionEmitter<'_> {
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
-        let (call_text, callback_prelude) = if source_is_erased {
+        let source_is_borrowed = self.is_function_parameter_place(place)?;
+        // A BORROWED erased-rest parameter is a `&dyn Fn(SmeltList<..>)`, not a
+        // `SmeltErasedFunction`, so it is invoked directly; both take the same
+        // packed argument list. `.call` on it is the unstable `Fn::call` (E0658).
+        let (call_text, callback_prelude) = if source_is_erased && !source_is_borrowed {
             (
                 RustExpr::chain(format!("_smelt_adapted_callback.call({forwarded})")),
                 Some(format!(
                     "let _smelt_adapted_callback = {function_text}.clone();"
                 )),
             )
-        } else if self.is_function_parameter_place(place)? {
+        } else if source_is_borrowed {
             (
                 RustExpr::atom(format!("({function_text})({forwarded})")),
                 None,

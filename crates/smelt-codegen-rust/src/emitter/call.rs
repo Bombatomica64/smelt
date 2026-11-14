@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
                         function.params.get(index).copied().ok_or_else(|| {
                             EmitError::new("indirect call has too many arguments")
                         })?;
-                    if function.mutable_params.contains(&index) {
+                    if self.param_passed_by_mut_ref(function, index) {
                         self.mutable_reference_argument_expr(arg, target_ty, None)
                     } else if self.callback_param_is_shared_reference(
                         function,
@@ -230,7 +230,7 @@ impl FunctionEmitter<'_> {
             // which has no value-shaped default expression to pad with; such a
             // parameter is only reachable through an explicit argument, so stop
             // padding rather than inventing a temporary place for it.
-            if function.mutable_params.contains(&index) {
+            if self.param_passed_by_mut_ref(function, index) {
                 break;
             }
             // A padded argument is a fresh temporary, so a by-shared-reference

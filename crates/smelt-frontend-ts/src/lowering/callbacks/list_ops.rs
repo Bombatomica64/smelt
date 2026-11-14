@@ -681,6 +681,7 @@ impl ModuleBuilder<'_> {
             ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
         };
         let callback_param_tys = [element_ty, index_ty, list_ty];
+        self.type_rest_from_fixed_arguments(callback_argument, &callback_param_tys);
         let callback = if matches!(
             op,
             ListCallbackOp::Filter

@@ -67,6 +67,15 @@ use smelt_mir::{HirOrigin, LocalId, Mir, MirFunction, Operand, Place, Rvalue, St
 /// handle-newtype representation and the current by-value struct.
 pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     let mut references = HashSet::new();
+    for closure in &mir.closures {
+        collect_body_field_write_triggers(
+            mir,
+            &closure.locals,
+            &closure.blocks,
+            None,
+            &mut references,
+        );
+    }
     for function in &mir.functions {
         collect_field_write_triggers(mir, function, &mut references);
         collect_field_mutation_triggers(mir, function, &mut references);
@@ -375,7 +384,27 @@ fn collect_field_write_triggers(
     references: &mut HashSet<Symbol>,
 ) {
     let constructing_class = crate::base_init::constructor_class(function);
-    for block in &function.blocks {
+    collect_body_field_write_triggers(
+        mir,
+        &function.locals,
+        &function.blocks,
+        constructing_class,
+        references,
+    );
+}
+
+/// [`collect_field_write_triggers`] over one body's locals and blocks. A
+/// closure body is a body too: `{ set: (flags) => { flags.era = 7 } }` writes
+/// the caller's object, and missing it left `Flags` a value struct whose copy
+/// took the write.
+fn collect_body_field_write_triggers(
+    mir: &Mir,
+    locals: &[smelt_mir::LocalDecl],
+    blocks: &[smelt_mir::BasicBlock],
+    constructing_class: Option<Symbol>,
+    references: &mut HashSet<Symbol>,
+) {
+    for block in blocks {
         for statement in &block.statements {
             let Statement::AssignPlace { place, .. } = statement else {
                 continue;
@@ -385,7 +414,7 @@ fn collect_field_write_triggers(
                 // Neither names a base local whose class could be recorded.
                 Place::Local(_) | Place::Global { .. } => continue,
             };
-            let Some(name) = class_name_of_local(mir, function, base) else {
+            let Some(name) = class_name_of_decl(mir, locals, base) else {
                 continue;
             };
             // A constructor initializing its own instance is construction, not
@@ -655,7 +684,16 @@ pub(crate) fn constructor_instance_local(
 /// `Type::Class` internally but stay plain value structs, so they are excluded
 /// here to avoid routing their field access through a nonexistent cell.
 fn class_name_of_local(mir: &Mir, function: &MirFunction, local: LocalId) -> Option<Symbol> {
-    let decl = function.locals.get(usize::try_from(local.0).ok()?)?;
+    class_name_of_decl(mir, &function.locals, local)
+}
+
+/// [`class_name_of_local`] over a body's own locals.
+fn class_name_of_decl(
+    mir: &Mir,
+    locals: &[smelt_mir::LocalDecl],
+    local: LocalId,
+) -> Option<Symbol> {
+    let decl = locals.get(usize::try_from(local.0).ok()?)?;
     match mir.types.get(decl.ty) {
         // An object *shape* — an `interface`, or an inline object type literal
         // lowered to a synthetic one — is emitted as a Rust struct exactly like a

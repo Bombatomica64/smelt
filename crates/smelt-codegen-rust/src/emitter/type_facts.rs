@@ -365,6 +365,24 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Whether parameter `index` of the callable `function` is passed as
+    /// `&mut T`: a `mutable_params` position whose type is not a reference
+    /// class. `&mut` is how a by-value struct carries a callee's write back to
+    /// the caller; a reference-class handle already shares its state, so it is
+    /// passed as the handle, and `&mut flags` on a handle binding that is not
+    /// `mut` was E0596.
+    pub(super) fn param_passed_by_mut_ref(
+        &self,
+        function: &smelt_hir::FunctionType,
+        index: usize,
+    ) -> bool {
+        function.mutable_params.contains(&index)
+            && !function
+                .params
+                .get(index)
+                .is_some_and(|ty| self.is_reference_class_type(*ty))
+    }
+
     /// Returns whether a type is a reference class (handle newtype).
     ///
     /// Reference classes carry shared mutable identity through

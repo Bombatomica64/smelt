@@ -414,7 +414,7 @@ impl FunctionEmitter<'_> {
                 .enumerate()
                 .map(|(index, (arg, param))| {
                     let text = if rest_function
-                        .is_some_and(|function| function.mutable_params.contains(&index))
+                        .is_some_and(|function| self.param_passed_by_mut_ref(function, index))
                     {
                         self.mutable_reference_argument_expr(arg, *param, None)?
                     } else if abi_function.as_ref().map_or_else(

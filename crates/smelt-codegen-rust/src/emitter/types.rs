@@ -37,7 +37,7 @@ impl FunctionEmitter<'_> {
         substitution: &TypeSubstitution<'_>,
     ) -> Result<RustType, EmitError> {
         let param_text = self.rust_type(param, false, substitution)?;
-        if function.mutable_params.contains(&index) {
+        if self.param_passed_by_mut_ref(function, index) {
             Ok(RustType::raw(format!("&mut {param_text}")))
         } else if self.callback_param_is_shared_reference(function, index, param) {
             Ok(RustType::raw(format!("&{param_text}")))

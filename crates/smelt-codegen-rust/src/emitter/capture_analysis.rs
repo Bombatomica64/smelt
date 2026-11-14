@@ -147,7 +147,7 @@ impl FunctionEmitter<'_> {
                                     arg,
                                     local,
                                     &mut Vec::new(),
-                                ) && callback_ty.mutable_params.contains(&index)
+                                ) && self.param_passed_by_mut_ref(callback_ty, index)
                             })
                         })
                     }
@@ -199,7 +199,7 @@ impl FunctionEmitter<'_> {
             return false;
         };
         args.iter().enumerate().any(|(index, arg)| {
-            function_ty.mutable_params.contains(&index)
+            self.param_passed_by_mut_ref(function_ty, index)
                 && Self::operand_originates_from_local(function, arg, local, &mut Vec::new())
         })
     }
@@ -784,7 +784,7 @@ impl FunctionEmitter<'_> {
                     return false;
                 };
                 args.iter().enumerate().any(|(index, arg)| {
-                    function_ty.mutable_params.contains(&index)
+                    self.param_passed_by_mut_ref(function_ty, index)
                         && Self::operand_originates_from_local_in_blocks(
                             &closure.blocks,
                             arg,
@@ -815,7 +815,7 @@ impl FunctionEmitter<'_> {
             return false;
         };
         args.iter().enumerate().any(|(index, arg)| {
-            function_ty.mutable_params.contains(&index)
+            self.param_passed_by_mut_ref(function_ty, index)
                 && Self::operand_originates_from_local_in_blocks(
                     &closure.blocks,
                     arg,
