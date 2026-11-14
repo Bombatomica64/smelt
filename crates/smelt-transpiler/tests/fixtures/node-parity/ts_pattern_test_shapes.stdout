@@ -1,0 +1,8 @@
+3 42
+string,string number 2
+2 string,number
+foo
+circle 1 true
+pair(circle 2, pair(-, -)) true
+pair other
+6

@@ -4145,10 +4145,17 @@ impl Default for SmeltUnion6 {
     }
 }
 
-#[derive(Clone)]
 pub enum SmeltUnion10<T> {
     M0(InitLike<T>),
     M1(SmeltResponse),
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Clone for SmeltUnion10<T> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::M0(value) => Self::M0(value.clone()),
+            Self::M1(value) => Self::M1(value.clone()),
+        }
+    }
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for SmeltUnion10<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown {

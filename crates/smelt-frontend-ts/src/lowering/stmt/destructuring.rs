@@ -24,13 +24,35 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         match pattern {
             BindingPattern::BindingIdentifier(binding) => {
+                // An erased binding (no type, or an erased derived type from a
+                // pattern element) takes the checker's type for it. A source
+                // `any` annotation stays erased: the checker answers `any`,
+                // which is never adopted.
+                let erased_annotation = annotated_ty
+                    .is_none_or(|annotated| self.type_is_erased_binding_type(annotated));
+                let typed_value = if erased_annotation {
+                    value.map(|value| self.checker_typed_erased_binding(binding, value, body))
+                } else {
+                    value
+                };
+                let annotated_ty = match (annotated_ty, typed_value) {
+                    (Some(annotated), Some(typed)) if typed_value != value => {
+                        let typed_ty = Self::expr_ty(body, typed);
+                        if typed_ty == annotated {
+                            Some(annotated)
+                        } else {
+                            Some(typed_ty)
+                        }
+                    }
+                    (annotated, _) => annotated,
+                };
                 let ty = annotated_ty
-                    .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
+                    .or_else(|| typed_value.map(|expr_id| Self::expr_ty(body, expr_id)))
                     .unwrap_or_else(|| {
                         self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
                     });
                 if annotated_ty.is_some()
-                    && value.is_some()
+                    && typed_value.is_some()
                     && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
                 {
                     return Err(SmeltError::unsupported(
@@ -46,7 +68,8 @@ impl ModuleBuilder<'_> {
                     mutable,
                     span: self.span(binding.span.start, binding.span.end),
                 });
-                if value.is_some_and(|value| self.expression_is_known_date_value(value, body))
+                if typed_value
+                    .is_some_and(|expr_id| self.expression_is_known_date_value(expr_id, body))
                     || self.type_is_known_date_value(ty)
                 {
                     self.scope.mark_date_value(local);
@@ -61,7 +84,14 @@ impl ModuleBuilder<'_> {
                 }
                 self.scope.bind(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
-                body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::Let {
+                        pat,
+                        ty,
+                        value: typed_value,
+                    },
+                );
                 Ok(())
             }
             BindingPattern::ObjectPattern(object) => {
@@ -597,6 +627,133 @@ impl ModuleBuilder<'_> {
         body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value: fallback },
             ty: target_ty,
+            span,
+        })
+    }
+
+    /// Whether a value of `ty` is erased at run time: the carrier, an optional
+    /// of it, or a list or tuple of it.
+    fn type_is_erased_container(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(inner) | Type::List(inner)) => {
+                self.type_is_erased_container(*inner)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.type_is_erased_container(*item)),
+            _ => false,
+        }
+    }
+
+    /// Whether `ty` is a shape the generated Rust represents as itself:
+    /// primitives, containers and tuples of such, and classes or interfaces the
+    /// program declares. A host class Smelt does not model (`AbortSignal`)
+    /// renders erased anyway, so adopting it would only add a cast that is
+    /// erased again.
+    fn checker_type_is_represented(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::BigInt) => true,
+            Some(Type::Optional(inner) | Type::List(inner) | Type::Set(inner)) => {
+                self.checker_type_is_represented(*inner)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.checker_type_is_represented(*item)),
+            Some(Type::Class { name, args }) => {
+                (self.find_interface(*name).is_some() || self.class_by_symbol(*name).is_some())
+                    && args
+                        .iter()
+                        .all(|arg| self.checker_type_is_represented(*arg))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a binding's type is the erased carrier or an optional of it.
+    fn type_is_erased_binding_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(inner)) => {
+                matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+            }
+            _ => false,
+        }
+    }
+
+    /// A binding whose value is erased (`unknown`, or an optional `unknown`
+    /// element read out of an erased array) takes the type TypeScript gave the
+    /// binding, projected out of the erased value.
+    ///
+    /// `([x, y]) => x + y` as a ts-pattern handler: the checker types the
+    /// parameter as a tuple it cannot always re-spell here, but `x` and `y`
+    /// are each `number`. Without this both were `Option<SmeltUnknown>` and
+    /// `x + y` did not compile (E0369). A binding the checker types as
+    /// `unknown`, `never` or nothing keeps the erased value, and so does a part
+    /// read out of a TYPED value (`const { start } = interval` with `interval:
+    /// Interval<D, D>`), whose erased HIR type the backend renders as its real
+    /// type: only a part of an erased value is erased at run time.
+    fn checker_typed_erased_binding(
+        &mut self,
+        binding: &oxc::ast::ast::BindingIdentifier<'_>,
+        value: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = Self::expr_ty(body, value);
+        // Only a PART read out of an erased container: a whole erased value
+        // bound to a name (`const start = performance.now()`) keeps the name
+        // erased, since typing it moves the erased value into a temporary and
+        // re-erases the name wherever it flows back into an erased position.
+        let Some(ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. }) =
+            body.expr_at(value).map(|expr| &expr.kind)
+        else {
+            return value;
+        };
+        let receiver_ty = Self::expr_ty(body, *receiver);
+        if !self.type_is_erased_container(receiver_ty) {
+            return value;
+        }
+        let erased_inner = match self.ctx.krate.types.get(value_ty) {
+            Some(Type::Unknown) => false,
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) =>
+            {
+                true
+            }
+            _ => return value,
+        };
+        let Some(checked) = self
+            .checker_binding_type(binding.span.start, binding.span.end)
+            .filter(|checked| self.checker_type_is_represented(*checked))
+        else {
+            return value;
+        };
+        let span = self.span(binding.span.start, binding.span.end);
+        let erased = if erased_inner {
+            let unknown =
+                self.unknown_type(crate::lowering::erasure::NotNewErasure::ErasedUpstream);
+            let undefined = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: unknown,
+                span,
+            });
+            body.push_expr(Expr {
+                kind: ExprKind::OptionalCoalesce {
+                    optional: value,
+                    fallback: undefined,
+                },
+                ty: unknown,
+                span,
+            })
+        } else {
+            value
+        };
+        body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: erased,
+                target: checked,
+            },
+            ty: checked,
             span,
         })
     }

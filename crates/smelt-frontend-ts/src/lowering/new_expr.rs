@@ -712,6 +712,19 @@ impl ModuleBuilder<'_> {
             .collect();
         let class_args = if !explicit.is_empty() && type_params.len() == explicit.len() {
             explicit
+        } else if !type_params.is_empty()
+            && let Some(Type::Class { name, args }) = self
+                .checker_call_type(new_expr.span.start, new_expr.span.end)
+                .and_then(|ty| self.ctx.krate.types.get(ty).cloned())
+            && name == declared
+            && args.len() == type_params.len()
+        {
+            // No explicit arguments: the instantiation TypeScript inferred for
+            // this `new` (`new MatchExpression(value, unmatched)` is a
+            // `MatchExpression<input, never>`), as the declared-class path
+            // takes it. A bare reference left every parameter for Rust to
+            // infer, and one no argument pins (`output`) it cannot (E0283).
+            args
         } else {
             Vec::new()
         };

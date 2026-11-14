@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8349,
+      "concrete": 8355,
       "generic": 140,
-      "erased": 58
+      "erased": 56
     },
     "reads": {
       "concrete": 858,
@@ -12,7 +12,7 @@
       "erased": 20
     },
     "calls": {
-      "concrete": 2269,
+      "concrete": 2273,
       "generic": 14,
       "erased": 2
     }
@@ -411,7 +411,7 @@
     },
     "examples/typescript/end-to-end/116_generator_array_from/input.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 35,
         "generic": 0,
         "erased": 0
       },
@@ -421,7 +421,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 8,
+        "concrete": 12,
         "generic": 0,
         "erased": 0
       }
@@ -683,9 +683,9 @@
     },
     "examples/typescript/end-to-end/130_this_bound_field_write_through/input.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 36,
         "generic": 0,
-        "erased": 6
+        "erased": 4
       },
       "reads": {
         "concrete": 7,

@@ -5,31 +5,32 @@ fn describe (FuncId(0)) -> String
   locals
     %0 param prefix: String
     %1 user fast: fn(String) -> String
-    %2 user label: Unknown
+    %2 user label: String
     %3 temp: Unknown
     %4 temp: Unknown
     %5 temp: Float
     %6 temp: Unknown
-    %7 temp: fn(String) -> String
-    %8 temp: Unknown
-    %9 temp: String
+    %7 temp: String
+    %8 temp: fn(String) -> String
+    %9 temp: Unknown
     %10 temp: String
     %11 temp: String
+    %12 temp: String
   bb0:
     %3 = this
     %4 = this
     %5 = copy %4.field2 + 1.0
     %3.field2 = move %5
     %6 = this
-    %2 = copy %6.field1
-    %7 = closure ClosureId(0) [copy %2]
-    %1 = move %7
-    %8 = this
-    %8.field3 = move %1
-    %9 = copy %0 + " "
-    %10 = move %9 + copy %2
-    %11 = move %10 + " (built)"
-    return move %11
+    %2 = unknown_cast copy %6.field1 as t0
+    %8 = closure ClosureId(0) [copy %2]
+    %1 = move %8
+    %9 = this
+    %9.field3 = move %1
+    %10 = copy %0 + " "
+    %11 = move %10 + copy %2
+    %12 = move %11 + " (built)"
+    return move %12
 
 fn new (FuncId(1)) -> Tally
   locals
@@ -96,7 +97,7 @@ fn main (FuncId(2)) -> None throws
 closure ClosureId(0) -> String
   locals
     %0 param next: String
-    %1 user label: Unknown
+    %1 user label: String
     %2 temp: String
     %3 temp: String
     %4 temp: String

@@ -67,6 +67,9 @@ declare_needs! {
     PanicRoute,
     /// JavaScript `bigint`.
     BigInt,
+    /// `IntoSmeltUnknown`/`SmeltFromUnknown` for tuples of three or more
+    /// elements, which only a program with such a tuple type needs.
+    WideTuple,
     /// JavaScript `symbol` values and property-key records (`SmeltSymbol`,
     /// `SmeltPropKey`).
     Symbol,
@@ -704,6 +707,7 @@ impl RuntimeDemand {
                     }
                 }
                 Type::BigInt => self.add(Need::BigInt),
+                Type::Tuple(items) if items.len() >= 3 => self.add(Need::WideTuple),
                 Type::Symbol | Type::PropKey => self.add(Need::Symbol),
                 Type::Dict(key, _) if crate::emitter::dict_key_uses_smelt_record(mir, *key) => {
                     self.add(Need::Record);

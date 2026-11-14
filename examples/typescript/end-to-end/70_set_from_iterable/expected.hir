@@ -134,8 +134,8 @@ module examples/typescript/end-to-end/70_set_from_iterable/input.ts (ModuleId(0)
 
 interned types
   t0 = String
-  t1 = List<String>
-  t2 = Set<String>
+  t1 = Set<String>
+  t2 = List<String>
   t3 = Float
   t4 = None
   t5 = Bool

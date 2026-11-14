@@ -4279,7 +4279,7 @@ impl SmeltInspect for SmeltMatch {
     }
 }
 
-impl SmeltInspect for SmeltUnion14 {
+impl SmeltInspect for SmeltUnion15 {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { match self { Self::M0(value) => value.smelt_inspect(ctx, depth), Self::M1(value) => value.smelt_inspect(ctx, depth) } }
     fn smelt_inspect_is_number(&self) -> bool { match self { Self::M0(value) => value.smelt_inspect_is_number(), Self::M1(value) => value.smelt_inspect_is_number() } }
     fn smelt_console_text(&self) -> String { match self { Self::M0(value) => value.smelt_console_text(), Self::M1(value) => value.smelt_console_text() } }
@@ -4288,11 +4288,11 @@ impl SmeltInspect for SmeltUnion14 {
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone)]
-pub enum SmeltUnion14 {
+pub enum SmeltUnion15 {
     M0(::num_bigint::BigInt),
     M1(f64),
 }
-impl IntoSmeltUnknown for SmeltUnion14 {
+impl IntoSmeltUnknown for SmeltUnion15 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltUnknown::BigInt(value.clone()),
@@ -4300,31 +4300,31 @@ impl IntoSmeltUnknown for SmeltUnion14 {
         }
     }
 }
-impl SmeltUnion14 {
+impl SmeltUnion15 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if matches!(value, SmeltUnknown::BigInt(_)) { return Self::M0(match value.clone() { SmeltUnknown::BigInt(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_bigint_from_number(smelt_value).unwrap_or_default(), SmeltUnknown::String(smelt_value) => smelt_bigint_from_string(&smelt_value).unwrap_or_default(), SmeltUnknown::Bool(smelt_value) => ::num_bigint::BigInt::from(i64::from(smelt_value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => ::num_bigint::BigInt::default() }); }
         Self::M1(match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })
     }
 }
-impl PartialEq for SmeltUnion14 {
+impl PartialEq for SmeltUnion15 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion14 {
+impl SmeltFromUnknown for SmeltUnion15 {
     const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion14 {
+impl SmeltJsKeyEq for SmeltUnion15 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion14 {
+impl ::std::fmt::Debug for SmeltUnion15 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion14 {
+impl Default for SmeltUnion15 {
     fn default() -> Self {
         Self::M0(::num_bigint::BigInt::default())
     }
@@ -4370,7 +4370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_79: ::num_bigint::BigInt;
     let _smelt_tmp_81: ::num_bigint::BigInt;
     let _smelt_tmp_85: bool;
-    let _smelt_tmp_86: SmeltUnion14;
+    let _smelt_tmp_86: SmeltUnion15;
     let _smelt_tmp_87: bool;
     let _smelt_tmp_88: bool;
     let _smelt_tmp_89: bool;
@@ -4378,7 +4378,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_91: bool;
     let _smelt_tmp_93: bool;
     let _smelt_tmp_94: bool;
-    let _smelt_tmp_95: SmeltUnion14;
+    let _smelt_tmp_95: SmeltUnion15;
     let _smelt_tmp_96: bool;
     let _smelt_tmp_98: bool;
     let _smelt_tmp_99: ::num_bigint::BigInt;
@@ -4504,7 +4504,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_83: ::num_bigint::BigInt = smelt_bigint_as_uint_n(80.0, &huge)?;
     let _ = { println!("{} {}n {}n {}n", JsString::from("asUintN:"), _smelt_tmp_80, _smelt_tmp_82, _smelt_tmp_83); };
     _smelt_tmp_85 = matches!(smelt_bigint_compare_number(&::num_bigint::BigInt::from(1_i64), 1.5), Some(::std::cmp::Ordering::Less));
-    _smelt_tmp_86 = SmeltUnion14::M1(2.0);
+    _smelt_tmp_86 = SmeltUnion15::M1(2.0);
     _smelt_tmp_87 = smelt_js_loose_eq(&SmeltUnknown::BigInt((::num_bigint::BigInt::from(2_i64)).clone()), &_smelt_tmp_86.clone().into_smelt_unknown());
     _smelt_tmp_88 = matches!(smelt_bigint_compare_number(&::num_bigint::BigInt::from(2_i64), 1.5), Some(::std::cmp::Ordering::Greater));
     _smelt_tmp_89 = matches!(smelt_bigint_compare_number(&::num_bigint::BigInt::from(3_i64), 3.0), Some(::std::cmp::Ordering::Less | ::std::cmp::Ordering::Equal));
@@ -4513,7 +4513,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = { println!("{} {} {} {} {} {} {}", JsString::from("compare:"), _smelt_tmp_85, _smelt_tmp_87, _smelt_tmp_88, _smelt_tmp_89, _smelt_tmp_90, _smelt_tmp_91); };
     _smelt_tmp_93 = matches!(smelt_bigint_compare_number(&::num_bigint::BigInt::from(1_i64), f64::NAN), Some(::std::cmp::Ordering::Less));
     _smelt_tmp_94 = matches!(smelt_bigint_compare_number(&::num_bigint::BigInt::from(1_i64), f64::NAN), Some(::std::cmp::Ordering::Greater));
-    _smelt_tmp_95 = SmeltUnion14::M1(f64::NAN);
+    _smelt_tmp_95 = SmeltUnion15::M1(f64::NAN);
     _smelt_tmp_96 = smelt_js_loose_eq(&SmeltUnknown::BigInt((::num_bigint::BigInt::from(1_i64)).clone()), &_smelt_tmp_95.clone().into_smelt_unknown());
     let _ = { println!("{} {} {} {}", JsString::from("compare NaN:"), _smelt_tmp_93, _smelt_tmp_94, _smelt_tmp_96); };
     _smelt_tmp_98 = (&::num_bigint::BigInt::from(2_i64)) == (&::num_bigint::BigInt::from(2_i64));

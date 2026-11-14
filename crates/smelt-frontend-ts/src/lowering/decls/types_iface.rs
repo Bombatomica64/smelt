@@ -91,6 +91,11 @@ impl ModuleBuilder<'_> {
         // so it lowers to the same interface item and gets the same generated
         // struct. A literal with an index signature is a dictionary and keeps
         // the alias lowering.
+        // Every key must name a fixed member. A computed key that resolves to
+        // no static name (a block-local `const k = Symbol()`, evaluated anew
+        // on each run of its block) is a runtime key, so the shape is a keyed
+        // record like the literal that builds it; as a struct it lost that
+        // member entirely and no literal could be built as it.
         if let oxc::ast::ast::TSType::TSTypeLiteral(literal) = &alias.type_annotation
             && !literal.members.is_empty()
             && literal.members.iter().all(|member| {
@@ -98,6 +103,15 @@ impl ModuleBuilder<'_> {
                     member,
                     TSSignature::TSPropertySignature(_) | TSSignature::TSMethodSignature(_)
                 )
+            })
+            && literal.members.iter().all(|member| match member {
+                TSSignature::TSPropertySignature(property) => {
+                    !property.computed || self.is_resolvable_property_key(&property.key)
+                }
+                TSSignature::TSMethodSignature(method) => {
+                    !method.computed || self.is_resolvable_property_key(&method.key)
+                }
+                _ => true,
             })
         {
             let mut members = StructuralMembers::default();
