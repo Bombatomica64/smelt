@@ -1248,8 +1248,6 @@ fn assertion_view_probes() -> TestResult {
     verify_node_parity("assertion_view_probes")
 }
 
-/// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
-/// empty collection at the present type, as JavaScript's constructors do.
 /// A `value is Object` guard leaves an erased value erased, as tsc does, so
 /// `Array.isArray` still answers for it, while a union still narrows; in a
 /// condition, the right operand of `&&` is tested for truthiness.
@@ -1258,6 +1256,15 @@ fn object_guard_and_condition() -> TestResult {
     verify_node_parity("object_guard_and_condition")
 }
 
+/// `Object.assign` copies own enumerable symbol-keyed properties too: a
+/// symbol flag, and `Symbol.iterator`, which makes the target iterable.
+#[test]
+fn assign_symbol_keys() -> TestResult {
+    verify_node_parity("assign_symbol_keys")
+}
+
+/// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
+/// empty collection at the present type, as JavaScript's constructors do.
 #[test]
 fn absent_iterable_constructors() -> TestResult {
     verify_node_parity("absent_iterable_constructors")
