@@ -570,6 +570,22 @@ impl ModuleBuilder<'_> {
             Expression::TaggedTemplateExpression(tagged) => {
                 self.tagged_template_expression(tagged, body)
             }
+            // `(a, b, c)` evaluates every operand in order and yields the last:
+            // the earlier ones run as expression statements of the block it is
+            // lowered into, as `void x` runs its operand.
+            Expression::SequenceExpression(sequence) => {
+                let Some((last, effects)) = sequence.expressions.split_last() else {
+                    return Err(SmeltError::unsupported(
+                        self.expression_span(expression),
+                        "an empty comma expression is not valid source",
+                    ));
+                };
+                for effect in effects {
+                    let operand = self.expression(effect, body)?;
+                    self.push_stmt_to_sink(body, smelt_hir::Stmt::Expr(operand));
+                }
+                self.expression_with_hint(last, body, type_hint)
+            }
             _ => Err(SmeltError::unsupported(
                 self.expression_span(expression),
                 format!("expression kind is not lowered yet: {expression:?}"),
