@@ -114,7 +114,7 @@ impl FunctionEmitter<'_> {
         source_function: &MirFunction,
         declared: TypeId,
     ) -> TypeId {
-        let declared = match (&source_function.origin, self.class_for_type(source)) {
+        let inherited = match (&source_function.origin, self.class_for_type(source)) {
             (
                 HirOrigin::ClassMethod {
                     class: declaring, ..
@@ -130,7 +130,7 @@ impl FunctionEmitter<'_> {
             }
             _ => declared,
         };
-        self.source_class_substituted_ty(source, declared)
+        self.source_class_substituted_ty(source, inherited)
     }
 
     /// Instantiate a type declared inside `source`'s class at `source`'s own
