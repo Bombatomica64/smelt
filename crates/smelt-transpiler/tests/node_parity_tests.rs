@@ -1241,6 +1241,13 @@ fn missing_argument_undefined() -> TestResult {
     verify_node_parity("missing_argument_undefined")
 }
 
+/// `args.length` of a rest tuple with optional elements counts the arguments
+/// given, through erased and typed optional elements.
+#[test]
+fn optional_tuple_rest_length() -> TestResult {
+    verify_node_parity("optional_tuple_rest_length")
+}
+
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")

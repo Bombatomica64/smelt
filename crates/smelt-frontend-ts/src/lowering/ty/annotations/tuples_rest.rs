@@ -481,8 +481,16 @@ impl ModuleBuilder<'_> {
                 self.span(rest.span.start, rest.span.end),
                 "tuple rest types are only lowered for never tails",
             )),
+            // A named member keeps its optional mark (`[key?: string]`) as the
+            // unnamed `[string?]` form does: an absent element is `undefined`,
+            // which only an `Optional` can hold apart from `""`.
             TSTupleElement::TSNamedTupleMember(named) => {
-                self.tuple_element_type_to_hir(&named.element_type)
+                let inner = self.tuple_element_type_to_hir(&named.element_type)?;
+                Ok(if named.optional {
+                    self.ctx.krate.types.intern(Type::Optional(inner))
+                } else {
+                    inner
+                })
             }
             // A tuple element that is not one of the tuple-only forms above
             // (`TSOptionalType`, `TSRestType`, `TSNamedTupleMember`) IS an
