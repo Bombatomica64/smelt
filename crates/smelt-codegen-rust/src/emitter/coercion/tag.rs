@@ -216,6 +216,19 @@ impl FunctionEmitter<'_> {
                 reference = reference.delimited()
             )));
         }
+        // `T | undefined` with a concrete `T` whose `typeof` is fixed is
+        // decided by presence alone: `"undefined"` when absent, `T`'s spelling
+        // otherwise. Only an inner type whose spelling depends on the value
+        // (erased, generic, a union, a function-or-object class) goes through
+        // the erased helper.
+        if let Some(Type::Optional(inner)) = self.mir.types.get(value_ty)
+            && let Some(kind) = self.static_typeof_text(*inner)
+        {
+            return Ok(RustExpr::atom(format!(
+                "if ({reference}).is_some() {{ {kind:?} }} else {{ \"undefined\" }}",
+                reference = reference.delimited()
+            )));
+        }
         if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
             let erased = self.erase(value)?;
             return Ok(RustExpr::chain(format!(
@@ -227,6 +240,27 @@ impl FunctionEmitter<'_> {
             "smelt_typeof({reference})",
             reference = reference.delimited()
         )))
+    }
+
+    /// The `typeof` spelling every value of `ty` has, when the type alone
+    /// decides it: a primitive (`number`, `string`, `boolean`, `bigint`,
+    /// `symbol`) or a collection, which is always `"object"`. `None` for an
+    /// erased, generic, optional or union type, and for a class or function
+    /// type, whose spelling is left to the value.
+    fn static_typeof_text(&self, ty: TypeId) -> Option<&'static str> {
+        match self.mir.types.get(ty)? {
+            Type::Float | Type::Int => Some("number"),
+            Type::String => Some("string"),
+            Type::Bool => Some("boolean"),
+            Type::BigInt => Some("bigint"),
+            Type::Symbol => Some("symbol"),
+            Type::List(_)
+            | Type::Set(_)
+            | Type::JsMap(_, _)
+            | Type::Dict(_, _)
+            | Type::Tuple(_) => Some("object"),
+            _ => None,
+        }
     }
 
     /// Return the JavaScript `typeof` spelling for one concrete union member.

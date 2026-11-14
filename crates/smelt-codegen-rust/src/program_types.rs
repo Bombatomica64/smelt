@@ -126,6 +126,8 @@ fn emit_interface_type(
                 type_params: type_params.clone(),
                 type_args: type_params,
                 impl_generics,
+                projected_fields: fields.clone(),
+                inherited_statics: Vec::new(),
                 fields,
                 static_fields: &[],
                 type_param_names: interface

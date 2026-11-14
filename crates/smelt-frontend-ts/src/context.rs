@@ -253,6 +253,19 @@ pub struct HirCtx {
     /// erased value (`lowering::unchecked_returns`): a call keeps the erased
     /// result instead of converting it to the instantiation.
     pub unchecked_generic_returns: HashSet<ItemId>,
+    /// The storage of every static field declared without an initializer at
+    /// a type that does not admit `undefined` (`static x: number;`).
+    ///
+    /// TypeScript types a read of such a field `T`, but JavaScript defines it
+    /// as `undefined` until something assigns it, so the storage is
+    /// `T | undefined`. A binding initialized from a read of it keeps that
+    /// wider type (`lowering::stmt::local_declarations`), so the value it
+    /// holds before the first assignment is still `undefined` when printed,
+    /// compared or used in arithmetic.
+    pub absent_static_storage: HashSet<ItemId>,
+    /// The same fact for a per-evaluation class, whose statics are fields of
+    /// its statics frame: `(frame class, field)`.
+    pub absent_frame_fields: HashSet<(smelt_hir::Symbol, smelt_hir::Symbol)>,
     /// Every module a builder has been created for, so an importer can tell
     /// which of a specifier's candidate paths names a crate module.
     pub known_modules: HashSet<ModuleKey>,
@@ -460,6 +473,8 @@ impl HirCtx {
             export_aliases: HashMap::new(),
             known_modules: HashSet::new(),
             unchecked_generic_returns: HashSet::new(),
+            absent_static_storage: HashSet::new(),
+            absent_frame_fields: HashSet::new(),
             module_exports: HashMap::new(),
             item_predicates: HashMap::new(),
             module_global_object_aliases: HashMap::new(),

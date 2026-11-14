@@ -285,7 +285,13 @@ fn smelt_instance_of_value(value: &SmeltUnknown, target: &SmeltUnknown) -> bool 
         // own evaluation's class value, told apart by the frame identity both
         // carry.
         return match class.get("__smelt_method:__smelt_class_frame") {
-            Some(SmeltUnknown::Number(frame)) => matches!(instance.get("__smelt_method:__smelt_class_frame"), Some(SmeltUnknown::Number(own)) if own.to_bits() == frame.to_bits()),
+            Some(SmeltUnknown::Number(frame)) => match instance.get("__smelt_method:__smelt_class_frame") {
+                Some(SmeltUnknown::Number(own)) => own.to_bits() == frame.to_bits(),
+                // A subclass instance carries the frame of every class in its
+                // per-evaluation chain, and is an instance of each of them.
+                Some(SmeltUnknown::Array(chain)) => chain.iter().any(|own| matches!(own, SmeltUnknown::Number(own) if own.to_bits() == frame.to_bits())),
+                _ => false,
+            },
             _ => true,
         };
     }

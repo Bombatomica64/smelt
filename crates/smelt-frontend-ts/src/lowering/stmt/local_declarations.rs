@@ -655,6 +655,7 @@ impl ModuleBuilder<'_> {
             let value = value_result?;
             let annotated_ty =
                 self.presence_widened_binding_type(declarator, annotated_ty, value, body);
+            let annotated_ty = self.absent_read_widened_binding_type(annotated_ty, value, body);
             let value =
                 value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
@@ -833,6 +834,134 @@ impl ModuleBuilder<'_> {
             return annotated_ty;
         }
         Some(self.ctx.krate.types.intern(Type::Optional(declared)))
+    }
+
+    /// The type of a binding initialized from a read of a static that is
+    /// `undefined` until assigned (`HirCtx::absent_static_storage`).
+    ///
+    /// `class Box { static x: number; }` passes `tsc`, which types `Box.x` as
+    /// `number`, yet JavaScript reads `undefined` there until something
+    /// assigns it: `const y: number = Box.x` holds `undefined`, prints
+    /// `undefined`, is `=== undefined`, has `typeof` `"undefined"` and makes
+    /// `y + 1` `NaN`. The storage is already `T | undefined`; narrowing the
+    /// read to the binding's `T` could only panic or invent a value. So the
+    /// binding keeps the storage's type, the declared `T` widened with
+    /// `undefined`, and every later use sees the absent case through the
+    /// ordinary optional rules (arithmetic takes `ToNumber(undefined)`).
+    ///
+    /// Only such a read widens: a declared type that already admits
+    /// `undefined` (or an erased one, which represents it) is left alone, and
+    /// so is a binding whose initializer is anything else.
+    fn absent_read_widened_binding_type(
+        &mut self,
+        annotated_ty: Option<smelt_hir::TypeId>,
+        value: Option<smelt_hir::ExprId>,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let Some(value) = value.filter(|value| self.reads_absent_static(body, *value)) else {
+            return annotated_ty;
+        };
+        let value_ty = Self::expr_ty(body, value);
+        let Some(Type::Optional(present)) = self.ctx.krate.types.get(value_ty).cloned() else {
+            return annotated_ty;
+        };
+        let declared = annotated_ty.unwrap_or(present);
+        if self.is_nullishable_type(declared)
+            || matches!(
+                self.ctx.krate.types.get(declared),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        {
+            return annotated_ty;
+        }
+        Some(self.ctx.krate.types.intern(Type::Optional(declared)))
+    }
+
+    /// `value` converted for a slot of type `slot` that cannot hold
+    /// `undefined`, when `value` reads a static that is `undefined` until
+    /// assigned (`HirCtx::absent_static_storage`) and the slot is a
+    /// primitive TypeScript types the same: a parameter, a return value, an
+    /// assigned property.
+    ///
+    /// A binding widens instead (`Self::absent_read_widened_binding_type`),
+    /// but these slots are typed by their declaration elsewhere. There the
+    /// value takes the conversion JavaScript applies to `undefined` wherever
+    /// it is used as that primitive: `ToNumber` is `NaN`, `ToString` is
+    /// `"undefined"`, `ToBoolean` is `false`, which is what every arithmetic,
+    /// concatenation and condition over it observes. (`typeof` and
+    /// `=== undefined` on the slot itself answer as for the primitive; the
+    /// slot's type is fixed by its own declaration.) Panicking, or inventing
+    /// `0`/`""`, matches no use at all. Any other value, or slot, is
+    /// returned unchanged.
+    pub(in crate::lowering) fn absent_static_at_slot(
+        &self,
+        value: smelt_hir::ExprId,
+        slot: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(slot) = slot else {
+            return value;
+        };
+        if !self.reads_absent_static(body, value) {
+            return value;
+        }
+        let Some(Type::Optional(present)) = self
+            .ctx
+            .krate
+            .types
+            .get(Self::expr_ty(body, value))
+            .cloned()
+        else {
+            return value;
+        };
+        if present != slot {
+            return value;
+        }
+        let fallback = match self.ctx.krate.types.get(slot) {
+            Some(Type::Float) => smelt_hir::Literal::Float(f64::NAN),
+            Some(Type::String) => smelt_hir::Literal::String("undefined".to_owned()),
+            Some(Type::Bool) => smelt_hir::Literal::Bool(false),
+            _ => return value,
+        };
+        let span = body
+            .expr_at(value)
+            .map_or_else(|| self.span(0, 0), |expr| expr.span);
+        let fallback = body.push_expr(smelt_hir::Expr {
+            kind: smelt_hir::ExprKind::Literal(fallback),
+            ty: slot,
+            span,
+        });
+        body.push_expr(smelt_hir::Expr {
+            kind: smelt_hir::ExprKind::OptionalCoalesce {
+                optional: value,
+                fallback,
+            },
+            ty: slot,
+            span,
+        })
+    }
+
+    /// Whether `value` reads a static whose declared type hides that it is
+    /// `undefined` until assigned: its module-global storage, or its field in
+    /// a per-evaluation class's statics frame.
+    pub(in crate::lowering) fn reads_absent_static(
+        &self,
+        body: &Body,
+        value: smelt_hir::ExprId,
+    ) -> bool {
+        let Some(expr) = body.expr_at(value) else {
+            return false;
+        };
+        match &expr.kind {
+            smelt_hir::ExprKind::GlobalGet { item } => {
+                self.ctx.absent_static_storage.contains(item)
+            }
+            smelt_hir::ExprKind::Field { receiver, field } => matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, *receiver)),
+                Some(Type::Class { name, .. }) if self.ctx.absent_frame_fields.contains(&(*name, *field))
+            ),
+            _ => false,
+        }
     }
 
     /// Remember that a local was declared at a callable-interface type.

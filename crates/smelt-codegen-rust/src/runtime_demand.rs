@@ -214,6 +214,8 @@ declare_needs! {
     HostOverride,
     /// Host values retained in the erased record's origin slot.
     HostOrigins,
+    /// Live erased views of typed `Map`s and `Set`s (`smelt_live_container`).
+    LiveContainers,
     /// The erased `SmeltErasedFunction` adapter.
     ErasedFunction,
     /// The erased generic list aliases.
@@ -701,6 +703,8 @@ impl RuntimeDemand {
                     }
                 }
                 Type::Set(item) => {
+                    // An erased Set is a live view of the typed one.
+                    self.add(Need::LiveContainers);
                     // A `Set` of non-primitives is `SmeltJsSet`, whose membership
                     // projects elements through `IntoSmeltUnknown`.
                     let need = if module_hash_set_key_safe(mir, *item) {
@@ -710,8 +714,13 @@ impl RuntimeDemand {
                     };
                     self.add(need);
                 }
-                // `SmeltJsMap` and `SmeltFuture` live in the carrier's block.
-                Type::JsMap(_, _) | Type::Future(_) => self.add(Need::Unknown),
+                // `SmeltJsMap` and `SmeltFuture` live in the carrier's block;
+                // an erased Map is a live view of the typed one.
+                Type::JsMap(_, _) => {
+                    self.add(Need::Unknown);
+                    self.add(Need::LiveContainers);
+                }
+                Type::Future(_) => self.add(Need::Unknown),
                 Type::List(item) => {
                     self.add(Need::SmeltList);
                     if matches!(mir.types.get(*item), Some(Type::TypeParam { .. })) {

@@ -207,6 +207,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/js_map.rs"),
     },
     RuntimeModule {
+        name: "live_container",
+        source: include_str!("runtime/live_container.rs"),
+    },
+    RuntimeModule {
         name: "js_set",
         source: include_str!("runtime/js_set.rs"),
     },

@@ -4,6 +4,35 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// The adapter method that erases a `Map` or `Set` whose element types
+    /// (key and value, or member) are `elements`.
+    ///
+    /// A JavaScript `Map`/`Set` is one object, so its erased form must stay the
+    /// typed container, not a snapshot of it: `.into_live_smelt_unknown()`
+    /// (`smelt_live_container`) stamps a hook that answers erased reads and
+    /// writes from the typed store. That hook rebuilds erased keys and values
+    /// through `SmeltFromUnknown`, so it is chosen only when every element type
+    /// has that impl in this scope: a type the program generates, and no type
+    /// parameter (a generic body does not carry the bound). Anything else keeps
+    /// the snapshot adapter, `.into_smelt_unknown()`.
+    pub(super) fn container_erasure_method(&self, elements: &[TypeId]) -> &'static str {
+        let live = elements.iter().all(|element| {
+            let mut params = HashSet::new();
+            crate::generic_bindings::collect_type_param_occurrences(
+                self.mir,
+                *element,
+                &mut params,
+            );
+            params.is_empty()
+                && record::type_supports_from_unknown(self.mir, self.context, *element)
+        });
+        if live {
+            ".into_live_smelt_unknown()"
+        } else {
+            ".into_smelt_unknown()"
+        }
+    }
+
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     ///
     /// The operand-shaped twin of [`Self::erase_value`]; the two must agree
@@ -113,11 +142,12 @@ impl FunctionEmitter<'_> {
                 // Every Set erases through its `IntoSmeltUnknown` adapter, which
                 // stamps the `__smelt_set` marker and keeps the set's object id, so
                 // `instanceof Set`, `toString`, inspection and snapshots recognize
-                // the erased value and `SmeltFromUnknown` round-trips it.
-                let _ = item;
-                Ok(smelt_owned_text.postfix(
-                    self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
-                ))
+                // the erased value and `SmeltFromUnknown` round-trips it. The
+                // adapter is the live one when the members can be rebuilt
+                // (`Self::container_erasure_method`).
+                let method = self.container_erasure_method(&[*item]);
+                Ok(smelt_owned_text
+                    .postfix(self.carrier_format(self.carrier()?, format_args!("{method}"))))
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
@@ -476,8 +506,9 @@ impl FunctionEmitter<'_> {
             // `IntoSmeltUnknown` adapter, stamping the `__smelt_map` marker so
             // the erased value stays observable as a Map (see the operand-based
             // erasure above).
-            Some(Type::JsMap(_, _)) => {
-                Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()"))))
+            Some(Type::JsMap(key, item)) => {
+                let method = self.container_erasure_method(&[*key, *item]);
+                Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!("{method}"))))
             }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key).is_some_and(Type::is_text)
@@ -531,9 +562,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) => self.class_unknown_object_expr(value_text, ty),
             Some(Type::Set(item)) => {
                 // See the sibling `Type::Set` arm above.
-                let _ = item;
+                let method = self.container_erasure_method(&[*item]);
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "({}).clone().into_smelt_unknown()",
+                    "({}).clone(){method}",
                     value.parenthesized_if_needed()
                 ))))
             }

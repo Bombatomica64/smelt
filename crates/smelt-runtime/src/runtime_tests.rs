@@ -236,6 +236,73 @@ mod map_and_set_family {
         alias.clear();
         assert!(set.is_empty(), "clear empties every handle");
     }
+
+    /// An erased live `Map` is the typed map: a `set` through the erased
+    /// value lands in the typed store, a typed write is seen through the
+    /// erased value (`size`, `get`, the refreshed entries), a key of another
+    /// type misses rather than converting, and narrowing back hands out the
+    /// same map.
+    #[test]
+    fn a_live_map_view_shares_the_typed_store() {
+        let mut map: SmeltJsMap<JsString, f64> = SmeltJsMap::new();
+        map.insert(JsString::from("a"), 1.0);
+        let erased = map.clone().into_live_smelt_unknown();
+        let call = |field: &str, args: Vec<SmeltUnknown>| match smelt_get_unknown_field(&erased, field) {
+            SmeltUnknown::Function(method) => method(args).unwrap_or(SmeltUnknown::Undefined),
+            other => other,
+        };
+        call("set", vec![text("b"), SmeltUnknown::Number(2.0)]);
+        assert_eq!(map.get(&JsString::from("b")), Some(2.0), "an erased write reaches the typed map");
+        map.insert(JsString::from("c"), 3.0);
+        assert_eq!(smelt_get_unknown_field(&erased, "size"), SmeltUnknown::Number(3.0), "a typed write is seen erased");
+        assert_eq!(call("get", vec![text("c")]), SmeltUnknown::Number(3.0), "the erased read sees it");
+        assert_eq!(call("has", vec![SmeltUnknown::Number(1.0)]), SmeltUnknown::Bool(false), "a number is not a string key");
+        let SmeltUnknown::Object(view) = &erased else { panic!("an erased map is an object") };
+        smelt_live_container_refresh(view);
+        let Some(SmeltUnknown::Array(entries)) = view.get("__smelt_map") else { panic!("the marker stays") };
+        assert_eq!(entries.len(), 3, "the marker entries are refreshed from the typed map");
+        let mut back = <SmeltJsMap<JsString, f64> as SmeltFromUnknown>::smelt_from_unknown(erased.clone());
+        back.insert(JsString::from("d"), 4.0);
+        assert_eq!(map.get(&JsString::from("d")), Some(4.0), "narrowing back is the same map");
+    }
+
+    /// A copy of a live view's marker object (an erased `new Map(view)`
+    /// copies its entries, the hook among them) is an independent Map: its
+    /// writes do not reach the typed map, and narrowing it gives a new map.
+    #[test]
+    fn a_copied_live_view_is_not_the_typed_map() {
+        let map: SmeltJsMap<JsString, f64> = SmeltJsMap::new();
+        let SmeltUnknown::Object(view) = map.clone().into_live_smelt_unknown() else { panic!("an erased map is an object") };
+        let copy = SmeltUnknown::Object(SmeltObject::new(view.iter().map(|(key, value)| (key.to_string(), value)).collect()));
+        if let SmeltUnknown::Function(set) = smelt_get_unknown_field(&copy, "set") {
+            let _ = set(vec![text("x"), SmeltUnknown::Number(1.0)]);
+        }
+        assert_eq!(map.len(), 0, "a write through the copy stays in the copy");
+        let narrowed = <SmeltJsMap<JsString, f64> as SmeltFromUnknown>::smelt_from_unknown(copy);
+        assert_ne!(narrowed.id, map.id, "the copy narrows to a different map");
+    }
+
+    /// An erased live `Set` answers `add`/`delete`/`clear` from the typed
+    /// set, and an erased set that is not a view mutates its own members.
+    #[test]
+    fn erased_sets_have_mutators() {
+        let set: SmeltJsSet<f64> = SmeltJsSet::new();
+        let erased = set.clone().into_live_smelt_unknown();
+        let call = |value: &SmeltUnknown, field: &str, args: Vec<SmeltUnknown>| match smelt_get_unknown_field(value, field) {
+            SmeltUnknown::Function(method) => method(args).unwrap_or(SmeltUnknown::Undefined),
+            other => other,
+        };
+        call(&erased, "add", vec![SmeltUnknown::Number(4.0)]);
+        call(&erased, "add", vec![SmeltUnknown::Number(4.0)]);
+        assert_eq!(set.len(), 1, "an erased add reaches the typed set once");
+        assert_eq!(call(&erased, "delete", vec![SmeltUnknown::Number(4.0)]), SmeltUnknown::Bool(true), "delete answers true");
+        assert_eq!(set.len(), 0, "and empties the typed set");
+        let plain = SmeltUnknown::Object(object(&[("__smelt_set", SmeltUnknown::Array(Vec::new().into()))]));
+        call(&plain, "add", vec![text("x")]);
+        assert_eq!(smelt_get_unknown_field(&plain, "size"), SmeltUnknown::Number(1.0), "a plain erased set grows");
+        call(&plain, "clear", Vec::new());
+        assert_eq!(smelt_get_unknown_field(&plain, "size"), SmeltUnknown::Number(0.0), "and clears");
+    }
 }
 
 mod unknown_family {

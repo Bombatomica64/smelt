@@ -226,6 +226,10 @@ pub(crate) fn flag_for(
                 || demand.has(Need::InstanceOfValue)
                 || demand.has(Need::VitestMock),
         ),
+        // A typed `Map`/`Set` needs a live erased view only where something
+        // erases: the views live in the carrier's block, and a wholly typed
+        // program must not pull the carrier in for them.
+        "live_containers" => Some(demand.has(Need::LiveContainers) && demand.has(Need::Unknown)),
         "write_through" => Some(facts.erased_view_write_through && facts.reference_classes),
         "reads_this" => Some(facts.reads_this),
         // A Python program's dicts keep insertion order; JavaScript's own-key

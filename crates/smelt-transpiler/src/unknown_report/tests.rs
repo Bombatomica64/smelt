@@ -713,6 +713,20 @@ fn classifies_legitimate_boundaries() {
     );
 }
 
+/// The live erasure of a typed `Map`/`Set` is the same boundary as the
+/// snapshot adapter it replaces at the same site, so it does not count as
+/// avoidable erasure.
+#[test]
+fn live_container_erasure_is_a_boundary() {
+    assert_eq!(
+        classify_line(
+            "    let _smelt_tmp_3: SmeltUnknown = map.clone().into_live_smelt_unknown();",
+            false
+        ),
+        Category::LegitimateBoundary
+    );
+}
+
 /// Program storage and signatures classify as avoidable erasure.
 #[test]
 fn classifies_avoidable_erasure() {
