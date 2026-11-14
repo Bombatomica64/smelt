@@ -185,6 +185,9 @@ class ClippyRatchet(unittest.TestCase):
 
 GOOD_CI = """on: push
 jobs:
+  ci-gates:
+    steps:
+      - run: cargo fmt --all -- --check
   build:
     steps:
       - run: cargo nextest archive --workspace --archive-file t.tar.zst
@@ -313,7 +316,8 @@ class CiGates(unittest.TestCase):
 
     def test_removing_a_gate_step_is_refused(self):
         for gate in ("check_clippy_ratchet.py", "publish-crates.sh", "runtime-ratchet", "compile-pin",
-                     "cargo test --doc", "ci_test_shard.py serial"):
+                     "cargo test --doc", "ci_test_shard.py serial",
+                     "cargo fmt --all -- --check"):
             found = check_ci_gates.workflow_violations("ci.yml", GOOD_CI.replace(gate, "true"))
             self.assertEqual(len(found), 1, (gate, found))
 

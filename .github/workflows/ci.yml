@@ -70,8 +70,9 @@ env:
     --workspace-remap . --target-dir-remap target
 
 jobs:
-  # The gate scripts and the rules they hold each other to: seconds of Python,
-  # and the one job that notices another gate being switched off.
+  # The gate scripts and the rules they hold each other to, and formatting:
+  # seconds, no build, and the one job that notices another gate being
+  # switched off.
   ci-gates:
     runs-on: ubuntu-latest
     steps:
@@ -83,6 +84,15 @@ jobs:
 
       - name: Workflows and test helpers keep their gates
         run: python3 scripts/check_ci_gates.py
+
+      # rust-toolchain.toml carries rustfmt; formatting needs no build.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: false
+
+      - name: Formatting (cargo fmt --check)
+        run: cargo fmt --all -- --check
 
   # The only job that compiles the workspace.
   #
