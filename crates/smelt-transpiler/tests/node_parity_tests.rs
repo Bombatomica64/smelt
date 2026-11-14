@@ -829,6 +829,12 @@ fn generic_record_result_alias() -> TestResult {
         )?;
     }
     Ok(())
+/// A narrowing proved inside one class member (a method, a constructor) does
+/// not leak into a sibling member's same-named local, so that member's own
+/// null test survives instead of folding to `true` and unwrapping `None`.
+#[test]
+fn member_narrowing_scope() -> TestResult {
+    verify_node_parity("member_narrowing_scope")
 }
 
 /// A class value carries its static methods, so a computed-key call finds

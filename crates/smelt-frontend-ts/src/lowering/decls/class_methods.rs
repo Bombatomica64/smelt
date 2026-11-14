@@ -243,7 +243,7 @@ impl ModuleBuilder<'_> {
             let span = self.span(value.span().start, value.span().end);
             let saved = self.static_initializer_class.replace(class_text.to_owned());
             let ctx = self.nested_fn_ctx(BodyKind::Method, false, None);
-            let lowered = self.with_nested_body(ctx, ScopeGroups::BINDINGS, |this, _| {
+            let lowered = self.with_nested_body(ctx, ScopeGroups::MEMBER_BODY, |this, _| {
                 let mut scratch = Body::new(None, span);
                 this.expression(value, &mut scratch)
                     .map(|expr| Self::expr_ty(&scratch, expr))
@@ -353,7 +353,7 @@ impl ModuleBuilder<'_> {
         let saved_static = self.static_initializer_class.replace(class_text.to_owned());
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(ty));
-        let lowered = self.with_nested_body(ctx, ScopeGroups::BINDINGS, |this, _| {
+        let lowered = self.with_nested_body(ctx, ScopeGroups::MEMBER_BODY, |this, _| {
             let mut init_body = Body::new(None, span);
             let value = this.expression_with_hint(value, &mut init_body, Some(ty))?;
             init_body.push_stmt(smelt_hir::Stmt::Return(Some(value)));
@@ -597,7 +597,7 @@ impl ModuleBuilder<'_> {
                 let saved_class = this.current_class.replace(class_text.to_owned());
                 let ctx =
                     this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
-                let scope = ScopeGroups::BINDINGS;
+                let scope = ScopeGroups::MEMBER_BODY;
                 let lowered = this.with_nested_body(ctx, scope, |this, _| {
                     let mut body = Body::new(
                         None,
@@ -615,6 +615,9 @@ impl ModuleBuilder<'_> {
                     // A static method has no `this` receiver: it must not bind `this` and
                     // must not carry a receiver parameter, so it lowers to a receiver-free
                     // associated function.
+                    if is_constructor {
+                        this.fn_ctx.constructor_this = Some(this_local);
+                    }
                     if !is_static {
                         this.scope.bind("this".to_owned(), this_local);
                         if !is_constructor {
