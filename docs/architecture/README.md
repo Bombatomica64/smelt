@@ -9,3 +9,5 @@ It reflects commit `f28e5d4d2` (2026-11-14). Every name, edge, count and orderin
 - MIR order: `sed -n '/fn compile_observed/,/^}/p' crates/smelt-mir/src/compile.rs`, `sed -n '/fn run_finalization_passes/,/^}/p' crates/smelt-mir/src/lower/mod.rs`, `sed -n '/fn fixpoint_passes/,/^}/p;/fn try_optimize/,/^}/p' crates/smelt-mir/src/opt/mod.rs`.
 - Churn: `git log --since='60 days ago' --no-merges --name-only --format=@@%h` (commits per module) and the same with `--numstat` (lines changed).
 - Erasure and CI numbers: `jq '.erasure.by_reason' blocker-logs/smelt-unknown-baseline-{es-toolkit,remeda}.json`, the other `blocker-logs/*baseline*.json` files, and the pinned `test result` lines in `.github/workflows/ci.yml`.
+
+To regenerate the whole page: `python3 docs/architecture/gen/churn.py && python3 docs/architecture/gen/gen.py && python3 docs/architecture/gen/validate.py docs/architecture/index.html`. Counts, edges, churn and dates are read from the checkout; the pipeline layout and the module groupings are written by hand in `gen/s*.py`, and the generator fails when a module is in no group, which is the signal that the map needs a human look.
