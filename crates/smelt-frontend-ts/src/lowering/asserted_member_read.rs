@@ -26,8 +26,9 @@
 //! because its type can be inspected by lowering it without duplicating any
 //! side effect; any other operand keeps the ordinary assertion path.
 
+use crate::lowering::assertion_views::{asserted_operand, is_plain_read};
 use crate::lowering::erasure::NotNewErasure;
-use oxc::ast::ast::{Expression, StaticMemberExpression, TSType};
+use oxc::ast::ast::StaticMemberExpression;
 use smelt_hir::{Body, Expr, ExprKind, Type};
 
 use crate::SmeltError;
@@ -95,42 +96,5 @@ impl ModuleBuilder<'_> {
                 span,
             })))
         })
-    }
-}
-
-/// The operand and asserted type of `(operand as T)` / `<T>operand`, through parentheses.
-fn asserted_operand<'e, 'a>(
-    object: &'e Expression<'a>,
-) -> Option<(&'e Expression<'a>, &'e TSType<'a>)> {
-    match object {
-        Expression::ParenthesizedExpression(inner) => asserted_operand(&inner.expression),
-        Expression::TSAsExpression(assertion) => {
-            Some((&assertion.expression, &assertion.type_annotation))
-        }
-        Expression::TSTypeAssertion(assertion) => {
-            Some((&assertion.expression, &assertion.type_annotation))
-        }
-        _ => None,
-    }
-}
-
-/// Whether lowering `expression` only reads: a binding, `this`, or a
-/// non-optional static member / literal-index element chain over one.
-fn is_plain_read(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::Identifier(_) | Expression::ThisExpression(_) => true,
-        Expression::ParenthesizedExpression(inner) => is_plain_read(&inner.expression),
-        Expression::StaticMemberExpression(member) => {
-            !member.optional && is_plain_read(&member.object)
-        }
-        Expression::ComputedMemberExpression(member) => {
-            !member.optional
-                && matches!(
-                    member.expression,
-                    Expression::NumericLiteral(_) | Expression::StringLiteral(_)
-                )
-                && is_plain_read(&member.object)
-        }
-        _ => false,
     }
 }

@@ -1223,6 +1223,15 @@ fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
 }
 
+/// `const view = erased as T` keeps the erased value: a type guard that asserts
+/// and then probes a symbol-keyed member answers for arrays, strings, numbers,
+/// `null`, booleans and plain objects; a truthiness test and a bracket read
+/// probe the value; a dot read and a read of the view as a value use a `T`.
+#[test]
+fn assertion_view_probes() -> TestResult {
+    verify_node_parity("assertion_view_probes")
+}
+
 /// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
 /// empty collection at the present type, as JavaScript's constructors do.
 #[test]
