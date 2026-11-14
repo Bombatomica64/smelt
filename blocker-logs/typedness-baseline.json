@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8358,
+      "concrete": 8361,
       "generic": 140,
       "erased": 56
     },
@@ -1278,7 +1278,7 @@
     },
     "examples/typescript/end-to-end/177_tuple_rest_parameters/input.ts": {
       "values": {
-        "concrete": 90,
+        "concrete": 93,
         "generic": 0,
         "erased": 0
       },

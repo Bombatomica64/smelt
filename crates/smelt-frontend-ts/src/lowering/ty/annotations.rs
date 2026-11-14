@@ -406,7 +406,12 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             TSType::TSNamedTupleMember(named) => {
-                self.tuple_element_type_to_hir(&named.element_type)
+                let inner = self.tuple_element_type_to_hir(&named.element_type)?;
+                Ok(if named.optional {
+                    self.ctx.krate.types.intern(Type::Optional(inner))
+                } else {
+                    inner
+                })
             }
             TSType::TSTypeReference(reference) => {
                 let ty = self.type_reference_to_hir(reference)?;

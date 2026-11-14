@@ -313,7 +313,14 @@ impl ModuleBuilder<'_> {
                     if let Some(elements) = this.fixed_tuple_rest_elements(ty) {
                         let span = this.span(binding.span.start, binding.span.end);
                         for param in
-                            this.bind_tuple_rest_params(binding.name.as_str(), ty, &elements, span, &mut body)
+                            this.bind_tuple_rest_params(
+                                binding.name.as_str(),
+                                ty,
+                                &elements,
+                                crate::lowering::tuple_rest::tuple_rest_required(rest.type_annotation.as_deref()),
+                                span,
+                                &mut body,
+                            )
                         {
                             params.push(Param {
                                 name: param.name,
