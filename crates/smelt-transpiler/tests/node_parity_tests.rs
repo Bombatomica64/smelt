@@ -906,6 +906,13 @@ fn member_narrowing_scope() -> TestResult {
     verify_node_parity("member_narrowing_scope")
 }
 
+/// `String(x)` on a value of a real Rust generic `T`, and a concrete Date
+/// erased by a callee: the erased view reads and writes the same date.
+#[test]
+fn generic_string_and_shared_date() -> TestResult {
+    verify_node_parity("generic_string_and_shared_date")
+}
+
 /// A class value carries its static methods, so a computed-key call finds
 /// them, and a block-local class used as a value constructs that class, not
 /// another class of the same name.
