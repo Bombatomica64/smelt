@@ -976,6 +976,17 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let items_ty = self.type_param_constraint_or_self(Self::expr_ty(body, items));
+        // A tuple is an array: `[a, b, c].join(sep)` joins its elements in
+        // order. They are read at their indices into a list; elements of one
+        // type join as that type does, and mixed primitive elements are each
+        // taken through `String(..)`, which is what `join` does with a
+        // non-nullish value.
+        if let Some(Type::Tuple(elements)) = self.ctx.krate.types.get(items_ty).cloned()
+            && let Some(list) = self.tuple_as_join_list(items, &elements, call.span, body)
+        {
+            items = list;
+        }
+        let items_ty = Self::expr_ty(body, items);
         let items_ty = match self.ctx.krate.types.get(items_ty) {
             Some(Type::List(_)) => items_ty,
             Some(Type::Unknown | Type::TypeParam { .. }) => {
@@ -1058,6 +1069,67 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether `Array.prototype.join` can stringify this lowered item type.
+    /// The elements of a tuple receiver as a list `join` can take, or `None`
+    /// when an element type is not one `join` supports. See
+    /// [`Self::finish_string_join_call`].
+    fn tuple_as_join_list(
+        &mut self,
+        tuple: smelt_hir::ExprId,
+        elements: &[smelt_hir::TypeId],
+        source_span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let span = self.span(source_span.start, source_span.end);
+        let first = *elements.first()?;
+        let homogeneous = elements.iter().all(|element| *element == first);
+        if homogeneous && !self.array_join_item_type_supported(first) {
+            return None;
+        }
+        if !homogeneous
+            && !elements.iter().all(|element| {
+                matches!(
+                    self.ctx.krate.types.get(*element),
+                    Some(Type::Bool | Type::String | Type::Int | Type::Float)
+                )
+            })
+        {
+            return None;
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let int_ty = self.ctx.krate.types.intern(Type::Int);
+        let item_ty = if homogeneous { first } else { string_ty };
+        let items = elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| {
+                let index = body.push_expr(Expr {
+                    kind: ExprKind::Literal(smelt_hir::Literal::Int(i64::try_from(index).unwrap_or(i64::MAX))),
+                    ty: int_ty,
+                    span,
+                });
+                let read = body.push_expr(Expr {
+                    kind: ExprKind::Index { receiver: tuple, index },
+                    ty: *element,
+                    span,
+                });
+                if homogeneous {
+                    read
+                } else {
+                    body.push_expr(Expr {
+                        kind: ExprKind::PrimitiveCast {
+                            op: PrimitiveCastOp::ToString,
+                            operand: read,
+                        },
+                        ty: string_ty,
+                        span,
+                    })
+                }
+            })
+            .collect();
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        Some(body.push_expr(Expr { kind: ExprKind::ListLit(items), ty: list_ty, span }))
+    }
+
     pub(in crate::lowering) fn array_join_item_type_supported(&self, item_ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx

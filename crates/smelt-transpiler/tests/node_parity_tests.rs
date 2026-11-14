@@ -805,6 +805,15 @@ fn number_union_and_optional_pattern() -> TestResult {
     verify_node_parity("number_union_and_optional_pattern")
 }
 
+/// ts-pattern's library shapes: a 3-tuple record field recovered from an
+/// erased value, a generic union with a generic class arm, a closure nested in
+/// a closure over a multiply-assigned local, and `new` of a later-declared
+/// class whose parameter only a `never` argument instantiates.
+#[test]
+fn ts_pattern_lib_shapes() -> TestResult {
+    verify_node_parity("ts_pattern_lib_shapes")
+}
+
 /// A class value carries its static methods, so a computed-key call finds
 /// them, and a block-local class used as a value constructs that class, not
 /// another class of the same name.

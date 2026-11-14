@@ -652,8 +652,29 @@ impl FunctionEmitter<'_> {
     /// share a captured binding with sibling closures. If any escaping closure
     /// writes the source binding, all escaping closures that capture it must
     /// use shared storage so read-only siblings observe the updated value.
+    ///
+    /// Only closures CREATED in the function being emitted are asked: a
+    /// capture's `source_local` is a local of the creating function, and
+    /// `LocalId`s are per function. Scanning every closure of the program let a
+    /// closure elsewhere that mutates its own local `1` decide that this
+    /// function's local `1` needs a shared cell, so a closure nested in another
+    /// closure cloned a `smelt_capture_x` its enclosing body never bound
+    /// (ts-pattern's `select`, E0425).
     fn escaping_closure_capture_is_mutated(&self, source_local: LocalId) -> bool {
-        self.mir.closures.iter().any(|candidate| {
+        let created_here = self
+            .function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter_map(|statement| match statement {
+                Statement::Assign { value: Rvalue::Closure { id, .. }, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        created_here
+            .iter()
+            .filter_map(|id| self.mir.closures.get(usize::try_from(id.0).unwrap_or(usize::MAX)))
+            .any(|candidate| {
             candidate.escapes
                 && candidate.captures.iter().any(|candidate_capture| {
                     candidate_capture.source_local == source_local

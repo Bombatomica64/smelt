@@ -271,6 +271,40 @@ impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
     }
 }
 
+//~ Tuples of three to twelve elements erase and un-erase by the same rule as
+//~ the pair: a JS array in position order, missing slots filled from
+//~ `Undefined`. A record field typed `[string, string, string]` (ts-pattern's
+//~ `path`) is decoded through `SmeltFromUnknown`, which stopped at arity two
+//~ (E0277). Both directions are generated together so the round trip stays
+//~ symmetric, as the arity-two comment above requires.
+macro_rules! smelt_unknown_tuple {
+    ($($name:ident),+) => {
+        impl<$($name: IntoSmeltUnknown),+> IntoSmeltUnknown for ($($name,)+) {
+            #[allow(non_snake_case)]
+            fn into_smelt_unknown(self) -> SmeltUnknown {
+                let ($($name,)+) = self;
+                SmeltUnknown::Array(vec![$($name.into_smelt_unknown()),+].into())
+            }
+        }
+        impl<$($name: SmeltFromUnknown),+> SmeltFromUnknown for ($($name,)+) {
+            fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+                let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() };
+                ($($name::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)),)+)
+            }
+        }
+    };
+}
+smelt_unknown_tuple!(A, B, C);
+smelt_unknown_tuple!(A, B, C, D);
+smelt_unknown_tuple!(A, B, C, D, E);
+smelt_unknown_tuple!(A, B, C, D, E, F);
+smelt_unknown_tuple!(A, B, C, D, E, F, G);
+smelt_unknown_tuple!(A, B, C, D, E, F, G, H);
+smelt_unknown_tuple!(A, B, C, D, E, F, G, H, I);
+smelt_unknown_tuple!(A, B, C, D, E, F, G, H, I, J);
+smelt_unknown_tuple!(A, B, C, D, E, F, G, H, I, J, K);
+smelt_unknown_tuple!(A, B, C, D, E, F, G, H, I, J, K, L);
+
 impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value.to_string(), SmeltUnknown::Symbol(value) => smelt_symbol_property_key(&value), /*@if bigint*/SmeltUnknown::BigInt(value) => value.to_string(), /*@end*/SmeltUnknown::Number(value) => smelt_number_to_string(value), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))

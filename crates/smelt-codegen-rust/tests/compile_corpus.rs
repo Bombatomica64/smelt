@@ -135,6 +135,35 @@ export function useSub(): number {
 }
 ",
         },
+        // A generic union whose arm is a generic REFERENCE class (`Some<T>`
+        // writes its field after construction) is `Clone` only under the full
+        // generated bound set; `#[derive(Clone)]` bounded `T: Clone` alone
+        // (E0277, ts-pattern's test suites).
+        Case {
+            name: "generic_union_reference_class_arm",
+            area: "union_bounds",
+            source: r"
+class Some<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+  replace(value: T): void {
+    this.value = value;
+  }
+}
+class Nothing {
+  readonly empty = true;
+}
+type Maybe<T> = Some<T> | Nothing;
+export function wrap<T>(value: T, present: boolean): Maybe<T> {
+  return present ? new Some(value) : new Nothing();
+}
+export function isSome<T>(maybe: Maybe<T>): boolean {
+  return maybe instanceof Some;
+}
+",
+        },
         Case {
             name: "basic_function",
             area: "baseline",
