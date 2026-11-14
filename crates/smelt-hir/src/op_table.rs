@@ -251,6 +251,16 @@ macro_rules! op_group_transcribed {
                 receiver: one,
             }
                 => (format!("bind_this {callee}, {receiver}"));
+            /// [`ExprKind::BindThis`] with the CURRENT function's own `this` as the
+            /// receiver: `fn.apply(this, args)` / `fn.call(this, ..)` forwarding the
+            /// receiver the enclosing function was called with (es-toolkit's
+            /// `throttle`). The receiver is the one the frame took at entry, read
+            /// where it is installed, so it needs no value of its own.
+            BindOwnThis {
+                /// The callable whose receiver is being bound.
+                callee: one,
+            }
+                => (format!("bind_this {callee}, this"));
             /// JavaScript `new callee(args)` where `callee` is a function VALUE — the
             /// `[[Construct]]` operation, not a call.
             ///

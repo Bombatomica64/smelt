@@ -1,0 +1,13 @@
+member call host
+plain call undefined
+call called
+plain call inside a method undefined
+arrow in a method call holder
+arrow in a plain call undefined
+arrow callback in a method [ 'named', 'named' ]
+function callback [ true ]
+throttled method hello world
+throttled plain call undefined
+function in a method own undefined
+arrow in a method box
+nested arrows nested

@@ -11,7 +11,7 @@
       "clippy::missing_docs_in_private_items": 1,
       "clippy::shadow_reuse": 82,
       "clippy::shadow_same": 16,
-      "clippy::shadow_unrelated": 9,
+      "clippy::shadow_unrelated": 8,
       "clippy::unwrap_used": 8,
       "clippy::wildcard_enum_match_arm": 1,
       "unused_qualifications": 7

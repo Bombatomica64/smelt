@@ -100,8 +100,11 @@ impl FunctionEmitter<'_> {
             // `this` is dynamically scoped: the receiver is whatever the
             // innermost active call installed, so the read is a runtime channel
             // read rather than a local. See `Rvalue::BindThis` for the install.
-            Rvalue::ThisRead => Ok(RustExpr::chain("smelt_this()")),
-            Rvalue::BindThis { callee, receiver } => self.bind_this_expr(callee, receiver, dest_ty),
+            Rvalue::ThisRead => Ok(RustExpr::chain(self.this_read_text())),
+            Rvalue::BindThis { callee, receiver } => {
+                self.bind_this_expr(callee, Some(receiver), dest_ty)
+            }
+            Rvalue::BindOwnThis { callee } => self.bind_this_expr(callee, None, dest_ty),
             Rvalue::GeneratorYield {
                 value,
                 unwind,

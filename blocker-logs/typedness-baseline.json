@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8289,
+      "concrete": 8292,
       "generic": 139,
       "erased": 56
     },
@@ -870,7 +870,7 @@
     },
     "examples/typescript/end-to-end/152_callable_interface_fields/input.ts": {
       "values": {
-        "concrete": 80,
+        "concrete": 83,
         "generic": 0,
         "erased": 0
       },

@@ -219,16 +219,28 @@ impl FunctionEmitter<'_> {
                 "smelt_push_this({})",
                 self.erase(&Operand::Copy(Place::Local(base)))?.delimited()
             ),
+            ErasedCallReceiver::TypedBase(base) => {
+                let base_ty = self.local_decl(base)?.ty;
+                let lazy_erase = self.erase_rendered(
+                    &RustExpr::path("smelt_bound_receiver").cloned_value(),
+                    base_ty,
+                )?;
+                format!(
+                    "smelt_push_this_lazy({{ let smelt_bound_receiver = {}.clone(); ::std::rc::Rc::new(move || {}) }})",
+                    self.operand_expr(&Operand::Copy(Place::Local(base)))?
+                        .tight(),
+                    lazy_erase.delimited()
+                )
+            }
             ErasedCallReceiver::Snapshot(slot) => format!(
                 "smelt_push_this({}.clone())",
                 self.receiver_snapshot_name(slot)?
             ),
-            // Only an ERASED callee can be one of the runtime's unbound
-            // prototype methods, which is what a plain call's `undefined`
-            // receiver exists for. A callee with a concrete static type (a
-            // callable struct such as es-toolkit's `DebouncedFunction<F>`,
-            // which `bind_this_receiver` cannot bind) keeps the channel as the
-            // caller left it, as every call did before this rule.
+            // A generated callee with a concrete static type resets the
+            // channel itself, at its frame's entry (`this_frame`), so its plain
+            // call installs nothing. Only an ERASED callee can be a runtime
+            // prototype method, a frame of the runtime's own that reads the
+            // channel without a generated prologue.
             ErasedCallReceiver::Plain
                 if !self
                     .operand_ty(callee)
@@ -261,7 +273,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if matches!(
             self.erased_call_receiver(callee),
-            ErasedCallReceiver::Base(_) | ErasedCallReceiver::Snapshot(_)
+            ErasedCallReceiver::Base(_)
+                | ErasedCallReceiver::Snapshot(_)
+                | ErasedCallReceiver::TypedBase(_)
         ) {
             return self.with_erased_call_receiver(callee, call_text);
         }
@@ -293,6 +307,12 @@ impl FunctionEmitter<'_> {
                     .is_ok_and(|decl| self.has_dynamic_shape(decl.ty));
                 if erased_base {
                     ErasedCallReceiver::Base(*base)
+                } else if depth == 0 {
+                    // A member call through a function-valued field of a TYPED
+                    // object (`router.match(..)` on an interface view) supplies
+                    // that object as its receiver too; it is erased only if the
+                    // callee reads `this`.
+                    ErasedCallReceiver::TypedBase(*base)
                 } else {
                     ErasedCallReceiver::Unresolved
                 }
@@ -629,6 +649,7 @@ impl FunctionEmitter<'_> {
                     | Operand::Move(Place::Field { .. } | Place::Index { .. }),
                 )
                 | Rvalue::BindThis { .. }
+                | Rvalue::BindOwnThis { .. }
                 | Rvalue::OptionalField { .. }
                 | Rvalue::OptionalIndex { .. },
             ) => ErasedCallReceiver::Unresolved,
@@ -733,6 +754,9 @@ impl FunctionEmitter<'_> {
 enum ErasedCallReceiver {
     /// A member call reading its member in place: `this` is this erased local.
     Base(LocalId),
+    /// A member call through a function-valued field of a TYPED object: `this`
+    /// is that object, erased only when the callee reads it.
+    TypedBase(LocalId),
     /// A member call through a temporary: `this` is that temporary's
     /// receiver snapshot (`FunctionEmitter::receiver_snapshot_slots`).
     Snapshot(LocalId),
