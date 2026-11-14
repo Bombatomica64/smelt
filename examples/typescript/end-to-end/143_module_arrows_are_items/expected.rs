@@ -4562,152 +4562,159 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let mut next: f64;
     let mut eq: f64;
     let mut _smelt_tmp_12: bool;
-    let mut _smelt_tmp_13: bool;
-    let _smelt_tmp_14: JsString;
-    let _smelt_tmp_15: f64;
+    let _smelt_tmp_13: bool;
+    let mut _smelt_tmp_14: bool;
+    let _smelt_tmp_15: JsString;
     let _smelt_tmp_16: f64;
-    let _smelt_tmp_17: bool;
-    let _smelt_tmp_18: f64;
+    let _smelt_tmp_17: f64;
+    let _smelt_tmp_18: bool;
     let _smelt_tmp_19: f64;
-    let _smelt_tmp_20: bool;
-    let mut _smelt_tmp_22: f64;
-    let mut _smelt_tmp_23: bool;
-    let mut _smelt_tmp_24: f64;
-    let mut _smelt_tmp_27: bool;
+    let _smelt_tmp_20: f64;
+    let _smelt_tmp_21: bool;
+    let mut _smelt_tmp_23: f64;
+    let mut _smelt_tmp_24: bool;
+    let mut _smelt_tmp_25: f64;
     let mut _smelt_tmp_28: bool;
-    let mut _smelt_tmp_29: f64;
-    let mut _smelt_tmp_30: bool;
-    let mut _smelt_tmp_31: f64;
-    let mut _smelt_tmp_32: JsString;
-    let mut _smelt_tmp_33: f64;
-    let mut _smelt_tmp_34: bool;
-    let mut _smelt_tmp_35: JsString;
-    let mut _smelt_tmp_36: bool;
-    let mut _smelt_tmp_37: JsString;
-    let mut _smelt_tmp_38: f64;
+    let mut _smelt_tmp_29: bool;
+    let mut _smelt_tmp_30: f64;
+    let mut _smelt_tmp_31: bool;
+    let mut _smelt_tmp_32: f64;
+    let mut _smelt_tmp_33: JsString;
+    let mut _smelt_tmp_34: f64;
+    let mut _smelt_tmp_35: bool;
+    let mut _smelt_tmp_36: JsString;
+    let mut _smelt_tmp_37: bool;
+    let mut _smelt_tmp_38: JsString;
     let mut _smelt_tmp_39: f64;
-    let mut _smelt_tmp_40: bool;
-    let mut _smelt_tmp_41: Option<f64>;
-    let mut _smelt_tmp_42: JsString;
+    let mut _smelt_tmp_40: f64;
+    let mut _smelt_tmp_41: bool;
+    let mut _smelt_tmp_42: Option<f64>;
     let mut _smelt_tmp_43: JsString;
     let mut _smelt_tmp_44: JsString;
+    let mut _smelt_tmp_45: JsString;
     let _smelt_tmp_8: f64 = url.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     let _smelt_tmp_9: f64 = -1.0;
     let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
-    let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().map_or(false, |smelt_value| !(smelt_value).is_empty()) } else { false };
-    let mut _smelt_tmp_13: bool = false;
-    if _smelt_tmp_12 {
-    _smelt_tmp_14 = key.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_15 = _smelt_tmp_14.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_16 = -1.0;
-    _smelt_tmp_17 = _smelt_tmp_15 == _smelt_tmp_16;
-    _smelt_tmp_13 = _smelt_tmp_17;
+    let mut _smelt_tmp_12: bool = false;
+    if _smelt_tmp_11 {
+    _smelt_tmp_13 = key.clone().clone().is_some_and(|value| !value.is_empty());
+    _smelt_tmp_12 = _smelt_tmp_13;
     } else {
-    _smelt_tmp_13 = false;
+    _smelt_tmp_12 = false;
     }
-    if _smelt_tmp_13 {
-    _smelt_tmp_18 = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_19 = -1.0;
-    _smelt_tmp_20 = _smelt_tmp_18 == _smelt_tmp_19;
-    if _smelt_tmp_20 {
+    let mut _smelt_tmp_14: bool = false;
+    if _smelt_tmp_12 {
+    _smelt_tmp_15 = key.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_16 = _smelt_tmp_15.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
+    _smelt_tmp_17 = -1.0;
+    _smelt_tmp_18 = _smelt_tmp_16 == _smelt_tmp_17;
+    _smelt_tmp_14 = _smelt_tmp_18;
+    } else {
+    _smelt_tmp_14 = false;
+    }
+    if _smelt_tmp_14 {
+    _smelt_tmp_19 = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
+    _smelt_tmp_20 = -1.0;
+    _smelt_tmp_21 = _smelt_tmp_19 == _smelt_tmp_20;
+    if _smelt_tmp_21 {
     return None::<JsString>;
     }
     }
     index = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     out = JsString::new();
     loop {
-    _smelt_tmp_22 = -1.0;
-    _smelt_tmp_23 = index != _smelt_tmp_22;
-    if !(_smelt_tmp_23) { break; }
-    _smelt_tmp_24 = index + 1.0;
-    next = url.index_of(&JsString::from("&"), (_smelt_tmp_24 as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
+    _smelt_tmp_23 = -1.0;
+    _smelt_tmp_24 = index != _smelt_tmp_23;
+    if !(_smelt_tmp_24) { break; }
+    _smelt_tmp_25 = index + 1.0;
+    next = url.index_of(&JsString::from("&"), (_smelt_tmp_25 as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
     eq = url.index_of(&JsString::from("="), (index as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_27 = eq > next;
-    if _smelt_tmp_27 {
-    _smelt_tmp_29 = -1.0;
-    _smelt_tmp_30 = next != _smelt_tmp_29;
-    _smelt_tmp_28 = _smelt_tmp_30;
+    _smelt_tmp_28 = eq > next;
     if _smelt_tmp_28 {
-    _smelt_tmp_31 = -1.0;
-    eq = _smelt_tmp_31;
+    _smelt_tmp_30 = -1.0;
+    _smelt_tmp_31 = next != _smelt_tmp_30;
+    _smelt_tmp_29 = _smelt_tmp_31;
+    if _smelt_tmp_29 {
+    _smelt_tmp_32 = -1.0;
+    eq = _smelt_tmp_32;
     } else {
     }
     if encoded {
-    _smelt_tmp_32 = out + &JsString::from("%");
-    out = _smelt_tmp_32;
+    _smelt_tmp_33 = out + &JsString::from("%");
+    out = _smelt_tmp_33;
     } else {
     }
-    _smelt_tmp_33 = -1.0;
-    _smelt_tmp_34 = eq == _smelt_tmp_33;
-    if _smelt_tmp_34 {
+    _smelt_tmp_34 = -1.0;
+    _smelt_tmp_35 = eq == _smelt_tmp_34;
+    if _smelt_tmp_35 {
     if encoded {
-    _smelt_tmp_35 = out + &JsString::from("?");
-    out = _smelt_tmp_35;
+    _smelt_tmp_36 = out + &JsString::from("?");
+    out = _smelt_tmp_36;
     } else {
     }
     } else {
     }
-    _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
-    if _smelt_tmp_36 {
-    _smelt_tmp_37 = out + &JsString::from("m");
-    out = _smelt_tmp_37;
+    _smelt_tmp_37 = multiple.clone().clone().unwrap_or(false);
+    if _smelt_tmp_37 {
+    _smelt_tmp_38 = out + &JsString::from("m");
+    out = _smelt_tmp_38;
     } else {
     }
-    _smelt_tmp_38 = index + 1.0;
-    _smelt_tmp_39 = -1.0;
-    _smelt_tmp_40 = next == _smelt_tmp_39;
-    if _smelt_tmp_40 {
-    _smelt_tmp_41 = None::<f64>;
+    _smelt_tmp_39 = index + 1.0;
+    _smelt_tmp_40 = -1.0;
+    _smelt_tmp_41 = next == _smelt_tmp_40;
+    if _smelt_tmp_41 {
+    _smelt_tmp_42 = None::<f64>;
     } else {
-    _smelt_tmp_41 = Some(next);
+    _smelt_tmp_42 = Some(next);
     }
-    _smelt_tmp_42 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_41.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_43 = _smelt_tmp_42 + &JsString::from(";");
-    _smelt_tmp_44 = out + &_smelt_tmp_43;
-    out = _smelt_tmp_44;
+    _smelt_tmp_43 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_42.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
+    _smelt_tmp_44 = _smelt_tmp_43 + &JsString::from(";");
+    _smelt_tmp_45 = out + &_smelt_tmp_44;
+    out = _smelt_tmp_45;
     index = next;
     continue;
     } else {
-    _smelt_tmp_28 = false;
-    if _smelt_tmp_28 {
-    _smelt_tmp_31 = -1.0;
-    eq = _smelt_tmp_31;
+    _smelt_tmp_29 = false;
+    if _smelt_tmp_29 {
+    _smelt_tmp_32 = -1.0;
+    eq = _smelt_tmp_32;
     } else {
     }
     if encoded {
-    _smelt_tmp_32 = out + &JsString::from("%");
-    out = _smelt_tmp_32;
+    _smelt_tmp_33 = out + &JsString::from("%");
+    out = _smelt_tmp_33;
     } else {
     }
-    _smelt_tmp_33 = -1.0;
-    _smelt_tmp_34 = eq == _smelt_tmp_33;
-    if _smelt_tmp_34 {
+    _smelt_tmp_34 = -1.0;
+    _smelt_tmp_35 = eq == _smelt_tmp_34;
+    if _smelt_tmp_35 {
     if encoded {
-    _smelt_tmp_35 = out + &JsString::from("?");
-    out = _smelt_tmp_35;
+    _smelt_tmp_36 = out + &JsString::from("?");
+    out = _smelt_tmp_36;
     } else {
     }
     } else {
     }
-    _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
-    if _smelt_tmp_36 {
-    _smelt_tmp_37 = out + &JsString::from("m");
-    out = _smelt_tmp_37;
+    _smelt_tmp_37 = multiple.clone().clone().unwrap_or(false);
+    if _smelt_tmp_37 {
+    _smelt_tmp_38 = out + &JsString::from("m");
+    out = _smelt_tmp_38;
     } else {
     }
-    _smelt_tmp_38 = index + 1.0;
-    _smelt_tmp_39 = -1.0;
-    _smelt_tmp_40 = next == _smelt_tmp_39;
-    if _smelt_tmp_40 {
-    _smelt_tmp_41 = None::<f64>;
+    _smelt_tmp_39 = index + 1.0;
+    _smelt_tmp_40 = -1.0;
+    _smelt_tmp_41 = next == _smelt_tmp_40;
+    if _smelt_tmp_41 {
+    _smelt_tmp_42 = None::<f64>;
     } else {
-    _smelt_tmp_41 = Some(next);
+    _smelt_tmp_42 = Some(next);
     }
-    _smelt_tmp_42 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_41.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_43 = _smelt_tmp_42 + &JsString::from(";");
-    _smelt_tmp_44 = out + &_smelt_tmp_43;
-    out = _smelt_tmp_44;
+    _smelt_tmp_43 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_42.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
+    _smelt_tmp_44 = _smelt_tmp_43 + &JsString::from(";");
+    _smelt_tmp_45 = out + &_smelt_tmp_44;
+    out = _smelt_tmp_45;
     index = next;
     continue;
     }

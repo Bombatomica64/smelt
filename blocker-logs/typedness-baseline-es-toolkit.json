@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14110,
+      "concrete": 14113,
       "generic": 228,
       "erased": 7910
     },
@@ -9948,7 +9948,7 @@
     },
     "src/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 112,
+        "concrete": 113,
         "generic": 0,
         "erased": 129
       },
@@ -10781,7 +10781,7 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1035,
+        "concrete": 1037,
         "generic": 0,
         "erased": 425
       },
