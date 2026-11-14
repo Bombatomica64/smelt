@@ -63,7 +63,7 @@ impl ModuleBuilder<'_> {
         qualify_private_name: bool,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
-        let (arrow_type_params, predeclared, body, params, rest, required_params, return_ty) = self.with_type_parameter_scope(arrow.type_parameters.as_deref(), |this, arrow_type_params| {
+        let (arrow_type_params, predeclared, body, params, rest, required_params, return_ty) = self.with_function_type_parameter_scope(arrow.type_parameters.as_deref(), crate::lowering::ty::element_params::FunctionSignature::of_arrow(arrow), |this, arrow_type_params| {
             let explicit_return_ty = match arrow
                 .return_type
                 .as_ref()

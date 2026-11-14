@@ -78,7 +78,14 @@ impl ModuleBuilder<'_> {
         } else {
             PredicateKind::Guard
         };
-        self.push_type_parameter_scope(type_params).ok()?;
+        self.push_function_type_parameter_scope(
+            type_params,
+            crate::lowering::ty::element_params::FunctionSignature {
+                params,
+                return_type: Some(annotation),
+            },
+        )
+        .ok()?;
         let resolved = match kind {
             PredicateKind::Guard => self
                 .predicate_return_type(&annotation.type_annotation)

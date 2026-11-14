@@ -376,7 +376,10 @@ impl ModuleBuilder<'_> {
                 self.synthesize_constructor_function_class(function, statements)?;
                 continue;
             }
-            self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+            self.push_function_type_parameter_scope(
+                function.type_parameters.as_deref(),
+                crate::lowering::ty::element_params::FunctionSignature::of_function(function),
+            )?;
             let result = (|| {
                 // The same ABI the declaration itself lowers to (see
                 // `local_function_declaration`), so a call lowered before the

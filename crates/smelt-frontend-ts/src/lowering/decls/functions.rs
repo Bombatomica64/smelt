@@ -143,7 +143,7 @@ impl ModuleBuilder<'_> {
         // path of the signature and body lowering; the lowered `TypeParamDef`s
         // survive on the item.
         let (type_params, assertion_return, predicate_return, declared_return_ty, lowered) = self
-            .with_type_parameter_scope(function.type_parameters.as_deref(), |this, type_params| {
+            .with_function_type_parameter_scope(function.type_parameters.as_deref(), crate::lowering::ty::element_params::FunctionSignature::of_function(function), |this, type_params| {
             let assertion_return = match function
                 .return_type
                 .as_ref()
