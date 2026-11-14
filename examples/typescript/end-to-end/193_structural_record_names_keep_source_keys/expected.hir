@@ -1,0 +1,56 @@
+module examples/typescript/end-to-end/193_structural_record_names_keep_source_keys/input.ts (ModuleId(0))
+  body BodyId(2)
+  items
+    fn snake owner Module
+    fn camel owner Module
+  locals
+    %0 const out: SmeltRecord579d4210dfbfc85c
+    %1 const back: SmeltRecord04681658c22e8b1f
+  exprs
+    #0: String = "userId"
+    #1: Float = 7.0
+    #2: String = "firstName"
+    #3: String = "Ada"
+    #4: SmeltRecord04681658c22e8b1f = {#0: #1, #2: #3}
+    #5: fn(SmeltRecord04681658c22e8b1f) -> SmeltRecord579d4210dfbfc85c = @2(snake)
+    #6: SmeltRecord579d4210dfbfc85c = call #5(#4)
+    #7: SmeltRecord579d4210dfbfc85c = %0
+    #8: String = json_stringify #7
+    #9: SmeltRecord579d4210dfbfc85c = %0
+    #10: Float = #9.user_id
+    #11: Float = 1.0
+    #12: Float = Add #10, #11
+    #13: SmeltRecord579d4210dfbfc85c = %0
+    #14: String = #13.first_name
+    #15: Float = len #14
+    #16: None = @4(console_log)
+    #17: None = call #16(#8, #12, #15)
+    #18: SmeltRecord579d4210dfbfc85c = %0
+    #19: fn(SmeltRecord579d4210dfbfc85c) -> SmeltRecord04681658c22e8b1f = @3(camel)
+    #20: SmeltRecord04681658c22e8b1f = call #19(#18)
+    #21: SmeltRecord04681658c22e8b1f = %1
+    #22: String = json_stringify #21
+    #23: SmeltRecord04681658c22e8b1f = %1
+    #24: Float = #23.user_id
+    #25: Float = 2.0
+    #26: Float = Mul #24, #25
+    #27: None = @5(console_log)
+    #28: None = call #27(#22, #26)
+  stmts
+    s0: let %0: SmeltRecord579d4210dfbfc85c = #6
+    s1: #17
+    s2: let %1: SmeltRecord04681658c22e8b1f = #20
+    s3: #28
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Float
+  t3 = Dict<String, Unknown>
+  t4 = SmeltRecord04681658c22e8b1f
+  t5 = SmeltRecord579d4210dfbfc85c
+  t6 = fn(SmeltRecord04681658c22e8b1f) -> SmeltRecord579d4210dfbfc85c
+  t7 = fn(SmeltRecord579d4210dfbfc85c) -> SmeltRecord04681658c22e8b1f
+  t8 = fn(SmeltRecord04681658c22e8b1f) -> SmeltRecord579d4210dfbfc85c
+  t9 = fn(SmeltRecord579d4210dfbfc85c) -> SmeltRecord04681658c22e8b1f
+  t10 = None
