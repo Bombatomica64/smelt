@@ -1,0 +1,105 @@
+module examples/typescript/end-to-end/196_object_literal_takes_its_checker_record/input.ts (ModuleId(0))
+  body BodyId(3)
+  items
+    fn describe_items owner Module
+    fn aliases_share_the_record owner Module
+  locals
+    %0 const config: SmeltRecordd266e6396da13c4f
+    %1 const swapped: SmeltRecordae6f9ba9b8802fd3
+    %2 const person: SmeltRecord7de77ee18c851931
+  exprs
+    #0: String = "label"
+    #1: String = "retry"
+    #2: String = "times"
+    #3: Float = 3.0
+    #4: String = "verbose"
+    #5: Bool = false
+    #6: SmeltRecordd266e6396da13c4f = {#0: #1, #2: #3, #4: #5}
+    #7: String = "a"
+    #8: String = "y"
+    #9: String = "b"
+    #10: Float = 2.0
+    #11: SmeltRecordae6f9ba9b8802fd3 = {#7: #8, #9: #10}
+    #12: String = "name"
+    #13: String = "mike"
+    #14: String = "age"
+    #15: Float = 20.0
+    #16: String = "tags"
+    #17: String = "a"
+    #18: String = "b"
+    #19: List<String> = [#17, #18]
+    #20: SmeltRecord7de77ee18c851931 = {#12: #13, #14: #15, #16: #19}
+    #21: fn() -> String = @3(describe_items)
+    #22: String = call #21()
+    #23: None = @11(console_log)
+    #24: None = call #23(#22)
+    #25: fn() -> None = @4(aliases_share_the_record)
+    #26: None = call #25()
+    #27: SmeltRecordae6f9ba9b8802fd3 = %1
+    #28: SmeltRecordae6f9ba9b8802fd3 = %1
+    #29: String = json_stringify #28
+    #30: None = @12(console_log)
+    #31: None = call #30(#27, #29)
+    #32: SmeltRecord7de77ee18c851931 = %2
+    #33: String = #32.name
+    #34: String = string_upper #33
+    #35: SmeltRecord7de77ee18c851931 = %2
+    #36: Float = #35.age
+    #37: Float = 1.0
+    #38: Float = Add #36, #37
+    #39: SmeltRecord7de77ee18c851931 = %2
+    #40: List<String> = #39.tags
+    #41: Float = len #40
+    #42: SmeltRecord7de77ee18c851931 = %2
+    #43: List<String> = #42.tags
+    #44: Float = 1.0
+    #45: String = #43[#44]
+    #46: None = @13(console_log)
+    #47: None = call #46(#34, #38, #41, #45)
+    #48: SmeltRecord7de77ee18c851931 = %2
+    #49: String = json_stringify #48
+    #50: None = @14(console_log)
+    #51: None = call #50(#49)
+    #52: SmeltRecordd266e6396da13c4f = %0
+    #53: String = #52.label
+    #54: Float = len #53
+    #55: SmeltRecordd266e6396da13c4f = %0
+    #56: Float = #55.times
+    #57: Float = Add #54, #56
+    #58: SmeltRecordd266e6396da13c4f = %0
+    #59: Bool = #58.verbose
+    #60: String = "loud"
+    #61: String = "quiet"
+    #62: String = if #59 then #60 else #61
+    #63: None = @15(console_log)
+    #64: None = call #63(#57, #62)
+  stmts
+    s0: let %0: SmeltRecordd266e6396da13c4f = #6
+    s1: let %1: SmeltRecordae6f9ba9b8802fd3 = #11
+    s2: let %2: SmeltRecord7de77ee18c851931 = #20
+    s3: #24
+    s4: #26
+    s5: #31
+    s6: #47
+    s7: #51
+    s8: #64
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = Bool
+  t3 = SmeltRecordd266e6396da13c4f
+  t4 = Unknown
+  t5 = Dict<String, Unknown>
+  t6 = SmeltRecordae6f9ba9b8802fd3
+  t7 = List<String>
+  t8 = SmeltRecord7de77ee18c851931
+  t9 = fn() -> String
+  t10 = None
+  t11 = fn() -> None
+  t12 = SmeltRecord355fff2c5e8888da
+  t13 = List<SmeltRecord355fff2c5e8888da>
+  t14 = fn() -> None
+  t15 = SmeltRecorda086cf5c99222122
+  t16 = SmeltRecord7e5cb823251b06a8
+  t17 = fn() -> String

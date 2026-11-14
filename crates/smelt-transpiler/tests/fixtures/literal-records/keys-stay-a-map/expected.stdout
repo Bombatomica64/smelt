@@ -1,0 +1,11 @@
+name counters
+hits 1
+true false
+3 3
+zeta,alpha,mid
+key zeta
+key alpha
+key mid
+zeta,alpha,mid,extra
+1,2,b
+{"1":true,"2":20,"b":"text"}
