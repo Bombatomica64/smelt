@@ -1196,3 +1196,10 @@ fn absent_iterable_constructors() -> TestResult {
 fn abstract_parser_slots() -> TestResult {
     verify_node_parity("abstract_parser_slots")
 }
+
+/// A reducer that can throw folds plain accumulator values, and its throw
+/// reaches the enclosing `catch`, with and without an initial value.
+#[test]
+fn throwing_reduce_callback() -> TestResult {
+    verify_node_parity("throwing_reduce_callback")
+}
