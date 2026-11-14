@@ -93,7 +93,7 @@
       "type": "object",
       "properties": {
         "entries": {
-          "description": "List of source file paths.",
+          "description": "The program's entry modules. Running the generated program runs them\nas JavaScript evaluates a module graph (Python imports likewise): every\nmodule an entry reaches runs its top-level code once, a module's\nimports before it, and several entries run in the order listed here,\nas `import \"./a\"; import \"./b\"` would. A module other than a single\nentry that awaits at top level is a build error.",
           "type": "array",
           "items": {
             "type": "string"
