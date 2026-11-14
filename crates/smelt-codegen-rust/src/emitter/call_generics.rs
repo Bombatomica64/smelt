@@ -339,7 +339,7 @@ impl FunctionEmitter<'_> {
             &self.context.bound_traits,
             &self.context.erased_arguments,
         );
-        let type_params = function
+        let mut type_params = function
             .type_params
             .iter()
             .map(|param| param.name)
@@ -377,7 +377,6 @@ impl FunctionEmitter<'_> {
         // inherited copy on `Sub extends Box<number>` binds `T = number`) lets
         // `f` be checked and rendered at `(v: f64) => U` instead of demoting
         // the whole call to the erased signature (E0631 against `&dyn Fn(&T)`).
-        let mut type_params = type_params;
         if let HirOrigin::ClassMethod { .. } = function.origin
             && let Some(Some(receiver_ty)) = actual.first().copied()
             && let Some(instance) = self.declaring_class_instantiation(function, receiver_ty)

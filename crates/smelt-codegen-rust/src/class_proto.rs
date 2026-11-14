@@ -384,10 +384,10 @@ fn erased_callable_adapter(
         .erased_own_generics_turbofish()?;
     // The receiver class leads a receiver-generic static method's arguments
     // and generics; the generic is inferred from the argument.
-    if let MethodReceiver::Static(_, Some(receiver)) = receiver {
+    if let MethodReceiver::Static(_, Some(receiver_type)) = receiver {
         args.insert(
             0,
-            RustExpr::atom(crate::static_receiver::receiver_argument(receiver)),
+            RustExpr::atom(crate::static_receiver::receiver_argument(receiver_type)),
         );
         if let Some(rest) = turbofish.strip_prefix("::<") {
             turbofish = format!("::<_, {rest}");
@@ -861,7 +861,7 @@ pub(crate) fn class_static_entries(
         && seen_classes.insert(name)
     {
         chain.push(name);
-        current = crate::classes::find_class(mir, name).and_then(|found| found.base);
+        current = crate::classes::find_class(mir, name).and_then(|chain_class| chain_class.base);
     }
     let mut seen_methods = HashSet::new();
     let ordered = chain.iter().flat_map(|owner_class| {
@@ -885,7 +885,7 @@ pub(crate) fn class_static_entries(
         let inherited = owner != class;
         if (inherited
             && crate::classes::find_class(mir, owner)
-                .is_none_or(|found| !found.type_params.is_empty()))
+                .is_none_or(|owner_class| !owner_class.type_params.is_empty()))
             || !function.type_params.is_empty()
             || function.is_async
             || function.is_generator

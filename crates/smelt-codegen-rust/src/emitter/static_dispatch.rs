@@ -364,10 +364,10 @@ impl FunctionEmitter<'_> {
             }
             StaticMember::Construct => {
                 let receiver_class = crate::classes::find_class(self.mir, receiver);
-                let constructor = receiver_class
+                let Some(constructor) = receiver_class
                     .and_then(|found| found.constructor)
-                    .and_then(|id| self.function_by_id(id));
-                let Some(constructor) = constructor else {
+                    .and_then(|id| self.function_by_id(id))
+                else {
                     return Ok(format!(
                         "Ok({})",
                         self.default_value(signature.ret_ty)?.delimited()
@@ -459,7 +459,7 @@ impl FunctionEmitter<'_> {
         member: StaticMember,
         args: &[Operand],
     ) -> Result<(RenderedCall, TypeId), EmitError> {
-        if let Some(receiver) = receiver {
+        if let Some(named) = receiver {
             // A static method reached through a class that inherits it.
             let StaticMember::Call(method) = member else {
                 return Err(EmitError::new(
@@ -467,14 +467,14 @@ impl FunctionEmitter<'_> {
                 ));
             };
             let target = self
-                .implementing_static_method(receiver, method)
+                .implementing_static_method(named, method)
                 .ok_or_else(|| {
                     EmitError::new("a static method called through a class is not declared")
                 })?;
             let HirOrigin::ClassStaticMethod { class: owner, .. } = target.origin else {
                 return Err(EmitError::new("a static method is not a static method"));
             };
-            let call = self.class_static_method_call(target, owner, args, Some(receiver))?;
+            let call = self.class_static_method_call(target, owner, args, Some(named))?;
             // A static method with its own generics answers its type at this
             // call's instantiation, as a direct call does.
             let source_ty = self

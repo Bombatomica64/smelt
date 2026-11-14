@@ -80,8 +80,8 @@ fn agrees_with_node_in(
     let output = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
     ensure_eq(&output, &expected.to_owned(), what)?;
     let mut text = String::new();
-    for entry in fs::read_dir(root.join("dist/src"))? {
-        let path = entry?.path();
+    for file in fs::read_dir(root.join("dist/src"))? {
+        let path = file?.path();
         if path.extension().is_some_and(|extension| extension == "rs") {
             text.push_str(&fs::read_to_string(path)?);
             text.push('\n');

@@ -351,14 +351,14 @@ fn ancestor_args_text(
     scoped: &HashSet<Symbol>,
 ) -> Result<String, crate::EmitError> {
     let substitution = crate::classes::inherited_type_substitution(mir, class, ancestor.name);
-    let mut args = Vec::new();
+    let mut rendered = Vec::new();
     for param in &ancestor.type_params {
         let Some(ty) = substitution.get(&param.name) else {
             return Err(crate::EmitError::new(
                 "a polymorphic ancestor's type parameter has no argument in a subclass",
             ));
         };
-        args.push(
+        rendered.push(
             crate::emitter::FunctionEmitter::type_text_for_with_scoped_type_params(
                 mir,
                 context,
@@ -369,7 +369,7 @@ fn ancestor_args_text(
     }
     let args = context
         .type_param_elision()
-        .retain_carried(ancestor.name, args);
+        .retain_carried(ancestor.name, rendered);
     Ok(if args.is_empty() {
         String::new()
     } else {
@@ -415,7 +415,7 @@ pub(crate) fn class_layout(
         let Some(trait_mir) = find_class(mir, trait_class) else {
             continue;
         };
-        let args = if own {
+        let trait_args = if own {
             own_args.clone()
         } else {
             ancestor_args_text(mir, context, class.name, trait_mir, &scoped)?
@@ -437,8 +437,8 @@ pub(crate) fn class_layout(
             ));
         }
         cell_impls.push(CellImpl {
-            trait_ref: format!("{}{args}", cell_trait_name(&trait_type)),
-            inner_view: format!("{trait_type}Inner{args}"),
+            trait_ref: format!("{}{trait_args}", cell_trait_name(&trait_type)),
+            inner_view: format!("{trait_type}Inner{trait_args}"),
             upcasts,
         });
     }
@@ -531,9 +531,9 @@ pub(crate) fn cell_impl_text(
             .to_owned(),
         format!("fn smelt_class_name(&self) -> &'static str {{ {class_name_literal} }}"),
     ];
-    if let Some(erase) = erase {
+    if let Some(erase_call) = erase {
         methods.push(format!(
-            "fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown {{ {erase} }}"
+            "fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown {{ {erase_call} }}"
         ));
     }
     for (method, object) in upcasts {
@@ -694,17 +694,17 @@ pub(crate) fn subclass_origins_at(
         {
             continue;
         }
-        let descendant_args = binding
+        let Some(bound_args) = binding
             .param_sources
             .iter()
             .map(|index| args.get(*index).cloned())
-            .collect::<Option<Vec<_>>>();
-        let Some(descendant_args) = descendant_args else {
+            .collect::<Option<Vec<_>>>()
+        else {
             continue;
         };
         let descendant_args = context
             .type_param_elision()
-            .retain_carried(descendant, descendant_args);
+            .retain_carried(descendant, bound_args);
         let descendant_type = context.names().type_name(descendant)?.as_str().to_owned();
         let handle = if descendant_args.is_empty() {
             descendant_type
@@ -771,8 +771,9 @@ pub(crate) fn inner_literal(
             && context
                 .type_param_elision()
                 .emits_phantom(level_class.name, level_class.type_params.len())
+            && let Some(bucket) = level_parts.get_mut(index)
         {
-            level_parts[index].push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+            bucket.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
     }
     for part in parts {
@@ -788,7 +789,7 @@ pub(crate) fn inner_literal(
         if !literal.is_empty() {
             fields.push(format!("{BASE_FIELD}: {literal}"));
         }
-        fields.extend(level_parts[index].iter().cloned());
+        fields.extend(level_parts.get(index).into_iter().flatten().cloned());
         literal = format!("{}Inner {{ {} }}", type_name(*level)?, fields.join(", "));
     }
     Ok(literal)
@@ -812,7 +813,7 @@ pub(crate) fn own_erasure_method(
     } else {
         "IntoSmeltUnknown::into_smelt_unknown(smelt_own)".to_owned()
     };
-    let host = class
+    let candidate = class
         .constructor
         .into_iter()
         .chain(crate::classes::effective_class_methods(mir, class))
@@ -820,8 +821,7 @@ pub(crate) fn own_erasure_method(
     // A generic class erases through its generated projection: the inline
     // projection renders each callable slot's erased adapter, whose
     // by-reference `&T` parameters it cannot spell for a class parameter.
-    let host = host.filter(|_| class.type_params.is_empty());
-    let Some(host) = host else {
+    let Some(host) = candidate.filter(|_| class.type_params.is_empty()) else {
         return Ok(format!(
             "    #[allow(dead_code)]\n    fn {OWN_ERASURE_METHOD}(self) -> SmeltUnknown {{ let smelt_own = self; {fallback} }}\n"
         ));
@@ -838,7 +838,7 @@ pub(crate) fn own_erasure_method(
                     && args.iter().zip(&class.type_params).all(|(arg, param)| {
                         matches!(
                             mir.types.get(*arg),
-                            Some(smelt_hir::Type::TypeParam { name }) if *name == param.name
+                            Some(smelt_hir::Type::TypeParam { name: arg_param }) if *arg_param == param.name
                         )
                     })
             }

@@ -1925,6 +1925,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for IdentifierSpanCollector<'_> {
     }
 }
 
+/// Every identifier reference under a node, by name.
 struct IdentifierCollector<'names> {
     /// The referenced names.
     names: &'names mut HashSet<String>,

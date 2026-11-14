@@ -90,7 +90,7 @@ pub(crate) fn restore_subclass_or_rebuild_expr(
     rebuild: &RustExpr,
     subclass_origins: &[(String, String)],
 ) -> RustExpr {
-    let mut fallback = rebuild.delimited().to_string();
+    let mut fallback = rebuild.delimited().to_owned();
     for (subclass, upcast) in subclass_origins.iter().rev() {
         fallback = format!(
             "match {record}.smelt_origin::<{subclass}>() {{ Some(smelt_subclass_origin) => {upcast}, None => {fallback} }}",

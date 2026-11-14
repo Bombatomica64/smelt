@@ -1023,10 +1023,6 @@ mod tests {
 /// Where a static-member write (`Class.x = v`, `Class.x += v`, `Class.x++`)
 /// lands; see [`ModuleBuilder::static_field_write_storage`].
 #[derive(Debug, Clone, Copy)]
-#[expect(
-    variant_size_differences,
-    reason = "both variants are a few `Copy` ids; boxing one would cost an allocation per write"
-)]
 pub(in crate::lowering) enum StaticWriteTarget {
     /// A mutable global: a static the class declares, or a lifted module
     /// variable.

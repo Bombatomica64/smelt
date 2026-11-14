@@ -727,7 +727,7 @@ impl FunctionEmitter<'_> {
                 *name,
                 &field_text,
             )?;
-            let rebuild = RustExpr::atom(target_name.clone()).postfix(format!(
+            let rebuild = RustExpr::atom(target_name).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ));
             // Only an erased-valued `SmeltRecord` view can share an erased

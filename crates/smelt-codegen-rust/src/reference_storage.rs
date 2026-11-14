@@ -159,15 +159,15 @@ pub(crate) fn emit_reference_record_storage(
         layout,
     } = shape;
     let inner_name = format!("{name}Inner");
-    let polymorphic = layout.as_ref().is_some_and(|layout| layout.polymorphic);
+    let polymorphic = layout.as_ref().is_some_and(|found| found.polymorphic);
     let nested_base_type = layout
         .as_ref()
-        .and_then(|layout| layout.nested_base_type.clone());
+        .and_then(|found| found.nested_base_type.clone());
     // The fields this level's inner record declares: a nested record keeps
     // its base's fields inside its base record (`crate::class_polymorphism`).
     let level_fields: &[smelt_mir::MirField] = layout
         .as_ref()
-        .map_or(fields.as_slice(), |layout| layout.level_fields.as_slice());
+        .map_or(fields.as_slice(), |found| found.level_fields.as_slice());
     // The runtime class tag (`crate::class_identity`), on a class that carries it.
     let identity = context
         .carries_class_identity(*declared_name)
@@ -351,7 +351,7 @@ pub(crate) fn emit_reference_record_storage(
     // answers its base's fields, a polymorphic class declares its cell trait,
     // and this class's concrete cell implements its own trait and every
     // polymorphic ancestor's.
-    if let Some(layout) = layout {
+    if let Some(class_layout) = layout {
         let inner_type = format!("{inner_name}{type_args}");
         if let Some(base_type) = &nested_base_type {
             writer.line(crate::class_polymorphism::deref_impls_text(
@@ -360,7 +360,7 @@ pub(crate) fn emit_reference_record_storage(
                 base_type,
             ));
         }
-        if layout.polymorphic {
+        if class_layout.polymorphic {
             let Some(class) = classes::find_class(mir, *declared_name) else {
                 return Err(EmitError::new("a polymorphic class is not declared"));
             };
@@ -384,12 +384,12 @@ pub(crate) fn emit_reference_record_storage(
                 crate::class_polymorphism::OWN_ERASURE_METHOD
             )
         });
-        for cell_impl in &layout.cell_impls {
+        for cell_impl in &class_layout.cell_impls {
             writer.line(crate::class_polymorphism::cell_impl_text(
                 cell_impl,
                 impl_generics,
                 &inner_type,
-                &layout.class_name_literal,
+                &class_layout.class_name_literal,
                 erase.as_deref(),
             ));
         }
@@ -520,7 +520,7 @@ pub(crate) fn emit_reference_record_storage(
         )?;
         // The inbound half restores the live handle (see `reference_origin`).
         let subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
-            (Some(layout), Some(class)) if layout.polymorphic => {
+            (Some(class_layout), Some(class)) if class_layout.polymorphic => {
                 crate::class_polymorphism::subclass_origins(mir, context, class)?
             }
             _ => Vec::new(),
@@ -608,6 +608,10 @@ fn emit_reference_inner_fields(
 ///
 /// Mirrors [`emit_record_into_smelt_unknown_impl`] but projects the public
 /// fields out of `self.0.borrow()` rather than owned struct fields.
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "each flag is an independent fact about the class the caller already holds"
+)]
 fn emit_reference_class_into_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,

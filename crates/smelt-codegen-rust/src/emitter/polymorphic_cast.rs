@@ -5,6 +5,7 @@
 use super::*;
 use crate::class_polymorphism::{concrete_classes, descendant_binding, polymorphic_ancestors};
 use crate::rust::RustExpr;
+use std::collections::HashMap;
 
 impl FunctionEmitter<'_> {
     /// The handle type `ty` (a class type) as a constructor path with its
@@ -98,7 +99,7 @@ impl FunctionEmitter<'_> {
         ) else {
             return false;
         };
-        let own: std::collections::HashMap<Symbol, TypeId> = source_class
+        let own: HashMap<Symbol, TypeId> = source_class
             .type_params
             .iter()
             .map(|param| param.name)
@@ -341,7 +342,7 @@ impl FunctionEmitter<'_> {
             // converts each argument and the answer between the two
             // signatures (`override_forward_expr`), through the erased
             // boundary where they differ only by that runtime fact.
-            let Some(concrete_args) = binding
+            let Some(bound_args) = binding
                 .param_sources
                 .iter()
                 .map(|index| owner_param_idents.get(*index).cloned())
@@ -352,7 +353,7 @@ impl FunctionEmitter<'_> {
             let concrete_args = self
                 .context
                 .type_param_elision()
-                .retain_carried(concrete, concrete_args);
+                .retain_carried(concrete, bound_args);
             let generics = if concrete_args.is_empty() {
                 String::new()
             } else {
@@ -367,13 +368,9 @@ impl FunctionEmitter<'_> {
             // The override's types are spelled in its class's scope; its
             // class parameters are the owner's they follow from.
             let concrete_class = crate::classes::find_class(self.mir, concrete);
-            let mut substitution = std::collections::HashMap::new();
-            if let Some(concrete_class) = concrete_class {
-                for (param, source) in concrete_class
-                    .type_params
-                    .iter()
-                    .zip(&binding.param_sources)
-                {
+            let mut substitution = HashMap::new();
+            if let Some(found) = concrete_class {
+                for (param, source) in found.type_params.iter().zip(&binding.param_sources) {
                     if let Some(owner_param) = owner_params.get(*source)
                         && let Some(owner_ty) =
                             self.existing_type_id(Type::TypeParam { name: *owner_param })
@@ -419,7 +416,7 @@ impl FunctionEmitter<'_> {
         implementation: FuncId,
         callee: &str,
         own_throws: bool,
-        substitution: &std::collections::HashMap<Symbol, TypeId>,
+        substitution: &HashMap<Symbol, TypeId>,
         scope: &RenderScope,
     ) -> Result<Option<String>, EmitError> {
         let in_owner_scope = |ty: TypeId| {
@@ -462,7 +459,7 @@ impl FunctionEmitter<'_> {
                 args.push(name);
             } else if own_params_mentioned
                 .iter()
-                .any(|param| scope.spells(*param))
+                .any(|mentioned| scope.spells(*mentioned))
             {
                 // A value typed at the owner's own parameters (`x: T` where
                 // the override takes `string`) is that type only at run time:

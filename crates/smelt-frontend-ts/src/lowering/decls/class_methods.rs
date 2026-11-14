@@ -9,7 +9,8 @@ use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::visibility;
 use crate::lowering::{ModuleBuilder, RestParam};
 use oxc::ast::ast::{
-    BindingPattern, ClassElement, Expression, MethodDefinitionKind, MethodDefinitionType, PropertyKey,
+    BindingPattern, ClassElement, Expression, MethodDefinitionKind, MethodDefinitionType,
+    PropertyKey,
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -953,8 +954,8 @@ impl ModuleBuilder<'_> {
                             &mut body,
                         );
                     }
-                    if let Err(error) = this
-                        .predeclare_forward_referenced_locals(statements, &mut body)
+                    if let Err(error) =
+                        this.predeclare_forward_referenced_locals(statements, &mut body)
                     {
                         errors.push(error);
                     }

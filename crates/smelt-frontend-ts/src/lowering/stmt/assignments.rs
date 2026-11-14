@@ -51,11 +51,15 @@ impl ModuleBuilder<'_> {
                 ty,
                 span,
             }),
-            StaticWriteTarget::Receiver { class, field, ty } => Self::static_dispatch_expr(
+            StaticWriteTarget::Receiver {
+                class,
+                field,
+                ty: static_ty,
+            } => Self::static_dispatch_expr(
                 class,
                 smelt_hir::StaticMember::Set(field),
                 vec![value],
-                ty,
+                static_ty,
                 span,
                 body,
             ),

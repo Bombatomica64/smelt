@@ -132,10 +132,15 @@ impl ModuleBuilder<'_> {
             if !seen.insert(symbol) {
                 return None;
             }
-            current = self.ctx.krate.items.iter().find_map(|item| match item {
-                smelt_hir::Item::Class(class) if class.name == symbol => Some(class.base),
-                _ => None,
-            })?;
+            current = self
+                .ctx
+                .krate
+                .items
+                .iter()
+                .find_map(|candidate| match candidate {
+                    smelt_hir::Item::Class(class) if class.name == symbol => Some(class.base),
+                    _ => None,
+                })?;
         }
         None
     }

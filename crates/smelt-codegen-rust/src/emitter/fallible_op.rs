@@ -354,8 +354,8 @@ impl FunctionEmitter<'_> {
                 receiver,
                 class,
                 member,
-                args,
-            } => self.static_dispatch_call(*receiver, *class, *member, args)?,
+                args: dispatch_args,
+            } => self.static_dispatch_call(*receiver, *class, *member, dispatch_args)?,
             Rvalue::ListIndex { list, item } => (
                 RenderedCall::propagating(self.list_index_expr(list, item)?),
                 self.type_id(Type::Int)?,

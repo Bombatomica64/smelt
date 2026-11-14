@@ -514,12 +514,15 @@ impl ModuleBuilder<'_> {
                 Some(Type::Class {
                     name: base_class, ..
                 }),
-                Some(Type::Class { name, .. }),
+                Some(Type::Class {
+                    name: narrowed_class,
+                    ..
+                }),
             ) = (
                 self.ctx.krate.types.get(base_ty),
                 self.ctx.krate.types.get(ty),
             )
-            && base_class != name
+            && base_class != narrowed_class
         {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: local_expr },

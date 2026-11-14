@@ -109,16 +109,13 @@ impl StaticReceiverPlan {
             }
             plan.generic.insert(function.id, class);
             for (owner, member) in uses {
-                let entry = match plan.traits.iter_mut().find(|(name, _)| *name == owner) {
-                    Some(entry) => entry,
-                    None => {
-                        plan.traits.push((owner, Vec::new()));
-                        let last = plan.traits.len() - 1;
-                        &mut plan.traits[last]
-                    }
-                };
-                if !entry.1.contains(&member) {
-                    entry.1.push(member);
+                if !plan.traits.iter().any(|(name, _)| *name == owner) {
+                    plan.traits.push((owner, Vec::new()));
+                }
+                if let Some((_, members)) = plan.traits.iter_mut().find(|(name, _)| *name == owner)
+                    && !members.contains(&member)
+                {
+                    members.push(member);
                 }
             }
             // The class of a receiver-generic method always has a trait,
@@ -193,8 +190,8 @@ fn created_closures(mir: &Mir, blocks: &[BasicBlock]) -> Vec<usize> {
     let mut found = Vec::new();
     let mut pending = vec![blocks];
     let mut seen = HashSet::new();
-    while let Some(blocks) = pending.pop() {
-        for block in blocks {
+    while let Some(next) = pending.pop() {
+        for block in next {
             for statement in &block.statements {
                 let Statement::Assign {
                     value: Rvalue::Closure { id, .. },

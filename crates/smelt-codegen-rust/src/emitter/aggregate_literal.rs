@@ -467,7 +467,7 @@ impl FunctionEmitter<'_> {
         if self.context.is_reference_class(class) {
             let inner =
                 crate::class_polymorphism::inner_literal(self.mir, self.context, class, &parts)?;
-            let allocated = RustExpr::atom(class_name.clone()).postfix(format!(
+            let allocated = RustExpr::atom(class_name).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ));
             // The class's own constructor allocates its instance here;
@@ -658,7 +658,7 @@ impl FunctionEmitter<'_> {
                 *name,
                 &field_text,
             )?;
-            return Ok(Some(RustExpr::atom(type_name.clone()).postfix(format!(
+            return Ok(Some(RustExpr::atom(type_name).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ))));
         }
