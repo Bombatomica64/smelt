@@ -899,47 +899,76 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let HirOrigin::ClassStaticMethod { class, .. } = function.origin {
-            // `Class.staticMethod(args)` lowers to the receiver-free
-            // associated function `Class::staticMethod(args)`. Arguments
-            // are coerced to the emitted parameter types like any other
-            // static call, and missing trailing parameters default.
-            let class_name = self.type_rust_name(class)?;
-            let method_name = static_method_rust_name(self.context, function.id)?;
-            // A static method declaring its own Rust generics
-            // (`static create<T>(v: T)`) monomorphizes like a free function.
-            let own_monomorphization = self.static_call_monomorphization(function, args)?;
-            let mut rendered_args = args
-                .iter()
-                .enumerate()
-                .map(|(index, arg)| {
-                    let Some(param) = function.params.get(index).copied() else {
-                        return self.operand_expr(arg);
-                    };
-                    let target_ty = self.own_generic_target(
-                        self.function_local_decl(function, param)?.ty,
-                        own_monomorphization.as_ref(),
-                    );
-                    if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
-                        && !self
-                            .function_parameter_requires_owned_in(function, param)
-                            .unwrap_or(true)
-                    {
-                        return self.borrowed_function_argument_expr(arg, target_ty, None);
-                    }
-                    self.value_at_type(arg, target_ty)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            for param in function.params.iter().skip(args.len()) {
-                let target_ty = self.function_local_decl(function, *param)?.ty;
-                rendered_args.push(self.missing_argument_value(target_ty)?);
-            }
-            let arg_values = rendered_args.join(", ");
-            return Ok(RenderedCall::propagating_if(
-                RustExpr::atom(format!("{class_name}::{method_name}({arg_values})")),
-                self.call_is_throwing(function),
-            ));
+            return self.class_static_method_call(function, class, args, None);
         }
         self.static_call_positional(args, function)
+    }
+
+    /// `Class.staticMethod(args)`: the receiver-free associated function
+    /// `Class::staticMethod(args)`, arguments coerced to the emitted parameter
+    /// types and missing trailing parameters defaulted.
+    ///
+    /// A static method that uses `this` (`crate::static_receiver`) also takes
+    /// the class it was called on: `receiver`, or the declaring `class` for a
+    /// call through its own name.
+    pub(super) fn class_static_method_call(
+        &self,
+        function: &MirFunction,
+        class: Symbol,
+        args: &[Operand],
+        receiver: Option<Symbol>,
+    ) -> Result<RenderedCall, EmitError> {
+        // `Class.staticMethod(args)` lowers to the receiver-free
+        // associated function `Class::staticMethod(args)`. Arguments
+        // are coerced to the emitted parameter types like any other
+        // static call, and missing trailing parameters default.
+        let class_name = self.type_rust_name(class)?;
+        let method_name = static_method_rust_name(self.context, function.id)?;
+        // A static method declaring its own Rust generics
+        // (`static create<T>(v: T)`) monomorphizes like a free function.
+        let own_monomorphization = self.static_call_monomorphization(function, args)?;
+        let mut rendered_args = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                let Some(param) = function.params.get(index).copied() else {
+                    return self.operand_expr(arg);
+                };
+                let target_ty = self.own_generic_target(
+                    self.function_local_decl(function, param)?.ty,
+                    own_monomorphization.as_ref(),
+                );
+                if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                    && !self
+                        .function_parameter_requires_owned_in(function, param)
+                        .unwrap_or(true)
+                {
+                    return self.borrowed_function_argument_expr(arg, target_ty, None);
+                }
+                self.value_at_type(arg, target_ty)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for param in function.params.iter().skip(args.len()) {
+            let target_ty = self.function_local_decl(function, *param)?.ty;
+            rendered_args.push(self.missing_argument_value(target_ty)?);
+        }
+        if self
+            .context
+            .static_receivers()
+            .receiver_class(function.id)
+            .is_some()
+        {
+            let receiver_type = self.type_rust_name(receiver.unwrap_or(class))?;
+            rendered_args.insert(
+                0,
+                RustExpr::atom(crate::static_receiver::receiver_argument(&receiver_type)),
+            );
+        }
+        let arg_values = rendered_args.join(", ");
+        Ok(RenderedCall::propagating_if(
+            RustExpr::atom(format!("{class_name}::{method_name}({arg_values})")),
+            self.call_is_throwing(function),
+        ))
     }
 
     /// A call whose callee takes its arguments by position: rest and default parameters filled in.

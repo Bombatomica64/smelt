@@ -258,7 +258,7 @@ impl FunctionEmitter<'_> {
 
     /// The declarations of this function's parameters after the first `skip`,
     /// comma separated.
-    fn param_decls_text(&self, skip: usize) -> Result<String, EmitError> {
+    pub(super) fn param_decls_text(&self, skip: usize) -> Result<String, EmitError> {
         Ok(self
             .function
             .params
@@ -596,8 +596,21 @@ impl FunctionEmitter<'_> {
                 // A static method takes no receiver: emit every parameter and no
                 // `self`, producing an associated function `Class::name(..)`.
                 let name = static_method_rust_name(self.context, self.function.id)?;
-                let method_params = self.param_decls_text(0)?;
-                let generics = self.method_own_generics_text()?;
+                let mut method_params = self.param_decls_text(0)?;
+                let mut generics = self.method_own_generics_text()?;
+                // A static method that uses `this` takes the class it was
+                // called on (`crate::static_receiver`).
+                if let Some((receiver_generic, receiver_param)) = self.receiver_generic_parts()? {
+                    generics = match generics.strip_prefix('<') {
+                        Some(rest) => format!("<{receiver_generic}, {rest}"),
+                        None => format!("<{receiver_generic}>"),
+                    };
+                    method_params = if method_params.is_empty() {
+                        receiver_param
+                    } else {
+                        format!("{receiver_param}, {method_params}")
+                    };
+                }
                 out.push_str(&format!(
                     "    {}fn {name}{generics}({method_params}) -> {} {{\n",
                     self.async_keyword(),
@@ -655,7 +668,7 @@ impl FunctionEmitter<'_> {
     /// the generated `F{n}: Fn(..) + ?Sized` callback bounds), under the same
     /// crate-wide decision: the method's own emission declares it when the
     /// trial admitted the method, and so does every inherited copy of it.
-    fn method_own_generics_text(&self) -> Result<String, EmitError> {
+    pub(super) fn method_own_generics_text(&self) -> Result<String, EmitError> {
         if self.function.type_params.is_empty() {
             return Ok(String::new());
         }

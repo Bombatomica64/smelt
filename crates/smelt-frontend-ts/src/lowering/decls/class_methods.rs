@@ -643,6 +643,17 @@ impl ModuleBuilder<'_> {
                 // frame's methods instead, where `this` is the frame.)
                 let saved_static_this =
                     is_static.then(|| this.static_initializer_class.replace(class_text.to_owned()));
+                // A static method's `this` is the class it is called on
+                // (`ModuleBuilder::static_method_this`); a generic class's
+                // statics name no class parameter, so only a non-generic class
+                // takes a receiver.
+                let receiver_class = matches!(
+                    this.ctx.krate.types.get(class_ty),
+                    Some(Type::Class { args, .. }) if args.is_empty()
+                )
+                .then(|| (class_text.to_owned(), class_name));
+                let saved_method_this = is_static
+                    .then(|| std::mem::replace(&mut this.static_method_this, receiver_class));
                 let ctx =
                     this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
                 let scope = ScopeGroups::MEMBER_BODY;
@@ -990,6 +1001,9 @@ impl ModuleBuilder<'_> {
                 this.current_class = saved_class;
                 if let Some(saved) = saved_static_this {
                     this.static_initializer_class = saved;
+                }
+                if let Some(saved) = saved_method_this {
+                    this.static_method_this = saved;
                 }
                 Ok((method_type_params, return_ty, lowered))
             },

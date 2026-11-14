@@ -51,6 +51,14 @@ impl ModuleBuilder<'_> {
                 ty,
                 span,
             }),
+            StaticWriteTarget::Receiver { class, field, ty } => Self::static_dispatch_expr(
+                class,
+                smelt_hir::StaticMember::Set(field),
+                vec![value],
+                ty,
+                span,
+                body,
+            ),
             StaticWriteTarget::Inherited {
                 access,
                 ty: static_ty,
@@ -95,6 +103,17 @@ impl ModuleBuilder<'_> {
                     ty,
                 )
             }
+            StaticWriteTarget::Receiver { class, field, ty } => (
+                Self::static_dispatch_expr(
+                    class,
+                    smelt_hir::StaticMember::Get(field),
+                    Vec::new(),
+                    ty,
+                    span,
+                    body,
+                ),
+                ty,
+            ),
             StaticWriteTarget::Inherited { access, ty } => {
                 let callee = body.push_expr(Expr {
                     kind: ExprKind::Item(access.getter),
@@ -198,7 +217,7 @@ impl ModuleBuilder<'_> {
                 Item::MutableGlobal(global_item) => global_item.ty,
                 _ => self.erase_at(ErasureReason::ByName, span, name),
             },
-            StaticWriteTarget::Inherited { ty, .. } => ty,
+            StaticWriteTarget::Inherited { ty, .. } | StaticWriteTarget::Receiver { ty, .. } => ty,
         };
         let op = match update.operator {
             UpdateOperator::Increment => BinOp::Add,

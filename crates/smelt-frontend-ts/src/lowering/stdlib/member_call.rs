@@ -888,9 +888,18 @@ impl ModuleBuilder<'_> {
         ) else {
             return Ok(None);
         };
+        // `this.m()` in a static method calls the RECEIVER class's `m`, and
+        // `Sub.m()` on a static `Sub` inherits runs it with `Sub` as `this`
+        // (`ModuleBuilder::static_method_this`).
+        let named_class = class.name;
+        let own_static = class.static_methods.contains(&static_item);
+        let receiver_this = self
+            .static_method_receiver(&member.object)
+            .map(|(_, receiver_class)| receiver_class);
         let Item::Function(function) = self.item_ref(static_item) else {
             return Ok(None);
         };
+        let method_name = function.name;
         let return_ty = function.return_ty;
         let rest = function.rest;
         let params = function
@@ -939,6 +948,25 @@ impl ModuleBuilder<'_> {
         } else {
             self.instantiate_generic_method_result(&method_type_params, return_ty)
         };
+        let dispatch = match receiver_this {
+            Some(receiver_class) => Some((None, receiver_class)),
+            None if !own_static && matches!(member.object, Expression::Identifier(_)) => {
+                Some((Some(named_class), named_class))
+            }
+            None => None,
+        };
+        if let Some((receiver, bound)) = dispatch {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::StaticDispatch {
+                    receiver,
+                    class: bound,
+                    member: smelt_hir::StaticMember::Call(method_name),
+                    args,
+                },
+                ty: return_ty,
+                span,
+            })));
+        }
         let callee = body.push_expr(Expr {
             kind: ExprKind::Item(static_item),
             ty: self.item_expr_type(static_item, span)?,

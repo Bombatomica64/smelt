@@ -169,6 +169,7 @@ mod optional_access;
 mod place;
 mod place_type;
 mod polymorphic_cast;
+mod static_dispatch;
 mod post_dominance;
 mod primitive_cast;
 mod py_exception;
@@ -317,6 +318,9 @@ pub(crate) struct EmitContext {
     /// handles over shared storage, computed once by
     /// [`crate::class_polymorphism::polymorphic_classes`].
     polymorphic_classes: HashSet<Symbol>,
+    /// Which static methods take their receiver class as a generic, and each
+    /// class's statics trait ([`crate::static_receiver`]).
+    static_receivers: crate::static_receiver::StaticReceiverPlan,
     /// Closures stored on the instance they capture, which capture it weakly
     /// (see [`weak_receiver`]).
     weak_receivers: weak_receiver::WeakReceiverPlan,
@@ -457,6 +461,7 @@ impl EmitContext {
                 .collect(),
             polymorphic_classes,
             reference_classes,
+            static_receivers: crate::static_receiver::StaticReceiverPlan::compute(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
@@ -575,6 +580,11 @@ impl EmitContext {
     /// shared storage ([`crate::class_polymorphism`]).
     pub(crate) fn is_polymorphic_class(&self, symbol: Symbol) -> bool {
         self.polymorphic_classes.contains(&symbol)
+    }
+
+    /// The static methods taking a receiver class ([`crate::static_receiver`]).
+    pub(crate) fn static_receivers(&self) -> &crate::static_receiver::StaticReceiverPlan {
+        &self.static_receivers
     }
 
     /// The polymorphic classes ([`crate::class_polymorphism`]).

@@ -50,6 +50,7 @@
 )]
 
 use crate::rust::RustExpr;
+use std::collections::HashSet;
 use smelt_hir::{FunctionType, Type, TypeId};
 use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
 
@@ -293,8 +294,10 @@ enum MethodReceiver {
     /// An instance method: the adapter captures `self` and skips the `this`
     /// parameter.
     Instance,
-    /// A static method, called as an associated function of this Rust type.
-    Static(String),
+    /// A static method, called as an associated function of this Rust type;
+    /// a static method that uses `this` also takes the receiver class
+    /// (`crate::static_receiver`), the second field.
+    Static(String, Option<String>),
     /// A prototype method: the adapter recovers its receiver from the
     /// dynamically scoped `this` the call installs, so one function serves
     /// every instance (and an `Object.create(C.prototype)` object).
@@ -312,7 +315,7 @@ fn erased_callable_adapter(
 ) -> Result<RustExpr, EmitError> {
     let skipped = match receiver {
         MethodReceiver::Instance | MethodReceiver::This => 1,
-        MethodReceiver::Static(_) => 0,
+        MethodReceiver::Static(..) => 0,
     };
     let mut args = Vec::new();
     // Callback and rest parameters are spelled by the method's own signature,
@@ -369,7 +372,7 @@ fn erased_callable_adapter(
             "let smelt_receiver = self.clone(); ",
             "smelt_receiver.".to_owned(),
         ),
-        MethodReceiver::Static(class) => ("", format!("{class}::")),
+        MethodReceiver::Static(class, _) => ("", format!("{class}::")),
         MethodReceiver::This => ("", "smelt_receiver.".to_owned()),
     };
     let recover = if matches!(receiver, MethodReceiver::This) {
@@ -377,8 +380,16 @@ fn erased_callable_adapter(
     } else {
         ""
     };
-    let turbofish = crate::emitter::FunctionEmitter::new(mir, context, function)?
+    let mut turbofish = crate::emitter::FunctionEmitter::new(mir, context, function)?
         .erased_own_generics_turbofish()?;
+    // The receiver class leads a receiver-generic static method's arguments
+    // and generics; the generic is inferred from the argument.
+    if let MethodReceiver::Static(_, Some(receiver)) = receiver {
+        args.insert(0, RustExpr::atom(crate::static_receiver::receiver_argument(receiver)));
+        if let Some(rest) = turbofish.strip_prefix("::<") {
+            turbofish = format!("::<_, {rest}");
+        }
+    }
     let call = format!(
         "{callee}{rust_method}{turbofish}({}){try_operator}",
         args.join(", ")
@@ -837,7 +848,25 @@ pub(crate) fn class_static_entries(
     }
     let rust_class = context.names().type_name(class)?.as_str().to_owned();
     let mut entries = Vec::new();
-    for function in &mir.functions {
+    // The class's own static methods, then each ancestor's it does not
+    // redeclare: a class value answers its inherited statics too, run with
+    // the class itself as `this` (`crate::static_receiver`).
+    let mut chain = Vec::new();
+    let mut current = Some(class);
+    let mut seen_classes = HashSet::new();
+    while let Some(name) = current
+        && seen_classes.insert(name)
+    {
+        chain.push(name);
+        current = crate::classes::find_class(mir, name).and_then(|found| found.base);
+    }
+    let mut seen_methods = HashSet::new();
+    let ordered = chain.iter().flat_map(|owner_class| {
+        mir.functions.iter().filter(move |function| {
+            matches!(function.origin, HirOrigin::ClassStaticMethod { class: owner, .. } if owner == *owner_class)
+        })
+    });
+    for function in ordered {
         let HirOrigin::ClassStaticMethod {
             class: owner,
             method,
@@ -846,7 +875,14 @@ pub(crate) fn class_static_entries(
         else {
             continue;
         };
-        if owner != class
+        let method_key = mir.names.get(method).or_else(|| mir.symbols.get(method));
+        if !seen_methods.insert(method_key) {
+            continue;
+        }
+        let inherited = owner != class;
+        if (inherited
+            && crate::classes::find_class(mir, owner)
+                .is_none_or(|found| !found.type_params.is_empty()))
             || !function.type_params.is_empty()
             || function.is_async
             || function.is_generator
@@ -866,11 +902,16 @@ pub(crate) fn class_static_entries(
             .ok_or_else(|| EmitError::new("static method references an unknown symbol"))?
             .to_owned();
         let rust_method = crate::emitter::static_method_rust_name(context, function.id)?;
+        let receiver = context
+            .static_receivers()
+            .receiver_class(function.id)
+            .map(|_| rust_class.clone());
+        let owner_class = context.names().type_name(owner)?.as_str().to_owned();
         let adapter = erased_callable_adapter(
             mir,
             context,
             function,
-            &MethodReceiver::Static(rust_class.clone()),
+            &MethodReceiver::Static(owner_class, receiver),
             &rust_method,
         )?;
         entries.push((source_name, adapter));

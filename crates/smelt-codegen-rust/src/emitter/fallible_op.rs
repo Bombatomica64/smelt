@@ -350,6 +350,12 @@ impl FunctionEmitter<'_> {
                 value,
                 kind,
             } => self.generator_next_call(generator, value.as_ref(), *kind)?,
+            Rvalue::StaticDispatch {
+                receiver,
+                class,
+                member,
+                args,
+            } => self.static_dispatch_call(*receiver, *class, *member, args)?,
             Rvalue::ListIndex { list, item } => (
                 RenderedCall::propagating(self.list_index_expr(list, item)?),
                 self.type_id(Type::Int)?,

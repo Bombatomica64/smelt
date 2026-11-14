@@ -941,6 +941,13 @@ struct ModuleBuilder<'ctx> {
     /// A static METHOD does not set this: its `this` is the receiver of the
     /// call, which may be a subclass.
     static_initializer_class: Option<String>,
+    /// The class (registry key and symbol) whose STATIC METHOD body is being
+    /// lowered, when its `this` is the receiver class of the call: a
+    /// non-generic class with module-global statics. `this.count`,
+    /// `this.count = v`, `this.m()`, `new this()` and `this` itself lower to
+    /// `ExprKind::StaticDispatch` on that receiver (codegen's
+    /// `static_receiver`), so `Sub.bump()` running `Base.bump` reaches `Sub`.
+    static_method_this: Option<(String, smelt_hir::Symbol)>,
     /// The per-evaluation statics of each class declared in this module that
     /// needs them, by owner class (`decls::evaluation_statics`).
     evaluation_statics: HashMap<smelt_hir::Symbol, decls::evaluation_statics::EvaluationStatics>,

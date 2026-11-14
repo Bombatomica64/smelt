@@ -135,6 +135,27 @@ impl ModuleBuilder<'_> {
         {
             return Ok(selected);
         }
+        // `new this(..)` in a static method constructs the RECEIVER class
+        // (`ModuleBuilder::static_method_this`).
+        if let Some((_, class)) = self.static_method_receiver(&new_expr.callee) {
+            let args = new_expr
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name: class,
+                args: Vec::new(),
+            });
+            return Ok(Self::static_dispatch_expr(
+                class,
+                smelt_hir::StaticMember::Construct,
+                args,
+                ty,
+                span,
+                body,
+            ));
+        }
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
             return Ok(expr);
         }

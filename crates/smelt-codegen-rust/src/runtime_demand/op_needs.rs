@@ -330,9 +330,14 @@ impl RuntimeDemand {
             Rvalue::HostGlobalPresent { .. } => {
                 self.add(Need::HostOverride);
             }
-            Rvalue::ClassValue { .. } => {
+            Rvalue::ClassValue { .. }
+            | Rvalue::StaticDispatch {
+                member: smelt_hir::StaticMember::ClassValue,
+                ..
+            } => {
                 self.add(Need::ClassValue);
             }
+            Rvalue::StaticDispatch { .. } => {}
             Rvalue::InstanceOfValue { .. } => {
                 self.add(Need::InstanceOfValue);
             }

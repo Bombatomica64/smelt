@@ -187,6 +187,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::ListIndex { .. }
             | Rvalue::ErasedPatternCall { .. }
             | Rvalue::GeneratorNext { .. }
+            | Rvalue::StaticDispatch { .. }
             | Rvalue::GeneratorCollect { .. }
             | Rvalue::GeneratorDelegate { .. }
             | Rvalue::ListRemove { .. }

@@ -17,7 +17,7 @@ mod op_text;
 pub use call::{CaptureMode, ClosureCapture, ClosureExpr};
 pub use control_flow::AsyncOp;
 pub use core::Expr;
-pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup};
+pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup, StaticMember};
 pub use literals::{Literal, UnknownKind};
 pub use ops::{
     AbortSignalOp, Base64Op, BigIntOp, BlobOp, BoolFoldOp, ByteArrayOp, CryptoOp, DatePart,

@@ -114,6 +114,9 @@ impl RustNames {
                     spelling,
                     crate::class_polymorphism::REFERENCE_COMPANIONS,
                 )
+            } else if mir.has_class(symbol) {
+                // A class's statics trait (`crate::static_receiver`).
+                claim_with_companions(&mut types_scope, spelling, &["SmeltStatics"])
             } else {
                 types_scope.claim(spelling)
             };

@@ -478,6 +478,19 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                     }
                 }
             }
+            // The statics trait a static method's `this` is bounded by, and
+            // its impl for every receiver class (`crate::static_receiver`).
+            let members = context.static_receivers().members(class.name);
+            let host = class.static_methods.iter().find_map(|id| {
+                context
+                    .static_receivers()
+                    .receiver_class(*id)
+                    .and_then(|_| mir.functions.get(usize::try_from(id.0).ok()?))
+            });
+            if let Some(host) = host {
+                let emitter = FunctionEmitter::new(mir, context, host)?;
+                out.push_str(&emitter.statics_trait_text(class.name, members)?);
+            }
         }
         Ok(self.advance())
     }

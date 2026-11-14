@@ -222,6 +222,24 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // `this` in a static method is the class it was called on
+        // (`ModuleBuilder::static_method_this`), a class value like any.
+        if name == "this"
+            && !self.scope.is_bound("this")
+            && let Some((class_text, class)) = self.static_method_this.clone()
+        {
+            let value = self.class_value_expression(&class_text, start, end, body)?;
+            let ty = Self::expr_ty(body, value);
+            let span = self.span(start, end);
+            return Ok(Self::static_dispatch_expr(
+                class,
+                smelt_hir::StaticMember::ClassValue,
+                Vec::new(),
+                ty,
+                span,
+                body,
+            ));
+        }
         // `this` in a static field initializer is the class being defined.
         if name == "this"
             && let Some(class) = self.static_initializer_this()
