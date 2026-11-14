@@ -1187,3 +1187,10 @@ fn absent_iterable_constructors() -> TestResult {
 fn number_format_methods() -> TestResult {
     verify_node_parity("number_format_methods")
 }
+
+/// A reducer that can throw folds plain accumulator values, and its throw
+/// reaches the enclosing `catch`, with and without an initial value.
+#[test]
+fn throwing_reduce_callback() -> TestResult {
+    verify_node_parity("throwing_reduce_callback")
+}
