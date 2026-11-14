@@ -13,7 +13,15 @@ description = "date-fns Smelt probe"
 [sources]
 roots = ["pkgs/core/src"]
 entries = ["pkgs/core/src/index.ts"]
+test-globs = ["**/test.ts"]
+# The CI job deletes, in its disposable clone, the 194 specs that import the
+# sibling `@date-fns/tz`/`@date-fns/utc` packages (see the note above); the
+# spec excludes here are the remaining ones that test what is not modeled.
 exclude = [
+  # Imports `fp-ts`, `js-fns` and `lodash`, which the clone does not install.
+  "pkgs/core/src/fp/_lib/convertToFP/test.ts",
+  # Tests `intlFormat`, excluded below.
+  "pkgs/core/src/intlFormat/test.ts",
   # `Intl.DateTimeFormat` / `Intl.RelativeTimeFormat` have no model: they need a
   # locale-aware formatter behind `format`, `formatToParts` and `resolvedOptions`.
   "pkgs/core/src/intlFormat/index.ts",         # new Intl.DateTimeFormat(locale, options).format(date)
