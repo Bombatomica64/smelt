@@ -671,7 +671,7 @@ pub enum Place {
     /// write through a materialized copy is correct for one and silently lost
     /// for the other. Naming the cell as the assignment root avoids having to
     /// answer which case applies. See
-    /// `blocker-logs/hono-h6-place-global.md`.
+    /// `hono-h6-place-global.md` (in git history).
     ///
     /// Whole-binding assignment is NOT this variant: `x = e` lowers to
     /// `ExprKind::GlobalSet`, which replaces the cell's value and needs no

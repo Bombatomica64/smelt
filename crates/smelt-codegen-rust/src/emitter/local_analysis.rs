@@ -349,7 +349,7 @@ impl FunctionEmitter<'_> {
     /// tells the call site the parameter is `f64`, which the same predicate
     /// answers FALSE for, so the argument was packed by value against a slot
     /// spelled `&`. That is E0308, and it is the `&(SmeltUnknown, RouterRoute)`
-    /// family recorded in `blocker-logs/hono-round30-types.md`.
+    /// family recorded in `hono-round30-types.md` (in git history).
     ///
     /// The rule: SUBSTITUTING A TYPE PARAMETER AT A CALL SITE DOES NOT CHANGE
     /// HOW THE CALLEE IS CALLED. The value is still rendered at the substituted

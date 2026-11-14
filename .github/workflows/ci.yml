@@ -291,7 +291,7 @@ jobs:
   # missing, because developer machines rarely have them. That skip used to be
   # spelled `return Ok(())`, which is indistinguishable from a pass — so every
   # one of these tests reported success in CI while never launching a guest
-  # process. See gap 3 of blocker-logs/test-coverage-analysis.md.
+  # process. See gap 3 of test-coverage-analysis.md (in git history).
   #
   # `SMELT_REQUIRE_SANDBOX=1` turns a missing prerequisite into a failure, in
   # this job and in every other job that runs tool-backed tests (`test`,

@@ -325,7 +325,7 @@ fn a_union_of_object_arms_is_always_truthy() {
     // the union rather than read back out of it: constructing and reading
     // through a generated union arm are separate gaps, and mixing them in would
     // make a failure ambiguous about which rule broke. See
-    // blocker-logs/hono-h4-union-truthiness.md.
+    // hono-h4-union-truthiness.md (in git history).
     let source = r"
 import { test, expect } from 'vitest';
 

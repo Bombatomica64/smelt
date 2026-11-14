@@ -1,5 +1,5 @@
 //! Regression tests for drifted duplicate helpers in the TypeScript frontend
-//! (haiku audit §2.4, `blocker-logs/haiku-audit-followup.md`).
+//! (haiku audit §2.4, `haiku-audit-followup.md` (in git history)).
 //!
 //! These pin the HIR a construct lowers to on the path that used to take a
 //! divergent copy of a helper. The emitted-Rust and runtime checks for the same

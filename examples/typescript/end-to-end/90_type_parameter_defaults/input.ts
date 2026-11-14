@@ -61,7 +61,7 @@ console.log(relabelled.label(), relabelled.count(), relabelled.first);
 // rather than here, because flattening a subclass of a GENERIC base into a
 // monomorphic struct is a separate, unimplemented family: the inherited members
 // are emitted without substituting `base_args` at all, which erases them. See
-// `blocker-logs/hono-round30-types.md`.
+// `hono-round30-types.md` (in git history).
 
 // A declaration whose parameters are ALL defaulted, referenced with NO argument
 // list at all.

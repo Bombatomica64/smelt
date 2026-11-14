@@ -321,7 +321,7 @@ impl ByValueGraph<'_> {
 /// `RegExpRouter` is a reference class, so the anonymous subclass's inherited
 /// bodies read `self.0.borrow()._tries`, while the subclass itself was emitted
 /// as a value struct -- `no field 0 on __smelt_anon_class_3050<T>` (E0609 x9 in
-/// the router slice, and H30 in `blocker-logs/hono-phase2-generated-rust.md`).
+/// the router slice, and H30 in `hono-phase2-generated-rust.md` (in git history)).
 ///
 /// UPWARD, a base of a reference class is a reference class too. A derived
 /// constructor's `super(..)` runs the base constructor body re-emitted over the

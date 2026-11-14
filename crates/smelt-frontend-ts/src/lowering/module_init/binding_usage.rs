@@ -494,7 +494,7 @@ struct MutatedNameCollector {
     /// Still blocks. The inner projection has to produce a value, and whether
     /// that value shares storage with the cell is the handle-versus-value
     /// question `Place::Global` exists to avoid asking; guessing it is how a
-    /// write gets silently lost. See `blocker-logs/hono-h6-place-global.md`.
+    /// write gets silently lost. See `hono-h6-place-global.md` (in git history).
     mutated_through_nested: HashSet<String>,
 }
 
