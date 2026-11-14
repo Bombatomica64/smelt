@@ -319,6 +319,10 @@ pub struct MirClass {
     pub implements: Vec<Symbol>,
     /// Source-language protocols with typed backend mappings.
     pub protocols: Vec<MirClassProtocol>,
+    /// For a synthesized statics frame, the class whose statics it holds
+    /// (see `smelt_hir::Class::statics_of`).
+    #[serde(default)]
+    pub statics_of: Option<Symbol>,
 }
 
 /// A class protocol resolved to MIR function identities.

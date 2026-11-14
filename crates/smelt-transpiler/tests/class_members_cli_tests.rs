@@ -314,3 +314,179 @@ fn class_value_writes_stay_live_beside_a_proxy() -> TestResult {
     let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
     ensure(generated.contains("smelt_index_assign(&mut"), "the write goes through the generic keyed store")
 }
+
+/// Static fields declared without an initializer: a read before the first
+/// write is `undefined` (also through `typeof`, arithmetic, `++`, a class
+/// value and `Object.keys`), a later write is read back, and an optional
+/// static `Map` is created on first use.
+const UNINITIALIZED_STATICS_TS: &str = r#"class Box {
+  static x: number;
+  static label: string;
+  static count: number;
+  static cache?: Map<string, number>;
+  static bump(): number { Box.count = (Box.count ?? 0) + 1; return Box.count; }
+  static remember(key: string, value: number): number {
+    if (!Box.cache) Box.cache = new Map();
+    Box.cache.set(key, value);
+    return Box.cache.size;
+  }
+}
+function read(K: typeof Box) { return K.x; }
+console.log(typeof Box.x, Box.x, Box.x === undefined, typeof Box.label, read(Box), Box.cache === undefined);
+console.log(Box.x + 1, Box.x * 2, "v" + Box.x, Box.x > 3, Object.keys(Box).join(","));
+const before = Box.count++;
+console.log(before, Box.count);
+Box.x = 5;
+Box.label = "hi";
+Box.count = 1;
+Box.count++;
+console.log(typeof Box.x, Box.x, Box.x + 1, Box.label.length, Box.count, read(Box), Box.bump());
+console.log(Box.remember("a", 1), Box.remember("b", 2), Box.cache?.get("b"), Box.cache === undefined);
+"#;
+
+/// What Node prints for [`UNINITIALIZED_STATICS_TS`].
+const UNINITIALIZED_STATICS_OUTPUT: &str = concat!(
+    "undefined undefined true undefined undefined true\n",
+    "NaN NaN vundefined false x,label,count,cache\n",
+    "NaN NaN\n",
+    "number 5 6 2 2 5 3\n",
+    "1 2 2 false\n",
+);
+
+/// A static without an initializer is `undefined` until written, and its
+/// storage keeps the declared type as `Option<T>`.
+#[test]
+fn uninitialized_statics_read_undefined_until_written() -> TestResult {
+    let sources = [("main.ts", UNINITIALIZED_STATICS_TS)];
+    ensure_node_agrees(&sources, "main.ts", UNINITIALIZED_STATICS_OUTPUT, "uninitialized statics")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &UNINITIALIZED_STATICS_OUTPUT.to_owned(), "the uninitialized-statics program's output")?;
+    // Type preservation: the storage is the declared type widened with
+    // `undefined`, never an erased value.
+    let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
+    for (field, ty) in [
+        ("BOX_X", "::std::cell::RefCell<Option<f64>> = ::std::cell::RefCell::new(None)"),
+        ("BOX_LABEL", "::std::cell::RefCell<Option<JsString>> = ::std::cell::RefCell::new(None)"),
+        ("BOX_CACHE", "::std::cell::RefCell<Option<SmeltJsMap<JsString, f64>>> = ::std::cell::RefCell::new(None)"),
+    ] {
+        ensure(static_storage_line(&generated, field).contains(ty), format!("`{field}` is stored as `{ty}`"))?;
+    }
+    Ok(())
+}
+
+/// A class declared in a factory whose statics read the factory's
+/// parameter: two evaluations are two classes, each with its own statics,
+/// mutated by its own static methods (through `this` and the class name),
+/// its constructor and its instances' methods, and `instanceof` tells the
+/// evaluations apart.
+const FACTORY_STATICS_TS: &str = r#"function make(n: number) {
+  class Box {
+    static size = n;
+    static count = 0;
+    static doubled = this.size * 2;
+    static history: number[] = [];
+    v: number;
+    constructor(v: number) { this.v = v; Box.count++; Box.history.push(v); }
+    describe(): string { return `${this.v}/${Box.size}/${Box.count}`; }
+    static grow(): number { this.size += 1; return this.size; }
+    static twice(): number { return Box.size * 2; }
+    static build(v: number): Box { return new this(v); }
+  }
+  const reset = () => { Box.size = n; };
+  return { Box, reset };
+}
+const one = make(1);
+const two = make(10);
+const a = new one.Box(5);
+const b = two.Box.build(6);
+new two.Box(7);
+console.log(one.Box.size, two.Box.size, one.Box.grow(), one.Box.grow(), two.Box.grow(), one.Box.twice(), two.Box.twice());
+console.log(a.describe(), b.describe(), one.Box.count, two.Box.count, one.Box.doubled, two.Box.doubled, one.Box.history.join("+"), two.Box.history.join("+"));
+console.log(a instanceof one.Box, a instanceof two.Box, b instanceof two.Box, b instanceof one.Box);
+one.reset();
+console.log(one.Box.size, two.Box.size, a.describe());
+"#;
+
+/// What Node prints for [`FACTORY_STATICS_TS`].
+const FACTORY_STATICS_OUTPUT: &str = concat!(
+    "1 10 2 3 11 6 22\n",
+    "5/3/1 6/11/2 1 2 2 20 5 6+7\n",
+    "true false true false\n",
+    "1 11 5/1/1\n",
+);
+
+/// Each evaluation of a class declaration that reads the enclosing
+/// function's locals has its own statics, typed all the way down.
+#[test]
+fn factory_classes_have_per_evaluation_statics() -> TestResult {
+    let sources = [("main.ts", FACTORY_STATICS_TS)];
+    ensure_node_agrees(&sources, "main.ts", FACTORY_STATICS_OUTPUT, "per-evaluation statics")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &FACTORY_STATICS_OUTPUT.to_owned(), "the per-evaluation statics program's output")?;
+    // Type preservation: the statics frame is a typed reference class whose
+    // fields keep their types, the instance holds it, and no static is a
+    // module global (one storage for every evaluation).
+    let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
+    let source = fs::read_to_string(root.join("dist/src/source_main.rs")).unwrap_or_default();
+    let all = format!("{generated}\n{source}");
+    ensure(all.contains("struct Box__smelt_statics(::std::rc::Rc<::std::cell::RefCell<Box__smelt_staticsInner>>)"), "the frame is a reference class")?;
+    ensure(all.contains("    size: f64,") && all.contains("    history: SmeltList<f64>,"), "the frame's fields keep their types")?;
+    ensure(all.contains("    __smelt_statics: Box__smelt_statics,"), "each instance holds its frame")?;
+    ensure(!all.contains("SMELT_GLOBAL_BOX_SIZE"), "no evaluation-shared storage")
+}
+
+/// An anonymous class expression returned by a factory, reached only
+/// through erased class values: static reads and writes, static methods
+/// through `this` (including `new this`), construction, `instanceof`,
+/// `typeof`, `name` and `Object.keys` of the class and of an instance.
+const FACTORY_CLASS_EXPRESSION_TS: &str = r#"function make(n: number, tag: string) {
+  return class {
+    static size = n;
+    static label: string = tag + "!";
+    static hits: number;
+    v: number;
+    constructor(v: number) { this.v = v; }
+    static grow(): number { this.size += 1; return this.size; }
+    static make(v: number) { return new this(v); }
+  };
+}
+const A = make(1, "a");
+const B = make(10, "b");
+const a = new A(5);
+const b = B.make(6);
+console.log(A.size, B.size, A.grow(), A.grow(), B.grow(), A.label, B.label, A.hits, typeof B.hits);
+console.log(a instanceof A, a instanceof B, b instanceof B, b instanceof A, a.v, b.v);
+function erased(K: unknown) { return K; }
+const EA = erased(A) as typeof A;
+console.log(EA.size, Object.keys(A).join(","), Object.keys(a).join(","), typeof A, JSON.stringify(A.name));
+const c = new EA(7);
+EA.size = 40;
+console.log(c instanceof A, c instanceof B, c.v, EA.grow(), A.size);
+"#;
+
+/// What Node prints for [`FACTORY_CLASS_EXPRESSION_TS`].
+const FACTORY_CLASS_EXPRESSION_OUTPUT: &str = concat!(
+    "1 10 2 3 11 a! b! undefined undefined\n",
+    "true false true false 5 6\n",
+    "3 size,label,hits v function \"\"\n",
+    "true false 7 41 41\n",
+);
+
+/// A per-evaluation anonymous class expression behaves as a class value at
+/// every erased boundary.
+#[test]
+fn factory_class_expressions_are_class_values_per_evaluation() -> TestResult {
+    let sources = [("main.ts", FACTORY_CLASS_EXPRESSION_TS)];
+    ensure_node_agrees(&sources, "main.ts", FACTORY_CLASS_EXPRESSION_OUTPUT, "per-evaluation class expressions")?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(&output, &FACTORY_CLASS_EXPRESSION_OUTPUT.to_owned(), "the per-evaluation class-expression program's output")
+}

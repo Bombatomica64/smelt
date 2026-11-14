@@ -71,12 +71,23 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(new_expr.span.start, new_expr.span.end);
+        // A constructed value is never nullish, so only the present part of
+        // a `T | undefined` hint (an optional slot it is stored into:
+        // `Box.cache = new Map()` for `static cache?: Map<K, V>`) describes
+        // it; the store widens it back.
+        let type_hint = type_hint.map(|hint| match self.ctx.krate.types.get(hint) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => hint,
+        });
         if let Some(selected) = self.conditional_class_select(Some(&new_expr.callee), span, body, |this, body| {
             this.new_expression_with_hint(new_expr, body, type_hint)
         })? {
             return Ok(selected);
         }
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.new_through_statics_frame(new_expr, body)? {
             return Ok(expr);
         }
         // `Set`, `Map` and `Promise` are host constructors only where the
@@ -371,6 +382,31 @@ impl ModuleBuilder<'_> {
                     self.span(callee.span.start, callee.span.end),
                     blocker.to_owned(),
                 ));
+            }
+            // A module binding that holds a constructor VALUE (`const A =
+            // make()`, a class value a factory returned) constructs through
+            // that value at run time: no class of that name exists to build.
+            // A binding of a class expression (`const Foo = class { .. }`,
+            // lowered later) names that class instead.
+            if self.module_globals.contains_key(callee.name.as_str())
+                && !self.imports.is_value(callee.name.as_str())
+                && !self.classes.is_known(callee.name.as_str())
+                && !self.source_contains_class(callee.name.as_str())
+                && !self.source_facts.binds_class_expression(callee.name.as_str())
+            {
+                let callee_expr =
+                    self.identifier_expression(callee.name.as_str(), callee.span.start, callee.span.end, body)?;
+                let unknown_ty = self.erase_with(ErasureReason::ByName, "new on dynamic constructor value");
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Construct { callee: callee_expr, args },
+                    ty: unknown_ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
             }
             if self.imports.is_value(callee.name.as_str())
                 || self.module_globals.contains_key(callee.name.as_str())

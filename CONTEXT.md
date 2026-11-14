@@ -76,6 +76,25 @@ Smelt lowers source through four stages, each behind a small interface:
   demand hands out (`RuntimeDemand::require`, `carrier()` for the erased
   carrier), so a use the scan did not predict fails at its emit site.
 
+## Class statics
+
+- **Static storage** — a mutable `static` field (or one with an expression or
+  no initializer) is live storage: one module global per field
+  (`StaticField::storage`), read and written directly and through the class
+  value's `__smelt_static_get`/`__smelt_static_set` hooks. A field declared
+  without an initializer is stored as `T | undefined` (`Option<T>`) and starts
+  at `undefined`.
+- **Statics frame** — the storage of a class with *per-evaluation statics*: a
+  class declared in a function whose static initializers read that function's
+  locals is a new class at every evaluation of its declaration. Its statics are
+  the fields of one frame per evaluation, a synthesized reference class
+  (`Class::statics_of`) whose methods are the static methods; the class name is
+  bound to the frame in its scope, each instance holds the frame it was
+  constructed by, and the frame IS the class value (erased, a class-value object
+  over the frame, told apart by `__smelt_class_frame` identity). Lives in
+  `crates/smelt-frontend-ts/src/lowering/decls/evaluation_statics.rs` and
+  `crates/smelt-codegen-rust/src/emitter/statics_frame.rs`.
+
 ## SmeltUnknown
 
 The erased runtime value type. It is the ABI for genuinely dynamic boundaries:

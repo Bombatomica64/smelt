@@ -3,3 +3,7 @@
 true absent
 ABC12
 30 out
+<<<<<<< HEAD
+=======
+[] [1,10,2,20]
+>>>>>>> origin/t3/corpus-generic-records-main

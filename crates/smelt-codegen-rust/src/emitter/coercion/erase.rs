@@ -745,9 +745,13 @@ impl FunctionEmitter<'_> {
         } else {
             RustExpr::path("smelt_object_value")
         };
+        // A statics frame's fields are its class's static fields, read and
+        // written live through the class value's hooks
+        // (`emitter::statics_frame`), never copied into the object.
+        let frame = self.is_statics_frame_class(*name);
         let entries_result = fields
             .iter()
-            .filter(|field| field.visibility.is_own_property())
+            .filter(|field| !frame && field.visibility.is_own_property())
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = self.context.names().field_text(self.mir, field.name);
@@ -827,6 +831,10 @@ impl FunctionEmitter<'_> {
                 "smelt_object_entries.push((\"{marker}\".to_owned(), {value_text})); "
             );
         }
+        // A per-evaluation class's statics frame erases to its class value,
+        // and an instance of one carries the identity of its frame
+        // (`emitter::statics_frame`).
+        host_markers.push_str(&self.statics_frame_markers(*name, self.is_reference_class_type(target))?);
         self.unknown_object_with_markers(value_text, target, *name, &entries, &host_markers)
     }
 
@@ -855,7 +863,7 @@ impl FunctionEmitter<'_> {
         // `emit_record_into_smelt_unknown_impl`) already omits the marker; this
         // inline adapter must agree, or the same value erases two different ways
         // depending on which path the emitter took.
-        let class_marker = if self.is_interface_record_type(target) {
+        let class_marker = if self.is_interface_record_type(target) || self.is_statics_frame_class(name) {
             String::new()
         } else {
             let class_name = self.symbol_source_name(name)?;

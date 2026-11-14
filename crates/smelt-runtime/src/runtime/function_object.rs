@@ -264,7 +264,15 @@ fn smelt_instance_of_value(value: &SmeltUnknown, target: &SmeltUnknown) -> bool 
     if let SmeltUnknown::Object(class) = target && let Some(SmeltUnknown::String(covered)) = class.get("__smelt_class_value") {
         let SmeltUnknown::Object(instance) = value else { return false; };
         let Some(SmeltUnknown::String(name)) = instance.get("__smelt_class") else { return false; };
-        return covered.to_string_lossy().split(',').any(|class_name| name.eq_str(class_name));
+        if !covered.to_string_lossy().split(',').any(|class_name| name.eq_str(class_name)) { return false; }
+        // A class with per-evaluation statics is a new class at every
+        // evaluation of its declaration: its instances answer only to their
+        // own evaluation's class value, told apart by the frame identity both
+        // carry.
+        return match class.get("__smelt_method:__smelt_class_frame") {
+            Some(SmeltUnknown::Number(frame)) => matches!(instance.get("__smelt_method:__smelt_class_frame"), Some(SmeltUnknown::Number(own)) if own.to_bits() == frame.to_bits()),
+            _ => true,
+        };
     }
     let Some(function) = smelt_callable_of(target) else { return false; };
     let prototype = smelt_function_value_property(&function, "prototype");

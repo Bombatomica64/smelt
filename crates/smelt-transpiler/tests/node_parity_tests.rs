@@ -742,6 +742,8 @@ fn record_callable_type_arguments() -> TestResult {
 #[test]
 fn date_setter_erased_receiver() -> TestResult {
     verify_node_parity("date_setter_erased_receiver")
+}
+
 /// A generic alias over a union with an object arm (`{ value: V; rest: string }
 /// | null`) lowers to an optional generic record, a generic helper mapping it
 /// stays generic, and `if (!r) return r;` returns the narrowed `null`.
@@ -777,6 +779,8 @@ fn generic_record_result_alias() -> TestResult {
         ensure(!call.contains("&SmeltUnknown"), format!("erased callback adapter: {call}"))?;
     }
     Ok(())
+}
+
 /// A narrowing proved inside one class member (a method, a constructor) does
 /// not leak into a sibling member's same-named local, so that member's own
 /// null test survives instead of folding to `true` and unwrapping `None`.
@@ -1051,4 +1055,11 @@ fn emission_rules_behaviour() -> TestResult {
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
+}
+
+/// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
+/// empty collection at the present type, as JavaScript's constructors do.
+#[test]
+fn absent_iterable_constructors() -> TestResult {
+    verify_node_parity("absent_iterable_constructors")
 }

@@ -24,6 +24,21 @@ function wrap<V>(value: V, rest: string): ParseResult<V> {
   return { value, rest };
 }
 
+<<<<<<< HEAD
+=======
+// `flatMapAll([], (n) => [[n]])` instantiates `T` at `never`: the callback is
+// never called, and its parameter keeps the callee's signature.
+function flatMapAll<T, U>(xs: T[], f: (x: T) => U[][]): U[] {
+  const out: U[] = [];
+  for (const x of xs) {
+    for (const inner of f(x)) {
+      for (const item of inner) out.push(item);
+    }
+  }
+  return out;
+}
+
+>>>>>>> origin/t3/corpus-generic-records-main
 function main(): void {
   const twice = mapValue(digits("21x"), (n) => n * 2);
   console.log(twice ? twice.value + 1 : -1, twice ? twice.rest : "none");
@@ -35,6 +50,10 @@ function main(): void {
   console.log(shout ? shout.value + shout.rest : "none");
   const nested = mapValue(wrap(wrap(3, "in"), "out"), (inner) => (inner ? inner.value * 10 : 0));
   console.log(nested ? nested.value : -1, nested ? nested.rest : "");
+<<<<<<< HEAD
+=======
+  console.log(JSON.stringify(flatMapAll([], (n) => [[n]])), JSON.stringify(flatMapAll([1, 2], (n) => [[n, n * 10]])));
+>>>>>>> origin/t3/corpus-generic-records-main
 }
 
 main();

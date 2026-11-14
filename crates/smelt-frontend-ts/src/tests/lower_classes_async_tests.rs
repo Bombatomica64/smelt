@@ -424,13 +424,19 @@ fn lowers_generic_classes() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), String> {
-    // A `static` field WITHOUT an initializer is still rejected: its value is
-    // `undefined` whatever its declared type says. A field with any
-    // initializer lowers: a literal one inline, an expression one evaluated
-    // once at class definition (`class_static_expression_field`).
+fn lowers_uninitialized_static_field_as_optional_storage_and_static_members() -> Result<(), String> {
+    // Corrected requirement. This test used to assert that a `static` field
+    // WITHOUT an initializer is rejected ("static fields without an
+    // initializer are not lowered yet"), because its value is `undefined`
+    // whatever its declared type says. JavaScript defines such a field as
+    // `undefined` when the class is defined (`class User { static role:
+    // string }; typeof User.role === "undefined"`), so it now lowers to live
+    // storage of the declared type widened with `undefined` (`Option<T>` in
+    // Rust) that starts at `undefined`: never erased, never refused. Node
+    // checks the behavior in `class_members_cli_tests`
+    // (`uninitialized_statics_read_undefined_until_written`).
     let mut field_ctx = HirCtx::new();
-    let field_errors = lowering_errors(
+    lower_ok(
         ts!("class User {
   static role: string;
   constructor() {}
@@ -438,7 +444,29 @@ fn rejects_uninitialized_static_field_but_lowers_static_members() -> Result<(), 
 "),
         &mut field_ctx,
     )?;
-    assert_unsupported_ts(&field_errors, "static fields without an initializer are not lowered yet")?;
+    ensure!(smelt_hir::validate(&field_ctx.krate).is_empty());
+    let string = field_ctx.krate.types.intern(Type::String);
+    let optional_string = field_ctx.krate.types.intern(Type::Optional(string));
+    let role = field_ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Class(class) => class.static_fields.first(),
+            _ => None,
+        })
+        .ok_or("`User.role` is not a static field")?;
+    ensure!(role.ty == optional_string, "`User.role` is stored as `string | undefined`");
+    let storage = role.storage.ok_or("`User.role` has no storage")?;
+    ensure!(
+        matches!(
+            field_ctx.krate.items.get(usize::try_from(storage.0).map_err(|error| error.to_string())?),
+            Some(Item::MutableGlobal(global))
+                if global.ty == optional_string
+                    && matches!(global.init, smelt_hir::MutableGlobalInit::Literal(Literal::Undefined))
+        ),
+        "`User.role` starts at `undefined`"
+    );
 
     // A literal-initialized `static` constant and a `static` method now lower
     // successfully: the constant becomes a materialized static field
