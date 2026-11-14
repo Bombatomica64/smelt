@@ -1,0 +1,81 @@
+interface Names
+
+fn join_values (FuncId(0)) -> String
+  locals
+    %0 param record: Dict<String, String>
+    %1 temp: List<String>
+    %2 temp: fn(String, Int, List<String>) -> String
+    %3 temp: List<String>
+    %4 temp: String
+  bb0:
+    %1 = dict_keys copy %0
+    %2 = closure ClosureId(0) [copy %0]
+    %3 = list_map move %1, move %2
+    %4 = string_join move %3, "&"
+    return move %4
+
+fn longest (FuncId(1)) -> Float
+  locals
+    %0 param record: Dict<String, String>
+    %1 user best: Float
+    %2 user key: String
+    %3 temp: List<String>
+    %4 temp: usize
+    %5 temp: usize
+    %6 temp: Bool
+    %7 temp: Float
+    %8 temp: Float
+  bb0:
+    %1 = 0.0
+    %3 = dict_for_in_keys copy %0
+    %4 = 0
+    goto bb1
+  bb1:
+    %5 = len copy %3
+    %6 = copy %4 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %2 = copy %3[copy %4]
+    %7 = len copy %0[copy %2]
+    %8 = numeric_max move %1, move %7
+    %1 = move %8
+    goto bb3
+  bb3:
+    %4 = copy %4 + 1
+    goto bb1
+  bb4:
+    return move %1
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user names: Names
+    %1 temp: Names
+    %2 temp: String
+    %3 temp: None
+    %4 temp: Float
+    %5 temp: None
+  bb0:
+    %0 = {"first": "Ada", "last": "Lovelace"}
+    %2 = call fn0(copy %0) -> bb1
+  bb1:
+    %3 = call @console_log(move %2) -> bb2
+  bb2:
+    %4 = call fn1(copy %0) -> bb3
+  bb3:
+    %5 = call @console_log(move %4, copy %0.field1) -> bb4
+  bb4:
+    return none
+
+closure ClosureId(0) -> String
+  locals
+    %0 param key: String
+    %1 user record: Dict<String, String>
+    %2 temp: String
+    %3 temp: String
+    %4 temp: String
+  bb0:
+    %2 = "" + copy %0
+    %3 = copy %2 + "="
+    %4 = copy %3 + copy %1[copy %0]
+    return copy %4
+

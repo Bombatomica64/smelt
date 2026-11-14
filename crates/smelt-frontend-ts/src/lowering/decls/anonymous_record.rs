@@ -152,10 +152,16 @@ impl ModuleBuilder<'_> {
     /// shapes deduplicate onto one struct. The `SmeltRecord` prefix cannot
     /// collide with a source type name reaching this path, since the source
     /// declared no name for the shape.
+    ///
+    /// A field name enters as its SOURCE spelling: the interned symbol is the
+    /// Rust field name, which folds `userId` and `user_id` together, so
+    /// `{ userId: number }` and `{ user_id: number }` would share one struct
+    /// and a value of one would be read through the other's keys.
     fn anonymous_record_name(&self, fields: &[Field]) -> smelt_hir::SynthesizedName {
         let mut hasher = DefaultHasher::new();
         for field in fields {
-            self.ctx.krate.symbols.get(field.name).hash(&mut hasher);
+            crate::lowering::support::source_spelling(&self.ctx.krate, field.name)
+                .hash(&mut hasher);
             field.ty.hash(&mut hasher);
             field.optional.hash(&mut hasher);
         }
