@@ -196,6 +196,8 @@ declare_needs! {
     ConcatSpread,
     /// `Object.defineProperty`/`defineProperties`.
     DefineProperties,
+    /// `Object.setPrototypeOf`.
+    SetPrototypeOf,
     /// The dynamically scoped `this` channel.
     ThisChannel,
     /// A read of that channel.
@@ -322,6 +324,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Timers, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
+    (Need::SetPrototypeOf, &[Need::Unknown]),
     (Need::ThisChannel, &[Need::Unknown]),
     (Need::ThisRead, &[Need::ThisChannel]),
     (Need::Construct, &[Need::Unknown, Need::ThisChannel]),

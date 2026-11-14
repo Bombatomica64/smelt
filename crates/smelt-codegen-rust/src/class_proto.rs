@@ -418,7 +418,10 @@ fn erased_callable_adapter(
 /// builds through for `new value.constructor(args)` on an erased instance.
 pub(crate) const CONSTRUCTOR_KEY: &str = "__smelt_method:constructor";
 
-/// Whether `mir` builds through `new value.constructor()` anywhere.
+/// Whether `mir` can build an instance through its erased constructor:
+/// `new value.constructor()` anywhere, or a reflective prototype read
+/// (`Object.getPrototypeOf`, `__proto__`), whose `constructor` es-toolkit's
+/// `clone` takes and calls with `new` (docs/design/class-prototypes.md).
 fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
     *context.constructs_like.get_or_init(|| {
         let bodies = mir
@@ -433,7 +436,9 @@ fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
                     matches!(
                         statement,
                         smelt_mir::Statement::Assign {
-                            value: smelt_mir::Rvalue::ConstructLike { .. },
+                            value:
+                                smelt_mir::Rvalue::ConstructLike { .. }
+                                | smelt_mir::Rvalue::PrototypeSentinel { .. },
                             ..
                         }
                     )

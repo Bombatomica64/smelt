@@ -2280,6 +2280,20 @@ macro_rules! op_group_transcribed {
                 descriptors: one,
             }
                 => (format!("define_properties {target} {descriptors}"));
+            /// Set the `[[Prototype]]` of an erased object (`Object.setPrototypeOf`).
+            ///
+            /// Lowers to the `smelt_set_prototype_of` runtime helper, which records the
+            /// link every prototype read walks and, for a class prototype, the class
+            /// tag `instanceof` reads. It answers the target, as the `Object` static
+            /// does. A typed target cannot change type: it is erased into a new
+            /// object, so the call has no effect on it.
+            SetPrototypeOf {
+                /// Object whose prototype is set; also the result value.
+                target: one,
+                /// The new prototype: an object or `null`.
+                prototype: one,
+            }
+                => (format!("set_prototype_of {target} {prototype}"));
             /// Extract a typed value from a TypeScript `unknown` value.
             UnknownCast {
                 /// Value being extracted.

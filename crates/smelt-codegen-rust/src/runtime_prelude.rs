@@ -108,10 +108,56 @@ fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitE
             }
             Ok(())
         }
+        "program_classes" => {
+            for line in program_class_arms(mir) {
+                writer.line(line);
+            }
+            Ok(())
+        }
         _ => Err(EmitError::new(format!(
             "the runtime names an unknown slot `{slot}`"
         ))),
     }
+}
+
+/// The table rows of the runtime's `smelt_program_class`: one per class tag
+/// (the source name its erased instances carry in `__smelt_class`) that
+/// exactly one program class claims, with the base class's tag (`""` for a
+/// root).
+///
+/// A tag two classes share (one source name in two modules) gets no arm, so
+/// the runtime neither interns a class value for it nor links its prototype
+/// to a base: a table keyed by the tag cannot tell those classes apart. The
+/// base is named only when it is itself a uniquely tagged program class;
+/// otherwise the prototype chain ends at `Object.prototype`, as it did before.
+/// See docs/design/class-prototypes.md.
+fn program_class_arms(mir: &Mir) -> Vec<String> {
+    let tag = |symbol| mir.names.get(symbol).or_else(|| mir.symbols.get(symbol));
+    let mut claims = std::collections::HashMap::<&str, usize>::new();
+    for class in &mir.classes {
+        if let Some(name) = tag(class.name) {
+            let count = claims.entry(name).or_default();
+            *count = count.saturating_add(1);
+        }
+    }
+    let unique = |name: &str| claims.get(name) == Some(&1);
+    let mut arms = Vec::new();
+    let mut written = std::collections::HashSet::new();
+    for class in &mir.classes {
+        let Some(name) = tag(class.name) else {
+            continue;
+        };
+        if !unique(name) || !written.insert(name) {
+            continue;
+        }
+        let base = class
+            .base
+            .and_then(tag)
+            .filter(|base| unique(base))
+            .unwrap_or_default();
+        arms.push(format!("        ({name:?}, {base:?}),"));
+    }
+    arms
 }
 
 /// The facts about a program, beyond its [`RuntimeDemand`], that a runtime
@@ -244,6 +290,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "typeof" => Need::Typeof,
         "concat_spread" => Need::ConcatSpread,
         "define_properties" => Need::DefineProperties,
+        "set_prototype_of" => Need::SetPrototypeOf,
         "this_channel" => Need::ThisChannel,
         "this_read" => Need::ThisRead,
         "construct" => Need::Construct,

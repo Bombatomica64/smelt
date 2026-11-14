@@ -316,7 +316,10 @@ fn smelt_same_prototype_link(left: &SmeltUnknown, right: &SmeltUnknown) -> bool 
 //~ constructor is known, named, carrying the classes `instanceof` accepts
 //~ (itself and its subclasses, comma separated), and holding its static
 //~ methods as own properties, keyed as `smelt_property_key` keys them.
-fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); entries.extend(statics); SmeltUnknown::Object(SmeltObject::new(entries)) }
+//~ Interned per class (`smelt_intern_class_value`), so every read of a class
+//~ is one value, except a class with per-evaluation statics, which is a new
+//~ class at every evaluation of its declaration.
+fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); let per_evaluation = statics.iter().any(|(key, _)| key == "__smelt_method:__smelt_class_frame"); entries.extend(statics); let value = SmeltUnknown::Object(SmeltObject::new(entries)); if per_evaluation || smelt_program_class(name).is_none() { value } else { smelt_intern_class_value(name, value) } }
 
 //~ A class's MUTABLE static fields are live storage the program reads and
 //~ writes directly (`Box.PI`), so a class value cannot hold copies of them:

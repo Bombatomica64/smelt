@@ -321,6 +321,16 @@ impl FunctionEmitter<'_> {
                 target,
                 descriptors,
             } => self.define_properties_expr(target, descriptors),
+            Rvalue::SetPrototypeOf { target, prototype } => {
+                let call = self.set_prototype_of_expr(target, prototype)?;
+                // Lowered as an effect with no value: the source reads the
+                // target again for the call's result.
+                if dest_ty == self.none_ty {
+                    Ok(RustExpr::atom(format!("{{ let _ = {}; }}", call.delimited())))
+                } else {
+                    Ok(call)
+                }
+            }
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,

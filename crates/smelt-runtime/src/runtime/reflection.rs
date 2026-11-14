@@ -52,12 +52,15 @@ fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.ge
 //~ and that branch decides by identity (`a === b`), so two classes compare
 //~ unequal and two instances of one class compare equal — without recursing
 //~ into the constructor's own `.constructor`, which an object value would do.
-//~ Calling it yields a fresh instance carrying the same class marker, which is
+//~ Calling it builds through the class's erased constructor when an instance
+//~ recorded one (`smelt_note_class_builder`), stamping the class tag a
+//~ reference class's own erasure leaves out; otherwise it yields a fresh
+//~ instance carrying the same class marker, which is
 //~ what `new obj.constructor()` means.
 thread_local! { static SMELT_CLASS_CONSTRUCTORS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 /// One interned constructor value per class name, for `instance.constructor`.
-fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
+fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(build)) = smelt_class_builder(&marker) { let built = build(args)?; if let SmeltUnknown::Object(object) = &built && object.get("__smelt_class").is_none() { object.insert("__smelt_class", SmeltUnknown::String(marker.as_str().into())); } return Ok(built); } let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
 
 /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
 //~ Class instances carry a hidden `__smelt_class` marker and map to a distinct
@@ -83,7 +86,7 @@ fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CON
 //~ `None` for plain objects, arrays and class instances, which keep their
 //~ opaque `"__smelt_proto:*"` string sentinels.
 fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
-    let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
+    let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
     if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name.to_string_lossy()).is_some() { return Some(name.to_string_lossy()); } }
     Some(class.to_owned())
 }
