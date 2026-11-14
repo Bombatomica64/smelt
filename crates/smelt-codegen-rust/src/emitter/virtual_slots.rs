@@ -315,7 +315,13 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    if self.param_passed_by_mut_ref(&function_ty, index) {
+                    // The stored callable and this adapter are rendered from
+                    // the same slot type, so a parameter the adapter takes by
+                    // reference (a bare type parameter, `&T`) is handed on as
+                    // that reference.
+                    if self.param_passed_by_mut_ref(&function_ty, index)
+                        || self.callback_param_is_shared_reference(&function_ty, index, *param)
+                    {
                         Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
                         self.rendered_at_type(

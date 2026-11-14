@@ -147,14 +147,17 @@ fn json_check_includes_severity() -> TestResult {
 #[test]
 fn backend_records_erased_generics() -> TestResult {
     let project = project("")?;
-    // Old fixture: a plain `pick<T>` method, which the backend erased. A
-    // method's own type parameters are now Rust generics (`fn pick<T>`), so
-    // the backend erases one only where it must: an overridden method is a
-    // virtual slot (`Rc<dyn Fn(..)>`), which cannot be generic. The
-    // requirement is unchanged: a backend erasure names its reason.
+    // Old fixtures: a plain `pick<T>` method, then an OVERRIDDEN one, which
+    // the backend erased. Both are now Rust generics (`fn pick<T>`; an
+    // override is reached through the polymorphic class handle,
+    // `codegen::class_polymorphism`), so the backend erases one only where it
+    // must: an ABSTRACT generic method has no body to forward from and is
+    // dispatched through its callable slot (`Rc<dyn Fn(..)>`), which cannot be
+    // generic. The requirement is unchanged: a backend erasure names its
+    // reason.
     fs::write(
         project.path().join("main.ts"),
-        "class Box {\n  pick<T>(x: T): T {\n    return x;\n  }\n}\nclass Sub extends Box {\n  pick<T>(x: T): T {\n    return x;\n  }\n}\nconst b: Box = new Sub();\nconsole.log(b.pick(1));\n",
+        "abstract class Box {\n  abstract pick<T>(x: T): T;\n}\nclass Sub extends Box {\n  pick<T>(x: T): T {\n    return x;\n  }\n}\nconst b: Box = new Sub();\nconsole.log(b.pick(1));\n",
     )?;
     let (ok, _, stderr) = run(project.path(), &["build"])?;
     ensure(ok, stderr)?;
