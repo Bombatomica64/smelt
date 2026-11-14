@@ -266,6 +266,49 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Declare a `static NAME: T;` (or `static NAME?: T;`) with no
+    /// initializer: live storage of `T | undefined` that starts at
+    /// `undefined`.
+    ///
+    /// JavaScript defines the property when the class definition runs and
+    /// gives it `undefined`, whatever the annotation says (TypeScript does not
+    /// check definite assignment of statics), so a read before the first
+    /// write is `undefined` and `typeof` of it is `"undefined"`. The storage
+    /// type is therefore the declared type widened with `undefined`
+    /// (`Option<T>` in Rust), never an erased value: the declared type stays
+    /// the payload, and every read is typed `T | undefined`. The declared type
+    /// is the annotation, else the type TypeScript gave the property, else
+    /// (`static x;`, which is `any`) an erased value.
+    pub(in crate::lowering) fn class_uninitialized_static_field(
+        &mut self,
+        property: &oxc::ast::ast::PropertyDefinition<'_>,
+    ) -> Result<smelt_hir::StaticField, SmeltError> {
+        let name = self.property_key_symbol(&property.key)?;
+        let key_span = property.key.span();
+        let declared = if let Some(annotation) = &property.type_annotation {
+            self.ts_type_to_hir(&annotation.type_annotation)?
+        } else if let Some(ty) = self.checker_binding_type(key_span.start, key_span.end) {
+            ty
+        } else {
+            self.erase(ErasureReason::MissingAnnotation)
+        };
+        let ty = self.field_type_with_optional(declared, true);
+        let visibility = if matches!(&property.key, PropertyKey::PrivateIdentifier(_)) {
+            Visibility::Hidden
+        } else {
+            visibility(property.accessibility)
+        };
+        Ok(smelt_hir::StaticField {
+            name,
+            ty,
+            visibility,
+            value: None,
+            mutable: !property.readonly,
+            storage: None,
+            span: self.span(property.span.start, property.span.end),
+        })
+    }
+
     /// Lower the initializer of class `class_item`'s static field `field`
     /// into its storage's lazy initializer.
     ///
@@ -554,6 +597,17 @@ impl ModuleBuilder<'_> {
                                 ty: class_ty,
                                 span: this.span(method.span.start, method.span.start),
                             });
+                        }
+                    }
+                    // A per-evaluation class binds its name to its frame, and
+                    // its constructor takes the frame first
+                    // (`decls::evaluation_statics`).
+                    if !is_static {
+                        let names_class = this.lowering_evaluation_statics.as_ref().and_then(|evaluation| evaluation.binding.as_deref())
+                            .is_some_and(|binding| Self::function_body_names(function_body, binding));
+                        let span = this.span(method.span.start, method.span.start);
+                        if let Some(param) = this.bind_evaluation_frame(class_name, class_ty, this_local, is_constructor, names_class, span, &mut body) {
+                            params.push(param);
                         }
                     }
 

@@ -265,6 +265,7 @@ impl ModuleBuilder<'_> {
             self.validate_specialization_adapters(self.span(class.span.start, class.span.end))?;
         }
         let statics_depth = self.classes.statics_in_flight_depth();
+        let saved_evaluation = self.lowering_evaluation_statics.take();
         let item = self.with_type_parameter_scope(class.type_parameters.as_deref(), |this, type_params| {
             let class_type_args = type_params
                 .iter()
@@ -280,11 +281,54 @@ impl ModuleBuilder<'_> {
                 args: class_type_args,
             });
             let (base, base_args) = this.class_extends_clause(class)?;
+            // A subclass of a class with per-evaluation statics would inherit
+            // that evaluation's static fields (shared with the base, shadowed
+            // by its own writes) and pass the base's frame to `super(...)`;
+            // neither is modeled, so it is reported rather than miscompiled.
+            if let Some(base) = base
+                && this.evaluation_statics.contains_key(&base)
+            {
+                return Err(SmeltError::unsupported(
+                    this.span(class.span.start, class.span.end),
+                    "a class extending a class whose static initializers read its enclosing function's locals \
+                     (per-evaluation statics) is not lowered yet",
+                ));
+            }
             if let Some(base_name) = base {
                 this.classes
                     .set_base(class_text.to_owned(), class_name, base_name, base_args.clone());
             }
             let mut fields = Vec::new();
+            // A class declared in a function whose static initializers read the
+            // function's locals keeps its statics in one frame per evaluation
+            // (`decls::evaluation_statics`): its static fields become the
+            // frame's fields, its static methods the frame's methods, and each
+            // instance carries the frame it was constructed by.
+            let evaluation = if materialized.is_none() {
+                this.begin_evaluation_statics(class, &class_source_name, class_name)
+            } else {
+                None
+            };
+            if evaluation.is_some() && !type_params.is_empty() {
+                return Err(SmeltError::unsupported(
+                    this.span(class.span.start, class.span.end),
+                    "a generic class whose static initializers read its enclosing function's locals \
+                     (per-evaluation statics) is not lowered yet",
+                ));
+            }
+            this.lowering_evaluation_statics.clone_from(&evaluation);
+            let mut frame_fields = Vec::new();
+            let mut frame_methods = Vec::new();
+            if let Some(evaluation) = &evaluation {
+                fields.push(Field {
+                    name: evaluation.frame_field,
+                    ty: evaluation.frame_ty,
+                    // Compiler-synthesized, never a source property.
+                    visibility: Visibility::Hidden,
+                    optional: false,
+                    span: class_span,
+                });
+            }
             // Methods this class reassigns through `this`, which are carried as
             // function-typed fields instead of inherent methods. Scanned once here
             // because both loops below need it: the field loop converts them, the
@@ -300,6 +344,9 @@ impl ModuleBuilder<'_> {
             // Source static fields whose initializer is an expression, in
             // declaration order: lowered once the class is registered.
             let mut static_initializers: Vec<(smelt_hir::Symbol, &Expression<'_>)> = Vec::new();
+            // Source static fields declared without an initializer, whose
+            // storage starts at `undefined`.
+            let mut uninitialized_statics: Vec<smelt_hir::Symbol> = Vec::new();
             let mut abstract_methods = Vec::new();
             let mut descriptor_accessors = Vec::new();
             // Accessor descriptors built directly from plain source getters on a
@@ -358,6 +405,20 @@ impl ModuleBuilder<'_> {
                             if materialized.is_some() {
                                 continue;
                             }
+                            if evaluation.is_some() {
+                                // A function-valued static stays unemitted, as on
+                                // the module-global path below.
+                                if !matches!(
+                                    property.value,
+                                    Some(
+                                        Expression::FunctionExpression(_)
+                                            | Expression::ArrowFunctionExpression(_)
+                                    )
+                                ) {
+                                    frame_fields.push(this.evaluation_static_field(property)?);
+                                }
+                                continue;
+                            }
                             // A `static NAME: T = <literal>` declares a class-level
                             // field resolvable via `Class.NAME` whose value is the
                             // literal; any other initializer is an expression the
@@ -399,10 +460,15 @@ impl ModuleBuilder<'_> {
                                 source_static_fields.push(static_field);
                                 continue;
                             }
-                            return Err(SmeltError::unsupported(
-                                this.span(property.span.start, property.span.end),
-                                "static fields without an initializer are not lowered yet",
-                            ));
+                            // `static x: T;` (or `static x?: T;`): JavaScript
+                            // defines the property as `undefined` when the class
+                            // definition runs, whatever `T` says. The field is
+                            // live storage of `T | undefined`, starting at
+                            // `undefined` (`class_uninitialized_static_field`).
+                            let static_field = this.class_uninitialized_static_field(property)?;
+                            uninitialized_statics.push(static_field.name);
+                            source_static_fields.push(static_field);
+                            continue;
                         }
                         let name = this.property_key_symbol(&property.key)?;
                         let mut ty = if let Some(annotation) = &property.type_annotation {
@@ -410,8 +476,16 @@ impl ModuleBuilder<'_> {
                         } else if let Some(value) = &property.value {
                             let mut field_body =
                                 Body::new(None, this.span(value.span().start, value.span().end));
-                            let value = this.expression(value, &mut field_body)?;
-                            Self::expr_ty(&field_body, value)
+                            // In a per-evaluation class the initializer reads
+                            // the class's statics through its frame, as the
+                            // constructor that runs it does.
+                            let frame_binding = this.bind_scratch_evaluation_frame(
+                                &mut field_body,
+                                this.span(value.span().start, value.span().end),
+                            );
+                            let value = this.expression(value, &mut field_body);
+                            this.restore_scratch_evaluation_frame(frame_binding);
+                            Self::expr_ty(&field_body, value?)
                         } else {
                             return Err(SmeltError::unsupported(
                                 this.span(property.span.start, property.span.end),
@@ -595,6 +669,9 @@ impl ModuleBuilder<'_> {
                     None if static_initializers.iter().any(|(name, _)| *name == static_field.name) => {
                         smelt_hir::MutableGlobalInit::Pending
                     }
+                    None if uninitialized_statics.contains(&static_field.name) => {
+                        smelt_hir::MutableGlobalInit::Literal(Literal::Undefined)
+                    }
                     _ => continue,
                 };
                 {
@@ -653,6 +730,11 @@ impl ModuleBuilder<'_> {
             }
             this.classes.set_fields(class_text.to_owned(), fields.clone());
             this.classes.set_methods(class_text.to_owned(), method_sigs.clone());
+            if let Some(evaluation) = &evaluation {
+                let frame_sigs = this.evaluation_static_method_signatures(&class.body.body)?;
+                this.classes.set_fields(evaluation.frame_text.clone(), frame_fields.clone());
+                this.classes.set_methods(evaluation.frame_text.clone(), frame_sigs);
+            }
             // Publish the class index-signature value type (if any) so member and
             // computed access can resolve keyed reads/writes through it while the
             // class's own method bodies are still being lowered, and so later
@@ -722,6 +804,20 @@ impl ModuleBuilder<'_> {
                                     this.span(method.span.start, method.span.end),
                                     "static accessors are not lowered yet",
                                 ));
+                            }
+                            if let Some(evaluation) = &evaluation {
+                                // A static method of a per-evaluation class is a
+                                // method of its frame: `this` is the frame.
+                                let item = this.class_function(
+                                    &evaluation.frame_text,
+                                    evaluation.frame,
+                                    evaluation.frame_ty,
+                                    method,
+                                    false,
+                                    &[],
+                                )?;
+                                frame_methods.push(item);
+                                continue;
                             }
                             let item = this.class_static_function(
                                 class_text,
@@ -1067,10 +1163,15 @@ impl ModuleBuilder<'_> {
                 abstract_methods,
                 implements,
                 protocols: Vec::new(),
+                statics_of: None,
             }));
+            if let Some(evaluation) = &evaluation {
+                this.finish_evaluation_statics(evaluation, frame_fields, frame_methods, class_span)?;
+            }
             Ok((item, static_initializers))
         });
         self.classes.truncate_statics_in_flight(statics_depth);
+        self.lowering_evaluation_statics = saved_evaluation;
         let (item, static_initializers) = item?;
         self.classes.register(class_source_name.clone(), item);
         self.validate_implements(item)?;
@@ -1096,6 +1197,26 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let item = self.class_declaration(class)?;
+        // A per-evaluation class expression evaluates to this evaluation's
+        // statics frame, which is the class value (`decls::evaluation_statics`).
+        // A named class expression's name is bound only inside its own body.
+        let saved_binding = class.id.as_ref().and_then(|id| self.scope.lookup(id.name.as_str()));
+        if let Some(frame) = self.evaluate_class_statics(item, class, body)? {
+            if let Some(id) = &class.id {
+                match saved_binding {
+                    Some(previous) => {
+                        self.scope.bind(id.name.to_string(), previous);
+                    }
+                    None => self.scope.unbind(id.name.as_str()),
+                }
+            }
+            let ty = Self::local_ty(body, frame);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Local(frame),
+                ty,
+                span: self.span(class.span.start, class.span.end),
+            }));
+        }
         let Item::Class(lowered) = self.item_ref(item) else {
             return Err(SmeltError::unsupported(
                 self.span(class.span.start, class.span.end),

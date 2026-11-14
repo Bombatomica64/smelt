@@ -271,6 +271,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_synthesized_prototype_assignment(
         &self,
         expression: &Expression<'_>,
+        body: &Body,
     ) -> bool {
         let Expression::AssignmentExpression(assign) = expression else {
             return false;
@@ -278,12 +279,22 @@ impl ModuleBuilder<'_> {
         let AssignmentTarget::StaticMemberExpression(member) = &assign.left else {
             return false;
         };
+        // The receiver must name the class, not the statics frame a
+        // per-evaluation class's name is bound to: a write through a frame is
+        // a real store into this evaluation's static field.
+        let names_class = |object: &str| {
+            self.classes.contains(object)
+                && self
+                    .scope
+                    .lookup(object)
+                    .is_none_or(|local| self.statics_frame_owner(Self::local_ty(body, local)).is_none())
+        };
         // `Foo.prototype.x = …`: receiver is `Foo.prototype`.
         if let Expression::StaticMemberExpression(prototype) = &member.object
             && prototype.property.name == "prototype"
             && matches!(
                 &prototype.object,
-                Expression::Identifier(object) if self.classes.contains(object.name.as_str())
+                Expression::Identifier(object) if names_class(object.name.as_str())
             )
         {
             return true;
@@ -297,7 +308,7 @@ impl ModuleBuilder<'_> {
         }
         matches!(
             &member.object,
-            Expression::Identifier(object) if self.classes.contains(object.name.as_str())
+            Expression::Identifier(object) if names_class(object.name.as_str())
         )
     }
 
@@ -631,6 +642,7 @@ impl ModuleBuilder<'_> {
             implements: Vec::new(),
             protocols: Vec::new(),
             static_fields: Vec::new(),
+            statics_of: None,
             descriptors: Vec::new(),
         }));
         self.classes.register(class_text, item);

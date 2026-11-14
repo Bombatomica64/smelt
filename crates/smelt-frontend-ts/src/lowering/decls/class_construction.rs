@@ -70,6 +70,9 @@ impl ModuleBuilder<'_> {
                 span,
             });
             this.scope.bind("this".to_owned(), this_local);
+            // A per-evaluation class's constructor takes its frame first
+            // (`decls::evaluation_statics`).
+            let frame_param = this.bind_evaluation_frame(class_name, class_ty, this_local, true, false, span, &mut body);
             let forwarded = if has_base {
                 this.reproducible_base_constructor_signature(class_text)
             } else {
@@ -180,6 +183,13 @@ impl ModuleBuilder<'_> {
                 (Vec::new(), None)
             };
             this.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+            let (params, required_params) = match frame_param {
+                Some(frame_param) => (
+                    std::iter::once(frame_param).chain(params).collect(),
+                    required_params.map(|required| required + 1),
+                ),
+                None => (params, required_params),
+            };
             Ok((body, params, required_params))
         });
         self.current_class = saved_class;

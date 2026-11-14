@@ -65,7 +65,17 @@ impl ModuleBuilder<'_> {
             }));
         }
         // A constructor read from a value (`pair.errorClass`) is only known at
-        // run time, so the prototype-chain walk runs there too.
+        // run time, so the prototype-chain walk runs there too. So is a class
+        // with per-evaluation statics: which evaluation's class an instance
+        // belongs to is a run-time fact, answered by frame identity.
+        if let Some((target, _)) = self.statics_frame_value(target, body)? {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::InstanceOfValue { value, target },
+                ty,
+                span: self.span(span.start, span.end),
+            }));
+        }
         let Expression::Identifier(class_ident) = target else {
             let target = self.expression(target, body)?;
             let ty = self.ctx.krate.types.intern(Type::Bool);
@@ -204,11 +214,14 @@ impl ModuleBuilder<'_> {
             // resolves to a local binding or function item can only be a
             // function value, never a nominal class; the nominal path below
             // keeps its compile-time marker probe.
+            // A module-scope value binding (`const A = make()`) holds whatever
+            // constructor it was given at run time, a class value included.
             let target_is_function_value = self.scope.is_bound(class_text)
                 || self
                     .items
                     .get(class_text)
-                    .is_some_and(|&item| matches!(self.item_ref(item), smelt_hir::Item::Function(_)));
+                    .is_some_and(|&item| matches!(self.item_ref(item), smelt_hir::Item::Function(_)))
+                || matches!(self.resolve_value(class_text), super::resolve::ValueBinding::Module);
             // The one shape that cannot be lowered: `this instanceof wrapper`
             // read from INSIDE `wrapper`'s own body (the JS new-detection idiom
             // in lodash-compat `curry`/`curryRight`). The constructor value is
@@ -868,6 +881,11 @@ impl ModuleBuilder<'_> {
     /// `"undefined"`, present it is its value's. A future is not folded either
     /// (`static_typeof_match` declines it too). Both stay a runtime `typeof`.
     pub(super) fn typeof_type_name(&self, ty: smelt_hir::TypeId) -> Option<&'static str> {
+        // A statics frame is the class value of a per-evaluation class
+        // (`decls::evaluation_statics`), and a class is a function.
+        if self.statics_frame_owner(ty).is_some() {
+            return Some("function");
+        }
         match self.ctx.krate.types.get(ty) {
             Some(Type::None) => Some("undefined"),
             Some(Type::Optional(_) | Type::Future(_)) | None => None,

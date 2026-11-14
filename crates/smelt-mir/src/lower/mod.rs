@@ -589,6 +589,7 @@ fn lower_class_table_entry(
                     .map(|method| crate::MirClassProtocol::Add { method }),
             })
             .collect(),
+        statics_of: class.statics_of,
     });
 }
 

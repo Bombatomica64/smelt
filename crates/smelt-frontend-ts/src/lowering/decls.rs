@@ -11,6 +11,7 @@ mod class_methods;
 mod classes;
 mod constructor;
 mod enums;
+pub(in crate::lowering) mod evaluation_statics;
 mod function_expressions;
 mod functions;
 mod inferred_types;

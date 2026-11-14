@@ -26,6 +26,9 @@ pub(super) struct SourceFacts {
     module_values: HashSet<String>,
     /// Named classes declared at any depth.
     classes: HashSet<String>,
+    /// Names a variable declarator binds to a class expression at any depth
+    /// (`const Foo = class { .. }`, a class named `Foo`).
+    class_expression_bindings: HashSet<String>,
     /// Named types declared at any depth: classes, interfaces, aliases, enums.
     types: HashSet<String>,
     /// Member names declared by classes, interfaces and object types.
@@ -134,6 +137,12 @@ impl SourceFacts {
         self.module_values.contains(name)
     }
 
+    /// Whether a variable is bound to a class expression under `name`, at
+    /// any depth.
+    pub(super) fn binds_class_expression(&self, name: &str) -> bool {
+        self.class_expression_bindings.contains(name)
+    }
+
     /// Whether the module declares a class called `name`, at any depth.
     pub(super) fn declares_class(&self, name: &str) -> bool {
         self.classes.contains(name)
@@ -174,6 +183,15 @@ impl<'a> Visit<'a> for SourceFacts {
     fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
         self.record_function(function);
         walk::walk_function(self, function, flags);
+    }
+
+    fn visit_variable_declarator(&mut self, declarator: &oxc::ast::ast::VariableDeclarator<'a>) {
+        if let (BindingPattern::BindingIdentifier(binding), Some(oxc::ast::ast::Expression::ClassExpression(_))) =
+            (&declarator.id, declarator.init.as_ref().map(oxc::ast::ast::Expression::without_parentheses))
+        {
+            self.class_expression_bindings.insert(binding.name.to_string());
+        }
+        walk::walk_variable_declarator(self, declarator);
     }
 
     fn visit_class(&mut self, class: &Class<'a>) {

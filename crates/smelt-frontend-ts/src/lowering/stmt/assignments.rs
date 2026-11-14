@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let span = self.span(update.span.start, update.span.end);
-        let ty = match self.item_ref(item) {
+        let cell_ty = match self.item_ref(item) {
             Item::MutableGlobal(global_item) => global_item.ty,
             _ => self.erase_at(ErasureReason::ByName, span, name),
         };
@@ -119,13 +119,22 @@ impl ModuleBuilder<'_> {
             UpdateOperator::Increment => BinOp::Add,
             UpdateOperator::Decrement => BinOp::Sub,
         };
+        // A cell that may hold `undefined` (`static n: number;`) counts in
+        // `number`: `ToNumber(undefined)` is `NaN`, and the update evaluates
+        // to a number either way.
+        let ty = match self.ctx.krate.types.get(cell_ty) {
+            Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float)) => *inner,
+            _ => cell_ty,
+        };
         let step = self.unit_step_literal(ty);
+        let types = &self.ctx.krate.types;
         let build_set = |target_body: &mut Body| {
             let current = target_body.push_expr(Expr {
                 kind: ExprKind::GlobalGet { item },
-                ty,
+                ty: cell_ty,
                 span,
             });
+            let current = Self::optional_number_operand_in(types, current, target_body);
             let one = target_body.push_expr(Expr {
                 kind: ExprKind::Literal(step.clone()),
                 ty,
@@ -155,9 +164,10 @@ impl ModuleBuilder<'_> {
         // captured old value.
         let old = body.push_expr(Expr {
             kind: ExprKind::GlobalGet { item },
-            ty,
+            ty: cell_ty,
             span,
         });
+        let old = Self::optional_number_operand_in(&self.ctx.krate.types, old, body);
         let temp_local = body.push_local(LocalDecl {
             name: Some(self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("__smelt_global_old"))),
             ty,
@@ -284,8 +294,13 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let ty = Self::expr_ty(body, target);
                 let span = self.span(assign.span.start, assign.span.end);
+                let (target, right) = if self.binary_operands_are_numeric(op, target, right, body) {
+                    (self.optional_number_operand(target, body), self.optional_number_operand(right, body))
+                } else {
+                    (target, right)
+                };
+                let ty = Self::expr_ty(body, target);
                 self.bigint_fallible_binary(op, target, right, span, body)
                     .unwrap_or_else(|| {
                         body.push_expr(Expr {
