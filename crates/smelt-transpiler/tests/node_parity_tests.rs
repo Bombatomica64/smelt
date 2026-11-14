@@ -1218,6 +1218,14 @@ fn emission_rules_behaviour() -> TestResult {
 }
 
 /// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
+/// A method whose callback parameter is optional (a default, or `?`) is
+/// callable through an erased instance: an absent argument takes the
+/// default, a given callback is called.
+#[test]
+fn erased_optional_callback_method() -> TestResult {
+    verify_node_parity("erased_optional_callback_method")
+}
+
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
