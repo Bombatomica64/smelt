@@ -28,12 +28,10 @@ fn push (FuncId(0)) -> Float
   bb1:
     switch move %6 ? bb2 : bb3
   bb2:
-    %8 = len copy %0.field9
-    %7 = move %8
+    %7 = len copy %0.field9
     goto bb4
   bb3:
-    %9 = -1.0
-    %7 = move %9
+    %7 = -1.0
     goto bb4
   bb4:
     return move %7

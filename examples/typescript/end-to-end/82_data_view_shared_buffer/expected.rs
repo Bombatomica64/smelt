@@ -4512,8 +4512,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_83: JsString;
     let _smelt_tmp_85: bool;
     let mut _smelt_tmp_86: f64;
-    let _smelt_tmp_87: f64;
-    let _smelt_tmp_88: f64;
     let shared: SmeltArrayBuffer = SmeltArrayBuffer::new_shared(((8.0) as f64).max(0.0) as usize);
     let plain: SmeltArrayBuffer = SmeltArrayBuffer::new(((8.0) as f64).max(0.0) as usize);
     let _smelt_tmp_10: f64 = shared.clone().byte_length();
@@ -4593,14 +4591,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_83 = JsString::from(smelt_object_to_string_tag(&(shared.clone().into_smelt_unknown())));
     let _ = { println!("{} {}", _smelt_tmp_82, _smelt_tmp_83); };
     _smelt_tmp_85 = true;
-    let mut _smelt_tmp_86: f64 = 0.0;
-    if _smelt_tmp_85 {
-    _smelt_tmp_87 = view.byte_length();
-    _smelt_tmp_86 = _smelt_tmp_87;
-    } else {
-    _smelt_tmp_88 = -1.0;
-    _smelt_tmp_86 = _smelt_tmp_88;
-    }
+    let _smelt_tmp_86: f64 = if _smelt_tmp_85 { view.byte_length() } else { -1.0 };
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_86)); };
     return Ok(());
 }

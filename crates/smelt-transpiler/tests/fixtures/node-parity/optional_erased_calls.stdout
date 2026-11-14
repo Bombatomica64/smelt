@@ -1,0 +1,12 @@
+present [ 2, 4 ]
+undefined receiver undefined
+null receiver undefined
+args skipped [ undefined, 0 ]
+args evaluated [ [ 1, 2, 1 ], 1 ]
+deeper chain present [ 4, 5 ]
+deeper chain absent undefined
+optional call present [ -1, -2 ]
+optional call missing undefined
+computed optional [ [ 1, 2 ], undefined ]
+computed literal [ [ 11, 12 ], 'ello', '2.5' ]
+computed dynamic [ [ 3, 6 ], 2, 'e' ]

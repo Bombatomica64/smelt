@@ -4094,7 +4094,6 @@ fn main() {
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_17: bool;
     let mut _smelt_tmp_18: bool;
-    let mut _smelt_tmp_19: bool;
     let mut _smelt_tmp_20: bool;
     let mut _smelt_tmp_21: SmeltList<JsString>;
     let mut _smelt_tmp_22: SmeltList<JsString>;
@@ -4117,8 +4116,7 @@ fn main() {
     if closure_arg_0 {
     _smelt_tmp_17 = match results.get(&name.clone().map_or(JsString::new(), |smelt_value| smelt_value.clone())).unwrap_or(SmeltUnion9::M0(JsString::new())).clone().into_smelt_unknown() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
     if _smelt_tmp_17 {
-    _smelt_tmp_19 = matches!(results.get(&name.clone().map_or(JsString::new(), |smelt_value| smelt_value.clone())).unwrap_or(SmeltUnion9::M0(JsString::new())), SmeltUnion9::M1(_));
-    _smelt_tmp_18 = _smelt_tmp_19;
+    _smelt_tmp_18 = matches!(results.get(&name.clone().map_or(JsString::new(), |smelt_value| smelt_value.clone())).unwrap_or(SmeltUnion9::M0(JsString::new())), SmeltUnion9::M1(_));
     } else {
     _smelt_tmp_18 = false;
     }

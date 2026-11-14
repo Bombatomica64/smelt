@@ -4436,7 +4436,6 @@ pub(crate) fn area(shape: Option<SmeltUnion6>) -> f64 {
     let _smelt_tmp_11: Square;
     let _smelt_tmp_12: SmeltUnion6;
     let _smelt_tmp_13: Square;
-    let _smelt_tmp_14: f64;
     let _smelt_tmp_1: bool = matches!(shape.clone(), Some(SmeltUnion6::M0(_)));
     if _smelt_tmp_1 {
     _smelt_tmp_2 = shape.clone().expect("optional value was absent after narrowing");
@@ -4456,8 +4455,7 @@ pub(crate) fn area(shape: Option<SmeltUnion6>) -> f64 {
     _smelt_tmp_11 = match _smelt_tmp_10 { SmeltUnion6::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_12 = shape.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_13 = match _smelt_tmp_12 { SmeltUnion6::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_14 = _smelt_tmp_11.side * _smelt_tmp_13.side;
-    _smelt_tmp_9 = _smelt_tmp_14;
+    _smelt_tmp_9 = _smelt_tmp_11.side * _smelt_tmp_13.side;
     }
     return _smelt_tmp_9;
     }
@@ -4465,10 +4463,8 @@ pub(crate) fn area(shape: Option<SmeltUnion6>) -> f64 {
 
 pub(crate) fn normalize(mut input: SmeltUnion10) -> JsString {
     let mut _smelt_tmp_6: JsString;
-    let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: JsString;
     let _smelt_tmp_9: JsString;
-    let _smelt_tmp_10: JsString;
     let _smelt_tmp_1: JsString = match &input { SmeltUnion10::M0(smelt_union_arm) => JsString::from(smelt_number_to_string(*smelt_union_arm)), SmeltUnion10::M1(smelt_union_arm) => smelt_union_arm.clone(), SmeltUnion10::M2(smelt_union_arm) => JsString::from(smelt_union_arm.href()) };
     input = SmeltUnion10::M1(_smelt_tmp_1);
     let _smelt_tmp_3: JsString = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
@@ -4476,13 +4472,11 @@ pub(crate) fn normalize(mut input: SmeltUnion10) -> JsString {
     let _smelt_tmp_5: bool = _smelt_tmp_3.starts_with(&_smelt_tmp_4);
     let mut _smelt_tmp_6: JsString = JsString::new();
     if _smelt_tmp_5 {
-    _smelt_tmp_7 = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = _smelt_tmp_7;
+    _smelt_tmp_6 = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     } else {
     _smelt_tmp_8 = match input.clone() { SmeltUnion10::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_9 = { let smelt_value = &_smelt_tmp_8; let smelt_target_len = 3.0 as usize; let smelt_pad = &JsString::from("0"); let smelt_current_len = smelt_value.len(); if smelt_current_len >= smelt_target_len || smelt_pad.is_empty() { smelt_value.to_owned() } else { let smelt_needed = smelt_target_len - smelt_current_len; let smelt_padding: JsString = smelt_pad.repeat(smelt_needed.div_ceil(smelt_pad.len())).slice(0, smelt_needed); smelt_padding + smelt_value } };
-    _smelt_tmp_10 = JsString::from("#") + &_smelt_tmp_9;
-    _smelt_tmp_6 = _smelt_tmp_10;
+    _smelt_tmp_6 = JsString::from("#") + &_smelt_tmp_9;
     }
     return _smelt_tmp_6;
 }
@@ -4492,10 +4486,8 @@ pub(crate) fn widen(flag: bool) -> JsString {
     let _smelt_tmp_3: f64;
     let _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: JsString;
-    let _smelt_tmp_7: JsString;
     let _smelt_tmp_8: f64;
     let _smelt_tmp_9: f64;
-    let _smelt_tmp_10: JsString;
     let mut value: SmeltUnion17 = SmeltUnion17::M0(7.0);
     if flag {
     value = SmeltUnion17::M1(JsString::from("seven"));
@@ -4506,13 +4498,11 @@ pub(crate) fn widen(flag: bool) -> JsString {
     _smelt_tmp_5 = matches!(value.clone(), SmeltUnion17::M1(_));
     let mut _smelt_tmp_6: JsString = JsString::new();
     if _smelt_tmp_5 {
-    _smelt_tmp_7 = match value { SmeltUnion17::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_6 = _smelt_tmp_7;
+    _smelt_tmp_6 = match value { SmeltUnion17::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     } else {
     _smelt_tmp_8 = match value { SmeltUnion17::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_9 = _smelt_tmp_8 + 1.0;
-    _smelt_tmp_10 = JsString::from("n=") + &JsString::from(smelt_number_to_string(_smelt_tmp_9));
-    _smelt_tmp_6 = _smelt_tmp_10;
+    _smelt_tmp_6 = JsString::from("n=") + &JsString::from(smelt_number_to_string(_smelt_tmp_9));
     }
     return _smelt_tmp_6;
 }

@@ -58,8 +58,7 @@ async fn main (FuncId(0)) -> None throws
     switch move %12 ? bb1 : bb2
   bb1:
     %14 = unknown_is Null copy %1
-    %15 = !move %14
-    %13 = move %15
+    %13 = !move %14
     goto bb3
   bb2:
     %13 = false

@@ -16,8 +16,7 @@ fn label_of (FuncId(0)) -> String
     %3 = "none"
     goto bb3
   bb2:
-    %4 = move %1
-    %3 = move %4
+    %3 = move %1
     goto bb3
   bb3:
     return move %3
@@ -36,13 +35,11 @@ fn count_plus_one (FuncId(1)) -> Float
     %2 = copy %1 == undefined
     switch move %2 ? bb1 : bb2
   bb1:
-    %4 = -1.0
-    %3 = move %4
+    %3 = -1.0
     goto bb3
   bb2:
     %5 = move %1
-    %6 = move %5 + 1.0
-    %3 = move %6
+    %3 = move %5 + 1.0
     goto bb3
   bb3:
     return move %3
@@ -61,8 +58,7 @@ fn inner_count (FuncId(2)) -> Float
     %2 = copy %1 == undefined
     switch move %2 ? bb1 : bb2
   bb1:
-    %4 = -2.0
-    %3 = move %4
+    %3 = -2.0
     goto bb4
   bb2:
     %5 = move %1

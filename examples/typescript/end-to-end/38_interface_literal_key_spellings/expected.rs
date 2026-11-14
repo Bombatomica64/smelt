@@ -3955,15 +3955,8 @@ use super::*;
 
 pub(crate) fn text_of(value: Option<JsString>) -> JsString {
     let mut _smelt_tmp_2: JsString;
-    let _smelt_tmp_3: JsString;
     let _smelt_tmp_1: bool = value.clone().is_none();
-    let mut _smelt_tmp_2: JsString = JsString::new();
-    if _smelt_tmp_1 {
-    _smelt_tmp_2 = JsString::from("undefined");
-    } else {
-    _smelt_tmp_3 = value.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_2 = _smelt_tmp_3;
-    }
+    let _smelt_tmp_2: JsString = if _smelt_tmp_1 { JsString::from("undefined") } else { value.clone().expect("optional value was absent after narrowing") };
     return _smelt_tmp_2;
 }
 
@@ -3971,7 +3964,6 @@ pub(crate) fn number_of(value: Option<f64>) -> JsString {
     let mut _smelt_tmp_2: JsString;
     let _smelt_tmp_3: f64;
     let _smelt_tmp_4: f64;
-    let _smelt_tmp_5: JsString;
     let _smelt_tmp_1: bool = value.clone().is_none();
     let mut _smelt_tmp_2: JsString = JsString::new();
     if _smelt_tmp_1 {
@@ -3979,8 +3971,7 @@ pub(crate) fn number_of(value: Option<f64>) -> JsString {
     } else {
     _smelt_tmp_3 = value.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_4 = _smelt_tmp_3 + 1.0;
-    _smelt_tmp_5 = JsString::new() + &JsString::from(smelt_number_to_string(_smelt_tmp_4));
-    _smelt_tmp_2 = _smelt_tmp_5;
+    _smelt_tmp_2 = JsString::new() + &JsString::from(smelt_number_to_string(_smelt_tmp_4));
     }
     return _smelt_tmp_2;
 }

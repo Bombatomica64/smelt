@@ -4003,13 +4003,11 @@ fn main() {
     let accept: JsString;
     let _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
     let _smelt_tmp_2: Request = closure_arg_0.__smelt_get_req().clone();
     let _smelt_tmp_3: Option<JsString> = _smelt_tmp_2.header(JsString::from("accept"));
     _smelt_tmp_4 = _smelt_tmp_3.clone().clone().is_some_and(|value| !value.is_empty());
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = _smelt_tmp_3.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5 = _smelt_tmp_3.clone().expect("optional value was absent after narrowing");
     } else {
     _smelt_tmp_5 = JsString::new();
     }
@@ -4136,12 +4134,10 @@ pub(crate) fn present(c: Context, names: SmeltList<JsString>) -> SmeltList<JsStr
     let known = known.clone();
     move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut _smelt_tmp_5: bool;
-    let _smelt_tmp_6: bool;
     let _smelt_tmp_3: Request = c.__smelt_get_req().clone();
     let _smelt_tmp_4: bool = _smelt_tmp_3.has(closure_arg_0.clone());
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = (known)(closure_arg_0.clone());
-    _smelt_tmp_5 = _smelt_tmp_6;
+    _smelt_tmp_5 = (known)(closure_arg_0.clone());
     } else {
     _smelt_tmp_5 = false;
     }
@@ -4153,12 +4149,10 @@ pub(crate) fn present(c: Context, names: SmeltList<JsString>) -> SmeltList<JsStr
     let known = known.clone();
     move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut _smelt_tmp_5: bool;
-    let _smelt_tmp_6: bool;
     let _smelt_tmp_3: Request = c.__smelt_get_req().clone();
     let _smelt_tmp_4: bool = _smelt_tmp_3.has(closure_arg_0.clone());
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = (known)(closure_arg_0.clone());
-    _smelt_tmp_5 = _smelt_tmp_6;
+    _smelt_tmp_5 = (known)(closure_arg_0.clone());
     } else {
     _smelt_tmp_5 = false;
     }

@@ -164,8 +164,7 @@ closure ClosureId(5) -> String
     goto bb7
   bb6:
     %9 = copy %2 + copy %0
-    %10 = copy %9 + copy %3
-    %8 = copy %10
+    %8 = copy %9 + copy %3
     goto bb7
   bb7:
     %2 = copy %8

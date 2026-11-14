@@ -427,12 +427,10 @@ closure ClosureId(2) -> String
     %4 = list_contains copy %1.field7, copy %2
     switch copy %4 ? bb1 : bb2
   bb1:
-    %6 = "hit " + copy %2
-    %5 = copy %6
+    %5 = "hit " + copy %2
     goto bb3
   bb2:
-    %7 = "miss " + copy %2
-    %5 = copy %7
+    %5 = "miss " + copy %2
     goto bb3
   bb3:
     return copy %5

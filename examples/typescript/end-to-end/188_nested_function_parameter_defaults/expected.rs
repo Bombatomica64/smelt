@@ -830,7 +830,6 @@ pub(crate) fn recursive(n: f64) -> f64 {
     let mut _smelt_tmp_6: f64;
     let _smelt_tmp_7: f64;
     let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: f64;
     let acc_1: f64 = closure_arg_1.clone().unwrap_or(1.0);
     let _smelt_tmp_5: bool = closure_arg_0 <= 0.0;
     if _smelt_tmp_5 {
@@ -838,8 +837,7 @@ pub(crate) fn recursive(n: f64) -> f64 {
     } else {
     _smelt_tmp_7 = closure_arg_0 - 1.0;
     _smelt_tmp_8 = acc_1 * 2.0;
-    _smelt_tmp_9 = ((*(*smelt_capture_count.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_7, Some(_smelt_tmp_8));
-    _smelt_tmp_6 = _smelt_tmp_9;
+    _smelt_tmp_6 = ((*(*smelt_capture_count.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_7, Some(_smelt_tmp_8));
     }
     _smelt_tmp_6
     }

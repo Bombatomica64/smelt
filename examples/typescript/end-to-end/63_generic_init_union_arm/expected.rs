@@ -4374,7 +4374,6 @@ pub(crate) fn header_of(arg: SmeltUnion17, name: JsString) -> JsString {
     let _smelt_tmp_8: SmeltResponse;
     let _smelt_tmp_9: SmeltHeaders;
     let _smelt_tmp_10: InitLike<f64>;
-    let _smelt_tmp_12: bool;
     let _smelt_tmp_13: SmeltUnion16;
     let _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: Option<SmeltUnion6>;
@@ -4396,8 +4395,7 @@ pub(crate) fn header_of(arg: SmeltUnion17, name: JsString) -> JsString {
     _smelt_tmp_10 = match _smelt_tmp_5 { SmeltUnion16::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_7 = _smelt_tmp_10.headers.clone();
     }
-    _smelt_tmp_12 = match _smelt_tmp_7.clone().map(|smelt_value| smelt_value.into_smelt_unknown()) { None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(smelt_value)) => smelt_value, Some(SmeltUnknown::Number(smelt_value)) => smelt_value != 0.0 && !smelt_value.is_nan(), Some(SmeltUnknown::String(smelt_value)) => !smelt_value.is_empty(), Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true };
-    _smelt_tmp_4 = _smelt_tmp_12;
+    _smelt_tmp_4 = match _smelt_tmp_7.clone().map(|smelt_value| smelt_value.into_smelt_unknown()) { None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(smelt_value)) => smelt_value, Some(SmeltUnknown::Number(smelt_value)) => smelt_value != 0.0 && !smelt_value.is_nan(), Some(SmeltUnknown::String(smelt_value)) => !smelt_value.is_empty(), Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true };
     if _smelt_tmp_4 {
     _smelt_tmp_13 = match arg.clone() { SmeltUnion17::M1(value) => SmeltUnion16::M0(value), SmeltUnion17::M2(value) => SmeltUnion16::M1(value), _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_14 = matches!(_smelt_tmp_13.clone(), SmeltUnion16::M0(_));
@@ -4445,7 +4443,6 @@ pub(crate) fn status_of(arg: SmeltUnion17) -> f64 {
     let mut _smelt_tmp_2: bool;
     let _smelt_tmp_3: SmeltUnion16;
     let _smelt_tmp_4: bool;
-    let _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: bool;
     let _smelt_tmp_7: SmeltUnion16;
     let _smelt_tmp_8: bool;
@@ -4453,7 +4450,6 @@ pub(crate) fn status_of(arg: SmeltUnion17) -> f64 {
     let _smelt_tmp_10: SmeltResponse;
     let _smelt_tmp_11: f64;
     let _smelt_tmp_12: InitLike<f64>;
-    let _smelt_tmp_14: bool;
     let _smelt_tmp_15: SmeltUnion16;
     let _smelt_tmp_16: bool;
     let mut _smelt_tmp_17: Option<f64>;
@@ -4465,8 +4461,7 @@ pub(crate) fn status_of(arg: SmeltUnion17) -> f64 {
     if _smelt_tmp_1 {
     _smelt_tmp_3 = match arg.clone() { SmeltUnion17::M1(value) => SmeltUnion16::M0(value), SmeltUnion17::M2(value) => SmeltUnion16::M1(value), _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_4 = matches!(_smelt_tmp_3, SmeltUnion16::M0(_));
-    _smelt_tmp_5 = !(_smelt_tmp_4);
-    _smelt_tmp_2 = _smelt_tmp_5;
+    _smelt_tmp_2 = !(_smelt_tmp_4);
     } else {
     _smelt_tmp_2 = false;
     }
@@ -4482,8 +4477,7 @@ pub(crate) fn status_of(arg: SmeltUnion17) -> f64 {
     _smelt_tmp_12 = match _smelt_tmp_7 { SmeltUnion16::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_9 = _smelt_tmp_12.status.clone();
     }
-    _smelt_tmp_14 = _smelt_tmp_9.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
-    _smelt_tmp_6 = _smelt_tmp_14;
+    _smelt_tmp_6 = _smelt_tmp_9.clone().is_some_and(|value| value != 0.0 && !value.is_nan());
     if _smelt_tmp_6 {
     _smelt_tmp_15 = match arg.clone() { SmeltUnion17::M1(value) => SmeltUnion16::M0(value), SmeltUnion17::M2(value) => SmeltUnion16::M1(value), _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_16 = matches!(_smelt_tmp_15.clone(), SmeltUnion16::M0(_));

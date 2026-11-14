@@ -4398,7 +4398,6 @@ impl Context {
     let _smelt_tmp_8: Option<bool>;
     let _smelt_tmp_9: bool;
     let mut _smelt_tmp_10: bool;
-    let _smelt_tmp_11: bool;
     let _smelt_tmp_12: JsString;
     let _smelt_tmp_13: JsString;
     let _smelt_tmp_14: JsString;
@@ -4415,8 +4414,7 @@ impl Context {
     _smelt_tmp_8 = closure_arg_2.clone().as_ref().and_then(|_smelt_value| _smelt_value.append.clone());
     _smelt_tmp_9 = _smelt_tmp_8.clone().clone().unwrap_or(false);
     if _smelt_tmp_9 {
-    _smelt_tmp_11 = !(previous.clone().is_none());
-    _smelt_tmp_10 = _smelt_tmp_11;
+    _smelt_tmp_10 = !(previous.clone().is_none());
     } else {
     _smelt_tmp_10 = false;
     }

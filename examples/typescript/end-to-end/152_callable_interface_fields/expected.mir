@@ -200,8 +200,7 @@ closure ClosureId(2) -> None
     %9 = primitive_cast_bool copy %8
     switch copy %9 ? bb3 : bb4
   bb3:
-    %11 = copy %4 != undefined
-    %10 = copy %11
+    %10 = copy %4 != undefined
     goto bb5
   bb4:
     %10 = false

@@ -30,7 +30,6 @@ export function count(a: boolean, b: boolean): number {
 let mut result: usize;
 let _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: bool;
-let _smelt_tmp_7: bool;
 let _smelt_tmp_8: usize;
 let _smelt_tmp_9: f64;
 let _smelt_tmp_3: bool = valid(a);
@@ -39,8 +38,7 @@ if _smelt_tmp_4 {
 _smelt_tmp_5 = true;
 } else {
 let _smelt_tmp_6: bool = valid(b);
-_smelt_tmp_7 = !(_smelt_tmp_6);
-_smelt_tmp_5 = _smelt_tmp_7;
+_smelt_tmp_5 = !(_smelt_tmp_6);
 }
 if _smelt_tmp_5 {
 return f64::NAN;

@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14113,
+      "concrete": 13826,
       "generic": 228,
-      "erased": 7910
+      "erased": 7844
     },
     "reads": {
       "concrete": 341,
@@ -122,7 +122,7 @@
     },
     "src/_internal/isEqualsSameValueZero.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 2
       },
@@ -224,7 +224,7 @@
     },
     "src/array/chunk.spec.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 65,
         "generic": 0,
         "erased": 37
       },
@@ -241,7 +241,7 @@
     },
     "src/array/chunk.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 3,
         "erased": 2
       },
@@ -275,7 +275,7 @@
     },
     "src/array/combinations.ts": {
       "values": {
-        "concrete": 27,
+        "concrete": 25,
         "generic": 0,
         "erased": 11
       },
@@ -615,7 +615,7 @@
     },
     "src/array/fill.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 5
       },
@@ -702,7 +702,7 @@
       "values": {
         "concrete": 71,
         "generic": 0,
-        "erased": 63
+        "erased": 61
       },
       "reads": {
         "concrete": 0,
@@ -785,7 +785,7 @@
     },
     "src/array/flatten.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 14
       },
@@ -1416,7 +1416,7 @@
       "values": {
         "concrete": 15,
         "generic": 0,
-        "erased": 17
+        "erased": 15
       },
       "reads": {
         "concrete": 2,
@@ -1788,7 +1788,7 @@
     },
     "src/array/take.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 3
       },
@@ -1822,7 +1822,7 @@
     },
     "src/array/takeRight.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 12,
         "generic": 0,
         "erased": 4
       },
@@ -1924,7 +1924,7 @@
     },
     "src/array/toFilled.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 7
       },
@@ -2230,7 +2230,7 @@
     },
     "src/array/windowed.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 20,
         "generic": 3,
         "erased": 4
       },
@@ -3080,7 +3080,7 @@
     },
     "src/compat/_internal/assignValue.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 3
       },
@@ -3097,7 +3097,7 @@
     },
     "src/compat/_internal/compareValues.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 20,
         "generic": 0,
         "erased": 3
       },
@@ -3131,7 +3131,7 @@
     },
     "src/compat/_internal/decimalAdjust.ts": {
       "values": {
-        "concrete": 74,
+        "concrete": 65,
         "generic": 0,
         "erased": 0
       },
@@ -3233,7 +3233,7 @@
     },
     "src/compat/_internal/isDeepKey.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       },
@@ -3250,7 +3250,7 @@
     },
     "src/compat/_internal/isIndex.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 14,
         "generic": 0,
         "erased": 0
       },
@@ -3267,7 +3267,7 @@
     },
     "src/compat/_internal/isIterateeCall.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 3
       },
@@ -3284,7 +3284,7 @@
     },
     "src/compat/_internal/isKey.ts": {
       "values": {
-        "concrete": 29,
+        "concrete": 24,
         "generic": 0,
         "erased": 7
       },
@@ -3420,7 +3420,7 @@
     },
     "src/compat/_internal/toKey.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 4
       },
@@ -3456,7 +3456,7 @@
       "values": {
         "concrete": 2,
         "generic": 0,
-        "erased": 7
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -3471,7 +3471,7 @@
     },
     "src/compat/array/chunk.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 4
       },
@@ -3524,7 +3524,7 @@
       "values": {
         "concrete": 11,
         "generic": 0,
-        "erased": 16
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -3624,7 +3624,7 @@
     },
     "src/compat/array/dropRightWhile.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 29
       },
@@ -3641,7 +3641,7 @@
     },
     "src/compat/array/dropWhile.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
         "erased": 30
       },
@@ -3692,7 +3692,7 @@
     },
     "src/compat/array/every.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 24,
         "generic": 0,
         "erased": 24
       },
@@ -3709,7 +3709,7 @@
     },
     "src/compat/array/fill.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 8
       },
@@ -3760,7 +3760,7 @@
     },
     "src/compat/array/findIndex.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 28,
         "generic": 0,
         "erased": 41
       },
@@ -3777,7 +3777,7 @@
     },
     "src/compat/array/findLast.ts": {
       "values": {
-        "concrete": 35,
+        "concrete": 33,
         "generic": 0,
         "erased": 27
       },
@@ -3794,7 +3794,7 @@
     },
     "src/compat/array/findLastIndex.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 32,
         "generic": 0,
         "erased": 43
       },
@@ -3879,7 +3879,7 @@
     },
     "src/compat/array/flatten.ts": {
       "values": {
-        "concrete": 27,
+        "concrete": 24,
         "generic": 0,
         "erased": 16
       },
@@ -3930,7 +3930,7 @@
     },
     "src/compat/array/forEach.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 18
       },
@@ -3966,7 +3966,7 @@
       "values": {
         "concrete": 2,
         "generic": 0,
-        "erased": 20
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -3998,7 +3998,7 @@
     },
     "src/compat/array/includes.ts": {
       "values": {
-        "concrete": 38,
+        "concrete": 37,
         "generic": 0,
         "erased": 16
       },
@@ -4066,7 +4066,7 @@
     },
     "src/compat/array/intersectionBy.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 31
       },
@@ -4100,9 +4100,9 @@
     },
     "src/compat/array/invokeMap.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 21,
         "generic": 0,
-        "erased": 27
+        "erased": 25
       },
       "reads": {
         "concrete": 0,
@@ -4134,7 +4134,7 @@
     },
     "src/compat/array/keyBy.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 19
       },
@@ -4168,7 +4168,7 @@
     },
     "src/compat/array/lastIndexOf.ts": {
       "values": {
-        "concrete": 26,
+        "concrete": 23,
         "generic": 0,
         "erased": 6
       },
@@ -4185,7 +4185,7 @@
     },
     "src/compat/array/map.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 21
       },
@@ -4202,7 +4202,7 @@
     },
     "src/compat/array/nth.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 4
       },
@@ -4219,9 +4219,9 @@
     },
     "src/compat/array/orderBy.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 61,
         "generic": 0,
-        "erased": 73
+        "erased": 69
       },
       "reads": {
         "concrete": 5,
@@ -4304,9 +4304,9 @@
     },
     "src/compat/array/pullAllWith.ts": {
       "values": {
-        "concrete": 29,
+        "concrete": 28,
         "generic": 0,
-        "erased": 22
+        "erased": 21
       },
       "reads": {
         "concrete": 0,
@@ -4338,7 +4338,7 @@
     },
     "src/compat/array/reduce.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 17,
         "generic": 0,
         "erased": 22
       },
@@ -4355,7 +4355,7 @@
     },
     "src/compat/array/reduceRight.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 18,
         "generic": 0,
         "erased": 23
       },
@@ -4440,7 +4440,7 @@
     },
     "src/compat/array/sampleSize.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 6
       },
@@ -4474,7 +4474,7 @@
     },
     "src/compat/array/size.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 2
       },
@@ -4508,9 +4508,9 @@
     },
     "src/compat/array/some.ts": {
       "values": {
-        "concrete": 52,
+        "concrete": 51,
         "generic": 0,
-        "erased": 56
+        "erased": 55
       },
       "reads": {
         "concrete": 2,
@@ -4542,7 +4542,7 @@
     },
     "src/compat/array/sortedIndex.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 20,
         "generic": 0,
         "erased": 7
       },
@@ -4559,7 +4559,7 @@
     },
     "src/compat/array/sortedIndexBy.ts": {
       "values": {
-        "concrete": 58,
+        "concrete": 48,
         "generic": 0,
         "erased": 14
       },
@@ -4593,7 +4593,7 @@
     },
     "src/compat/array/sortedLastIndex.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 21,
         "generic": 0,
         "erased": 7
       },
@@ -4661,7 +4661,7 @@
     },
     "src/compat/array/take.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 5
       },
@@ -4678,7 +4678,7 @@
     },
     "src/compat/array/takeRight.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 5
       },
@@ -4714,7 +4714,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 20
+        "erased": 19
       },
       "reads": {
         "concrete": 0,
@@ -4746,7 +4746,7 @@
     },
     "src/compat/array/unionBy.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 11
       },
@@ -4763,7 +4763,7 @@
     },
     "src/compat/array/unionWith.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 9
       },
@@ -4831,7 +4831,7 @@
     },
     "src/compat/array/unzip.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 10
       },
@@ -4848,7 +4848,7 @@
     },
     "src/compat/array/unzipWith.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 13
       },
@@ -4899,7 +4899,7 @@
     },
     "src/compat/array/xorBy.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 35
       },
@@ -5035,7 +5035,7 @@
     },
     "src/compat/function/ary.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 3
       },
@@ -5054,7 +5054,7 @@
       "values": {
         "concrete": 2,
         "generic": 0,
-        "erased": 7
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
@@ -5120,7 +5120,7 @@
     },
     "src/compat/function/curry.ts": {
       "values": {
-        "concrete": 52,
+        "concrete": 49,
         "generic": 0,
         "erased": 37
       },
@@ -5137,7 +5137,7 @@
     },
     "src/compat/function/curryRight.ts": {
       "values": {
-        "concrete": 58,
+        "concrete": 56,
         "generic": 0,
         "erased": 40
       },
@@ -5275,7 +5275,7 @@
       "values": {
         "concrete": 9,
         "generic": 0,
-        "erased": 33
+        "erased": 32
       },
       "reads": {
         "concrete": 0,
@@ -5426,7 +5426,7 @@
     },
     "src/compat/function/rest.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
         "erased": 3
       },
@@ -5443,7 +5443,7 @@
     },
     "src/compat/function/spread.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 11
       },
@@ -5528,7 +5528,7 @@
     },
     "src/compat/math/add.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 0,
         "erased": 2
       },
@@ -5562,7 +5562,7 @@
     },
     "src/compat/math/clamp.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 17,
         "generic": 0,
         "erased": 1
       },
@@ -5579,7 +5579,7 @@
     },
     "src/compat/math/divide.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 0,
         "erased": 2
       },
@@ -5613,7 +5613,7 @@
     },
     "src/compat/math/inRange.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 22,
         "generic": 0,
         "erased": 0
       },
@@ -5630,7 +5630,7 @@
     },
     "src/compat/math/max.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 13,
         "generic": 0,
         "erased": 8
       },
@@ -5664,7 +5664,7 @@
     },
     "src/compat/math/mean.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 6,
         "generic": 0,
         "erased": 2
       },
@@ -5698,7 +5698,7 @@
     },
     "src/compat/math/min.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 13,
         "generic": 0,
         "erased": 8
       },
@@ -5732,7 +5732,7 @@
     },
     "src/compat/math/multiply.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 0,
         "erased": 2
       },
@@ -5766,7 +5766,7 @@
     },
     "src/compat/math/random.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 39,
         "generic": 0,
         "erased": 2
       },
@@ -5783,7 +5783,7 @@
     },
     "src/compat/math/range.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 26,
         "generic": 0,
         "erased": 5
       },
@@ -5800,7 +5800,7 @@
     },
     "src/compat/math/rangeRight.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 28,
         "generic": 0,
         "erased": 4
       },
@@ -5834,7 +5834,7 @@
     },
     "src/compat/math/subtract.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 0,
         "erased": 2
       },
@@ -5868,7 +5868,7 @@
     },
     "src/compat/math/sumBy.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 15
       },
@@ -5885,7 +5885,7 @@
     },
     "src/compat/object/assign.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 5
       },
@@ -5902,7 +5902,7 @@
     },
     "src/compat/object/assignIn.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 5
       },
@@ -5919,7 +5919,7 @@
     },
     "src/compat/object/assignInWith.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 18,
         "generic": 0,
         "erased": 12
       },
@@ -5936,7 +5936,7 @@
     },
     "src/compat/object/assignWith.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 18,
         "generic": 0,
         "erased": 12
       },
@@ -5970,7 +5970,7 @@
     },
     "src/compat/object/clone.ts": {
       "values": {
-        "concrete": 84,
+        "concrete": 79,
         "generic": 0,
         "erased": 78
       },
@@ -6004,7 +6004,7 @@
     },
     "src/compat/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 14,
         "generic": 0,
         "erased": 23
       },
@@ -6040,7 +6040,7 @@
       "values": {
         "concrete": 10,
         "generic": 0,
-        "erased": 12
+        "erased": 11
       },
       "reads": {
         "concrete": 1,
@@ -6072,7 +6072,7 @@
     },
     "src/compat/object/defaultsDeep.ts": {
       "values": {
-        "concrete": 46,
+        "concrete": 44,
         "generic": 0,
         "erased": 44
       },
@@ -6276,7 +6276,7 @@
     },
     "src/compat/object/get.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 41,
         "generic": 0,
         "erased": 14
       },
@@ -6293,7 +6293,7 @@
     },
     "src/compat/object/has.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 28,
         "generic": 0,
         "erased": 6
       },
@@ -6310,7 +6310,7 @@
     },
     "src/compat/object/hasIn.ts": {
       "values": {
-        "concrete": 35,
+        "concrete": 32,
         "generic": 0,
         "erased": 10
       },
@@ -6446,7 +6446,7 @@
     },
     "src/compat/object/mergeWith.ts": {
       "values": {
-        "concrete": 68,
+        "concrete": 66,
         "generic": 0,
         "erased": 53
       },
@@ -6480,7 +6480,7 @@
     },
     "src/compat/object/omitBy.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 16,
         "generic": 0,
         "erased": 18
       },
@@ -6497,7 +6497,7 @@
     },
     "src/compat/object/pick.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 22,
         "generic": 0,
         "erased": 14
       },
@@ -6567,7 +6567,7 @@
       "values": {
         "concrete": 17,
         "generic": 0,
-        "erased": 12
+        "erased": 10
       },
       "reads": {
         "concrete": 2,
@@ -6718,9 +6718,9 @@
     },
     "src/compat/object/updateWith.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 28,
         "generic": 0,
-        "erased": 17
+        "erased": 16
       },
       "reads": {
         "concrete": 2,
@@ -6786,7 +6786,7 @@
     },
     "src/compat/predicate/conformsTo.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 16,
         "generic": 0,
         "erased": 8
       },
@@ -6803,7 +6803,7 @@
     },
     "src/compat/predicate/isArguments.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 4,
         "generic": 0,
         "erased": 3
       },
@@ -6854,7 +6854,7 @@
     },
     "src/compat/predicate/isArrayLike.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 3
       },
@@ -6888,7 +6888,7 @@
     },
     "src/compat/predicate/isBoolean.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 1
       },
@@ -6939,7 +6939,7 @@
     },
     "src/compat/predicate/isElement.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 4,
         "generic": 0,
         "erased": 2
       },
@@ -6956,7 +6956,7 @@
     },
     "src/compat/predicate/isEmpty.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 28,
         "generic": 0,
         "erased": 13
       },
@@ -6973,7 +6973,7 @@
     },
     "src/compat/predicate/isEqualWith.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 15
       },
@@ -7058,7 +7058,7 @@
     },
     "src/compat/predicate/isLength.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 1
       },
@@ -7109,7 +7109,7 @@
     },
     "src/compat/predicate/isMatchWith.ts": {
       "values": {
-        "concrete": 134,
+        "concrete": 131,
         "generic": 0,
         "erased": 64
       },
@@ -7126,7 +7126,7 @@
     },
     "src/compat/predicate/isNaN.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 1
       },
@@ -7194,7 +7194,7 @@
     },
     "src/compat/predicate/isNumber.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 1
       },
@@ -7211,7 +7211,7 @@
     },
     "src/compat/predicate/isObject.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 3
       },
@@ -7228,7 +7228,7 @@
     },
     "src/compat/predicate/isObjectLike.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 2
       },
@@ -7313,7 +7313,7 @@
     },
     "src/compat/predicate/isString.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 1
       },
@@ -7330,7 +7330,7 @@
     },
     "src/compat/predicate/isSymbol.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 1
       },
@@ -7500,7 +7500,7 @@
     },
     "src/compat/string/endsWith.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 0
       },
@@ -7653,7 +7653,7 @@
     },
     "src/compat/string/repeat.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 9,
         "generic": 0,
         "erased": 7
       },
@@ -7738,7 +7738,7 @@
     },
     "src/compat/string/startsWith.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 0
       },
@@ -7755,7 +7755,7 @@
     },
     "src/compat/string/template.ts": {
       "values": {
-        "concrete": 157,
+        "concrete": 152,
         "generic": 0,
         "erased": 37
       },
@@ -7823,7 +7823,7 @@
     },
     "src/compat/string/trim.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 19,
         "generic": 0,
         "erased": 11
       },
@@ -7840,7 +7840,7 @@
     },
     "src/compat/string/trimEnd.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 1
       },
@@ -7857,7 +7857,7 @@
     },
     "src/compat/string/trimStart.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 1
       },
@@ -7874,7 +7874,7 @@
     },
     "src/compat/string/truncate.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 62,
         "generic": 0,
         "erased": 4
       },
@@ -7976,7 +7976,7 @@
     },
     "src/compat/util/bindAll.ts": {
       "values": {
-        "concrete": 32,
+        "concrete": 29,
         "generic": 0,
         "erased": 11
       },
@@ -8027,7 +8027,7 @@
     },
     "src/compat/util/defaultTo.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 3
       },
@@ -8061,7 +8061,7 @@
     },
     "src/compat/util/gt.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 2
       },
@@ -8078,7 +8078,7 @@
     },
     "src/compat/util/gte.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 2
       },
@@ -8095,7 +8095,7 @@
     },
     "src/compat/util/invoke.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 32,
         "generic": 0,
         "erased": 19
       },
@@ -8112,7 +8112,7 @@
     },
     "src/compat/util/iteratee.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 9
       },
@@ -8129,7 +8129,7 @@
     },
     "src/compat/util/lt.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 2
       },
@@ -8146,7 +8146,7 @@
     },
     "src/compat/util/lte.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 2
       },
@@ -8214,7 +8214,7 @@
     },
     "src/compat/util/over.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 16
       },
@@ -8350,9 +8350,9 @@
     },
     "src/compat/util/times.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
-        "erased": 6
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -8384,7 +8384,7 @@
     },
     "src/compat/util/toFinite.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 13,
         "generic": 0,
         "erased": 2
       },
@@ -8401,7 +8401,7 @@
     },
     "src/compat/util/toInteger.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 1
       },
@@ -8452,7 +8452,7 @@
     },
     "src/compat/util/toPath.ts": {
       "values": {
-        "concrete": 44,
+        "concrete": 41,
         "generic": 0,
         "erased": 11
       },
@@ -8503,7 +8503,7 @@
     },
     "src/compat/util/toString.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
         "erased": 4
       },
@@ -8639,7 +8639,7 @@
     },
     "src/function/after.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 8
       },
@@ -8741,7 +8741,7 @@
     },
     "src/function/before.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 8
       },
@@ -8775,7 +8775,7 @@
     },
     "src/function/curry.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 21
       },
@@ -8809,7 +8809,7 @@
     },
     "src/function/curryRight.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 21
       },
@@ -8843,7 +8843,7 @@
     },
     "src/function/debounce.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 32,
         "generic": 1,
         "erased": 55
       },
@@ -8879,7 +8879,7 @@
       "values": {
         "concrete": 6,
         "generic": 0,
-        "erased": 12
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
@@ -8998,7 +8998,7 @@
       "values": {
         "concrete": 4,
         "generic": 0,
-        "erased": 28
+        "erased": 27
       },
       "reads": {
         "concrete": 0,
@@ -9234,7 +9234,7 @@
     },
     "src/function/retry.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 26,
         "generic": 0,
         "erased": 14
       },
@@ -9421,7 +9421,7 @@
     },
     "src/math/inRange.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 2
       },
@@ -9710,7 +9710,7 @@
     },
     "src/math/range.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 19,
         "generic": 0,
         "erased": 2
       },
@@ -9744,7 +9744,7 @@
     },
     "src/math/rangeRight.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 20,
         "generic": 0,
         "erased": 3
       },
@@ -9865,7 +9865,7 @@
       "values": {
         "concrete": 204,
         "generic": 0,
-        "erased": 74
+        "erased": 70
       },
       "reads": {
         "concrete": 20,
@@ -9880,7 +9880,7 @@
     },
     "src/object/clone.ts": {
       "values": {
-        "concrete": 26,
+        "concrete": 21,
         "generic": 0,
         "erased": 25
       },
@@ -9899,7 +9899,7 @@
       "values": {
         "concrete": 292,
         "generic": 0,
-        "erased": 127
+        "erased": 123
       },
       "reads": {
         "concrete": 23,
@@ -9948,9 +9948,9 @@
     },
     "src/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 113,
+        "concrete": 109,
         "generic": 0,
-        "erased": 129
+        "erased": 125
       },
       "reads": {
         "concrete": 3,
@@ -9965,7 +9965,7 @@
     },
     "src/object/findKey.spec.ts": {
       "values": {
-        "concrete": 23,
+        "concrete": 22,
         "generic": 0,
         "erased": 41
       },
@@ -10016,7 +10016,7 @@
     },
     "src/object/flattenObject.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 22,
         "generic": 0,
         "erased": 13
       },
@@ -10169,7 +10169,7 @@
     },
     "src/object/merge.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 16,
         "generic": 0,
         "erased": 14
       },
@@ -10186,7 +10186,7 @@
     },
     "src/object/mergeWith.spec.ts": {
       "values": {
-        "concrete": 87,
+        "concrete": 85,
         "generic": 0,
         "erased": 84
       },
@@ -10203,7 +10203,7 @@
     },
     "src/object/mergeWith.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 16,
         "generic": 0,
         "erased": 16
       },
@@ -10545,7 +10545,7 @@
       "values": {
         "concrete": 63,
         "generic": 0,
-        "erased": 38
+        "erased": 26
       },
       "reads": {
         "concrete": 2,
@@ -10662,7 +10662,7 @@
     },
     "src/predicate/isBuffer.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 1
       },
@@ -10730,7 +10730,7 @@
     },
     "src/predicate/isEmptyObject.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 2
       },
@@ -10781,7 +10781,7 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1037,
+        "concrete": 1029,
         "generic": 0,
         "erased": 425
       },
@@ -10798,7 +10798,7 @@
     },
     "src/predicate/isEqualWith.ts": {
       "values": {
-        "concrete": 134,
+        "concrete": 129,
         "generic": 0,
         "erased": 141
       },
@@ -10851,7 +10851,7 @@
       "values": {
         "concrete": 86,
         "generic": 0,
-        "erased": 83
+        "erased": 69
       },
       "reads": {
         "concrete": 2,
@@ -10866,7 +10866,7 @@
     },
     "src/predicate/isFile.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 1
       },
@@ -11002,7 +11002,7 @@
     },
     "src/predicate/isLength.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 1
       },
@@ -11104,7 +11104,7 @@
     },
     "src/predicate/isNode.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 8
       },
@@ -11240,7 +11240,7 @@
     },
     "src/predicate/isPlainObject.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 10,
         "generic": 0,
         "erased": 4
       },
@@ -11274,7 +11274,7 @@
     },
     "src/predicate/isPrimitive.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 1
       },
@@ -11478,7 +11478,7 @@
     },
     "src/predicate/isTypedArray.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 27,
         "generic": 0,
         "erased": 1
       },
@@ -11937,7 +11937,7 @@
     },
     "src/string/deburr.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 19,
         "generic": 0,
         "erased": 0
       },
@@ -12362,7 +12362,7 @@
     },
     "src/string/trimEnd.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 18,
         "generic": 0,
         "erased": 2
       },
@@ -12396,7 +12396,7 @@
     },
     "src/string/trimStart.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 18,
         "generic": 0,
         "erased": 2
       },

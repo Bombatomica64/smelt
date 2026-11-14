@@ -3918,47 +3918,34 @@ use super::*;
 
 pub(crate) fn label_of(config: Config) -> JsString {
     let mut _smelt_tmp_3: JsString;
-    let _smelt_tmp_4: JsString;
     let label: Option<JsString> = config.label.clone();
     let _smelt_tmp_2: bool = label.clone().is_none();
-    let mut _smelt_tmp_3: JsString = JsString::new();
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = JsString::from("none");
-    } else {
-    _smelt_tmp_4 = label.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_3 = _smelt_tmp_4;
-    }
+    let _smelt_tmp_3: JsString = if _smelt_tmp_2 { JsString::from("none") } else { label.clone().expect("optional value was absent after narrowing") };
     return _smelt_tmp_3;
 }
 
 pub(crate) fn count_plus_one(config: Config) -> f64 {
     let mut _smelt_tmp_3: f64;
-    let _smelt_tmp_4: f64;
     let _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
     let count: Option<f64> = config.count.clone();
     let _smelt_tmp_2: bool = count.clone().is_none();
     let mut _smelt_tmp_3: f64 = 0.0;
     if _smelt_tmp_2 {
-    _smelt_tmp_4 = -1.0;
-    _smelt_tmp_3 = _smelt_tmp_4;
+    _smelt_tmp_3 = -1.0;
     } else {
     _smelt_tmp_5 = count.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_6 = _smelt_tmp_5 + 1.0;
-    _smelt_tmp_3 = _smelt_tmp_6;
+    _smelt_tmp_3 = _smelt_tmp_5 + 1.0;
     }
     return _smelt_tmp_3;
 }
 
 pub(crate) fn inner_count(outer: Outer) -> f64 {
     let mut _smelt_tmp_3: f64;
-    let _smelt_tmp_4: f64;
     let _smelt_tmp_5: Config;
     let inner: Option<Config> = outer.inner.clone();
     let _smelt_tmp_2: bool = inner.clone().is_none();
     if _smelt_tmp_2 {
-    _smelt_tmp_4 = -2.0;
-    _smelt_tmp_3 = _smelt_tmp_4;
+    _smelt_tmp_3 = -2.0;
     } else {
     _smelt_tmp_5 = inner.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_6: f64 = count_plus_one(_smelt_tmp_5);

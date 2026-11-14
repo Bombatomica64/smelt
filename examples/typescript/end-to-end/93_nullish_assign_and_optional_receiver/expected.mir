@@ -19,8 +19,7 @@ fn write (FuncId(0)) -> None
     %6 = copy %0.field11 != none
     switch move %6 ? bb1 : bb2
   bb1:
-    %8 = copy %0.field11
-    %7 = move %8
+    %7 = copy %0.field11
     goto bb6
   bb2:
     %3 = undefined
@@ -71,8 +70,7 @@ fn peek (FuncId(1)) -> String
   bb4:
     %7 = move %2
     %8 = headers_get move %7, copy %1
-    %9 = move %8 ?? "absent"
-    %6 = move %9
+    %6 = move %8 ?? "absent"
     goto bb6
   bb5:
     %6 = "none"

@@ -4588,7 +4588,6 @@ pub(crate) fn segments(path: JsString) -> SmeltList<JsString> {
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: JsString;
     let mut _smelt_tmp_16: JsString;
-    let mut _smelt_tmp_17: JsString;
     let mut _smelt_tmp_18: f64;
     let parts: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_haystack = path.clone(); let smelt_separator = JsString::from("/"); smelt_haystack.split(&smelt_separator, usize::MAX) });
     let mut out: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
@@ -4605,8 +4604,7 @@ pub(crate) fn segments(path: JsString) -> SmeltList<JsString> {
     _smelt_tmp_14 = next.is_none();
     if _smelt_tmp_14 {
     _smelt_tmp_16 = JsString::new() + &p;
-    _smelt_tmp_17 = _smelt_tmp_16 + &JsString::from("<last>");
-    _smelt_tmp_15 = _smelt_tmp_17;
+    _smelt_tmp_15 = _smelt_tmp_16 + &JsString::from("<last>");
     _smelt_tmp_18 = { let smelt_push_item = _smelt_tmp_15; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
@@ -4684,14 +4682,7 @@ pub(crate) fn buckets() -> JsString {
 
 pub(crate) fn matches(matcher: SmeltUnion15, part: JsString) -> bool {
     let mut _smelt_tmp_3: bool;
-    let _smelt_tmp_4: bool;
     let _smelt_tmp_2: bool = matcher.clone().into_smelt_unknown().js_strict_eq(&SmeltUnknown::Bool(true));
-    let mut _smelt_tmp_3: bool = false;
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = true;
-    } else {
-    _smelt_tmp_4 = (<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(matcher.clone().into_smelt_unknown())).test(&part.clone());
-    _smelt_tmp_3 = _smelt_tmp_4;
-    }
+    let _smelt_tmp_3: bool = if _smelt_tmp_2 { true } else { (<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown(matcher.clone().into_smelt_unknown())).test(&part.clone()) };
     return _smelt_tmp_3;
 }
