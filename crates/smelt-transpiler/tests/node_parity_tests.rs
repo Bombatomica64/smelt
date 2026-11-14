@@ -891,6 +891,13 @@ fn generic_record_result_alias() -> TestResult {
     Ok(())
 }
 
+/// An integer-valued expression fills a union's `number` arm, and
+/// `String.prototype.match` with an absent pattern matches the empty pattern.
+#[test]
+fn number_union_and_optional_pattern() -> TestResult {
+    verify_node_parity("number_union_and_optional_pattern")
+}
+
 /// A narrowing proved inside one class member (a method, a constructor) does
 /// not leak into a sibling member's same-named local, so that member's own
 /// null test survives instead of folding to `true` and unwrapping `None`.
