@@ -829,6 +829,8 @@ fn generic_record_result_alias() -> TestResult {
         )?;
     }
     Ok(())
+}
+
 /// A narrowing proved inside one class member (a method, a constructor) does
 /// not leak into a sibling member's same-named local, so that member's own
 /// null test survives instead of folding to `true` and unwrapping `None`.
