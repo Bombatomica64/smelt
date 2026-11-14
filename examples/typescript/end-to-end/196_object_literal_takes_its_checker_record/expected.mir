@@ -1,0 +1,187 @@
+interface SmeltRecordd266e6396da13c4f
+interface SmeltRecordae6f9ba9b8802fd3
+interface SmeltRecord7de77ee18c851931
+interface SmeltRecord355fff2c5e8888da
+interface SmeltRecorda086cf5c99222122
+interface SmeltRecord7e5cb823251b06a8
+
+fn describe_items (FuncId(0)) -> String
+  locals
+    %0 user items: List<SmeltRecord355fff2c5e8888da>
+    %1 user total: Float
+    %2 user item: SmeltRecord355fff2c5e8888da
+    %3 temp: SmeltRecord355fff2c5e8888da
+    %4 temp: SmeltRecord355fff2c5e8888da
+    %5 temp: SmeltRecord355fff2c5e8888da
+    %6 temp: List<SmeltRecord355fff2c5e8888da>
+    %7 temp: usize
+    %8 temp: usize
+    %9 temp: Bool
+    %10 temp: Bool
+    %11 temp: Bool
+    %12 temp: Float
+    %13 temp: Float
+    %14 temp: String
+    %15 temp: String
+    %16 temp: SmeltRecord355fff2c5e8888da
+    %17 temp: String
+    %18 temp: String
+    %19 temp: Float
+    %20 temp: String
+  bb0:
+    %3 = {"id": 1.0, "enabled": false}
+    %4 = {"id": 2.0, "enabled": true}
+    %5 = {"id": 3.0, "enabled": false}
+    %0 = [move %3, move %4, move %5]
+    %1 = 0.0
+    %7 = 0
+    goto bb1
+  bb1:
+    %8 = len copy %0
+    %9 = copy %7 < move %8
+    switch move %9 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %7]
+    switch copy %2.field14 ? bb5 : bb6
+  bb3:
+    %7 = copy %7 + 1
+    goto bb1
+  bb4:
+    %14 = "" + move %1
+    %15 = move %14 + ":"
+    %16 = copy %0[1.0]
+    %17 = move %15 + copy %16.field13
+    %18 = move %17 + ":"
+    %19 = len move %0
+    %20 = move %18 + move %19
+    return move %20
+  bb5:
+    %10 = true
+    goto bb7
+  bb6:
+    %10 = copy %2.field13 > 2.0
+    goto bb7
+  bb7:
+    switch move %10 ? bb8 : bb9
+  bb8:
+    %12 = copy %2.field13 * 10.0
+    %2.field13 = move %12
+    goto bb9
+  bb9:
+    %13 = move %1 + copy %2.field13
+    %1 = move %13
+    goto bb3
+
+fn aliases_share_the_record (FuncId(1)) -> None
+  locals
+    %0 user bump: fn() -> None
+    %1 user point: SmeltRecord7e5cb823251b06a8
+    %2 user alias: SmeltRecord7e5cb823251b06a8
+    %3 temp: SmeltRecorda086cf5c99222122
+    %4 temp: SmeltRecord7e5cb823251b06a8
+    %5 temp: fn() -> None
+    %6 temp: None
+    %7 temp: SmeltRecorda086cf5c99222122
+    %8 temp: SmeltRecorda086cf5c99222122
+    %9 temp: None
+    %10 temp: None
+    %11 temp: String
+    %12 temp: None
+  bb0:
+    %3 = {"depth": 2.0, "name": "in"}
+    %1 = {"b": 1.0, "a": "x", "inner": move %3}
+    %2 = copy %1
+    %2.field5 = 21.0
+    %5 = closure ClosureId(0) [copy %1]
+    %0 = move %5
+    %6 = closure_call move %0()
+    %7 = copy %2.field23
+    %8 = copy %1.field23
+    %9 = call @console_log(copy %1.field5, copy %2.field5, copy %7.field21, copy %8.field7) -> bb1
+  bb1:
+    %10 = call @console_log(copy %1) -> bb2
+  bb2:
+    %11 = json_stringify move %2
+    %12 = call @console_log(move %11) -> bb3
+  bb3:
+    return none
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user config: SmeltRecordd266e6396da13c4f
+    %1 user swapped: SmeltRecordae6f9ba9b8802fd3
+    %2 user person: SmeltRecord7de77ee18c851931
+    %3 temp: SmeltRecordd266e6396da13c4f
+    %4 temp: SmeltRecordae6f9ba9b8802fd3
+    %5 temp: List<String>
+    %6 temp: SmeltRecord7de77ee18c851931
+    %7 temp: String
+    %8 temp: None
+    %9 temp: None
+    %10 temp: String
+    %11 temp: None
+    %12 temp: String
+    %13 temp: Float
+    %14 temp: Float
+    %15 temp: List<String>
+    %16 temp: None
+    %17 temp: String
+    %18 temp: None
+    %19 temp: Float
+    %20 temp: Float
+    %21 temp: String
+    %22 temp: None
+  bb0:
+    %0 = {"label": "retry", "times": 3.0, "verbose": false}
+    %1 = {"a": "y", "b": 2.0}
+    %5 = ["a", "b"]
+    %2 = {"name": "mike", "age": 20.0, "tags": move %5}
+    %7 = call fn0() -> bb1
+  bb1:
+    %8 = call @console_log(move %7) -> bb2
+  bb2:
+    %9 = call fn1() -> bb3
+  bb3:
+    %10 = json_stringify copy %1
+    %11 = call @console_log(move %1, move %10) -> bb4
+  bb4:
+    %12 = string_upper copy %2.field7
+    %13 = copy %2.field8 + 1.0
+    %14 = len copy %2.field9
+    %15 = copy %2.field9
+    %16 = call @console_log(move %12, move %13, move %14, copy %15[1.0]) -> bb5
+  bb5:
+    %17 = json_stringify move %2
+    %18 = call @console_log(move %17) -> bb6
+  bb6:
+    %19 = len copy %0.field0
+    %20 = move %19 + copy %0.field1
+    switch copy %0.field2 ? bb7 : bb8
+  bb7:
+    %21 = "loud"
+    goto bb9
+  bb8:
+    %21 = "quiet"
+    goto bb9
+  bb9:
+    %22 = call @console_log(move %20, move %21) -> bb10
+  bb10:
+    return none
+
+closure ClosureId(0) -> None
+  locals
+    %0 user point: SmeltRecord7e5cb823251b06a8
+    %1 temp: Float
+    %2 temp: SmeltRecorda086cf5c99222122
+    %3 temp: SmeltRecorda086cf5c99222122
+    %4 temp: Float
+  bb0:
+    %1 = copy %0.field5 + 1.0
+    %0.field5 = copy %1
+    %2 = copy %0.field23
+    %3 = copy %0.field23
+    %4 = copy %3.field21 + 1.0
+    %2.field21 = copy %4
+    %0.field23 = copy %2
+    return none
+

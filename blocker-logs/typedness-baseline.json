@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8424,
+      "concrete": 8480,
       "generic": 150,
       "erased": 56
     },
     "reads": {
-      "concrete": 878,
+      "concrete": 903,
       "generic": 42,
       "erased": 20
     },
     "calls": {
-      "concrete": 2299,
+      "concrete": 2310,
       "generic": 15,
       "erased": 2
     }
@@ -1612,6 +1612,23 @@
       },
       "calls": {
         "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/196_object_literal_takes_its_checker_record/input.ts": {
+      "values": {
+        "concrete": 56,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 25,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 11,
         "generic": 0,
         "erased": 0
       }

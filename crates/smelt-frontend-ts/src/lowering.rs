@@ -13,6 +13,7 @@ mod function_statics;
 mod hoisting;
 mod int32;
 mod js_text;
+mod literal_record_uses;
 mod narrowing;
 mod null_absent;
 mod open_array_hint;
@@ -504,6 +505,7 @@ pub fn to_hir_with_options(
     builder.trust = options.trust;
     builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
     builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
+    builder.literal_record_uses = literal_record_uses::LiteralRecordUses::collect(&parsed.program);
     builder.program(&parsed.program)
 }
 
@@ -882,6 +884,9 @@ struct ModuleBuilder<'ctx> {
     enum_reverse_names: HashMap<String, Vec<(f64, String)>>,
     /// Declarations and reads of this module, from its AST.
     source_facts: source_facts::SourceFacts,
+    /// Which unannotated literal bindings of this module may lower to a
+    /// record struct, from the uses of each binding.
+    literal_record_uses: literal_record_uses::LiteralRecordUses,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
     /// Per-body local state: name bindings, `Date`-identity and explicit-`any`

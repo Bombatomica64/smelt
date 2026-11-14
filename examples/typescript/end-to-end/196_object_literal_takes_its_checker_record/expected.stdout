@@ -1,0 +1,8 @@
+51:20:3
+22 22 3 in
+{ b: 22, a: 'x', inner: { depth: 3, name: 'in' } }
+{"b":22,"a":"x","inner":{"depth":3,"name":"in"}}
+{ a: 'y', b: 2 } {"a":"y","b":2}
+MIKE 21 2 b
+{"name":"mike","age":20,"tags":["a","b"]}
+8 quiet

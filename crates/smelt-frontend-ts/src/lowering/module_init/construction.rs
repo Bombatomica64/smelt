@@ -95,6 +95,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             kept_receivers: Vec::new(),
             enum_reverse_names: HashMap::new(),
             source_facts: super::super::source_facts::SourceFacts::default(),
+            literal_record_uses: super::super::literal_record_uses::LiteralRecordUses::default(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),
         }

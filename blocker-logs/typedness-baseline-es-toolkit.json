@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13955,
+      "concrete": 13984,
       "generic": 228,
-      "erased": 7714
+      "erased": 7685
     },
     "reads": {
       "concrete": 341,
@@ -10152,9 +10152,9 @@
     },
     "src/object/merge.spec.ts": {
       "values": {
-        "concrete": 87,
+        "concrete": 91,
         "generic": 0,
-        "erased": 97
+        "erased": 93
       },
       "reads": {
         "concrete": 0,
@@ -10390,9 +10390,9 @@
     },
     "src/object/toCamelCaseKeys.spec.ts": {
       "values": {
-        "concrete": 40,
+        "concrete": 51,
         "generic": 0,
-        "erased": 77
+        "erased": 66
       },
       "reads": {
         "concrete": 0,
@@ -10424,9 +10424,9 @@
     },
     "src/object/toMerged.spec.ts": {
       "values": {
-        "concrete": 138,
+        "concrete": 142,
         "generic": 0,
-        "erased": 97
+        "erased": 93
       },
       "reads": {
         "concrete": 13,
@@ -10458,9 +10458,9 @@
     },
     "src/object/toSnakeCaseKeys.spec.ts": {
       "values": {
-        "concrete": 32,
+        "concrete": 42,
         "generic": 0,
-        "erased": 67
+        "erased": 57
       },
       "reads": {
         "concrete": 0,

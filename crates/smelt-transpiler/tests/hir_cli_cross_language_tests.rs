@@ -1431,6 +1431,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "193_structural_record_names_keep_source_keys",
     "194_closure_return_from_the_checker",
     "195_record_value_at_a_record_parameter",
+    "196_object_literal_takes_its_checker_record",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

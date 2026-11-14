@@ -93,9 +93,17 @@ impl ModuleBuilder<'_> {
                     // body that recreates the const (`paths[p][1]`) reads the
                     // declared tuple/list shapes rather than the literal's
                     // erased inference.
-                    let type_hint = declarator.type_annotation.as_ref().and_then(|annotation| {
-                        self.ts_type_to_hir(&annotation.type_annotation).ok()
-                    });
+                    // Unannotated, the literal takes the type TypeScript
+                    // inferred for the binding (`checker_literal_binding_type`).
+                    let type_hint = declarator
+                        .type_annotation
+                        .as_ref()
+                        .and_then(|annotation| {
+                            self.ts_type_to_hir(&annotation.type_annotation).ok()
+                        })
+                        .or_else(|| {
+                            self.checker_literal_binding_type(binding.span.start, binding.span.end)
+                        });
                     self.object_const_from_expression(object, type_hint)
                 }
             {
