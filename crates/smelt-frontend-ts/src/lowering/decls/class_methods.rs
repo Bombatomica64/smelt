@@ -8,7 +8,9 @@ use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::visibility;
 use crate::lowering::{ModuleBuilder, RestParam};
-use oxc::ast::ast::{BindingPattern, ClassElement, Expression, MethodDefinitionKind, PropertyKey};
+use oxc::ast::ast::{
+    BindingPattern, ClassElement, Expression, MethodDefinitionKind, MethodDefinitionType, PropertyKey,
+};
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, Field, Function, FunctionOwner, Item, Literal, LocalDecl,
@@ -40,7 +42,8 @@ impl ModuleBuilder<'_> {
     }
 
     /// The instance methods among `elements` that declare their own type
-    /// parameters and have a body (`map<U>(f: (x: T) => U): U[] { .. }`).
+    /// parameters and have a body (`map<U>(f: (x: T) => U): U[] { .. }`), or
+    /// are abstract (lowered with a throwing body, see `class_function_impl`).
     pub(in crate::lowering) fn generic_method_names(
         &mut self,
         elements: &[ClassElement<'_>],
@@ -52,7 +55,8 @@ impl ModuleBuilder<'_> {
             };
             if method.kind != MethodDefinitionKind::Method
                 || method.r#static
-                || method.value.body.is_none()
+                || (method.value.body.is_none()
+                    && method.r#type != MethodDefinitionType::TSAbstractMethodDefinition)
                 || method.value.type_parameters.is_none()
             {
                 continue;
@@ -565,12 +569,22 @@ impl ModuleBuilder<'_> {
             Span,
         )],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let Some(function_body) = &method.value.body else {
+        // An ABSTRACT generic method is lowered as a method too, with a body
+        // that throws (`ModuleBuilder::abstract_generic_method`): its
+        // implementations override it, which the polymorphic class handle
+        // dispatches to with the method's own type parameters kept.
+        let abstract_body = method.value.body.is_none()
+            && method.r#type == MethodDefinitionType::TSAbstractMethodDefinition;
+        let function_body = method.value.body.as_deref();
+        if function_body.is_none() && !abstract_body {
             return Err(SmeltError::unsupported(
                 self.span(method.span.start, method.span.end),
                 "declare methods are not lowered yet",
             ));
-        };
+        }
+        let statements: &[oxc::ast::ast::Statement<'_>] =
+            function_body.map_or(&[], |function_body| function_body.statements.as_slice());
+        let body_span = function_body.map_or(method.span, |function_body| function_body.span);
         let method_name = if is_constructor {
             self.ctx.krate.symbols.intern("new")
         } else {
@@ -658,10 +672,7 @@ impl ModuleBuilder<'_> {
                     this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
                 let scope = ScopeGroups::MEMBER_BODY;
                 let lowered = this.with_nested_body(ctx, scope, |this, _| {
-                    let mut body = Body::new(
-                        None,
-                        this.span(function_body.span.start, function_body.span.end),
-                    );
+                    let mut body = Body::new(None, this.span(body_span.start, body_span.end));
                     body.set_generator(method.value.generator);
                     let mut params = Vec::new();
                     let this_symbol = this.ctx.krate.symbols.intern("this");
@@ -693,7 +704,9 @@ impl ModuleBuilder<'_> {
                     // its constructor takes the frame first
                     // (`decls::evaluation_statics`).
                     if !is_static {
-                        let named = if this.lowering_evaluation_statics.is_some() {
+                        let named = if this.lowering_evaluation_statics.is_some()
+                            && let Some(function_body) = function_body
+                        {
                             Self::function_body_identifiers(function_body)
                         } else {
                             std::collections::HashSet::new()
@@ -888,8 +901,7 @@ impl ModuleBuilder<'_> {
                     // after the base's initialization, never before it.
                     let defer_own_initializers = is_constructor
                         && this.classes.base(class_text).is_some()
-                        && function_body
-                            .statements
+                        && statements
                             .iter()
                             .any(|statement| Self::is_super_call_statement(statement));
                     if is_constructor && !defer_own_initializers {
@@ -942,23 +954,20 @@ impl ModuleBuilder<'_> {
                         );
                     }
                     if let Err(error) = this
-                        .predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+                        .predeclare_forward_referenced_locals(statements, &mut body)
                     {
                         errors.push(error);
                     }
-                    if let Err(error) = this.predeclare_local_function_declarations(
-                        &function_body.statements,
-                        &mut body,
-                    ) {
+                    if let Err(error) =
+                        this.predeclare_local_function_declarations(statements, &mut body)
+                    {
                         errors.push(error);
                     }
                     let generator_yields = method.value.generator.then(|| {
                         this.initialize_generator_yield_accumulator(&method.value, &mut body)
                     });
                     this.fn_ctx.generator = generator_yields;
-                    for statement in
-                        crate::lowering::hoisting::hoisted_statements(&function_body.statements)
-                    {
+                    for statement in crate::lowering::hoisting::hoisted_statements(statements) {
                         // `super(...)` has no callee to defer to once inheritance is flattened
                         // into the derived struct, so it lowers to the base's initialization
                         // applied to `this` instead of running as an ordinary call.
@@ -989,6 +998,19 @@ impl ModuleBuilder<'_> {
                         if let Err(error) = this.statement(statement, &mut body) {
                             errors.push(error);
                         }
+                    }
+                    if abstract_body {
+                        // Reached only when no subclass implementation
+                        // overrides the call, which TypeScript rules out.
+                        let string_ty = this.ctx.krate.types.intern(Type::String);
+                        let message = body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::String(
+                                "TypeError: an abstract method was called".to_owned(),
+                            )),
+                            ty: string_ty,
+                            span: this.span(method.span.start, method.span.end),
+                        });
+                        body.push_stmt(smelt_hir::Stmt::Throw(message));
                     }
                     if let Some(accumulator) = generator_yields {
                         Self::push_generator_return(accumulator, &method.value, &mut body);

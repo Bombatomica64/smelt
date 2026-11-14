@@ -873,5 +873,9 @@ fn adjacent_hierarchy_shapes_run() -> TestResult {
     ensure(
         all.contains("fn f(s: NShape) -> ()"),
         "`f` keeps its typed parameter",
+    )?;
+    ensure(
+        all.matches("fn pick<T: ").count() >= 2,
+        "the abstract generic method and its implementation are Rust generics",
     )
 }

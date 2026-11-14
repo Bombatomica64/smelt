@@ -142,22 +142,22 @@ fn json_check_includes_severity() -> TestResult {
     )
 }
 
-/// A class method's own type parameter is erased by the backend, which
-/// records `erased-generic` with the parameter name, attributed to the method.
+/// A type parameter the backend erases at a call site is recorded as
+/// `erased-generic` with the parameter name, attributed to the source file.
 #[test]
 fn backend_records_erased_generics() -> TestResult {
     let project = project("")?;
     // Old fixtures: a plain `pick<T>` method, then an OVERRIDDEN one, which
     // the backend erased. Both are now Rust generics (`fn pick<T>`; an
-    // override is reached through the polymorphic class handle,
-    // `codegen::class_polymorphism`), so the backend erases one only where it
-    // must: an ABSTRACT generic method has no body to forward from and is
-    // dispatched through its callable slot (`Rc<dyn Fn(..)>`), which cannot be
-    // generic. The requirement is unchanged: a backend erasure names its
-    // reason.
+    // override, abstract or not, is reached through the polymorphic class
+    // handle, `codegen::class_polymorphism`). The backend still erases a
+    // generic where a call site cannot instantiate it: a packed rest parameter
+    // destroys positional alignment (`call_generics::static_call_monomorphization`,
+    // rule 2), so the call passes erased values. The requirement is unchanged:
+    // a backend erasure names its reason.
     fs::write(
         project.path().join("main.ts"),
-        "abstract class Box {\n  abstract pick<T>(x: T): T;\n}\nclass Sub extends Box {\n  pick<T>(x: T): T {\n    return x;\n  }\n}\nconst b: Box = new Sub();\nconsole.log(b.pick(1));\n",
+        "function firstOf<T>(...xs: T[]): T {\n  return xs[0];\n}\nconsole.log(firstOf(1, 2));\n",
     )?;
     let (ok, _, stderr) = run(project.path(), &["build"])?;
     ensure(ok, stderr)?;

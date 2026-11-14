@@ -944,7 +944,10 @@ impl ModuleBuilder<'_> {
                                 static_methods.push(item);
                                 continue;
                             }
-                            if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
+                            if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition
+                                && !(method.value.type_parameters.is_some()
+                                    && matches!(method.kind, MethodDefinitionKind::Method))
+                            {
                                 if !matches!(method.kind, MethodDefinitionKind::Method) {
                                     return Err(SmeltError::unsupported(
                                         this.span(method.span.start, method.span.end),
