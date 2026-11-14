@@ -1412,7 +1412,12 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.enum_reverse_mapping_read(member, body)? {
             return Ok(expr);
         }
-        let receiver = self.expression(&member.object, body)?;
+        // A bracket read probing an assertion view reads the erased value
+        // (see `lowering::assertion_views`).
+        let receiver = match self.assertion_view_read(&member.object, body) {
+            Some(view) => view,
+            None => self.expression(&member.object, body)?,
+        };
         // A computed key that resolves to a STATIC member name is an ordinary
         // member read written with brackets, so it lowers to the same `Field` a
         // dot access would. This is what makes a symbol-keyed member usable:

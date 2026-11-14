@@ -456,6 +456,9 @@ impl ModuleBuilder<'_> {
             if self.conditional_base_declarator(declarator, body, block)? {
                 continue;
             }
+            if self.assertion_view_declarator(decl.kind, declarator, body, block)? {
+                continue;
+            }
             // A module-level `let`/`var` binding lifted to a mutable global is
             // fully represented by its thread-local item (its literal
             // initializer is the cell's initial value), so lowering the SAME

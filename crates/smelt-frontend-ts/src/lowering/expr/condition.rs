@@ -32,7 +32,12 @@ impl ModuleBuilder<'_> {
         {
             return Ok(cond);
         }
-        let cond = self.expression(expression, body)?;
+        // A truthiness test probing an assertion view tests the erased value
+        // (see `lowering::assertion_views`).
+        let cond = match self.assertion_view_read(expression, body) {
+            Some(view) => view,
+            None => self.expression(expression, body)?,
+        };
         self.lowered_condition_expression(cond, self.expression_span(expression), body)
     }
 

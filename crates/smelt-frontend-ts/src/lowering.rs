@@ -3,6 +3,7 @@
 mod ambient_globals;
 mod arguments_forwarding;
 mod asserted_member_read;
+mod assertion_views;
 mod bigint;
 mod body_arena;
 mod checker_types;

@@ -125,9 +125,21 @@ impl LocalBindings {
 #[derive(Debug, Default)]
 pub(in crate::lowering) struct DateValueLocals(HashSet<LocalId>);
 
-/// Explicit-`any` local facts saved while a nested body is lowered.
+/// Erased-local facts saved while a nested body is lowered: the locals
+/// declared `any`, and the assertion views (see
+/// `lowering::assertion_views`) with the type each one stands for.
 #[derive(Debug, Default)]
-pub(in crate::lowering) struct ExplicitAnyLocals(HashSet<LocalId>);
+pub(in crate::lowering) struct ExplicitAnyLocals {
+    /// Locals declared with an explicit `any` annotation.
+    any: HashSet<LocalId>,
+    /// Erased locals that hold `operand as T` for an erased operand, with the
+    /// source name they were bound under and the asserted `T`.
+    ///
+    /// The name is checked on every lookup: a body lowered without taking this
+    /// group (an arrow lowered as a closure) numbers its locals afresh, so a
+    /// `LocalId` alone could name an unrelated local of that body.
+    views: HashMap<LocalId, (String, TypeId)>,
+}
 
 /// Callable-local property writes saved while a nested body is lowered.
 #[derive(Debug, Default)]
@@ -151,7 +163,7 @@ impl ScopeGroups {
     pub(in crate::lowering) const DATE_VALUES: Self = Self(1 << 1);
     /// The collected callable-local property writes.
     pub(in crate::lowering) const CALLABLE_PROPS: Self = Self(1 << 2);
-    /// The explicit-`any` local facts.
+    /// The erased-local facts: explicit `any` and assertion views.
     pub(in crate::lowering) const EXPLICIT_ANY: Self = Self(1 << 3);
     /// The flow-narrowing stack.
     pub(in crate::lowering) const NARROWINGS: Self = Self(1 << 4);
@@ -354,12 +366,34 @@ impl LocalScope {
 
     /// Record that a local was declared with an explicit `any` annotation.
     pub(in crate::lowering) fn mark_explicit_any(&mut self, local: LocalId) {
-        self.explicit_any.0.insert(local);
+        self.explicit_any.any.insert(local);
     }
 
     /// Return whether a local was declared with an explicit `any` annotation.
     pub(in crate::lowering) fn is_explicit_any(&self, local: LocalId) -> bool {
-        self.explicit_any.0.contains(&local)
+        self.explicit_any.any.contains(&local)
+    }
+
+    /// Record that an erased local holds `operand as asserted`: reads that only
+    /// probe it stay on the erased value, and any other read stands for
+    /// `asserted` (see `lowering::assertion_views`).
+    pub(in crate::lowering) fn mark_assertion_view(
+        &mut self,
+        local: LocalId,
+        name: String,
+        asserted: TypeId,
+    ) {
+        self.explicit_any.views.insert(local, (name, asserted));
+    }
+
+    /// The type the assertion view bound as `name` stands for, if `local` is
+    /// that view.
+    pub(in crate::lowering) fn assertion_view(&self, local: LocalId, name: &str) -> Option<TypeId> {
+        self.explicit_any
+            .views
+            .get(&local)
+            .filter(|(bound, _)| bound == name)
+            .map(|(_, asserted)| *asserted)
     }
 
     /// Take the explicit-`any` facts, leaving an empty set for a nested body.
