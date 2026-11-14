@@ -58,7 +58,7 @@ def load() -> str:
     )
 }
 
-/// `json.dumps` lowers to its own Python op, not `JSON.stringify`: CPython's
+/// `json.dumps` lowers to its own Python op, not `JSON.stringify`: `CPython`'s
 /// defaults (`", "`/`": "` separators, a float's repr, `ensure_ascii`) differ
 /// from JavaScript's, and the `python-parity/json_dumps_defaults` fixture runs
 /// the output against `python3`.

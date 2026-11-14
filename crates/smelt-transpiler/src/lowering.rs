@@ -170,9 +170,9 @@ impl ManifestLowering {
     pub(crate) fn for_file(file: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let target = PathBuf::from(file);
         let root = read_manifest_source(target.clone())?;
-        let mut sources = dependency_closure(vec![root], &[], Path::new("."), &[], None)?;
-        mark_entries(&mut sources, std::iter::once(target.clone()));
-        let sources = in_dependency_order(sources);
+        let mut closure = dependency_closure(vec![root], &[], Path::new("."), &[], None)?;
+        mark_entries(&mut closure, std::iter::once(target.clone()));
+        let sources = in_dependency_order(closure);
         let focus = sources.iter().position(|source| source.path == target);
         let ordered = sources.iter().collect::<Vec<_>>();
         let module_names = manifest_module_names(&ordered, |source| {
@@ -531,9 +531,9 @@ fn sound_settings(config: &crate::config::Config, manifest_dir: &Path) -> SoundS
 /// closure's resolved path of the same file agree.
 fn mark_entries(sources: &mut [ManifestSource], entries: impl Iterator<Item = PathBuf>) {
     let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let entries: HashSet<PathBuf> = entries.map(|path| canonical(&path)).collect();
+    let entry_paths: HashSet<PathBuf> = entries.map(|path| canonical(&path)).collect();
     for source in sources {
-        source.is_entry = entries.contains(&canonical(&source.path));
+        source.is_entry = entry_paths.contains(&canonical(&source.path));
     }
 }
 

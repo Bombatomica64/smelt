@@ -32,15 +32,15 @@ pub(crate) fn specialization_for_path(
         .effects
         .iter()
         .filter_map(|effect| {
-            let smelt_specialize::EffectReplay::Output { stderr, text, path: written_in, line } = effect else {
+            let smelt_specialize::EffectReplay::Output { stderr, text, path: written_path, line } = effect else {
                 return None;
             };
-            match (written_in, line) {
-                (Some(written_in), Some(line)) => specialization_paths_match(&module.path, written_in)
+            match (written_path, line) {
+                (Some(written_in), Some(statement_line)) => specialization_paths_match(&module.path, written_in)
                     .then(|| OutputReplay {
                         stderr: *stderr,
                         text: text.clone(),
-                        offset: line
+                        offset: statement_line
                             .checked_sub(1)
                             .and_then(|index| line_starts.get(usize::try_from(index).ok()?).copied()),
                     }),
@@ -66,7 +66,7 @@ fn line_start_offsets(source: &str) -> Vec<u32> {
         .chain(
             source
                 .match_indices('\n')
-                .filter_map(|(index, _)| u32::try_from(index + 1).ok()),
+                .filter_map(|(index, _)| index.checked_add(1).and_then(|start| u32::try_from(start).ok())),
         )
         .collect()
 }

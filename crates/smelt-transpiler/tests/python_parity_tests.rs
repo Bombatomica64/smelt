@@ -247,7 +247,7 @@ fn class_inheritance() -> TestResult {
     verify_python_parity("class_inheritance")
 }
 
-/// `json.dumps` with CPython's default separators, float repr and
+/// `json.dumps` with `CPython`'s default separators, float repr and
 /// `ensure_ascii`, called from a function a module-level statement calls,
 /// whose output prints once.
 #[test]
