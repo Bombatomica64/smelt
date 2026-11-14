@@ -296,6 +296,7 @@ Repository layout outside `crates/`:
 ## Documentation
 
 - [`docs/why-smelt.md`](docs/why-smelt.md): why the project exists.
+- [`docs/architecture/index.html`](docs/architecture/index.html): visual architecture map (pipeline, crates, modules, erasure points, MIR passes, CI gates, churn).
 - [`specs/architecture.md`](specs/architecture.md) and [`CONTEXT.md`](CONTEXT.md): pipeline design and vocabulary.
 - [`specs/hir.md`](specs/hir.md), [`specs/mir.md`](specs/mir.md): the two IRs.
 - [`specs/frontend-ts.md`](specs/frontend-ts.md), [`specs/frontend-py.md`](specs/frontend-py.md), [`specs/python-type-checking-with-ty.md`](specs/python-type-checking-with-ty.md): frontends.
