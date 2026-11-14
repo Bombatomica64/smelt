@@ -1,33 +1,33 @@
 [
 {
 "module": "crates/smelt-transpiler/tests",
-"commits": 242,
-"lines": 13988,
-"changed": 12750
+"commits": 256,
+"lines": 14218,
+"changed": 12982
 },
 {
 "module": "crates/smelt-codegen-rust/src/tests",
-"commits": 164,
-"lines": 24372,
-"changed": 67073
+"commits": 168,
+"lines": 24435,
+"changed": 67262
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/stdlib",
-"commits": 130,
-"lines": 25617,
-"changed": 48258
+"commits": 136,
+"lines": 26058,
+"changed": 48723
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/coercion",
-"commits": 91,
-"lines": 8320,
-"changed": 17653
+"commits": 94,
+"lines": 8414,
+"changed": 17749
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/expr",
-"commits": 88,
-"lines": 10986,
-"changed": 17987
+"commits": 93,
+"lines": 11061,
+"changed": 18064
 },
 {
 "module": "crates/smelt-frontend-ts/src/tests",
@@ -37,15 +37,27 @@
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/decls",
-"commits": 71,
-"lines": 10351,
-"changed": 20699
+"commits": 73,
+"lines": 10377,
+"changed": 20731
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/ty",
-"commits": 71,
-"lines": 8834,
-"changed": 16097
+"commits": 72,
+"lines": 8847,
+"changed": 16114
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/module_init",
+"commits": 72,
+"lines": 7233,
+"changed": 17395
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/mod",
+"commits": 72,
+"lines": 1672,
+"changed": 1607
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/core",
@@ -54,34 +66,22 @@
 "changed": 11498
 },
 {
-"module": "crates/smelt-frontend-ts/src/lowering/module_init",
-"commits": 70,
-"lines": 7231,
-"changed": 17393
-},
-{
-"module": "crates/smelt-codegen-rust/src/emitter/mod",
-"commits": 70,
-"lines": 1658,
-"changed": 1593
+"module": "crates/smelt-frontend-ts/src/lowering/callbacks",
+"commits": 69,
+"lines": 5683,
+"changed": 11818
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/call",
-"commits": 68,
+"commits": 69,
 "lines": 1209,
-"changed": 7822
+"changed": 7828
 },
 {
 "module": "crates/smelt-codegen-rust/src/lib",
-"commits": 68,
-"lines": 141,
-"changed": 14632
-},
-{
-"module": "crates/smelt-frontend-ts/src/lowering/callbacks",
-"commits": 67,
-"lines": 5633,
-"changed": 11746
+"commits": 69,
+"lines": 142,
+"changed": 14633
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/types",
@@ -91,9 +91,9 @@
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/stmt",
-"commits": 63,
-"lines": 7299,
-"changed": 9814
+"commits": 64,
+"lines": 7306,
+"changed": 9821
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/call_runtime",
@@ -103,27 +103,27 @@
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/new_expr",
-"commits": 58,
-"lines": 2921,
-"changed": 8303
+"commits": 59,
+"lines": 2923,
+"changed": 8305
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering",
-"commits": 53,
-"lines": 1133,
-"changed": 756
+"commits": 55,
+"lines": 1143,
+"changed": 766
+},
+{
+"module": "crates/smelt-codegen-rust/src/runtime_demand",
+"commits": 51,
+"lines": 1744,
+"changed": 2613
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/control_flow",
 "commits": 49,
 "lines": 4586,
 "changed": 10805
-},
-{
-"module": "crates/smelt-codegen-rust/src/runtime_demand",
-"commits": 48,
-"lines": 1693,
-"changed": 2560
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/strings",
@@ -133,9 +133,9 @@
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/place",
-"commits": 46,
-"lines": 1781,
-"changed": 3625
+"commits": 47,
+"lines": 1797,
+"changed": 3673
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/map",
@@ -168,22 +168,22 @@
 "changed": 3400
 },
 {
+"module": "crates/smelt-codegen-rust/src/emitter/closures",
+"commits": 41,
+"lines": 1887,
+"changed": 1843
+},
+{
 "module": "crates/smelt-frontend-ts/src/lowering/guards",
 "commits": 41,
 "lines": 1280,
 "changed": 2898
 },
 {
-"module": "crates/smelt-codegen-rust/src/emitter/closures",
-"commits": 40,
-"lines": 1849,
-"changed": 1797
-},
-{
 "module": "crates/smelt-hir/src/expr",
-"commits": 37,
-"lines": 3329,
-"changed": 6645
+"commits": 38,
+"lines": 3346,
+"changed": 6664
 },
 {
 "module": "crates/smelt-mir/src/lower/expr",
@@ -192,16 +192,22 @@
 "changed": 4487
 },
 {
+"module": "crates/smelt-hir/src/op_table",
+"commits": 34,
+"lines": 2902,
+"changed": 3596
+},
+{
 "module": "crates/smelt-codegen-rust/src/emitter/optional_access",
 "commits": 34,
 "lines": 942,
 "changed": 1292
 },
 {
-"module": "crates/smelt-hir/src/op_table",
+"module": "crates/smelt-transpiler/src/unknown_report",
 "commits": 32,
-"lines": 2878,
-"changed": 3572
+"lines": 2626,
+"changed": 6205
 },
 {
 "module": "crates/smelt-mir/src/lower/mod",
@@ -210,28 +216,28 @@
 "changed": 1051
 },
 {
+"module": "crates/smelt-codegen-rust/src/emitter/numeric",
+"commits": 32,
+"lines": 781,
+"changed": 1004
+},
+{
 "module": "crates/smelt-codegen-rust/src/emitter/binary_ops",
 "commits": 31,
 "lines": 2104,
 "changed": 2256
 },
 {
-"module": "crates/smelt-codegen-rust/src/emitter/numeric",
-"commits": 31,
-"lines": 778,
-"changed": 999
-},
-{
-"module": "crates/smelt-transpiler/src/unknown_report",
-"commits": 30,
-"lines": 2609,
-"changed": 6180
-},
-{
 "module": "crates/smelt-mir/src/types",
+"commits": 31,
+"lines": 1186,
+"changed": 2890
+},
+{
+"module": "crates/smelt-codegen-rust/src/runtime_prelude",
 "commits": 30,
-"lines": 1181,
-"changed": 2885
+"lines": 374,
+"changed": 562
 },
 {
 "module": "crates/smelt-frontend-py/src/tests",
@@ -252,16 +258,22 @@
 "changed": 2476
 },
 {
+"module": "crates/smelt-codegen-rust/src/emitter/rvalue",
+"commits": 28,
+"lines": 785,
+"changed": 865
+},
+{
 "module": "crates/smelt-mir/src/format",
 "commits": 28,
 "lines": 694,
 "changed": 2542
 },
 {
-"module": "crates/smelt-codegen-rust/src/runtime_prelude",
-"commits": 28,
-"lines": 312,
-"changed": 486
+"module": "crates/smelt-transpiler/src/lowering",
+"commits": 27,
+"lines": 1408,
+"changed": 3425
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/list_query",
@@ -276,22 +288,22 @@
 "changed": 1738
 },
 {
-"module": "crates/smelt-transpiler/src/lowering",
-"commits": 26,
-"lines": 1325,
-"changed": 3324
-},
-{
-"module": "crates/smelt-codegen-rust/src/emitter/rvalue",
-"commits": 26,
-"lines": 772,
-"changed": 848
-},
-{
 "module": "crates/smelt-mir/src/opt/mod",
 "commits": 25,
 "lines": 539,
 "changed": 1831
+},
+{
+"module": "crates/smelt-runtime/src/order",
+"commits": 24,
+"lines": 254,
+"changed": 280
+},
+{
+"module": "crates/smelt-hir/src/lib",
+"commits": 24,
+"lines": 117,
+"changed": 170
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/fetch_types",
@@ -306,22 +318,16 @@
 "changed": 1150
 },
 {
-"module": "crates/smelt-runtime/src/order",
-"commits": 23,
-"lines": 252,
-"changed": 278
-},
-{
-"module": "crates/smelt-hir/src/lib",
-"commits": 23,
-"lines": 117,
-"changed": 168
-},
-{
 "module": "crates/smelt-codegen-rust/src/emitter/console_inspect",
 "commits": 22,
 "lines": 754,
 "changed": 992
+},
+{
+"module": "crates/smelt-runtime/src/runtime/property_access",
+"commits": 22,
+"lines": 516,
+"changed": 668
 },
 {
 "module": "crates/smelt-codegen-rust/src/stdlib",
@@ -331,15 +337,21 @@
 },
 {
 "module": "crates/smelt-mir/src/lower/passes",
-"commits": 20,
+"commits": 21,
 "lines": 1688,
-"changed": 1928
+"changed": 1930
 },
 {
 "module": "crates/smelt-mir/src/validate",
-"commits": 20,
-"lines": 1620,
-"changed": 4477
+"commits": 21,
+"lines": 1621,
+"changed": 4478
+},
+{
+"module": "crates/smelt-stdlib/src/runtime_symbols",
+"commits": 21,
+"lines": 904,
+"changed": 610
 },
 {
 "module": "crates/smelt-mir/src/traversal",
@@ -378,12 +390,6 @@
 "changed": 435
 },
 {
-"module": "crates/smelt-runtime/src/runtime/property_access",
-"commits": 20,
-"lines": 494,
-"changed": 626
-},
-{
 "module": "crates/smelt-mir/src/opt/integer_range",
 "commits": 19,
 "lines": 1826,
@@ -394,12 +400,6 @@
 "commits": 18,
 "lines": 2248,
 "changed": 917
-},
-{
-"module": "crates/smelt-stdlib/src/runtime_symbols",
-"commits": 18,
-"lines": 886,
-"changed": 592
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/json_decode",
@@ -444,6 +444,18 @@
 "changed": 382
 },
 {
+"module": "crates/smelt-codegen-rust/src/emitter/closure_call",
+"commits": 17,
+"lines": 978,
+"changed": 1327
+},
+{
+"module": "crates/smelt-codegen-rust/src/class_proto",
+"commits": 17,
+"lines": 879,
+"changed": 878
+},
+{
 "module": "crates/smelt-frontend-ts/src/lowering/spread_arguments",
 "commits": 17,
 "lines": 729,
@@ -460,6 +472,12 @@
 "commits": 17,
 "lines": 395,
 "changed": 695
+},
+{
+"module": "crates/smelt-runtime/src/runtime/function_object",
+"commits": 17,
+"lines": 388,
+"changed": 506
 },
 {
 "module": "crates/smelt-frontend-py/src/lowering/call",
@@ -486,6 +504,12 @@
 "changed": 945
 },
 {
+"module": "crates/smelt-codegen-rust/src/emitter/function_item",
+"commits": 16,
+"lines": 830,
+"changed": 1128
+},
+{
 "module": "crates/smelt-codegen-rust/src/classify",
 "commits": 16,
 "lines": 721,
@@ -496,6 +520,12 @@
 "commits": 16,
 "lines": 569,
 "changed": 1005
+},
+{
+"module": "crates/smelt-mir/src/opt/let_temp_elision",
+"commits": 16,
+"lines": 543,
+"changed": 730
 },
 {
 "module": "crates/smelt-transpiler/src/cli",
@@ -528,6 +558,12 @@
 "changed": 826
 },
 {
+"module": "crates/smelt-codegen-rust/src/emitter/callable_object",
+"commits": 15,
+"lines": 802,
+"changed": 1024
+},
+{
 "module": "crates/smelt-transpiler/src/typedness_report",
 "commits": 15,
 "lines": 766,
@@ -552,12 +588,6 @@
 "changed": 554
 },
 {
-"module": "crates/smelt-runtime/src/runtime/function_object",
-"commits": 15,
-"lines": 370,
-"changed": 486
-},
-{
 "module": "crates/smelt-runtime/src/source",
 "commits": 14,
 "lines": 1008,
@@ -570,16 +600,10 @@
 "changed": 659
 },
 {
-"module": "crates/smelt-codegen-rust/src/emitter/function_item",
+"module": "crates/smelt-mir/src/lower/closures",
 "commits": 14,
-"lines": 808,
-"changed": 1106
-},
-{
-"module": "crates/smelt-codegen-rust/src/class_proto",
-"commits": 14,
-"lines": 733,
-"changed": 720
+"lines": 812,
+"changed": 221
 },
 {
 "module": "crates/smelt-hir/src/ty",
@@ -588,16 +612,28 @@
 "changed": 606
 },
 {
-"module": "crates/smelt-mir/src/opt/let_temp_elision",
+"module": "crates/smelt-codegen-rust/src/crate_builder",
 "commits": 14,
-"lines": 536,
-"changed": 719
+"lines": 686,
+"changed": 810
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/aggregate_literal",
+"commits": 14,
+"lines": 635,
+"changed": 1033
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/typed_array",
 "commits": 14,
 "lines": 518,
 "changed": 862
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/default_value",
+"commits": 14,
+"lines": 471,
+"changed": 679
 },
 {
 "module": "crates/smelt-mir/src/lower/place",
@@ -624,28 +660,10 @@
 "changed": 678
 },
 {
-"module": "crates/smelt-codegen-rust/src/emitter/closure_call",
-"commits": 13,
-"lines": 916,
-"changed": 1215
-},
-{
 "module": "crates/smelt-frontend-ts/src/lowering/specialization",
 "commits": 13,
 "lines": 915,
 "changed": 458
-},
-{
-"module": "crates/smelt-mir/src/lower/closures",
-"commits": 13,
-"lines": 811,
-"changed": 220
-},
-{
-"module": "crates/smelt-codegen-rust/src/emitter/aggregate_literal",
-"commits": 13,
-"lines": 632,
-"changed": 1030
 },
 {
 "module": "crates/smelt-codegen-rust/src/program_types",
@@ -670,12 +688,6 @@
 "commits": 13,
 "lines": 461,
 "changed": 132
-},
-{
-"module": "crates/smelt-codegen-rust/src/emitter/default_value",
-"commits": 13,
-"lines": 456,
-"changed": 664
 },
 {
 "module": "crates/smelt-codegen-rust/src/deps",
@@ -718,12 +730,6 @@
 "commits": 12,
 "lines": 754,
 "changed": 1080
-},
-{
-"module": "crates/smelt-codegen-rust/src/crate_builder",
-"commits": 12,
-"lines": 661,
-"changed": 773
 },
 {
 "module": "crates/smelt-codegen-rust/src/derive_impls",
@@ -786,10 +792,10 @@
 "changed": 1133
 },
 {
-"module": "crates/smelt-codegen-rust/src/emitter/callable_object",
+"module": "crates/smelt-mir/src/opt/temp_copy_forwarding",
 "commits": 11,
-"lines": 721,
-"changed": 917
+"lines": 754,
+"changed": 854
 },
 {
 "module": "crates/smelt-transpiler/src/specialization",
@@ -802,6 +808,18 @@
 "commits": 11,
 "lines": 567,
 "changed": 653
+},
+{
+"module": "crates/smelt-transpiler/src/config",
+"commits": 11,
+"lines": 534,
+"changed": 397
+},
+{
+"module": "crates/smelt-runtime/src/runtime/thrown",
+"commits": 11,
+"lines": 522,
+"changed": 660
 },
 {
 "module": "crates/smelt-frontend-py/src/lowering/map",
@@ -858,12 +876,6 @@
 "changed": 800
 },
 {
-"module": "crates/smelt-mir/src/opt/temp_copy_forwarding",
-"commits": 10,
-"lines": 753,
-"changed": 853
-},
-{
 "module": "crates/smelt-transpiler/src/ts7_parity_report",
 "commits": 10,
 "lines": 618,
@@ -882,12 +894,6 @@
 "changed": 677
 },
 {
-"module": "crates/smelt-transpiler/src/config",
-"commits": 10,
-"lines": 529,
-"changed": 390
-},
-{
 "module": "crates/smelt-runtime/src/runtime/erased_method",
 "commits": 10,
 "lines": 499,
@@ -898,6 +904,12 @@
 "commits": 10,
 "lines": 429,
 "changed": 559
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/host_override",
+"commits": 10,
+"lines": 397,
+"changed": 121
 },
 {
 "module": "crates/smelt-stdlib/src/deps",
@@ -984,12 +996,6 @@
 "changed": 750
 },
 {
-"module": "crates/smelt-runtime/src/runtime/thrown",
-"commits": 9,
-"lines": 508,
-"changed": 614
-},
-{
 "module": "crates/smelt-codegen-rust/src/generic_elision",
 "commits": 9,
 "lines": 499,
@@ -1000,12 +1006,6 @@
 "commits": 9,
 "lines": 498,
 "changed": 394
-},
-{
-"module": "crates/smelt-frontend-ts/src/lowering/host_override",
-"commits": 9,
-"lines": 396,
-"changed": 120
 },
 {
 "module": "crates/smelt-transpiler/src/python",
@@ -1024,6 +1024,12 @@
 "commits": 9,
 "lines": 270,
 "changed": 466
+},
+{
+"module": "crates/smelt-hir/src/krate",
+"commits": 9,
+"lines": 257,
+"changed": 128
 },
 {
 "module": "crates/smelt-mir/src/lower/transcribe",
@@ -1110,6 +1116,12 @@
 "changed": 368
 },
 {
+"module": "crates/smelt-runtime/src/runtime/object_model",
+"commits": 8,
+"lines": 311,
+"changed": 369
+},
+{
 "module": "crates/smelt-runtime/src/runtime/regexp_match",
 "commits": 8,
 "lines": 267,
@@ -1126,12 +1138,6 @@
 "commits": 8,
 "lines": 248,
 "changed": 1324
-},
-{
-"module": "crates/smelt-hir/src/krate",
-"commits": 8,
-"lines": 245,
-"changed": 116
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/fixed_int",
@@ -1168,6 +1174,12 @@
 "commits": 8,
 "lines": 166,
 "changed": 2252
+},
+{
+"module": "crates/smelt-mir/src/opt/unobserved_receiver_bind",
+"commits": 8,
+"lines": 157,
+"changed": 159
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/dict_entry_update",
@@ -1332,12 +1344,6 @@
 "changed": 217
 },
 {
-"module": "crates/smelt-mir/src/opt/unobserved_receiver_bind",
-"commits": 7,
-"lines": 152,
-"changed": 152
-},
-{
 "module": "crates/smelt-runtime/src/runtime/object",
 "commits": 7,
 "lines": 150,
@@ -1494,10 +1500,16 @@
 "changed": 310
 },
 {
-"module": "crates/smelt-runtime/src/runtime/object_model",
+"module": "crates/smelt-codegen-rust/src/module_map",
 "commits": 6,
-"lines": 146,
-"changed": 162
+"lines": 217,
+"changed": 273
+},
+{
+"module": "crates/smelt-runtime/src/runtime/reflection",
+"commits": 6,
+"lines": 159,
+"changed": 269
 },
 {
 "module": "crates/smelt-runtime/src/runtime/prim_set",
@@ -1668,10 +1680,10 @@
 "changed": 50
 },
 {
-"module": "crates/smelt-codegen-rust/src/module_map",
+"module": "crates/smelt-codegen-rust/src/crate_writer",
 "commits": 5,
-"lines": 208,
-"changed": 234
+"lines": 211,
+"changed": 245
 },
 {
 "module": "crates/smelt-runtime/src/runtime/blob",
@@ -1732,6 +1744,12 @@
 "commits": 5,
 "lines": 122,
 "changed": 140
+},
+{
+"module": "crates/smelt-runtime/src/runtime/this_channel",
+"commits": 5,
+"lines": 109,
+"changed": 111
 },
 {
 "module": "crates/smelt-frontend-ts/src/lowering/asserted_member_read",
@@ -1944,12 +1962,6 @@
 "changed": 224
 },
 {
-"module": "crates/smelt-codegen-rust/src/crate_writer",
-"commits": 4,
-"lines": 209,
-"changed": 241
-},
-{
 "module": "crates/smelt-py-types/src/db",
 "commits": 4,
 "lines": 185,
@@ -1986,12 +1998,6 @@
 "changed": 247
 },
 {
-"module": "crates/smelt-runtime/src/runtime/reflection",
-"commits": 4,
-"lines": 153,
-"changed": 243
-},
-{
 "module": "crates/smelt-codegen-rust/src/emitter/truthiness",
 "commits": 4,
 "lines": 152,
@@ -2020,12 +2026,6 @@
 "commits": 4,
 "lines": 96,
 "changed": 587
-},
-{
-"module": "crates/smelt-runtime/src/runtime/this_channel",
-"commits": 4,
-"lines": 89,
-"changed": 91
 },
 {
 "module": "crates/smelt-runtime/src/runtime/generator",
@@ -2166,6 +2166,12 @@
 "changed": 500
 },
 {
+"module": "crates/smelt-frontend-py/src/lowering/closure",
+"commits": 3,
+"lines": 330,
+"changed": 330
+},
+{
 "module": "crates/smelt-codegen-rust/src/emitter/local_use",
 "commits": 3,
 "lines": 328,
@@ -2290,6 +2296,12 @@
 "commits": 3,
 "lines": 135,
 "changed": 141
+},
+{
+"module": "crates/smelt-runtime/src/runtime/builtin_member",
+"commits": 3,
+"lines": 131,
+"changed": 189
 },
 {
 "module": "crates/smelt-transpiler/src/scaffold",
@@ -2436,16 +2448,16 @@
 "changed": 335
 },
 {
-"module": "crates/smelt-frontend-py/src/lowering/closure",
-"commits": 2,
-"lines": 329,
-"changed": 329
-},
-{
 "module": "crates/smelt-runtime/src/runtime/promise",
 "commits": 2,
 "lines": 319,
 "changed": 419
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/tuple_rest",
+"commits": 2,
+"lines": 314,
+"changed": 316
 },
 {
 "module": "crates/smelt-runtime/src/runtime/list",
@@ -2536,12 +2548,6 @@
 "commits": 2,
 "lines": 124,
 "changed": 166
-},
-{
-"module": "crates/smelt-runtime/src/runtime/builtin_member",
-"commits": 2,
-"lines": 118,
-"changed": 174
 },
 {
 "module": "crates/smelt-codegen-rust/src/emitter/generic_trial",
@@ -2700,6 +2706,12 @@
 "changed": 2
 },
 {
+"module": "crates/smelt-codegen-rust/src/startup",
+"commits": 1,
+"lines": 136,
+"changed": 136
+},
+{
 "module": "crates/smelt-frontend-ts/src/error",
 "commits": 1,
 "lines": 135,
@@ -2718,16 +2730,16 @@
 "changed": 2
 },
 {
-"module": "crates/smelt-frontend-ts/src/lowering/tuple_rest",
-"commits": 1,
-"lines": 126,
-"changed": 126
-},
-{
 "module": "crates/smelt-runtime/src/runtime/abort",
 "commits": 1,
 "lines": 96,
 "changed": 96
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/this_frame",
+"commits": 1,
+"lines": 85,
+"changed": 85
 },
 {
 "module": "crates/smelt-stdlib/src/fetch_init",
@@ -2776,6 +2788,12 @@
 "commits": 1,
 "lines": 29,
 "changed": 17
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/own_this",
+"commits": 1,
+"lines": 24,
+"changed": 24
 },
 {
 "module": "crates/smelt-frontend-py/src/test_support",

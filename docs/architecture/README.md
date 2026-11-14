@@ -2,7 +2,7 @@
 
 [`index.html`](index.html) is a single self-contained page (inline SVG, CSS and a little JS, no network) that draws Smelt's pipeline, crate graph, module maps, type erasure points, MIR passes, CI gates, a "where does X live" table and a churn heat map. Open it from a checkout: every box links to the file it names.
 
-It reflects commit `f28e5d4d2` (2026-11-14). Every name, edge, count and ordering was read from the code at that commit; nothing was copied from `specs/`. To refresh a number, rerun the command that produced it:
+It reflects commit `df75a5d57` (2026-11-14). Every name, edge, count and ordering was read from the code at that commit; nothing was copied from `specs/`. To refresh a number, rerun the command that produced it:
 
 - Lines of Rust: `git ls-files 'crates/*.rs' | xargs wc -l | sort -rn` (per crate or module: `git ls-files crates/<crate>/src | grep '\.rs$' | xargs wc -l`).
 - Crate edges and features: `cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | .name as $p | .dependencies[] | select(.name | startswith("smelt-")) | "\($p) -> \(.name) \(.kind // "normal") optional=\(.optional)"'`, plus `[features]` in each `Cargo.toml`.
