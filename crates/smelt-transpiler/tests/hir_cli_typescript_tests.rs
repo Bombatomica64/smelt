@@ -1645,9 +1645,10 @@ export function read(options?: StartOptions): number {
     // build and read the nested option the way Node does.
     let main_source = r#"import { read } from "./start/index.ts";
 
+console.log(read());
 console.log(read({ weekStartsOn: 1 }));
 console.log(read({ locale: { options: { weekStartsOn: 1 } } }));
-console.log(read({ weekStartsOn: 0, locale: { options: { locale: { options: { weekStartsOn: 1 } } } } }));
+console.log(read({ locale: { options: { locale: { options: { weekStartsOn: 0 } } } } }));
 "#;
     fs::write(project_path.join("src/main.ts"), main_source)?;
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
@@ -1662,11 +1663,9 @@ console.log(read({ weekStartsOn: 0, locale: { options: { locale: { options: { we
         format!("read signature: {signature}"),
     )?;
 
-    // Every call is answered by the passed options; a call that falls through
-    // to `getDefaultOptions()` (the erased `DefaultOptions` intersection, read
-    // across this import cycle) prints `NaN` instead of `0`, a separate open
-    // defect that this layout is not about.
-    let expected = "1\n1\n0\n";
+    // A call that falls through to `getDefaultOptions()` reads the erased
+    // `DefaultOptions` intersection through `?.` and must reach the final `0`.
+    let expected = "0\n1\n1\n0\n";
     let sources = [
         "types.ts",
         "locale/types.ts",
@@ -1696,6 +1695,68 @@ console.log(read({ weekStartsOn: 0, locale: { options: { locale: { options: { we
     ensure(
         stdout == expected,
         format!("generated program output:\n{stdout}--- expected\n{expected}"),
+    )
+}
+
+/// One source file is one module whatever directory `smelt` runs in: an entry
+/// spelled relative to the manifest and the same file reached by an import
+/// (`../types.ts`) are one module, not two copies with their own types.
+#[test]
+fn build_lowers_each_file_once_from_any_working_directory() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/nested"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-one-module-per-file"
+version = "0.1.0"
+
+[sources]
+entries = ["src/types.ts", "src/nested/use.ts", "src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_one_module_per_file"
+build = false
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/types.ts"),
+        "export interface Shape { size?: number }\n",
+    )?;
+    fs::write(
+        project_path.join("src/nested/use.ts"),
+        "import type { Shape } from \"../types.ts\";\nexport function size(shape: Shape): number { return shape.size ?? 0; }\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { size } from \"./nested/use.ts\";\nconsole.log(size({ size: 2 }));\n",
+    )?;
+    let listing = || -> TestResult<Vec<String>> {
+        let mut names = fs::read_dir(project_path.join("dist/src"))?
+            .map(|entry| Ok(entry?.file_name().to_string_lossy().into_owned()))
+            .collect::<TestResult<Vec<_>>>()?;
+        names.sort();
+        Ok(names)
+    };
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let from_elsewhere = listing()?;
+    fs::remove_dir_all(project_path.join("dist"))?;
+    smelt_in(project_path, &["build"])?;
+    let from_project = listing()?;
+    ensure(
+        from_elsewhere == from_project,
+        format!("modules differ by working directory: {from_elsewhere:?} vs {from_project:?}"),
+    )?;
+    ensure(
+        from_project
+            .iter()
+            .filter(|name| name.starts_with("types"))
+            .count()
+            == 1,
+        format!("src/types.ts must be one module: {from_project:?}"),
     )
 }
 

@@ -75,6 +75,14 @@ fn truthiness_absence_identity() -> TestResult {
     verify_node_parity("truthiness_absence_identity")
 }
 
+/// `??` whose fallback is an erased `?.` chain treats a present `undefined` or
+/// `null` as absent and keeps a present `0`, so the chain's own last fallback
+/// still applies (it was `NaN`).
+#[test]
+fn erased_nullish_chain() -> TestResult {
+    verify_node_parity("erased_nullish_chain")
+}
+
 /// A `let`/`const` read in its temporal dead zone throws a catchable
 /// `ReferenceError`, through a closure called early or a `switch` case that
 /// skipped the declaration; a hoisted function or a recursive arrow that runs
