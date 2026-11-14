@@ -64,7 +64,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
-        let scope = ScopeGroups::BINDINGS;
+        let scope = ScopeGroups::MEMBER_BODY;
         let lowered = self.with_nested_body(ctx, scope, |this, _| {
             let mut body = Body::new(None, span);
             let this_symbol = this.ctx.krate.symbols.intern("this");

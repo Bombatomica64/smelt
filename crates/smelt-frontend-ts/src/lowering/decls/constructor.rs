@@ -756,7 +756,7 @@ impl ModuleBuilder<'_> {
         };
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(class_ty));
-        let scope = ScopeGroups::BINDINGS;
+        let scope = ScopeGroups::MEMBER_BODY;
         let (body, params, errors) = self.with_nested_body(ctx, scope, |this, _| {
             let mut body = Body::new(None, span);
             let this_symbol = this.ctx.krate.symbols.intern("this");
@@ -767,6 +767,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             this.scope.bind("this".to_owned(), this_local);
+            this.fn_ctx.constructor_this = Some(this_local);
 
             let mut params = Vec::new();
             let mut errors = Vec::new();
@@ -883,7 +884,7 @@ impl ModuleBuilder<'_> {
 
         let saved_class = self.current_class.replace(class_text.to_owned());
         let ctx = self.nested_fn_ctx(BodyKind::Method, false, Some(return_ty));
-        let scope = ScopeGroups::BINDINGS;
+        let scope = ScopeGroups::MEMBER_BODY;
         let (body, params, param_sigs, errors) = self.with_nested_body(ctx, scope, |this, _| {
             let mut body = Body::new(None, span);
             let this_symbol = this.ctx.krate.symbols.intern("this");
