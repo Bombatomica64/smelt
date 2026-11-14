@@ -1471,8 +1471,18 @@ export function monthsInDuration(duration: Duration): number {
     Ok(())
 }
 
+/// A defaulted destructuring of a property declared `unknown` binds
+/// `unknown`, as TypeScript types it, and applies the default to `undefined`
+/// only.
+///
+/// Old requirement: the binding took the default's type (`years = 0` made
+/// `years` a `number`), so a present `"t"` was asserted to the default's type
+/// and read back as the default (`const { x = true } = rec` printed `true`).
+/// The old source (`months + years * 12` over `unknown`) does not type-check.
+/// A value the checker types concretely but Smelt saw erased upstream keeps
+/// the default's type; that path needs checker facts, which this test has not.
 #[test]
-fn lowers_defaulted_unknown_object_destructuring_to_fallback_type() -> Result<(), String> {
+fn lowers_defaulted_unknown_object_destructuring_as_unknown() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -1481,9 +1491,9 @@ interface Duration {
   months?: unknown;
 }
 
-export function monthsInDuration(duration: Duration): number {
+export function yearsOf(duration: Duration): unknown {
   const { years = 0, months = 0 } = duration;
-  return months + years * 12;
+  return [years, months];
 }
 "),
         &mut ctx,
@@ -1494,7 +1504,7 @@ export function monthsInDuration(duration: Duration): number {
         .iter()
         .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
             Item::Function(function)
-                if ctx.krate.symbols.get(function.name) == Some("months_in_duration") =>
+                if ctx.krate.symbols.get(function.name) == Some("years_of") =>
             {
                 Some(function)
             }
@@ -1512,11 +1522,21 @@ export function monthsInDuration(duration: Duration): number {
             .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
             .ok_or_else(|| format!("missing {name} binding"))?;
         ensure!(
-            matches!(ctx.krate.types.get(local.ty), Some(Type::Float)),
-            "expected {name} to lower as float, got {:?}",
+            matches!(ctx.krate.types.get(local.ty), Some(Type::Unknown)),
+            "expected {name} to stay unknown, got {:?}",
             ctx.krate.types.get(local.ty)
         );
     }
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::UnknownIs {
+                kind: smelt_hir::UnknownKind::Undefined,
+                ..
+            }
+        )),
+        "expected the default to apply on `undefined` only"
+    );
     Ok(())
 }
 
