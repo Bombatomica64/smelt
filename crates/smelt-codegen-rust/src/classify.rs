@@ -33,6 +33,8 @@
 //!   [`collect_field_mutation_triggers`]), or
 //! - it stores a virtual method SLOT (see [`collect_virtual_slot_triggers`]), or
 //! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
+//! - it contains itself by value, directly or through other shapes (see
+//!   [`collect_by_value_cycle_triggers`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!
@@ -74,6 +76,10 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     collect_identity_comparison_triggers(mir, &mut references);
     collect_virtual_slot_triggers(mir, &mut references);
     collect_thrown_class_triggers(mir, &mut references);
+    // After every other trigger, so a shape those already lifted counts as the
+    // indirection it is; before the heritage closure, so a lifted class's
+    // chain follows it.
+    collect_by_value_cycle_triggers(mir, &mut references);
     // Before the index-store deviation below, so that deviation still has the
     // final say for a class that carries a dynamic index signature.
     close_over_heritage(mir, &mut references);
@@ -144,6 +150,154 @@ fn collect_thrown_class_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
     }
     for closure in &mir.closures {
         note(&closure.locals, &closure.blocks);
+    }
+}
+
+/// A shape (class or interface) that contains itself BY VALUE: through its
+/// own fields, `Option`, tuples, union arms, or the by-value type arguments of
+/// another by-value shape (`interface L { o?: O }` with `interface O { l?: L }`,
+/// or `interface Tree { parent?: Tree }`).
+///
+/// A by-value Rust struct cannot hold itself (rustc E0072: a recursive type
+/// has infinite size), so such a cycle needs an indirection. The reference
+/// representation is that indirection: a `Name(Rc<RefCell<NameInner>>)`
+/// handle, the same shape a hand-written Rust tree with parent links uses, and
+/// the one JavaScript's own semantics call for (`l.o.l` IS `l` when the program
+/// builds it so). Every shape on a cycle is lifted; one already lifted by
+/// another trigger, and every collection (`SmeltList`, records, maps, sets,
+/// functions, promises), already holds its contents behind a shared handle and
+/// breaks the cycle, so `interface Tree { kids: Tree[] }` stays a value.
+fn collect_by_value_cycle_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    let mut shapes: std::collections::HashMap<Symbol, (Vec<Symbol>, Vec<smelt_hir::TypeId>)> =
+        std::collections::HashMap::new();
+    for interface in &mir.interfaces {
+        let params = interface
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect();
+        let fields = crate::classes::effective_interface_fields(mir, interface)
+            .into_iter()
+            .map(|field| field.ty)
+            .collect();
+        shapes.insert(interface.name, (params, fields));
+    }
+    for class in &mir.classes {
+        let params = class.type_params.iter().map(|param| param.name).collect();
+        let fields = crate::classes::effective_class_fields(mir, class)
+            .into_iter()
+            .map(|field| field.ty)
+            .collect();
+        // A class and an interface of one name are one emitted type: the
+        // class's fields are its storage.
+        shapes.insert(class.name, (params, fields));
+    }
+    let graph = ByValueGraph {
+        mir,
+        shapes: &shapes,
+        references,
+    };
+    let mut on_cycle = Vec::new();
+    for name in shapes.keys() {
+        if references.contains(name) {
+            continue;
+        }
+        if graph.reaches(*name, *name) {
+            on_cycle.push(*name);
+        }
+    }
+    references.extend(on_cycle);
+}
+
+/// The by-value containment graph over not-yet-lifted shapes.
+struct ByValueGraph<'a> {
+    /// The crate.
+    mir: &'a Mir,
+    /// Each shape's type parameter names and stored field types.
+    shapes: &'a std::collections::HashMap<Symbol, (Vec<Symbol>, Vec<smelt_hir::TypeId>)>,
+    /// Shapes already emitted behind a handle (an indirection).
+    references: &'a HashSet<Symbol>,
+}
+
+impl ByValueGraph<'_> {
+    /// Whether `from`'s by-value storage reaches shape `target`.
+    fn reaches(&self, from: Symbol, target: Symbol) -> bool {
+        let mut seen = HashSet::new();
+        let mut stack = self.direct_shapes(from);
+        while let Some(next) = stack.pop() {
+            if next == target {
+                return true;
+            }
+            if seen.insert(next) {
+                stack.extend(self.direct_shapes(next));
+            }
+        }
+        false
+    }
+
+    /// The shapes `shape` stores by value in its own fields.
+    fn direct_shapes(&self, shape: Symbol) -> Vec<Symbol> {
+        let mut out = Vec::new();
+        if let Some((_, fields)) = self.shapes.get(&shape) {
+            for ty in fields {
+                self.collect(*ty, &mut out, &mut Vec::new(), &mut HashSet::new());
+            }
+        }
+        out
+    }
+
+    /// Collect the by-value shapes of `ty` into `shapes`, and the type
+    /// parameters it holds by value into `params`. `active` guards the
+    /// recursion through generic shapes (`interface N<T> { next?: N<T> }`).
+    fn collect(
+        &self,
+        ty: smelt_hir::TypeId,
+        shapes: &mut Vec<Symbol>,
+        params: &mut Vec<Symbol>,
+        active: &mut HashSet<Symbol>,
+    ) {
+        match self.mir.types.get(ty) {
+            Some(Type::Optional(inner)) => self.collect(*inner, shapes, params, active),
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                for item in items {
+                    self.collect(*item, shapes, params, active);
+                }
+            }
+            Some(Type::TypeParam { name, .. }) => params.push(*name),
+            Some(Type::Class { name, args }) => {
+                if !self.shapes.contains_key(name) || self.references.contains(name) {
+                    return;
+                }
+                shapes.push(*name);
+                // A type argument is stored by value exactly where the shape
+                // stores its parameter by value (`Box<T> { v: T }`, not
+                // `Holder<T> { items: T[] }`).
+                let held = self.params_held_by_value(*name, active);
+                if let Some((declared, _)) = self.shapes.get(name) {
+                    for (param, arg) in declared.iter().zip(args) {
+                        if held.contains(param) {
+                            self.collect(*arg, shapes, params, active);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The type parameters of `shape` its fields store by value.
+    fn params_held_by_value(&self, shape: Symbol, active: &mut HashSet<Symbol>) -> Vec<Symbol> {
+        if !active.insert(shape) {
+            return Vec::new();
+        }
+        let mut params = Vec::new();
+        if let Some((_, fields)) = self.shapes.get(&shape) {
+            for ty in fields {
+                self.collect(*ty, &mut Vec::new(), &mut params, active);
+            }
+        }
+        active.remove(&shape);
+        params
     }
 }
 

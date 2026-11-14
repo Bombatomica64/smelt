@@ -629,6 +629,18 @@ impl ModuleBuilder<'_> {
                     } else {
                         this.erase(ErasureReason::MissingAnnotation)
                     };
+                    // `constructor(public n?: number)` stores `n` whether or
+                    // not it was passed, so the field holds `number |
+                    // undefined`: the same `Optional` the parameter has. A
+                    // defaulted property (`public n = 1`) stores the applied
+                    // default and keeps the declared type.
+                    let ty = if param.optional
+                        && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+                    {
+                        this.ctx.krate.types.intern(Type::Optional(ty))
+                    } else {
+                        ty
+                    };
                     fields.push(Field {
                         name,
                         ty,

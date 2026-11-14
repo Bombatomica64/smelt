@@ -516,6 +516,14 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
+        self.is_json_serializable_type_seen(ty, &mut Vec::new())
+    }
+
+    /// [`Self::is_json_serializable_type`] with the shapes already being
+    /// proven in `seen`: a recursive shape (`interface Tree { kids: Tree[] }`,
+    /// `next?: Node<T>`) is serializable when its other fields are, so a shape
+    /// met again counts as proven instead of recursing forever.
+    fn is_json_serializable_type_seen(&self, ty: TypeId, seen: &mut Vec<Symbol>) -> bool {
         // A value whose EMITTED Rust type is already the erased carrier has
         // nothing left to reject. `json_stringify_expr` erases its operand
         // unconditionally and lets `Serialize for SmeltUnknown` decide the
@@ -554,16 +562,16 @@ impl FunctionEmitter<'_> {
             )
             | Some(Type::TypeParam { .. }) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-                self.is_json_serializable_type(*item)
+                self.is_json_serializable_type_seen(*item, seen)
             }
             Some(Type::Tuple(items)) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type(*item)),
+                .all(|item| self.is_json_serializable_type_seen(*item, seen)),
             Some(Type::Dict(key, value)) => {
                 matches!(
                     self.mir.types.get(*key),
                     Some(Type::String | Type::PyStr | Type::PropKey)
-                ) && self.is_json_serializable_type(*value)
+                ) && self.is_json_serializable_type_seen(*value, seen)
             }
             // JSON has no `undefined`, and `JSON.stringify(null)` is `null`.
             Some(Type::None) => true,
@@ -572,19 +580,20 @@ impl FunctionEmitter<'_> {
             // URLSearchParams | ReadableStream | null`) be stringified at all.
             Some(Type::Union(items)) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type(*item)),
+                .all(|item| self.is_json_serializable_type_seen(*item, seen)),
             Some(Type::Class { name, .. }) => {
                 // A host object serializes as `{}` — none of its state is an own
                 // enumerable property (see the frontend's matching arm). The
                 // emitter erases such a value first, and the erased carrier's
                 // `Serialize` is what renders the empty object.
-                if self.is_host_object_class(*name) {
+                if self.is_host_object_class(*name) || seen.contains(name) {
                     return true;
                 }
+                seen.push(*name);
                 if let Some(class) = crate::classes::find_class(self.mir, *name) {
                     crate::classes::effective_class_fields(self.mir, class)
                         .iter()
-                        .all(|field| self.is_json_serializable_type(field.ty))
+                        .all(|field| self.is_json_serializable_type_seen(field.ty, seen))
                 } else {
                     self.mir
                         .interfaces
@@ -594,7 +603,7 @@ impl FunctionEmitter<'_> {
                             interface
                                 .fields
                                 .iter()
-                                .all(|field| self.is_json_serializable_type(field.ty))
+                                .all(|field| self.is_json_serializable_type_seen(field.ty, seen))
                         })
                 }
             }

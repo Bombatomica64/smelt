@@ -84,6 +84,15 @@ fn temporal_dead_zone() -> TestResult {
     verify_node_parity("temporal_dead_zone")
 }
 
+/// Shapes that contain themselves by value (mutual and self recursion through
+/// optional fields, union arms, generic nodes, a by-value generic wrapper, a
+/// class with an optional parameter property) compile as reference handles and
+/// keep JavaScript's sharing; a cycle through an array stays a value.
+#[test]
+fn recursive_shapes() -> TestResult {
+    verify_node_parity("recursive_shapes")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {
