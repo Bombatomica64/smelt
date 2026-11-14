@@ -175,29 +175,29 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::ha
 /// The typed list behind a live erased array, seen element by element as erased values.
 trait SmeltLiveList {
     //~ Element count.
-    fn len(&self) -> usize;
+    fn element_count(&self) -> usize;
     //~ The element at `index`, erased, or `None` past the end.
-    fn get(&self, index: usize) -> Option<SmeltUnknown>;
+    fn element(&self, index: usize) -> Option<SmeltUnknown>;
     //~ Store `value` at `index`, growing the list with `undefined`'s conversion as JS leaves holes.
-    fn set(&self, index: usize, value: SmeltUnknown);
+    fn set_element(&self, index: usize, value: SmeltUnknown);
     //~ Every element, erased: a copy.
-    fn snapshot(&self) -> Vec<SmeltUnknown>;
+    fn elements(&self) -> Vec<SmeltUnknown>;
     //~ Remove `delete` elements at `start`, insert `items` there, answer the removed ones erased.
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
     //~ Replace every element in place.
-    fn replace_all(&self, values: Vec<SmeltUnknown>);
+    fn replace_elements(&self, values: Vec<SmeltUnknown>);
     //~ The typed list itself, for narrowing back to it.
-    fn typed(&self) -> &dyn ::std::any::Any;
+    fn typed_list(&self) -> &dyn ::std::any::Any;
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
-    fn len(&self) -> usize { self.borrow().len() }
-    fn get(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
-    fn set(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
-    fn snapshot(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
-    fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
-    fn typed(&self) -> &dyn ::std::any::Any { self }
+    fn element_count(&self) -> usize { self.borrow().len() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
+    fn typed_list(&self) -> &dyn ::std::any::Any { self }
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
@@ -207,6 +207,6 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
 
 impl SmeltArray {
     //~ The typed list this array is a live view of, when it is a `SmeltList<T>`: the same handle, not a copy.
-    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live.as_ref()?.typed().downcast_ref::<SmeltList<T>>().cloned() }
+    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live.as_ref()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
 }
 // @smelt:item-end

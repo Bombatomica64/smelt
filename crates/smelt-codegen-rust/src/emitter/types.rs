@@ -279,17 +279,16 @@ impl FunctionEmitter<'_> {
         // A generic class's static methods live in an impl of their own that
         // declares none of the class's parameters
         // (`classes::static_methods_impl_args`).
-        let mut params: HashSet<Symbol> = if matches!(
-            self.function.origin,
-            HirOrigin::ClassStaticMethod { .. }
-        ) && crate::classes::statics_outside_class_impl(self.mir, self.context, class_name)
-        {
-            HashSet::new()
-        } else {
-            crate::classes::find_class(self.mir, class_name)
-                .map(|class| class.type_params.iter().map(|param| param.name).collect())
-                .unwrap_or_default()
-        };
+        let mut params: HashSet<Symbol> =
+            if matches!(self.function.origin, HirOrigin::ClassStaticMethod { .. })
+                && crate::classes::statics_outside_class_impl(self.mir, self.context, class_name)
+            {
+                HashSet::new()
+            } else {
+                crate::classes::find_class(self.mir, class_name)
+                    .map(|class| class.type_params.iter().map(|param| param.name).collect())
+                    .unwrap_or_default()
+            };
         // A method's own type parameters (`map<U>`) are in scope when the
         // method declares them as Rust generics: its own emission under the
         // crate-wide decision (or the trial deciding it), and every inherited

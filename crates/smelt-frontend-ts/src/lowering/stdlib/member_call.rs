@@ -928,7 +928,14 @@ impl ModuleBuilder<'_> {
                 self.pack_rest_arguments(args, &spread_positions, rest_index, &params, span, body);
         }
         let return_ty = if rest.is_none() && !method_type_params.is_empty() {
-            self.instantiated_call_return(&method_type_params, &params, &args, return_ty, call, body)?
+            self.instantiated_call_return(
+                &method_type_params,
+                &params,
+                &args,
+                return_ty,
+                call,
+                body,
+            )?
         } else {
             self.instantiate_generic_method_result(&method_type_params, return_ty)
         };

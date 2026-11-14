@@ -216,26 +216,27 @@ impl ModuleBuilder<'_> {
             _ => cell_ty,
         };
         let step = self.unit_step_literal(ty);
-        let build_set = |this: &mut Self, target_body: &mut Body| -> Result<smelt_hir::ExprId, SmeltError> {
-            let (current, _) = this.static_target_load(target, span, target_body)?;
-            let current =
-                Self::optional_number_operand_in(&this.ctx.krate.types, current, target_body);
-            let one = target_body.push_expr(Expr {
-                kind: ExprKind::Literal(step.clone()),
-                ty,
-                span,
-            });
-            let next = target_body.push_expr(Expr {
-                kind: ExprKind::BinOp {
-                    op,
-                    lhs: current,
-                    rhs: one,
-                },
-                ty,
-                span,
-            });
-            this.static_target_store(target, next, ty, span, target_body)
-        };
+        let build_set =
+            |this: &mut Self, target_body: &mut Body| -> Result<smelt_hir::ExprId, SmeltError> {
+                let (current, _) = this.static_target_load(target, span, target_body)?;
+                let current =
+                    Self::optional_number_operand_in(&this.ctx.krate.types, current, target_body);
+                let one = target_body.push_expr(Expr {
+                    kind: ExprKind::Literal(step.clone()),
+                    ty,
+                    span,
+                });
+                let next = target_body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op,
+                        lhs: current,
+                        rhs: one,
+                    },
+                    ty,
+                    span,
+                });
+                this.static_target_store(target, next, ty, span, target_body)
+            };
         if update.prefix || !keep_old_value {
             let set = build_set(self, body)?;
             return Ok(Some(set));

@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13827,
+      "concrete": 13831,
       "generic": 228,
-      "erased": 7837
+      "erased": 7835
     },
     "reads": {
       "concrete": 341,
@@ -12,7 +12,7 @@
       "erased": 1028
     },
     "calls": {
-      "concrete": 2141,
+      "concrete": 2143,
       "generic": 39,
       "erased": 1258
     }
@@ -5154,7 +5154,7 @@
     },
     "src/compat/function/debounce.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 31,
         "generic": 1,
         "erased": 23
       },
@@ -7755,7 +7755,7 @@
     },
     "src/compat/string/template.ts": {
       "values": {
-        "concrete": 152,
+        "concrete": 153,
         "generic": 0,
         "erased": 37
       },
@@ -11223,9 +11223,9 @@
     },
     "src/predicate/isPlainObject.spec.ts": {
       "values": {
-        "concrete": 145,
+        "concrete": 147,
         "generic": 0,
-        "erased": 33
+        "erased": 31
       },
       "reads": {
         "concrete": 0,
@@ -11233,7 +11233,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 52,
+        "concrete": 54,
         "generic": 0,
         "erased": 2
       }

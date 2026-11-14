@@ -392,7 +392,8 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let accepted = crate::class_identity::identity_literals_extending(self.mir, class).join(" | ");
+        let accepted =
+            crate::class_identity::identity_literals_extending(self.mir, class).join(" | ");
         let field = crate::class_identity::CLASS_IDENTITY_FIELD;
         let tag_of = |base: &str| {
             if self.context.is_reference_class(static_class) {

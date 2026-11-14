@@ -40,14 +40,15 @@ impl FunctionEmitter<'_> {
             return;
         }
         let field = crate::class_identity::CLASS_IDENTITY_FIELD;
-        let copied = copied_from.and_then(|(source_ty, source)| match self.mir.types.get(source_ty) {
-            Some(Type::Class { name, .. }) if self.context.carries_class_identity(*name) => {
-                Some(format!("{source}.{field}"))
-            }
-            _ => None,
-        });
-        let value = copied
-            .unwrap_or_else(|| crate::class_identity::identity_literal(self.mir, class));
+        let copied =
+            copied_from.and_then(|(source_ty, source)| match self.mir.types.get(source_ty) {
+                Some(Type::Class { name, .. }) if self.context.carries_class_identity(*name) => {
+                    Some(format!("{source}.{field}"))
+                }
+                _ => None,
+            });
+        let value =
+            copied.unwrap_or_else(|| crate::class_identity::identity_literal(self.mir, class));
         fields.push(format!("{field}: {value}"));
     }
 

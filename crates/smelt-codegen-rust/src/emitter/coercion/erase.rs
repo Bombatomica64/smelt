@@ -43,7 +43,8 @@ impl FunctionEmitter<'_> {
     /// `Map`/`Set` ([`Self::container_erasure_method`]); otherwise the erasure
     /// copies, as it did before.
     fn list_erases_live(&self, item: TypeId) -> bool {
-        self.context.demand().has(Need::LiveArrays) && self.context.demand().has(Need::Unknown)
+        self.context.demand().has(Need::LiveArrays)
+            && self.context.demand().has(Need::Unknown)
             && self.container_erasure_method(&[item]) == ".into_live_smelt_unknown()"
     }
 
@@ -84,10 +85,13 @@ impl FunctionEmitter<'_> {
                     && self.list_erases_live(*item) =>
             {
                 // Genuine dynamic boundary: the live view IS the erased array.
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "SmeltList::clone(&{text}).into_live_smelt_unknown()",
-                    text = text.delimited()
-                ))))
+                Ok(RustExpr::atom(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "SmeltList::clone(&{text}).into_live_smelt_unknown()",
+                        text = text.delimited()
+                    ),
+                )))
             }
             Some(Type::List(item))
                 if !self.list_items_render_as_unknown(ty, &self.render_scope()) =>

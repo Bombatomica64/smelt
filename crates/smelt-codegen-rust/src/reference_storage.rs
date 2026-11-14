@@ -382,14 +382,14 @@ pub(crate) fn emit_reference_record_storage(
                         RustExpr::chain(read)
                     } else {
                         field.global.map_or_else(
-                        || {
-                            materialized_static_value(
-                                field.value.as_ref(),
-                                mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
-                            )
-                        },
-                        |global| RustExpr::chain(crate::globals::global_read_text(mir, global)),
-                    )
+                            || {
+                                materialized_static_value(
+                                    field.value.as_ref(),
+                                    mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
+                                )
+                            },
+                            |global| RustExpr::chain(crate::globals::global_read_text(mir, global)),
+                        )
                     };
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),

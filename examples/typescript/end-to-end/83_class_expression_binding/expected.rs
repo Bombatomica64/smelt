@@ -1815,23 +1815,23 @@ impl SmeltObject {
 
 /// The typed list behind a live erased array, seen element by element as erased values.
 trait SmeltLiveList {
-    fn len(&self) -> usize;
-    fn get(&self, index: usize) -> Option<SmeltUnknown>;
-    fn set(&self, index: usize, value: SmeltUnknown);
-    fn snapshot(&self) -> Vec<SmeltUnknown>;
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
-    fn replace_all(&self, values: Vec<SmeltUnknown>);
-    fn typed(&self) -> &dyn ::std::any::Any;
+    fn element_count(&self) -> usize;
+    fn element(&self, index: usize) -> Option<SmeltUnknown>;
+    fn set_element(&self, index: usize, value: SmeltUnknown);
+    fn elements(&self) -> Vec<SmeltUnknown>;
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
+    fn replace_elements(&self, values: Vec<SmeltUnknown>);
+    fn typed_list(&self) -> &dyn ::std::any::Any;
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
-    fn len(&self) -> usize { self.borrow().len() }
-    fn get(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
-    fn set(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
-    fn snapshot(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
-    fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
-    fn typed(&self) -> &dyn ::std::any::Any { self }
+    fn element_count(&self) -> usize { self.borrow().len() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
+    fn typed_list(&self) -> &dyn ::std::any::Any { self }
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
@@ -1839,7 +1839,7 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
 }
 
 impl SmeltArray {
-    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live.as_ref()?.typed().downcast_ref::<SmeltList<T>>().cloned() }
+    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live.as_ref()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
 }
 impl<K, V> SmeltRecord<K, V> {
     #[allow(dead_code)]
@@ -2234,17 +2234,17 @@ impl SmeltArray {
     fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false, live: None, } }
     fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true, live: None, } }
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false, live: None, } }
-    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { if let Some(live) = &self.live { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.snapshot())); } ::std::rc::Rc::clone(&self.values) }
-    fn into_vec(self) -> Vec<SmeltUnknown> { if let Some(live) = &self.live { return live.snapshot(); } self.values.borrow().clone() }
-    fn len(&self) -> usize { if let Some(live) = &self.live { return live.len(); } self.values.borrow().len() }
+    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { if let Some(live) = &self.live { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.elements())); } ::std::rc::Rc::clone(&self.values) }
+    fn into_vec(self) -> Vec<SmeltUnknown> { if let Some(live) = &self.live { return live.elements(); } self.values.borrow().clone() }
+    fn len(&self) -> usize { if let Some(live) = &self.live { return live.element_count(); } self.values.borrow().len() }
     fn is_empty(&self) -> bool { self.len() == 0 }
-    fn get(&self, index: usize) -> Option<SmeltUnknown> { if let Some(live) = &self.live { return live.get(index); } self.values.borrow().get(index).cloned() }
+    fn get(&self, index: usize) -> Option<SmeltUnknown> { if let Some(live) = &self.live { return live.element(index); } self.values.borrow().get(index).cloned() }
     fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.clone().into_vec().into_iter() }
-    fn set_index(&self, index: usize, value: SmeltUnknown) { if let Some(live) = &self.live { live.set(index, value); return; } let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
-    fn push(&self, value: SmeltUnknown) { if let Some(live) = &self.live { let end = live.len(); live.splice(end, 0, vec![value]); return; } self.values.borrow_mut().push(value); }
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { if let Some(live) = &self.live { return live.splice(start, delete, items); } let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
+    fn set_index(&self, index: usize, value: SmeltUnknown) { if let Some(live) = &self.live { live.set_element(index, value); return; } let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
+    fn push(&self, value: SmeltUnknown) { if let Some(live) = &self.live { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } self.values.borrow_mut().push(value); }
+    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { if let Some(live) = &self.live { return live.splice_elements(start, delete, items); } let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
     fn set_len(&self, len: usize) { let current = self.len(); if len < current { self.splice(len, current - len, Vec::new()); } else if len > current { self.splice(current, 0, vec![SmeltUnknown::Undefined; len - current]); } }
-    fn replace_all(&self, values: Vec<SmeltUnknown>) { if let Some(live) = &self.live { live.replace_all(values); return; } *self.values.borrow_mut() = values; }
+    fn replace_all(&self, values: Vec<SmeltUnknown>) { if let Some(live) = &self.live { live.replace_elements(values); return; } *self.values.borrow_mut() = values; }
     fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
     fn set_named_property(&self, key: String, value: SmeltUnknown) { if key == "length" { if let SmeltUnknown::Number(len) = value && len >= 0.0 && len.fract() == 0.0 && len <= f64::from(u32::MAX) { self.set_len(smelt_erased_relative_position(Some(&value), usize::MAX, 0)); } return; } smelt_array_store_named_property(self, key, value, false); }
     fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }

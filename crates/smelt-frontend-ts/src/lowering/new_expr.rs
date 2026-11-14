@@ -65,6 +65,53 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// `new (class { .. })(args)`: the callee, through parentheses and casts, is
+    /// a class expression that is not per-evaluation, constructed statically.
+    /// `None` for any other callee (a per-evaluation class keeps its frame).
+    fn new_class_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let mut callee = &new_expr.callee;
+        loop {
+            callee = match callee {
+                Expression::ParenthesizedExpression(inner) => &inner.expression,
+                Expression::TSAsExpression(inner) => &inner.expression,
+                Expression::TSNonNullExpression(inner) => &inner.expression,
+                _ => break,
+            };
+        }
+        let Expression::ClassExpression(class) = callee else {
+            return Ok(None);
+        };
+        if new_expr.arguments.iter().any(Argument::is_spread) {
+            return Ok(None);
+        }
+        let value = self.class_expression_value(class, body)?;
+        let Some(ExprKind::ClassValue { class: name, .. }) = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+            .map(|expr| expr.kind.clone())
+        else {
+            return Ok(None);
+        };
+        let args = new_expr
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::New { class: name, args },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
     /// Lower a `new ...` expression, including stdlib containers and class construction.
     pub(super) fn new_expression_with_hint(
         &mut self,
@@ -176,6 +223,13 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
+            }
+            // `new (class { .. })(..)`: the class is known right here, so it
+            // is constructed statically, typed as its instance, as a named
+            // class is. (Its value is a dynamic class value only once it flows
+            // somewhere, `class_expression_value`.)
+            if let Some(expr) = self.new_class_expression(new_expr, body)? {
+                return Ok(expr);
             }
             // `new <expr>(...)` over a dynamic callee (`new object[key](...
             // args)` in lodash-compat `bindKey`, `new (C as any)()` wherever

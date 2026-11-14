@@ -935,16 +935,16 @@ pub(crate) fn inherited_static_write_text(
 }
 
 /// The Rust path of the class owning the static method `function`.
-fn static_method_owner_text(
-    mir: &Mir,
-    context: &EmitContext,
-    function: FuncId,
-) -> Option<String> {
+fn static_method_owner_text(mir: &Mir, context: &EmitContext, function: FuncId) -> Option<String> {
     let found = mir.functions.get(usize::try_from(function.0).ok()?)?;
     let smelt_mir::HirOrigin::ClassStaticMethod { class, .. } = found.origin else {
         return None;
     };
-    context.names().type_name(class).ok().map(ToString::to_string)
+    context
+        .names()
+        .type_name(class)
+        .ok()
+        .map(ToString::to_string)
 }
 
 /// Whether `ancestor` is `class` or one of its declared base classes.
@@ -998,7 +998,6 @@ pub(crate) fn static_methods_impl_args(
 /// `impl` ([`static_methods_impl_args`]), so the class's type parameters are
 /// not in scope in them.
 pub(crate) fn statics_outside_class_impl(mir: &Mir, context: &EmitContext, class: Symbol) -> bool {
-    find_class(mir, class).is_some_and(|found| {
-        static_methods_impl_args(context, found, true).is_some()
-    })
+    find_class(mir, class)
+        .is_some_and(|found| static_methods_impl_args(context, found, true).is_some())
 }

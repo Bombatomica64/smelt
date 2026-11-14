@@ -101,9 +101,9 @@ pub use ids::{
 };
 pub use item::{
     Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field,
-    FieldDecodeFacts, Function, FunctionOwner, InheritedStaticAccess, Interface, InterfaceHeritage, Item, MethodSig,
-    MutableGlobalInit, MutableGlobalItem, Param, ParamSig, StaticField, TypeAlias, TypeDecodeFacts,
-    TypeParamDef, Visibility,
+    FieldDecodeFacts, Function, FunctionOwner, InheritedStaticAccess, Interface, InterfaceHeritage,
+    Item, MethodSig, MutableGlobalInit, MutableGlobalItem, Param, ParamSig, StaticField, TypeAlias,
+    TypeDecodeFacts, TypeParamDef, Visibility,
 };
 pub use krate::{
     CLASS_INDEX_STORE_FIELD, CONSOLE_ERROR_WRITE_SYMBOL, CONSOLE_LOG_SYMBOL, CONSOLE_WRITE_SYMBOL,

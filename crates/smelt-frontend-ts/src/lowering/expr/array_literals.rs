@@ -769,26 +769,11 @@ impl ModuleBuilder<'_> {
                 | Type::Optional(_)
                 | Type::Union(_),
             )
-            | None => {
-                let asserted = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value },
-                    ty: list_ty,
-                    span: self.span(span.start, span.end),
-                });
-                let empty = body.push_expr(Expr {
-                    kind: ExprKind::ListLit(Vec::new()),
-                    ty: list_ty,
-                    span: self.span(span.start, span.end),
-                });
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::ListConcat {
-                        left: asserted,
-                        right: empty,
-                    },
-                    ty: list_ty,
-                    span: self.span(span.start, span.end),
-                }))
-            }
+            | None => Ok(body.push_expr(Expr {
+                kind: ExprKind::ListCopy { list: value },
+                ty: list_ty,
+                span: self.span(span.start, span.end),
+            })),
             _ => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "array spread operands must be arrays or sets",

@@ -985,6 +985,21 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        // `[...erased]` / `Array.from(erased)` (an erased, type-parameter,
+        // union or optional operand): the value is read as
+        // the destination list (an array, a live view of a typed one, a
+        // string, a Set, an iterable), then copied: the result is a NEW
+        // array either way, never the operand's own.
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_)))
+            && matches!(self.mir.types.get(dest_ty), Some(Type::List(_)))
+        {
+            let read =
+                self.extract_rendered(&self.operand_expr(list)?, dest_ty, &self.render_scope())?;
+            return Ok(RustExpr::atom(format!(
+                "SmeltList::fresh_copy(&{})",
+                read.delimited()
+            )));
+        }
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list copy receiver must be a list"));
         }

@@ -734,7 +734,7 @@ impl ModuleBuilder<'_> {
                     .span
                     .as_ref()
                     .map_or(span, |source| self.materialized_span(source)),
-                    inherited: None,
+                inherited: None,
             });
         }
         for (name, value) in &class.static_values {

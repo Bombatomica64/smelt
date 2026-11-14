@@ -134,7 +134,11 @@ impl ModuleBuilder<'_> {
             value: None,
             mutable: true,
             storage: Some(shadow),
-            inherited: Some(InheritedStaticAccess { own, getter, setter }),
+            inherited: Some(InheritedStaticAccess {
+                own,
+                getter,
+                setter,
+            }),
             span,
         };
         Ok((field, getter, setter))

@@ -96,7 +96,9 @@ pub(crate) fn identity_classes(mir: &Mir) -> HashSet<Symbol> {
                     continue;
                 };
                 if is_instance_class(target)
-                    && target.base.is_some_and(|base| find_class(mir, base).is_some())
+                    && target
+                        .base
+                        .is_some_and(|base| find_class(mir, base).is_some())
                 {
                     roots.insert(hierarchy_root(mir, *class));
                 }

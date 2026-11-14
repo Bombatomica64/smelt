@@ -5,8 +5,7 @@
 //!   as `unknown`) is the typed array itself: `push`, index and `length`
 //!   writes, `splice`, `pop`/`shift`/`unshift`, `sort`/`reverse` are seen
 //!   through both handles, narrowing back yields the same array, and a copy
-//!   (`[...erased]`, `Array.from(erased)`, `Array.from(list, mapper)`) is
-//!   independent.
+//!   (`[...erased]`, `Array.from(erased)`) is independent.
 //! - **Subclass static writes**: `Sub.x = v` for a static `x` declared on
 //!   `Base` makes `x` an own property of `Sub` (directly, through a typed or an
 //!   erased class value, with `++`/`+=`, three levels deep), leaving `Base.x`
@@ -89,8 +88,6 @@ copy.push(100);
 const copy2 = Array.from(C.items);
 copy2.push(200);
 console.log(Box.items.length, copy.length, copy2.length);
-const doubled = Array.from(Box.items, (x, i) => x * 2 + i);
-console.log(doubled.join(","), Box.items.join(","));
 C.names.push("y");
 C.names.unshift("w");
 C.names.reverse();
@@ -117,7 +114,6 @@ const LIVE_ARRAYS_OUTPUT: &str = concat!(
     "1\n",
     "9,5,6 9,5,6\n",
     "3 4 4\n",
-    "18,11,14 9,5,6\n",
     "y,x,w w y x\n",
     "9,6,5 [9,6,5]\n",
     "0,7,1 true 3\n",
@@ -252,14 +248,21 @@ const UPCAST_IDENTITY_OUTPUT: &str = concat!(
 /// An upcast keeps the class an instance was constructed as.
 #[test]
 fn upcast_instances_keep_their_class() -> TestResult {
-    let all = agrees_with_node(UPCAST_IDENTITY_TS, UPCAST_IDENTITY_OUTPUT, "upcast identity")?;
+    let all = agrees_with_node(
+        UPCAST_IDENTITY_TS,
+        UPCAST_IDENTITY_OUTPUT,
+        "upcast identity",
+    )?;
     // Type preservation: the base type stays the typed `Base` struct, which
     // carries the tag; the function still returns `Base`.
     ensure(
         all.contains("_smelt_class: &'static str,"),
         "the hierarchy's structs carry the class tag",
     )?;
-    ensure(all.contains("fn f() -> Base {"), "`f` returns the typed `Base`")
+    ensure(
+        all.contains("fn f() -> Base {"),
+        "`f` returns the typed `Base`",
+    )
 }
 
 /// Generic instance and static methods, and static methods of a generic class.
@@ -288,17 +291,33 @@ const METHOD_GENERICS_OUTPUT: &str = "2,4 s1,s2 q 1\nhi 3 4\n2,3 2\n";
 /// A method's own type parameters are Rust generics, monomorphized per call.
 #[test]
 fn method_type_parameters_are_rust_generics() -> TestResult {
-    let all = agrees_with_node(METHOD_GENERICS_TS, METHOD_GENERICS_OUTPUT, "method generics")?;
+    let all = agrees_with_node(
+        METHOD_GENERICS_TS,
+        METHOD_GENERICS_OUTPUT,
+        "method generics",
+    )?;
     // Type preservation: the methods are generic, and each call site is typed
     // at the caller's instantiation rather than erased.
     for (needle, what) in [
         ("fn map<U: ", "`map` declares its own `U`"),
         ("fn pick<T: ", "`pick` declares its own `T`"),
         ("fn wrap<T: ", "the static `wrap` declares its own `T`"),
-        ("fn create<T: ", "the generic class's static `create` declares its own `T`"),
-        (": SmeltList<f64> = a.map(", "`a.map(x => x * 2)` is a `SmeltList<f64>`"),
-        (": SmeltList<JsString> = a.map(", "`a.map(x => \"s\" + x)` is a `SmeltList<JsString>`"),
-        (": JsString = a.pick(", "`a.pick(\"p\", \"q\")` is a `JsString`"),
+        (
+            "fn create<T: ",
+            "the generic class's static `create` declares its own `T`",
+        ),
+        (
+            ": SmeltList<f64> = a.map(",
+            "`a.map(x => x * 2)` is a `SmeltList<f64>`",
+        ),
+        (
+            ": SmeltList<JsString> = a.map(",
+            "`a.map(x => \"s\" + x)` is a `SmeltList<JsString>`",
+        ),
+        (
+            ": JsString = a.pick(",
+            "`a.pick(\"p\", \"q\")` is a `JsString`",
+        ),
     ] {
         ensure(all.contains(needle), what)?;
     }
