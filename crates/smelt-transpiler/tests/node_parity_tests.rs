@@ -418,6 +418,21 @@ fn prototype_methods_and_hosts() -> TestResult {
     verify_node_parity("prototype_methods_and_hosts")
 }
 
+/// A host constructor read as a value is the one constructor object: callable
+/// through `new`, `===` across reads and to `instance.constructor`, and an
+/// erased Map or Set built through it answers its methods by name.
+#[test]
+fn host_constructor_values() -> TestResult {
+    verify_node_parity("host_constructor_values")
+}
+
+/// A typed Map's or Set's `keys()`/`values()`/`entries()` is a live,
+/// single-pass iterator that stringifies as `{}` and is its own iterator.
+#[test]
+fn collection_iterators() -> TestResult {
+    verify_node_parity("collection_iterators")
+}
+
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {

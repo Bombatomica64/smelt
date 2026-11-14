@@ -4,162 +4,157 @@ fn main (FuncId(0)) -> None
     %1 user seen: List<String>
     %2 user value: String
     %3 user iterated: List<String>
-    %4 user value: String
-    %5 user letter_list: Set<String>
-    %6 user numbers: Set<Float>
-    %7 user flags: Set<Bool>
-    %8 user same: Set<String>
-    %9 temp: List<String>
-    %10 temp: Set<String>
+    %4 user __smelt_collection: Set<String>
+    %5 user __smelt_index: Float
+    %6 user value: String
+    %7 user letter_list: Set<String>
+    %8 user numbers: Set<Float>
+    %9 user flags: Set<Bool>
+    %10 user same: Set<String>
     %11 temp: List<String>
-    %12 temp: String
-    %13 temp: None
-    %14 temp: List<String>
-    %15 temp: List<String>
-    %16 temp: usize
-    %17 temp: usize
-    %18 temp: Bool
-    %19 temp: Float
-    %20 temp: String
-    %21 temp: None
-    %22 temp: List<String>
-    %23 temp: List<String>
-    %24 temp: usize
-    %25 temp: usize
+    %12 temp: Set<String>
+    %13 temp: List<String>
+    %14 temp: String
+    %15 temp: None
+    %16 temp: List<String>
+    %17 temp: List<String>
+    %18 temp: usize
+    %19 temp: usize
+    %20 temp: Bool
+    %21 temp: Float
+    %22 temp: String
+    %23 temp: None
+    %24 temp: List<String>
+    %25 temp: Float
     %26 temp: Bool
-    %27 temp: Float
-    %28 temp: String
-    %29 temp: None
-    %30 temp: List<String>
-    %31 temp: String
-    %32 temp: None
-    %33 temp: List<String>
-    %34 temp: List<String>
+    %27 temp: String
+    %28 temp: Float
+    %29 temp: Float
+    %30 temp: String
+    %31 temp: None
+    %32 temp: List<String>
+    %33 temp: String
+    %34 temp: None
     %35 temp: List<String>
     %36 temp: String
     %37 temp: None
     %38 temp: List<String>
-    %39 temp: List<String>
-    %40 temp: List<String>
-    %41 temp: String
-    %42 temp: None
+    %39 temp: String
+    %40 temp: None
+    %41 temp: Set<String>
+    %42 temp: Bool
     %43 temp: Set<String>
-    %44 temp: Bool
-    %45 temp: Set<String>
-    %46 temp: Set<String>
-    %47 temp: List<String>
-    %48 temp: String
+    %44 temp: Set<String>
+    %45 temp: List<String>
+    %46 temp: String
+    %47 temp: None
+    %48 temp: Float
     %49 temp: None
-    %50 temp: Float
-    %51 temp: None
-    %52 temp: Set<Float>
-    %53 temp: List<Float>
-    %54 temp: String
-    %55 temp: None
-    %56 temp: Set<Bool>
-    %57 temp: List<Bool>
-    %58 temp: fn(Bool, Int, List<Bool>) -> String
-    %59 temp: List<String>
-    %60 temp: String
+    %50 temp: Set<Float>
+    %51 temp: List<Float>
+    %52 temp: String
+    %53 temp: None
+    %54 temp: Set<Bool>
+    %55 temp: List<Bool>
+    %56 temp: fn(Bool, Int, List<Bool>) -> String
+    %57 temp: List<String>
+    %58 temp: String
+    %59 temp: None
+    %60 temp: Bool
     %61 temp: None
-    %62 temp: Bool
-    %63 temp: None
-    %64 temp: List<String>
-    %65 temp: Set<String>
-    %66 temp: Bool
-    %67 temp: None
+    %62 temp: List<String>
+    %63 temp: Set<String>
+    %64 temp: Bool
+    %65 temp: None
   bb0:
-    %9 = string_chars "hello"
-    %0 = list_to_set move %9
-    %11 = set_values copy %0
-    %12 = string_join move %11, "|"
-    %13 = call @console_log(move %12) -> bb1
+    %11 = string_chars "hello"
+    %0 = list_to_set move %11
+    %13 = set_values copy %0
+    %14 = string_join move %13, "|"
+    %15 = call @console_log(move %14) -> bb1
   bb1:
     %1 = []
-    %15 = set_values copy %0
-    %16 = 0
+    %17 = set_values copy %0
+    %18 = 0
     goto bb2
   bb2:
-    %17 = len copy %15
-    %18 = copy %16 < move %17
-    switch move %18 ? bb3 : bb5
+    %19 = len copy %17
+    %20 = copy %18 < move %19
+    switch move %20 ? bb3 : bb5
   bb3:
-    %2 = copy %15[copy %16]
-    %19 = list_push copy %1, move %2
+    %2 = copy %17[copy %18]
+    %21 = list_push copy %1, move %2
     goto bb4
   bb4:
-    %16 = copy %16 + 1
+    %18 = copy %18 + 1
     goto bb2
   bb5:
-    %20 = string_join move %1, "|"
-    %21 = call @console_log(move %20) -> bb6
+    %22 = string_join move %1, "|"
+    %23 = call @console_log(move %22) -> bb6
   bb6:
     %3 = []
-    %23 = set_values copy %0
-    %24 = 0
+    %4 = copy %0
+    %5 = 0.0
     goto bb7
   bb7:
-    %25 = len copy %23
-    %26 = copy %24 < move %25
+    %25 = collection_len set=true copy %0
+    %26 = copy %5 < move %25
     switch move %26 ? bb8 : bb10
   bb8:
-    %4 = copy %23[copy %24]
-    %27 = list_push copy %3, move %4
+    %6 = collection_at values set=true copy %0[copy %5]
+    %28 = list_push copy %3, move %6
     goto bb9
   bb9:
-    %24 = copy %24 + 1
+    %29 = move %5 + 1.0
+    %5 = move %29
     goto bb7
   bb10:
-    %28 = string_join move %3, "|"
-    %29 = call @console_log(move %28) -> bb11
+    %30 = string_join move %3, "|"
+    %31 = call @console_log(move %30) -> bb11
   bb11:
-    %30 = set_values copy %0
-    %31 = string_join move %30, "|"
-    %32 = call @console_log(move %31) -> bb12
+    %32 = set_values copy %0
+    %33 = string_join move %32, "|"
+    %34 = call @console_log(move %33) -> bb12
   bb12:
-    %33 = set_values copy %0
-    %34 = []
-    %35 = list_concat move %33, move %34
+    %35 = set_values copy %0
     %36 = string_join move %35, "|"
     %37 = call @console_log(move %36) -> bb13
   bb13:
     %38 = set_values copy %0
-    %39 = []
-    %40 = list_concat move %38, move %39
-    %41 = string_join move %40, "|"
-    %42 = call @console_log(move %41) -> bb14
+    %39 = string_join move %38, "|"
+    %40 = call @console_log(move %39) -> bb14
   bb14:
-    %5 = set{"c", "a", "b"}
-    %44 = set_delete copy %5, "a"
-    %45 = set_add copy %5, "z"
-    %46 = set_add copy %5, "c"
-    %47 = set_values copy %5
-    %48 = string_join move %47, "|"
-    %49 = call @console_log(move %48) -> bb15
+    %7 = set{"c", "a", "b"}
+    %42 = set_delete copy %7, "a"
+    %43 = set_add copy %7, "z"
+    %44 = set_add copy %7, "c"
+    %45 = set_values copy %7
+    %46 = string_join move %45, "|"
+    %47 = call @console_log(move %46) -> bb15
   bb15:
-    %50 = len move %5
-    %51 = call @console_log(move %50) -> bb16
+    %48 = len move %7
+    %49 = call @console_log(move %48) -> bb16
   bb16:
-    %6 = set{30.0, 10.0, 20.0, 10.0}
-    %53 = set_values move %6
-    %54 = string_join move %53, "|"
-    %55 = call @console_log(move %54) -> bb17
+    %8 = set{30.0, 10.0, 20.0, 10.0}
+    %51 = set_values move %8
+    %52 = string_join move %51, "|"
+    %53 = call @console_log(move %52) -> bb17
   bb17:
-    %7 = set{true, false, true}
-    %57 = set_values move %7
-    %58 = closure ClosureId(0) []
-    %59 = list_map move %57, move %58
-    %60 = string_join move %59, "|"
-    %61 = call @console_log(move %60) -> bb18
+    %9 = set{true, false, true}
+    %55 = set_values move %9
+    %56 = closure ClosureId(0) []
+    %57 = list_map move %55, move %56
+    %58 = string_join move %57, "|"
+    %59 = call @console_log(move %58) -> bb18
   bb18:
-    %8 = copy %0
-    %62 = copy %0 == copy %0
-    %63 = call @console_log(move %62) -> bb19
+    %10 = copy %0
+    %60 = copy %0 == copy %0
+    %61 = call @console_log(move %60) -> bb19
   bb19:
-    %64 = string_chars "hello"
-    %65 = list_to_set move %64
-    %66 = move %65 == move %0
-    %67 = call @console_log(move %66) -> bb20
+    %62 = string_chars "hello"
+    %63 = list_to_set move %62
+    %64 = move %63 == move %0
+    %65 = call @console_log(move %64) -> bb20
   bb20:
     return none
 

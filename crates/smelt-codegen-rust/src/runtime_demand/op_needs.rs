@@ -348,6 +348,10 @@ impl RuntimeDemand {
             Rvalue::TypeofValue { .. } => {
                 self.add(Need::Typeof);
             }
+            // A collection iterator is a generator (`smelt_live_iterator`).
+            Rvalue::CollectionIterator { .. } => {
+                self.add(Need::IteratorResult);
+            }
             Rvalue::DefineProperties { .. } => {
                 self.add(Need::DefineProperties);
             }
@@ -542,6 +546,8 @@ impl RuntimeDemand {
             | Rvalue::CallableObjectAssign { .. }
             | Rvalue::DictCopy { .. }
             | Rvalue::DictProjection { .. }
+            | Rvalue::CollectionLen { .. }
+            | Rvalue::CollectionAt { .. }
             | Rvalue::StringChars { .. }
             | Rvalue::StringJoin { .. }
             | Rvalue::FileReadText { .. }
