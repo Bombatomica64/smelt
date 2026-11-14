@@ -497,25 +497,71 @@ impl ModuleBuilder<'_> {
         None
     }
 
-    /// The live storage of the static field `member` writes, when `member`
-    /// is `Class.field` for a class (not shadowed by a local) whose OWN
-    /// mutable static `field` is.
+    /// Where a write of the static field `member` lands, when `member` is
+    /// `Class.field` for a class (not shadowed by a local) whose own mutable
+    /// static `field` is, or that inherits a mutable static `field`.
     ///
-    /// Only an own static: in JavaScript `Sub.x = v` on a static `Sub`
-    /// inherits creates an own property of `Sub` and leaves `Base.x` alone,
-    /// so writing the ancestor's storage would be wrong.
+    /// Never the ancestor's storage: in JavaScript `Sub.x = v` on a static
+    /// `Sub` inherits creates an own property of `Sub` and leaves `Base.x`
+    /// alone, which the class's inherited-static setter models
+    /// ([`smelt_hir::StaticField::inherited`]).
     pub(in crate::lowering) fn static_field_write_storage(
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
-    ) -> Option<smelt_hir::ItemId> {
+    ) -> Option<StaticWriteTarget> {
         let class_name = self.static_class_receiver(&member.object)?;
         let (field, own) =
             self.class_static_field_named(&class_name, member.property.name.as_str())?;
-        if own && field.mutable {
-            field.storage
-        } else {
-            None
+        if !own || !field.mutable {
+            return None;
         }
+        match field.inherited {
+            Some(access) => Some(StaticWriteTarget::Inherited {
+                access,
+                ty: field.ty,
+            }),
+            None => field.storage.map(StaticWriteTarget::Global),
+        }
+    }
+
+    /// The read of `field`, a static of a class: its getter for an inherited
+    /// static, its live storage for one with storage, its literal for a
+    /// constant (`None` when it is neither).
+    pub(in crate::lowering) fn static_field_read(
+        &mut self,
+        field: &smelt_hir::StaticField,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(access) = field.inherited {
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Item(access.getter),
+                ty: self.item_expr_type(access.getter, span)?,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Call {
+                    callee,
+                    args: Vec::new(),
+                },
+                ty: field.ty,
+                span,
+            })));
+        }
+        if let Some(item) = field.storage {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::GlobalGet { item },
+                ty: field.ty,
+                span,
+            })));
+        }
+        Ok(field.value.clone().map(|value| {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(value),
+                ty: field.ty,
+                span,
+            })
+        }))
     }
 
     /// The class `this` names in a static field initializer, when one is
@@ -552,7 +598,7 @@ impl ModuleBuilder<'_> {
     /// one, and a `readonly` one whose initializer is not a literal) reads
     /// it (`GlobalGet`), a constant one is its literal.
     pub(super) fn materialized_static_member(
-        &self,
+        &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
@@ -565,12 +611,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let span = self.span(member.span.start, member.span.end);
-        if let Some(item) = field.storage {
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::GlobalGet { item },
-                ty: field.ty,
-                span,
-            })));
+        if let Some(read) = self.static_field_read(&field, span, body)? {
+            return Ok(Some(read));
         }
         let Some(value) = field.value else {
             return Err(SmeltError::native_specialization_adapter_required(
@@ -692,6 +734,7 @@ impl ModuleBuilder<'_> {
                     .span
                     .as_ref()
                     .map_or(span, |source| self.materialized_span(source)),
+                inherited: None,
             });
         }
         for (name, value) in &class.static_values {
@@ -712,6 +755,7 @@ impl ModuleBuilder<'_> {
                 mutable: false,
                 storage: None,
                 span,
+                inherited: None,
             });
         }
         static_fields
@@ -912,4 +956,25 @@ mod tests {
             "a sequence expression"
         );
     }
+}
+
+/// Where a static-member write (`Class.x = v`, `Class.x += v`, `Class.x++`)
+/// lands; see [`ModuleBuilder::static_field_write_storage`].
+#[derive(Debug, Clone, Copy)]
+#[expect(
+    variant_size_differences,
+    reason = "both variants are a few `Copy` ids; boxing one would cost an allocation per write"
+)]
+pub(in crate::lowering) enum StaticWriteTarget {
+    /// A mutable global: a static the class declares, or a lifted module
+    /// variable.
+    Global(smelt_hir::ItemId),
+    /// A mutable static the class inherits, written through its setter (which
+    /// makes the value the class's own) and read through its getter.
+    Inherited {
+        /// The class's accessor pair.
+        access: smelt_hir::InheritedStaticAccess,
+        /// The static's type.
+        ty: smelt_hir::TypeId,
+    },
 }

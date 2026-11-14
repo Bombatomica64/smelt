@@ -7843,7 +7843,10 @@ function keysFromMap(input: Map<string, number>, opaque: unknown) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_exprs!(&ctx, DictProjection, Len, UnknownCast);
+    // `Array.from(opaque)` used to be an `UnknownCast` of the erased value,
+    // which aliased an erased array; it is now a copy of it (`ListCopy`), a
+    // NEW array as in JavaScript.
+    ensure_exprs!(&ctx, DictProjection, Len, ListCopy);
     Ok(())
 }
 

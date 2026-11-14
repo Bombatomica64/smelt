@@ -186,19 +186,24 @@ pub struct SmeltArray {
     values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,
     //~ Whether the buffer is a COPY of another representation of `id` (`with_id`).
     detached: bool,
+    //~ The typed list this array is a live view of (`SmeltList::into_live_smelt_unknown`):
+    //~ when set, every element access goes to it and `values` is unused.
+    // @smelt:if live_arrays
+    live: Option<::std::rc::Rc<dyn SmeltLiveList>>,
+    // @smelt:end
 }
 
 //~ Hand-written `Debug` rather than a derive, so the shared cell does not
 //~ show up as `RefCell { value: [..] }` in formatted output.
-impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltArray").field("id", &self.id).field("values", &*self.values.borrow()).finish() } }
-impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), detached: self.detached } } }
+impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltArray").field("id", &self.id).field("values", &self.clone().into_vec()).finish() } }
+impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), detached: self.detached, /*@if live_arrays*/live: self.live.clone(), /*@end*/} } }
 impl SmeltArray {
     //~ Create an identity-bearing erased JavaScript array.
-    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false } }
+    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false, /*@if live_arrays*/live: None, /*@end*/} }
     //~ Reuse a caller-supplied identity so repeated erasures of one source list compare `===` equal.
-    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true } }
+    fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true, /*@if live_arrays*/live: None, /*@end*/} }
     //~ Reuse an existing shared buffer, so a re-wrap keeps aliasing the same array.
-    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false } }
+    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false, /*@if live_arrays*/live: None, /*@end*/} }
     //~ The twin of `SmeltList::storage()`. An erased array re-wrapped as a
     //~ typed `SmeltList<SmeltUnknown>` must keep aliasing the SAME buffer, or
     //~ the round-trip produces a stale snapshot wearing the live array's id
@@ -206,23 +211,28 @@ impl SmeltArray {
     //~ argument in the other direction). Without this accessor the only way
     //~ back was `into_vec()`, which copies.
     //~ Another handle on this array's shared buffer.
-    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { ::std::rc::Rc::clone(&self.values) }
+    //~ A live view has no erased buffer to share: it answers a detached snapshot.
+    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { /*@if live_arrays*/if let Some(live) = &self.live { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.elements())); } /*@end*/::std::rc::Rc::clone(&self.values) }
     //~ Snapshot the elements. This COPIES: mutating the result does not write back.
-    fn into_vec(self) -> Vec<SmeltUnknown> { self.values.borrow().clone() }
+    fn into_vec(self) -> Vec<SmeltUnknown> { /*@if live_arrays*/if let Some(live) = &self.live { return live.elements(); } /*@end*/self.values.borrow().clone() }
     //~ Element count.
-    fn len(&self) -> usize { self.values.borrow().len() }
+    fn len(&self) -> usize { /*@if live_arrays*/if let Some(live) = &self.live { return live.element_count(); } /*@end*/self.values.borrow().len() }
     //~ Whether the array holds no elements.
-    fn is_empty(&self) -> bool { self.values.borrow().is_empty() }
+    fn is_empty(&self) -> bool { self.len() == 0 }
     //~ Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
-    fn get(&self, index: usize) -> Option<SmeltUnknown> { self.values.borrow().get(index).cloned() }
+    fn get(&self, index: usize) -> Option<SmeltUnknown> { /*@if live_arrays*/if let Some(live) = &self.live { return live.element(index); } /*@end*/self.values.borrow().get(index).cloned() }
     //~ Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
-    fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.values.borrow().clone().into_iter() }
+    fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.clone().into_vec().into_iter() }
     //~ Set the element at a numeric index, extending with `undefined` holes to match JS `arr[i] = v`.
-    fn set_index(&self, index: usize, value: SmeltUnknown) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
+    fn set_index(&self, index: usize, value: SmeltUnknown) { /*@if live_arrays*/if let Some(live) = &self.live { live.set_element(index, value); return; } /*@end*/let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
     //~ Append one element (JS `arr.push(v)`), through the shared buffer.
-    fn push(&self, value: SmeltUnknown) { self.values.borrow_mut().push(value); }
+    fn push(&self, value: SmeltUnknown) { /*@if live_arrays*/if let Some(live) = &self.live { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } /*@end*/self.values.borrow_mut().push(value); }
+    //~ Remove `delete` elements at `start` and insert `items` there (JS `splice`), answering the removed ones.
+    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { /*@if live_arrays*/if let Some(live) = &self.live { return live.splice_elements(start, delete, items); } /*@end*/let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
+    //~ Set the element count (JS `arr.length = n`): truncate, or extend with `undefined` holes.
+    fn set_len(&self, len: usize) { let current = self.len(); if len < current { self.splice(len, current - len, Vec::new()); } else if len > current { self.splice(current, 0, vec![SmeltUnknown::Undefined; len - current]); } }
     //~ Replace every element in place, so aliases observe the new contents.
-    fn replace_all(&self, values: Vec<SmeltUnknown>) { *self.values.borrow_mut() = values; }
+    fn replace_all(&self, values: Vec<SmeltUnknown>) { /*@if live_arrays*/if let Some(live) = &self.live { live.replace_elements(values); return; } /*@end*/*self.values.borrow_mut() = values; }
     //~ The named half of the array's property model. Kept as an insertion-ordered
     //~ `Vec` rather than a map because JavaScript enumerates an object's string
     //~ keys in insertion order and there are only ever a handful of them. These
@@ -231,21 +241,28 @@ impl SmeltArray {
     //~ Read a NON-INDEX named property (JS `arr.x`), or `None` when absent.
     fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
     //~ Write a NON-INDEX named property (JS `arr.x = v`), allocating the side table on first use.
-    fn set_named_property(&self, key: String, value: SmeltUnknown) { smelt_array_store_named_property(self, key, value, false); }
+    //~ `length` is not a named property: writing it truncates or grows the
+    //~ array itself (a valid array length, as JavaScript requires).
+    fn set_named_property(&self, key: String, value: SmeltUnknown) { if key == "length" { if let SmeltUnknown::Number(len) = value && len >= 0.0 && len.fract() == 0.0 && len <= f64::from(u32::MAX) { self.set_len(smelt_erased_relative_position(Some(&value), usize::MAX, 0)); } return; } smelt_array_store_named_property(self, key, value, false); }
     //~ The named property keys, in insertion order (empty in the common case).
     fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }
     //~ Own enumerable keys: the element indices, then the named properties, exactly the order `Object.keys` reports.
     fn own_keys(&self) -> Vec<String> { let mut keys = (0..self.len()).map(|index| index.to_string()).collect::<Vec<_>>(); keys.extend(self.named_keys()); keys }
+    //~ The typed list this array is a live view of, when it is a `SmeltList<T>`:
+    //~ the same handle, which narrowing hands back instead of a copy. Never one
+    //~ in a crate without live arrays.
+    #[allow(dead_code)]
+    fn live_list<T: 'static>(&self) -> Option<SmeltList<T>> { /*@if live_arrays*/if let Some(list) = self.live_typed::<T>() { return Some(list); } /*@end*/None }
     //~ Own enumerable entries, paired with the keys `own_keys` reports.
-    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.values.borrow().iter().enumerate().map(|(index, value)| (index.to_string(), value.clone())).collect::<Vec<_>>(); entries.extend(smelt_array_named_entries(self.id)); entries }
+    fn own_entries(&self) -> Vec<(String, SmeltUnknown)> { let mut entries = self.iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect::<Vec<_>>(); entries.extend(smelt_array_named_entries(self.id)); entries }
 }
 impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }
 impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }
 //~ No `Deref` to `[SmeltUnknown]`: the elements live behind a `RefCell`, so
 //~ there is no `&[SmeltUnknown]` to hand out that could outlive the borrow.
 //~ `len`/`is_empty`/`get`/`iter` above each take their own short-lived borrow.
-impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.borrow().clone().into_iter() } }
-impl<'smelt_array> IntoIterator for &'smelt_array SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.borrow().clone().into_iter() } }
+impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.into_vec().into_iter() } }
+impl<'smelt_array> IntoIterator for &'smelt_array SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.iter() } }
 
 //~ `SmeltList<T>` itself is defined in the `list.rs`.
 //~ These impls depend on `SmeltArray`/`SmeltUnknown`, so they live here.

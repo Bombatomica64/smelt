@@ -276,9 +276,48 @@ impl FunctionEmitter<'_> {
                 );
             }
         };
-        crate::classes::find_class(self.mir, class_name)
-            .map(|class| class.type_params.iter().map(|param| param.name).collect())
-            .unwrap_or_default()
+        // A generic class's static methods live in an impl of their own that
+        // declares none of the class's parameters
+        // (`classes::static_methods_impl_args`).
+        let mut params: HashSet<Symbol> =
+            if matches!(self.function.origin, HirOrigin::ClassStaticMethod { .. })
+                && crate::classes::statics_outside_class_impl(self.mir, self.context, class_name)
+            {
+                HashSet::new()
+            } else {
+                crate::classes::find_class(self.mir, class_name)
+                    .map(|class| class.type_params.iter().map(|param| param.name).collect())
+                    .unwrap_or_default()
+            };
+        // A method's own type parameters (`map<U>`) are in scope when the
+        // method declares them as Rust generics: its own emission under the
+        // crate-wide decision (or the trial deciding it), and every inherited
+        // copy of a method the crate admitted.
+        let own_generics = match &self.role {
+            emit_role::EmitRole::Own { generics } => *generics != emit_role::OwnGenerics::Erased,
+            emit_role::EmitRole::InheritedCopy { .. } => {
+                self.context.is_generic_function(self.function.id)
+            }
+            emit_role::EmitRole::BaseInitializerCopy { .. } | emit_role::EmitRole::Closure(_) => {
+                false
+            }
+        };
+        if own_generics
+            && matches!(
+                self.function.origin,
+                HirOrigin::ClassMethod { .. } | HirOrigin::ClassStaticMethod { .. }
+            )
+            && !self.function.type_params.is_empty()
+        {
+            params.extend(crate::generic_lifting::liftable_type_params(
+                self.mir,
+                self.function,
+                &self.context.owned_callback_params,
+                &self.context.bound_traits,
+                &self.context.erased_arguments,
+            ));
+        }
+        params
     }
 
     /// The one canonical, substitution-aware Rust type lowering entry point.

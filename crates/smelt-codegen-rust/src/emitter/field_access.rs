@@ -491,6 +491,11 @@ impl FunctionEmitter<'_> {
         if !carried_params.is_empty() {
             fields.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
+        // The rebuilt receiver is this same instance: it keeps its class.
+        if self.context.carries_class_identity(class) {
+            let field = crate::class_identity::CLASS_IDENTITY_FIELD;
+            fields.push(format!("{field}: self.{field}"));
+        }
         Ok(RustExpr::loose(format!(
             "{class_name} {{ {} }}",
             fields.join(", ")

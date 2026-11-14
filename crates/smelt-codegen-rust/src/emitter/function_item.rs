@@ -571,8 +571,9 @@ impl FunctionEmitter<'_> {
                     // receiver (E0597). Reference-class receivers clone as a cheap
                     // `Rc` handle preserving identity; value classes derive `Clone`.
                     let inner_ret = self.rendered_type(self.function.return_ty)?;
+                    let generics = self.method_own_generics_text()?;
                     out.push_str(&format!(
-                        "    fn {name}({rendered_params}) -> SmeltFuture<{inner_ret}> {{\n"
+                        "    fn {name}{generics}({rendered_params}) -> SmeltFuture<{inner_ret}> {{\n"
                     ));
                     return self.emit_async_method_owned_self_body(&inner_ret, out);
                 }
@@ -583,8 +584,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.return_type(self.function.return_ty)?.into_string()
                 };
+                let generics = self.method_own_generics_text()?;
                 out.push_str(&format!(
-                    "    fn {name}({rendered_params}) -> {return_text} {{\n"
+                    "    fn {name}{generics}({rendered_params}) -> {return_text} {{\n"
                 ));
             }
             HirOrigin::ClassStaticMethod { .. } => {
@@ -592,8 +594,9 @@ impl FunctionEmitter<'_> {
                 // `self`, producing an associated function `Class::name(..)`.
                 let name = static_method_rust_name(self.context, self.function.id)?;
                 let method_params = self.param_decls_text(0)?;
+                let generics = self.method_own_generics_text()?;
                 out.push_str(&format!(
-                    "    {}fn {name}({method_params}) -> {} {{\n",
+                    "    {}fn {name}{generics}({method_params}) -> {} {{\n",
                     self.async_keyword(),
                     self.return_type(self.function.return_ty)?
                 ));
@@ -634,6 +637,75 @@ impl FunctionEmitter<'_> {
         }
         out.push_str("    }\n");
         Ok(())
+    }
+
+    /// The generic parameter list of a method that declares its own type
+    /// parameters as Rust generics (`fn map<U: ..>(&self, ..)`), or `""`.
+    ///
+    /// Same list a free function declares (its lifted type parameters, then
+    /// the generated `F{n}: Fn(..) + ?Sized` callback bounds), under the same
+    /// crate-wide decision: the method's own emission declares it when the
+    /// trial admitted the method, and so does every inherited copy of it.
+    fn method_own_generics_text(&self) -> Result<String, EmitError> {
+        if self.function.type_params.is_empty() {
+            return Ok(String::new());
+        }
+        let declared = match &self.role {
+            emit_role::EmitRole::Own { generics } => *generics != emit_role::OwnGenerics::Erased,
+            emit_role::EmitRole::InheritedCopy { .. } => {
+                self.context.is_generic_function(self.function.id)
+            }
+            emit_role::EmitRole::BaseInitializerCopy { .. } | emit_role::EmitRole::Closure(_) => {
+                false
+            }
+        };
+        if !declared {
+            return Ok(String::new());
+        }
+        let mut parts = crate::generic_lifting::function_impl_generics_list(
+            self.mir,
+            self.function,
+            &self.context.owned_callback_params,
+            &self.context.bound_traits,
+            &self.context.erased_arguments,
+        )?;
+        parts.extend(self.callback_generic_bounds_text()?);
+        Ok(if parts.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", parts.join(", "))
+        })
+    }
+
+    /// The turbofish an erased caller of this method spells (`::<SmeltUnknown,
+    /// _>`), or `""` when the method declares no Rust generics of its own.
+    ///
+    /// An erased adapter (`crate::class_proto`) recovers every argument from
+    /// `SmeltUnknown`, so nothing pins the method's own type parameters: each
+    /// instantiates at `SmeltUnknown`, the only type an erased caller can
+    /// name, and each generated callback bound (`F{n}`) is inferred from the
+    /// adapted callback. Call on an emitter in the method's own role.
+    pub(crate) fn erased_own_generics_turbofish(&mut self) -> Result<String, EmitError> {
+        self.apply_crate_generic_decision();
+        if self.method_own_generics_text()?.is_empty() {
+            return Ok(String::new());
+        }
+        let mut parts = crate::generic_lifting::function_impl_generics_list(
+            self.mir,
+            self.function,
+            &self.context.owned_callback_params,
+            &self.context.bound_traits,
+            &self.context.erased_arguments,
+        )?
+        .into_iter()
+        .map(|_| "SmeltUnknown".to_owned())
+        .collect::<Vec<_>>();
+        parts.extend(
+            self.callback_generic_bounds_text()?
+                .into_iter()
+                .map(|_| "_".to_owned()),
+        );
+        Ok(format!("::<{}>", parts.join(", ")))
     }
 
     /// The keyword in front of `fn`: a generator's body is its own coroutine, so

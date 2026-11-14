@@ -367,8 +367,37 @@ pub struct StaticField {
     /// (initialized from `value`); `None` for a constant.
     #[serde(default)]
     pub storage: Option<ItemId>,
+    /// For a static the class INHERITS (declared by an ancestor), the
+    /// accessor pair through which the class reads and writes it; `storage`
+    /// is then the class's own shadow value. `None` for a declared static.
+    ///
+    /// JavaScript resolves `Sub.x` through `Sub`'s prototype chain: `Base.x`
+    /// until something writes `Sub.x`, which creates an own property of `Sub`
+    /// and leaves `Base.x` alone.
+    #[serde(default)]
+    pub inherited: Option<InheritedStaticAccess>,
     /// Source location.
     pub span: Span,
+}
+
+/// How a class reaches a mutable static it inherits (see
+/// [`StaticField::inherited`]): an own-flag, and a getter and setter over it
+/// and the class's shadow storage.
+///
+/// ```ts
+/// static get x(): T { if (own) { return shadow; } return Base.x; }
+/// static set x(value: T): T { shadow = value; own = true; return value; }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InheritedStaticAccess {
+    /// The [`Item::MutableGlobal`] `bool` that says whether the class has its
+    /// own value yet.
+    pub own: ItemId,
+    /// The static method answering the inherited value or the own one.
+    pub getter: ItemId,
+    /// The static method storing an own value; it returns the stored value,
+    /// so an assignment through it composes as an expression.
+    pub setter: ItemId,
 }
 
 /// A method signature in an interface.

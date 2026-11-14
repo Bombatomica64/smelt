@@ -762,6 +762,12 @@ impl FunctionEmitter<'_> {
                 return Ok(field_call.into());
             }
             let class_type_params = self.callee_class_type_params(function);
+            // A method declaring its own Rust generics (`map<U>`) is
+            // monomorphized here exactly as a free function is: the same
+            // decision types the call's result (`call_emitted_source_ty`),
+            // and each argument renders at its parameter with the call's
+            // bindings applied, so `U` is the caller's concrete type.
+            let own_monomorphization = self.static_call_monomorphization(function, args)?;
             let mut rendered_args = rest
                 .iter()
                 .enumerate()
@@ -772,7 +778,14 @@ impl FunctionEmitter<'_> {
                     let Some(param) = function.params.get(param_index).copied() else {
                         return self.operand_expr(arg);
                     };
-                    let target_ty = self.function_local_decl(function, param)?.ty;
+                    let declared_ty = self.function_local_decl(function, param)?.ty;
+                    let target_ty =
+                        self.own_generic_target(declared_ty, own_monomorphization.as_ref());
+                    if target_ty != declared_ty
+                        && !matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                    {
+                        return self.value_at_type(arg, target_ty);
+                    }
                     // A method's parameters carry the SAME ABI as every
                     // other callee's. A parameter the callee mutates in
                     // place is emitted `&mut T`
@@ -881,6 +894,9 @@ impl FunctionEmitter<'_> {
             // static call, and missing trailing parameters default.
             let class_name = self.type_rust_name(class)?;
             let method_name = static_method_rust_name(self.context, function.id)?;
+            // A static method declaring its own Rust generics
+            // (`static create<T>(v: T)`) monomorphizes like a free function.
+            let own_monomorphization = self.static_call_monomorphization(function, args)?;
             let mut rendered_args = args
                 .iter()
                 .enumerate()
@@ -888,7 +904,17 @@ impl FunctionEmitter<'_> {
                     let Some(param) = function.params.get(index).copied() else {
                         return self.operand_expr(arg);
                     };
-                    let target_ty = self.function_local_decl(function, param)?.ty;
+                    let target_ty = self.own_generic_target(
+                        self.function_local_decl(function, param)?.ty,
+                        own_monomorphization.as_ref(),
+                    );
+                    if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                        && !self
+                            .function_parameter_requires_owned_in(function, param)
+                            .unwrap_or(true)
+                    {
+                        return self.borrowed_function_argument_expr(arg, target_ty, None);
+                    }
                     self.value_at_type(arg, target_ty)
                 })
                 .collect::<Result<Vec<_>, _>>()?;

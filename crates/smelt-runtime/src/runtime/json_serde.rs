@@ -23,7 +23,7 @@ impl serde::Serialize for SmeltUnknown {
 // @smelt:if unknown
             Self::String(value) => value.serialize(serializer),
             Self::Symbol(_) => serializer.serialize_none(),
-            Self::Array(values) => serde::Serialize::serialize(&*values.values.borrow(), serializer),
+            Self::Array(values) => serde::Serialize::serialize(&values.clone().into_vec(), serializer),
             //~ `JSON.stringify` serializes an object's OWN ENUMERABLE
             //~ properties, in order. That is the same rule `for...in`
             //~ uses, so both read one predicate
@@ -138,9 +138,9 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
         SmeltUnknown::Promise(_) => out.push_str("\"[object Promise]\""),
         SmeltUnknown::Array(values) => {
             out.push('[');
-            for (index, element) in values.values.borrow().iter().enumerate() {
+            for (index, element) in values.iter().enumerate() {
                 if index > 0 { out.push(','); }
-                smelt_json_write(element, out)?;
+                smelt_json_write(&element, out)?;
             }
             out.push(']');
         }

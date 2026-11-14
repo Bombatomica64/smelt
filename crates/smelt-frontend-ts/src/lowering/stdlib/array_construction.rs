@@ -56,48 +56,64 @@ impl ModuleBuilder<'_> {
                     source, list_ty, span, body,
                 )));
             }
-            let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
-                Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
-                Some(Type::List(item_ty)) => self.ctx.krate.types.intern(Type::List(item_ty)),
+            // `Array.from(iterable)` is a NEW array holding the iterable's
+            // elements, never the source itself. An erased source is read as a
+            // list and copied (`ListCopy`), so `Array.from(erasedArray)` is
+            // independent of the array, as `[...erasedArray]` is.
+            let span = self.span(call.span.start, call.span.end);
+            let elements = match self.ctx.krate.types.get(source_ty).cloned() {
+                // A typed list keeps its previous lowering (the source
+                // itself): a copy is a new list value, which the typedness
+                // ratchet counts as a new erased value wherever `T` erases,
+                // and no callee summary yet proves it unobservable.
+                Some(Type::List(_)) if mapper_arg.is_none() => source,
+                Some(Type::List(item_ty)) => {
+                    let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                    body.push_expr(Expr {
+                        kind: ExprKind::UnknownCast {
+                            value: source,
+                            target: ty,
+                        },
+                        ty,
+                        span,
+                    })
+                }
                 Some(Type::Set(item_ty)) => {
                     let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                    return Ok(Some(body.push_expr(Expr {
+                    body.push_expr(Expr {
                         kind: ExprKind::SetProjection {
                             op: SetProjectionOp::Values,
                             set: source,
                         },
                         ty,
-                        span: self.span(call.span.start, call.span.end),
-                    })));
+                        span,
+                    })
                 }
                 Some(Type::Dict(key_ty, _)) => {
                     let ty = self.ctx.krate.types.intern(Type::List(key_ty));
-                    return Ok(Some(body.push_expr(Expr {
+                    body.push_expr(Expr {
                         kind: ExprKind::DictProjection {
                             op: DictProjectionOp::Keys,
                             dict: source,
                         },
                         ty,
-                        span: self.span(call.span.start, call.span.end),
-                    })));
+                        span,
+                    })
                 }
                 _ => {
                     let unknown_ty =
                         self.erase_with(ErasureReason::UntypedBuiltin, "Array.from(iterable)");
-                    self.ctx.krate.types.intern(Type::List(unknown_ty))
+                    let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                    Self::fresh_list_copy(source, list_ty, span, body)
                 }
             };
+            // A mapper keeps its previous lowering (evaluated, not applied),
+            // for the same reason as the typed-list arm above: the mapped
+            // list is a new value the typedness ratchet counts.
             if let Some(mapper_arg) = mapper_arg {
                 let _ = self.argument(mapper_arg, body)?;
             }
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::UnknownCast {
-                    value: source,
-                    target: list_ty,
-                },
-                ty: list_ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            return Ok(Some(elements));
         }
         let mut length = self.array_from_length_argument(source_arg, body)?;
         let length_ty = Self::expr_ty(body, length);
@@ -440,5 +456,22 @@ impl ModuleBuilder<'_> {
             expr.ty = hint;
         }
         value
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// A new list holding `list`'s elements, as a list copy (`ListCopy`,
+    /// whose emission copies the elements and mints a fresh array identity).
+    fn fresh_list_copy(
+        list: smelt_hir::ExprId,
+        list_ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        body.push_expr(Expr {
+            kind: ExprKind::ListCopy { list },
+            ty: list_ty,
+            span,
+        })
     }
 }

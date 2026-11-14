@@ -79,6 +79,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("SmeltObjectKey"),
     Entry::Item("impl_SmeltObject"),
     Entry::Item("SMELT_LIVE_HOOK"),
+    Entry::Item("SmeltLiveList"),
     Entry::Item("impl_SmeltRecord_K_V"),
     Entry::Blank("unknown"),
     Entry::Item("smelt_object_has_host_marker"),

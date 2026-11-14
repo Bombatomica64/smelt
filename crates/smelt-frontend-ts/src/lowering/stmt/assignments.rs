@@ -4,6 +4,7 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::specialization::StaticWriteTarget;
 use oxc::ast::ast::{AssignmentTarget, Expression, SimpleAssignmentTarget};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
@@ -19,7 +20,7 @@ impl ModuleBuilder<'_> {
     fn assignment_target_mutable_global(
         &self,
         target: &AssignmentTarget<'_>,
-    ) -> Option<smelt_hir::ItemId> {
+    ) -> Option<StaticWriteTarget> {
         if let AssignmentTarget::StaticMemberExpression(member) = target {
             return self.static_field_write_storage(member);
         }
@@ -30,6 +31,89 @@ impl ModuleBuilder<'_> {
             return None;
         }
         self.mutable_global_item(identifier.name.as_str())
+            .map(StaticWriteTarget::Global)
+    }
+
+    /// The store of `value` into `target`, evaluating to the stored value: a
+    /// `GlobalSet`, or a call of an inherited static's setter (which returns
+    /// what it stored).
+    fn static_target_store(
+        &mut self,
+        target: StaticWriteTarget,
+        value: smelt_hir::ExprId,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        Ok(match target {
+            StaticWriteTarget::Global(item) => body.push_expr(Expr {
+                kind: ExprKind::GlobalSet { item, value },
+                ty,
+                span,
+            }),
+            StaticWriteTarget::Inherited {
+                access,
+                ty: static_ty,
+            } => {
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::Item(access.setter),
+                    ty: self.item_expr_type(access.setter, span)?,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::Call {
+                        callee,
+                        args: vec![value],
+                    },
+                    ty: static_ty,
+                    span,
+                })
+            }
+        })
+    }
+
+    /// The current value of `target` and its type: a `GlobalGet`, or a call
+    /// of an inherited static's getter.
+    fn static_target_load(
+        &mut self,
+        target: StaticWriteTarget,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::ExprId, smelt_hir::TypeId), SmeltError> {
+        Ok(match target {
+            StaticWriteTarget::Global(item) => {
+                let ty = match self.item_ref(item) {
+                    Item::MutableGlobal(global_item) => global_item.ty,
+                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                };
+                (
+                    body.push_expr(Expr {
+                        kind: ExprKind::GlobalGet { item },
+                        ty,
+                        span,
+                    }),
+                    ty,
+                )
+            }
+            StaticWriteTarget::Inherited { access, ty } => {
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::Item(access.getter),
+                    ty: self.item_expr_type(access.getter, span)?,
+                    span,
+                });
+                (
+                    body.push_expr(Expr {
+                        kind: ExprKind::Call {
+                            callee,
+                            args: Vec::new(),
+                        },
+                        ty,
+                        span,
+                    }),
+                    ty,
+                )
+            }
+        })
     }
 
     /// Desugar an assignment to a lifted mutable global into a `GlobalSet`.
@@ -61,16 +145,14 @@ impl ModuleBuilder<'_> {
         if let Some(write) = self.try_url_assignment_expression(assign, body)? {
             return Ok(Some(write));
         }
-        let Some(item) = self.assignment_target_mutable_global(&assign.left) else {
+        let Some(target) = self.assignment_target_mutable_global(&assign.left) else {
             return Ok(None);
         };
         let (_target, value) = self.assignment_parts(assign, body)?;
         let ty = Self::expr_ty(body, value);
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::GlobalSet { item, value },
-            ty,
-            span: self.span(assign.span.start, assign.span.end),
-        })))
+        let span = self.span(assign.span.start, assign.span.end);
+        self.static_target_store(target, value, ty, span, body)
+            .map(Some)
     }
 
     /// Desugar an increment/decrement of a lifted mutable global.
@@ -89,12 +171,12 @@ impl ModuleBuilder<'_> {
         keep_old_value: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         // `Class.count++` on a mutable static updates its live storage.
-        let (item, name) = match &update.argument {
+        let (target, name) = match &update.argument {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
-                let Some(item) = self.static_field_write_storage(member) else {
+                let Some(target) = self.static_field_write_storage(member) else {
                     return Ok(None);
                 };
-                (item, member.property.name.as_str())
+                (target, member.property.name.as_str())
             }
             SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
                 // A same-named local (function body or re-lowered test setup)
@@ -106,14 +188,17 @@ impl ModuleBuilder<'_> {
                 let Some(item) = self.mutable_global_item(identifier.name.as_str()) else {
                     return Ok(None);
                 };
-                (item, identifier.name.as_str())
+                (StaticWriteTarget::Global(item), identifier.name.as_str())
             }
             _ => return Ok(None),
         };
         let span = self.span(update.span.start, update.span.end);
-        let cell_ty = match self.item_ref(item) {
-            Item::MutableGlobal(global_item) => global_item.ty,
-            _ => self.erase_at(ErasureReason::ByName, span, name),
+        let cell_ty = match target {
+            StaticWriteTarget::Global(item) => match self.item_ref(item) {
+                Item::MutableGlobal(global_item) => global_item.ty,
+                _ => self.erase_at(ErasureReason::ByName, span, name),
+            },
+            StaticWriteTarget::Inherited { ty, .. } => ty,
         };
         let op = match update.operator {
             UpdateOperator::Increment => BinOp::Add,
@@ -131,46 +216,35 @@ impl ModuleBuilder<'_> {
             _ => cell_ty,
         };
         let step = self.unit_step_literal(ty);
-        let types = &self.ctx.krate.types;
-        let build_set = |target_body: &mut Body| {
-            let current = target_body.push_expr(Expr {
-                kind: ExprKind::GlobalGet { item },
-                ty: cell_ty,
-                span,
-            });
-            let current = Self::optional_number_operand_in(types, current, target_body);
-            let one = target_body.push_expr(Expr {
-                kind: ExprKind::Literal(step.clone()),
-                ty,
-                span,
-            });
-            let next = target_body.push_expr(Expr {
-                kind: ExprKind::BinOp {
-                    op,
-                    lhs: current,
-                    rhs: one,
-                },
-                ty,
-                span,
-            });
-            target_body.push_expr(Expr {
-                kind: ExprKind::GlobalSet { item, value: next },
-                ty,
-                span,
-            })
-        };
+        let build_set =
+            |this: &mut Self, target_body: &mut Body| -> Result<smelt_hir::ExprId, SmeltError> {
+                let (current, _) = this.static_target_load(target, span, target_body)?;
+                let current =
+                    Self::optional_number_operand_in(&this.ctx.krate.types, current, target_body);
+                let one = target_body.push_expr(Expr {
+                    kind: ExprKind::Literal(step.clone()),
+                    ty,
+                    span,
+                });
+                let next = target_body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op,
+                        lhs: current,
+                        rhs: one,
+                    },
+                    ty,
+                    span,
+                });
+                this.static_target_store(target, next, ty, span, target_body)
+            };
         if update.prefix || !keep_old_value {
-            let set = build_set(body);
+            let set = build_set(self, body)?;
             return Ok(Some(set));
         }
         // Postfix in an expression-value position: capture the old value in a
         // temporary, emit the store as a side statement, then evaluate to the
         // captured old value.
-        let old = body.push_expr(Expr {
-            kind: ExprKind::GlobalGet { item },
-            ty: cell_ty,
-            span,
-        });
+        let (old, _) = self.static_target_load(target, span, body)?;
         let old = Self::optional_number_operand_in(&self.ctx.krate.types, old, body);
         let temp_local = body.push_local(LocalDecl {
             name: Some(
@@ -184,7 +258,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         let temp_pat = body.push_pattern(Pattern::Binding(temp_local));
-        let set = build_set(body);
+        let set = build_set(self, body)?;
         self.push_stmt_to_sink(
             body,
             Stmt::Let {

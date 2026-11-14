@@ -230,6 +230,8 @@ pub(crate) fn flag_for(
         // erases: the views live in the carrier's block, and a wholly typed
         // program must not pull the carrier in for them.
         "live_containers" => Some(demand.has(Need::LiveContainers) && demand.has(Need::Unknown)),
+        // Likewise for a typed array's live erased view.
+        "live_arrays" => Some(demand.has(Need::LiveArrays) && demand.has(Need::Unknown)),
         "write_through" => Some(facts.erased_view_write_through && facts.reference_classes),
         "reads_this" => Some(facts.reads_this),
         // A Python program's dicts keep insertion order; JavaScript's own-key

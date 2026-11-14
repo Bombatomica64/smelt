@@ -22,6 +22,36 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Add the runtime class tag to a record literal of `class` when the class
+    /// carries one ([`crate::class_identity`]).
+    ///
+    /// `copied_from` is the record the literal converts, when there is one:
+    /// a conversion between two classes of one hierarchy (an upcast) keeps the
+    /// class the instance was constructed as, so the tag is copied from a
+    /// source that carries one. Everything else (an allocation, a source of
+    /// another shape) is an instance of `class` itself.
+    pub(super) fn push_class_identity_field(
+        &self,
+        fields: &mut Vec<String>,
+        class: Symbol,
+        copied_from: Option<(TypeId, &str)>,
+    ) {
+        if !self.context.carries_class_identity(class) {
+            return;
+        }
+        let field = crate::class_identity::CLASS_IDENTITY_FIELD;
+        let copied =
+            copied_from.and_then(|(source_ty, source)| match self.mir.types.get(source_ty) {
+                Some(Type::Class { name, .. }) if self.context.carries_class_identity(*name) => {
+                    Some(format!("{source}.{field}"))
+                }
+                _ => None,
+            });
+        let value =
+            copied.unwrap_or_else(|| crate::class_identity::identity_literal(self.mir, class));
+        fields.push(format!("{field}: {value}"));
+    }
+
     /// A list literal at its destination.
     pub(super) fn list_literal_expr(
         &self,
@@ -430,6 +460,7 @@ impl FunctionEmitter<'_> {
             }
         }
         self.push_phantom_field(&mut parts, mir_class.name, mir_class.type_params.len());
+        self.push_class_identity_field(&mut parts, mir_class.name, None);
         // A reference class wraps its inner record in a fresh shared cell.
         // Identity lives in the `Rc`, so the constructor mints one cell;
         // aliasing later clones the handle (`Rc::clone`), sharing it.
@@ -612,6 +643,7 @@ impl FunctionEmitter<'_> {
             field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         self.push_phantom_field(&mut field_text, *name, args.len());
+        self.push_class_identity_field(&mut field_text, *name, None);
 
         let type_name = self.type_rust_name(*name)?;
         // A reference-class record is a handle newtype over its `Inner`

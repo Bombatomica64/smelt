@@ -756,6 +756,21 @@ impl ModuleBuilder<'_> {
                         static_field.storage = Some(storage);
                     }
                 }
+                // The mutable statics this class inherits, each behind the
+                // accessor pair that makes a write through this class its own
+                // (`decls::inherited_statics`). A per-evaluation class keeps
+                // them in its statics frame instead.
+                if evaluation.is_none() {
+                    let (inherited, accessors) = this.inherited_static_fields(
+                        &class_source_name,
+                        class_name,
+                        base,
+                        &static_fields,
+                        class_span,
+                    )?;
+                    static_fields.extend(inherited);
+                    static_methods.extend(accessors);
+                }
                 this.classes
                     .push_statics_in_flight(class_source_name.clone(), static_fields.clone());
                 let method_sigs = this.class_method_signatures(&class.body.body)?;
@@ -1293,9 +1308,8 @@ impl ModuleBuilder<'_> {
     /// constructor. We lower it through the same [`Self::class_declaration`]
     /// pipeline so the class is registered (fields, methods, constructor, and a
     /// `Type::Class` symbol) exactly like a declared class, then materialize the
-    /// class value the same way a bare class-name identifier does in
-    /// `identifier_expression`: a `Literal::None` placeholder typed as the class
-    /// so downstream code carries the class identity through the type.
+    /// class value the same way a bare class-name identifier does
+    /// ([`Self::class_value_expression`]).
     pub(in crate::lowering) fn class_expression_value(
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
@@ -1325,22 +1339,31 @@ impl ModuleBuilder<'_> {
                 span: self.span(class.span.start, class.span.end),
             }));
         }
-        let Item::Class(lowered) = self.item_ref(item) else {
+        if !matches!(self.item_ref(item), Item::Class(_)) {
             return Err(SmeltError::unsupported(
                 self.span(class.span.start, class.span.end),
                 "class expression did not lower to a class item",
             ));
+        }
+        // The expression's value is the class itself (the constructor), so it
+        // lowers exactly like a class name read as a value: an
+        // `ExprKind::ClassValue` that `new`, `instanceof` and static reads
+        // resolve at run time once it flows through a function return or a
+        // binding. Typing it as the class INSTANCE (`Type::Class`) made
+        // `const make = () => class {..}` return a default instance, and
+        // `new (make())()` threw "value is not a function".
+        let registry_name = self
+            .classes
+            .entries()
+            .find(|&(_, registered)| registered == item)
+            .map(|(name, _)| name.clone());
+        let Some(registry_name) = registry_name else {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "class expression did not register its class",
+            ));
         };
-        let name = lowered.name;
-        let ty = self.ctx.krate.types.intern(Type::Class {
-            name,
-            args: Vec::new(),
-        });
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty,
-            span: self.span(class.span.start, class.span.end),
-        }))
+        self.class_value_expression(&registry_name, class.span.start, class.span.end, body)
     }
 
     /// Lower the single supported TypeScript `extends` shape for class declarations.

@@ -331,11 +331,16 @@ fn erased_callable_adapter(
             } else {
                 format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)")
             };
-            let emitter = match &method_emitter {
-                Some(emitter) => emitter,
-                None => method_emitter.insert(crate::emitter::FunctionEmitter::new(
-                    mir, context, function,
-                )?),
+            // The adapter is the erased boundary of a method that may declare
+            // its own Rust generics (`map<U>`): it spells none of them, so
+            // they instantiate at `SmeltUnknown`.
+            if method_emitter.is_none() {
+                let mut emitter = crate::emitter::FunctionEmitter::new(mir, context, function)?;
+                emitter.erase_own_generics();
+                method_emitter = Some(emitter);
+            }
+            let Some(emitter) = &method_emitter else {
+                return Err(EmitError::new("class method adapter has no emitter"));
             };
             args.push(RustExpr::atom(
                 emitter.erased_proto_argument(*param, &erased)?,
@@ -372,7 +377,12 @@ fn erased_callable_adapter(
     } else {
         ""
     };
-    let call = format!("{callee}{rust_method}({}){try_operator}", args.join(", "));
+    let turbofish = crate::emitter::FunctionEmitter::new(mir, context, function)?
+        .erased_own_generics_turbofish()?;
+    let call = format!(
+        "{callee}{rust_method}{turbofish}({}){try_operator}",
+        args.join(", ")
+    );
     let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()

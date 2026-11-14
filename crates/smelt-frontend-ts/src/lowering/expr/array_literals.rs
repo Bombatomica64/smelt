@@ -758,17 +758,22 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
-            Some(Type::Unknown | Type::TypeParam { .. }) => Ok(body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value },
+            // An erased (or not statically list-shaped) operand is read as a
+            // list, then copied by the same fresh-list idiom: `[...erased]` is
+            // a NEW array, never the operand's own. The assertion alone was an
+            // alias, so `[...C.items].push(x)` wrote into `C.items`.
+            Some(
+                Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Class { .. }
+                | Type::Optional(_)
+                | Type::Union(_),
+            )
+            | None => Ok(body.push_expr(Expr {
+                kind: ExprKind::ListCopy { list: value },
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
-            Some(Type::Class { .. } | Type::Optional(_) | Type::Union(_)) | None => Ok(body
-                .push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value },
-                    ty: list_ty,
-                    span: self.span(span.start, span.end),
-                })),
             _ => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "array spread operands must be arrays or sets",

@@ -34,6 +34,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
     type_args: &str,
     fields: &[smelt_mir::MirField],
     decode_facts: &[smelt_hir::FieldDecodeFacts],
+    identity: Option<smelt_hir::Symbol>,
 ) -> Result<(), EmitError> {
     // Genuine dynamic boundary: this impl IS the typed-to-erased crossing, so
     // `smelt-unknown-report` counts its body as a boundary, not as erasure.
@@ -125,6 +126,16 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     .unwrap_or_else(|_| "SmeltUnknown::Null".to_owned());
                     fn_writer.line(format!("({key:?}.to_owned(), {value}),"));
                 }
+                // A class carrying its runtime tag names the class it was
+                // constructed as (`crate::class_identity`), as the inline
+                // erasure does.
+                if identity.is_some_and(|class| context.carries_class_identity(class)) {
+                    fn_writer.line(format!(
+                        "(\"{}\".to_owned(), SmeltUnknown::String(self.{}.into())),",
+                        smelt_stdlib::runtime_symbols::markers::SMELT_CLASS,
+                        crate::class_identity::CLASS_IDENTITY_FIELD
+                    ));
+                }
                 if absent_keys.is_empty() {
                     fn_writer.line("])))");
                 } else {
@@ -210,6 +221,7 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
     type_args: &str,
     fields: &[smelt_mir::MirField],
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    identity: Option<smelt_hir::Symbol>,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} SmeltFromUnknown for {name}{type_args}"),
@@ -221,6 +233,19 @@ pub(crate) fn emit_record_from_smelt_unknown_impl(
                     fn_writer.line("let mut result = Self::default();");
                     let record_text = name.to_owned();
                     fn_writer.block("if let SmeltUnknown::Object(object) = value.clone()", |body| {
+                        // The erased instance's marker names the class it was
+                        // constructed as (`crate::class_identity`).
+                        if let Some(class) = identity.filter(|class| context.carries_class_identity(*class)) {
+                            body.line(format!(
+                                "result.{} = {};",
+                                crate::class_identity::CLASS_IDENTITY_FIELD,
+                                crate::class_identity::identity_from_marker_expr(
+                                    mir,
+                                    class,
+                                    &format!("object.get(\"{}\")", smelt_stdlib::runtime_symbols::markers::SMELT_CLASS),
+                                )
+                            ));
+                        }
                         for field in fields {
                             // A `#private` field travels under a method-prefixed
                             // key: enumeration skips it and `value["#x"]` misses,

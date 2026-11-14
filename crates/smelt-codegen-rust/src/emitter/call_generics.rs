@@ -66,7 +66,10 @@ impl FunctionEmitter<'_> {
         // the emitted definition: a function whose body forced a fall back to
         // erasure has erased (`SmeltUnknown`) parameters, so its arguments must
         // be erased here too, not passed through concretely.
-        if !matches!(function.origin, HirOrigin::Body(_))
+        // A method declaring its own type parameters (`map<U>`) participates
+        // exactly like a free function once the crate admitted it.
+        if !crate::generic_lifting::may_declare_own_generics(self.mir, function)
+            || matches!(function.origin, HirOrigin::ClassConstructor { .. })
             || !self.callee_emits_generics(function.id)
         {
             return HashSet::new();
@@ -418,6 +421,20 @@ impl FunctionEmitter<'_> {
             bindings,
             return_ty,
         }))
+    }
+
+    /// The type a call site renders an argument at, for a callee parameter
+    /// declared `declared`: with the callee's own type parameters replaced by
+    /// the call's bindings when the call monomorphizes the callee, otherwise
+    /// `declared` itself.
+    pub(super) fn own_generic_target(
+        &self,
+        declared: TypeId,
+        monomorphization: Option<&CallMonomorphization>,
+    ) -> TypeId {
+        monomorphization
+            .and_then(|pinned| substituted_type_id(self.mir, declared, &pinned.bindings))
+            .unwrap_or(declared)
     }
 
     /// Render a constructor or method argument against a callee parameter type,

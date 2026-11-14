@@ -146,6 +146,10 @@ pub(crate) fn emit_reference_record_storage(
         has_field_setter,
     } = shape;
     let inner_name = format!("{name}Inner");
+    // The runtime class tag (`crate::class_identity`), on a class that carries it.
+    let identity = context
+        .carries_class_identity(*declared_name)
+        .then(|| crate::class_identity::identity_literal(mir, *declared_name));
     // Fields holding a closure that captures this instance weakly
     // (`emitter::weak_receiver`): the handle exposes its cell to that capture,
     // and the erasure keeps the instance alive through those fields' values.
@@ -228,7 +232,7 @@ pub(crate) fn emit_reference_record_storage(
     // the concrete-union emitter keeps its `pub enum` declaration bare and
     // hand-writes each impl with the bound set it needs. Same choice here, and
     // both hand-written impls already exist for the callback case.
-    if has_function_field || !type_params.is_empty() {
+    if has_function_field || !type_params.is_empty() || identity.is_some() {
         writer.line("#[allow(dead_code)]");
         writer.block(
             format!("struct {inner_name}{type_params}"),
@@ -240,6 +244,7 @@ pub(crate) fn emit_reference_record_storage(
                     fields,
                     &scoped_type_params,
                     &phantom_args,
+                    identity.is_some(),
                 );
             },
         );
@@ -277,6 +282,7 @@ pub(crate) fn emit_reference_record_storage(
             fields,
             &phantom_args,
             &scoped_type_params,
+            identity.as_deref(),
         )?;
         emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {
@@ -292,6 +298,7 @@ pub(crate) fn emit_reference_record_storage(
                     fields,
                     &scoped_type_params,
                     &phantom_args,
+                    false,
                 );
             },
         );
@@ -367,16 +374,23 @@ pub(crate) fn emit_reference_record_storage(
                         &TypeSubstitution::lexical(&scoped_type_params),
                     )
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
-                    // A mutable static's accessor reads its live storage.
-                    let value = field.global.map_or_else(
-                        || {
-                            materialized_static_value(
-                                field.value.as_ref(),
-                                mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
-                            )
-                        },
-                        |global| RustExpr::chain(crate::globals::global_read_text(mir, global)),
-                    );
+                    // A mutable static's accessor reads its live storage; an
+                    // inherited one asks its getter (`crate::classes`).
+                    let value = if let Some(read) =
+                        classes::inherited_static_read_text(mir, context, field)
+                    {
+                        RustExpr::chain(read)
+                    } else {
+                        field.global.map_or_else(
+                            || {
+                                materialized_static_value(
+                                    field.value.as_ref(),
+                                    mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
+                                )
+                            },
+                            |global| RustExpr::chain(crate::globals::global_read_text(mir, global)),
+                        )
+                    };
                     impl_writer.block(
                         format!("fn __smelt_static_{field_name}() -> {field_ty}"),
                         |function_writer| function_writer.line(value),
@@ -453,6 +467,7 @@ fn emit_reference_inner_fields(
     fields: &[smelt_mir::MirField],
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     phantom_args: &str,
+    identity: bool,
 ) {
     for field in fields {
         let field_name = context.names().field(mir, field.name).into_string();
@@ -469,6 +484,9 @@ fn emit_reference_inner_fields(
         block_writer.line(format!(
             "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
         ));
+    }
+    if identity {
+        block_writer.line(crate::class_identity::field_declaration(false));
     }
 }
 
