@@ -507,12 +507,12 @@ impl FunctionEmitter<'_> {
         generator: &Operand,
         dest_ty: Option<TypeId>,
     ) -> Result<(call::RenderedCall, TypeId), EmitError> {
-        let dest_ty = dest_ty
+        let completion_ty = dest_ty
             .ok_or_else(|| EmitError::new("yield* needs the type its completion is bound at"))?;
-        let delegation = self.generator_delegate_expr(generator, dest_ty, true)?;
+        let delegation = self.generator_delegate_expr(generator, completion_ty, true)?;
         Ok((
             call::RenderedCall::propagating_suspending(delegation),
-            dest_ty,
+            completion_ty,
         ))
     }
 
