@@ -593,6 +593,7 @@ impl EmitContext {
                     function,
                     &self.owned_callback_params,
                     &self.bound_traits,
+                    &self.type_param_elision,
                     &self.erased_arguments,
                 )
             })
@@ -723,6 +724,7 @@ impl EmitContext {
                                             caller,
                                             &self.owned_callback_params,
                                             &self.bound_traits,
+                                            &self.type_param_elision,
                                             &self.erased_arguments,
                                         )
                                         .contains(&caller_param)

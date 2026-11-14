@@ -3,8 +3,8 @@
   "total": {
     "values": {
       "concrete": 13549,
-      "generic": 205,
-      "erased": 9421
+      "generic": 225,
+      "erased": 9401
     },
     "reads": {
       "concrete": 345,
@@ -5325,8 +5325,8 @@
     "packages/remeda/src/sortedIndex.ts": {
       "values": {
         "concrete": 3,
-        "generic": 0,
-        "erased": 10
+        "generic": 5,
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -5359,8 +5359,8 @@
     "packages/remeda/src/sortedIndexBy.ts": {
       "values": {
         "concrete": 4,
-        "generic": 0,
-        "erased": 16
+        "generic": 5,
+        "erased": 11
       },
       "reads": {
         "concrete": 0,
@@ -5427,8 +5427,8 @@
     "packages/remeda/src/sortedLastIndex.ts": {
       "values": {
         "concrete": 3,
-        "generic": 0,
-        "erased": 10
+        "generic": 5,
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -5461,8 +5461,8 @@
     "packages/remeda/src/sortedLastIndexBy.ts": {
       "values": {
         "concrete": 4,
-        "generic": 0,
-        "erased": 16
+        "generic": 5,
+        "erased": 11
       },
       "reads": {
         "concrete": 0,

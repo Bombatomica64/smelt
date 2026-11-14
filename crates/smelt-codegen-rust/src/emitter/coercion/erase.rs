@@ -18,6 +18,18 @@ impl FunctionEmitter<'_> {
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_text = text.cloned_value();
         let ty = self.operand_ty(operand)?;
+        // A lifted `T` VALUE erases through the `IntoSmeltUnknown` bound its
+        // signature declares (`classes::GENERATED_TYPE_PARAM_BOUNDS`): the
+        // bound's own method, which every instantiation supplies, so the generic
+        // trial does not count it against the body. Only a whole operand of type
+        // `T` qualifies: a container of `T`s erases by rebuilding its storage,
+        // which loses JavaScript aliasing the erased signature keeps, and still
+        // counts.
+        let _bound_conversion = matches!(
+            self.mir.types.get(ty),
+            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name)
+        )
+        .then(|| self.context.carrier_boundary());
         match self.mir.types.get(ty) {
             Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name) => {
                 Ok(text)
