@@ -1225,7 +1225,7 @@ macro_rules! op_group_transcribed {
                 /// The request's own signal is not this value: the spec makes it a
                 /// DEPENDENT signal that follows this one, so `request.signal` is a
                 /// distinct object that aborts when this one does. See
-                /// `blocker-logs/abort-signal-reason-and-statics.md`.
+                /// `abort-signal-reason-and-statics.md` (in git history).
                 signal: opt,
                 /// The STORED `RequestInit` members the init supplied, in source order.
                 ///

@@ -79,7 +79,7 @@ fn smelt_for_in_object_keys(map: &SmeltObject) -> Vec<JsString> {/*@if class_val
 //~ insert), so only an inherited `__smelt_proto:` key can repeat one;
 //~ those are rare, so they are checked against the list instead of
 //~ hashing every key of every record walked (this runs per response in
-//~ Hono's `#newResponse`; `blocker-logs/hono-crud-perf-round2.md`).
+//~ Hono's `#newResponse`; `hono-crud-perf-round2.md` (never committed)).
 fn smelt_for_in_record_keys<V>(record: &SmeltRecord<JsString, V>) -> Vec<JsString> { let mut keys = Vec::new(); let mut has_inherited = false; for key in record.keys() { if key.eq_str_prefix("__smelt_proto:") { has_inherited = true; continue; } if smelt_is_for_in_record_key(record, &key) { keys.push(key); } } if has_inherited { for key in record.keys() { if let Some(inherited) = key.strip_str_prefix("__smelt_proto:") { if !keys.iter().any(|existing| **existing == *inherited) { keys.push(inherited.to_owned()); } } } } keys }
 
 //~ Own-property enumeration over a `SmeltJsMap` backing.

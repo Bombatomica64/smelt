@@ -17,7 +17,7 @@
 //! multi-word ones are unsupported here: an object literal assigned to an
 //! interface destination silently DROPS every camelCase field
 //! (`{ statusText: 'x' }` emits `status_text: None`), which is a pre-existing
-//! wrong-value bug recorded in `blocker-logs/interface-literal-camel-case.md`.
+//! wrong-value bug recorded in `interface-literal-camel-case.md` (in git history).
 //! The ambient `ResponseInit` fixtures above do exercise `statusText`, because
 //! there the value crosses as an erased record whose keys keep their original
 //! spelling — the same key survives one path and not the other, which is what

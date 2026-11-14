@@ -13,7 +13,7 @@
 // `x` means. The last lines are that agreement, now asserted on ORDER as well
 // as membership — when this fixture was first written the generated `Set` was a
 // Rust `HashSet` and could not answer an order question (H52, fixed in
-// `71`/`72`'s round; see `blocker-logs/hono-h52-set-iteration-order.md`).
+// `71`/`72`'s round; see `hono-h52-set-iteration-order.md` (in git history)).
 //
 // Still not accepted, and deliberately so rather than guessed at: a generator
 // or a `Map` operand. `[...generator]` does not lower either, so there is no

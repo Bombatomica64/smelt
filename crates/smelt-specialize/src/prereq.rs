@@ -10,7 +10,7 @@
 //! The problem is that a skip spelled `return Ok(())` is indistinguishable from
 //! a pass. That is how the sandbox — the fail-closed security boundary — came to
 //! report green in CI while never executing a single guest process (see gap 3 of
-//! `blocker-logs/test-coverage-analysis.md`).
+//! `test-coverage-analysis.md` (in git history)).
 //!
 //! This module makes the skip *observable* and lets CI *forbid* it:
 //!

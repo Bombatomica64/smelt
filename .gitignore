@@ -38,110 +38,30 @@ perf.data.old
 
 # Investigation reports are scratch output; keep the directory, not the logs
 blocker-logs/*.md
-!blocker-logs/.gitkeep
-# library-probes.md is CI-managed (library-probes.yml commits it)
+# Tracked: the live files listed in blocker-logs/README.md. An investigation
+# report in flight is committed with `git add -f` and deleted when it closes.
+!blocker-logs/README.md
+!blocker-logs/OPEN-QUESTIONS.md
 !blocker-logs/library-probes.md
-# First scoping probes of the date-fns and cachetools corpora
+!blocker-logs/smelt-unknown-report.md
+!blocker-logs/typedness-report.md
+!blocker-logs/ts7-parity.md
+!blocker-logs/globals-suite-failures.md
+!blocker-logs/express-v1-baseline.md
+!blocker-logs/hono-campaign-plan.md
+!blocker-logs/hono-current.md
+!blocker-logs/hono-crud-status.md
+!blocker-logs/hono-crud-python-app.md
+!blocker-logs/hono-fetch-demand.md
+!blocker-logs/hono-phase3-round1-families.md
 !blocker-logs/probe-date-fns.md
 !blocker-logs/probe-cachetools.md
-!blocker-logs/bounded-generics-plan.md
-# smelt-unknown-report.md documents the SmeltUnknown metric methodology + baseline
-!blocker-logs/smelt-unknown-report.md
-!blocker-logs/hono-round34-brief.md
-!blocker-logs/hono-phase3-survey.md
-!blocker-logs/hono-phase3-round1-brief.md
-!blocker-logs/hono-phase3-round1.md
-!blocker-logs/globals-suite-failures.md
-!blocker-logs/radash-globals-failures.md
-!blocker-logs/remeda-globals-failures.md
-!blocker-logs/hono-phase3-round2-brief.md
-!blocker-logs/hono-round34-captures.md
-!blocker-logs/hono-round34-hoisting.md
-!blocker-logs/hono-round34-scoping.md
-# estk-const-item-inlining.md documents the const-item-inlining blocker fix
-!blocker-logs/estk-const-item-inlining.md
-# estk-overload-resolution.md documents the overload-resolution blocker fix
-!blocker-logs/estk-overload-resolution.md
-# estk-array-misc.md documents the array/callback misc blocker fixes
-!blocker-logs/estk-array-misc.md
-# estk-host-globals.md documents the es-toolkit host-global / Error-cause fixes
-!blocker-logs/estk-host-globals.md
-# estk-globalthis.md documents the dynamic globalThis[key] read + three singleton fixes
-!blocker-logs/estk-globalthis.md
-# estk-lowering-tail.md documents the small es-toolkit lowering tail blocker fixes
-!blocker-logs/estk-lowering-tail.md
-# estk-transpile-gate.md documents the five whole-crate transpile-gate blocker fixes
-!blocker-logs/estk-transpile-gate.md
-# estk-mir-gates.md documents the es-toolkit MIR-lowering gate fixes (await/assignment/postfix)
-!blocker-logs/estk-mir-gates.md
-# estk-module-globals.md documents module-level mutable state (thread-local mutable globals)
-!blocker-logs/estk-module-globals.md
-# estk-optional-receivers.md documents the optional-chained modeled-receiver desugar and probe families
-!blocker-logs/estk-optional-receivers.md
-# estk-host-override-slots.md documents bounded globalThis host-constructor reassignment
-!blocker-logs/estk-host-override-slots.md
-# estk-match-emitter.md documents the match/switch join-block emitter fix + first whole-crate transpile
-!blocker-logs/estk-match-emitter.md
-# estk-first-transpile-diagnostics.md is the generated-crate diagnostics report for the first whole-crate transpile
-!blocker-logs/estk-first-transpile-diagnostics.md
-# estk-codegen-misc.md documents the E0004/E0596/E0599 generated-Rust codegen fixes
-!blocker-logs/estk-codegen-misc.md
-# estk-codegen-e0308.md documents the systematic E0308 (mismatched types) emitter fixes
-!blocker-logs/estk-codegen-e0308.md
-# remeda-regression.md documents the remeda no-regression investigation (baseline vs current binary)
-!blocker-logs/remeda-regression.md
-# estk-codegen-tail.md documents the non-coercion structural/trait/name tail fixes
-!blocker-logs/estk-codegen-tail.md
-# reference-classes.md documents the Rc<RefCell<Inner>> reference-class feature
-!blocker-logs/reference-classes.md
-# reference-classes-diagnostics.md is the es-toolkit rust-diagnostics report after the feature
-!blocker-logs/reference-classes-diagnostics.md
-!blocker-logs/estk-e0308-round2.md
-# estk-jsset-and-tail.md documents the SmeltJsSet container and tail E0277/E0631 fixes
-!blocker-logs/estk-jsset-and-tail.md
-# estoolkit-runtime-current.md is the es-toolkit runtime baseline plus the
-# ranked root-cause family analysis follow-up agents pick their target from
-!blocker-logs/estoolkit-runtime-current.md
-# estoolkit-runtime-after.md is the same suite after the closure-loop fix
-!blocker-logs/estoolkit-runtime-after.md
-# estoolkit-runtime-family7.md documents the exception-payload ABI and the
-# per-defect analysis of why the remaining throw assertions still fail
-!blocker-logs/estoolkit-runtime-family7.md
-# estoolkit-frontend-families-plan.md is the design plan for the hardest
-# remaining es-toolkit families (clone/isEqual/merge + the in-place-mutation
-# lever), including the corrected root causes follow-up agents work from
-!blocker-logs/estoolkit-frontend-families-plan.md
-# test-coverage-analysis.md documents workspace test coverage gaps and priorities
-!blocker-logs/test-coverage-analysis.md
-# estk-clone-and-equality.md records the clone/isEqualWith campaign and clusters
-# the remaining failures by probe-confirmed root cause for follow-up agents
-!blocker-logs/estk-clone-and-equality.md
-# estk-class-identity-and-symbols.md records the class-identity / symbol-key pass
-# of that campaign, including the root causes it deliberately did not attempt
-!blocker-logs/estk-class-identity-and-symbols.md
-# phase2-type-host-spec.md is the Phase 2 (`Type::Host`) implementation spec from
-# docs/architecture-plan-second-pass.md finding B: site inventory, scope cut,
-# dispatch fix, and staged checkpoints against the es-toolkit ratchet
-!blocker-logs/phase2-type-host-spec.md
-# estk-arguments-and-self-recursion.md documents the iterable-`arguments` and
-# self-recursive named-function-expression fixes
-!blocker-logs/estk-arguments-and-self-recursion.md
 
 # Generated docs site output
 _site/
 
 # Agent worktrees are transient checkouts created under .claude/, never part of the tree
 .claude/worktrees/
-
-# Callback-generics lift design plan.
-!blocker-logs/estk-callback-generics-plan.md
-
-# Throwing-callback / function-value ABI investigation.
-!blocker-logs/estk-throwing-callbacks.md
-# estk-remaining-triage.md maps the remaining es-toolkit generated failures to root causes
-!blocker-logs/estk-remaining-triage.md
-# estk-js-negative-index.md documents the JavaScript negative-index read fix
-!blocker-logs/estk-js-negative-index.md
 
 # Probe library checkouts (see .github/compat/libraries.json for pinned refs)
 third_party/es-toolkit/
@@ -152,14 +72,6 @@ third_party/remeda/
 # both regenerated by benchmarks/prepare.py and benchmarks/run.py.
 benchmarks/ts/vendor/
 probe.json
-# estk-final45-plan.md + estk-final45-*.md: root-cause reports and the batch plan for the last 45 es-toolkit failures
-!blocker-logs/estk-final45-plan.md
-!blocker-logs/estk-final45-arrays.md
-!blocker-logs/estk-final45-functions.md
-!blocker-logs/estk-final45-objects.md
-!blocker-logs/estk-final45-predicates.md
-!blocker-logs/estk-final45-misc.md
-!blocker-logs/estk-final45-async.md
 
 # shared cargo target for the es-toolkit probe crate used by parallel implementer worktrees
 /target-estk/
@@ -170,35 +82,15 @@ probe.json
 # private cargo target dirs for the remeda/radash regression gates run locally
 /target-rem-priv/
 /target-rad-priv/
-!blocker-logs/estk-final45-after.md
 /target-gates/
-!blocker-logs/estk-final45-host-gaps.md
 
 # examples/typescript/hono_crud is a real npm project: its installed
 # dependencies and local SQLite file are never tracked (dist/ is covered above).
 node_modules/
 examples/typescript/hono_crud/todos.db
-!blocker-logs/express-v1-baseline.md
-!blocker-logs/standards-tier-plan.md
-!blocker-logs/standards-tier-progress.md
-!blocker-logs/hono-campaign-plan.md
 
 # Hono probe checkout (see .github/compat/libraries.json for the pinned ref)
 third_party/hono/
-
-# Hono campaign per-family investigation reports
-!blocker-logs/hono-h1-private-method-calls.md
-!blocker-logs/hono-h2-regex-replacer-arguments.md
-!blocker-logs/hono-h3-tuple-element-types.md
-!blocker-logs/hono-h4-union-truthiness.md
-!blocker-logs/hono-h11-string-field-read.md
-!blocker-logs/hono-fetch-demand.md
-!blocker-logs/hono-h10-uri-and-base64-globals.md
-!blocker-logs/hono-h12-const-alias-callee.md
-!blocker-logs/hono-scope.md
-!blocker-logs/hono-h6-module-mutable-globals.md
-!blocker-logs/hono-h5-h8-h9-not-mine.md
-!blocker-logs/hono-current.md
 
 # private cargo target dir for generated-crate gates run locally
 /target-gen-priv/
@@ -208,148 +100,11 @@ third_party/hono/
 # Hono probe checkout is cloned by CI and locally, never tracked
 third_party/hono
 
-# Hono campaign: fallible stdlib ops and absent-global throw design
-!blocker-logs/hono-fallible-ops.md
-
-# Radash self-referential class regression found during the Hono campaign
-!blocker-logs/radash-self-referential-class.md
-
-# H6 Place::Global design (round 3)
-!blocker-logs/hono-h6-place-global.md
-
-# Round 3 item 4 investigation findings
-!blocker-logs/hono-round3-item4-findings.md
-# The three standards-stream repro notes the Hono stream works from. They were
-# written but never committed because the pattern above ignores blocker-logs/*.md
-# by default, so they did not reach the other worktree with the merge.
-!blocker-logs/interface-literal-camel-case.md
-!blocker-logs/find-callback-repro.md
-!blocker-logs/generated-union-generic-member.md
-!blocker-logs/implementer-brief.md
-
-# Hono round 9 notes
-!blocker-logs/hono-h16-nested-callback-destructuring.md
-!blocker-logs/hono-h17-private-field-capture.md
-!blocker-logs/hono-h18-accessors-and-private-names.md
-# Standards round 9 repro notes: three defects found while building the text
-# codecs and the Blob/File upgrade, each pre-existing and each recorded rather
-# than folded into a feature item.
-!blocker-logs/standards-instanceof-narrowing.md
-!blocker-logs/standards-module-const-host-value.md
-!blocker-logs/standards-erased-cast-size-collision.md
-
-# Round 9 progress note: what landed, and the settled design for the items that
-# did not (FormData's multipart pick, crypto's crate picks, the AbortController
-# upgrade, and why the Optional string coercion is blocked on Type::Null).
-!blocker-logs/standards-round9-progress.md
-
-# Round 10 progress note: the two silent-wrong-value defects (module-const
-# slots, instanceof narrowing), why item 6 needs Dict provenance, and the six
-# modeled classes that still cannot answer instanceof on an erased value.
-!blocker-logs/standards-round10-progress.md
-
-# Hono round 10 notes
-!blocker-logs/remeda-symbol-key-regression.md
-!blocker-logs/hono-h19-projected-receiver-places.md
-!blocker-logs/hono-phase2-generated-rust.md
-!blocker-logs/hono-routers-diagnostics.md
-!blocker-logs/es-toolkit-refcell-callable-move.md
 # local clones for corpus gates (radash etc.), never tracked
 /target-compat/
 third_party/es-toolkit-src/
-# The relayed Hono demand item (`new Headers(init)` in `src/context.ts`) checked
-# and found already resolved by round 10, with where the Hono build stops now.
-!blocker-logs/standards-hono-headers-init-resolved.md
 
-# Round 11 progress note: the six modeled classes that could not answer
-# instanceof, the three per-class lists collapsed onto the registry, and why the
-# erasure test lives in a tier rather than the invariant-bound examples corpus.
-!blocker-logs/standards-round11-progress.md
-!blocker-logs/hono-h31-projected-receiver-writeback.md
-!blocker-logs/hono-h25-method-parameter-abi.md
-!blocker-logs/hono-h30-reference-class-heritage.md
-!blocker-logs/hono-h26-concrete-union-boundary.md
-!blocker-logs/hono-h28-h33-tail-branch-and-private-methods.md
-!blocker-logs/hono-h33-sibling-method-call.md
-!blocker-logs/hono-h28-dropped-branch-region.md
-!blocker-logs/hono-h34-union-valued-record.md
-!blocker-logs/hono-h35-union-index-write.md
-!blocker-logs/hono-h27-double-optional-dict-read.md
-!blocker-logs/clippy-all-targets-gate.md
-!blocker-logs/hono-h36-static-tag-check.md
-!blocker-logs/hono-h29-generic-class-bounds.md
-!blocker-logs/hono-h29b-tuple-erasure.md
-# abort-signal-reason-and-statics.md records the AbortSignal reason/statics inventory diffed against Node
-!blocker-logs/abort-signal-reason-and-statics.md
-# top-level-try-await-tail.md documents the module-top-level try/await tail fix
-!blocker-logs/top-level-try-await-tail.md
-# regex-literal-test-erases-match.md documents the RegExp.prototype.test erasure fix
-!blocker-logs/regex-literal-test-erases-match.md
-# standards-narrowing-sweep-and-nullish-stringify.md closes out the narrowing
-# gaps and records the nullish-stringify find
-!blocker-logs/standards-narrowing-sweep-and-nullish-stringify.md
-# standards-ambient-init-dictionaries.md records the ResponseInit/RequestInit
-# generated-struct design and the Hono stop it moved
-!blocker-logs/standards-ambient-init-dictionaries.md
-# standards-erased-host-members.md records the runtime member resolution on
-# erased host records
-!blocker-logs/standards-erased-host-members.md
-# standards-generic-arm-and-typeof-indexed-alias.md records the generic-arm
-# instantiation fix and the (typeof X)[keyof typeof X] alias that actually stops
-# Hono's context.ts
-!blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md
-# standards-typed-array-views-plan.md is the measured inventory and increment
-# plan for the typed-array-views item
-!blocker-logs/standards-typed-array-views-plan.md
-# standards-hono-first-cargo-check.md is the first `cargo check` the COMPLETE
-# Hono crate ever reached, grouped by diagnostic code, so the next rounds can
-# start from the largest class instead of re-measuring it
-!blocker-logs/standards-hono-first-cargo-check.md
-# standards-example-goldens-cover-modules.md records the harness gap that left
-# 34 of 79 example goldens checking only the runtime prelude, and the
-# avoidable-erasure inventory that honest measurement uncovered
-!blocker-logs/standards-example-goldens-cover-modules.md
-# hono-round28-examples-invariant.md records how the examples corpus was returned
-# to zero avoidable erasure BY CONSTRUCTION (a general switch-termination rule, and
-# two fixture splits into executing runtime tiers), with the per-fixture numbers
-!blocker-logs/hono-round28-examples-invariant.md
-# hono-h71-cross-kind-type-name-collision.md records the cross-kind type-name
-# ruling (a type name is crate-unique across class/interface/alias/enum) and the
-# import-cycle half of it, with the whole-crate cargo check table before/after
-!blocker-logs/hono-h71-cross-kind-type-name-collision.md
-# standards-throwing-rvalue.md records why a fallible stdlib MEMBER becomes a
-# call terminator rather than a fallible rvalue or a MIR hoisting pass, and
-# where the DataView `RangeError`'s bound, ToIndex and throw each live
-!blocker-logs/standards-throwing-rvalue.md
-!blocker-logs/hono-round29-brief.md
-!blocker-logs/hono-round29-mir.md
-!blocker-logs/hono-h42-erasure-substitution.md
-!blocker-logs/hono-round30-brief.md
-!blocker-logs/hono-round30-types.md
-!blocker-logs/hono-round30-emitter.md
-!blocker-logs/hono-round31-brief.md
-!blocker-logs/hono-round31-generics.md
-!blocker-logs/hono-round31-emitter.md
-!blocker-logs/hono-round32-brief.md
-!blocker-logs/hono-round32-generics.md
-!blocker-logs/hono-round32-emitter.md
-!blocker-logs/hono-round33-brief.md
-!blocker-logs/hono-phase3-brief.md
-!blocker-logs/hono-tests.md
-!blocker-logs/hono-phase3-round1.md
-!blocker-logs/hono-phase3-round2-brief.md
-
-# CI triage note for the post-merge failures on main after 7899b194.
-!blocker-logs/ci-main-7899b194-fix.md
 target-*/
-!blocker-logs/hono-phase3-round1-families.md
-!blocker-logs/hono-phase3-round1-measure-excludes.txt
-!blocker-logs/hono-phase3-round2.md
-!blocker-logs/hono-phase3-round3.md
-# TypeScript 7 type-parity reports (`smelt ts7-parity-report`, see blocker-logs/ts7-parity.md)
-!blocker-logs/ts7-parity*.md
-# ts-pattern frontend benchmark and blockers
-!blocker-logs/ts-pattern-frontend-performance.md
 
 # Coverage tracefile: a CI artifact, 7.5 MB per revision if committed.
 lcov.info

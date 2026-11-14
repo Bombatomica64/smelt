@@ -21,7 +21,7 @@
 //!   lowering compose with multi-level inheritance. The previous lowering
 //!   constructed a SEPARATE base value and copied its fields into `this`, which
 //!   left base-created closures bound to the discarded base object and could not
-//!   run a generic base at all (`blocker-logs/hono-phase3-round5.md`, round 8).
+//!   run a generic base at all (`hono-phase3-round5.md`, in git history; round 8).
 //! * An `Error`-like host base has no Smelt class body to run, so its documented
 //!   instance slots are assigned directly
 //!   ([`ModuleBuilder::lower_error_base_super_call`]). The slot list is shared
