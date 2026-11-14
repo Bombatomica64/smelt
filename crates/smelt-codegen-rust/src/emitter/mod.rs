@@ -188,6 +188,7 @@ mod string_units;
 mod strings;
 mod strings_io;
 mod text_codec;
+mod this_frame;
 mod throw;
 mod throwing_join;
 mod truthiness;
@@ -271,6 +272,8 @@ pub(crate) struct EmitContext {
     pub(crate) erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
     demand: RuntimeDemand,
+    /// The module bodies `main` runs at start, in order (`crate::startup`).
+    startup: Vec<crate::startup::StartupBody>,
     /// Whether the render under trial touched the erased carrier; see
     /// [`Self::note_carrier_use`].
     carrier_touched: std::cell::Cell<bool>,
@@ -444,7 +447,18 @@ impl EmitContext {
             carrier_touched: std::cell::Cell::new(false),
             carrier_boundaries: std::cell::Cell::new(0),
             minted: render_state::MintedItems::default(),
+            startup: Vec::new(),
         })
+    }
+
+    /// The module bodies `main` runs at start, in order (`crate::startup`).
+    pub(crate) fn startup(&self) -> &[crate::startup::StartupBody] {
+        &self.startup
+    }
+
+    /// Set the module bodies `main` runs at start.
+    pub(crate) fn set_startup(&mut self, startup: Vec<crate::startup::StartupBody>) {
+        self.startup = startup;
     }
 
     /// Every declared item's Rust name.

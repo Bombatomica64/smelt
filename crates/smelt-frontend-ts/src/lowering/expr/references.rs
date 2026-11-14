@@ -934,6 +934,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1045,6 +1046,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1695,6 +1697,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1846,6 +1849,9 @@ impl ModuleBuilder<'_> {
                 // keyed by item alone, and a capped-arity wrapper must not alias
                 // the full-arity wrapper emitted for ordinary value positions.
                 function_item: if truncated { None } else { Some(item) },
+                // A function item's value wrapper forwards its call's receiver
+                // to the item: it is not a JavaScript function of its own.
+                this_binding: smelt_hir::ClosureThis::Forwarded,
                 span,
             }),
             ty: closure_ty,
@@ -2136,6 +2142,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty,
@@ -2452,6 +2459,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,

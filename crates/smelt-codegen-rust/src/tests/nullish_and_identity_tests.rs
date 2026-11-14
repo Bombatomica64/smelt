@@ -146,18 +146,10 @@ export function readMissing(holder: Holder): unknown {
         r#"fn read_missing(holder: Holder) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltUnknown = { let smelt_object_value = holder.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("value".to_owned(), SmeltUnknown::Number(smelt_object_value.value as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Holder".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) };
 return match _smelt_tmp_1.clone() {
-SmeltUnknown::String(smelt_value) => {
-let smelt_key = JsString::from("nope").clone();
-if smelt_key == "length" {
-SmeltUnknown::Number(smelt_value.len() as f64)
-} else {
-smelt_key.to_string().parse::<usize>().ok().and_then(|smelt_position| smelt_value.char_at(smelt_position).map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)
-}
-}
 SmeltUnknown::Array(smelt_values) => smelt_get_array_field(&smelt_values, &JsString::from("nope").clone()),
 SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsString::from("nope").clone()),
 smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &JsString::from("nope").clone()),
-_ => SmeltUnknown::Undefined,
+smelt_receiver => smelt_get_unknown_field(&smelt_receiver, &JsString::from("nope").clone()),
 };
 }"#
     );

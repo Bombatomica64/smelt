@@ -73,6 +73,25 @@ impl FunctionEmitter<'_> {
         Ok(markers)
     }
 
+    /// The built-in error class `class_name` extends, if its base chain
+    /// reaches one (`class AbortError extends Error` is `Some("Error")`).
+    pub(in crate::emitter) fn error_base_name(&self, class_name: Symbol) -> Option<String> {
+        let mut current = Some(class_name);
+        for _ in 0u32..64 {
+            let class = crate::classes::find_class(self.mir, current?)?;
+            let base = class.base?;
+            let base_name = self.mir.symbols.get(base)?;
+            if smelt_stdlib::host_object_by_class(base_name).is_some() {
+                return None;
+            }
+            if smelt_stdlib::is_error_class_name(base_name) {
+                return Some(base_name.to_owned());
+            }
+            current = Some(base);
+        }
+        None
+    }
+
     /// Emits a runtime tag check for `SmeltUnknown`.
     pub(in crate::emitter) fn tag_check(
         &self,
@@ -315,6 +334,27 @@ impl FunctionEmitter<'_> {
             "smelt_define_properties({target_text}, {descriptors_text})",
             target_text = target_text.delimited(),
             descriptors_text = descriptors_text.delimited()
+        )))
+    }
+
+    /// Emits `Object.setPrototypeOf(target, prototype)`.
+    ///
+    /// Both operands cross the erased-`unknown` seam: a prototype is reflection
+    /// (a class prototype, `null`, or any object), and the link it sets is only
+    /// observable on an erased object, which shares its identity with the
+    /// rendered operand. The runtime helper answers the target.
+    pub(in crate::emitter) fn set_prototype_of_expr(
+        &self,
+        target: &Operand,
+        prototype: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let target_text = self.value_at_type(target, unknown_ty)?;
+        let prototype_text = self.value_at_type(prototype, unknown_ty)?;
+        Ok(RustExpr::chain(format!(
+            "smelt_set_prototype_of({target_text}, {prototype_text})",
+            target_text = target_text.delimited(),
+            prototype_text = prototype_text.delimited()
         )))
     }
 

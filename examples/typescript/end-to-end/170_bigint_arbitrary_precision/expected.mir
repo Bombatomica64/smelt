@@ -503,8 +503,7 @@ closure ClosureId(0) -> Float
     %2 = copy %0 < copy %1
     switch copy %2 ? bb1 : bb2
   bb1:
-    %4 = -1.0
-    %3 = copy %4
+    %3 = -1.0
     goto bb6
   bb2:
     %5 = copy %0 > copy %1

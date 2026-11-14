@@ -60,7 +60,8 @@ that changed that file.
 | es-toolkit | at least 1048 passed; 11 named tests allowed to fail | blocking ratchet | [`blocker-logs/es-toolkit-ci-baseline.json`](blocker-logs/es-toolkit-ci-baseline.json) (2026-11-07) |
 | hono | at least 444 passed; 10 named tests allowed to fail; test target builds with 0 rustc errors | blocking ratchet | [`blocker-logs/hono-ci-baseline.json`](blocker-logs/hono-ci-baseline.json) (2026-11-08) |
 | radash | exactly 381 passed, 6 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `radash-regression` |
-| date-fns, ts-pattern | `smelt build` must succeed; tests not run | build only | `.github/workflows/ci.yml` jobs `date-fns-build`, `ts-pattern-build` |
+| ts-pattern | exactly 419 passed, 19 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `ts-pattern-build` |
+| date-fns | exactly 287 passed, 43 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `date-fns-build` |
 
 Each library is checked out at the commit pinned in
 [`.github/compat/libraries.json`](.github/compat/libraries.json). These jobs
@@ -92,12 +93,12 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 
 | Corpus (baseline file, date) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| examples, 168 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json), 2026-11-08) | values | 8356 | 140 | 58 | 0.7% |
+| examples, 168 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json), 2026-11-14) | values | 8292 | 139 | 56 | 0.7% |
 | | reads | 858 | 39 | 20 | 2.2% |
-| | calls | 2269 | 14 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json), 2026-11-09) | values | 14070 | 228 | 7975 | 35.8% |
-| | reads | 341 | 33 | 1041 | 73.6% |
-| | calls | 2138 | 39 | 1276 | 37.0% |
+| | calls | 2273 | 14 | 2 | 0.1% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json), 2026-11-14) | values | 13829 | 228 | 7803 | 35.7% |
+| | reads | 341 | 33 | 1028 | 73.3% |
+| | calls | 2141 | 39 | 1258 | 36.6% |
 | remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json), 2026-11-05) | values | 12960 | 204 | 10147 | 43.5% |
 | | reads | 365 | 22 | 842 | 68.5% |
 | | calls | 1576 | 47 | 2838 | 63.6% |
@@ -118,7 +119,7 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 | Corpus (baseline file, date) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
 | examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json), 2026-11-09) | 168 | 132775 | 6951 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json), 2026-11-09) | 745 | 1770 | 32955 | 16100 | blocking, may only fall |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json), 2026-11-14) | 744 | 2164 | 33230 | 15071 | blocking, may only fall |
 | remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json), 2026-11-08) | 391 | 1506 | 62265 | 20086 | advisory |
 | hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json), 2026-11-08) | 78 | 7445 | 78054 | 10078 | advisory |
 
@@ -178,10 +179,12 @@ Node.
 Input must pass its own type checker: `smelt build` refuses a program with
 TypeScript or ty errors unless `--allow-type-errors` is given. Constructs with
 no static meaning are rejected with a source-located error rather than lowered
-to something approximate: `any`, `eval` and `new Function`, `with`, and
-runtime-shaped metaprogramming. Definition-time metaprogramming that produces a
-stable shape is specialized at build time in a sandbox and never runs in the
-generated program. Detail lives in:
+to something approximate: `eval` and `new Function`, `with`, and
+runtime-shaped metaprogramming. `any` is accepted: the value is erased to the
+tagged runtime value and counted as an avoidable `explicit-any` erasure
+([`docs/erasure-reasons.md`](docs/erasure-reasons.md)). Definition-time
+metaprogramming that produces a stable shape is specialized at build time in a
+sandbox and never runs in the generated program. Detail lives in:
 
 - [`specs/frontend-ts.md`](specs/frontend-ts.md): TypeScript rules and the check pipeline.
 - [`docs/metaprogramming.md`](docs/metaprogramming.md): what specializes, what fails loud, what is rejected.
@@ -271,8 +274,9 @@ corgi clippy --workspace --lib
 # TypeScript-only work: add --no-default-features to skip the Python stack
 ```
 
-Before a commit, run `cargo clippy --workspace --all-targets` and `cargo test`
-(corgi cannot run these yet). CI fails on any rise in the per-crate clippy
+Before a commit, run `cargo fmt --all`, `cargo clippy --workspace --all-targets`
+and `cargo test` (corgi cannot run the last two yet). CI's `ci-gates` job
+checks formatting with `cargo fmt --all -- --check`, and fails on any rise in the per-crate clippy
 warning counts in `blocker-logs/clippy-baseline.json`. Everything else (the
 baselines and how to update them, the generated-test debugging workflow in
 [`skills/smelt-debug-workflow/SKILL.md`](skills/smelt-debug-workflow/SKILL.md),
@@ -344,25 +348,25 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 78.96% |
-| Lines | 81.50% |
-| Regions | 74.50% |
-| Branches | 69.39% |
+| Functions | 78.92% |
+| Lines | 81.54% |
+| Regions | 74.48% |
+| Branches | 69.40% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 90.77% | 84.67% | 71.34% |
-| `smelt-frontend-py` | 87.04% | 79.90% | 71.66% |
-| `smelt-frontend-ts` | 90.19% | 83.18% | 72.19% |
-| `smelt-hir` | 84.69% | 80.20% | 72.19% |
-| `smelt-mir` | 92.27% | 91.33% | 76.89% |
+| `smelt-codegen-rust` | 90.92% | 84.97% | 71.73% |
+| `smelt-frontend-py` | 87.04% | 79.92% | 71.78% |
+| `smelt-frontend-ts` | 90.17% | 83.19% | 72.28% |
+| `smelt-hir` | 84.69% | 80.21% | 72.19% |
+| `smelt-mir` | 92.27% | 91.32% | 76.86% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
-| `smelt-runtime` | 27.80% | 32.53% | 30.47% |
+| `smelt-runtime` | 27.49% | 31.90% | 29.31% |
 | `smelt-specialize` | 70.02% | 78.90% | 62.31% |
-| `smelt-stdlib` | 88.00% | 85.48% | 91.46% |
-| `smelt-transpiler` | 82.69% | 81.76% | 70.78% |
+| `smelt-stdlib` | 88.11% | 85.54% | 92.07% |
+| `smelt-transpiler` | 82.79% | 81.84% | 70.86% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 85.94% | 90.58% | 84.72% |
 <!-- COVERAGE:END -->

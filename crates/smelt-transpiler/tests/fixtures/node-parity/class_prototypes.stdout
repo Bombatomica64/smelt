@@ -1,0 +1,17 @@
+same class true
+other class false
+is Dog.prototype true
+proto.constructor true true
+instance.constructor true false
+chain true
+root true
+end null
+isPrototypeOf true false
+Object.prototype.isPrototypeOf true
+create true true false true
+setPrototypeOf true false true
+setPrototypeOf plain false
+rebuild true fido fido barks
+clone true true rex rex barks
+class identity true
+keys 0 {"name":"rex"}

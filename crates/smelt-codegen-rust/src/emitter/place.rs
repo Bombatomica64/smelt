@@ -1019,22 +1019,15 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(index_ty),
             Some(Type::String | Type::PyStr | Type::Symbol | Type::PropKey)
         ) {
+            // A string, number or boolean receiver answers through the one
+            // property chain too: `s["length"]`, `s["0"]`, and its prototype's
+            // methods (`s["slice"]`, `n["toFixed"]`), as `s.slice` does.
             return Ok(RustExpr::atom(format!(
-                r#"match {base_text} {{
-                    SmeltUnknown::String(smelt_value) => {{
-                        let smelt_key = {key_text};
-                        if smelt_key == "length" {{
-                            SmeltUnknown::Number({string_len} as f64)
-                        }} else {{
-                            smelt_key.to_string().parse::<usize>().ok().and_then(|smelt_position| {char_at}.map(|smelt_ch| SmeltUnknown::String(smelt_ch.into()))).unwrap_or(SmeltUnknown::Undefined)
-                        }}
-                    }}
+                r"match {base_text} {{
                     SmeltUnknown::Array(smelt_values) => smelt_get_array_field(&smelt_values, &{key_text}),
                     {object_arm}
-                    _ => SmeltUnknown::Undefined,
-                }}"#,
-                string_len = self.string_len_text("smelt_value"),
-                char_at = self.string_char_at_text("smelt_value", "smelt_position"),
+                    smelt_receiver => smelt_get_unknown_field(&smelt_receiver, &{key_text}),
+                }}",
                 base_text = base_text.delimited(),
                 key_text = key_text.tight(),
             )));
@@ -1062,7 +1055,19 @@ impl FunctionEmitter<'_> {
             _ => RustExpr::atom("f64::NAN"),
         };
 
-        Ok(RustExpr::atom(format!(
+        // An ERASED key that turns out to be a string naming no array index
+        // (`k = "map"`) is a property name: `a[k]` is `a.map`. Converting it to
+        // a number made it `NaN`, then index 0, and read the first element.
+        let erased_key = matches!(
+            self.mir.types.get(index_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(index_ty);
+        let element_base = if erased_key {
+            RustExpr::path("smelt_index_base")
+        } else {
+            base_text.clone()
+        };
+        let element_read = RustExpr::atom(format!(
             r"match {base_text} {{
                     SmeltUnknown::String(smelt_value) => {{
                         let smelt_len = {string_len} as i64;
@@ -1081,9 +1086,20 @@ impl FunctionEmitter<'_> {
             }}",
             string_len = self.string_len_text("smelt_value"),
             char_at = self.string_char_at_text("smelt_value", "smelt_position"),
-            base_text = base_text.delimited(),
+            base_text = element_base.delimited(),
             numeric_index_text = numeric_index_text.as_cast_operand(),
-        )))
+        ));
+        if !erased_key {
+            return Ok(element_read);
+        }
+        let key_value =
+            self.erase_concrete_union_expr(&self.operand_expr(index)?.cloned_value(), index_ty)?;
+        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "{{ let smelt_index_base = {base_text}; match {key_value} {{ SmeltUnknown::String(smelt_name) if smelt_name.to_string().parse::<usize>().map_or(true, |smelt_position| smelt_position.to_string() != smelt_name.to_string()) => smelt_get_unknown_field(&smelt_index_base, &smelt_name), _ => {element_read} }} }}",
+            base_text = base_text.delimited(),
+            key_value = key_value.delimited(),
+            element_read = element_read.delimited()
+        ))))
     }
 }
 

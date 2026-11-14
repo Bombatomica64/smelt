@@ -243,7 +243,7 @@ impl ModuleBuilder<'_> {
     /// Optional tuples are expanded, with an absent operand throwing as above;
     /// Hono reaches that case with `router.add(...routes[i])`, where the element
     /// read of an optional private field is an optional tuple (see
-    /// `hono-h46-spread-arguments.md`). Anything else -- a list or an erased
+    /// `hono-h46-spread-arguments.md`, in git history). Anything else -- a list or an erased
     /// value -- has no statically known width here, so it is handed back
     /// unexpanded (`Ok(None)`, see `CallArg::UnexpandedSpread`) rather than
     /// rejected. A list's home is

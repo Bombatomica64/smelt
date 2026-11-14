@@ -7,22 +7,35 @@ fn pair (FuncId(0)) -> String
     %0 param args__0: String
     %1 param args__1: Optional<Float>
     %2 user args: (String, Optional<Float>)
-    %3 temp: (String, Optional<Float>)
-    %4 temp: String
-    %5 temp: String
-    %6 temp: String
-    %7 temp: Optional<Float>
-    %8 temp: Float
+    %3 user smelt_args_length: Float
+    %4 temp: (String, Optional<Float>)
+    %5 temp: Bool
+    %6 temp: Float
+    %7 temp: String
+    %8 temp: String
     %9 temp: String
+    %10 temp: Optional<Float>
+    %11 temp: Float
+    %12 temp: String
   bb0:
     %2 = (copy %0, copy %1)
-    %4 = tuple_index copy %2, 0
-    %5 = "" + move %4
-    %6 = move %5 + ":"
-    %7 = tuple_index move %2, 1
-    %8 = move %7 ?? 0.0
-    %9 = move %6 + move %8
-    return move %9
+    %5 = copy %1 != none
+    switch move %5 ? bb1 : bb2
+  bb1:
+    %6 = 2.0
+    goto bb3
+  bb2:
+    %6 = 1.0
+    goto bb3
+  bb3:
+    %3 = move %6
+    %7 = tuple_index copy %2, 0
+    %8 = "" + move %7
+    %9 = move %8 + ":"
+    %10 = tuple_index move %2, 1
+    %11 = move %10 ?? 0.0
+    %12 = move %9 + move %11
+    return move %12
 
 fn put (FuncId(1)) -> String
   locals

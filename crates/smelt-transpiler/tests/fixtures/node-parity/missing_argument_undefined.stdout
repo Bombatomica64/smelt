@@ -1,0 +1,7 @@
+true false undefined undefined
+false true object null
+false false number 0
+true false undefined undefined
+true false undefined undefined
+true false undefined undefined
+false true object null

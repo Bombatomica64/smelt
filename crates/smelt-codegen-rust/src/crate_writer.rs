@@ -24,7 +24,9 @@ pub fn emit_crate(
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
     let allocator = options.effective_allocator();
-    let root = emit_root(mir, allocator, |_function, _context| FreeFunctionHome::Root)?;
+    let root = emit_root(mir, allocator, Vec::new(), |_function, _context| {
+        FreeFunctionHome::Root
+    })?;
     let source = root.source();
     assert_runtime_symbols_defined([source.as_str()])?;
     write_if_changed(

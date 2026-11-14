@@ -79,16 +79,9 @@ export function thrower(size: number): number {
         rust_fn(&source, "thrower"),
         r#"fn thrower(size: f64) -> Result<f64, Box<dyn std::error::Error>> {
 let mut _smelt_tmp_3: bool;
-let _smelt_tmp_4: bool;
 let _smelt_tmp_1: bool = size.fract() == 0.0;
 let _smelt_tmp_2: bool = !(_smelt_tmp_1);
-let mut _smelt_tmp_3: bool = false;
-if _smelt_tmp_2 {
-_smelt_tmp_3 = true;
-} else {
-_smelt_tmp_4 = size <= 0.0;
-_smelt_tmp_3 = _smelt_tmp_4;
-}
+let _smelt_tmp_3: bool = if _smelt_tmp_2 { true } else { size <= 0.0 };
 if _smelt_tmp_3 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("Size must be an integer greater than zero.".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
 } else {

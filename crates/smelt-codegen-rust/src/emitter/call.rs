@@ -193,7 +193,7 @@ impl FunctionEmitter<'_> {
     /// MIR hands this call site the SUBSTITUTED parameter type `f64`, which the
     /// same predicate answers FALSE for. The argument was packed by value
     /// against a slot spelled `&`, which is E0308 and is the
-    /// `&(SmeltUnknown, RouterRoute)` family in `hono-round30-types.md`.
+    /// `&(SmeltUnknown, RouterRoute)` family in `hono-round30-types.md` (in git history).
     ///
     /// So the ABI is asked of `abi_params` — the declaration's parameter list —
     /// while the VALUE is still rendered at the substituted type, which is what
@@ -714,7 +714,7 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?;
             for param in function.params.iter().skip(args.len()) {
                 let target_ty = self.function_local_decl(function, *param)?.ty;
-                rendered_args.push(self.default_value(target_ty)?);
+                rendered_args.push(self.missing_argument_value(target_ty)?);
             }
             let arg_values = rendered_args.join(", ");
             return Ok(RenderedCall::propagating_if(
@@ -894,7 +894,7 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?;
             for param in function.params.iter().skip(args.len()) {
                 let target_ty = self.function_local_decl(function, *param)?.ty;
-                rendered_args.push(self.default_value(target_ty)?);
+                rendered_args.push(self.missing_argument_value(target_ty)?);
             }
             let arg_values = rendered_args.join(", ");
             return Ok(RenderedCall::propagating_if(
@@ -1092,7 +1092,7 @@ impl FunctionEmitter<'_> {
                     .into_string(),
                 );
             } else {
-                rendered_args.push(self.default_value(target_ty)?.into_string());
+                rendered_args.push(self.missing_argument_value(target_ty)?.into_string());
             }
         }
         let arg_values = rendered_args.join(", ");

@@ -147,8 +147,7 @@ closure ClosureId(0) -> Dict<String, String | List<String>>
     %25 = copy %24 == none
     switch copy %25 ? bb13 : bb14
   bb7:
-    %19 = unknown_is Array copy %1[copy %4]
-    %18 = copy %19
+    %18 = unknown_is Array copy %1[copy %4]
     goto bb9
   bb8:
     %18 = false

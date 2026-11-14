@@ -1078,14 +1078,12 @@ M1(Square),
 fn describe(shape: SmeltUnion2) -> f64 {
 let mut _smelt_tmp_2: bool;
 let _smelt_tmp_3: Circle;
-let _smelt_tmp_4: bool;
 let _smelt_tmp_5: Circle;
 let _smelt_tmp_1: bool = matches!(shape.clone(), SmeltUnion2::M0(_));
 let mut _smelt_tmp_2: bool = false;
 if _smelt_tmp_1 {
 _smelt_tmp_3 = match shape.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-_smelt_tmp_4 = _smelt_tmp_3.tag == "c";
-_smelt_tmp_2 = _smelt_tmp_4;
+_smelt_tmp_2 = _smelt_tmp_3.tag == "c";
 } else {
 _smelt_tmp_2 = false;
 }

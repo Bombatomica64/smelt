@@ -180,8 +180,7 @@ closure ClosureId(3) -> Float
   bb2:
     %7 = copy %0 - 1.0
     %8 = copy %3 * 2.0
-    %9 = closure_call copy %2(copy %7, copy %8)
-    %6 = copy %9
+    %6 = closure_call copy %2(copy %7, copy %8)
     goto bb3
   bb3:
     return copy %6
