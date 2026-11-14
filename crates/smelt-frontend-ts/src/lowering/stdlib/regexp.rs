@@ -7,7 +7,7 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{
+use smelt_hir::{ErasedPatternMethod, 
     Body, Expr, ExprKind, FunctionType, Literal, RegexMatchOp, Span, StringReplaceOp, Type,
 };
 use smelt_stdlib::RuleId;
@@ -618,6 +618,43 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// `receiver.match(pattern)` / `receiver.search(pattern)` on a receiver
+    /// whose static type is erased (`any`, `unknown`) and which the checker does
+    /// not prove a string: the method is resolved at run time
+    /// ([`ExprKind::ErasedPatternCall`]). Lowering it as `String.prototype` on
+    /// the stringified receiver called `"[object Object]".match(..)` for an
+    /// object that defines its own `match`. `None` for any other receiver.
+    pub(in crate::lowering) fn erased_pattern_call(
+        &mut self,
+        method: ErasedPatternMethod,
+        receiver: smelt_hir::ExprId,
+        receiver_source: &Expression<'_>,
+        pattern_argument: &Argument<'_>,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let receiver_ty = self.type_param_constraint_or_self(Self::expr_ty(body, receiver));
+        if self.ctx.krate.types.get(receiver_ty) != Some(&Type::Unknown)
+            || self.checker_types_as_string(receiver_source.span().start, receiver_source.span().end)
+        {
+            return Ok(None);
+        }
+        let pattern = self.argument(pattern_argument, body)?;
+        // The result of a method the receiver's run-time value selects: erased
+        // because the receiver is, not a new erasure.
+        let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+        let callee = format!(
+            "{}.{}",
+            expression_spelling(receiver_source).unwrap_or_else(|| "value".to_owned()),
+            method.text()
+        );
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ErasedPatternCall { method, receiver, pattern, callee },
+            ty,
+            span: self.span(span.start, span.end),
+        })))
+    }
+
     /// Lower TypeScript `text.match(pattern)` to an optional match array.
     pub(in crate::lowering) fn string_match_call(
         &mut self,
@@ -641,6 +678,18 @@ impl ModuleBuilder<'_> {
         // (wrong arity, function-typed callbacks) returns `Ok(None)` so the call
         // routes to dynamic member dispatch.
         let receiver_is_string = self.string_match_receiver_type_is_string(haystack_ty);
+        if let [pattern_argument] = call.arguments.as_slice()
+            && let Some(expr) = self.erased_pattern_call(
+                ErasedPatternMethod::Match,
+                haystack,
+                &member.object,
+                pattern_argument,
+                call.span,
+                body,
+            )?
+        {
+            return Ok(Some(expr));
+        }
         if !receiver_is_string && !self.is_string_compatible_type(haystack_ty) {
             return Ok(None);
         }
@@ -1057,5 +1106,20 @@ impl ModuleBuilder<'_> {
             ty: self.regexp_type(),
             span,
         })
+    }
+}
+
+/// How V8 spells `expression` in a `TypeError` message: an identifier, `this`,
+/// or a dotted member chain of those. `None` for anything else.
+fn expression_spelling(expression: &Expression<'_>) -> Option<String> {
+    match expression {
+        Expression::Identifier(identifier) => Some(identifier.name.to_string()),
+        Expression::ThisExpression(_) => Some("this".to_owned()),
+        Expression::StaticMemberExpression(member) => {
+            Some(format!("{}.{}", expression_spelling(&member.object)?, member.property.name))
+        }
+        Expression::ParenthesizedExpression(inner) => expression_spelling(&inner.expression),
+        Expression::TSAsExpression(inner) => expression_spelling(&inner.expression),
+        _ => None,
     }
 }

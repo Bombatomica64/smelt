@@ -575,6 +575,24 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("string_{op} {operand}"));
+            /// `receiver.match(pattern)` / `receiver.search(pattern)` on an
+            /// erased receiver, resolved by the receiver's run-time value (see
+            /// [`$crate::ErasedPatternMethod`]). The result is erased: what a
+            /// dynamically chosen method answers has no static shape.
+            ErasedPatternCall {
+                /// The method called.
+                method: [$crate::ErasedPatternMethod],
+                /// The erased receiver.
+                receiver: one @READ,
+                /// The pattern argument (a `RegExp`, a string, or anything).
+                pattern: one @READ,
+                /// The source spelling of the callee (`item.match`), which a
+                /// receiver without the member names in its `TypeError`.
+                callee: [String],
+            }
+                fallible(true)
+                call(format!("@erased_{method}"))
+                => (format!("erased_{method} {receiver}, {pattern} ({callee})"));
             /// Test whether a regex pattern matches a string.
             RegexIsMatch {
                 /// Regex match shape to apply.

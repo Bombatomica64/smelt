@@ -360,7 +360,9 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
         let values = self.borrow();
-        let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+        //~ Named properties written through an erased view (`(list as any).x = 1`) follow the elements.
+        /*@if unknown*/let named = smelt_array_named_properties(self.id()); let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();/*@end*/
+        let entries = values.iter().map(|value| value as &dyn SmeltInspect)/*@if unknown*/.chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect))/*@end*/.collect::<Vec<_>>();
         smelt_inspect_array(ctx, depth, &entries)
     }
 }
@@ -412,6 +414,20 @@ impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> 
     }
 }
 
+/// One `key: value` entry of an array's own named properties.
+struct SmeltInspectKeyed<'a> {
+    /// The property name.
+    key: &'a str,
+    /// The property value.
+    value: &'a SmeltUnknown,
+}
+
+impl SmeltInspect for SmeltInspectKeyed<'_> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        format!("{}: {}", smelt_inspect_key(self.key), self.value.smelt_inspect(ctx, depth))
+    }
+}
+
 impl SmeltInspect for SmeltUnknown {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
         match self {
@@ -423,9 +439,13 @@ impl SmeltInspect for SmeltUnknown {
             Self::BigInt(value) => format!("{value}n"),
 // @smelt:end
             Self::String(value) => smelt_inspect_string(ctx, value),
-            Self::Array(values) => {
-                let values = values.values.borrow();
-                let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+            Self::Array(array) => {
+                //~ An array's own named properties (a match's `index`, `input`,
+                //~ `groups`, or `arr.extra = 1`) follow its elements as `key: value`.
+                let named = smelt_array_named_properties(array.id);
+                let values = array.values.borrow();
+                let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();
+                let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
                 smelt_inspect_array(ctx, depth, &entries)
             }
             Self::Object(object) => {
@@ -456,6 +476,16 @@ impl SmeltInspect for SmeltUnknown {
             Self::String(value) => value.to_string(),
             _ => self.smelt_inspect(&mut SmeltInspectContext::default(), 0),
         }
+    }
+}
+// @smelt:item-end
+
+// @smelt:item impl_SmeltInspect_for_SmeltMatch when dep_regress & unknown
+/// A regex match prints as Node prints the match array: its elements, then
+/// `index`, `input` and `groups`, which its erasure carries.
+impl SmeltInspect for SmeltMatch {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        self.clone().into_smelt_unknown().smelt_inspect(ctx, depth)
     }
 }
 // @smelt:item-end

@@ -180,6 +180,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::PythonStepSlice { .. }
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
+            | Rvalue::ErasedPatternCall { .. }
             | Rvalue::ListRemove { .. }
             | Rvalue::PythonListRead { .. }
             | Rvalue::RegExpCompile { .. }

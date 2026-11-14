@@ -634,6 +634,28 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// `receiver.match(pattern)` / `receiver.search(pattern)` on an erased
+    /// receiver: the runtime's `smelt_erased_pattern_call`, which answers the
+    /// string method for a string and the receiver's own member otherwise,
+    /// and returns what that member throws. Both operands cross the erased
+    /// boundary their call already is.
+    pub(super) fn erased_pattern_call_text(
+        &self,
+        method: smelt_hir::ErasedPatternMethod,
+        receiver: &Operand,
+        pattern: &Operand,
+        callee: &str,
+    ) -> Result<RustExpr, EmitError> {
+        let receiver_text = self.erase_rendered(&self.operand_expr(receiver)?, self.operand_ty(receiver)?)?;
+        let pattern_text = self.erase_rendered(&self.operand_expr(pattern)?, self.operand_ty(pattern)?)?;
+        Ok(RustExpr::atom(format!(
+            "smelt_erased_pattern_call(&{receiver}, {name:?}, {pattern}, {callee:?})",
+            receiver = receiver_text.tight(),
+            name = method.text(),
+            pattern = pattern_text.delimited()
+        )))
+    }
+
     /// Converts JavaScript `String.prototype.match(RegExp)` to an optional match array.
     pub(super) fn regex_find_expr(
         &self,

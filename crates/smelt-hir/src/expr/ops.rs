@@ -379,6 +379,20 @@ pub enum StringPredicateOp {
     IsAlnum,
 }
 
+/// The pattern-taking `String.prototype` method an erased receiver calls.
+///
+/// On an erased receiver the method is resolved at run time: a string answers
+/// `String.prototype[method]` (a non-`RegExp` pattern is `new RegExp(pattern)`),
+/// and any other value answers its own member, exactly as JavaScript's
+/// property lookup decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErasedPatternMethod {
+    /// `receiver.match(pattern)`.
+    Match,
+    /// `receiver.search(pattern)`.
+    Search,
+}
+
 /// A directly lowered regex boolean match operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RegexMatchOp {
