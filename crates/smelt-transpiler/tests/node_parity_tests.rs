@@ -1180,3 +1180,12 @@ fn class_inheritance_behaviour() -> TestResult {
 fn absent_iterable_constructors() -> TestResult {
     verify_node_parity("absent_iterable_constructors")
 }
+
+/// An abstract generic parser hierarchy (date-fns' `parse` shape): inherited
+/// and overridden members reach the base's `run` through their slots, a
+/// mutating setter slot takes its state `&mut`, and a callback the base hands
+/// to a generic class at its own `Value` passes without an erased adapter.
+#[test]
+fn abstract_parser_slots() -> TestResult {
+    verify_node_parity("abstract_parser_slots")
+}
