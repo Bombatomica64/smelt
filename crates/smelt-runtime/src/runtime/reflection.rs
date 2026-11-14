@@ -122,6 +122,32 @@ fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> {
 //~ `new Map(m)` / `new Date(d)` / `new Number(n)` observably do.
 fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     match kind {
+        //~ `new Map(entries?)` / `new Set(members?)` through a constructor VALUE
+        //~ (`new (memoize.Cache || Map)()`): an empty collection, or one built
+        //~ from an array of `[key, value]` pairs / members, keys deduplicated by
+        //~ SameValueZero. Another collection is copied with a fresh identity
+        //~ (the fallback below).
+        "map" | "set" if !matches!(args.first(), Some(SmeltUnknown::Object(_))) => {
+            let marker = if kind == "map" { "__smelt_map" } else { "__smelt_set" };
+            let same_value_zero = |left: &SmeltUnknown, right: &SmeltUnknown| left.same_js_key(right);
+            let key_of = |item: &SmeltUnknown| match item { SmeltUnknown::Array(pair) if kind == "map" => pair.clone().into_vec().first().map_or(SmeltUnknown::Undefined, Clone::clone), other => other.clone() };
+            let mut items: Vec<SmeltUnknown> = Vec::new();
+            if let Some(SmeltUnknown::Array(source)) = args.first() {
+                for item in source.clone().into_vec() {
+                    let item = match item { SmeltUnknown::Array(pair) if kind == "map" => { let pair = pair.into_vec(); SmeltUnknown::Array(SmeltArray::new(::std::vec![pair.first().map_or(SmeltUnknown::Undefined, Clone::clone), pair.get(1).map_or(SmeltUnknown::Undefined, Clone::clone)])) } other => other };
+                    match items.iter_mut().find(|existing| same_value_zero(&key_of(existing), &key_of(&item))) { Some(existing) => { if kind == "map" { *existing = item; } } None => items.push(item) }
+                }
+            }
+            SmeltUnknown::Object(SmeltObject::new(Vec::from([(marker.to_owned(), SmeltUnknown::Array(SmeltArray::new(items)))])))
+        }
+// @smelt:if date
+        //~ `new Date(value?)` through a constructor value: the conversion
+        //~ `new Date(value)` makes, or the current time with no argument.
+        "date" => args.into_iter().next().map_or_else(
+            || SmeltDate::new(::std::time::SystemTime::now().duration_since(::std::time::UNIX_EPOCH).map_or(f64::NAN, |elapsed| elapsed.as_secs_f64() * 1000.0).trunc()).into_smelt_unknown(),
+            |value| SmeltDate::new(SmeltDate::smelt_from_unknown(value).get_time()).into_smelt_unknown(),
+        ),
+// @smelt:end
         "Error" | "EvalError" | "RangeError" | "ReferenceError" | "SyntaxError" | "TypeError" | "URIError" | "AggregateError" => { let mut fields = Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(kind.into()))]); let mut it = args.into_iter(); let errors = if kind == "AggregateError" { it.next() } else { None }; if let Some(message) = it.next() { fields.push(("message".to_owned(), message)); } fields.push(("stack".to_owned(), SmeltUnknown::Undefined)); let cause = match it.next() { Some(SmeltUnknown::Object(options)) => options.get("cause").unwrap_or(SmeltUnknown::Undefined), _ => SmeltUnknown::Undefined }; fields.push(("cause".to_owned(), cause)); if let Some(errors) = errors { fields.push(("errors".to_owned(), errors)); } SmeltUnknown::Object(SmeltObject::new(fields)) }
         //~ Byte buffers: length | byte-backed source | element array.
         "arraybuffer" | "sharedarraybuffer" | "int8array" | "uint8array" | "uint8clampedarray" | "int16array" | "uint16array" | "int32array" | "uint32array" | "float32array" | "float64array" | "bigint64array" | "biguint64array" | "buffer" | "dataview" => { let marker = [("arraybuffer", "__smelt_arraybuffer"), ("sharedarraybuffer", "__smelt_sharedarraybuffer"), ("int8array", "__smelt_int8array"), ("uint8array", "__smelt_uint8array"), ("uint8clampedarray", "__smelt_uint8clampedarray"), ("int16array", "__smelt_int16array"), ("uint16array", "__smelt_uint16array"), ("int32array", "__smelt_int32array"), ("uint32array", "__smelt_uint32array"), ("float32array", "__smelt_float32array"), ("float64array", "__smelt_float64array"), ("bigint64array", "__smelt_bigint64array"), ("biguint64array", "__smelt_biguint64array"), ("buffer", "__smelt_buffer"), ("dataview", "__smelt_dataview")].into_iter().find(|(entry, _)| *entry == kind).map_or("__smelt_arraybuffer", |(_, marker)| marker); smelt_host_buffer_construct(marker, args) }
@@ -141,7 +167,7 @@ fn smelt_reflected_prototype(class: String) -> SmeltUnknown { smelt_builtin_prot
 /// The kind a global constructor name constructs, when it names a modeled host
 /// identity.
 //~ `None` for pure namespaces (`Math`, `JSON`), which are not callable.
-fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Int8Array", "int8array"), ("Uint8Array", "uint8array"), ("Uint8ClampedArray", "uint8clampedarray"), ("Int16Array", "int16array"), ("Uint16Array", "uint16array"), ("Int32Array", "int32array"), ("Uint32Array", "uint32array"), ("Float32Array", "float32array"), ("Float64Array", "float64array"), ("BigInt64Array", "bigint64array"), ("BigUint64Array", "biguint64array"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "Error"), ("EvalError", "EvalError"), ("RangeError", "RangeError"), ("ReferenceError", "ReferenceError"), ("SyntaxError", "SyntaxError"), ("TypeError", "TypeError"), ("URIError", "URIError"), ("AggregateError", "AggregateError")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
+fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBuffer", "arraybuffer"), ("SharedArrayBuffer", "sharedarraybuffer"), ("Int8Array", "int8array"), ("Uint8Array", "uint8array"), ("Uint8ClampedArray", "uint8clampedarray"), ("Int16Array", "int16array"), ("Uint16Array", "uint16array"), ("Int32Array", "int32array"), ("Uint32Array", "uint32array"), ("Float32Array", "float32array"), ("Float64Array", "float64array"), ("BigInt64Array", "bigint64array"), ("BigUint64Array", "biguint64array"), ("Buffer", "buffer"), ("DataView", "dataview"), ("WeakMap", "weakmap"), ("WeakSet", "weakset"), ("File", "file"), ("Blob", "blob"), ("DOMException", "domexception"), ("Intl.Collator", "intl_collator"), ("Intl.DisplayNames", "intl_displaynames"), ("Intl.DurationFormat", "intl_durationformat"), ("Intl.ListFormat", "intl_listformat"), ("Intl.Locale", "intl_locale"), ("Intl.NumberFormat", "intl_numberformat"), ("Intl.PluralRules", "intl_pluralrules"), ("Intl.Segmenter", "intl_segmenter"), ("Number", "number"), ("Boolean", "boolean"), ("String", "string"), ("Symbol", "symbol"), ("Date", "date"), ("Map", "map"), ("Set", "set"), ("RegExp", "regexp"), ("Error", "Error"), ("EvalError", "EvalError"), ("RangeError", "RangeError"), ("ReferenceError", "ReferenceError"), ("SyntaxError", "SyntaxError"), ("TypeError", "TypeError"), ("URIError", "URIError"), ("AggregateError", "AggregateError"), ("Error", "Error"), ("EvalError", "EvalError"), ("RangeError", "RangeError"), ("ReferenceError", "ReferenceError"), ("SyntaxError", "SyntaxError"), ("TypeError", "TypeError"), ("URIError", "URIError"), ("AggregateError", "AggregateError")].into_iter().find(|(class, _)| *class == name).map(|(_, kind)| kind) }
 /// The interned value for a global builtin *name* used as a value.
 //~ A `Host.prototype` path (`ExprKind::BuiltinNamespace` for a host
 //~ constructor's `prototype` read) is the host's one prototype object.
@@ -156,4 +182,38 @@ fn smelt_builtin_construct_kind(name: &str) -> Option<&'static str> { [("ArrayBu
 //~ through a captured reference constructs instead of answering `null`.
 thread_local! { static SMELT_BUILTIN_NAMESPACES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 fn smelt_builtin_namespace(name: &str) -> SmeltUnknown { if let Some(class) = name.strip_suffix(".prototype") { return smelt_builtin_prototype_object(class); } SMELT_BUILTIN_NAMESPACES.with(|cache| cache.borrow_mut().entry(name.to_owned()).or_insert_with(|| { let record = SmeltObject::new(Vec::from([("__smelt_builtin_namespace".to_owned(), SmeltUnknown::Bool(true)), ("name".to_owned(), SmeltUnknown::String(name.into()))])); if let Some(kind) = smelt_builtin_construct_kind(name) { record.insert("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_reflected_construct(kind, args))))); } SmeltUnknown::Object(record) }).clone()) }
+// @smelt:item-end
+
+// A host constructor read as a value (`const c = Date`, `[Int8Array,
+// Uint8Array]`) keeps a concrete type: its name. A hand-written port would
+// hold a reference to the constructor, not an erased object; this is that
+// reference, compared by name, and it becomes the one interned constructor
+// object (`smelt_builtin_namespace`) only when it crosses into `unknown`.
+// @smelt:item SmeltHostConstructor when host_constructor
+/// A host constructor as a value: the name of the global it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SmeltHostConstructor(&'static str);
+
+impl Default for SmeltHostConstructor { fn default() -> Self { Self("Object") } }
+
+impl SmeltHostConstructor {
+    /// The constructor named `name`, interned so the name is `'static`.
+    fn named(name: &str) -> Self {
+        thread_local! { static SMELT_HOST_CONSTRUCTOR_NAMES: ::std::cell::RefCell<::std::collections::HashMap<String, &'static str>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
+        Self(SMELT_HOST_CONSTRUCTOR_NAMES.with(|names| *names.borrow_mut().entry(name.to_owned()).or_insert_with(|| Box::leak(name.to_owned().into_boxed_str()))))
+    }
+}
+
+impl SmeltJsStrictEq for SmeltHostConstructor { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
+
+impl IntoSmeltUnknown for SmeltHostConstructor { fn into_smelt_unknown(self) -> SmeltUnknown { smelt_builtin_namespace(self.0) } }
+
+//~ Recovering one from an erased value reads the interned constructor
+//~ object's name; anything else is not a host constructor, and recovers as
+//~ `Object` (TypeScript only lets a constructor-typed value reach here).
+impl SmeltFromUnknown for SmeltHostConstructor {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        match &value { SmeltUnknown::Object(object) if object.contains_key("__smelt_builtin_namespace") => match object.get("name") { Some(SmeltUnknown::String(name)) => Self::named(&name.to_string_lossy()), _ => Self::default() }, _ => Self::default() }
+    }
+}
 // @smelt:item-end

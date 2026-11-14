@@ -469,6 +469,10 @@ impl ModuleBuilder<'_> {
             // serializes a bare function is doing something the `string` return
             // type does not describe and deserves to be told.
             Type::Function(_) => nested,
+            // An iterator object (`JSON.stringify(map.keys())`) serializes as
+            // `{}`: its state is not an own enumerable property. It crosses as
+            // its erasure, whose `next` and marker are hidden.
+            Type::Generator { is_async: false, .. } => true,
             Type::Never
             | Type::Future(_)
             | Type::Generator { .. }

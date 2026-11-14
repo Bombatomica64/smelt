@@ -19,6 +19,9 @@ pub struct SmeltGenerator<Y, R, N> {
     completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,
 }
 impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone() } } }
+//~ A generator is an object: two are `===` exactly when they are the same
+//~ one (`it[Symbol.iterator]() === it`), which is sharing one state machine.
+impl<Y, R, N> PartialEq for SmeltGenerator<Y, R, N> { fn eq(&self, other: &Self) -> bool { ::std::rc::Rc::ptr_eq(&self.resume, &other.resume) } }
 impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltGenerator") } }
 impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     //~ Hide the producer future type while retaining concrete yield/return types.
@@ -40,6 +43,15 @@ impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     //~ [`Self::try_resume`] for a consumer with no `try` to deliver a throw to:
     //~ the throw unwinds as an uncaught one.
     fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> { self.try_resume(command).unwrap_or_else(|error| smelt_panic_throw(error)) }
+}
+//~ A collection iterator (`map.keys()`, `set.values()`, `map.entries()`):
+//~ single-pass over the collection's live store, reading position `index`
+//~ through `at` until it answers `None`. It is a generator, so it has
+//~ `next()`, is consumed by `for...of`/spread/`Array.from`, and is its own
+//~ iterator, as JavaScript's is.
+fn smelt_live_iterator<Y: 'static>(mut at: impl FnMut(usize) -> Option<Y> + 'static) -> SmeltGenerator<Y, (), ()> {
+    let mut index = 0_usize;
+    SmeltGenerator::new(move |_command| Ok(at(index).map_or(SmeltGeneratorResult::Complete(()), |value| { index = index.saturating_add(1); SmeltGeneratorResult::Yielded(value) })))
 }
 impl<Y, R: Clone + Default, N: Default> SmeltGenerator<Y, R, N> {
     //~ Drain the generator's remaining yields in order (`Array.from(gen)` / `[...gen]`).
@@ -73,7 +85,19 @@ impl<Y: Clone + 'static, R: Clone + 'static, N> SmeltAsyncGenerator<Y, R, N> {
 //~ the step boundary; resume inputs are dropped because the erased
 //~ protocol cannot type them (matching a bare `next()` call).
 impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + Default + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N> {
-    fn into_smelt_unknown(self) -> SmeltUnknown { let generator = self; let mut object: Vec<(String, SmeltUnknown)> = Vec::new(); object.push(("__smelt_generator".to_owned(), SmeltUnknown::Bool(true))); object.push(("next".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut step: Vec<(String, SmeltUnknown)> = Vec::new(); match generator.try_resume(SmeltGeneratorCommand::Next(Default::default()))? { SmeltGeneratorResult::Yielded(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(false))); } SmeltGeneratorResult::Complete(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(true))); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })))); SmeltUnknown::Object(SmeltObject::new(object)) }
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let generator = self;
+        //~ Its marker and `next` are not own enumerable properties (they live on
+        //~ the iterator prototype in JavaScript), so they sit under the hidden
+        //~ `__smelt_method:` prefix: `JSON.stringify(map.keys())` is `{}` and
+        //~ `Object.keys` of it is empty. `[Symbol.iterator]()` answers the
+        //~ iterator itself, through a weak handle so the object is no cycle.
+        let object = SmeltObject::new(Vec::from([("__smelt_method:__smelt_generator".to_owned(), SmeltUnknown::Bool(true))]));
+        object.insert("__smelt_method:next", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut step: Vec<(String, SmeltUnknown)> = Vec::new(); match generator.try_resume(SmeltGeneratorCommand::Next(Default::default()))? { SmeltGeneratorResult::Yielded(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(false))); } SmeltGeneratorResult::Complete(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(true))); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })));
+        let itself = object.downgrade();
+        object.insert("__smelt_symbol_iterator", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(itself.upgrade().map_or(SmeltUnknown::Undefined, SmeltUnknown::Object)))));
+        SmeltUnknown::Object(object)
+    }
 }
 //~ Async flavor of the same boundary: `next` returns an erased promise
 //~ that resolves to the `{ value, done }` step, mirroring the async

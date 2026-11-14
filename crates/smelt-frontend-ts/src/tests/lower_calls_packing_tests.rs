@@ -7843,6 +7843,9 @@ function keysFromMap(input: Map<string, number>, opaque: unknown) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `input.keys()` is a live iterator (`CollectionIterator`), but one that
+    // `Array.from` drains where it is made is the projection itself
+    // (`generator_items_expr`), so the drained list is a `DictProjection`.
     ensure_exprs!(&ctx, DictProjection, Len, UnknownCast);
     Ok(())
 }
@@ -7898,6 +7901,8 @@ function clone(input: Map<string, number>, values: unknown[]) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `input.entries()` drained by the Map constructor where it is made is
+    // the entries projection (`generator_items_expr`).
     ensure_exprs!(&ctx, ListPairsToDict, ListCallback, DictProjection);
     Ok(())
 }

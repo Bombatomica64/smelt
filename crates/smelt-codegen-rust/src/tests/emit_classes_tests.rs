@@ -1299,15 +1299,26 @@ _ => SmeltUnknown::Undefined,
 /// JavaScript exposes one object per global builtin name, so a bare host
 /// constructor reference evaluates to the interned namespace value; the identity
 /// itself is observed in `class_inheritance_behaviour`.
+///
+/// Requirement refined: the reference keeps the concrete
+/// `SmeltHostConstructor` (its name) while it is held at its own type, and
+/// becomes the interned object where it crosses into `unknown`, here the
+/// `any` return (`IntoSmeltUnknown` is `smelt_builtin_namespace`).
 #[test]
 fn a_bare_host_constructor_reference_is_interned() {
     let source = source_for("export function f(): any { return Blob; }");
     assert_eq!(
         rust_items(&source, &["fn f"]),
         r#"fn f() -> SmeltUnknown {
-let _smelt_tmp_0: SmeltUnknown = smelt_builtin_namespace("Blob");
-return _smelt_tmp_0;
+let _smelt_tmp_0: SmeltHostConstructor = SmeltHostConstructor("Blob");
+return _smelt_tmp_0.clone().into_smelt_unknown();
 }"#
+    );
+    assert!(
+        source.contains(
+            "fn into_smelt_unknown(self) -> SmeltUnknown { smelt_builtin_namespace(self.0) }"
+        ),
+        "the concrete constructor erases to the interned object:\n{source}"
     );
 }
 

@@ -1,0 +1,25 @@
+{} true
+a b 0
+a 1
+b 2
+0
+1,2,3
+1 1=one
+2 0
+1:1,2:2
+1,2,9
+entry a 1
+entry b 2
+entry z 26
+direct a 1
+direct b 2
+direct z 26
+key a
+key b
+key z
+member 1
+member 2
+member 3
+pair 1 1
+pair 2 2
+pair 3 3

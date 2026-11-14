@@ -155,6 +155,15 @@ impl FunctionEmitter<'_> {
         name: &str,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        // A host constructor held at its concrete type is its name
+        // (`SmeltHostConstructor`); it becomes the interned object only when
+        // it crosses into `unknown`.
+        if let Some(Type::Class { name: class, .. }) = self.mir.types.get(dest_ty)
+            && self.stdlib_class_of_symbol(*class)?
+                == Some(smelt_stdlib::StdlibClass::HostConstructor)
+        {
+            return Ok(RustExpr::atom(format!("SmeltHostConstructor({name:?})")));
+        }
         let unknown_ty = self.type_id(Type::Unknown)?;
         let call = RustExpr::chain(format!(
             "{namespace}({name:?})",
