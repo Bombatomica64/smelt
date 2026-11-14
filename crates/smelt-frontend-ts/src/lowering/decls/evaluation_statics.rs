@@ -292,8 +292,15 @@ impl ModuleBuilder<'_> {
     /// conservative: a frame field nobody reads.
     fn member_capture_uses(&self, class: &oxc::ast::ast::Class<'_>) -> Vec<(String, (u32, u32))> {
         let mut uses = Vec::new();
-        let mut collector = IdentifierSpanCollector { uses: &mut uses };
         for element in &class.body.body {
+            // Each member's own references, less the names the member binds
+            // itself (its parameters and locals shadow the enclosing body's).
+            let mut member_uses = Vec::new();
+            let mut bound = HashSet::new();
+            let mut collector = IdentifierSpanCollector {
+                uses: &mut member_uses,
+                bound: &mut bound,
+            };
             match element {
                 ClassElement::PropertyDefinition(property) if !property.r#static => {
                     if let Some(value) = &property.value {
@@ -314,6 +321,11 @@ impl ModuleBuilder<'_> {
                 }
                 _ => {}
             }
+            uses.extend(
+                member_uses
+                    .into_iter()
+                    .filter(|(name, _)| !bound.contains(name)),
+            );
         }
         let mut seen = HashSet::new();
         uses.into_iter()
@@ -1885,10 +1897,13 @@ impl ModuleBuilder<'_> {
 }
 
 /// Collects every identifier reference under the visited node.
-/// Every identifier reference under a node, with its span, in source order.
+/// Every identifier reference under a node, with its span, in source order,
+/// and every name the node binds (parameters, declarations).
 struct IdentifierSpanCollector<'uses> {
     /// The references.
     uses: &'uses mut Vec<(String, (u32, u32))>,
+    /// The bound names.
+    bound: &'uses mut HashSet<String>,
 }
 
 impl<'a> oxc::ast_visit::Visit<'a> for IdentifierSpanCollector<'_> {
@@ -1898,6 +1913,11 @@ impl<'a> oxc::ast_visit::Visit<'a> for IdentifierSpanCollector<'_> {
             identifier.name.to_string(),
             (identifier.span.start, identifier.span.end),
         ));
+    }
+
+    /// Records one bound name.
+    fn visit_binding_identifier(&mut self, identifier: &oxc::ast::ast::BindingIdentifier<'a>) {
+        self.bound.insert(identifier.name.to_string());
     }
 }
 
