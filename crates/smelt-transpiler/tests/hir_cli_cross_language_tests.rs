@@ -1429,6 +1429,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "191_checker_typed_array_literals_and_generic_calls",
     "192_array_constrained_type_parameters",
     "193_structural_record_names_keep_source_keys",
+    "194_closure_return_from_the_checker",
     "195_record_value_at_a_record_parameter",
     "14_c_for_loop",
     "15_break_continue",

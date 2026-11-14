@@ -157,6 +157,64 @@ impl ModuleBuilder<'_> {
         self.respell_and_lower(facts, id, start, end)
     }
 
+    /// The return type of the function the checker types the expression at
+    /// `start..end` as (an unannotated arrow or function expression), lowered.
+    ///
+    /// A closure with no return annotation and no contextual return is lowered
+    /// with the "no hint" sentinel, so its body has to infer the return, and an
+    /// `async` body returning a local Smelt could not follow erased it
+    /// (`async (acc: Record<string, number>, ..) => { ..; return acc; }`). The
+    /// checker inferred that return; it is the closure's return type exactly
+    /// as an annotation spelling it would be. Only a single, non-generic call
+    /// signature whose return re-spells here is taken (a generic closure's
+    /// return names its own parameters); the checker's `unknown`/`any` return,
+    /// a return mentioning `never`, and one joining `null` with `undefined`
+    /// (see [`checker_type_joins_null_and_undefined`]) are no answer.
+    pub(in crate::lowering) fn checker_function_return_type(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
+        let facts = self.ts_facts?;
+        let id = facts.type_id_at(&self.path, start, end)?;
+        let Some(TsTypeKind::Object(object)) = facts.types.get(id).map(|ty| &ty.kind) else {
+            return None;
+        };
+        let [signature] = object.call_signatures.as_slice() else {
+            return None;
+        };
+        if !signature.type_parameters.is_empty() {
+            return None;
+        }
+        let return_type = signature.return_type;
+        if checker_type_joins_null_and_undefined(facts, return_type, 0) {
+            return None;
+        }
+        let records_before = self.ctx.krate.erasures.len();
+        let lowered = self
+            .respell_and_lower(facts, return_type, start, end)
+            .filter(|ty| !self.type_mentions_never(*ty));
+        if lowered.is_none() {
+            self.ctx.krate.erasures.truncate(records_before);
+        }
+        lowered
+    }
+
+    /// Whether `ty` mentions `never` anywhere.
+    ///
+    /// A checker return such as `never[][]` (`flatMapDeep([], n => [[n]])`,
+    /// where `n` is the element of an empty array) describes a branch no value
+    /// reaches; as a closure's return it would ask the body to build a `never`.
+    fn type_mentions_never(&self, ty: TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Never) => true,
+            Some(other) => other
+                .children()
+                .any(|child| self.type_mentions_never(child)),
+            None => false,
+        }
+    }
+
     /// The outermost kind of the type the checker resolved the call at
     /// `start..end` to, read straight off the checker's type: no re-spelling,
     /// so it answers for types Smelt cannot spell in this scope too. `None`
@@ -596,6 +654,56 @@ impl Respeller<'_, '_> {
         let result = self.respell(signature.return_type, depth)?;
         Some(format!("(({}) => {result})", parameters.join(", ")))
     }
+}
+
+/// The checker types a value or slot holds, one level down: union members,
+/// array and tuple elements, object properties, type arguments.
+fn checker_type_children(facts: &TsTypeFacts, id: TsTypeId) -> Vec<TsTypeId> {
+    match facts.types.get(id).map(|ty| &ty.kind) {
+        Some(TsTypeKind::Union { members, .. } | TsTypeKind::Intersection(members)) => {
+            members.clone()
+        }
+        Some(TsTypeKind::Array { element, .. }) => vec![*element],
+        Some(TsTypeKind::Tuple { elements, .. }) => {
+            elements.iter().map(|element| element.ty).collect()
+        }
+        Some(TsTypeKind::Object(object)) => object
+            .properties
+            .iter()
+            .map(|property| property.ty)
+            .collect(),
+        Some(TsTypeKind::Named { type_arguments, .. }) => type_arguments.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether checker type `id` holds a union of both `null` and `undefined`.
+///
+/// Smelt carries `T | null | undefined` as one `Option<T>`, which is the
+/// chosen ABI for a slot, but a value the source distinguishes by which
+/// nullish it is (`[1, null, undefined].filter(isNull)`, a customizer that
+/// returns `null` to mean something else than returning nothing) would lose
+/// the difference if a checker answer were adopted for it. Such answers are
+/// declined and the value keeps its own lowering.
+fn checker_type_joins_null_and_undefined(facts: &TsTypeFacts, id: TsTypeId, depth: usize) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    if let Some(TsTypeKind::Union { members, .. }) = facts.types.get(id).map(|ty| &ty.kind) {
+        let has = |wanted: fn(&TsTypeKind) -> bool| {
+            members
+                .iter()
+                .any(|member| facts.types.get(*member).is_some_and(|ty| wanted(&ty.kind)))
+        };
+        if has(|kind| matches!(kind, TsTypeKind::Null))
+            && has(|kind| matches!(kind, TsTypeKind::Undefined | TsTypeKind::Void))
+        {
+            return true;
+        }
+    }
+    checker_type_children(facts, id)
+        .into_iter()
+        .any(|child| checker_type_joins_null_and_undefined(facts, child, depth + 1))
 }
 
 /// The keyword spelling of an intrinsic kind.

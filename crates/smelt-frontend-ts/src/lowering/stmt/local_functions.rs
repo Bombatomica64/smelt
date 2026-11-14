@@ -69,9 +69,19 @@ impl ModuleBuilder<'_> {
             let declared_return = contextual_function
                 .as_ref()
                 .map(|function| function.return_ty);
-            let no_return_hint = return_ty.is_none() && declared_return.is_none();
+            // With no contextual signature at all, the checker's inferred
+            // return stands in for the annotation the source left out
+            // (`checker_function_return_type`).
+            let checker_return = if return_ty.is_none() && contextual_function.is_none() {
+                self.checker_function_return_type(arrow.span.start, arrow.span.end)
+            } else {
+                None
+            };
+            let no_return_hint =
+                return_ty.is_none() && declared_return.is_none() && checker_return.is_none();
             let mut return_ty = return_ty
                 .or(declared_return)
+                .or(checker_return)
                 // not a new erasure: "no return hint" sentinel; recorded after
                 // closure-body lowering if the return stays erased
                 .unwrap_or_else(|| self.unknown_type(NotNewErasure::NoHint));
@@ -698,6 +708,13 @@ impl ModuleBuilder<'_> {
                 contextual_function
                     .as_ref()
                     .map(|function| function.return_ty)
+            })
+            .or_else(|| {
+                if contextual_function.is_none() {
+                    self.checker_function_return_type(arrow.span.start, arrow.span.end)
+                } else {
+                    None
+                }
             })
             // not a new erasure: provisional pre-pass return, refined from the
             // lowered body

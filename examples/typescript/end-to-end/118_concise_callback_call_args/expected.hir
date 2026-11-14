@@ -25,11 +25,9 @@ interned types
   t0 = Float
   t1 = None
   t2 = fn(Float) -> None
-  t3 = Unknown
-  t4 = fn(fn(Float) -> None) -> Unknown
-  t5 = String
-  t6 = List<String>
-  t7 = fn(String, Float) -> None
-  t8 = fn(List<String>, fn(String, Float) -> None) -> None
-  t9 = fn(fn(Float) -> None) -> None
-  t10 = Bool
+  t3 = fn(fn(Float) -> None) -> None
+  t4 = String
+  t5 = List<String>
+  t6 = fn(String, Float) -> None
+  t7 = fn(List<String>, fn(String, Float) -> None) -> None
+  t8 = Bool

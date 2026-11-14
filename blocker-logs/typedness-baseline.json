@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8411,
-      "generic": 148,
+      "concrete": 8497,
+      "generic": 151,
       "erased": 56
     },
     "reads": {
-      "concrete": 861,
+      "concrete": 878,
       "generic": 42,
       "erased": 20
     },
     "calls": {
-      "concrete": 2282,
+      "concrete": 2299,
       "generic": 15,
       "erased": 2
     }
@@ -1562,6 +1562,57 @@
       "calls": {
         "concrete": 9,
         "generic": 1,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/193_structural_record_names_keep_source_keys/input.ts": {
+      "values": {
+        "concrete": 16,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 7,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/194_closure_return_from_the_checker/input.ts": {
+      "values": {
+        "concrete": 46,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 6,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/195_record_value_at_a_record_parameter/input.ts": {
+      "values": {
+        "concrete": 24,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 4,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 4,
+        "generic": 0,
         "erased": 0
       }
     },

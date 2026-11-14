@@ -36,9 +36,9 @@ interned types
   t3 = fn(String) -> String
   t4 = Wrapper
   t5 = None
-  t6 = Unknown
-  t7 = fn(String) -> Unknown
-  t8 = fn(String) -> Wrapper
+  t6 = fn(String) -> Wrapper
+  t7 = Unknown
+  t8 = fn(String) -> Unknown
   t9 = Future<Wrapper>
   t10 = Float
   t11 = async fn(Future<String>) -> Future<String>
