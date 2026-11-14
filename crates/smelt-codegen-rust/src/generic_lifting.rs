@@ -24,9 +24,10 @@ use smelt_mir::{
 use crate::{
     EmitError,
     bound_traits::BoundTraitPlan,
-    generic_elision::TypeParamElision,
     classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
-    generic_bindings, id_index,
+    generic_bindings,
+    generic_elision::TypeParamElision,
+    id_index,
 };
 
 /// Per function, whether a call site passes an erased argument at a bare
@@ -371,7 +372,12 @@ pub(crate) fn liftable_type_params(
         .collect();
 
     if called_with_erased_type_param_argument_memoized(mir, function, erased_arguments)
-        || !callback_only_params_are_pinned_at_every_call_site(mir, function, owned_callback_params, elision)
+        || !callback_only_params_are_pinned_at_every_call_site(
+            mir,
+            function,
+            owned_callback_params,
+            elision,
+        )
     {
         return HashSet::new();
     }
@@ -391,9 +397,9 @@ pub(crate) fn liftable_type_params(
             let name = type_param.name;
             // The parameter must have an inference source in the emitted signature.
             // Either a direct value parameter position ...
-            let directly = param_types
-                .iter()
-                .any(|&param_ty| type_param_preserved_in_emitted_type(mir, elision, param_ty, name));
+            let directly = param_types.iter().any(|&param_ty| {
+                type_param_preserved_in_emitted_type(mir, elision, param_ty, name)
+            });
             // ... or a position of a callback emitted as `&F{n}` with an
             // `F{n}: Fn(..) + ?Sized` bound, which rustc infers through from the
             // closure's own type. The disjunct deliberately calls the renderer's own
@@ -1136,12 +1142,10 @@ fn type_param_preserved_in_emitted_type(
         // `T` reaches no field, emits as the bare struct, so an argument at an
         // elided position gives Rust nothing to infer the parameter from
         // (E0282 at es-toolkit's compat `flattenDeep`, whose only `T` is there).
-        Some(Type::Class { name: class, args }) => {
-            args.iter().enumerate().any(|(index, arg)| {
-                elision.is_carried(*class, index)
-                    && type_param_preserved_in_emitted_type(mir, elision, *arg, name)
-            })
-        }
+        Some(Type::Class { name: class, args }) => args.iter().enumerate().any(|(index, arg)| {
+            elision.is_carried(*class, index)
+                && type_param_preserved_in_emitted_type(mir, elision, *arg, name)
+        }),
         Some(other) => other
             .children()
             .any(|child| type_param_preserved_in_emitted_type(mir, elision, child, name)),

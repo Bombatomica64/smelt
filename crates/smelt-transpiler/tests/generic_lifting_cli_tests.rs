@@ -83,14 +83,20 @@ console.log(numbers[0] + numbers[1]);
 const words = tagAll(["a", "b"], 3);
 console.log(words.join("-").toUpperCase());
 "#;
-    let expected = "number 1 other x\nnumber 2 other x\n3\nother a number 3\nother b number 3\nA-B\n";
+    let expected =
+        "number 1 other x\nnumber 2 other x\n3\nother a number 3\nother b number 3\nA-B\n";
     let (generated, stdout) = build_and_run("opaque_type_parameter_beside_erased_values", source)?;
     ensure(
         generated.contains(r"pub(crate) fn tag_all<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>, label: SmeltUnknown) -> SmeltList<T> {"),
         format!("missing `pub(crate) fn tag_all<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>, label: SmeltUnknown) -> SmeltList<T> {{` in:\n{generated}"),
     )?;
     ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
-    ensure_node_agrees(&[("main.ts", source)], "main.ts", expected, "opaque_type_parameter_beside_erased_values")
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "opaque_type_parameter_beside_erased_values",
+    )
 }
 
 /// Rule: a type argument at a position the emitted struct drops
@@ -128,10 +134,17 @@ console.log(JSON.stringify(report({ tag: "numbers" })));
     let (generated, stdout) = build_and_run("elided_argument_is_no_inference_source", source)?;
     ensure(
         generated.contains(r"pub(crate) fn empty_of(tagged: Tagged) -> SmeltList<SmeltUnknown> {"),
-        format!("missing `pub(crate) fn empty_of(tagged: Tagged) -> SmeltList<SmeltUnknown> {{` in:\n{generated}"),
+        format!(
+            "missing `pub(crate) fn empty_of(tagged: Tagged) -> SmeltList<SmeltUnknown> {{` in:\n{generated}"
+        ),
     )?;
     ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
-    ensure_node_agrees(&[("main.ts", source)], "main.ts", expected, "elided_argument_is_no_inference_source")
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "elided_argument_is_no_inference_source",
+    )
 }
 
 /// Guard on the rule above: only a whole `T` converts for free. Handing a
@@ -171,15 +184,27 @@ function withoutRepeats<T>(data: readonly T[], label: unknown): T[] {
 console.log(withoutRepeats([1, 2, 1, 3, 1], "numbers").join(","));
 "#;
     let expected = "numbers 3\n1,2,3\n";
-    let (generated, stdout) = build_and_run("erased_throwing_callee_keeps_mutable_list_caller_erased", source)?;
+    let (generated, stdout) = build_and_run(
+        "erased_throwing_callee_keeps_mutable_list_caller_erased",
+        source,
+    )?;
     ensure(
-        generated.contains(r"pub(crate) fn without_repeats(data: SmeltList<SmeltUnknown>, label: SmeltUnknown)"),
-        format!("missing `pub(crate) fn without_repeats(data: SmeltList<SmeltUnknown>, label: SmeltUnknown)` in:\n{generated}"),
+        generated.contains(
+            r"pub(crate) fn without_repeats(data: SmeltList<SmeltUnknown>, label: SmeltUnknown)",
+        ),
+        format!(
+            "missing `pub(crate) fn without_repeats(data: SmeltList<SmeltUnknown>, label: SmeltUnknown)` in:\n{generated}"
+        ),
     )?;
     ensure(
         generated.contains(r"let _ = drop_copies_of_first(&mut copy)?;"),
         format!("missing `let _ = drop_copies_of_first(&mut copy)?;` in:\n{generated}"),
     )?;
     ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
-    ensure_node_agrees(&[("main.ts", source)], "main.ts", expected, "erased_throwing_callee_keeps_mutable_list_caller_erased")
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "erased_throwing_callee_keeps_mutable_list_caller_erased",
+    )
 }
