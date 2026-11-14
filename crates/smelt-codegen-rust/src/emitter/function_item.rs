@@ -336,6 +336,18 @@ impl FunctionEmitter<'_> {
     /// unstructured block emission from creating branch-local bindings that are
     /// later reassigned outside the branch.
     pub(super) fn emit_mutable_local_preludes(&self, out: &mut String) -> Result<(), EmitError> {
+        let mut slots = self
+            .receiver_snapshot_slots()
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        slots.sort_by_key(|slot| slot.0);
+        for slot in slots {
+            out.push_str(&format!(
+                "    let mut {} = smelt_no_receiver();\n",
+                self.receiver_snapshot_name(slot)?
+            ));
+        }
         let params = self.function.params.iter().copied().collect::<HashSet<_>>();
         let mut locals = self.predeclared_locals().into_iter().collect::<Vec<_>>();
         locals.sort_by_key(|local| local.0);

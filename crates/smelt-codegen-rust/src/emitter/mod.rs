@@ -1546,6 +1546,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// (see `capture_cell_created_at_assignment`), instead of being seeded
     /// with `T`'s default at function entry.
     deferred_capture_cells: RefCell<HashSet<LocalId>>,
+    /// Member-read temporaries whose receiver is snapshotted for a later
+    /// erased call (see `FunctionEmitter::receiver_snapshot_slots`); computed
+    /// once from the MIR.
+    receiver_snapshot_slots: std::cell::OnceCell<HashSet<LocalId>>,
     /// Locals whose emitted Rust type is `&'static str` rather than `String`.
     ///
     /// A `typeof` produces one of seven fixed spellings, so its destination

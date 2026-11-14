@@ -1292,3 +1292,12 @@ fn throwing_reduce_callback() -> TestResult {
 fn abstract_parser_slots() -> TestResult {
     verify_node_parity("abstract_parser_slots")
 }
+
+/// A prototype method read off a number, string or array takes its receiver
+/// from the call: detached it throws Node's `TypeError`, while member calls,
+/// `.call`, `.apply` and `.bind` supply the receiver; typed and erased
+/// receivers read the same unbound function.
+#[test]
+fn unbound_method_values() -> TestResult {
+    verify_node_parity("unbound_method_values")
+}

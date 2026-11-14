@@ -24,10 +24,23 @@ fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { mat
 //~ underlying callable. Fall back to the `__smelt_call` slot when the own
 //~ field read finds nothing, so `mock.apply(this, args)` actually invokes
 //~ and records the call instead of yielding `undefined`.
-/// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.
+/// Bind `Function.prototype.apply`/`call`/`bind` on an erased receiver, or read the field of an object receiver.
 fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
     match receiver {
         SmeltUnknown::Function(function) => {
+            //~ `Function.prototype.bind(thisArg, ...bound)`: the bound function
+            //~ installs `thisArg` and prepends the bound arguments.
+// @smelt:if this_channel
+            if method == "bind" {
+                return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+                    let mut args = args.into_iter();
+                    let this_arg = args.next().unwrap_or(SmeltUnknown::Undefined);
+                    let bound: Vec<SmeltUnknown> = args.collect();
+                    let target = function.clone();
+                    Ok(smelt_bind_this(SmeltUnknown::Function(::std::rc::Rc::new(move |rest: Vec<SmeltUnknown>| { let mut all = bound.clone(); all.extend(rest); target(all) })), this_arg))
+                }));
+            }
+// @smelt:end
             let method = method.to_owned();
             SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
                 let receiver_method = smelt_is_receiver_method(&function);
@@ -67,8 +80,29 @@ fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
 //~ `Object.prototype.valueOf` returns the receiver).
 /// Unwrap a boxed primitive wrapper (or a Date) to the primitive it holds.
 fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { if map.contains_key("__smelt_number") || map.contains_key("__smelt_boolean") || map.contains_key("__smelt_string") || map.contains_key("__smelt_symbol") { return map.get("value").unwrap_or(SmeltUnknown::Undefined); } if let Some(millis @ SmeltUnknown::Number(_)) = map.get("__smelt_date") { return millis; } SmeltUnknown::Object(map) }, other => other } }
-/// Bind `Object.prototype.valueOf` on an erased receiver.
-fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = &receiver { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(map, "valueOf") { return own; } } let unboxed = smelt_unbox_primitive(receiver); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))) }
+//~ Like every prototype method, `valueOf` takes its receiver from the CALL
+//~ (`smelt_unbound_prototype_method`): a number answers
+//~ `Number.prototype.valueOf`, an object's own override wins, and anything
+//~ else answers one shared unbound `Object.prototype.valueOf`, which throws
+//~ for a `null`/`undefined` receiver (`const v = x.valueOf; v()`).
+/// Read `valueOf` off an erased receiver: its own override or the prototype's unbound method.
+fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown {
+    match receiver {
+        SmeltUnknown::Object(map) => { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(&map, "valueOf") { return own; } }
+        number @ SmeltUnknown::Number(_) => { if let Some(method) = smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, &number, "valueOf") { return method; } }
+// @smelt:if !this_channel
+//=         other => { let unboxed = smelt_unbox_primitive(other); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))); }
+// @smelt:end
+        _ => {}
+    }
+// @smelt:if !this_channel
+//=     SmeltUnknown::Undefined
+// @smelt:end
+// @smelt:if this_channel
+    thread_local! { static SMELT_OBJECT_VALUE_OF: SmeltUnknown = { let method: SmeltDynCallable = ::std::rc::Rc::new(|_args: Vec<SmeltUnknown>| match smelt_this() { SmeltUnknown::Null | SmeltUnknown::Undefined => Err(smelt_prototype_type_error("Cannot convert undefined or null to object".to_owned())), receiver => Ok(smelt_unbox_primitive(receiver)) }); smelt_register_function_length(&method, 0.0); SmeltUnknown::Function(method) }; }
+    SMELT_OBJECT_VALUE_OF.with(Clone::clone)
+// @smelt:end
+}
 //~ `Object(value)` called as a FUNCTION (not `new`) boxes a primitive and
 //~ passes objects through unchanged. `Object(null)` / `Object(undefined)`
 //~ yield a fresh empty object. The wrapper shapes match what

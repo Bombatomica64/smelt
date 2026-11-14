@@ -66,7 +66,7 @@
       "clippy::cast_precision_loss": 73,
       "clippy::cast_sign_loss": 77,
       "clippy::chunks_exact_to_as_chunks": 1,
-      "clippy::collapsible_if": 31,
+      "clippy::collapsible_if": 30,
       "clippy::default_trait_access": 1,
       "clippy::doc_markdown": 12,
       "clippy::explicit_iter_loop": 5,

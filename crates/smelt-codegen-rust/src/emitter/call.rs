@@ -1124,11 +1124,14 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, EmitError>>()?;
             let args_expr = RustExpr::atom(format!("vec![{}]", rendered_args.join(", ")));
             return Ok(self
-                .dynamic_callable_dispatch_expr(
-                    &callee_text,
-                    &args_expr,
-                    self.prototype_method_not_callable(indirect_callee)
-                        .as_deref(),
+                .with_erased_call_receiver(
+                    indirect_callee,
+                    self.dynamic_callable_dispatch_expr(
+                        &callee_text,
+                        &args_expr,
+                        self.prototype_method_not_callable(indirect_callee)
+                            .as_deref(),
+                    )?,
                 )?
                 .into());
         }
@@ -1193,10 +1196,13 @@ impl FunctionEmitter<'_> {
             )).into());
         }
         Ok(RenderedCall::propagating_if(
-            RustExpr::atom(format!(
-                "({callee_text})({rendered_args})",
-                callee_text = callee_text.delimited()
-            )),
+            self.with_member_call_receiver(
+                indirect_callee,
+                RustExpr::atom(format!(
+                    "({callee_text})({rendered_args})",
+                    callee_text = callee_text.delimited()
+                )),
+            )?,
             self.function_value_call_is_fallible(function),
         ))
     }

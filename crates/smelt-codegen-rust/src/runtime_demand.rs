@@ -785,7 +785,7 @@ impl RuntimeDemand {
                 self.scan_statement(mir, locals, statement);
             }
             if let Some(terminator) = &block.terminator {
-                self.scan_terminator(terminator);
+                self.scan_terminator(mir, locals, terminator);
                 // A class value returned at `string` is its string conversion,
                 // which goes through the erased form.
                 if let Terminator::Return(operand) = terminator
@@ -836,6 +836,17 @@ impl RuntimeDemand {
                 }
             });
         }
+        // A read that can produce a prototype METHOD off an erased value (a
+        // modeled method name, `call`/`apply`/`bind`, or a dynamic key) yields
+        // a function that takes its receiver from the call, so the program
+        // carries the receiver channel and every erased call installs one.
+        if !self.has(Need::ThisChannel) {
+            value.reads(|operand| {
+                if operand_may_read_prototype_method(mir, locals, operand) {
+                    self.add(Need::ThisChannel);
+                }
+            });
+        }
         // `json()` and friends read through the member's erased host method.
         if !self.has(Need::BodyHostMethod) {
             value.reads(|operand| {
@@ -850,10 +861,42 @@ impl RuntimeDemand {
     }
 
     /// Records what one terminator demands.
-    fn scan_terminator(&mut self, terminator: &Terminator) {
-        let Terminator::Call { callee, unwind, .. } = terminator else {
+    fn scan_terminator(&mut self, mir: &Mir, locals: &[LocalDecl], terminator: &Terminator) {
+        // A member read can also be a terminator's own operand (`return
+        // base.m`, `throw`, an awaited or switched value).
+        if let Terminator::Return(operand)
+        | Terminator::Throw(operand)
+        | Terminator::Await {
+            future: operand, ..
+        }
+        | Terminator::Switch { cond: operand, .. }
+        | Terminator::Match {
+            scrutinee: operand, ..
+        } = terminator
+            && operand_may_read_prototype_method(mir, locals, operand)
+        {
+            self.add(Need::ThisChannel);
+        }
+        let Terminator::Call {
+            callee,
+            args,
+            unwind,
+            ..
+        } = terminator
+        else {
             return;
         };
+        if let Callee::Indirect(operand) = callee
+            && operand_may_read_prototype_method(mir, locals, operand)
+        {
+            self.add(Need::ThisChannel);
+        }
+        if args
+            .iter()
+            .any(|operand| operand_may_read_prototype_method(mir, locals, operand))
+        {
+            self.add(Need::ThisChannel);
+        }
         // A `catch` recovers through the panic route whether or not its callee
         // can throw: a non-throwing callee can be handed a throwing closure.
         if unwind.is_some() {
@@ -862,6 +905,38 @@ impl RuntimeDemand {
         if let Callee::Op(op, _) = callee {
             self.scan_rvalue(op);
         }
+    }
+}
+
+/// Whether `operand` reads a member off an ERASED local that can be a
+/// prototype method: by a modeled method name (`Array`/`String`/`Number`),
+/// as `call`/`apply`/`bind`, or by a key only known at run time.
+fn operand_may_read_prototype_method(mir: &Mir, locals: &[LocalDecl], operand: &Operand) -> bool {
+    let (Operand::Copy(place) | Operand::Move(place)) = operand else {
+        return false;
+    };
+    let erased = |base: &LocalId| {
+        usize::try_from(base.0)
+            .ok()
+            .and_then(|index| locals.get(index))
+            .is_some_and(|local| matches!(mir.types.get(local.ty), Some(Type::Unknown)))
+    };
+    match place {
+        Place::Field { base, field } => {
+            erased(base)
+                && mir
+                    .names
+                    .get(*field)
+                    .or_else(|| mir.symbols.get(*field))
+                    .is_some_and(|name| {
+                        matches!(name, "call" | "apply" | "bind")
+                            || smelt_stdlib::erased_array_prototype_method(name).is_some()
+                            || smelt_stdlib::erased_string_prototype_method(name).is_some()
+                            || smelt_stdlib::erased_number_prototype_method(name).is_some()
+                    })
+        }
+        Place::Index { base, index, .. } => erased(base) && !matches!(**index, Operand::Const(_)),
+        Place::Local(_) | Place::Global { .. } => false,
     }
 }
 

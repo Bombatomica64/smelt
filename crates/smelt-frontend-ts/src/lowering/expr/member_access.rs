@@ -376,7 +376,130 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.static_member_with_absent_fallback(member, body, true, true, false)
+        match self.static_member_with_absent_fallback(member, body, true, true, false) {
+            Ok(read) => Ok(self.erase_prototype_method_receiver(read, body)),
+            Err(error) => self.detached_prototype_method(member, body)?.ok_or(error),
+        }
+    }
+
+    /// The modeled prototype method `name` names on a typed primitive of `ty`.
+    fn primitive_prototype_method(
+        &self,
+        ty: smelt_hir::TypeId,
+        name: &str,
+    ) -> Option<&'static str> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Int | Type::Float) => smelt_stdlib::erased_number_prototype_method(name),
+            Some(Type::String) => smelt_stdlib::erased_string_prototype_method(name),
+            Some(Type::List(_)) => smelt_stdlib::erased_array_prototype_method(name),
+            _ => None,
+        }
+    }
+
+    /// Repair an erased member read straight off a TYPED primitive
+    /// (`copy %s.slice : Unknown`, which a typed string cannot answer) into a
+    /// read through the receiver's erased form, so it yields the runtime's
+    /// unbound prototype method (see [`Self::detached_prototype_method`]).
+    ///
+    /// The read's type was already erased, and recorded, where it was decided;
+    /// the receiver's crossing reuses that type.
+    fn erase_prototype_method_receiver(
+        &self,
+        read: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(Expr {
+            kind: ExprKind::Field { receiver, field },
+            ty,
+            span,
+        }) = body.expr_at(read).cloned()
+        else {
+            return read;
+        };
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) {
+            return read;
+        }
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let name = self
+            .ctx
+            .krate
+            .symbols
+            .get(field)
+            .unwrap_or_default()
+            .to_owned();
+        if self
+            .primitive_prototype_method(receiver_ty, &name)
+            .is_none()
+        {
+            return read;
+        }
+        let erased_receiver = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: receiver,
+                target: ty,
+            },
+            ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver: erased_receiver,
+                field,
+            },
+            ty,
+            span,
+        })
+    }
+
+    /// Read a `Number`/`String`/`Array` prototype method off a TYPED primitive
+    /// receiver as a VALUE (`const f = n.toFixed`), which the typed member
+    /// lowering does not model.
+    ///
+    /// A prototype method value takes its receiver from the CALL, not from the
+    /// read: `f(1)` throws JavaScript's `TypeError`, `f.call(n, 1)` formats `n`.
+    /// No Rust function type can carry a receiver supplied by whoever calls
+    /// it, so the value is the runtime's unbound method
+    /// (`smelt_unbound_prototype_method`), read through the receiver's erased
+    /// form -- the same value an `any`-typed receiver reads. Only the read
+    /// crosses into the erased form; a CALL `n.toFixed(2)` never reaches here,
+    /// because the typed call lowerings claim it first. `None` when the
+    /// receiver is not a typed primitive or the name is not a modeled method,
+    /// so the caller reports its original error.
+    fn detached_prototype_method(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let name = member.property.name.as_str();
+        let receiver = self.expression(&member.object, body)?;
+        if self
+            .primitive_prototype_method(Self::expr_ty(body, receiver), name)
+            .is_none()
+        {
+            return Ok(None);
+        }
+        let span = self.span(member.span.start, member.span.end);
+        // Dynamic boundary: JavaScript's `this` binding. The method value's
+        // receiver is whatever its caller supplies (a plain call, `.call`,
+        // `.bind`), which no static function type expresses.
+        let unknown_ty = self.erase_at(ErasureReason::ByName, span, "prototype method value");
+        let erased_receiver = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: receiver,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        });
+        let field = self.intern_source_name(name);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver: erased_receiver,
+                field,
+            },
+            ty: unknown_ty,
+            span,
+        })))
     }
 
     /// Lower a static member expression that is an assignment *target*.

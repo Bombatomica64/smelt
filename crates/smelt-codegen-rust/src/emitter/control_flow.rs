@@ -354,6 +354,11 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         match statement {
             Statement::Assign { dest, value } => {
+                // A member read a later erased call invokes snapshots its
+                // receiver first, while the base is live.
+                if let Some(snapshot) = self.receiver_snapshot_statement(*dest)? {
+                    out.push_str(&snapshot);
+                }
                 // The payload of a `throw` is built at the throw site instead of
                 // being staged in a temporary; see `emitter::throw`.
                 if self.is_folded_throw_payload(*dest) {

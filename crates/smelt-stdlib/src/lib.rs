@@ -36,7 +36,8 @@ pub use classes::{
 };
 pub use deps::{BackendDependency, CrateRequirement};
 pub use erased_prototype_methods::{
-    ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_STRING_PROTOTYPE_METHODS, erased_array_prototype_method,
+    ERASED_ARRAY_PROTOTYPE_METHODS, ERASED_NUMBER_PROTOTYPE_METHODS,
+    ERASED_STRING_PROTOTYPE_METHODS, erased_array_prototype_method, erased_number_prototype_method,
     erased_string_prototype_method, is_erased_prototype_call, is_erased_prototype_method,
     prototype_method_max_arguments,
 };

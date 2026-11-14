@@ -363,7 +363,7 @@ export function readTag(value: unknown): unknown {
     );
     assert!(
         source.contains(
-            "values.named_property(field).or_else(|| smelt_array_prototype_member(values, field))"
+            "values.named_property(field).or_else(|| smelt_unbound_prototype_method(SmeltPrototypeFamily::Array, &SmeltUnknown::Array(values.clone()), field))"
         ),
         "an own named property must shadow the prototype method"
     );
