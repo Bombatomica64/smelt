@@ -3106,6 +3106,9 @@ fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handle
 #[allow(dead_code)]
 async fn smelt_run_until_exit() {
     smelt_sleep_ms(0.0).await;
+    while SMELT_TIMERS.with(|timers| !timers.borrow().is_empty()) {
+        smelt_sleep_ms(0.0).await;
+    }
     while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
         smelt_sleep_ms(0.0).await;
         let smelt_wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);

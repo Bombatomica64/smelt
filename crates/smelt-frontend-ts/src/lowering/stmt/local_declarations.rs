@@ -97,8 +97,29 @@ impl ModuleBuilder<'_> {
         statements: &[Statement<'_>],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
+        self.predeclare_forward_referenced_locals_where(statements, body, false, |_, _| true)
+    }
+
+    /// [`Self::predeclare_forward_referenced_locals`] over the declarations
+    /// `lowers_as_local` accepts: a module body passes the statements it lowers
+    /// into its own body, not the module-level arrows lifted to items.
+    /// `self_binding_only` reserves only a `const` whose initializer reads the
+    /// binding from a closure (`const h = setInterval(() => clearInterval(h))`).
+    /// A module body asks for that alone: its arrow consts keep their own typed
+    /// lowering, and a top-level function reading a later module binding reads
+    /// the module global, not a local of the module body.
+    pub(in crate::lowering) fn predeclare_forward_referenced_locals_where(
+        &mut self,
+        statements: &[Statement<'_>],
+        body: &mut Body,
+        self_binding_only: bool,
+        lowers_as_local: impl Fn(&Self, &Statement<'_>) -> bool,
+    ) -> Result<(), SmeltError> {
         let first_reads = self.first_capture_read_indices(statements);
         for (index, statement) in statements.iter().enumerate() {
+            if !lowers_as_local(self, statement) {
+                continue;
+            }
             let Statement::VariableDeclaration(decl) = statement else {
                 continue;
             };
@@ -123,10 +144,15 @@ impl ModuleBuilder<'_> {
                         binding.name.as_str(),
                     );
                 let direct_arrow = match initializer {
-                    Expression::ArrowFunctionExpression(arrow) if is_const => Some(arrow),
+                    Expression::ArrowFunctionExpression(arrow)
+                        if is_const && !self_binding_only =>
+                    {
+                        Some(arrow)
+                    }
                     _ => None,
                 };
-                let read_earlier = direct_arrow.is_none()
+                let read_earlier = !self_binding_only
+                    && direct_arrow.is_none()
                     && !is_deferred_self_binding
                     && first_reads
                         .get(binding.name.as_str())
