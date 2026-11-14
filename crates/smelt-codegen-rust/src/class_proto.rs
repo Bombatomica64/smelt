@@ -360,7 +360,11 @@ fn erased_callable_adapter(
     // the thrown value across the seam rather than swallowing it.
     // An async method's throw settles its promise: the Rust method returns
     // the `SmeltFuture` itself, never a `Result`, so nothing is propagated here.
-    let try_operator = if function.can_throw && !function.is_async {
+    // A generator or async method's throw surfaces through what it returns
+    // (a resume of the generator, the settling of the promise), never as a
+    // `Result` of the call itself, so nothing is propagated for either.
+    let returns_future = function.is_async && !function.is_generator;
+    let try_operator = if function.can_throw && !function.is_async && !function.is_generator {
         "?"
     } else {
         ""
@@ -379,10 +383,11 @@ fn erased_callable_adapter(
         ""
     };
     let call = format!("{callee}{rust_method}({}){try_operator}", args.join(", "));
-    let result = if function.is_async {
+    let result = if returns_future {
         // An async method's MIR return is what its promise settles with; the
         // Rust method hands back the `SmeltFuture` of it, which crosses as an
-        // erased promise of that payload.
+        // erased promise of that payload. An async GENERATOR method returns
+        // its generator (`Type::Generator`), which erases below like any value.
         let emitter = match &method_emitter {
             Some(emitter) => emitter,
             None => method_emitter.insert(crate::emitter::FunctionEmitter::new(
