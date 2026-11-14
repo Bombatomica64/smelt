@@ -64,6 +64,15 @@ impl ModuleBuilder<'_> {
                         }) =>
                 {
                     let checked = self.checker_binding_type(binding.span.start, binding.span.end);
+                    // An instantiation at `never` (`flatMapDeep([], n => [[n]])`
+                    // infers `T = never`) says the callback is never called; it
+                    // gives `n` no type a value can have, so the parameter keeps
+                    // the callee's signature as before rather than becoming an
+                    // uninhabited local its body cannot build values from.
+                    let checked = checked.filter(|checked_ty| {
+                        contextual.is_none_or(|contextual_ty| !self.names_type_param_out_of_scope(contextual_ty))
+                            || !matches!(self.ctx.krate.types.get(*checked_ty), Some(Type::Never))
+                    });
                     checked.unwrap_or_else(|| {
                         contextual.unwrap_or_else(|| self.infer_unannotated_arrow_param_type(arrow, index))
                     })
