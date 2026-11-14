@@ -167,9 +167,19 @@ fn implemented_traits(texts: &[String]) -> BTreeSet<String> {
             continue;
         };
         for line in program.lines().filter(|line| line.starts_with("impl")) {
-            let Some((head, _)) = line.split_once(" for ") else {
+            let Some((head, target)) = line.split_once(" for ") else {
                 continue;
             };
+            // A polymorphic hierarchy's cell traits are implemented for the
+            // shared `RefCell<NameInner>` and `Deref` for the nested inner
+            // record (`crate::class_polymorphism`): types no source method is
+            // defined on (those live on the handle), so no name can collide.
+            let target_type = target.split([' ', '{']).next().unwrap_or(target);
+            if target_type.starts_with("::std::cell::RefCell<")
+                || target_type.split('<').next().is_some_and(|name| name.ends_with("Inner"))
+            {
+                continue;
+            }
             let Some(token) = head.rsplit(' ').next() else {
                 continue;
             };
