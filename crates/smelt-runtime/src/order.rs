@@ -176,6 +176,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("impl_PartialOrd_SmeltUnknown_for_f64"),
     Entry::Item("smelt_unknown_rank"),
     Entry::Item("IntoSmeltUnknown"),
+    Entry::Item("impl_SmeltUnknown_for_wide_tuples"),
     Entry::Item("impl_serde_for_JsString"),
     Entry::Item("impl_serde_Serialize_for_SmeltUnknown"),
     Entry::Item("smelt_json_stringify"),

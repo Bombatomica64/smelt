@@ -2012,6 +2012,25 @@ impl FunctionEmitter<'_> {
 }
 
 /// Emit every canonical concrete union enum used by the MIR type table.
+/// Whether `ty` holds a type parameter inside a generated nominal type (a
+/// class or interface argument, or a nested union), where `inside_nominal`
+/// says the walk is already under one. See `emit_union_definitions`.
+fn member_nests_type_param_in_nominal(mir: &Mir, ty: TypeId, inside_nominal: bool) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::TypeParam { .. }) => inside_nominal,
+        Some(Type::Class { args, .. }) => args
+            .iter()
+            .any(|arg| member_nests_type_param_in_nominal(mir, *arg, true)),
+        Some(Type::Union(items)) => items
+            .iter()
+            .any(|item| member_nests_type_param_in_nominal(mir, *item, true)),
+        Some(other) => other
+            .children()
+            .any(|child| member_nests_type_param_in_nominal(mir, child, inside_nominal)),
+        None => false,
+    }
+}
+
 pub(crate) fn emit_union_definitions(
     mir: &Mir,
     context: &EmitContext,
@@ -2092,7 +2111,18 @@ pub(crate) fn emit_union_definitions(
         // in their own scope (`FunctionEmitter::union_type_text_in`).
         let member_scope: ::std::collections::HashSet<Symbol> = params.iter().copied().collect();
         let member_substitution = TypeSubstitution::callee_emission(&member_scope);
-        output.push_str("#[derive(Clone)]\n");
+        // A member nesting one of the enum's parameters inside a generated
+        // nominal type (`M1(Some<T>)`) is `Clone` only under the full
+        // generated bound set, which `#[derive(Clone)]` (`T: Clone`) does not
+        // supply (E0277); such an enum spells its `Clone` with `impl_generics`.
+        // Every other enum keeps the derive, so its output is unchanged.
+        let bounded_clone = !params.is_empty()
+            && members
+                .iter()
+                .any(|member| member_nests_type_param_in_nominal(mir, *member, false));
+        if !bounded_clone {
+            output.push_str("#[derive(Clone)]\n");
+        }
         output.push_str(&format!("pub enum {name}{declaration_generics} {{\n"));
         for (member_index, member) in members.iter().enumerate() {
             let member_text = emitter
@@ -2101,6 +2131,13 @@ pub(crate) fn emit_union_definitions(
             output.push_str(&format!("    M{member_index}({member_text}),\n"));
         }
         output.push_str("}\n");
+        if bounded_clone {
+            output.push_str(&format!("impl{impl_generics} Clone for {target} {{\n    fn clone(&self) -> Self {{\n        match self {{\n"));
+            for member_index in 0..members.len() {
+                output.push_str(&format!("            Self::M{member_index}(value) => Self::M{member_index}(value.clone()),\n"));
+            }
+            output.push_str("        }\n    }\n}\n");
+        }
         if members
             .iter()
             .any(|member| matches!(mir.types.get(*member), Some(Type::Generator { .. })))

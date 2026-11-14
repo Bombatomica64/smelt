@@ -183,6 +183,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "prim_set" => Need::PrimSet,
         "panic_route" => Need::PanicRoute,
         "bigint" => Need::BigInt,
+        "wide_tuple" => Need::WideTuple,
         "symbol" => Need::Symbol,
         "generator" => Need::Generator,
         "iterator_result" => Need::IteratorResult,

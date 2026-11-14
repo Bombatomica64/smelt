@@ -913,6 +913,48 @@ fn generic_string_and_shared_date() -> TestResult {
     verify_node_parity("generic_string_and_shared_date")
 }
 
+/// ts-pattern's library shapes: a 3-tuple record field recovered from an
+/// erased value, a generic union with a generic class arm, a closure nested in
+/// a closure over a multiply-assigned local, and `new` of a later-declared
+/// class whose parameter only a `never` argument instantiates.
+#[test]
+fn ts_pattern_lib_shapes() -> TestResult {
+    verify_node_parity("ts_pattern_lib_shapes")
+}
+
+/// ts-pattern's test-suite shapes: erased values typed by the checker at their
+/// bindings, `new Set(..)` built at its parameter's type, a record keyed by a
+/// block-local symbol, a member-less abstract class as its subclasses' union,
+/// and classes that hold their own class.
+#[test]
+fn ts_pattern_test_shapes() -> TestResult {
+    verify_node_parity("ts_pattern_test_shapes")?;
+    // Type preservation for the symbol-keyed record: it is a property-key
+    // record of property-key records of strings, as the literal is, not an
+    // erased record (`SmeltRecord<JsString, SmeltUnknown>`).
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("ts_pattern_test_shapes.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"ts-pattern-shapes\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    ensure(
+        source.contains("closure_arg_0: SmeltPropKeyRecord<SmeltPropKeyRecord<JsString>>"),
+        "the symbol-keyed record lost its value types",
+    )
+}
+
 /// A class value carries its static methods, so a computed-key call finds
 /// them, and a block-local class used as a value constructs that class, not
 /// another class of the same name.

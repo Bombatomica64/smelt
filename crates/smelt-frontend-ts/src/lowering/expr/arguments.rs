@@ -303,6 +303,14 @@ impl ModuleBuilder<'_> {
                 }
                 self.argument(argument, body)
             }
+            // `count(new Set(['a']))` with `count(set: Set<string | number>)`:
+            // the constructed value is fresh, so it is built at the parameter's
+            // type, exactly as an array or object literal argument is. Lowering
+            // it without the hint built a `Set<string>` that no conversion
+            // turns into the parameter's set without copying it.
+            Argument::NewExpression(new_expr) => {
+                self.new_expression_with_hint(new_expr, body, type_hint)
+            }
             _ => self.argument(argument, body),
         }
     }

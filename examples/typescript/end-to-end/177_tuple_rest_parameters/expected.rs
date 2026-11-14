@@ -3506,6 +3506,33 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
+macro_rules! smelt_unknown_tuple {
+    ($($name:ident $value:ident),+) => {
+        impl<$($name: IntoSmeltUnknown),+> IntoSmeltUnknown for ($($name,)+) {
+            fn into_smelt_unknown(self) -> SmeltUnknown {
+                let ($($value,)+) = self;
+                SmeltUnknown::Array(vec![$($value.into_smelt_unknown()),+].into())
+            }
+        }
+        impl<$($name: SmeltFromUnknown),+> SmeltFromUnknown for ($($name,)+) {
+            fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+                let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() };
+                ($($name::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)),)+)
+            }
+        }
+    };
+}
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i, J smelt_j);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i, J smelt_j, K smelt_k);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i, J smelt_j, K smelt_k, L smelt_l);
+
 thread_local! { static SMELT_REGRESS_CACHE: ::std::cell::RefCell<::std::collections::HashMap<String, ::std::option::Option<::std::rc::Rc<regress::Regex>>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 /// Expand one JavaScript replacement pattern against a match (ECMA-262 `GetSubstitution`).

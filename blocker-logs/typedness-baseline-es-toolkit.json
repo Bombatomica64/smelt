@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14107,
+      "concrete": 14110,
       "generic": 228,
-      "erased": 7919
+      "erased": 7910
     },
     "reads": {
       "concrete": 341,
@@ -5273,9 +5273,9 @@
     },
     "src/compat/function/memoize.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 9,
         "generic": 0,
-        "erased": 41
+        "erased": 33
       },
       "reads": {
         "concrete": 0,
@@ -8826,9 +8826,9 @@
     },
     "src/function/debounce.spec.ts": {
       "values": {
-        "concrete": 141,
+        "concrete": 143,
         "generic": 0,
-        "erased": 68
+        "erased": 67
       },
       "reads": {
         "concrete": 3,
