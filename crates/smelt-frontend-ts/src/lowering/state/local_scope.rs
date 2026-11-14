@@ -158,6 +158,17 @@ impl ScopeGroups {
     pub(in crate::lowering) const NARROWINGS: Self = Self(1 << 4);
     /// Every group.
     pub(in crate::lowering) const ALL: Self = Self(0b1_1111);
+    /// A class member body (method, accessor, constructor, field
+    /// initializer): its own bindings and a fresh narrowing stack.
+    ///
+    /// Narrowing facts are keyed by source NAME, so a member that kept the
+    /// enclosing stack saw what an earlier sibling member proved about a
+    /// same-named local: `if (!m) return null;` in one parser's `parse` left
+    /// `m` non-null, and the next class's `return m ? .. : null` folded its
+    /// test to `true` and unwrapped a `None` at run time. Function
+    /// declarations (`ALL`), arrows and function expressions already start
+    /// fresh.
+    pub(in crate::lowering) const MEMBER_BODY: Self = Self(1 | (1 << 4));
 
     /// These groups together with `other`.
     pub(in crate::lowering) const fn with(self, other: Self) -> Self {
