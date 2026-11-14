@@ -1799,6 +1799,7 @@ trait SmeltLiveList {
     fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
     fn replace_elements(&self, values: Vec<SmeltUnknown>);
     fn typed_list(&self) -> &dyn ::std::any::Any;
+    fn holds(&self, value: &SmeltUnknown) -> bool;
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
@@ -1809,14 +1810,28 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for
     fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
     fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
     fn typed_list(&self) -> &dyn ::std::any::Any { self }
+    fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&T::smelt_from_unknown(value.clone()).into_smelt_unknown(), value, 0) }
+}
+
+/// Whether two erased values hold the same content, ignoring object identity.
+fn smelt_live_same_content(left: &SmeltUnknown, right: &SmeltUnknown, depth: usize) -> bool {
+    if depth > 32 { return false; }
+    match (left, right) {
+        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left.to_bits() == right.to_bits() || (left.is_nan() && right.is_nan()),
+        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => { let (left, right) = (left.clone().into_vec(), right.clone().into_vec()); left.len() == right.len() && left.iter().zip(&right).all(|(left, right)| smelt_live_same_content(left, right, depth + 1)) }
+        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => { let left_entries = left.iter().collect::<Vec<_>>(); let right_count = right.iter().count(); left_entries.len() == right_count && left_entries.iter().all(|(key, value)| right.get(&*key.to_string_lossy()).is_some_and(|other| smelt_live_same_content(value, &other, depth + 1))) }
+        (left, right) => left == right,
+    }
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
-    fn into_live_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(self)) }) }
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(self))))) }) }
 }
 
 impl SmeltArray {
-    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live.as_ref()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
+    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
+    fn live_view(&self) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { self.live.as_ref()?.borrow().clone() }
+    fn live_view_for(&self, values: &[SmeltUnknown]) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { let live = self.live_view()?; if values.iter().all(|value| live.holds(value)) { return Some(live); } *self.values.borrow_mut() = live.elements(); if let Some(cell) = &self.live { *cell.borrow_mut() = None; } None }
 }
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
@@ -2193,7 +2208,7 @@ pub struct SmeltArray {
     id: usize,
     values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>,
     detached: bool,
-    live: Option<::std::rc::Rc<dyn SmeltLiveList>>,
+    live: Option<::std::rc::Rc<::std::cell::RefCell<Option<::std::rc::Rc<dyn SmeltLiveList>>>>>,
 }
 
 impl ::std::fmt::Debug for SmeltArray { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltArray").field("id", &self.id).field("values", &self.clone().into_vec()).finish() } }
@@ -2202,17 +2217,17 @@ impl SmeltArray {
     fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: false, live: None, } }
     fn with_id(id: usize, values: Vec<SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), detached: true, live: None, } }
     fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>>) -> Self { Self { id, values, detached: false, live: None, } }
-    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { if let Some(live) = &self.live { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.elements())); } ::std::rc::Rc::clone(&self.values) }
-    fn into_vec(self) -> Vec<SmeltUnknown> { if let Some(live) = &self.live { return live.elements(); } self.values.borrow().clone() }
-    fn len(&self) -> usize { if let Some(live) = &self.live { return live.element_count(); } self.values.borrow().len() }
+    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { if let Some(live) = self.live_view() { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.elements())); } ::std::rc::Rc::clone(&self.values) }
+    fn into_vec(self) -> Vec<SmeltUnknown> { if let Some(live) = self.live_view() { return live.elements(); } self.values.borrow().clone() }
+    fn len(&self) -> usize { if let Some(live) = self.live_view() { return live.element_count(); } self.values.borrow().len() }
     fn is_empty(&self) -> bool { self.len() == 0 }
-    fn get(&self, index: usize) -> Option<SmeltUnknown> { if let Some(live) = &self.live { return live.element(index); } self.values.borrow().get(index).cloned() }
+    fn get(&self, index: usize) -> Option<SmeltUnknown> { if let Some(live) = self.live_view() { return live.element(index); } self.values.borrow().get(index).cloned() }
     fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.clone().into_vec().into_iter() }
-    fn set_index(&self, index: usize, value: SmeltUnknown) { if let Some(live) = &self.live { live.set_element(index, value); return; } let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
-    fn push(&self, value: SmeltUnknown) { if let Some(live) = &self.live { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } self.values.borrow_mut().push(value); }
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { if let Some(live) = &self.live { return live.splice_elements(start, delete, items); } let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
+    fn set_index(&self, index: usize, value: SmeltUnknown) { if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { live.set_element(index, value); return; } let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
+    fn push(&self, value: SmeltUnknown) { if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } self.values.borrow_mut().push(value); }
+    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { if let Some(live) = self.live_view_for(&items) { return live.splice_elements(start, delete, items); } let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
     fn set_len(&self, len: usize) { let current = self.len(); if len < current { self.splice(len, current - len, Vec::new()); } else if len > current { self.splice(current, 0, vec![SmeltUnknown::Undefined; len - current]); } }
-    fn replace_all(&self, values: Vec<SmeltUnknown>) { if let Some(live) = &self.live { live.replace_elements(values); return; } *self.values.borrow_mut() = values; }
+    fn replace_all(&self, values: Vec<SmeltUnknown>) { if let Some(live) = self.live_view_for(&values) { live.replace_elements(values); return; } *self.values.borrow_mut() = values; }
     fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
     fn set_named_property(&self, key: String, value: SmeltUnknown) { if key == "length" { if let SmeltUnknown::Number(len) = value && len >= 0.0 && len.fract() == 0.0 && len <= f64::from(u32::MAX) { self.set_len(smelt_erased_relative_position(Some(&value), usize::MAX, 0)); } return; } smelt_array_store_named_property(self, key, value, false); }
     fn named_keys(&self) -> Vec<String> { smelt_array_named_keys(self.id) }

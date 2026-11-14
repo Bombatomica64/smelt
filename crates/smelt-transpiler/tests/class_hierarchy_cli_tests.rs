@@ -5,7 +5,10 @@
 //!   as `unknown`) is the typed array itself: `push`, index and `length`
 //!   writes, `splice`, `pop`/`shift`/`unshift`, `sort`/`reverse` are seen
 //!   through both handles, narrowing back yields the same array, and a copy
-//!   (`[...erased]`, `Array.from(erased)`) is independent.
+//!   (`[...erased]`, `Array.from(erased)`) is independent. A write the typed
+//!   list cannot hold (an extra field, a value of another kind through `any`)
+//!   detaches the view into an ordinary erased array holding exactly what was
+//!   written.
 //! - **Subclass static writes**: `Sub.x = v` for a static `x` declared on
 //!   `Base` makes `x` an own property of `Sub` (directly, through a typed or an
 //!   erased class value, with `++`/`+=`, three levels deep), leaving `Base.x`
@@ -104,6 +107,16 @@ function roundTrip(): string {
   return `${local.join(",")} ${back === local} ${(erased as any).length}`;
 }
 console.log(roundTrip());
+function unfaithful(): string {
+  const recs: { name: string }[] = [{ name: "a" }];
+  const view: any = recs;
+  const first = view[0];
+  first.extra = 1;
+  view[0] = first;
+  view.push(5);
+  return JSON.stringify(view);
+}
+console.log(unfaithful());
 "#;
 
 /// What Node prints for [`LIVE_ARRAYS_TS`].
@@ -117,6 +130,7 @@ const LIVE_ARRAYS_OUTPUT: &str = concat!(
     "y,x,w w y x\n",
     "9,6,5 [9,6,5]\n",
     "0,7,1 true 3\n",
+    "[{\"name\":\"a\",\"extra\":1},5]\n",
 );
 
 /// An erased typed array is the typed array itself, and a copy is a copy.
