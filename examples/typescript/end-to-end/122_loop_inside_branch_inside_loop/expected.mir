@@ -25,10 +25,10 @@ fn main (FuncId(0)) -> None
     %22 temp: Bool
     %23 temp: String
     %24 temp: Float
-    %25 temp: usize
+    %25 temp: Float
     %26 temp: String
     %27 temp: Float
-    %28 temp: usize
+    %28 temp: Float
     %29 temp: String
     %30 temp: None
     %31 temp: Bool
@@ -37,8 +37,8 @@ fn main (FuncId(0)) -> None
     %34 temp: usize
     %35 temp: Bool
     %36 temp: Float
-    %37 temp: usize
-    %38 temp: usize
+    %37 temp: Float
+    %38 temp: Float
     %39 temp: None
     %40 temp: None
     %41 temp: None
@@ -58,8 +58,8 @@ fn main (FuncId(0)) -> None
     %55 temp: Bool
     %56 temp: Float
     %57 temp: Float
-    %58 temp: usize
-    %59 temp: usize
+    %58 temp: Float
+    %59 temp: Float
     %60 temp: String
     %61 temp: None
     %62 temp: Float
@@ -78,8 +78,7 @@ fn main (FuncId(0)) -> None
     %20 = copy %1 != 1
     switch move %20 ? bb5 : bb6
   bb3:
-    %28 = move %1 + 1
-    %1 = move %28
+    %1 = move %1 + 1
     goto bb1
   bb4:
     %29 = string_join move %0, ","
@@ -101,8 +100,7 @@ fn main (FuncId(0)) -> None
     %24 = list_push copy %0, move %23
     goto bb9
   bb9:
-    %25 = move %4 + 1
-    %4 = move %25
+    %4 = move %4 + 1
     goto bb7
   bb10:
     goto bb6
@@ -124,8 +122,7 @@ fn main (FuncId(0)) -> None
     %8 = 0
     goto bb17
   bb16:
-    %38 = move %7 + 1
-    %7 = move %38
+    %7 = move %7 + 1
     goto bb12
   bb17:
     %34 = copy %7 + 1
@@ -133,10 +130,8 @@ fn main (FuncId(0)) -> None
     switch move %35 ? bb18 : bb19
   bb18:
     %64 = primitive_cast_float copy %8
-    %36 = move %6 + move %64
-    %6 = move %36
-    %37 = move %8 + 1
-    %8 = move %37
+    %6 = move %6 + move %64
+    %8 = move %8 + 1
     goto bb17
   bb19:
     goto bb16
@@ -161,8 +156,7 @@ fn main (FuncId(0)) -> None
     %15 = len copy %12
     goto bb27
   bb25:
-    %59 = move %13 + 1
-    %13 = move %59
+    %13 = move %13 + 1
     goto bb23
   bb26:
     %60 = string_join move %11, ","
@@ -174,8 +168,7 @@ fn main (FuncId(0)) -> None
     %49 = copy %13 == 1
     switch move %49 ? bb31 : bb32
   bb29:
-    %58 = move %14 + 1
-    %14 = move %58
+    %14 = move %14 + 1
     goto bb27
   bb30:
     goto bb25

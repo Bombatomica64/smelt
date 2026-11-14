@@ -9,7 +9,7 @@ fn sum_pairs (FuncId(0)) -> Float
     %6 temp: usize
     %7 temp: Float
     %8 temp: Float
-    %9 temp: usize
+    %9 temp: Float
   bb0:
     %1 = 0.0
     %2 = 0
@@ -22,12 +22,10 @@ fn sum_pairs (FuncId(0)) -> Float
   bb2:
     %6 = copy %2 + 1
     %7 = copy %0[copy %2] * copy %0[copy %6]
-    %8 = move %1 + move %7
-    %1 = move %8
+    %1 = move %1 + move %7
     goto bb3
   bb3:
-    %9 = move %2 + 1
-    %2 = move %9
+    %2 = move %2 + 1
     goto bb1
   bb4:
     return move %1
@@ -40,7 +38,7 @@ fn last_index_down (FuncId(1)) -> Float
     %3 temp: Float
     %4 temp: Bool
     %5 temp: Bool
-    %6 temp: i64
+    %6 temp: Float
     %7 temp: Float
   bb0:
     %2 = len copy %0
@@ -58,8 +56,7 @@ fn last_index_down (FuncId(1)) -> Float
   bb4:
     goto bb3
   bb5:
-    %6 = move %1 - 1
-    %1 = move %6
+    %1 = move %1 - 1
     goto bb1
 
 fn step_two (FuncId(2)) -> String
@@ -74,7 +71,7 @@ fn step_two (FuncId(2)) -> String
     %7 temp: String
     %8 temp: String
     %9 temp: String
-    %10 temp: usize
+    %10 temp: Float
     %11 temp: String
     %12 temp: String
     %13 temp: Float
@@ -93,12 +90,10 @@ fn step_two (FuncId(2)) -> String
     %6 = move %5 + ":"
     %7 = move %6 + copy %0[copy %1]
     %8 = move %7 + " "
-    %9 = move %2 + move %8
-    %2 = move %9
+    %2 = move %2 + move %8
     goto bb3
   bb3:
-    %10 = move %1 + 2
-    %1 = move %10
+    %1 = move %1 + 2
     goto bb1
   bb4:
     %11 = move %2 + "end="
@@ -115,7 +110,7 @@ fn chars (FuncId(3)) -> String
     %4 temp: Bool
     %5 temp: String
     %6 temp: String
-    %7 temp: usize
+    %7 temp: Float
     %8 temp: Float
     %9 temp: Float
   bb0:
@@ -130,12 +125,10 @@ fn chars (FuncId(3)) -> String
     %8 = primitive_cast_float copy %2
     %5 = move %1 + copy %0[move %8]
     %9 = primitive_cast_float copy %2
-    %6 = move %5 + move %9
-    %1 = move %6
+    %1 = move %5 + move %9
     goto bb3
   bb3:
-    %7 = move %2 + 1
-    %2 = move %7
+    %2 = move %2 + 1
     goto bb1
   bb4:
     return move %1
@@ -155,8 +148,8 @@ fn grid (FuncId(4)) -> Float
     %10 temp: Float
     %11 temp: Float
     %12 temp: Float
-    %13 temp: usize
-    %14 temp: usize
+    %13 temp: Float
+    %14 temp: Float
     %15 temp: Float
     %16 temp: Float
   bb0:
@@ -172,8 +165,7 @@ fn grid (FuncId(4)) -> Float
     %4 = 0
     goto bb5
   bb3:
-    %14 = move %2 + 1
-    %2 = move %14
+    %2 = move %2 + 1
     goto bb1
   bb4:
     return move %1
@@ -187,12 +179,10 @@ fn grid (FuncId(4)) -> Float
     %10 = copy %3[copy %4] * move %15
     %16 = primitive_cast_float copy %4
     %11 = move %10 + move %16
-    %12 = move %1 + move %11
-    %1 = move %12
+    %1 = move %1 + move %11
     goto bb7
   bb7:
-    %13 = move %4 + 1
-    %4 = move %13
+    %4 = move %4 + 1
     goto bb5
   bb8:
     goto bb3
@@ -210,8 +200,7 @@ fn unguarded (FuncId(5)) -> Float
   bb1:
     switch true ? bb2 : bb3
   bb2:
-    %2 = move %1 + 1.0
-    %1 = move %2
+    %1 = move %1 + 1.0
     %3 = copy %1 * 3.0
     %4 = move %3 > copy %0
     switch move %4 ? bb4 : bb5
@@ -230,7 +219,7 @@ fn flip (FuncId(6)) -> Float
     %3 temp: Bool
     %4 temp: Float
     %5 temp: Float
-    %6 temp: usize
+    %6 temp: Float
     %7 temp: Float
   bb0:
     %1 = 1.0
@@ -241,12 +230,10 @@ fn flip (FuncId(6)) -> Float
     switch move %3 ? bb2 : bb4
   bb2:
     %4 = -1.0
-    %5 = move %1 * move %4
-    %1 = move %5
+    %1 = move %1 * move %4
     goto bb3
   bb3:
-    %6 = move %2 + 1
-    %2 = move %6
+    %2 = move %2 + 1
     goto bb1
   bb4:
     %7 = move %1 + copy %0
@@ -264,8 +251,7 @@ fn halve (FuncId(7)) -> Float
     %1 = copy %0 > 1.0
     switch move %1 ? bb2 : bb3
   bb2:
-    %2 = move %0 / 2.0
-    %0 = move %2
+    %0 = move %0 / 2.0
     goto bb1
   bb3:
     return move %0
@@ -279,7 +265,7 @@ fn captured (FuncId(8)) -> Float
     %4 temp: Bool
     %5 temp: fn(Float, Int, List<Float>) -> None
     %6 temp: None
-    %7 temp: usize
+    %7 temp: Float
     %8 temp: Float
   bb0:
     %1 = 0.0
@@ -294,8 +280,7 @@ fn captured (FuncId(8)) -> Float
     %6 = list_for_each copy %0, move %5
     goto bb3
   bb3:
-    %7 = move %2 + 1
-    %2 = move %7
+    %2 = move %2 + 1
     goto bb1
   bb4:
     return copy %1
@@ -320,10 +305,8 @@ fn from_start (FuncId(9)) -> Float
     %5 = copy %2 < move %4
     switch move %5 ? bb2 : bb3
   bb2:
-    %6 = move %3 + copy %1[copy %2]
-    %3 = move %6
-    %7 = move %2 + 1.0
-    %2 = move %7
+    %3 = move %3 + copy %1[copy %2]
+    %2 = move %2 + 1.0
     goto bb1
   bb3:
     %8 = move %3 + move %2
@@ -342,8 +325,7 @@ fn below_bound (FuncId(10)) -> Float
     %2 = copy %1 < copy %0
     switch move %2 ? bb2 : bb3
   bb2:
-    %3 = move %1 + 1.0
-    %1 = move %3
+    %1 = move %1 + 1.0
     goto bb1
   bb3:
     return move %1
@@ -405,7 +387,7 @@ fn main (FuncId(11)) -> None
     %52 temp: String
     %53 temp: Float
     %54 temp: None
-    %55 temp: i64
+    %55 temp: Float
     %56 temp: Float
     %57 temp: Bool
     %58 temp: Float
@@ -417,7 +399,7 @@ fn main (FuncId(11)) -> None
     %64 temp: Float
     %65 temp: Float
     %66 temp: None
-    %67 temp: i64
+    %67 temp: Float
     %68 temp: Float
     %69 temp: Float
     %70 temp: Float
@@ -517,8 +499,7 @@ fn main (FuncId(11)) -> None
     %73 = primitive_cast_float copy %51
     %54 = call @console_log(move %72, move %49, move %50, move %73, move %52, move %53) -> bb32
   bb30:
-    %55 = move %0 + 1
-    %0 = move %55
+    %0 = move %0 + 1
     goto bb28
   bb31:
     goto bb33
@@ -547,12 +528,10 @@ fn main (FuncId(11)) -> None
     %3 = copy %2 - 1
     %74 = primitive_cast_float copy %3
     %75 = primitive_cast_float copy %2
-    %65 = move %74 * move %75
-    %1 = move %65
+    %1 = move %74 * move %75
     %66 = call @console_log(move %1) -> bb41
   bb39:
-    %67 = move %2 + 1
-    %2 = move %67
+    %2 = move %2 + 1
     goto bb37
   bb40:
     return none

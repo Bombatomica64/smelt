@@ -67,8 +67,7 @@ fn reduce (FuncId(3)) -> Float
   bb2:
     %4 = copy %5[copy %6]
     %9 = closure_call copy %1(move %3, move %4)
-    %10 = move %9 + 1.0
-    %3 = move %10
+    %3 = move %9 + 1.0
     goto bb3
   bb3:
     %6 = copy %6 + 1

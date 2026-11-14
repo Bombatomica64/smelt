@@ -19,8 +19,8 @@ fn later_call_argument (FuncId(0)) -> Float
   bb0:
     %1 = copy %0
     %2 = copy %1
-    %6 = move %1 + 1.0
-    %1 = move %6
+    %5 = move %1
+    %1 = move %5 + 1.0
     %7 = call fn8() -> bb1
   bb1:
     %9 = call fn7(move %7, copy %1) -> bb2
@@ -47,8 +47,8 @@ fn later_read (FuncId(1)) -> Float
   bb0:
     %1 = copy %0
     %2 = copy %1
-    %6 = move %1 + 1.0
-    %1 = move %6
+    %5 = move %1
+    %1 = move %5 + 1.0
     %3 = move %2 + copy %1
     %9 = move %3 * 100.0
     %11 = move %9 + move %1
@@ -75,12 +75,12 @@ fn two_updates (FuncId(2)) -> Float
   bb0:
     %1 = copy %0
     %2 = copy %1
-    %7 = move %1 + 1.0
-    %1 = move %7
+    %6 = move %1
+    %1 = move %6 + 1.0
     %8 = move %2 * 10.0
     %3 = copy %1
-    %11 = move %1 + 1.0
-    %1 = move %11
+    %10 = move %1
+    %1 = move %10 + 1.0
     %4 = move %8 + move %3
     %13 = move %4 * 100.0
     %15 = move %13 + move %1
@@ -108,8 +108,8 @@ fn callee_reads_captured_variable (FuncId(3)) -> Float
     %5 = closure ClosureId(0) [copy %2]
     %1 = move %5
     %3 = copy %2
-    %8 = copy %2 + 1.0
-    %2 = move %8
+    %7 = copy %2
+    %2 = move %7 + 1.0
     %9 = move %3 * 10.0
     %10 = closure_call move %1()
     %4 = move %9 + move %10
@@ -137,8 +137,8 @@ fn indexed_read (FuncId(4)) -> Float
     %1 = [10.0, 20.0, 30.0, 40.0]
     %2 = copy %0
     %3 = copy %2
-    %8 = move %2 + 1.0
-    %2 = move %8
+    %7 = move %2
+    %2 = move %7 + 1.0
     %9 = copy %2
     %4 = copy %1[copy %3] + copy %1[copy %9]
     %11 = move %4 * 100.0
@@ -164,8 +164,8 @@ fn later_element_read (FuncId(5)) -> Float
   bb0:
     %1 = copy %0
     %2 = copy %1
-    %6 = move %1 + 1.0
-    %1 = move %6
+    %5 = move %1
+    %1 = move %5 + 1.0
     %3 = [move %2, copy %1]
     %9 = copy %3[0.0] * 100.0
     %10 = copy %3[1.0] * 10.0
@@ -187,8 +187,7 @@ fn trailing_update_still_defers (FuncId(6)) -> Float
     %1 = copy %0
     %3 = copy %1 * 10.0
     %2 = move %3 + copy %1
-    %5 = move %1 + 1.0
-    %1 = move %5
+    %1 = move %1 + 1.0
     %6 = move %2 * 100.0
     %7 = move %6 + move %1
     return move %7
@@ -213,8 +212,8 @@ fn main (FuncId(9)) -> None
     %1 user __smelt_update_tmp: usize
     %2 user top: Float
     %3 temp: Float
-    %4 temp: Float
-    %5 temp: usize
+    %4 temp: usize
+    %5 temp: Float
     %6 temp: Echo
     %7 temp: Float
     %8 temp: Float
@@ -241,8 +240,8 @@ fn main (FuncId(9)) -> None
   bb0:
     %0 = 5
     %1 = copy %0
-    %5 = move %0 + 1
-    %0 = move %5
+    %4 = move %0
+    %0 = move %4 + 1
     %6 = call fn8() -> bb1
   bb1:
     %26 = primitive_cast_float copy %0

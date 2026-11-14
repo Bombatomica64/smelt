@@ -676,7 +676,6 @@ function stopWhenSorted(items: number[]): void {
 let mut _smelt_tmp_2: usize;
 let mut _smelt_tmp_3: bool;
 let mut _smelt_tmp_4: bool;
-let mut _smelt_tmp_5: usize;
 let mut index: usize = 0;
 loop {
 _smelt_tmp_2 = items.len();
@@ -686,8 +685,7 @@ _smelt_tmp_4 = items.borrow().get(index).cloned().unwrap_or_else(|| 0.0) >= 0.0;
 if _smelt_tmp_4 {
 return;
 } else {
-_smelt_tmp_5 = index + 1;
-index = _smelt_tmp_5;
+index = index + 1;
 continue;
 }
 }
@@ -715,15 +713,11 @@ function choose(flag: boolean): unknown[] {
     assert_eq!(
         rust_items(&source, &["fn choose"]),
         r#"fn choose(flag: bool) -> SmeltList<SmeltUnknown> {
-let _smelt_tmp_2: SmeltList<SmeltUnknown>;
-let _smelt_tmp_3: SmeltList<SmeltUnknown>;
 let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::new(Vec::<SmeltUnknown>::new()));
 if flag {
-_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::String("ready".into())]; smelt_list_items }));
-values = Into::<SmeltList<_>>::into(_smelt_tmp_2);
+values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::String("ready".into())]; smelt_list_items }));
 } else {
-_smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));
-values = Into::<SmeltList<_>>::into(_smelt_tmp_3);
+values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));
 }
 return values;
 }"#
@@ -1245,7 +1239,6 @@ let mut _smelt_tmp_4: usize;
 let mut _smelt_tmp_5: bool;
 let mut _smelt_tmp_6: bool;
 let mut _smelt_tmp_7: JsString;
-let mut _smelt_tmp_8: JsString;
 let mut out: JsString = JsString::new();
 let mut _smelt_tmp_3: usize = 0;
 loop {
@@ -1256,8 +1249,7 @@ part = parts.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| None::<JsStri
 _smelt_tmp_6 = part.clone().clone().is_some_and(|value| !value.is_empty());
 if _smelt_tmp_6 {
 _smelt_tmp_7 = part.clone().expect("optional value was absent after narrowing");
-_smelt_tmp_8 = out + &_smelt_tmp_7;
-out = _smelt_tmp_8;
+out = out + &_smelt_tmp_7;
 _smelt_tmp_3 = _smelt_tmp_3 + 1;
 continue;
 } else {

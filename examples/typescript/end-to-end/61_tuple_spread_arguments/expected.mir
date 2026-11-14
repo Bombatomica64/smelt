@@ -71,7 +71,7 @@ fn main (FuncId(4)) -> None
     %16 temp: Bool
     %17 temp: String
     %18 temp: None
-    %19 temp: usize
+    %19 temp: Float
     %20 temp: (String, Float)
     %21 temp: String
     %22 temp: None
@@ -105,8 +105,7 @@ fn main (FuncId(4)) -> None
     %2 = copy %0[copy %1]
     %17 = call fn0(copy %2[0], copy %2[1], copy %2[2]) -> bb5
   bb3:
-    %19 = move %1 + 1
-    %1 = move %19
+    %1 = move %1 + 1
     goto bb1
   bb4:
     %3 = ("/c", 7.0)

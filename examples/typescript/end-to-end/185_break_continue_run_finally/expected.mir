@@ -66,7 +66,7 @@ fn continue_in_while (FuncId(1)) -> None throws
   locals
     %0 user i: usize
     %1 temp: Bool
-    %2 temp: usize
+    %2 temp: Float
     %3 user smelt_pending_thrown: Unknown
     %4 temp: Bool
     %5 temp: Bool
@@ -91,8 +91,7 @@ fn continue_in_while (FuncId(1)) -> None throws
     %1 = copy %0 < 3
     switch move %1 ? bb2 : bb3
   bb2:
-    %2 = move %0 + 1
-    %0 = move %2
+    %0 = move %0 + 1
     %3 = undefined
     %4 = false
     goto bb4
@@ -217,7 +216,7 @@ fn loop_inside_try (FuncId(3)) -> None throws
     %10 temp: List<String>
     %11 temp: String
     %12 temp: Float
-    %13 temp: usize
+    %13 temp: Float
     %14 temp: List<String>
     %15 temp: Float
     %16 temp: List<String>
@@ -248,8 +247,7 @@ fn loop_inside_try (FuncId(3)) -> None throws
     %5 = false
     goto bb9
   bb7:
-    %13 = move %0 + 1
-    %0 = move %13
+    %0 = move %0 + 1
     goto bb5
   bb8:
     %14 = global_get #0

@@ -2309,13 +2309,20 @@ async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnkno
     }
 }
 
+#[allow(dead_code)]
+fn smelt_scheduled_continuation(future: SmeltPromiseFuture) -> SmeltUnknown {
+    let promise = SmeltPromise::from_future(future);
+    
+    SmeltUnknown::Promise(promise)
+}
+
 /// Read a modeled member off an erased promise (`then`/`catch`/`finally`).
 #[allow(dead_code)]
 fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {
     let member: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = match field {
-        "then" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } })))) }) }
-        "catch" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } })))) }) }
-        "finally" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled })))) }) }
+        "then" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(smelt_scheduled_continuation(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } }))) }) }
+        "catch" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(smelt_scheduled_continuation(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } }))) }) }
+        "finally" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(smelt_scheduled_continuation(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled }))) }) }
         _ => return SmeltUnknown::Undefined,
     };
     SmeltUnknown::Function(member)
@@ -2389,6 +2396,9 @@ impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> 
 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
 fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().map(SmeltUnknown::String).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get("next").or_else(|| object.get("__smelt_method:next")) else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!("unknown iterator did not return an iterable") } }
+/// The first `limit` items of an erased `[Symbol.iterator]()` result, stepping
+/// an iterator no further than that (array destructuring's reads).
+fn smelt_unknown_iterator_take(source: SmeltUnknown, limit: usize) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Object(object) if object.get("next").or_else(|| object.get("__smelt_method:next")).is_some() => { let Some(SmeltUnknown::Function(next)) = object.get("next").or_else(|| object.get("__smelt_method:next")) else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); while items.len() < limit { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } other => smelt_unknown_iterator_items(other).into_iter().take(limit).collect() } }
 
 /// Bind `Function.prototype.apply`/`call`/`bind` on an erased receiver, or read the field of an object receiver.
 fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
@@ -4078,7 +4088,6 @@ fn main() {
     let mut _smelt_tmp_51: i64;
     let mut _smelt_tmp_52: JsString;
     let mut _smelt_tmp_53: f64;
-    let mut _smelt_tmp_55: i64;
     let mut _smelt_tmp_56: f64;
     let mut _smelt_tmp_57: bool;
     let mut _smelt_tmp_58: f64;
@@ -4086,8 +4095,6 @@ fn main() {
     let mut _smelt_tmp_60: f64;
     let mut _smelt_tmp_61: f64;
     let mut _smelt_tmp_63: bool;
-    let mut _smelt_tmp_65: f64;
-    let mut _smelt_tmp_67: i64;
     let mut _smelt_tmp_68: f64;
     let mut _smelt_tmp_69: f64;
     let mut _smelt_tmp_70: f64;
@@ -4156,8 +4163,7 @@ fn main() {
     _smelt_tmp_72 = i as f64;
     _smelt_tmp_73 = _smelt_tmp_51 as f64;
     let _ = { println!("{} {} {} {} {} {}", smelt_console_number(_smelt_tmp_72), _smelt_tmp_49, _smelt_tmp_50, smelt_console_number(_smelt_tmp_73), _smelt_tmp_52, smelt_console_number(_smelt_tmp_53)); };
-    _smelt_tmp_55 = i + 1;
-    i = _smelt_tmp_55;
+    i = i + 1;
     }
     loop {
     _smelt_tmp_56 = SMELT_GLOBAL_K_0.with(::std::cell::Cell::get);
@@ -4177,11 +4183,9 @@ fn main() {
     m = j - 1;
     _smelt_tmp_74 = m as f64;
     _smelt_tmp_75 = j as f64;
-    _smelt_tmp_65 = _smelt_tmp_74 * _smelt_tmp_75;
-    z = _smelt_tmp_65;
+    z = _smelt_tmp_74 * _smelt_tmp_75;
     let _ = { println!("{}", smelt_console_number(z)); };
-    _smelt_tmp_67 = j + 1;
-    j = _smelt_tmp_67;
+    j = j + 1;
     }
     return;
 }
@@ -4199,8 +4203,6 @@ pub(crate) fn sum_pairs(xs: SmeltList<f64>) -> f64 {
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: usize;
     let mut _smelt_tmp_7: f64;
-    let mut _smelt_tmp_8: f64;
-    let mut _smelt_tmp_9: usize;
     let mut total: f64 = 0.0;
     let mut i: usize = 0;
     loop {
@@ -4210,10 +4212,8 @@ pub(crate) fn sum_pairs(xs: SmeltList<f64>) -> f64 {
     if !(_smelt_tmp_5) { break; }
     _smelt_tmp_6 = i + 1;
     _smelt_tmp_7 = xs.borrow().get(i).cloned().unwrap_or_else(|| 0.0) * xs.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| 0.0);
-    _smelt_tmp_8 = total + _smelt_tmp_7;
-    total = _smelt_tmp_8;
-    _smelt_tmp_9 = i + 1;
-    i = _smelt_tmp_9;
+    total = total + _smelt_tmp_7;
+    i = i + 1;
     }
     return total;
 }
@@ -4221,7 +4221,6 @@ pub(crate) fn sum_pairs(xs: SmeltList<f64>) -> f64 {
 pub(crate) fn last_index_down(xs: SmeltList<JsString>) -> f64 {
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: i64;
     let mut _smelt_tmp_7: f64;
     let _smelt_tmp_2: i64 = xs.len() as i64;
     let mut i: i64 = _smelt_tmp_2 - 1;
@@ -4232,8 +4231,7 @@ pub(crate) fn last_index_down(xs: SmeltList<JsString>) -> f64 {
     if _smelt_tmp_5 {
     break;
     } else {
-    _smelt_tmp_6 = i - 1;
-    i = _smelt_tmp_6;
+    i = i - 1;
     continue;
     }
     }
@@ -4248,8 +4246,6 @@ pub(crate) fn step_two(xs: SmeltList<f64>) -> JsString {
     let mut _smelt_tmp_6: JsString;
     let mut _smelt_tmp_7: JsString;
     let mut _smelt_tmp_8: JsString;
-    let mut _smelt_tmp_9: JsString;
-    let mut _smelt_tmp_10: usize;
     let mut _smelt_tmp_11: JsString;
     let mut _smelt_tmp_12: JsString;
     let mut _smelt_tmp_13: f64;
@@ -4265,10 +4261,8 @@ pub(crate) fn step_two(xs: SmeltList<f64>) -> JsString {
     _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from(":");
     _smelt_tmp_7 = _smelt_tmp_6 + &JsString::from(smelt_number_to_string(xs.borrow().get(i).cloned().unwrap_or_else(|| 0.0)));
     _smelt_tmp_8 = _smelt_tmp_7 + &JsString::from(" ");
-    _smelt_tmp_9 = out + &_smelt_tmp_8;
-    out = _smelt_tmp_9;
-    _smelt_tmp_10 = i + 2;
-    i = _smelt_tmp_10;
+    out = out + &_smelt_tmp_8;
+    i = i + 2;
     }
     _smelt_tmp_11 = out + &JsString::from("end=");
     _smelt_tmp_14 = i as f64;
@@ -4280,8 +4274,6 @@ pub(crate) fn chars(s: JsString) -> JsString {
     let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: JsString;
-    let mut _smelt_tmp_6: JsString;
-    let mut _smelt_tmp_7: usize;
     let mut _smelt_tmp_8: f64;
     let mut _smelt_tmp_9: f64;
     let mut out: JsString = JsString::new();
@@ -4293,10 +4285,8 @@ pub(crate) fn chars(s: JsString) -> JsString {
     _smelt_tmp_8 = i as f64;
     _smelt_tmp_5 = out + &s.char_at({ let smelt_normalized = _smelt_tmp_8 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default().clone();
     _smelt_tmp_9 = i as f64;
-    _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from(smelt_number_to_string(_smelt_tmp_9));
-    out = _smelt_tmp_6;
-    _smelt_tmp_7 = i + 1;
-    i = _smelt_tmp_7;
+    out = _smelt_tmp_5 + &JsString::from(smelt_number_to_string(_smelt_tmp_9));
+    i = i + 1;
     }
     return out;
 }
@@ -4311,9 +4301,6 @@ pub(crate) fn grid(rows: SmeltList<SmeltList<f64>>) -> f64 {
     let mut _smelt_tmp_9: usize;
     let mut _smelt_tmp_10: f64;
     let mut _smelt_tmp_11: f64;
-    let mut _smelt_tmp_12: f64;
-    let mut _smelt_tmp_13: usize;
-    let mut _smelt_tmp_14: usize;
     let mut _smelt_tmp_15: f64;
     let mut _smelt_tmp_16: f64;
     let mut acc: f64 = 0.0;
@@ -4333,26 +4320,21 @@ pub(crate) fn grid(rows: SmeltList<SmeltList<f64>>) -> f64 {
     _smelt_tmp_10 = row.borrow().get(c).cloned().unwrap_or_else(|| 0.0) * _smelt_tmp_15;
     _smelt_tmp_16 = c as f64;
     _smelt_tmp_11 = _smelt_tmp_10 + _smelt_tmp_16;
-    _smelt_tmp_12 = acc + _smelt_tmp_11;
-    acc = _smelt_tmp_12;
-    _smelt_tmp_13 = c + 1;
-    c = _smelt_tmp_13;
+    acc = acc + _smelt_tmp_11;
+    c = c + 1;
     }
-    _smelt_tmp_14 = r + 1;
-    r = _smelt_tmp_14;
+    r = r + 1;
     }
     return acc;
 }
 
 pub(crate) fn unguarded(limit: f64) -> f64 {
-    let mut _smelt_tmp_2: f64;
     let mut _smelt_tmp_3: f64;
     let mut _smelt_tmp_4: bool;
     let mut i: f64 = 0.0;
     loop {
     if !(true) { break; }
-    _smelt_tmp_2 = i + 1.0;
-    i = _smelt_tmp_2;
+    i = i + 1.0;
     _smelt_tmp_3 = i * 3.0;
     _smelt_tmp_4 = _smelt_tmp_3 > limit;
     if _smelt_tmp_4 {
@@ -4367,8 +4349,6 @@ pub(crate) fn unguarded(limit: f64) -> f64 {
 pub(crate) fn flip(times: f64) -> f64 {
     let mut _smelt_tmp_3: bool;
     let mut _smelt_tmp_4: f64;
-    let mut _smelt_tmp_5: f64;
-    let mut _smelt_tmp_6: usize;
     let mut _smelt_tmp_7: f64;
     let mut sign: f64 = 1.0;
     let mut k: usize = 0;
@@ -4376,10 +4356,8 @@ pub(crate) fn flip(times: f64) -> f64 {
     _smelt_tmp_3 = k < 4;
     if !(_smelt_tmp_3) { break; }
     _smelt_tmp_4 = -1.0;
-    _smelt_tmp_5 = sign * _smelt_tmp_4;
-    sign = _smelt_tmp_5;
-    _smelt_tmp_6 = k + 1;
-    k = _smelt_tmp_6;
+    sign = sign * _smelt_tmp_4;
+    k = k + 1;
     }
     _smelt_tmp_7 = sign + times;
     return _smelt_tmp_7;
@@ -4387,13 +4365,11 @@ pub(crate) fn flip(times: f64) -> f64 {
 
 pub(crate) fn halve() -> f64 {
     let mut _smelt_tmp_1: bool;
-    let mut _smelt_tmp_2: f64;
     let mut h: f64 = 64.0;
     loop {
     _smelt_tmp_1 = h > 1.0;
     if !(_smelt_tmp_1) { break; }
-    _smelt_tmp_2 = h / 2.0;
-    h = _smelt_tmp_2;
+    h = h / 2.0;
     }
     return h;
 }
@@ -4403,7 +4379,6 @@ pub(crate) fn captured(xs: SmeltList<f64>) -> f64 {
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: ::std::rc::Rc<dyn Fn(f64, i64, &SmeltList<f64>) -> ()>;
     let mut _smelt_tmp_6: ();
-    let mut _smelt_tmp_7: usize;
     let smelt_capture_seen: ::std::rc::Rc<::std::cell::RefCell<f64>> = ::std::rc::Rc::new(::std::cell::RefCell::new(0.0));
     let mut i: usize = 0;
     loop {
@@ -4426,8 +4401,7 @@ pub(crate) fn captured(xs: SmeltList<f64>) -> f64 {
     ()
     }
 }); let smelt_array = xs.clone(); smelt_array.borrow().iter().enumerate().for_each(|(smelt_index, smelt_item)| { let _ = (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array); }); () };
-    _smelt_tmp_7 = i + 1;
-    i = _smelt_tmp_7;
+    i = i + 1;
     }
     return (*smelt_capture_seen.borrow());
 }
@@ -4435,8 +4409,6 @@ pub(crate) fn captured(xs: SmeltList<f64>) -> f64 {
 pub(crate) fn from_start(start: f64, xs: SmeltList<f64>) -> f64 {
     let mut _smelt_tmp_4: f64;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut _smelt_tmp_8: f64;
     let mut i: f64 = start;
     let mut acc: f64 = 0.0;
@@ -4444,10 +4416,8 @@ pub(crate) fn from_start(start: f64, xs: SmeltList<f64>) -> f64 {
     _smelt_tmp_4 = xs.len() as f64;
     _smelt_tmp_5 = i < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    _smelt_tmp_6 = acc + xs.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
-    acc = _smelt_tmp_6;
-    _smelt_tmp_7 = i + 1.0;
-    i = _smelt_tmp_7;
+    acc = acc + xs.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    i = i + 1.0;
     }
     _smelt_tmp_8 = acc + i;
     return _smelt_tmp_8;
@@ -4455,13 +4425,11 @@ pub(crate) fn from_start(start: f64, xs: SmeltList<f64>) -> f64 {
 
 pub(crate) fn below_bound(n: f64) -> f64 {
     let mut _smelt_tmp_2: bool;
-    let mut _smelt_tmp_3: f64;
     let mut i: f64 = 0.0;
     loop {
     _smelt_tmp_2 = i < n;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_3 = i + 1.0;
-    i = _smelt_tmp_3;
+    i = i + 1.0;
     }
     return i;
 }

@@ -37,8 +37,7 @@ fn longest (FuncId(1)) -> Float
   bb2:
     %2 = copy %3[copy %4]
     %7 = len copy %0[copy %2]
-    %8 = numeric_max move %1, move %7
-    %1 = move %8
+    %1 = numeric_max move %1, move %7
     goto bb3
   bb3:
     %4 = copy %4 + 1

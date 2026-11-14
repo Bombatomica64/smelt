@@ -155,8 +155,7 @@ fn count (FuncId(3)) -> i32
   bb3:
     %15 = primitive_cast_float move %3
     %16 = move %15 + 1.0
-    %17 = primitive_cast_int32 move %16
-    %3 = move %17
+    %3 = primitive_cast_int32 move %16
     goto bb1
   bb4:
     %18 = primitive_cast_float move %2
@@ -166,8 +165,7 @@ fn count (FuncId(3)) -> i32
     %11 = primitive_cast_float move %2
     %12 = move %11 + 1.0
     %13 = move %12 | 0.0
-    %14 = primitive_cast_int32 move %13
-    %2 = move %14
+    %2 = primitive_cast_int32 move %13
     goto bb6
   bb6:
     goto bb3

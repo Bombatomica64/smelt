@@ -645,7 +645,7 @@ impl FunctionEmitter<'_> {
     /// awaits observe the same resolved value. The concrete future expression is
     /// evaluated before the `async move` block so callback captures owned by an
     /// outer `Fn` closure are not moved into the returned promise task.
-    fn promise_future_unknown_expr(
+    pub(in crate::emitter) fn promise_future_unknown_expr(
         &self,
         future_text: &RustExpr,
         item_ty: TypeId,

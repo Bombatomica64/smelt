@@ -901,17 +901,13 @@ fn main() {
     let step = step.clone();
     move |closure_arg_0: f64| {
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut total: f64 = smelt_captured_closure_arg_0;
     let mut i: f64 = 0.0;
     loop {
     _smelt_tmp_5 = i < closure_arg_0;
     if _smelt_tmp_5 {
-    _smelt_tmp_6 = total + step;
-    total = _smelt_tmp_6;
-    _smelt_tmp_7 = i + 1.0;
-    i = _smelt_tmp_7;
+    total = total + step;
+    i = i + 1.0;
     } else {
     return total;
     }

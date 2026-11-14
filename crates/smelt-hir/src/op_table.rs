@@ -2357,6 +2357,19 @@ macro_rules! op_group_transcribed {
                 target: (ty),
             }
                 => (format!("unknown_cast {value} as {target}"));
+            /// The first `count` items of an erased iterable (every item with
+            /// `None`), as a list: what array destructuring reads from a source
+            /// that is only known at run time. An iterator is stepped exactly
+            /// `count` times, as JavaScript's destructuring steps it, so a
+            /// generator does not run past the last item the pattern binds and
+            /// an infinite one still destructures.
+            ErasedIterableTake {
+                /// Erased iterable to read from.
+                value: one @ERASED,
+                /// How many items the pattern binds; `None` with a rest element.
+                count: [Option<usize>],
+            }
+                => (format!("erased_iterable_take {value}, {count:?}"));
             /// Convert a list into a set by collecting unique items.
             ListToSet {
                 /// List value to collect into a set.

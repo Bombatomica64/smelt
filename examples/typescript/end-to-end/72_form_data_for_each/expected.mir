@@ -164,8 +164,7 @@ fn main (FuncId(0)) -> None
   bb14:
     %64 = call @console_log(move %7) -> bb17
   bb15:
-    %63 = move %7 + 1.0
-    %7 = move %63
+    %7 = move %7 + 1.0
     goto bb16
   bb16:
     goto bb13
@@ -209,8 +208,7 @@ fn main (FuncId(0)) -> None
     %21 = tuple_index copy %20, 1
     %22 = tuple_index move %20, 0
     %23 = copy %13
-    %85 = len copy %13
-    %18 = move %85
+    %18 = len copy %13
     goto bb25
   bb25:
     %80 = copy %80 + 1

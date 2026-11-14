@@ -28,6 +28,7 @@ use crate::rust::RustType;
 
 use crate::erased_list_alias;
 use crate::rust::RustShape;
+pub(in crate::emitter) use extract::erased_to_bounded_list_expr;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
