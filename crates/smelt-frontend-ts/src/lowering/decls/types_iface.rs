@@ -68,7 +68,19 @@ impl ModuleBuilder<'_> {
         let local_name_text = alias.id.name.as_str();
         let name_text = self.types.qualify(local_name_text);
         let name = self.declared_type_name_symbol(local_name_text, &name_text);
-        let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
+        let becomes_interface =
+            matches!(
+                alias.type_annotation,
+                oxc::ast::ast::TSType::TSTypeLiteral(_)
+            ) || Self::ts_type_is_callable_object_surface(&alias.type_annotation);
+        let type_params = if becomes_interface {
+            self.push_type_parameter_scope(alias.type_parameters.as_deref())?
+        } else {
+            self.push_alias_type_parameter_scope(
+                alias.type_parameters.as_deref(),
+                &alias.type_annotation,
+            )?
+        };
         let surface = self
             .callable_object_surface_members(&alias.type_annotation)
             .ok()
