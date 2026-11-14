@@ -350,18 +350,18 @@ the library gates run on it.
 | Metric | Coverage |
 | --- | ---: |
 | Functions | 78.93% |
-| Lines | 81.56% |
-| Regions | 74.51% |
-| Branches | 69.44% |
+| Lines | 81.57% |
+| Regions | 74.52% |
+| Branches | 69.46% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 90.95% | 85.02% | 71.85% |
+| `smelt-codegen-rust` | 90.94% | 85.05% | 71.91% |
 | `smelt-frontend-py` | 87.04% | 79.92% | 71.78% |
 | `smelt-frontend-ts` | 90.17% | 83.20% | 72.29% |
-| `smelt-hir` | 84.69% | 80.21% | 72.19% |
+| `smelt-hir` | 84.69% | 80.25% | 72.19% |
 | `smelt-mir` | 92.27% | 91.32% | 76.86% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
 | `smelt-runtime` | 27.45% | 31.86% | 29.31% |
@@ -371,5 +371,6 @@ the library gates run on it.
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 85.94% | 90.58% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
