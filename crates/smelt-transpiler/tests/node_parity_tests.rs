@@ -891,6 +891,13 @@ fn generic_record_result_alias() -> TestResult {
     Ok(())
 }
 
+/// An integer-valued expression fills a union's `number` arm, and
+/// `String.prototype.match` with an absent pattern matches the empty pattern.
+#[test]
+fn number_union_and_optional_pattern() -> TestResult {
+    verify_node_parity("number_union_and_optional_pattern")
+}
+
 /// A narrowing proved inside one class member (a method, a constructor) does
 /// not leak into a sibling member's same-named local, so that member's own
 /// null test survives instead of folding to `true` and unwrapping `None`.
@@ -1193,4 +1200,13 @@ fn number_format_methods() -> TestResult {
 #[test]
 fn throwing_reduce_callback() -> TestResult {
     verify_node_parity("throwing_reduce_callback")
+}
+
+/// An abstract generic parser hierarchy (date-fns' `parse` shape): inherited
+/// and overridden members reach the base's `run` through their slots, a
+/// mutating setter slot takes its state `&mut`, and a callback the base hands
+/// to a generic class at its own `Value` passes without an erased adapter.
+#[test]
+fn abstract_parser_slots() -> TestResult {
+    verify_node_parity("abstract_parser_slots")
 }

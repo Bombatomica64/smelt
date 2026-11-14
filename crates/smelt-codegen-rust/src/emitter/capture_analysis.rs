@@ -294,6 +294,19 @@ impl FunctionEmitter<'_> {
                     return self.place_expr(place);
                 }
                 let place_ty = self.place_ty(place)?;
+                // A reference-class value is a shared handle: a `&mut` to a
+                // CLONE of the handle reaches the same cell, so the callee's
+                // field writes land in the caller's object, while rebinding the
+                // parameter stays local, as in JavaScript. Borrowing the
+                // caller's binding itself needed it declared `mut` (E0596 on a
+                // by-value parameter forwarded into a mutable slot).
+                if place_ty == target && self.is_reference_class_type(place_ty) {
+                    let handle = self.place_expr(place)?.cloned_value();
+                    return Ok(RustExpr::loose(format!(
+                        "&mut {handle}",
+                        handle = handle.tight()
+                    )));
+                }
                 if place_ty == target {
                     if self.argument_renders_alike_across_call(
                         place_ty,
