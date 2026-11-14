@@ -97,42 +97,6 @@ impl FunctionEmitter<'_> {
         false
     }
 
-    /// Instantiate a type declared on `source_function` at the receiver
-    /// `source`: first through the inheritance chain, then at `source`'s own
-    /// class arguments.
-    ///
-    /// A method `source` inherits (`WordParser extends Parser<string>`
-    /// answering `Parser`'s `validate(value: V)`) is spelled in its DECLARING
-    /// class's scope, so its `V` names a parameter `source` does not have. The
-    /// copy emitted into `source`'s `impl` takes `String` there
-    /// (`classes::inherited_type_substitution`, the same map the copy and the
-    /// inherited field layout use). Adapting a slot argument to the bare `V`
-    /// rendered no conversion (`expected JsString, found SmeltUnknown`).
-    fn source_method_substituted_ty(
-        &self,
-        source: TypeId,
-        source_function: &MirFunction,
-        declared: TypeId,
-    ) -> TypeId {
-        let inherited = match (&source_function.origin, self.class_for_type(source)) {
-            (
-                HirOrigin::ClassMethod {
-                    class: declaring, ..
-                },
-                Some(receiver),
-            ) if *declaring != receiver.name => {
-                let substitution = crate::classes::inherited_type_substitution(
-                    self.mir,
-                    receiver.name,
-                    *declaring,
-                );
-                crate::generic_bindings::substitute_existing_type(self.mir, declared, &substitution)
-            }
-            _ => declared,
-        };
-        self.source_class_substituted_ty(source, inherited)
-    }
-
     /// Instantiate a type declared inside `source`'s class at `source`'s own
     /// class arguments.
     ///
@@ -421,7 +385,7 @@ impl FunctionEmitter<'_> {
                         .get(index.saturating_add(1))
                         .and_then(|param| self.function_local_decl(source_function, *param).ok())
                         .map_or(*target_param, |decl| {
-                            self.source_method_substituted_ty(source, source_function, decl.ty)
+                            self.source_class_substituted_ty(source, decl.ty)
                         })
                 };
                 let arg_source_text = if self.param_passed_by_mut_ref(&function_ty, index) {
@@ -506,7 +470,7 @@ impl FunctionEmitter<'_> {
         let source_return_ty = if dispatches_to_source_field {
             function_ty.return_ty
         } else {
-            self.source_method_substituted_ty(source, source_function, source_function.return_ty)
+            self.source_class_substituted_ty(source, source_function.return_ty)
         };
         let adjusted_call = if source_can_throw && function_ty.may_throw {
             call

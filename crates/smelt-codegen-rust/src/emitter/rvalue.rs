@@ -343,9 +343,12 @@ impl FunctionEmitter<'_> {
             Rvalue::NumericToStringRadix { operand, radix } => {
                 self.numeric_to_string_radix_expr(operand, radix)
             }
-            Rvalue::NumericToFixed { operand, digits } => {
-                self.numeric_to_fixed_expr(operand, digits)
-            }
+            Rvalue::NumericFormat {
+                method,
+                operand,
+                digits,
+                ..
+            } => self.numeric_format_expr(*method, operand, digits.as_ref()),
             Rvalue::ParseIntRadix { operand, radix } => self.parse_int_radix_expr(operand, radix),
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_expr(*op, operand, dest_ty)
@@ -735,7 +738,7 @@ fn rvalue_answers_host_text(value: &Rvalue) -> bool {
             | Rvalue::FileReadText { .. }
             | Rvalue::BlobOp { .. }
             | Rvalue::NumericToStringRadix { .. }
-            | Rvalue::NumericToFixed { .. }
+            | Rvalue::NumericFormat { .. }
             | Rvalue::ObjectToStringTag { .. }
             | Rvalue::DateToIsoString { .. }
             | Rvalue::DateToString { .. }

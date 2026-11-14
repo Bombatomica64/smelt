@@ -21,6 +21,7 @@ pub enum Entry {
 /// Every runtime item, in emission order.
 pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_number_to_string"),
+    Entry::Item("smelt_number_format_checked"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltAccessor_T"),
     Entry::Item("SmeltAccessor"),
     Entry::Item("smelt_py_float_repr"),
@@ -112,6 +113,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_body_host_method"),
     Entry::Item("SmeltUnknown"),
     Entry::Item("smelt_bigint_range_error"),
+    Entry::Item("smelt_number_range_error"),
     Entry::Blank("erased_function"),
     Entry::Item("SmeltErasedFunction"),
     Entry::Blank("this_channel"),

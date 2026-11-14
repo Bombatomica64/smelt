@@ -310,6 +310,6 @@ closure ClosureId(0) -> String
     %0 param x: Float
     %1 temp: String
   bb0:
-    %1 = numeric_to_string_radix copy %0, 16.0
+    %1 = numeric_format toString copy %0, Some("16.0") checked=false
     return copy %1
 

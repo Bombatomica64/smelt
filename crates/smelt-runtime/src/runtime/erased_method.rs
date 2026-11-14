@@ -15,7 +15,8 @@
 //
 // What the module emits:
 //
-// * `smelt_array_prototype_member` / `smelt_string_prototype_member` — the
+// * `smelt_array_prototype_member` / `smelt_string_prototype_member` /
+//   `smelt_number_prototype_member` — the
 //   member READ: a method name from the shared tables in
 //   [`smelt_stdlib::erased_prototype_methods`] becomes a callable bound to the
 //   receiver, anything else is `None` (so the caller falls back to
@@ -33,12 +34,14 @@
 //   thrower the erased call ABI also uses for a non-callable callee
 //   (`smelt_throw_not_callable`).
 //
-// Two deliberate simplifications, both documented at their arms: a bound
-// method read does not register a canonical function identity or `length`
-// (each read would otherwise grow the process-wide identity registries by
-// one entry per CALL, since every `arr.map(f)` performs a read), and string
+// Two deliberate simplifications, both documented at their arms: an ARRAY
+// or STRING method read does not register a canonical function identity or
+// `length` (every `arr.map(f)` performs a read, and a registry insert per
+// CALL is a cost on the hottest erased path; the entry itself would be
+// swept with the bound closure, see `callable_registry.rs`), and string
 // positions count Unicode scalar values, the same unit every other erased
-// string operation in the prelude (`length`, indexing) already uses.
+// string operation in the prelude (`length`, indexing) already uses. A
+// NUMBER method read does register its `length`: those reads are rare.
 
 // Write a block of generated Rust source one line at a time.
 //
@@ -165,6 +168,26 @@ fn smelt_get_string_field(text: &JsString, field: &str) -> SmeltUnknown {
     if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(text.len())); }
     if let Ok(index) = field.parse::<usize>() { return text.char_at(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::String); }
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
+}
+
+/// Read `Number.prototype[field]` off an erased number, bound to that number.
+//~
+//~ `None` when `field` is not a modeled number method (see the array twin).
+//~ The formatting methods run the same checked formatter the typed
+//~ `Rvalue::NumericFormat` call does (`number_format.rs`), so
+//~ `(x as any).toFixed(2)` and `x.toFixed(2)` round alike, and a bad
+//~ argument is the same catchable `RangeError`.
+fn smelt_number_prototype_member(receiver: f64, field: &str) -> Option<SmeltUnknown> {
+    let name: &'static str = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"].into_iter().find(|name| *name == field)?;
+    let method: SmeltDynCallable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+        if name == "valueOf" { return Ok(SmeltUnknown::Number(receiver)); }
+        let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
+        smelt_number_format_checked(name, receiver, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
+    });
+    //~ `Function.prototype.length`: every one of these takes one optional
+    //~ argument except `valueOf`.
+    smelt_register_function_length(&method, if name == "valueOf" { 0.0 } else { 1.0 });
+    Some(SmeltUnknown::Function(method))
 }
 
 /// Flatten `items` into `out`, descending `depth` levels of nested arrays (`Array.prototype.flat`).

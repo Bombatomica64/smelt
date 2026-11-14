@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::rust::RustExpr;
+use smelt_hir::NumericFormatMethod;
 
 impl FunctionEmitter<'_> {
     /// Emits Rust text that truncates a numeric expression through `f64`.
@@ -563,7 +564,9 @@ impl FunctionEmitter<'_> {
         }
         // An ERASED receiver decides at run time, as JavaScript does:
         // `Number.prototype.toString(radix)` for a number, and the receiver's
-        // own `toString` (which ignores the argument) for anything else.
+        // own `toString` (which ignores the argument) for anything else. The
+        // number and bigint arms answer a host `String`, converted (`.into()`)
+        // to the fallback's string type, which is the program's.
         // `Array.prototype.map.call(bytes, (x) => x.toString(16))` hands the
         // callback an erased element.
         if matches!(
@@ -577,76 +580,110 @@ impl FunctionEmitter<'_> {
             let fallback =
                 self.primitive_cast_expr(smelt_hir::PrimitiveCastOp::ToString, operand, string_ty)?;
             let radix_text = self.operand_expr(radix)?;
-            let number_text =
-                self.radix_digits_expr(&RustExpr::path("smelt_radix_value"), &radix_text);
+            let number_text = RustExpr::chain(format!(
+                "smelt_number_format_checked(\"toString\", smelt_radix_value, Some({radix} as f64)).unwrap_or_else(|smelt_message| smelt_panic_throw(smelt_number_range_error(smelt_message))).into()",
+                radix = radix_text.as_cast_operand()
+            ));
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "match {}.clone() {{ SmeltUnknown::Number(smelt_radix_value) => {number_text}, {}_ => {fallback} }}",
                 self.operand_expr(operand)?.tight(),
                 self.bigint_unknown_arm(&self.carrier_format(self.carrier()?, format_args!(
-                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)),", radix_text = radix_text.as_cast_operand()
+                    "SmeltUnknown::BigInt(smelt_radix_value) => smelt_bigint_to_string_radix(&smelt_radix_value, {radix_text} as f64).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)).into(),", radix_text = radix_text.as_cast_operand()
                 ))), number_text = number_text.delimited(), fallback = fallback.delimited()
             ))));
         }
-        if !matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Int | Type::Float)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(radix)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new(
-                "number.toString(radix) requires numeric operands",
-            ));
-        }
-        let operand_expr = self.operand_expr(operand)?;
-        let radix_text = self.operand_expr(radix)?;
-        Ok(self.radix_digits_expr(&operand_expr, &radix_text))
-    }
-
-    /// Render `Number.prototype.toString(radix)` over numeric Rust texts.
-    ///
-    /// Both texts are `f64`/integer expressions; the value and radix are
-    /// truncated the way `ToIntegerOrInfinity` does, the radix is clamped to
-    /// `2..=36`, and the digits are produced most-significant first.
-    fn radix_digits_expr(&self, operand_expr: &RustExpr, radix_text: &RustExpr) -> RustExpr {
-        let value_trunc_text = self.numeric_trunc_f64_expr(operand_expr);
-        let radix_trunc_text = self.numeric_trunc_f64_expr(radix_text);
-        RustExpr::atom(format!(
-            "{{ let smelt_value = {value_trunc_text} as i128; let smelt_radix = ({radix_trunc_text} as u32).clamp(2, 36); let smelt_negative = smelt_value < 0; let mut smelt_n = smelt_value.unsigned_abs(); let mut smelt_digits = Vec::new(); if smelt_n == 0 {{ smelt_digits.push('0'); }} while smelt_n > 0 {{ let smelt_digit = (smelt_n % u128::from(smelt_radix)) as u8; smelt_digits.push(if smelt_digit < 10 {{ (b'0' + smelt_digit) as char }} else {{ (b'a' + smelt_digit - 10) as char }}); smelt_n /= u128::from(smelt_radix); }} if smelt_negative {{ smelt_digits.push('-'); }} smelt_digits.iter().rev().collect::<String>() }}",
-            value_trunc_text = value_trunc_text.as_cast_operand(),
-            radix_trunc_text = radix_trunc_text.as_cast_operand()
+        // A NUMBER receiver lowers to `Rvalue::NumericFormat` (its radix can
+        // throw a `RangeError`, which only that op's call form can carry).
+        Err(EmitError::new(
+            "internal: a number's toString(radix) lowers to NumericFormat",
         ))
     }
 
-    /// Formats a numeric value as a fixed-point decimal string.
-    ///
-    /// Mirrors `Number.prototype.toFixed(digits)`: the operand is rendered with
-    /// exactly `digits` fractional digits (clamped to the JavaScript-supported
-    /// `0..=100` range). The fractional count is truncated to an integer first,
-    /// matching JavaScript's `ToInteger` coercion of the argument.
-    pub(super) fn numeric_to_fixed_expr(
-        &self,
-        operand: &Operand,
-        digits: &Operand,
-    ) -> Result<RustExpr, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Int | Type::Float)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(digits)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new(
-                "number.toFixed(digits) requires numeric operands",
-            ));
-        }
-        let value_text = self.float_operand_expr(operand)?;
+    /// The argument of a `Number.prototype` formatting method as the `usize`
+    /// the runtime formatter takes, for an argument the frontend proved is a
+    /// constant inside the method's range (so `as usize` is `ToIntegerOrInfinity`).
+    fn numeric_format_argument(&self, digits: &Operand) -> Result<RustExpr, EmitError> {
         let digits_text = self.operand_expr(digits)?;
-        let digits_trunc_text = self.numeric_trunc_f64_expr(&digits_text);
-        Ok(RustExpr::atom(format!(
-            "{{ let smelt_value: f64 = {value_text}; let smelt_digits = ({digits_trunc_text} as i64).clamp(0, 100) as usize; format!(\"{{:.*}}\", smelt_digits, smelt_value) }}",
-            value_text = value_text.delimited(),
-            digits_trunc_text = digits_trunc_text.as_cast_operand()
+        Ok(RustExpr::cast(format!(
+            "{} as usize",
+            digits_text.as_cast_operand()
+        )))
+    }
+
+    /// Renders a `Number.prototype` formatting method whose argument cannot
+    /// throw (absent, or a constant in range): a direct call of the runtime
+    /// formatter (`number_format.rs`), which rounds exact ties away from zero
+    /// as the spec does.
+    pub(super) fn numeric_format_expr(
+        &self,
+        method: NumericFormatMethod,
+        operand: &Operand,
+        digits: Option<&Operand>,
+    ) -> Result<RustExpr, EmitError> {
+        let value_text = self.float_operand_expr(operand)?;
+        if method == NumericFormatMethod::Radix {
+            let radix = digits
+                .ok_or_else(|| EmitError::new("internal: toString(radix) needs its radix"))?;
+            return Ok(RustExpr::chain(format!(
+                "smelt_number_to_string_radix({}, {} as u32)",
+                value_text.delimited(),
+                self.operand_expr(radix)?.as_cast_operand()
+            )));
+        }
+        let argument = digits
+            .map(|written| self.numeric_format_argument(written))
+            .transpose()?;
+        let call = match (method, argument) {
+            (NumericFormatMethod::Fixed, fixed_digits) => format!(
+                "smelt_number_to_fixed({}, {})",
+                value_text.delimited(),
+                fixed_digits.map_or_else(|| "0".to_owned(), |count| count.delimited().to_owned())
+            ),
+            (NumericFormatMethod::Precision | NumericFormatMethod::Exponential, count) => {
+                format!(
+                    "{}({}, {})",
+                    if method == NumericFormatMethod::Precision {
+                        "smelt_number_to_precision"
+                    } else {
+                        "smelt_number_to_exponential"
+                    },
+                    value_text.delimited(),
+                    count.map_or_else(
+                        || "None".to_owned(),
+                        |written| format!("Some({})", written.delimited())
+                    )
+                )
+            }
+            (NumericFormatMethod::Radix, _) => {
+                return Err(EmitError::new(
+                    "internal: toString(radix) is rendered above",
+                ));
+            }
+        };
+        Ok(RustExpr::chain(call))
+    }
+
+    /// Renders a `Number.prototype` formatting method whose argument may fall
+    /// outside the method's range: the checked formatter, propagating the
+    /// `RangeError` it raises.
+    pub(super) fn numeric_format_call(
+        &self,
+        method: NumericFormatMethod,
+        operand: &Operand,
+        digits: Option<&Operand>,
+    ) -> Result<RustExpr, EmitError> {
+        let value_text = self.float_operand_expr(operand)?;
+        let argument = match digits {
+            Some(written) => format!(
+                "Some({} as f64)",
+                self.operand_expr(written)?.as_cast_operand()
+            ),
+            None => "None".to_owned(),
+        };
+        Ok(RustExpr::chain(format!(
+            "smelt_number_format_checked(\"{}\", {}, {argument}).map_err(smelt_number_range_error)",
+            method.js_name(),
+            value_text.delimited()
         )))
     }
 

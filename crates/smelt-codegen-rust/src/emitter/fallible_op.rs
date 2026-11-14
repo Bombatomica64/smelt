@@ -290,6 +290,19 @@ impl FunctionEmitter<'_> {
                     source_ty,
                 )
             }
+            Rvalue::NumericFormat {
+                method,
+                operand,
+                digits,
+                ..
+            } => (
+                RenderedCall::propagating(self.numeric_format_call(
+                    *method,
+                    operand,
+                    digits.as_ref(),
+                )?),
+                self.type_id(Type::String)?,
+            ),
             Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
             Rvalue::BindingCheck { binding, unbound } => {
                 self.binding_check_call(binding, *unbound)?

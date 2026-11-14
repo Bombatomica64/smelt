@@ -6912,11 +6912,14 @@ export function parseHex(value: number): [number, number, number] {
 }
 
 #[test]
-fn lowers_number_to_fixed_method_call() -> Result<(), String> {
-    // `n.toFixed(digits)` on a numeric receiver lowers to a fixed-point string
-    // format expression (`NumericToFixed`) returning a string, with the digit
-    // count defaulting to zero when omitted. Mirrors the flow.spec.ts
-    // `n.toFixed(1)` method call.
+fn lowers_number_format_method_calls() -> Result<(), String> {
+    use smelt_hir::NumericFormatMethod::{Fixed, Precision};
+    // `n.toFixed(digits)`, `n.toPrecision(digits)` and `n.toExponential(digits)`
+    // on a numeric receiver lower to one `NumericFormat` each, returning a
+    // string. The op is fallible (its `RangeError` reaches a `try`) exactly
+    // when the argument is not absent or a constant inside the method's range:
+    // `toFixed(1)`, `toFixed()` and `toPrecision(3)` stay plain, a computed
+    // `toFixed(d)` and an out-of-range `toPrecision(0)` are checked.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -6926,20 +6929,43 @@ export function fmt(n: number): string {
 export function fmtDefault(n: number): string {
   return n.toFixed();
 }
+export function fmtPrecision(n: number): string {
+  return n.toPrecision(3);
+}
+export function fmtComputed(n: number, d: number): string {
+  return n.toFixed(d);
+}
+export function fmtOutOfRange(n: number): string {
+  return n.toPrecision(0);
+}
 "),
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
-    let count = ctx
+    let formats: Vec<(smelt_hir::NumericFormatMethod, bool)> = ctx
         .krate
         .bodies
         .iter()
         .flat_map(|body| body.exprs.iter())
-        .filter(|expr| matches!(expr.kind, ExprKind::NumericToFixed { .. }))
-        .count();
+        .filter_map(|expr| match expr.kind {
+            ExprKind::NumericFormat {
+                method,
+                digits_checked,
+                ..
+            } => Some((method, digits_checked)),
+            _ => None,
+        })
+        .collect();
     ensure!(
-        count >= 2,
-        "expected each toFixed call to lower to NumericToFixed, found {count}"
+        formats
+            == [
+                (Fixed, false),
+                (Fixed, false),
+                (Precision, false),
+                (Fixed, true),
+                (Precision, true)
+            ],
+        "expected each formatting call to lower to NumericFormat with its range check, found {formats:?}"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

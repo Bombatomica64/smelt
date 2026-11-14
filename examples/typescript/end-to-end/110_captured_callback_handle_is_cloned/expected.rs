@@ -39,6 +39,167 @@ fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
 /// `console.log`'s number formatting: the spec's rule, but `-0` prints `-0`.
 fn smelt_console_number<N: ::std::borrow::Borrow<f64>>(value: N) -> String { let value = *value.borrow(); if value == 0.0 && value.is_sign_negative() { return "-0".to_owned(); } smelt_number_to_string(value) }
 
+/// The digits of a positive finite `value` rounded to `count` significant
+/// digits the way `Number.prototype.toPrecision` rounds: to nearest, an
+/// exact tie going AWAY from zero (the spec's "if there are two such sets
+/// of e and n, pick the e and n for which n × 10^(e–p+1) is larger").
+fn smelt_number_round_significant(value: f64, count: usize) -> (Vec<u8>, i32) {
+    let split = |text: String| -> (Vec<u8>, i32) {
+        let (mantissa, exponent) = text.split_once('e').unwrap_or((text.as_str(), "0"));
+        (mantissa.bytes().filter(u8::is_ascii_digit).collect(), exponent.parse().unwrap_or(0))
+    };
+    let (probe, _) = split(format!("{value:.count$e}"));
+    if probe.last() != Some(&b'5') { return split(format!("{value:.precision$e}", precision = count - 1)); }
+    let (exact, exponent) = split(format!("{value:.800e}"));
+    let mut kept = exact[..count].to_vec();
+    if exact[count] < b'5' { return (kept, exponent); }
+    for digit in kept.iter_mut().rev() {
+        if *digit == b'9' { *digit = b'0'; } else { *digit += 1; return (kept, exponent); }
+    }
+    kept.insert(0, b'1');
+    kept.pop();
+    (kept, exponent + 1)
+}
+
+/// `Number.prototype.toFixed(digits)` with `digits` already checked to be in `0..=100`.
+fn smelt_number_to_fixed(value: f64, digits: usize) -> String {
+    if !value.is_finite() || value.abs() >= 1e21 { return smelt_number_to_string(value); }
+    let sign = if value < 0.0 { "-" } else { "" };
+    let magnitude = value.abs();
+    let probe = format!("{magnitude:.probe_digits$}", probe_digits = digits + 1);
+    if !probe.ends_with('5') { return format!("{sign}{magnitude:.digits$}"); }
+    let exact = format!("{magnitude:.1100}");
+    let (whole, fraction) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
+    let mut kept: Vec<u8> = whole.bytes().chain(fraction.bytes().take(digits)).collect();
+    if fraction.as_bytes()[digits] >= b'5' {
+        let mut carry = true;
+        for digit in kept.iter_mut().rev() {
+            if *digit == b'9' { *digit = b'0'; } else { *digit += 1; carry = false; break; }
+        }
+        if carry { kept.insert(0, b'1'); }
+    }
+    let point = kept.len() - digits;
+    let text = String::from_utf8_lossy(&kept);
+    if digits == 0 { format!("{sign}{text}") } else { format!("{sign}{}.{}", &text[..point], &text[point..]) }
+}
+
+/// `Number.prototype.toExponential(digits)`, `digits` checked to be in `0..=100`;
+/// `None` is the shortest digit string that round-trips.
+fn smelt_number_to_exponential(value: f64, digits: Option<usize>) -> String {
+    if !value.is_finite() { return smelt_number_to_string(value); }
+    let sign = if value < 0.0 { "-" } else { "" };
+    let magnitude = value.abs();
+    let (mantissa, exponent) = if magnitude == 0.0 {
+        (vec![b'0'; digits.unwrap_or(0) + 1], 0)
+    } else if let Some(digits) = digits {
+        smelt_number_round_significant(magnitude, digits + 1)
+    } else {
+        let text = format!("{magnitude:e}");
+        let (mantissa, exponent) = text.split_once('e').unwrap_or((text.as_str(), "0"));
+        (mantissa.bytes().filter(u8::is_ascii_digit).collect(), exponent.parse().unwrap_or(0))
+    };
+    let mantissa = String::from_utf8_lossy(&mantissa);
+    let point = if mantissa.len() > 1 { format!("{}.{}", &mantissa[..1], &mantissa[1..]) } else { mantissa.into_owned() };
+    format!("{sign}{point}e{}{}", if exponent < 0 { '-' } else { '+' }, exponent.abs())
+}
+
+/// `Number.prototype.toPrecision(digits)`, `digits` checked to be in `1..=100`;
+/// `None` is `String(value)`.
+fn smelt_number_to_precision(value: f64, digits: Option<usize>) -> String {
+    let Some(digits) = digits else { return smelt_number_to_string(value) };
+    if !value.is_finite() { return smelt_number_to_string(value); }
+    let sign = if value < 0.0 { "-" } else { "" };
+    let magnitude = value.abs();
+    let (mantissa, exponent) = if magnitude == 0.0 { (vec![b'0'; digits], 0) } else { smelt_number_round_significant(magnitude, digits) };
+    let mantissa = String::from_utf8_lossy(&mantissa);
+    let precision = i32::try_from(digits).unwrap_or(i32::MAX);
+    if exponent < -6 || exponent >= precision {
+        let point = if digits > 1 { format!("{}.{}", &mantissa[..1], &mantissa[1..]) } else { mantissa.into_owned() };
+        return format!("{sign}{point}e{}{}", if exponent < 0 { '-' } else { '+' }, exponent.abs());
+    }
+    if exponent == precision - 1 { return format!("{sign}{mantissa}"); }
+    if exponent >= 0 {
+        let point = usize::try_from(exponent + 1).unwrap_or(0);
+        return format!("{sign}{}.{}", &mantissa[..point], &mantissa[point..]);
+    }
+    format!("{sign}0.{}{mantissa}", "0".repeat(usize::try_from(-(exponent + 1)).unwrap_or(0)))
+}
+
+/// `Number.prototype.toString(radix)` for a radix other than 10: the integer
+/// part and as many fraction digits as tell the value apart from its neighbours.
+fn smelt_number_to_string_radix(value: f64, radix: u32) -> String {
+    if radix == 10 || !value.is_finite() || value == 0.0 { return smelt_number_to_string(value); }
+    let base = f64::from(radix);
+    let negative = value < 0.0;
+    let value = value.abs();
+    let digit_char = |digit: u32| char::from_digit(digit, radix).unwrap_or('0');
+    let mut integer = value.floor();
+    let mut fraction = value - integer;
+    let mut delta = (0.5 * (f64::from_bits(value.to_bits() + 1) - value)).max(f64::from_bits(1));
+    let mut fraction_digits: Vec<u32> = Vec::new();
+    if fraction >= delta {
+        loop {
+            fraction *= base;
+            delta *= base;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let digit = fraction as u32;
+            fraction_digits.push(digit);
+            fraction -= f64::from(digit);
+            #[allow(clippy::float_cmp)]
+            let round_up = (fraction > 0.5 || (fraction == 0.5 && digit & 1 == 1)) && fraction + delta > 1.0;
+            if round_up {
+                loop {
+                    match fraction_digits.pop() {
+                        None => { integer += 1.0; break; }
+                        Some(last) if last + 1 < radix => { fraction_digits.push(last + 1); break; }
+                        Some(_) => {}
+                    }
+                }
+                break;
+            }
+            if fraction < delta { break; }
+        }
+    }
+    let mut integer_digits: Vec<char> = Vec::new();
+    while (integer / base).log2().total_cmp(&53.0).is_ge() { integer /= base; integer_digits.push('0'); }
+    loop {
+        let remainder = integer % base;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let digit = remainder as u32;
+        integer_digits.push(digit_char(digit));
+        integer = (integer - remainder) / base;
+        if integer <= 0.0 { break; }
+    }
+    let mut text = String::with_capacity(integer_digits.len() + fraction_digits.len() + 2);
+    if negative { text.push('-'); }
+    text.extend(integer_digits.iter().rev());
+    if !fraction_digits.is_empty() { text.push('.'); text.extend(fraction_digits.into_iter().map(digit_char)); }
+    text
+}
+
+/// Run `Number.prototype[method](argument)` on `value`, with the spec's
+/// `ToIntegerOrInfinity` and range check on the argument: the formatted
+/// text, or the method's `RangeError` message.
+fn smelt_number_format_checked(method: &str, value: f64, argument: Option<f64>) -> Result<String, String> {
+    let integer = argument.map(|argument| if argument.is_nan() { 0.0 } else { argument.trunc() });
+    let (low, high, message) = match method {
+        "toFixed" => (0.0, 100.0, "toFixed() digits argument must be between 0 and 100"),
+        "toPrecision" => (1.0, 100.0, "toPrecision() argument must be between 1 and 100"),
+        "toExponential" => (0.0, 100.0, "toExponential() argument must be between 0 and 100"),
+        _ => (2.0, 36.0, "toString() radix argument must be between 2 and 36"),
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let checked = |integer: f64| if (low..=high).contains(&integer) { Ok(integer as usize) } else { Err(message.to_owned()) };
+    Ok(match method {
+        "toFixed" => smelt_number_to_fixed(value, checked(integer.unwrap_or(0.0))?),
+        "toPrecision" | "toExponential" if !value.is_finite() => smelt_number_to_string(value),
+        "toPrecision" => smelt_number_to_precision(value, integer.map(checked).transpose()?),
+        "toExponential" => smelt_number_to_exponential(value, integer.map(checked).transpose()?),
+        #[allow(clippy::cast_possible_truncation)]
+        _ => smelt_number_to_string_radix(value, checked(integer.unwrap_or(10.0))? as u32),
+    })
+}
+
 /// ECMA-262 `StringToNumber`: the number JavaScript's `Number(text)` answers.
 #[allow(dead_code)]
 fn smelt_string_to_number(text: &str) -> f64 {
@@ -2157,6 +2318,9 @@ impl Clone for SmeltUnknown {
         }
     }
 }
+/// A JavaScript `RangeError` from a `Number.prototype` formatting method.
+fn smelt_number_range_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
+
 
 /// Concatenate an erased `BlobPart` array into the bytes it contributes.
 fn smelt_blob_parts_bytes(parts: SmeltUnknown) -> Vec<u8> {
@@ -2513,6 +2677,18 @@ fn smelt_get_string_field(text: &JsString, field: &str) -> SmeltUnknown {
     smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
 }
 
+/// Read `Number.prototype[field]` off an erased number, bound to that number.
+fn smelt_number_prototype_member(receiver: f64, field: &str) -> Option<SmeltUnknown> {
+    let name: &'static str = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"].into_iter().find(|name| *name == field)?;
+    let method: SmeltDynCallable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+        if name == "valueOf" { return Ok(SmeltUnknown::Number(receiver)); }
+        let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
+        smelt_number_format_checked(name, receiver, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
+    });
+    smelt_register_function_length(&method, if name == "valueOf" { 0.0 } else { 1.0 });
+    Some(SmeltUnknown::Function(method))
+}
+
 /// Flatten `items` into `out`, descending `depth` levels of nested arrays (`Array.prototype.flat`).
 fn smelt_erased_flatten_into(items: Vec<SmeltUnknown>, depth: f64, out: &mut Vec<SmeltUnknown>) {
     for item in items {
@@ -2737,6 +2913,7 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
+        SmeltUnknown::Number(value) => smelt_number_prototype_member(*value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),
         _ => SmeltUnknown::Undefined,

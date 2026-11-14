@@ -412,15 +412,25 @@ macro_rules! op_group_transcribed {
                 radix: one,
             }
                 => (format!("numeric_to_string_radix {operand}, {radix}"));
-            /// Format a numeric value as a fixed-point decimal string with a given
-            /// number of fractional digits (`Number.prototype.toFixed`).
-            NumericToFixed {
-                /// Numeric operand being formatted.
+            /// Format a number with one of `Number.prototype`'s formatting
+            /// methods (`toFixed`, `toPrecision`, `toExponential`, `toString(radix)`).
+            ///
+            /// An argument outside the method's range is a `RangeError`, so the op
+            /// is fallible unless the frontend proved the argument is absent or a
+            /// constant inside that range.
+            NumericFormat {
+                /// Which method.
+                method: [$crate::NumericFormatMethod],
+                /// The numeric receiver.
                 operand: one,
-                /// Number of fractional digits to render.
-                digits: one,
+                /// The digit count (or radix), when written.
+                digits: opt,
+                /// Whether the argument can fall outside the method's range.
+                digits_checked: [bool],
             }
-                => (format!("numeric_to_fixed {operand}, {digits}"));
+                fallible(*digits_checked)
+                call(format!("@number_{}", method.js_name()))
+                => (format!("numeric_format {} {operand}, {digits:?} checked={digits_checked:?}", method.js_name()));
             /// Parse an integer from a string with a JavaScript-style numeric radix.
             ParseIntRadix {
                 /// String operand.

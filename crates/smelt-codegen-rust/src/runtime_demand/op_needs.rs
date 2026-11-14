@@ -72,6 +72,14 @@ impl RuntimeDemand {
             Rvalue::RegexFind { .. } => {
                 self.add(Need::DepRegress);
             }
+            // A computed digit count can throw its `RangeError`, which
+            // crosses the erased error channel.
+            Rvalue::NumericFormat { digits_checked, .. } => {
+                self.add(Need::NumberMethods);
+                if *digits_checked {
+                    self.add(Need::Unknown);
+                }
+            }
             Rvalue::ErasedPatternCall { .. } => {
                 self.add(Need::ErasedPatternCall);
             }
@@ -462,7 +470,6 @@ impl RuntimeDemand {
             | Rvalue::NumericPow { .. }
             | Rvalue::NumericAtan2 { .. }
             | Rvalue::NumericToStringRadix { .. }
-            | Rvalue::NumericToFixed { .. }
             | Rvalue::StringCase { .. }
             | Rvalue::StringIsWellFormed { .. }
             | Rvalue::StringToWellFormed { .. }

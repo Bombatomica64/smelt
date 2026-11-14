@@ -104,6 +104,7 @@ holds_no_types!(
     crate::PrimitiveCastOp,
     crate::PropertyLookup,
     crate::PythonDivisionOp,
+    crate::NumericFormatMethod,
     crate::RegexMatchOp,
     crate::ErasedPatternMethod,
     crate::RegexReplaceArg,
