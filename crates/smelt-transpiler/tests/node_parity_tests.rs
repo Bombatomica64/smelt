@@ -160,6 +160,14 @@ fn async_forms() -> TestResult {
     verify_node_parity("async_forms")
 }
 
+/// `setTimeout`, `setInterval` and `clearInterval` used as values schedule
+/// and cancel like direct calls, every pending timer runs before the program
+/// exits, and an interval's callback can cancel the interval it belongs to.
+#[test]
+fn timer_values() -> TestResult {
+    verify_node_parity("timer_values")
+}
+
 /// A throw delivers its operand whole through one channel, whatever it is, and
 /// a `try` around a call that cannot throw still builds and runs.
 #[test]

@@ -371,6 +371,18 @@ impl ModuleBuilder<'_> {
             }
         }
 
+        // A top-level binding a closure reads before its declaration completes
+        // (`const h = setInterval(() => clearInterval(h), 1)`) needs its local
+        // reserved first, as a function body does; otherwise the closure's read
+        // resolved to no binding at all and fabricated an erased value.
+        if let Err(error) = self.predeclare_forward_referenced_locals_where(
+            &program.body,
+            &mut body,
+            true,
+            |builder, statement| !builder.is_predeclared_arrow_const_statement(statement),
+        ) {
+            errors.push(error);
+        }
         for statement in &program.body {
             self.anchor_top_level_statement(
                 self.span(statement.span().start, statement.span().end),
@@ -592,6 +604,25 @@ impl ModuleBuilder<'_> {
             {
                 return true;
             }
+            // A closure that arms a timer or starts a server when called is
+            // event-loop work the body can reach through a value: a first-class
+            // `const schedule = setTimeout; schedule(f, 0)` is a closure
+            // wrapping the timer op, and its timer never fired because `main`
+            // stayed synchronous with no drain. Only scheduling ops count here
+            // (see `body_schedules_work`), so DEFINING an `async` arrow, whose
+            // awaits run on the caller's loop, does not make `main` async.
+            let closure_body = match &expr.kind {
+                ExprKind::Lambda {
+                    body: lambda_body, ..
+                } => Some(*lambda_body),
+                ExprKind::Closure(closure) => Some(closure.body),
+                _ => None,
+            };
+            if let Some(closure_body) = closure_body
+                && self.body_schedules_work(closure_body, &mut Vec::new())
+            {
+                return true;
+            }
         }
         body.exprs.iter().any(|expr| {
             // An `AsyncOp` covers the timers (`Sleep`, `SetTimeout`) as well as
@@ -619,6 +650,50 @@ impl ModuleBuilder<'_> {
             // silently dropped: `run();` on an async function produces a future
             // nobody awaits, and only a drain at exit runs it.
             matches!(self.ctx.krate.types.get(expr.ty), Some(Type::Future(_)))
+        })
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Whether the body `id`, or a closure inside it, starts work the event
+    /// loop must run: a timer, an interval, a spawned task, a promise
+    /// continuation, a fetch, or a `node:http` server. Awaits and futures are
+    /// not counted: they suspend the caller rather than queue new work.
+    fn body_schedules_work(
+        &self,
+        id: smelt_hir::BodyId,
+        visited: &mut Vec<smelt_hir::BodyId>,
+    ) -> bool {
+        if visited.contains(&id) {
+            return false;
+        }
+        visited.push(id);
+        let Some(body) = usize::try_from(id.0)
+            .ok()
+            .and_then(|index| self.ctx.krate.bodies.get(index))
+        else {
+            return false;
+        };
+        body.exprs.iter().any(|expr| match &expr.kind {
+            ExprKind::AsyncOp { op, .. } => matches!(
+                op,
+                smelt_hir::AsyncOp::SetTimeout
+                    | smelt_hir::AsyncOp::SetInterval
+                    | smelt_hir::AsyncOp::SpawnLocal
+                    | smelt_hir::AsyncOp::Then
+                    | smelt_hir::AsyncOp::Catch
+                    | smelt_hir::AsyncOp::Finally
+                    | smelt_hir::AsyncOp::HttpFetch
+                    | smelt_hir::AsyncOp::HttpGetText
+            ),
+            ExprKind::HttpCreateServer { .. }
+            | ExprKind::HttpCreateFetchServer { .. }
+            | ExprKind::HttpServerOp { .. } => true,
+            ExprKind::Lambda {
+                body: lambda_body, ..
+            } => self.body_schedules_work(*lambda_body, visited),
+            ExprKind::Closure(closure) => self.body_schedules_work(closure.body, visited),
+            _ => false,
         })
     }
 }

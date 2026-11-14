@@ -840,7 +840,23 @@ impl ModuleBuilder<'_> {
             // `AsyncOp::SetTimeout` the direct-call lowering emits, so the value
             // form schedules on the shared virtual-time timer queue and returns
             // the timer id.
-            "setTimeout" => self.builtin_set_timeout_value_closure_expression(span, outer_body),
+            "setTimeout" => {
+                self.builtin_timer_value_closure_expression(AsyncOp::SetTimeout, span, outer_body)
+            }
+            // The other timer functions escape the same way (`const every =
+            // setInterval`), each as a closure over the op its direct call
+            // lowers to.
+            "setInterval" => {
+                self.builtin_timer_value_closure_expression(AsyncOp::SetInterval, span, outer_body)
+            }
+            "clearTimeout" => {
+                self.builtin_timer_value_closure_expression(AsyncOp::ClearTimeout, span, outer_body)
+            }
+            "clearInterval" => self.builtin_timer_value_closure_expression(
+                AsyncOp::ClearInterval,
+                span,
+                outer_body,
+            ),
             _ => return None,
         })
     }
@@ -947,86 +963,79 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Build the `(callback, delayMs) => setTimeout(callback, delayMs)` closure
-    /// used when `setTimeout` escapes as a first-class value.
+    /// Build the closure a timer function escapes as when it is used as a
+    /// value: `(callback, delayMs) => setTimeout(callback, delayMs)` for
+    /// `setTimeout`/`setInterval`, `(timer) => clearTimeout(timer)` for
+    /// `clearTimeout`/`clearInterval`.
     ///
-    /// The closure body runs the same `AsyncOp::SetTimeout` the direct-call
-    /// timer lowering produces, so a call through the value registers on the
-    /// shared virtual-time timer queue and returns the erased timer id. The
-    /// callback parameter is `unknown` (the timer emitter dispatches erased
-    /// callables), and the delay parameter is a concrete number.
-    fn builtin_set_timeout_value_closure_expression(
+    /// The closure body runs the same `AsyncOp` the direct call lowers to, so
+    /// a call through the value registers on (or cancels from) the shared
+    /// virtual-time timer queue, and the module schedules its exit drain for
+    /// it. The callback and the timer id are `unknown` (the timer emitter
+    /// dispatches erased callables and handles), and the delay is a number.
+    fn builtin_timer_value_closure_expression(
         &mut self,
+        op: AsyncOp,
         span: Span,
         outer_body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let unknown_ty = self.erase_with(ErasureReason::ByName, "setTimeout value");
+        let unknown_ty = self.erase_with(ErasureReason::ByName, "timer function value");
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback_name = self.intern_source_name("callback");
-        let delay_name = self.intern_source_name("delayMs");
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let arms = matches!(op, AsyncOp::SetTimeout | AsyncOp::SetInterval);
+        let declared: Vec<(&str, smelt_hir::TypeId)> = if arms {
+            vec![("callback", unknown_ty), ("delayMs", float_ty)]
+        } else {
+            vec![("timer", unknown_ty)]
+        };
+        let return_ty = if arms { unknown_ty } else { none_ty };
         let mut closure_body = Body::new(None, span);
-        let callback_local = closure_body.push_local(LocalDecl {
-            name: Some(callback_name),
-            ty: unknown_ty,
-            mutable: false,
-            span,
-        });
-        let delay_local = closure_body.push_local(LocalDecl {
-            name: Some(delay_name),
-            ty: float_ty,
-            mutable: false,
-            span,
-        });
-        closure_body.params.push(callback_local);
-        closure_body.params.push(delay_local);
-        let callback_expr = closure_body.push_expr(Expr {
-            kind: ExprKind::Local(callback_local),
-            ty: unknown_ty,
-            span,
-        });
-        let delay_expr = closure_body.push_expr(Expr {
-            kind: ExprKind::Local(delay_local),
-            ty: float_ty,
-            span,
-        });
+        let mut params = Vec::with_capacity(declared.len());
+        let mut args = Vec::with_capacity(declared.len());
+        for (name, ty) in declared {
+            let name = self.intern_source_name(name);
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(name),
+                ty,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            args.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span,
+            }));
+            params.push(Param {
+                name,
+                local,
+                ty,
+                span,
+            });
+        }
+        let param_tys = params.iter().map(|param| param.ty).collect();
         let result = closure_body.push_expr(Expr {
-            kind: ExprKind::AsyncOp {
-                op: AsyncOp::SetTimeout,
-                args: vec![callback_expr, delay_expr],
-            },
-            ty: unknown_ty,
+            kind: ExprKind::AsyncOp { op, args },
+            ty: return_ty,
             span,
         });
         closure_body.push_stmt(Stmt::Return(Some(result)));
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: vec![unknown_ty, float_ty],
+            params: param_tys,
             rest: None,
             required_params: None,
             mutable_params: Vec::new(),
-            return_ty: unknown_ty,
+            return_ty,
             is_async: false,
             may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
-                params: vec![
-                    Param {
-                        name: callback_name,
-                        local: callback_local,
-                        ty: unknown_ty,
-                        span,
-                    },
-                    Param {
-                        name: delay_name,
-                        local: delay_local,
-                        ty: float_ty,
-                        span,
-                    },
-                ],
+                params,
                 rest: None,
                 required_params: None,
-                return_ty: unknown_ty,
+                return_ty,
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
