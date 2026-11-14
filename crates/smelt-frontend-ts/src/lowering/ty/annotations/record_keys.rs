@@ -26,7 +26,9 @@ impl ModuleBuilder<'_> {
         key: &TSType<'_>,
         _span: oxc::span::Span,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        if self.direct_record_key_type_param(key)?.is_some() || self.record_key_surface_holds_symbols(key) {
+        if self.direct_record_key_type_param(key)?.is_some()
+            || self.record_key_surface_holds_symbols(key)
+        {
             return Ok(self.ctx.krate.types.intern(Type::PropKey));
         }
         if self.record_key_surface_is_lowerable(key)? {
@@ -106,7 +108,8 @@ impl ModuleBuilder<'_> {
                 };
                 reference.type_arguments.is_none()
                     && name.name == "PropertyKey"
-                    && self.resolve_type_name("PropertyKey") == crate::lowering::resolve::TypeBinding::Lib
+                    && self.resolve_type_name("PropertyKey")
+                        == crate::lowering::resolve::TypeBinding::Lib
             }
             _ => false,
         }
@@ -118,7 +121,10 @@ impl ModuleBuilder<'_> {
     /// assignable to `PropertyKey`. This helper keeps Smelt from rejecting
     /// common type-level spellings whose concrete runtime representation is a
     /// JavaScript object with stringified ordinary keys.
-    pub(in crate::lowering) fn record_key_surface_is_lowerable(&mut self, key: &TSType<'_>) -> Result<bool, SmeltError> {
+    pub(in crate::lowering) fn record_key_surface_is_lowerable(
+        &mut self,
+        key: &TSType<'_>,
+    ) -> Result<bool, SmeltError> {
         match key {
             TSType::TSStringKeyword(_)
             | TSType::TSNumberKeyword(_)
@@ -168,10 +174,9 @@ impl ModuleBuilder<'_> {
                 .try_fold(true, |any_lowerable, member| {
                     member.map(|member_lowerable| any_lowerable || member_lowerable)
                 }),
-            TSType::TSConditionalType(conditional) => {
-                Ok(self.record_key_surface_is_lowerable(&conditional.true_type)?
-                    && self.record_key_surface_is_lowerable(&conditional.false_type)?)
-            }
+            TSType::TSConditionalType(conditional) => Ok(self
+                .record_key_surface_is_lowerable(&conditional.true_type)?
+                && self.record_key_surface_is_lowerable(&conditional.false_type)?),
             TSType::TSIndexedAccessType(_)
             | TSType::TSMappedType(_)
             | TSType::TSTypeReference(_) => {
@@ -183,8 +188,16 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an already-lowered key can be represented as object keys.
-    pub(in crate::lowering) fn lowered_record_key_is_string_representable(&self, key: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(key)) {
+    pub(in crate::lowering) fn lowered_record_key_is_string_representable(
+        &self,
+        key: smelt_hir::TypeId,
+    ) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(key))
+        {
             Some(
                 Type::String
                 | Type::Int
@@ -204,7 +217,12 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a `keyof` mapped-type source is entirely array-like.
     pub(in crate::lowering) fn mapped_key_source_is_iterable(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::List(_) | Type::Tuple(_) | Type::Set(_)) => true,
             Some(Type::Union(items)) => {
                 !items.is_empty()

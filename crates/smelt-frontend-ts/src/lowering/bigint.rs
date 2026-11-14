@@ -227,7 +227,12 @@ impl ModuleBuilder<'_> {
         };
         let bits = self.argument(bits, body)?;
         let value = self.argument(value, body)?;
-        Ok(Some(self.push_bigint_call(op, vec![bits, value], span, body)))
+        Ok(Some(self.push_bigint_call(
+            op,
+            vec![bits, value],
+            span,
+            body,
+        )))
     }
 
     /// Lower a TypeScript bigint literal (`123n`) to a `bigint` value.
@@ -268,6 +273,10 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let trimmed = digits.trim_start_matches('0');
-        Some(if trimmed.is_empty() { "0".to_owned() } else { trimmed.to_owned() })
+        Some(if trimmed.is_empty() {
+            "0".to_owned()
+        } else {
+            trimmed.to_owned()
+        })
     }
 }

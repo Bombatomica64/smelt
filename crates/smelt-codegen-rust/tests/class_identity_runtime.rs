@@ -37,9 +37,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);

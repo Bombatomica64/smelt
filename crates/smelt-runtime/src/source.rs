@@ -532,8 +532,15 @@ impl std::fmt::Display for MarkupError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownItem(name) => write!(formatter, "smelt-runtime does not define `{name}`"),
-            Self::Unbalanced { within, line, reason } => {
-                write!(formatter, "smelt-runtime markup in `{within}` line {line}: {reason}")
+            Self::Unbalanced {
+                within,
+                line,
+                reason,
+            } => {
+                write!(
+                    formatter,
+                    "smelt-runtime markup in `{within}` line {line}: {reason}"
+                )
             }
         }
     }
@@ -548,7 +555,11 @@ fn check_module(module: &'static str, source: &str) -> Result<(), MarkupError> {
     let mut last = 0;
     for (index, line) in source.lines().enumerate() {
         let trimmed = line.trim();
-        let unbalanced = |reason| MarkupError::Unbalanced { within: module, line: index.saturating_add(1), reason };
+        let unbalanced = |reason| MarkupError::Unbalanced {
+            within: module,
+            line: index.saturating_add(1),
+            reason,
+        };
         last = index.saturating_add(1);
         if trimmed.starts_with(ITEM_START) {
             if open {
@@ -563,7 +574,11 @@ fn check_module(module: &'static str, source: &str) -> Result<(), MarkupError> {
         }
     }
     if open {
-        return Err(MarkupError::Unbalanced { within: module, line: last, reason: "an item is never closed" });
+        return Err(MarkupError::Unbalanced {
+            within: module,
+            line: last,
+            reason: "an item is never closed",
+        });
     }
     Ok(())
 }
@@ -578,7 +593,11 @@ fn check_region(name: &'static str, text: &str) -> Result<(), MarkupError> {
     let mut open: Vec<bool> = Vec::new();
     let mut last = 0;
     for (index, line) in text.lines().enumerate() {
-        let unbalanced = |reason| MarkupError::Unbalanced { within: name, line: index.saturating_add(1), reason };
+        let unbalanced = |reason| MarkupError::Unbalanced {
+            within: name,
+            line: index.saturating_add(1),
+            reason,
+        };
         last = index.saturating_add(1);
         let trimmed = line.trim_start();
         if trimmed.starts_with(IF) {
@@ -599,7 +618,11 @@ fn check_region(name: &'static str, text: &str) -> Result<(), MarkupError> {
         check_spans(line).map_err(unbalanced)?;
     }
     if !open.is_empty() {
-        return Err(MarkupError::Unbalanced { within: name, line: last, reason: "an `if` is never closed" });
+        return Err(MarkupError::Unbalanced {
+            within: name,
+            line: last,
+            reason: "an `if` is never closed",
+        });
     }
     Ok(())
 }
@@ -613,12 +636,18 @@ fn check_spans(line: &str) -> Result<(), &'static str> {
         let next_if = rest.find(SPAN_IF);
         let next_end = rest.find(SPAN_END);
         let Some(start) = next_if else {
-            return if next_end.is_some() { Err("`/*@end*/` without an open `/*@if`") } else { Ok(()) };
+            return if next_end.is_some() {
+                Err("`/*@end*/` without an open `/*@if`")
+            } else {
+                Ok(())
+            };
         };
         if next_end.is_some_and(|end| end < start) {
             return Err("`/*@end*/` without an open `/*@if`");
         }
-        let after = rest.get(start.saturating_add(SPAN_IF.len())..).unwrap_or_default();
+        let after = rest
+            .get(start.saturating_add(SPAN_IF.len())..)
+            .unwrap_or_default();
         let Some((_, body)) = after.split_once("*/") else {
             return Err("a `/*@if` expression is not closed");
         };
@@ -662,9 +691,14 @@ pub fn check_markup() -> Result<(), MarkupError> {
 ///
 /// [`MarkupError::UnknownItem`] when no module declares the item, and the
 /// defect [`check_markup`] finds when any markup does not balance.
-pub fn render_item(name: &str, flags: &dyn Fn(&str) -> bool) -> Result<Vec<RenderedLine<'static>>, MarkupError> {
+pub fn render_item(
+    name: &str,
+    flags: &dyn Fn(&str) -> bool,
+) -> Result<Vec<RenderedLine<'static>>, MarkupError> {
     check_markup()?;
-    let region = regions().get(name).ok_or_else(|| MarkupError::UnknownItem(name.to_owned()))?;
+    let region = regions()
+        .get(name)
+        .ok_or_else(|| MarkupError::UnknownItem(name.to_owned()))?;
     let mut lines = Vec::new();
     // One entry per open `if`: whether its current arm is the live one.
     let mut arms: Vec<bool> = Vec::new();
@@ -692,7 +726,10 @@ pub fn render_item(name: &str, flags: &dyn Fn(&str) -> bool) -> Result<Vec<Rende
 }
 
 /// Resolves the inline spans of one line.
-fn resolve_spans(line: &'static str, flags: &dyn Fn(&str) -> bool) -> std::borrow::Cow<'static, str> {
+fn resolve_spans(
+    line: &'static str,
+    flags: &dyn Fn(&str) -> bool,
+) -> std::borrow::Cow<'static, str> {
     if !line.contains(SPAN_IF) {
         return std::borrow::Cow::Borrowed(line);
     }
@@ -764,20 +801,46 @@ mod tests {
             Err(super::MarkupError::Unbalanced { line, reason, .. }) => Some((line, reason)),
             _ => None,
         };
-        assert_eq!(reason("a\n// @smelt:end\n"), Some((2, "`end` without an open `if`")));
-        assert_eq!(reason("// @smelt:if f\nx\n"), Some((2, "an `if` is never closed")));
-        assert_eq!(reason("// @smelt:else\n"), Some((1, "`else` without an open `if`")));
+        assert_eq!(
+            reason("a\n// @smelt:end\n"),
+            Some((2, "`end` without an open `if`"))
+        );
+        assert_eq!(
+            reason("// @smelt:if f\nx\n"),
+            Some((2, "an `if` is never closed"))
+        );
+        assert_eq!(
+            reason("// @smelt:else\n"),
+            Some((1, "`else` without an open `if`"))
+        );
         assert_eq!(
             reason("// @smelt:if f\n// @smelt:else\n// @smelt:else\n// @smelt:end\n"),
             Some((3, "a second `else` for one `if`"))
         );
-        assert_eq!(reason("// @smelt:iff f\n"), Some((1, "an unknown `@smelt:` directive")));
-        assert_eq!(reason("x /*@if f*/ y\n"), Some((1, "a `/*@if` span has no `/*@end*/` on its line")));
-        assert_eq!(reason("x /*@end*/\n"), Some((1, "`/*@end*/` without an open `/*@if`")));
-        assert_eq!(reason("/*@if f*/a/*@if g*/b/*@end*/c/*@end*/\n"), Some((1, "a `/*@if` span nests inside another")));
-        assert_eq!(reason("x /*@if f\n"), Some((1, "a `/*@if` expression is not closed")));
         assert_eq!(
-            reason("// @smelt:if f\n// @smelt:if g\n// @smelt:else\n// @smelt:end\n// @smelt:end\nx/*@if a*/y/*@end*/\n"),
+            reason("// @smelt:iff f\n"),
+            Some((1, "an unknown `@smelt:` directive"))
+        );
+        assert_eq!(
+            reason("x /*@if f*/ y\n"),
+            Some((1, "a `/*@if` span has no `/*@end*/` on its line"))
+        );
+        assert_eq!(
+            reason("x /*@end*/\n"),
+            Some((1, "`/*@end*/` without an open `/*@if`"))
+        );
+        assert_eq!(
+            reason("/*@if f*/a/*@if g*/b/*@end*/c/*@end*/\n"),
+            Some((1, "a `/*@if` span nests inside another"))
+        );
+        assert_eq!(
+            reason("x /*@if f\n"),
+            Some((1, "a `/*@if` expression is not closed"))
+        );
+        assert_eq!(
+            reason(
+                "// @smelt:if f\n// @smelt:if g\n// @smelt:else\n// @smelt:end\n// @smelt:end\nx/*@if a*/y/*@end*/\n"
+            ),
             None
         );
     }
@@ -790,9 +853,18 @@ mod tests {
             Err(super::MarkupError::Unbalanced { reason, .. }) => Some(reason),
             _ => None,
         };
-        assert_eq!(reason("// @smelt:item a\n// @smelt:item b\n"), Some("an item opens inside another item"));
-        assert_eq!(reason("// @smelt:item-end\n"), Some("`item-end` closes no item"));
-        assert_eq!(reason("// @smelt:item a\n"), Some("an item is never closed"));
+        assert_eq!(
+            reason("// @smelt:item a\n// @smelt:item b\n"),
+            Some("an item opens inside another item")
+        );
+        assert_eq!(
+            reason("// @smelt:item-end\n"),
+            Some("`item-end` closes no item")
+        );
+        assert_eq!(
+            reason("// @smelt:item a\n"),
+            Some("an item is never closed")
+        );
         assert_eq!(reason("// @smelt:item a\n// @smelt:item-end\n"), None);
     }
 

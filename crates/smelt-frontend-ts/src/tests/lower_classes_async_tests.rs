@@ -27,7 +27,11 @@ class StringValue implements Value<string> {
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "new", "new(value: String) -> StringValue")?;
-    ensure_signature(&ctx, "map", "map(this: StringValue, input: String) -> String")?;
+    ensure_signature(
+        &ctx,
+        "map",
+        "map(this: StringValue, input: String) -> String",
+    )?;
     ensure!(crate_has_field(&ctx, "value"), "no read of field `value`");
     Ok(())
 }
@@ -55,7 +59,11 @@ class StringMapper implements Mapper<string> {
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "new", "new() -> StringMapper")?;
-    ensure_signature(&ctx, "map", "map(this: StringMapper, value: Unknown) -> Unknown")?;
+    ensure_signature(
+        &ctx,
+        "map",
+        "map(this: StringMapper, value: Unknown) -> Unknown",
+    )?;
     Ok(())
 }
 
@@ -201,7 +209,10 @@ interface Value<T> {
         "current.ts",
         &mut ctx,
     )?;
-    ensure!(crate_has_item(&ctx, "StringValue"), "no item named `StringValue`");
+    ensure!(
+        crate_has_item(&ctx, "StringValue"),
+        "no item named `StringValue`"
+    );
     ensure!(crate_has_field(&ctx, "value"), "no read of field `value`");
     Ok(())
 }
@@ -424,7 +435,8 @@ fn lowers_generic_classes() -> Result<(), String> {
 }
 
 #[test]
-fn lowers_uninitialized_static_field_as_optional_storage_and_static_members() -> Result<(), String> {
+fn lowers_uninitialized_static_field_as_optional_storage_and_static_members() -> Result<(), String>
+{
     // Corrected requirement. This test used to assert that a `static` field
     // WITHOUT an initializer is rejected ("static fields without an
     // initializer are not lowered yet"), because its value is `undefined`
@@ -456,7 +468,10 @@ fn lowers_uninitialized_static_field_as_optional_storage_and_static_members() ->
             _ => None,
         })
         .ok_or("`User.role` is not a static field")?;
-    ensure!(role.ty == optional_string, "`User.role` is stored as `string | undefined`");
+    ensure!(
+        role.ty == optional_string,
+        "`User.role` is stored as `string | undefined`"
+    );
     let storage = role.storage.ok_or("`User.role` has no storage")?;
     ensure!(
         matches!(
@@ -575,12 +590,30 @@ abstract class Parser<Value> {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "new", "new(value: T, validate_value: fn(T) -> Bool) -> ValueSetter<T>")?;
-    ensure_signature(&ctx, "run", "run(this: Parser<Value>) -> Optional<Dict<String, String | ValueSetter<Value>>>")?;
-    ensure_signature(&ctx, "validate", "validate(this: Parser<Value>, value: Value) -> Bool")?;
+    ensure_signature(
+        &ctx,
+        "new",
+        "new(value: T, validate_value: fn(T) -> Bool) -> ValueSetter<T>",
+    )?;
+    ensure_signature(
+        &ctx,
+        "run",
+        "run(this: Parser<Value>) -> Optional<Dict<String, String | ValueSetter<Value>>>",
+    )?;
+    ensure_signature(
+        &ctx,
+        "validate",
+        "validate(this: Parser<Value>, value: Value) -> Bool",
+    )?;
     ensure_exprs!(&ctx, ClosureCall);
-    ensure!(crate_has_new(&ctx, "ValueSetter"), "no construction of `ValueSetter`");
-    ensure!(crate_has_field(&ctx, "validate_value"), "no read of field `validate_value`");
+    ensure!(
+        crate_has_new(&ctx, "ValueSetter"),
+        "no construction of `ValueSetter`"
+    );
+    ensure!(
+        crate_has_field(&ctx, "validate_value"),
+        "no read of field `validate_value`"
+    );
     Ok(())
 }
 
@@ -652,7 +685,10 @@ fn lowers_unannotated_abstract_method_as_unknown_return() -> Result<(), String> 
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "new", "new() -> Validator")?;
-    ensure!(crate_has_item(&ctx, "Validator"), "no item named `Validator`");
+    ensure!(
+        crate_has_item(&ctx, "Validator"),
+        "no item named `Validator`"
+    );
     Ok(())
 }
 
@@ -673,7 +709,11 @@ export abstract class CoreService {
         &mut ctx,
     )?;
     ensure_signature(&ctx, "new", "new() -> CoreService")?;
-    ensure_signature(&ctx, "get_fetch_params", "get_fetch_params(this: CoreService, params: Dict<String, Unknown>) -> Unknown")?;
+    ensure_signature(
+        &ctx,
+        "get_fetch_params",
+        "get_fetch_params(this: CoreService, params: Dict<String, Unknown>) -> Unknown",
+    )?;
     ensure_exprs!(&ctx, DictAssign);
     Ok(())
 }
@@ -692,7 +732,11 @@ class Service {
         &mut ctx,
     )?;
     ensure_signature(&ctx, "new", "new() -> Service")?;
-    ensure_signature(&ctx, "find", "async find(this: Service, params: Dict<String, Unknown>) -> Future<Unknown>")?;
+    ensure_signature(
+        &ctx,
+        "find",
+        "async find(this: Service, params: Dict<String, Unknown>) -> Future<Unknown>",
+    )?;
     Ok(())
 }
 
@@ -708,7 +752,10 @@ class SingleTypeService implements Core.CoreAPI.Service.SingleType {}
         &mut ctx,
     )?;
     ensure_signature(&ctx, "new", "new() -> SingleTypeService")?;
-    ensure!(crate_has_item(&ctx, "SingleTypeService"), "no item named `SingleTypeService`");
+    ensure!(
+        crate_has_item(&ctx, "SingleTypeService"),
+        "no item named `SingleTypeService`"
+    );
     Ok(())
 }
 
@@ -730,7 +777,10 @@ class Derived extends Base {
     ensure_signature(&ctx, "new", "new() -> Base")?;
     ensure_signature(&ctx, "read", "read(this: Derived) -> Unknown")?;
     ensure_exprs!(&ctx, BaseConstructorInit);
-    ensure!(crate_has_field(&ctx, "external_field"), "no read of field `external_field`");
+    ensure!(
+        crate_has_field(&ctx, "external_field"),
+        "no read of field `external_field`"
+    );
     Ok(())
 }
 
@@ -749,7 +799,11 @@ function read(config?: Config) {
 "),
         &mut ctx,
     )?;
-    ensure_signature(&ctx, "read", "read(config: Optional<Config>) -> Optional<Bool>")?;
+    ensure_signature(
+        &ctx,
+        "read",
+        "read(config: Optional<Config>) -> Optional<Bool>",
+    )?;
     ensure_exprs!(&ctx, OptionalField);
     Ok(())
 }
@@ -768,7 +822,11 @@ fn lowers_unannotated_class_method_as_unknown_return() -> Result<(), String> {
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "new", "new() -> Validator")?;
-    ensure_signature(&ctx, "field_record", "field_record(this: Validator, type: Unknown) -> Unknown")?;
+    ensure_signature(
+        &ctx,
+        "field_record",
+        "field_record(this: Validator, type: Unknown) -> Unknown",
+    )?;
     ensure_exprs!(&ctx, DictLit);
     Ok(())
 }
@@ -1250,10 +1308,7 @@ fn lowers_fetch_to_an_async_response() -> Result<(), String> {
         return Err("fetch must answer a future".to_owned());
     };
     ensure!(
-        matches!(
-            ctx.krate.types.get(*inner),
-            Some(Type::Class { .. })
-        ),
+        matches!(ctx.krate.types.get(*inner), Some(Type::Class { .. })),
         "fetch must resolve to the concrete `Response` class",
     );
     Ok(())
@@ -1318,7 +1373,11 @@ async function load(url: RequestInfo | URL, options?: RequestInit): Promise<stri
 "),
         &mut ctx,
     )?;
-    ensure_signature(&ctx, "load", "async load(url: RequestInfo | URL, options: Optional<RequestInit>) -> Future<String>")?;
+    ensure_signature(
+        &ctx,
+        "load",
+        "async load(url: RequestInfo | URL, options: Optional<RequestInit>) -> Future<String>",
+    )?;
     ensure_exprs!(&ctx, RequestNew, Await);
     Ok(())
 }
@@ -1343,8 +1402,7 @@ fn lowers_switch_fallthrough_as_single_pass_loop() -> Result<(), String> {
     // the single-iteration-loop chain instead of a HIR `Match`.
     let mut ctx = HirCtx::new();
     let _module_id = lower_ok(
-        ts!(
-            "export function label(status: string): string {
+        ts!("export function label(status: string): string {
   let result = \"\";
   switch (status) {
     case \"pending\":
@@ -1356,8 +1414,7 @@ fn lowers_switch_fallthrough_as_single_pass_loop() -> Result<(), String> {
   }
   return result;
 }
-"
-        ),
+"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -1492,7 +1549,14 @@ it("creates a mock", () => {
     let mock = body
         .exprs
         .iter()
-        .find(|expr| matches!(expr.kind, ExprKind::VitestMockFn { implementation: None }))
+        .find(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::VitestMockFn {
+                    implementation: None
+                }
+            )
+        })
         .ok_or("expected a VitestMockFn expression")?;
     ensure!(matches!(ctx.krate.types.get(mock.ty), Some(Type::Unknown)));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -1589,9 +1653,16 @@ it("configures return value", () => {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "test_configures_return_value", "test_configures_return_value() -> None")?;
+    ensure_signature(
+        &ctx,
+        "test_configures_return_value",
+        "test_configures_return_value() -> None",
+    )?;
     ensure_exprs!(&ctx, VitestMockFn);
-    ensure!(crate_has_field(&ctx, "mock_return_value"), "no read of field `mock_return_value`");
+    ensure!(
+        crate_has_field(&ctx, "mock_return_value"),
+        "no read of field `mock_return_value`"
+    );
     Ok(())
 }
 
@@ -1619,7 +1690,11 @@ export function overEvery(...xs: number[]): (v: number) => boolean {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "over_every", "over_every(...xs: List<Float>) -> fn(Float) -> Bool")?;
+    ensure_signature(
+        &ctx,
+        "over_every",
+        "over_every(...xs: List<Float>) -> fn(Float) -> Bool",
+    )?;
     ensure_exprs!(&ctx, Closure, Index, Len);
     Ok(())
 }
@@ -1647,7 +1722,11 @@ export function after(n: number, func: () => number): () => number {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "after", "after(n: Float, func: fn() -> Float) -> fn() -> Float")?;
+    ensure_signature(
+        &ctx,
+        "after",
+        "after(n: Float, func: fn() -> Float) -> fn() -> Float",
+    )?;
     ensure_exprs!(&ctx, Closure, ClosureCall);
     Ok(())
 }
@@ -1677,7 +1756,11 @@ export function bind(...xs: number[]): (v: number) => number {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "bind", "bind(...xs: List<Float>) -> fn(Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "bind",
+        "bind(...xs: List<Float>) -> fn(Float) -> Float",
+    )?;
     ensure_exprs!(&ctx, Closure, Index);
     Ok(())
 }
@@ -1744,7 +1827,9 @@ export function total(counter: Counter): number {
         .exprs
         .iter()
         .find(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
-        .ok_or_else(|| "expected the interface method call to lower to a closure call".to_owned())?;
+        .ok_or_else(|| {
+            "expected the interface method call to lower to a closure call".to_owned()
+        })?;
     ensure_eq!(ctx.krate.types.get(call.ty), Some(&Type::Float));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -1789,7 +1874,10 @@ class MyCounter implements Counter {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "count", "count(this: MyCounter) -> Float")?;
     ensure_signature(&ctx, "new", "new() -> MyCounter")?;
-    ensure!(crate_has_item(&ctx, "MyCounter"), "no item named `MyCounter`");
+    ensure!(
+        crate_has_item(&ctx, "MyCounter"),
+        "no item named `MyCounter`"
+    );
     Ok(())
 }
 

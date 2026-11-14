@@ -37,8 +37,8 @@
 //! under its own name.
 
 use crate::SmeltError;
-use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::Expression;
 use smelt_hir::{Body, Expr, ExprKind, TextDecoderOp, TextEncoderOp, Type};
 use smelt_stdlib::RuleId;
@@ -109,13 +109,12 @@ impl ModuleBuilder<'_> {
         let label = match new_expr.arguments.first() {
             None => None,
             Some(argument) => {
-                let literal =
-                    argument
-                        .as_expression()
-                        .and_then(|expression| match expression {
-                            Expression::StringLiteral(literal) => Some(js_str_text(literal.value)),
-                            _ => None,
-                        });
+                let literal = argument
+                    .as_expression()
+                    .and_then(|expression| match expression {
+                        Expression::StringLiteral(literal) => Some(js_str_text(literal.value)),
+                        _ => None,
+                    });
                 match literal {
                     Some(text)
                         if UTF8_LABELS.contains(&text.trim().to_ascii_lowercase().as_str()) =>
@@ -167,7 +166,10 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::TextEncoder) {
+        if !self.is_modeled_class(
+            Self::expr_ty(body, receiver),
+            smelt_stdlib::StdlibClass::TextEncoder,
+        ) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -209,7 +211,10 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::TextDecoder) {
+        if !self.is_modeled_class(
+            Self::expr_ty(body, receiver),
+            smelt_stdlib::StdlibClass::TextDecoder,
+        ) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -245,7 +250,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let span = self.span(member.span.start, member.span.end);
         match member.property.name.as_str() {
-            "encoding" if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TextEncoder) => {
+            "encoding"
+                if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TextEncoder) =>
+            {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::TextEncoderOp {
@@ -257,7 +264,9 @@ impl ModuleBuilder<'_> {
                     span,
                 })))
             }
-            "encoding" if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TextDecoder) => {
+            "encoding"
+                if self.is_modeled_class(receiver_ty, smelt_stdlib::StdlibClass::TextDecoder) =>
+            {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::TextDecoderOp {

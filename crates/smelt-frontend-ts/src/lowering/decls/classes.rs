@@ -2,21 +2,21 @@
 //! field initializers, its `extends` clause, and the names given to anonymous and
 //! host-shadowing classes.
 
-use std::borrow::Cow;
-use std::collections::HashSet;
 use crate::SmeltError;
-use crate::lowering::{ModuleBuilder, specialization};
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::support::visibility;
+use crate::lowering::{ModuleBuilder, specialization};
 use oxc::ast::ast::{
     BindingPattern, ClassElement, Expression, MethodDefinitionKind, MethodDefinitionType,
     PropertyKey,
 };
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, CLASS_INDEX_STORE_FIELD, Class, ErasureReason, Expr, ExprKind, Field, FunctionOwner, Item,
-    Literal, Type, Visibility,
+    Body, CLASS_INDEX_STORE_FIELD, Class, ErasureReason, Expr, ExprKind, Field, FunctionOwner,
+    Item, Literal, Type, Visibility,
 };
+use std::borrow::Cow;
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Build a deterministic synthetic name for an anonymous class expression.
@@ -26,7 +26,9 @@ impl ModuleBuilder<'_> {
     /// `Type::Class` symbol, field/method metadata). The class span start offset
     /// is unique within a module, so `__smelt_anon_class_<offset>` gives a stable,
     /// collision-free name without threading a mutable counter through lowering.
-    pub(super) fn anonymous_class_name(class: &oxc::ast::ast::Class<'_>) -> smelt_hir::SynthesizedName {
+    pub(super) fn anonymous_class_name(
+        class: &oxc::ast::ast::Class<'_>,
+    ) -> smelt_hir::SynthesizedName {
         smelt_hir::SynthesizedName::new(format!("__smelt_anon_class_{}", class.span.start))
     }
 
@@ -83,9 +85,8 @@ impl ModuleBuilder<'_> {
         if let Some((_, existing)) = self.class_item_lowered_at(span) {
             return Some(existing);
         }
-        let base = self.intern_synthesized_type_name(&smelt_hir::SynthesizedName::new(
-            internal_name.as_str(),
-        ));
+        let base = self
+            .intern_synthesized_type_name(&smelt_hir::SynthesizedName::new(internal_name.as_str()));
         let symbol = self.unclaimed_type_symbol(base, &internal_name);
         self.ctx.krate.names.record(symbol, class_source_name);
         self.ctx.local_class_expressions.insert(symbol);
@@ -1200,7 +1201,10 @@ impl ModuleBuilder<'_> {
         // A per-evaluation class expression evaluates to this evaluation's
         // statics frame, which is the class value (`decls::evaluation_statics`).
         // A named class expression's name is bound only inside its own body.
-        let saved_binding = class.id.as_ref().and_then(|id| self.scope.lookup(id.name.as_str()));
+        let saved_binding = class
+            .id
+            .as_ref()
+            .and_then(|id| self.scope.lookup(id.name.as_str()));
         if let Some(frame) = self.evaluate_class_statics(item, class, body)? {
             if let Some(id) = &class.id {
                 match saved_binding {
@@ -1282,10 +1286,7 @@ impl ModuleBuilder<'_> {
         // requiring an `Object` class item that Smelt does not synthesize. A
         // user-declared class or value import literally named `Object` shadows
         // the global and is handled through the normal declared-base path below.
-        if name == "Object"
-            && !self.classes.contains(name)
-            && !self.imports.is_value(name)
-        {
+        if name == "Object" && !self.classes.contains(name) && !self.imports.is_value(name) {
             return Ok((None, Vec::new()));
         }
         // An `extends` clause names a TYPE, so it resolves like every other type

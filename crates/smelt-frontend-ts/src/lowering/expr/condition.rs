@@ -2,12 +2,12 @@
 //! lowered to a `bool` by JavaScript truthiness, including keyed-read presence
 //! tests and types whose truthiness is constant.
 
+use super::super::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use oxc::ast::ast::Expression;
 use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, PrimitiveCastOp, Span, Type};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Lower a JavaScript condition to a boolean expression.
@@ -59,8 +59,10 @@ impl ModuleBuilder<'_> {
         if matches!(
             self.ctx.krate.types.get(cond_ty),
             Some(Type::Function(_) | Type::Class { .. })
-        ) || (matches!(self.ctx.krate.types.get(cond_ty), Some(Type::TypeParam { .. }))
-            && self.type_is_always_truthy_object_surface(cond_ty))
+        ) || (matches!(
+            self.ctx.krate.types.get(cond_ty),
+            Some(Type::TypeParam { .. })
+        ) && self.type_is_always_truthy_object_surface(cond_ty))
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
@@ -87,7 +89,10 @@ impl ModuleBuilder<'_> {
                 span,
             }));
         }
-        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float | Type::BigInt)) {
+        if matches!(
+            self.ctx.krate.types.get(cond_ty),
+            Some(Type::Int | Type::Float | Type::BigInt)
+        ) {
             let zero = body.push_expr(Expr {
                 kind: match self.ctx.krate.types.get(cond_ty) {
                     Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
@@ -219,13 +224,13 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let mut read = cond;
-        while let Some(ExprKind::TypeAssert { value }) = body.expr_at(read)
-            .map(|expr| expr.kind.clone())
+        while let Some(ExprKind::TypeAssert { value }) =
+            body.expr_at(read).map(|expr| expr.kind.clone())
         {
             read = value;
         }
-        let Some(ExprKind::Index { receiver, index }) = body.expr_at(read)
-            .map(|expr| expr.kind.clone())
+        let Some(ExprKind::Index { receiver, index }) =
+            body.expr_at(read).map(|expr| expr.kind.clone())
         else {
             return None;
         };
@@ -265,18 +270,22 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let mut inner = read;
-        while let Some(ExprKind::TypeAssert { value }) = body.expr_at(inner)
-            .map(|expr| expr.kind.clone())
+        while let Some(ExprKind::TypeAssert { value }) =
+            body.expr_at(inner).map(|expr| expr.kind.clone())
         {
             inner = value;
         }
-        let Some(ExprKind::Index { receiver, index }) = body.expr_at(inner)
-            .map(|expr| expr.kind.clone())
+        let Some(ExprKind::Index { receiver, index }) =
+            body.expr_at(inner).map(|expr| expr.kind.clone())
         else {
             return None;
         };
-        let Some(Type::Dict(key_ty, value_ty)) =
-            self.ctx.krate.types.get(Self::expr_ty(body, receiver)).cloned()
+        let Some(Type::Dict(key_ty, value_ty)) = self
+            .ctx
+            .krate
+            .types
+            .get(Self::expr_ty(body, receiver))
+            .cloned()
         else {
             return None;
         };
@@ -325,8 +334,8 @@ impl ModuleBuilder<'_> {
         if read_ty != slot_value || self.is_nullishable_type(read_ty) {
             return read;
         }
-        let Some(ExprKind::Index { receiver, .. }) = body.expr_at(read)
-            .map(|expr| expr.kind.clone())
+        let Some(ExprKind::Index { receiver, .. }) =
+            body.expr_at(read).map(|expr| expr.kind.clone())
         else {
             return read;
         };
@@ -336,8 +345,7 @@ impl ModuleBuilder<'_> {
         ) {
             return read;
         }
-        if let Some(expr) = body.expr_at_mut(read)
-        {
+        if let Some(expr) = body.expr_at_mut(read) {
             expr.ty = hint;
         }
         read
@@ -354,8 +362,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
         let value_ty = Self::expr_ty(body, value);
-        if !self.is_nullishable_type(value_ty)
-            || !self.expression_is_known_date_value(value, body)
+        if !self.is_nullishable_type(value_ty) || !self.expression_is_known_date_value(value, body)
         {
             return None;
         }
@@ -378,7 +385,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a present optional value is always truthy in JavaScript.
-    pub(in crate::lowering) fn type_is_always_truthy_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn type_is_always_truthy_object_surface(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         matches!(
             self.ctx
                 .krate
@@ -418,13 +428,18 @@ impl ModuleBuilder<'_> {
         if let Some(Type::Union(items)) = self.ctx.krate.types.get(resolved) {
             let items = items.clone();
             return !items.is_empty()
-                && items.iter().all(|item| self.type_is_constantly_truthy(*item));
+                && items
+                    .iter()
+                    .all(|item| self.type_is_constantly_truthy(*item));
         }
         self.type_is_always_truthy_object_surface(resolved)
     }
 
     /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.
-    pub(in crate::lowering) fn type_is_truthy_condition_surface(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn type_is_truthy_condition_surface(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(
                 Type::Function(_)
@@ -433,22 +448,19 @@ impl ModuleBuilder<'_> {
                 | Type::Unknown
                 | Type::Never,
             ) => true,
-            Some(Type::Union(items)) => items
-                .iter()
-                .copied()
-                .any(|item| {
-                    matches!(
-                        self.ctx.krate.types.get(item),
-                        Some(
-                            Type::Bool
-                                | Type::Int
-                                | Type::Float
-                                | Type::BigInt
-                                | Type::String
-                                | Type::None
-                        )
-                    ) || self.type_is_truthy_condition_surface(item)
-                }),
+            Some(Type::Union(items)) => items.iter().copied().any(|item| {
+                matches!(
+                    self.ctx.krate.types.get(item),
+                    Some(
+                        Type::Bool
+                            | Type::Int
+                            | Type::Float
+                            | Type::BigInt
+                            | Type::String
+                            | Type::None
+                    )
+                ) || self.type_is_truthy_condition_surface(item)
+            }),
             _ => false,
         }
     }

@@ -505,7 +505,9 @@ mod tests {
         }
         let errors = super::validate(&krate);
         assert!(
-            errors.iter().any(|error| error.message.contains("references unknown body")),
+            errors
+                .iter()
+                .any(|error| error.message.contains("references unknown body")),
             "{errors:?}"
         );
     }

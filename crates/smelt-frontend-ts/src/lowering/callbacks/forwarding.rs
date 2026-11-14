@@ -95,7 +95,11 @@ impl ModuleBuilder<'_> {
             .iter()
             .enumerate()
             .map(|(index, ty)| {
-                let name = self.ctx.krate.symbols.intern(&format!("__callback_param_{index}"));
+                let name = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .intern(&format!("__callback_param_{index}"));
                 let local = closure_body.push_local(LocalDecl {
                     name: Some(name),
                     ty: *ty,
@@ -103,11 +107,17 @@ impl ModuleBuilder<'_> {
                     span,
                 });
                 closure_body.params.push(local);
-                Param { name, local, ty: *ty, span }
+                Param {
+                    name,
+                    local,
+                    ty: *ty,
+                    span,
+                }
             })
             .collect::<Vec<_>>();
         let (captures, body_local) = match callback.target {
-            ForwardTarget::Local { local, .. } | ForwardTarget::MatchesProperty { value: local, .. } => {
+            ForwardTarget::Local { local, .. }
+            | ForwardTarget::MatchesProperty { value: local, .. } => {
                 self.forwarded_capture(local, body, &mut closure_body, span)
             }
             ForwardTarget::Item { .. } | ForwardTarget::Opaque { .. } => (Vec::new(), None),
@@ -122,7 +132,8 @@ impl ModuleBuilder<'_> {
                 })
             })
             .collect::<Vec<_>>();
-        let answer = self.forwarded_answer(callback, body_local, &param_exprs, &mut closure_body, span)?;
+        let answer =
+            self.forwarded_answer(callback, body_local, &param_exprs, &mut closure_body, span)?;
         let tail = if return_ty == callback.ty {
             answer
         } else {
@@ -181,7 +192,9 @@ impl ModuleBuilder<'_> {
         } else {
             CaptureMode::ByRef
         };
-        let symbol = decl.name.unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture"));
+        let symbol = decl
+            .name
+            .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture"));
         let body_local = closure_body.push_local(LocalDecl {
             name: Some(symbol),
             ty: decl.ty,
@@ -218,10 +231,15 @@ impl ModuleBuilder<'_> {
                     smelt_hir::Item::Function(item_fn) if item_fn.rest.is_some()
                 );
                 if has_rest {
-                    let callee = self.callback_function_item_closure(item, ty, closure_body, span)?;
+                    let callee =
+                        self.callback_function_item_closure(item, ty, closure_body, span)?;
                     ExprKind::ClosureCall { callee, args }
                 } else {
-                    let callee = closure_body.push_expr(Expr { kind: ExprKind::Item(item), ty, span });
+                    let callee = closure_body.push_expr(Expr {
+                        kind: ExprKind::Item(item),
+                        ty,
+                        span,
+                    });
                     ExprKind::Call { callee, args }
                 }
             }
@@ -243,7 +261,12 @@ impl ModuleBuilder<'_> {
                 });
                 ExprKind::ClosureCall { callee, args }
             }
-            ForwardTarget::MatchesProperty { field, field_ty, value, value_ty } => {
+            ForwardTarget::MatchesProperty {
+                field,
+                field_ty,
+                value,
+                value_ty,
+            } => {
                 let receiver = params.first().copied().ok_or_else(|| {
                     SmeltError::unsupported(span, "matches-property iteratee takes an element")
                 })?;
@@ -257,10 +280,18 @@ impl ModuleBuilder<'_> {
                     ty: value_ty,
                     span,
                 });
-                ExprKind::BinOp { op: BinOp::JsStrictEq, lhs, rhs }
+                ExprKind::BinOp {
+                    op: BinOp::JsStrictEq,
+                    lhs,
+                    rhs,
+                }
             }
         };
-        Ok(closure_body.push_expr(Expr { kind, ty: callback.ty, span }))
+        Ok(closure_body.push_expr(Expr {
+            kind,
+            ty: callback.ty,
+            span,
+        }))
     }
 
     /// JavaScript truthiness of a forwarded answer of type `answer_ty`.
@@ -275,14 +306,22 @@ impl ModuleBuilder<'_> {
         let answer_type = self.ctx.krate.types.get(answer_ty).cloned();
         if matches!(answer_type, Some(Type::Unknown | Type::TypeParam { .. })) {
             return Ok(closure_body.push_expr(Expr {
-                kind: ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToBool, operand: answer },
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToBool,
+                    operand: answer,
+                },
                 ty: bool_ty,
                 span,
             }));
         }
         let (literal, literal_ty) = if answer_type == Some(Type::String) {
-            (Literal::String(String::new()), self.ctx.krate.types.intern(Type::String))
-        } else if self.is_nullishable_type(answer_ty) || self.type_is_truthy_condition_surface(answer_ty) {
+            (
+                Literal::String(String::new()),
+                self.ctx.krate.types.intern(Type::String),
+            )
+        } else if self.is_nullishable_type(answer_ty)
+            || self.type_is_truthy_condition_surface(answer_ty)
+        {
             (Literal::None, self.ctx.krate.types.intern(Type::None))
         } else {
             return Err(SmeltError::unsupported(
@@ -296,7 +335,11 @@ impl ModuleBuilder<'_> {
             span,
         });
         Ok(closure_body.push_expr(Expr {
-            kind: ExprKind::BinOp { op: BinOp::NotEq, lhs: answer, rhs },
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: answer,
+                rhs,
+            },
             ty: bool_ty,
             span,
         }))

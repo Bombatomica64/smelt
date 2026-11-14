@@ -68,7 +68,10 @@ impl NameSpace {
     /// (`__smelt_call`). Generic parameters and module files live in a
     /// namespace of their own.
     const fn reserves_emitter_prefixes(self) -> bool {
-        matches!(self, Self::Types | Self::Values | Self::Members | Self::Locals | Self::Fields)
+        matches!(
+            self,
+            Self::Types | Self::Values | Self::Members | Self::Locals | Self::Fields
+        )
     }
 }
 
@@ -138,7 +141,11 @@ pub(crate) struct NameClash {
 impl std::fmt::Display for NameClash {
     /// Describes the clash for an `EmitError`.
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "the Rust name `{}` is already taken in its scope", self.name)
+        write!(
+            formatter,
+            "the Rust name `{}` is already taken in its scope",
+            self.name
+        )
     }
 }
 
@@ -159,7 +166,10 @@ pub(crate) struct NameScope {
 impl NameScope {
     /// An empty scope of `space`.
     pub(crate) fn new(space: NameSpace) -> Self {
-        Self { space, taken: HashSet::new() }
+        Self {
+            space,
+            taken: HashSet::new(),
+        }
     }
 
     /// The comparison key of `text` in this scope.
@@ -188,7 +198,9 @@ impl NameScope {
     /// bypassing the escape: it must still be free in this scope.
     pub(crate) fn claim_emitter_name(&mut self, text: &'static str) -> Result<RustName, NameClash> {
         if !self.taken.insert(self.key(text)) {
-            return Err(NameClash { name: text.to_owned() });
+            return Err(NameClash {
+                name: text.to_owned(),
+            });
         }
         Ok(RustName(text.to_owned()))
     }
@@ -393,14 +405,26 @@ mod tests {
     #[test]
     fn emitter_prefixes_are_moved_out_of_source_names_only() {
         assert_eq!(escape(src("SmeltList"), NameSpace::Types), "SrcSmeltList");
-        assert_eq!(escape(src("smelt_typeof"), NameSpace::Values), "src_smelt_typeof");
+        assert_eq!(
+            escape(src("smelt_typeof"), NameSpace::Values),
+            "src_smelt_typeof"
+        );
         assert_eq!(escape(src("__smelt_x"), NameSpace::Locals), "src_smelt_x");
-        assert_eq!(escape(src("SMELT_GLOBAL"), NameSpace::Members), "src_SMELT_GLOBAL");
-        assert_eq!(escape(src("_smelt_phantom"), NameSpace::Fields), "src_smelt_phantom");
+        assert_eq!(
+            escape(src("SMELT_GLOBAL"), NameSpace::Members),
+            "src_SMELT_GLOBAL"
+        );
+        assert_eq!(
+            escape(src("_smelt_phantom"), NameSpace::Fields),
+            "src_smelt_phantom"
+        );
         assert_eq!(escape(src("smelter"), NameSpace::Values), "smelter");
         let minted = Spelling::Synthesized("smelt_global_init__x__0");
         assert_eq!(escape(minted, NameSpace::Values), "smelt_global_init__x__0");
-        assert_eq!(escape(Spelling::Synthesized("__smelt_call"), NameSpace::Fields), "__smelt_call");
+        assert_eq!(
+            escape(Spelling::Synthesized("__smelt_call"), NameSpace::Fields),
+            "__smelt_call"
+        );
     }
 
     /// A method never takes the name of a trait method the emitter calls.
@@ -432,9 +456,10 @@ mod tests {
         assert_eq!(field("fn"), "fn_");
         // Reserved by the 2024 edition only; `fn gen` does not parse there.
         assert_eq!(field("gen"), "gen_");
-        for reserved in ["async", "await", "dyn", "try", "abstract", "become", "box", "do",
-            "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield"]
-        {
+        for reserved in [
+            "async", "await", "dyn", "try", "abstract", "become", "box", "do", "final", "macro",
+            "override", "priv", "typeof", "unsized", "virtual", "yield",
+        ] {
             assert_eq!(field(reserved), format!("{reserved}_"));
         }
         // Weak keywords are ordinary identifiers.
@@ -446,7 +471,12 @@ mod tests {
     #[test]
     fn an_emitter_name_is_claimed_once() {
         let mut scope = NameScope::new(NameSpace::Values);
-        assert_eq!(scope.claim_emitter_name("main").map(|name| name.to_string()), Ok("main".to_owned()));
+        assert_eq!(
+            scope
+                .claim_emitter_name("main")
+                .map(|name| name.to_string()),
+            Ok("main".to_owned())
+        );
         assert!(scope.claim_emitter_name("main").is_err());
         // A source `main` then renders apart from the entry point.
         assert_eq!(scope.claim(src("main")).as_str(), "main_");

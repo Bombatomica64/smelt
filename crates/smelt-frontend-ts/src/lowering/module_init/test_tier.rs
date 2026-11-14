@@ -1,11 +1,11 @@
 //! Test-tier detection: whether a program is a test module, and which vitest
 //! globals it reaches without importing them.
 
-use std::collections::HashSet;
-use crate::test_support;
-use crate::lowering::js_text::js_str_text;
-use oxc::ast::ast::{BindingPattern, Program, Statement};
 use super::super::ModuleBuilder;
+use crate::lowering::js_text::js_str_text;
+use crate::test_support;
+use oxc::ast::ast::{BindingPattern, Program, Statement};
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Return whether a source path is a type-test module (`*.test-d.ts` or `*.test.ts`).
@@ -29,7 +29,9 @@ impl ModuleBuilder<'_> {
     /// import, or its own top-level declaration — keeps its own meaning: the
     /// global is only the fallback vitest makes it.
     pub(super) fn mark_ambient_test_builtins(&mut self, program: &Program<'_>) {
-        for name in ambient_test_builtin_names(program, &|name| self.imports.is_imported_binding(name)) {
+        for name in
+            ambient_test_builtin_names(program, &|name| self.imports.is_imported_binding(name))
+        {
             self.imports.mark_test_builtin(name.to_owned());
         }
     }
@@ -41,7 +43,9 @@ impl ModuleBuilder<'_> {
     /// `const`/`let`/`var` statement (a destructuring pattern that rebinds
     /// `expect` is not a shape any suite writes, and missing it only means the
     /// global is preferred, which is what an un-shadowed file wants anyway).
-    pub(in crate::lowering) fn program_top_level_binding_names(program: &Program<'_>) -> HashSet<String> {
+    pub(in crate::lowering) fn program_top_level_binding_names(
+        program: &Program<'_>,
+    ) -> HashSet<String> {
         let mut names = HashSet::new();
         for statement in &program.body {
             match statement {
@@ -81,7 +85,9 @@ impl ModuleBuilder<'_> {
 /// Whether the program at `path` belongs to the test tier; see
 /// [`ModuleBuilder::is_test_tier_program`].
 pub(in crate::lowering) fn is_test_tier(path: &str, program: &Program<'_>) -> bool {
-    if ModuleBuilder::is_declaration_type_test_path(path) || path.ends_with(".spec.ts") || path.ends_with(".test-d.tsx")
+    if ModuleBuilder::is_declaration_type_test_path(path)
+        || path.ends_with(".spec.ts")
+        || path.ends_with(".test-d.tsx")
     {
         return true;
     }

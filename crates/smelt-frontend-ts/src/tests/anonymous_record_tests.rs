@@ -14,9 +14,7 @@ fn param_type(ctx: &HirCtx, name: &str, index: usize) -> Result<smelt_hir::TypeI
         .items
         .iter()
         .find_map(|item| match item {
-            Item::Function(function)
-                if ctx.krate.symbols.get(function.name) == Some(name) =>
-            {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some(name) => {
                 function.params.get(index).map(|param| param.ty)
             }
             _ => None,
@@ -30,10 +28,15 @@ fn interface_fields(
     ty: smelt_hir::TypeId,
 ) -> Result<Vec<(String, smelt_hir::TypeId, bool)>, String> {
     let Some(Type::Class { name, args }) = ctx.krate.types.get(ty) else {
-        return Err(format!("expected a struct type, got {:?}", ctx.krate.types.get(ty)));
+        return Err(format!(
+            "expected a struct type, got {:?}",
+            ctx.krate.types.get(ty)
+        ));
     };
     if !args.is_empty() {
-        return Err(format!("a synthesized record takes no type arguments: {args:?}"));
+        return Err(format!(
+            "a synthesized record takes no type arguments: {args:?}"
+        ));
     }
     let interface = ctx
         .krate
@@ -76,7 +79,11 @@ fn a_heterogeneous_inline_object_type_lowers_to_a_struct_with_typed_fields() -> 
     // the struct (see `presence_tested_locals`); the struct is what this checks.
     let options_ty = match ctx.krate.types.get(param_type(&ctx, "retry", 0)?) {
         Some(Type::Optional(inner)) => *inner,
-        other => return Err(format!("a presence-tested parameter is Option, got {other:?}")),
+        other => {
+            return Err(format!(
+                "a presence-tested parameter is Option, got {other:?}"
+            ));
+        }
     };
     let fields = interface_fields(&ctx, options_ty)?;
     let float = ctx.krate.types.intern(Type::Float);

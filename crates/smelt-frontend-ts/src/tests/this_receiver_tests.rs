@@ -149,7 +149,10 @@ test("throws", () => {
     lower_path_ok(source, "src/to-throw-class.test.ts", &mut ctx)?;
     let my_error = ctx.krate.symbols.intern("MyError");
     ensure!(
-        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::InstanceOf { class, .. } if *class == my_error)),
+        crate_has_expr(
+            &ctx,
+            |kind| matches!(kind, ExprKind::InstanceOf { class, .. } if *class == my_error)
+        ),
         "a class argument is an instanceof test on the thrown value"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -174,7 +177,9 @@ test("throws", () => {
     ensure!(
         !crate_has_expr(&ctx, |kind| matches!(
             kind,
-            ExprKind::StringContains { .. } | ExprKind::RegexTest { .. } | ExprKind::InstanceOf { .. }
+            ExprKind::StringContains { .. }
+                | ExprKind::RegexTest { .. }
+                | ExprKind::InstanceOf { .. }
         )),
         "no argument means no comparison"
     );

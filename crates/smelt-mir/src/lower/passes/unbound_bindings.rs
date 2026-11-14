@@ -99,9 +99,17 @@ pub(in crate::lower) fn check_unbound_bindings(
             continue;
         };
         let mut entry_defs = closure.params.clone();
-        entry_defs.extend(closure.captures.iter().enumerate().filter_map(|(index, capture)| {
-            capture.target_local.filter(|_| captures.is_initialized(closure.id, index))
-        }));
+        entry_defs.extend(
+            closure
+                .captures
+                .iter()
+                .enumerate()
+                .filter_map(|(index, capture)| {
+                    capture
+                        .target_local
+                        .filter(|_| captures.is_initialized(closure.id, index))
+                }),
+        );
         let body = BodyParts {
             locals: &mut closure.locals,
             blocks: &mut closure.blocks,
@@ -149,7 +157,11 @@ fn possibly_unbound_bindings(
             match point {
                 Point::Statement { statement, .. } => {
                     non_capture_reads(statement, &mut mark_read);
-                    if let Rvalue::Closure { id, captures: operands } = statement.value() {
+                    if let Rvalue::Closure {
+                        id,
+                        captures: operands,
+                    } = statement.value()
+                    {
                         let targets = mir.closure(*id).map(|closure| closure.captures.as_slice());
                         for (index, operand) in operands.iter().enumerate() {
                             let Some(source) = operand.local() else {
@@ -204,7 +216,9 @@ fn share_with_captures(mir: &Mir, unbound: &mut HashMap<BodyOwner, HashSet<Local
                     if let Some(source) = operand.local()
                         && marked.contains(&source)
                         && let Some(target) = capture.target_local
-                        && !unbound.get(&BodyOwner::Closure(*id)).is_some_and(|set| set.contains(&target))
+                        && !unbound
+                            .get(&BodyOwner::Closure(*id))
+                            .is_some_and(|set| set.contains(&target))
                     {
                         added.push((BodyOwner::Closure(*id), target));
                     }
@@ -250,7 +264,10 @@ impl BodyParts<'_> {
         match self.language {
             Language::TypeScript => UnboundRead::JsTemporalDeadZone,
             Language::Python
-                if self.captures.iter().any(|capture| capture.target_local == Some(local)) =>
+                if self
+                    .captures
+                    .iter()
+                    .any(|capture| capture.target_local == Some(local)) =>
             {
                 UnboundRead::PyFreeVariable
             }
@@ -271,7 +288,10 @@ impl BodyParts<'_> {
             span: decl.span,
             init: LocalInit::Definite,
         };
-        let id = LocalId(u32::try_from(self.locals.len()).map_err(|error| format!("too many locals: {error}"))?);
+        let id = LocalId(
+            u32::try_from(self.locals.len())
+                .map_err(|error| format!("too many locals: {error}"))?,
+        );
         self.locals.push(temp);
         Ok(id)
     }
@@ -284,8 +304,16 @@ impl BodyParts<'_> {
             .get(local.index())
             .ok_or_else(|| format!("local {} is out of range", local.0))?
             .span;
-        let id = LocalId(u32::try_from(self.locals.len()).map_err(|error| format!("too many locals: {error}"))?);
-        self.locals.push(LocalDecl { ty: self.none_ty, kind: LocalKind::Temp, span, init: LocalInit::Definite });
+        let id = LocalId(
+            u32::try_from(self.locals.len())
+                .map_err(|error| format!("too many locals: {error}"))?,
+        );
+        self.locals.push(LocalDecl {
+            ty: self.none_ty,
+            kind: LocalKind::Temp,
+            span,
+            init: LocalInit::Definite,
+        });
         Ok(id)
     }
 
@@ -296,14 +324,24 @@ impl BodyParts<'_> {
             .get(like.index())
             .ok_or_else(|| format!("block {} is out of range", like.0))?
             .span;
-        let id = BlockId(u32::try_from(self.blocks.len()).map_err(|error| format!("too many blocks: {error}"))?);
-        self.blocks.push(BasicBlock { id, statements: Vec::new(), terminator: None, span });
+        let id = BlockId(
+            u32::try_from(self.blocks.len())
+                .map_err(|error| format!("too many blocks: {error}"))?,
+        );
+        self.blocks.push(BasicBlock {
+            id,
+            statements: Vec::new(),
+            terminator: None,
+            span,
+        });
         Ok(id)
     }
 
     /// The block at `id`.
     fn block_mut(&mut self, id: BlockId) -> Result<&mut BasicBlock, String> {
-        self.blocks.get_mut(id.index()).ok_or_else(|| format!("block {} is out of range", id.0))
+        self.blocks
+            .get_mut(id.index())
+            .ok_or_else(|| format!("block {} is out of range", id.0))
     }
 }
 
@@ -350,11 +388,16 @@ fn rewrite_body(
 /// * A handler that catches into the binding catches into a fresh temporary,
 ///   and a landing block between the throw and the catch block assigns it. The
 ///   landing block is shared by every edge into the same handler.
-fn route_writes_through_assign(body: &mut BodyParts<'_>, unbound: &HashSet<LocalId>) -> Result<(), String> {
+fn route_writes_through_assign(
+    body: &mut BodyParts<'_>,
+    unbound: &HashSet<LocalId>,
+) -> Result<(), String> {
     let mut landings: Landings = HashMap::new();
     let block_count = body.blocks.len();
     for block_index in 0..block_count {
-        let block_id = BlockId(u32::try_from(block_index).map_err(|error| format!("too many blocks: {error}"))?);
+        let block_id = BlockId(
+            u32::try_from(block_index).map_err(|error| format!("too many blocks: {error}"))?,
+        );
         let statement_count = body.block_mut(block_id)?.statements.len();
         for statement_index in 0..statement_count {
             let statement = body
@@ -363,10 +406,19 @@ fn route_writes_through_assign(body: &mut BodyParts<'_>, unbound: &HashSet<Local
                 .get_mut(statement_index)
                 .ok_or_else(|| "statement index out of range".to_owned())?;
             match statement {
-                Statement::AssignPlace { place: Place::Local(local), value } if unbound.contains(local) => {
+                Statement::AssignPlace {
+                    place: Place::Local(local),
+                    value,
+                } if unbound.contains(local) => {
                     let dest = *local;
-                    let assigned = std::mem::replace(value, Rvalue::Use(Operand::Const(crate::Constant::None)));
-                    *statement = Statement::Assign { dest, value: assigned };
+                    let assigned = std::mem::replace(
+                        value,
+                        Rvalue::Use(Operand::Const(crate::Constant::None)),
+                    );
+                    *statement = Statement::Assign {
+                        dest,
+                        value: assigned,
+                    };
                 }
                 Statement::DictEntryUpdate { current, .. } if unbound.contains(current) => {
                     return Err(format!(
@@ -374,10 +426,20 @@ fn route_writes_through_assign(body: &mut BodyParts<'_>, unbound: &HashSet<Local
                         current.0
                     ));
                 }
-                Statement::Assign { .. } | Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => {}
+                Statement::Assign { .. }
+                | Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. } => {}
             }
-            let yield_handler = match body.block_mut(block_id)?.statements.get(statement_index).map(Statement::value) {
-                Some(Rvalue::GeneratorYield { unwind: Some(handler), .. }) => Some(*handler),
+            let yield_handler = match body
+                .block_mut(block_id)?
+                .statements
+                .get(statement_index)
+                .map(Statement::value)
+            {
+                Some(Rvalue::GeneratorYield {
+                    unwind: Some(handler),
+                    ..
+                }) => Some(*handler),
                 _ => None,
             };
             if let Some(handler) = yield_handler
@@ -392,8 +454,20 @@ fn route_writes_through_assign(body: &mut BodyParts<'_>, unbound: &HashSet<Local
             }
         }
         let terminator = body.block_mut(block_id)?.terminator.clone();
-        let Some(Terminator::Call { dest, target, unwind, .. } | Terminator::Await { dest, target, unwind, .. }) =
-            terminator
+        let Some(
+            Terminator::Call {
+                dest,
+                target,
+                unwind,
+                ..
+            }
+            | Terminator::Await {
+                dest,
+                target,
+                unwind,
+                ..
+            },
+        ) = terminator
         else {
             continue;
         };
@@ -415,8 +489,18 @@ fn route_writes_through_assign(body: &mut BodyParts<'_>, unbound: &HashSet<Local
             (None, None)
         };
         if let Some(
-            Terminator::Call { dest: dest_slot, target: target_slot, unwind: unwind_slot, .. }
-            | Terminator::Await { dest: dest_slot, target: target_slot, unwind: unwind_slot, .. },
+            Terminator::Call {
+                dest: dest_slot,
+                target: target_slot,
+                unwind: unwind_slot,
+                ..
+            }
+            | Terminator::Await {
+                dest: dest_slot,
+                target: target_slot,
+                unwind: unwind_slot,
+                ..
+            },
         ) = &mut body.block_mut(block_id)?.terminator
         {
             if let Some(temp) = new_dest {
@@ -442,7 +526,10 @@ fn land_exception(
     handler: ExceptionHandler,
     unbound: &HashSet<LocalId>,
 ) -> Result<Option<ExceptionHandler>, String> {
-    let Some(local) = handler.exception_local.filter(|local| unbound.contains(local)) else {
+    let Some(local) = handler
+        .exception_local
+        .filter(|local| unbound.contains(local))
+    else {
         return Ok(None);
     };
     if let Some(landed) = landings.get(&(handler.catch_block, local)) {
@@ -456,7 +543,10 @@ fn land_exception(
         value: Rvalue::Use(Operand::Move(Place::Local(temp))),
     });
     landing_block.terminator = Some(Terminator::Goto(handler.catch_block));
-    let landed = ExceptionHandler { catch_block: landing, exception_local: Some(temp) };
+    let landed = ExceptionHandler {
+        catch_block: landing,
+        exception_local: Some(temp),
+    };
     landings.insert((handler.catch_block, local), landed);
     Ok(Some(landed))
 }
@@ -477,18 +567,25 @@ struct ReadSite {
 /// assigned there. A read it can prove needs nothing: it is an ordinary read.
 fn read_sites(body: &BodyParts<'_>, unbound: &HashSet<LocalId>) -> Vec<ReadSite> {
     let blocks: &[BasicBlock] = body.blocks;
-    let analysis = DefiniteAssignment::of_blocks(blocks, body.entry, body.entry_defs.iter().copied());
+    let analysis =
+        DefiniteAssignment::of_blocks(blocks, body.entry, body.entry_defs.iter().copied());
     let mut sites = Vec::new();
     analysis.walk_blocks(blocks, |point, state| {
         let mut read: Vec<LocalId> = Vec::new();
         let (block, position) = match point {
-            Point::Statement { block, index, statement } => {
+            Point::Statement {
+                block,
+                index,
+                statement,
+            } => {
                 non_capture_reads(statement, |local| read.push(local));
                 (block, index)
             }
             Point::Terminator { block, terminator } => {
                 terminator.read_locals(|local| read.push(local));
-                let count = blocks.get(block.index()).map_or(0, |terminated| terminated.statements.len());
+                let count = blocks
+                    .get(block.index())
+                    .map_or(0, |terminated| terminated.statements.len());
                 (block, count)
             }
         };
@@ -496,7 +593,11 @@ fn read_sites(body: &BodyParts<'_>, unbound: &HashSet<LocalId>) -> Vec<ReadSite>
         read.sort_unstable_by_key(|local| local.0);
         read.dedup();
         if !read.is_empty() {
-            sites.push(ReadSite { block, position, unproven: read });
+            sites.push(ReadSite {
+                block,
+                position,
+                unproven: read,
+            });
         }
     });
     sites
@@ -507,7 +608,11 @@ fn read_sites(body: &BodyParts<'_>, unbound: &HashSet<LocalId>) -> Vec<ReadSite>
 /// handler lowering recorded for the site, so the block is split there: the
 /// statements before the site stay, each check continues into the next block,
 /// and the last one holds the site and the rest of the original block.
-fn rewrite_site(body: &mut BodyParts<'_>, site: &ReadSite, marks: &HandlerMarks) -> Result<(), String> {
+fn rewrite_site(
+    body: &mut BodyParts<'_>,
+    site: &ReadSite,
+    marks: &HandlerMarks,
+) -> Result<(), String> {
     let block = body.block_mut(site.block)?;
     let is_terminator = site.position >= block.statements.len();
     let handler = match (&block.terminator, is_terminator) {
@@ -516,7 +621,9 @@ fn rewrite_site(body: &mut BodyParts<'_>, site: &ReadSite, marks: &HandlerMarks)
         }
         _ => marks.at(site.block, site.position),
     };
-    let rest: Vec<Statement> = block.statements.split_off(site.position.min(block.statements.len()));
+    let rest: Vec<Statement> = block
+        .statements
+        .split_off(site.position.min(block.statements.len()));
     let terminator = block.terminator.take();
     let mut current = site.block;
     for local in &site.unproven {
@@ -525,7 +632,10 @@ fn rewrite_site(body: &mut BodyParts<'_>, site: &ReadSite, marks: &HandlerMarks)
         let unbound = body.unbound_read(*local);
         body.block_mut(current)?.terminator = Some(Terminator::Call {
             callee: Callee::Op(
-                Box::new(Rvalue::BindingCheck { binding: Operand::Copy(Place::Local(*local)), unbound }),
+                Box::new(Rvalue::BindingCheck {
+                    binding: Operand::Copy(Place::Local(*local)),
+                    unbound,
+                }),
                 None,
             ),
             args: Vec::new(),

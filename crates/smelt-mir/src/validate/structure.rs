@@ -8,7 +8,7 @@
 //! delegated to [`super::operands`]; definite-assignment dataflow is delegated
 //! to [`super::assignment`].
 
-use crate::{MirBody, Mir, Statement, Terminator};
+use crate::{Mir, MirBody, Statement, Terminator};
 
 use super::operands::{
     validate_callee_exists, validate_operand_exists, validate_place_exists, validate_rvalue_exists,
@@ -67,7 +67,6 @@ fn validate_block(
             body.owner, block.id
         )));
     }
-
 
     for stmt in &block.statements {
         validate_statement(mir, body, stmt, errors);

@@ -4,7 +4,7 @@
 mod annotations;
 mod assignability;
 mod callable_members;
-mod decode_facts;
 pub(in crate::lowering) mod computed_key_symbols;
+mod decode_facts;
 mod generics;
 mod interface_lookup;

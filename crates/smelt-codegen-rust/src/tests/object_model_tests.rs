@@ -42,7 +42,9 @@ export function tagArray(): unknown {
         "the runtime index-assign helper must keep the array for a non-index key"
     );
     assert!(
-        !source.contains("else { *target = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }"),
+        !source.contains(
+            "else { *target = SmeltUnknown::Object(SmeltObject::new(Vec::from([(key, value)]))); }"
+        ),
         "the array arm must no longer replace the array with an object"
     );
 }
@@ -166,7 +168,9 @@ export function erase(): unknown {
         "the erased subclass instance must carry its builtin error base:\n{body}"
     );
     assert!(
-        body.contains("(\"__smelt_class\".to_owned(), SmeltUnknown::String(\"CustomTypeError\".into()))"),
+        body.contains(
+            "(\"__smelt_class\".to_owned(), SmeltUnknown::String(\"CustomTypeError\".into()))"
+        ),
         "the user class identity must survive alongside it:\n{body}"
     );
 }
@@ -374,7 +378,10 @@ export function readTag(value: unknown): unknown {
         "fn smelt_string_prototype_apply(",
         "fn smelt_throw_not_callable(",
     ] {
-        assert!(source.contains(helper), "the erased-method runtime must emit `{helper}`");
+        assert!(
+            source.contains(helper),
+            "the erased-method runtime must emit `{helper}`"
+        );
     }
     assert!(
         !source.contains("fn smelt_array_sort_method("),
@@ -482,7 +489,8 @@ export function viaMethod(o: any): unknown {
     );
     let field = emitted_function_body(&source, "fn via_field(");
     assert!(
-        !field.contains("smelt_throw_not_callable(") && field.contains("smelt_value_not_callable()"),
+        !field.contains("smelt_throw_not_callable(")
+            && field.contains("smelt_value_not_callable()"),
         "a non-table callee throws TypeError without a spelling:\n{field}"
     );
     let method = emitted_function_body(&source, "fn via_method(");

@@ -45,7 +45,11 @@ use smelt_hir::FileId;
 /// Returns a human-readable error string on any frontend/MIR/emit failure so
 /// callers can record it as a corpus failure rather than panicking: a source
 /// shape the frontend rejects is a finding, not a broken test.
-pub(crate) fn emit_typescript_crate(name: &str, source: &str, crate_dir: &Path) -> Result<(), String> {
+pub(crate) fn emit_typescript_crate(
+    name: &str,
+    source: &str,
+    crate_dir: &Path,
+) -> Result<(), String> {
     let mut ctx = HirCtx::new();
     to_hir(source, FileId(0), &mut ctx).map_err(|err| format!("HIR lowering failed: {err:?}"))?;
     let mut mir =

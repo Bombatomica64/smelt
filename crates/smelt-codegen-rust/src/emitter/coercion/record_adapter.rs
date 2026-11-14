@@ -19,7 +19,10 @@ impl FunctionEmitter<'_> {
             return mapped;
         }
         let record = json_decode::ts_type_text(self.mir, target);
-        RustExpr::atom(format!("{{ let _smelt_conv_frame = smelt_conv_enter({record:?}, {key:?}); {mapped} }}", mapped = mapped.delimited()))
+        RustExpr::atom(format!(
+            "{{ let _smelt_conv_frame = smelt_conv_enter({record:?}, {key:?}); {mapped} }}",
+            mapped = mapped.delimited()
+        ))
     }
 
     /// Returns whether `source` can be coerced before wrapping into `Option`.
@@ -90,7 +93,8 @@ impl FunctionEmitter<'_> {
         if target_fields.is_empty() {
             return None;
         }
-        let field_key = |field: &MirField| Some(self.context.names().field_text(self.mir, field.name));
+        let field_key =
+            |field: &MirField| Some(self.context.names().field_text(self.mir, field.name));
         // A DOWNCAST: the target declares every source field and adds more
         // (`base as Derived` where `interface Derived extends Base`). `tsc`
         // only accepts an assertion between comparable types, and a target that
@@ -147,14 +151,12 @@ impl FunctionEmitter<'_> {
         if let (Some(Type::Class { name: from, .. }), Some(Type::Class { name: to, args })) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && from == to
-            && !args.is_empty()
-            && args.iter().all(|arg| {
-                matches!(
-                    self.mir.types.get(*arg),
-                    Some(Type::TypeParam { name, .. }) if !self.current_function_has_type_param(*name)
-                )
-            })
-        {
+            && !args.is_empty() && args.iter().all(|arg| {
+            matches!(
+                self.mir.types.get(*arg),
+                Some(Type::TypeParam { name, .. }) if !self.current_function_has_type_param(*name)
+            )
+        }) {
             return Ok(Some(value_text.cloned_value()));
         }
         // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
@@ -223,14 +225,19 @@ impl FunctionEmitter<'_> {
             {
                 value
             } else if let Some(value) = match &source_field_match {
-                Some(source_field) => {
-                    self.receiver_bound_field_slot_expr(source, target, source_field, &target_field, scope)?
-                }
+                Some(source_field) => self.receiver_bound_field_slot_expr(
+                    source,
+                    target,
+                    source_field,
+                    &target_field,
+                    scope,
+                )?,
                 None => None,
             } {
                 value
             } else if let Some(source_field) = source_field_match {
-                let source_field_name = self.context.names().field_text(self.mir, source_field.name);
+                let source_field_name =
+                    self.context.names().field_text(self.mir, source_field.name);
                 // A reference-class source keeps its fields inside the shared
                 // `Rc<RefCell<Inner>>` cell, so they are read through it.
                 let source_base = if self.is_reference_class_type(source) {
@@ -238,11 +245,18 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::path("smelt_struct_value")
                 };
-                let source_value = source_base.postfix(format!(".{source_field_name}")).cloned_value();
+                let source_value = source_base
+                    .postfix(format!(".{source_field_name}"))
+                    .cloned_value();
                 let adapted =
                     self.rendered_at_type(&source_value, source_field.ty, target_field.ty, scope)?;
                 value_at_slot_abi = adapted == source_value
-                    && self.record_slot_read_keeps_slot_abi(source, &source_field, target, &target_field);
+                    && self.record_slot_read_keeps_slot_abi(
+                        source,
+                        &source_field,
+                        target,
+                        &target_field,
+                    );
                 // Narrowing a callable object to a callable interface that
                 // declares fewer members drops the source's own data fields —
                 // in JavaScript those are properties of the *function value*
@@ -286,12 +300,14 @@ impl FunctionEmitter<'_> {
         if self.is_reference_class_type(target) {
             return Ok(Some(RustExpr::atom(format!(
                 "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
-                field_text.join(", "), value_text = value_text.tight()
+                field_text.join(", "),
+                value_text = value_text.tight()
             ))));
         }
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
-            field_text.join(", "), value_text = value_text.tight()
+            field_text.join(", "),
+            value_text = value_text.tight()
         ))))
     }
 
@@ -324,7 +340,8 @@ impl FunctionEmitter<'_> {
         }
         let existing = self
             .context
-            .minted.record_adapter_helpers
+            .minted
+            .record_adapter_helpers
             .borrow()
             .get(&module)
             .map(|(ordinal, _)| *ordinal);
@@ -333,14 +350,23 @@ impl FunctionEmitter<'_> {
         } else {
             // Reserved before the body renders (the cycle calls it); released
             // unless a body is committed (see `helper_reservation`).
-            let reservation =
-                helper_reservation::reserve(&self.context.minted, &self.context.minted.record_adapter_helpers, module);
+            let reservation = helper_reservation::reserve(
+                &self.context.minted,
+                &self.context.minted.record_adapter_helpers,
+                module,
+            );
             let body = {
                 // The helper's body is a fresh module-level item: the
                 // expansions in progress at this call site are not its own.
-                let _suspended = helper_reservation::suspend(&self.conversions.type_expansion_stack);
+                let _suspended =
+                    helper_reservation::suspend(&self.conversions.type_expansion_stack);
                 let module_scope = self.render_scope();
-                self.structural_record_adapter(&RustExpr::path("smelt_value"), source, target, &module_scope)
+                self.structural_record_adapter(
+                    &RustExpr::path("smelt_value"),
+                    source,
+                    target,
+                    &module_scope,
+                )
             };
             let Some(body) = body? else {
                 return Ok(None);
@@ -350,7 +376,8 @@ impl FunctionEmitter<'_> {
         drop(hoisted);
         Ok(Some(format!(
             "{}{ordinal}({value_text})",
-            crate::RECORD_ADAPTER_HELPER_PREFIX, value_text = value_text.delimited()
+            crate::RECORD_ADAPTER_HELPER_PREFIX,
+            value_text = value_text.delimited()
         )))
     }
 
@@ -417,7 +444,8 @@ impl FunctionEmitter<'_> {
         // its effects and move any by-value argument more than once.
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_host_value = {value_text}; {target_name} {{ {} }} }}",
-            field_text.join(", "), value_text = value_text.delimited()
+            field_text.join(", "),
+            value_text = value_text.delimited()
         ))))
     }
 
@@ -436,7 +464,11 @@ impl FunctionEmitter<'_> {
         target: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if self.mir.types.get(source_key).is_none_or(|candidate| !candidate.is_text())
+        if self
+            .mir
+            .types
+            .get(source_key)
+            .is_none_or(|candidate| !candidate.is_text())
             || !self.is_structural_record_adapter_target(target)
         {
             return Ok(None);
@@ -535,8 +567,19 @@ impl FunctionEmitter<'_> {
                 RustExpr::path("None")
             } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
-                    let rendered = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, *inner, scope)?;
-                    let mapped = self.conversion_framed(rendered, source_is_erased, target, field_key, *inner);
+                    let rendered = self.rendered_at_type(
+                        &RustExpr::path("smelt_value"),
+                        source_value,
+                        *inner,
+                        scope,
+                    )?;
+                    let mapped = self.conversion_framed(
+                        rendered,
+                        source_is_erased,
+                        target,
+                        field_key,
+                        *inner,
+                    );
                     if source_is_erased
                         && !matches!(self.mir.types.get(*inner), Some(Type::Unknown))
                     {
@@ -548,21 +591,38 @@ impl FunctionEmitter<'_> {
                             ".and_then(|smelt_value| if smelt_unknown_is_nullish(&smelt_value) {{ None }} else {{ Some({mapped}) }})", mapped = mapped.delimited()
                         ))
                     } else {
-                        RustExpr::atom(lookup_value).postfix(format!(".map(|smelt_value| {mapped})", mapped = mapped.delimited()))
+                        RustExpr::atom(lookup_value).postfix(format!(
+                            ".map(|smelt_value| {mapped})",
+                            mapped = mapped.delimited()
+                        ))
                     }
                 } else if self.can_render_dict_value_as(source_value, field.ty) {
                     // The dictionary value is already optional-shaped, so the
                     // `get` produced an `Option<Option<_>>`; flatten it instead of
                     // discarding the field. Without this arm the projection
                     // answered `None` for a value that was actually present.
-                    let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, field.ty, scope)?;
-                    RustExpr::atom(lookup_value).postfix(format!(".map_or(None, |smelt_value| {mapped})", mapped = mapped.delimited()))
+                    let mapped = self.rendered_at_type(
+                        &RustExpr::path("smelt_value"),
+                        source_value,
+                        field.ty,
+                        scope,
+                    )?;
+                    RustExpr::atom(lookup_value).postfix(format!(
+                        ".map_or(None, |smelt_value| {mapped})",
+                        mapped = mapped.delimited()
+                    ))
                 } else {
                     RustExpr::path("None")
                 }
             } else if self.can_render_dict_value_as(source_value, field.ty) {
-                let rendered = self.rendered_at_type(&RustExpr::path("smelt_value"), source_value, field.ty, scope)?;
-                let mapped = self.conversion_framed(rendered, source_is_erased, target, field_key, field.ty);
+                let rendered = self.rendered_at_type(
+                    &RustExpr::path("smelt_value"),
+                    source_value,
+                    field.ty,
+                    scope,
+                )?;
+                let mapped =
+                    self.conversion_framed(rendered, source_is_erased, target, field_key, field.ty);
                 // See `emit_record_from_smelt_unknown_impl` for why `#private` is exempt.
                 let missing = (source_is_erased && !hidden)
                     .then(|| {
@@ -574,7 +634,8 @@ impl FunctionEmitter<'_> {
                     .flatten();
                 if let Some(throw) = missing {
                     RustExpr::atom(lookup_value).postfix(format!(
-                        ".map_or_else(|| {throw}, |smelt_value| {mapped})", mapped = mapped.delimited()
+                        ".map_or_else(|| {throw}, |smelt_value| {mapped})",
+                        mapped = mapped.delimited()
                     ))
                 } else {
                     RustExpr::atom(lookup_value).postfix(format!(
@@ -582,14 +643,13 @@ impl FunctionEmitter<'_> {
                         self.default_value_with_scoped_type_params(
                             field.ty,
                             &TypeSubstitution::lexical_subset(&scoped_type_params),
-                        )?.delimited(), mapped = mapped.delimited()
+                        )?
+                        .delimited(),
+                        mapped = mapped.delimited()
                     ))
                 }
             } else {
-                self.default_value_with_scoped_type_params(
-                    field.ty,
-                    &TypeSubstitution::erased(),
-                )?
+                self.default_value_with_scoped_type_params(field.ty, &TypeSubstitution::erased())?
             };
             // A callable slot keeps the ABI its DECLARATION gave it, whatever
             // the record was instantiated at (`emitter::record_slot_abi`).
@@ -614,17 +674,23 @@ impl FunctionEmitter<'_> {
             // Only an erased-valued `SmeltRecord` view can share an erased
             // object's store; a concretely typed dictionary never carries one.
             let body = if source_is_erased && self.dict_uses_smelt_record(source_key) {
-                crate::reference_origin::restore_or_rebuild_expr(&RustExpr::path("smelt_record_map"), &rebuild)
+                crate::reference_origin::restore_or_rebuild_expr(
+                    &RustExpr::path("smelt_record_map"),
+                    &rebuild,
+                )
             } else {
                 rebuild
             };
             return Ok(Some(RustExpr::atom(format!(
-                "{{ let smelt_record_map = {value_text}.clone(); {body} }}", value_text = value_text.tight(), body = body.delimited()
+                "{{ let smelt_record_map = {value_text}.clone(); {body} }}",
+                value_text = value_text.tight(),
+                body = body.delimited()
             ))));
         }
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_record_map = {value_text}.clone(); {target_name} {{ {} }} }}",
-            field_text.join(", "), value_text = value_text.tight()
+            field_text.join(", "),
+            value_text = value_text.tight()
         ))))
     }
 
@@ -641,7 +707,12 @@ impl FunctionEmitter<'_> {
         target_value: TypeId,
         scope: &RenderScope,
     ) -> Result<Option<RustExpr>, EmitError> {
-        if self.mir.types.get(target_key).is_none_or(|candidate| !candidate.is_text()) {
+        if self
+            .mir
+            .types
+            .get(target_key)
+            .is_none_or(|candidate| !candidate.is_text())
+        {
             return Ok(None);
         }
         let Some(source_fields) = self.structural_record_fields(source) else {
@@ -660,18 +731,27 @@ impl FunctionEmitter<'_> {
             let key = self.symbol_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
             let source_value = if source_is_reference_class {
-                RustExpr::chain(format!("smelt_struct_value.0.borrow().{field_name}")).cloned_value()
+                RustExpr::chain(format!("smelt_struct_value.0.borrow().{field_name}"))
+                    .cloned_value()
             } else {
                 RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value()
             };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
-                let mapped = self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, target_value, scope)?;
+                let mapped = self.rendered_at_type(
+                    &RustExpr::path("smelt_value"),
+                    *inner,
+                    target_value,
+                    scope,
+                )?;
                 format!(
                     "{source_value}.map_or({}, |smelt_value| {mapped})",
-                    self.default_value(target_value)?.delimited(), source_value = source_value.tight(), mapped = mapped.delimited()
+                    self.default_value(target_value)?.delimited(),
+                    source_value = source_value.tight(),
+                    mapped = mapped.delimited()
                 )
             } else {
-                self.rendered_at_type(&source_value, field.ty, target_value, scope)?.into_string()
+                self.rendered_at_type(&source_value, field.ty, target_value, scope)?
+                    .into_string()
             };
             entries.push(format!("({key:?}.to_owned(), {value})"));
         }
@@ -683,7 +763,8 @@ impl FunctionEmitter<'_> {
         };
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_struct_value = {value_text}.clone(); {constructor}([{}]) }}",
-            entries.join(", "), value_text = value_text.tight()
+            entries.join(", "),
+            value_text = value_text.tight()
         ))))
     }
 
@@ -723,7 +804,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether a non-callback dictionary value can populate a field.
-    pub(super) fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
+    pub(super) fn can_render_non_function_dict_value_as(
+        &self,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             // An optional field accepts the inner type (the `get` already supplies
             // the outer `Option`) or an absent value. It must ALSO accept a source
@@ -776,7 +861,11 @@ impl FunctionEmitter<'_> {
                 crate::classes::effective_class_fields(self.mir, class),
             ));
         }
-        let interface = self.mir.interfaces.iter().find(|interface| interface.name == *name)?;
+        let interface = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)?;
         let fields = crate::classes::effective_interface_fields(self.mir, interface);
         Some(self.substitute_record_field_type_params(&interface.type_params, args, fields))
     }
@@ -789,8 +878,8 @@ impl FunctionEmitter<'_> {
         // The parameters the emitted struct DECLARES: a position
         // `generic_elision` dropped is spelled nowhere, so it must not be
         // spelled here either. Same rule as the type renderer's `retain_carried`.
-        let declared = crate::classes::find_class(self.mir, name)
-            .map_or(0, |class| class.type_params.len());
+        let declared =
+            crate::classes::find_class(self.mir, name).map_or(0, |class| class.type_params.len());
         self.context
             .type_param_elision()
             .retain_carried(name, (0..declared).collect::<Vec<_>>())
@@ -870,7 +959,11 @@ impl FunctionEmitter<'_> {
     /// structs are nominal. This predicate intentionally only enables the
     /// adapter when the destination is an emitted interface record; ordinary
     /// class-to-class conversion still keeps Rust's nominal identity.
-    pub(in crate::emitter) fn structural_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+    pub(in crate::emitter) fn structural_record_adapter_available(
+        &self,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
         self.structural_record_adapter_fields(source, target)
             .is_some()
             // A modeled host class carries its members behind accessors rather

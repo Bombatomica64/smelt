@@ -34,7 +34,7 @@ use oxc::ast::ast::{
     TSFunctionType, TSInterfaceBody, TSInterfaceDeclaration, TSMethodSignature, TSModuleBlock,
     TSSignature, TSTypeAliasDeclaration, TSTypeParameterDeclaration,
 };
-use oxc::ast_visit::{walk, Visit};
+use oxc::ast_visit::{Visit, walk};
 use oxc::semantic::ScopeFlags;
 
 /// Map every type parameter's span start to the owner path of the item that
@@ -67,7 +67,9 @@ impl OwnerCollector {
 
     /// The segment of an owner node: the name its parent chose, else `@offset`.
     fn segment_or_offset(&mut self, start: u32) -> String {
-        self.named_next.take().unwrap_or_else(|| format!("@{start}"))
+        self.named_next
+            .take()
+            .unwrap_or_else(|| format!("@{start}"))
     }
 }
 
@@ -89,16 +91,19 @@ impl<'a> Visit<'a> for OwnerCollector {
         )
         .then(|| it.id.as_ref().map(|id| id.name.to_string()))
         .flatten();
-        let segment = self.named_next.take().unwrap_or_else(|| {
-            declared_name.unwrap_or_else(|| format!("@{}", it.span.start))
-        });
+        let segment = self
+            .named_next
+            .take()
+            .unwrap_or_else(|| declared_name.unwrap_or_else(|| format!("@{}", it.span.start)));
         self.within(segment, |this| walk::walk_function(this, it, flags));
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
         self.named_next = None;
         let segment = format!("@{}", it.span.start);
-        self.within(segment, |this| walk::walk_arrow_function_expression(this, it));
+        self.within(segment, |this| {
+            walk::walk_arrow_function_expression(this, it);
+        });
     }
 
     fn visit_class(&mut self, it: &Class<'a>) {
@@ -140,7 +145,9 @@ impl<'a> Visit<'a> for OwnerCollector {
     fn visit_ts_interface_declaration(&mut self, it: &TSInterfaceDeclaration<'a>) {
         self.named_next = None;
         let segment = it.id.name.to_string();
-        self.within(segment, |this| walk::walk_ts_interface_declaration(this, it));
+        self.within(segment, |this| {
+            walk::walk_ts_interface_declaration(this, it);
+        });
     }
 
     fn visit_ts_interface_body(&mut self, it: &TSInterfaceBody<'a>) {
@@ -149,12 +156,10 @@ impl<'a> Visit<'a> for OwnerCollector {
         // signatures inside a type literal are anonymous.
         for signature in &it.body {
             self.named_next = match signature {
-                TSSignature::TSMethodSignature(method) if !method.computed => {
-                    method
-                        .key
-                        .static_name()
-                        .map(|name| crate::lowering::js_text::static_name_text(name).into_owned())
-                }
+                TSSignature::TSMethodSignature(method) if !method.computed => method
+                    .key
+                    .static_name()
+                    .map(|name| crate::lowering::js_text::static_name_text(name).into_owned()),
                 TSSignature::TSCallSignatureDeclaration(_) => Some("()".to_owned()),
                 TSSignature::TSConstructSignatureDeclaration(_) => Some("new()".to_owned()),
                 _ => None,
@@ -171,7 +176,9 @@ impl<'a> Visit<'a> for OwnerCollector {
 
     fn visit_ts_call_signature_declaration(&mut self, it: &TSCallSignatureDeclaration<'a>) {
         let segment = self.segment_or_offset(it.span.start);
-        self.within(segment, |this| walk::walk_ts_call_signature_declaration(this, it));
+        self.within(segment, |this| {
+            walk::walk_ts_call_signature_declaration(this, it);
+        });
     }
 
     fn visit_ts_construct_signature_declaration(
@@ -179,13 +186,17 @@ impl<'a> Visit<'a> for OwnerCollector {
         it: &TSConstructSignatureDeclaration<'a>,
     ) {
         let segment = self.segment_or_offset(it.span.start);
-        self.within(segment, |this| walk::walk_ts_construct_signature_declaration(this, it));
+        self.within(segment, |this| {
+            walk::walk_ts_construct_signature_declaration(this, it);
+        });
     }
 
     fn visit_ts_type_alias_declaration(&mut self, it: &TSTypeAliasDeclaration<'a>) {
         self.named_next = None;
         let segment = it.id.name.to_string();
-        self.within(segment, |this| walk::walk_ts_type_alias_declaration(this, it));
+        self.within(segment, |this| {
+            walk::walk_ts_type_alias_declaration(this, it);
+        });
     }
 
     fn visit_ts_function_type(&mut self, it: &TSFunctionType<'a>) {
@@ -221,7 +232,9 @@ mod tests {
         let allocator = Allocator::default();
         let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let mut found = type_param_owners(&parsed.program).into_iter().collect::<Vec<_>>();
+        let mut found = type_param_owners(&parsed.program)
+            .into_iter()
+            .collect::<Vec<_>>();
         found.sort();
         found
             .into_iter()
@@ -249,16 +262,40 @@ mod tests {
              type Alias<T> = { m<U>(u: U): U };\n\
              function outer<T>() { const g = <T>(x: T) => x; }",
         );
-        let owner_list = owners.iter().map(|(_, owner)| owner.as_str()).collect::<Vec<_>>();
+        let owner_list = owners
+            .iter()
+            .map(|(_, owner)| owner.as_str())
+            .collect::<Vec<_>>();
         let named = [
-            "pick", "pick", "Holder", "Parser", "Parser.parse", "Parser.parse2", "I", "I.m", "I.m",
-            "I.()", "Alias",
+            "pick",
+            "pick",
+            "Holder",
+            "Parser",
+            "Parser.parse",
+            "Parser.parse2",
+            "I",
+            "I.m",
+            "I.m",
+            "I.()",
+            "Alias",
         ];
-        assert_eq!(owner_list.get(..named.len()), Some(named.as_slice()), "{owner_list:?}");
+        assert_eq!(
+            owner_list.get(..named.len()),
+            Some(named.as_slice()),
+            "{owner_list:?}"
+        );
         let tail = owner_list.get(named.len()..).unwrap_or_default();
         assert_eq!(tail.len(), 3, "{owner_list:?}");
-        assert!(tail.first().is_some_and(|owner| owner.starts_with("Alias.@")), "{owner_list:?}");
+        assert!(
+            tail.first()
+                .is_some_and(|owner| owner.starts_with("Alias.@")),
+            "{owner_list:?}"
+        );
         assert_eq!(tail.get(1), Some(&"outer"), "{owner_list:?}");
-        assert!(tail.get(2).is_some_and(|owner| owner.starts_with("outer.@")), "{owner_list:?}");
+        assert!(
+            tail.get(2)
+                .is_some_and(|owner| owner.starts_with("outer.@")),
+            "{owner_list:?}"
+        );
     }
 }

@@ -9,21 +9,33 @@ print(x)
 ");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
-    let module_body = body(&ctx, module(&ctx, module_id)?.body.ok_or("expected module body")?)?;
+    let module_body = body(
+        &ctx,
+        module(&ctx, module_id)?
+            .body
+            .ok_or("expected module body")?,
+    )?;
     // `print(x)` is one call of the runtime print item with the one argument.
     let print_arg_counts: Vec<usize> = module_body
         .exprs
         .iter()
         .filter_map(|expr| match &expr.kind {
             ExprKind::Call { callee, args }
-                if usize::try_from(callee.0).ok().and_then(|index| module_body.exprs.get(index)).is_some_and(|callee| matches!(callee.kind, ExprKind::Item(_))) =>
+                if usize::try_from(callee.0)
+                    .ok()
+                    .and_then(|index| module_body.exprs.get(index))
+                    .is_some_and(|callee| matches!(callee.kind, ExprKind::Item(_))) =>
             {
                 Some(args.len())
             }
             _ => None,
         })
         .collect();
-    ensure_eq(&print_arg_counts, &vec![1], "print calls and their argument counts")?;
+    ensure_eq(
+        &print_arg_counts,
+        &vec![1],
+        "print calls and their argument counts",
+    )?;
     Ok(())
 }
 
@@ -76,7 +88,9 @@ text: str = json.dumps(values)
     ensure(
         code.exprs()
             .any(|expr| matches!(expr.kind, ExprKind::PyJsonDumps { .. }))
-            && !code.exprs().any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
+            && !code
+                .exprs()
+                .any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
         "expected json.dumps to lower to PyJsonDumps, not JSON.stringify",
     )
 }
@@ -229,7 +243,8 @@ letters: int = len(word)
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
 
-    let len_count = code.exprs()
+    let len_count = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
         .count();
     ensure_eq(&len_count, &2, "len call count")?;
@@ -387,10 +402,12 @@ last_text: str = word[-3:]
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
 
-    let list_slices = code.exprs()
+    let list_slices = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::ListSlice { .. }))
         .count();
-    let string_slices = code.exprs()
+    let string_slices = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
         .count();
     ensure_eq(&list_slices, &4, "list slice count")?;
@@ -587,7 +604,10 @@ def combine(values: list[int], a: int, b: int, c: int, d: int, e: int, f: int) -
     };
     let first = render()?;
     for _ in 0_i32..24_i32 {
-        ensure(render()? == first, "capture order changed between lowerings")?;
+        ensure(
+            render()? == first,
+            "capture order changed between lowerings",
+        )?;
     }
     Ok(())
 }

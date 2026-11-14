@@ -43,8 +43,18 @@ pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
     ("IntoSmeltUnknown", &["into_smelt_unknown"]),
     ("SmeltFromUnknown", &["smelt_from_unknown"]),
     ("SmeltJsKeyEq", &["same_js_key", "js_key_hash"]),
-    ("SmeltReferenceHandle", &["smelt_handle_cell", "smelt_from_handle_cell"]),
-    ("SmeltInspect", &["smelt_inspect", "smelt_inspect_is_number", "smelt_console_text"]),
+    (
+        "SmeltReferenceHandle",
+        &["smelt_handle_cell", "smelt_from_handle_cell"],
+    ),
+    (
+        "SmeltInspect",
+        &[
+            "smelt_inspect",
+            "smelt_inspect_is_number",
+            "smelt_console_text",
+        ],
+    ),
     ("Drop", &[]),
     ("serde::Serialize", &[]),
     ("serde::Deserialize", &[]),
@@ -58,7 +68,9 @@ pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
 
 /// Whether `name` is a method of a trait in [`EMITTED_TRAITS`].
 pub(crate) fn is_emitted_trait_method(name: &str) -> bool {
-    EMITTED_TRAITS.iter().any(|(_, methods)| methods.contains(&name))
+    EMITTED_TRAITS
+        .iter()
+        .any(|(_, methods)| methods.contains(&name))
 }
 
 /// Emits a manual `Default` impl for generated storage structs with callbacks.
@@ -94,8 +106,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     // `Node<T>: Default`, whose own impl carries the full generated bound set.
     let mut field_defaults = Vec::with_capacity(fields.len());
     for field in fields {
-        let field_name =
-            context.names().field(mir, field.name).into_string();
+        let field_name = context.names().field(mir, field.name).into_string();
         let default_value = FunctionEmitter::default_value_for_with_scoped_type_params(
             mir,
             context,
@@ -126,7 +137,9 @@ pub(crate) fn emit_default_impl_for_storage_type(
         let is_callable_slot = type_holds_function(mir, field.ty, NominalStorage::Opaque);
         // An accessor field answers its type's default through a constant
         // getter; its storage is never a delegation.
-        if accessor_owner.is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name)) {
+        if accessor_owner
+            .is_some_and(|owner| accessor_prelude::is_accessor_field(mir, owner, field.name))
+        {
             field_defaults.push((
                 field_name,
                 RustType::raw(accessor_prelude::storage_type_text(field_type.as_str())),
@@ -155,7 +168,10 @@ pub(crate) fn emit_default_impl_for_storage_type(
             impl_writer.block("fn default() -> Self", |fn_writer| {
                 fn_writer.block("Self", |self_writer| {
                     for (field_name, _, default_value, _) in &field_defaults {
-                        self_writer.line(format!("{field_name}: {default_value},", default_value = default_value.delimited()));
+                        self_writer.line(format!(
+                            "{field_name}: {default_value},",
+                            default_value = default_value.delimited()
+                        ));
                     }
                     if !phantom_args.is_empty() {
                         self_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
@@ -413,7 +429,8 @@ pub(crate) fn type_supports_partial_eq(
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float
-            | Type::String | Type::PyStr
+            | Type::String
+            | Type::PyStr
             | Type::Symbol
             | Type::PropKey
             | Type::None
@@ -434,7 +451,10 @@ pub(crate) fn class_is_json_serializable(mir: &Mir, class: &smelt_mir::MirClass)
 }
 
 /// Return whether all stored fields in an interface are JSON-compatible.
-pub(crate) fn interface_is_json_serializable(mir: &Mir, interface: &smelt_mir::MirInterface) -> bool {
+pub(crate) fn interface_is_json_serializable(
+    mir: &Mir,
+    interface: &smelt_mir::MirInterface,
+) -> bool {
     let mut seen = vec![interface.name];
     effective_interface_fields(mir, interface)
         .iter()
@@ -444,7 +464,9 @@ pub(crate) fn interface_is_json_serializable(mir: &Mir, interface: &smelt_mir::M
 /// Return whether generated serde can represent a type as natural JSON.
 fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Symbol>) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown) => true,
+        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown) => {
+            true
+        }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
             type_is_json_serializable(mir, *item, seen)
         }
@@ -460,25 +482,25 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
                 return true;
             }
             seen.push(*name);
-            let serializable =
-                if let Some(class) = crate::classes::find_class(mir, *name) {
-                    // A statics frame is a class value, not data: its handle
-                    // has no serde form, so an instance holding one
-                    // serializes through its erased view.
-                    class.statics_of.is_none() && effective_class_fields(mir, class)
+            let serializable = if let Some(class) = crate::classes::find_class(mir, *name) {
+                // A statics frame is a class value, not data: its handle
+                // has no serde form, so an instance holding one
+                // serializes through its erased view.
+                class.statics_of.is_none()
+                    && effective_class_fields(mir, class)
                         .iter()
                         .all(|field| type_is_json_serializable(mir, field.ty, seen))
-                } else if let Some(interface) = mir
-                    .interfaces
+            } else if let Some(interface) = mir
+                .interfaces
+                .iter()
+                .find(|interface| interface.name == *name)
+            {
+                effective_interface_fields(mir, interface)
                     .iter()
-                    .find(|interface| interface.name == *name)
-                {
-                    effective_interface_fields(mir, interface)
-                        .iter()
-                        .all(|field| type_is_json_serializable(mir, field.ty, seen))
-                } else {
-                    false
-                };
+                    .all(|field| type_is_json_serializable(mir, field.ty, seen))
+            } else {
+                false
+            };
             seen.pop();
             serializable
         }

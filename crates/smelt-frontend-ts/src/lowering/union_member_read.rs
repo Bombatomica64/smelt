@@ -50,9 +50,9 @@
 //! the modeled shapes, the whole read falls back to the erased path, so this
 //! can only remove erasure, never add a half-typed value.
 
-use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::support::source_spelling;
 use smelt_hir::{Body, Expr, ExprKind, Literal, ResponseOp, Symbol, Type, TypeId, UnknownKind};
 
 /// How one union arm answers the member read.
@@ -279,9 +279,7 @@ impl ModuleBuilder<'_> {
         {
             return true;
         }
-        let Some(class_name) = source_spelling(&self.ctx.krate, name)
-            .map(str::to_owned)
-        else {
+        let Some(class_name) = source_spelling(&self.ctx.krate, name).map(str::to_owned) else {
             return false;
         };
         self.classes

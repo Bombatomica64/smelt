@@ -56,9 +56,8 @@ pub(crate) struct MintedItems {
     /// passed by shared reference renders `&T` where an owned slot renders `T`);
     /// the value is `(ordinal, wrapper expression)`, the ordinal naming the
     /// accessor `__smelt_fn_typed_<key>_<ordinal>`.
-    pub(crate) function_item_typed_accessors: ::std::cell::RefCell<
-        ::std::collections::BTreeMap<(usize, String), (usize, String)>,
-    >,
+    pub(crate) function_item_typed_accessors:
+        ::std::cell::RefCell<::std::collections::BTreeMap<(usize, String), (usize, String)>>,
     /// One generated conversion function per class type recovered from an
     /// erased value: `__smelt_from_unknown_record_<ordinal>(SmeltUnknown) -> T`.
     ///
@@ -73,9 +72,8 @@ pub(crate) struct MintedItems {
     /// `(ordinal, body)`.
     ///
     /// Helper names start with [`crate::RECORD_CONVERSION_HELPER_PREFIX`].
-    pub(crate) record_conversion_helpers: ::std::cell::RefCell<
-        ::std::collections::BTreeMap<String, (usize, String)>,
-    >,
+    pub(crate) record_conversion_helpers:
+        ::std::cell::RefCell<::std::collections::BTreeMap<String, (usize, String)>>,
     /// Hoisted record-to-record adapters for a pair that reaches ITSELF: a
     /// field whose own adaptation needs the same `(source, target)` pair
     /// (`swap(): Pair<T>` inside `Pair<T>`, `Pair<SmeltUnknown>` to
@@ -85,9 +83,8 @@ pub(crate) struct MintedItems {
     /// Keyed by the module-level Rust spellings `(source, target)`; the value
     /// is `(ordinal, body)`. Helper names start with
     /// [`crate::RECORD_ADAPTER_HELPER_PREFIX`].
-    pub(crate) record_adapter_helpers: ::std::cell::RefCell<
-        ::std::collections::BTreeMap<(String, String), (usize, String)>,
-    >,
+    pub(crate) record_adapter_helpers:
+        ::std::cell::RefCell<::std::collections::BTreeMap<(String, String), (usize, String)>>,
     /// Whether some `console.log` argument took the `util.inspect` route, so
     /// the crate root must carry the `SmeltInspect` runtime (see
     /// [`console_inspect`]). Set while bodies are emitted, read after.
@@ -119,7 +116,9 @@ pub(super) struct MintedMark {
 
 /// Removes every entry of `table` whose key `kept` does not hold.
 fn retain_keys<K: Ord, V>(table: &RefCell<std::collections::BTreeMap<K, V>>, kept: &[K]) {
-    table.borrow_mut().retain(|key, _| kept.binary_search(key).is_ok());
+    table
+        .borrow_mut()
+        .retain(|key, _| kept.binary_search(key).is_ok());
 }
 
 impl MintedItems {
@@ -139,8 +138,16 @@ impl MintedItems {
         } = self;
         MintedMark {
             function_item_accessors: function_item_accessors.borrow().keys().copied().collect(),
-            function_item_erased_fn_accessors: function_item_erased_fn_accessors.borrow().keys().copied().collect(),
-            function_item_typed_accessors: function_item_typed_accessors.borrow().keys().cloned().collect(),
+            function_item_erased_fn_accessors: function_item_erased_fn_accessors
+                .borrow()
+                .keys()
+                .copied()
+                .collect(),
+            function_item_typed_accessors: function_item_typed_accessors
+                .borrow()
+                .keys()
+                .cloned()
+                .collect(),
             record_conversion_helpers: record_conversion_helpers.borrow().keys().cloned().collect(),
             record_adapter_helpers: record_adapter_helpers.borrow().keys().cloned().collect(),
             console_inspect_used: console_inspect_used.get(),
@@ -166,12 +173,20 @@ impl MintedItems {
             backend_erasures,
         } = self;
         retain_keys(function_item_accessors, &mark.function_item_accessors);
-        retain_keys(function_item_erased_fn_accessors, &mark.function_item_erased_fn_accessors);
-        retain_keys(function_item_typed_accessors, &mark.function_item_typed_accessors);
+        retain_keys(
+            function_item_erased_fn_accessors,
+            &mark.function_item_erased_fn_accessors,
+        );
+        retain_keys(
+            function_item_typed_accessors,
+            &mark.function_item_typed_accessors,
+        );
         retain_keys(record_conversion_helpers, &mark.record_conversion_helpers);
         retain_keys(record_adapter_helpers, &mark.record_adapter_helpers);
         console_inspect_used.set(mark.console_inspect_used);
-        backend_erasures.borrow_mut().truncate(mark.backend_erasures);
+        backend_erasures
+            .borrow_mut()
+            .truncate(mark.backend_erasures);
     }
 
     /// Put back the state in `saved`.
@@ -188,12 +203,18 @@ impl MintedItems {
             console_inspect_used,
             backend_erasures,
         } = saved;
-        self.function_item_accessors.replace(function_item_accessors.into_inner());
-        self.function_item_erased_fn_accessors.replace(function_item_erased_fn_accessors.into_inner());
-        self.function_item_typed_accessors.replace(function_item_typed_accessors.into_inner());
-        self.record_conversion_helpers.replace(record_conversion_helpers.into_inner());
-        self.record_adapter_helpers.replace(record_adapter_helpers.into_inner());
-        self.console_inspect_used.set(console_inspect_used.into_inner());
+        self.function_item_accessors
+            .replace(function_item_accessors.into_inner());
+        self.function_item_erased_fn_accessors
+            .replace(function_item_erased_fn_accessors.into_inner());
+        self.function_item_typed_accessors
+            .replace(function_item_typed_accessors.into_inner());
+        self.record_conversion_helpers
+            .replace(record_conversion_helpers.into_inner());
+        self.record_adapter_helpers
+            .replace(record_adapter_helpers.into_inner());
+        self.console_inspect_used
+            .set(console_inspect_used.into_inner());
         self.backend_erasures.replace(backend_erasures.into_inner());
     }
 }

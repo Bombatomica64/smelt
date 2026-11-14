@@ -4,8 +4,8 @@
 //! The selected signature supplies parameter hints before the arguments are
 //! lowered, so selection reads arguments without lowering them.
 
-use crate::{OverloadSignature, SmeltError};
 use crate::lowering::ModuleBuilder;
+use crate::{OverloadSignature, SmeltError};
 use oxc::ast::ast::{Argument, ArrayExpressionElement};
 use smelt_hir::{Body, Field, FunctionType, Type};
 use std::collections::HashMap;
@@ -61,8 +61,11 @@ impl ModuleBuilder<'_> {
             // result the backend had just monomorphized (`Option<f64>` read
             // back as `Option<SmeltUnknown>`).
             let mut bindings = HashMap::new();
-            if self.bind_return_through_absence(implementation_return_ty, overload_return_ty, &mut bindings)
-                && !bindings.is_empty()
+            if self.bind_return_through_absence(
+                implementation_return_ty,
+                overload_return_ty,
+                &mut bindings,
+            ) && !bindings.is_empty()
             {
                 return self.substitute_type_params(implementation_return_ty, &bindings);
             }
@@ -74,7 +77,8 @@ impl ModuleBuilder<'_> {
         ) = (
             self.ctx.krate.types.get(implementation_return_ty),
             self.ctx.krate.types.get(overload_return_ty),
-        ) else {
+        )
+        else {
             return overload_return_ty;
         };
         if implementation_function.rest.is_some()
@@ -198,13 +202,14 @@ impl ModuleBuilder<'_> {
             let mut substitutions = HashMap::new();
             let constraint_scope = Self::overload_type_param_constraint_scope(signature);
             self.types.push_constraint_scope(constraint_scope);
-            let matches = self.overload_signature_matches_args(
-                signature,
-                arguments,
-                &lowered_arg_tys,
-                &mut substitutions,
-            ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
-                && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
+            let matches =
+                self.overload_signature_matches_args(
+                    signature,
+                    arguments,
+                    &lowered_arg_tys,
+                    &mut substitutions,
+                ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
+                    && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
             self.types.pop_constraint_scope();
             if matches {
                 let score =
@@ -270,13 +275,15 @@ impl ModuleBuilder<'_> {
                 let mut substitutions = HashMap::new();
                 let constraint_scope = Self::overload_type_param_constraint_scope(signature);
                 self.types.push_constraint_scope(constraint_scope);
-                let matches = self.loose_overload_signature_matches_args(
-                    signature,
-                    arguments,
-                    &lowered_arg_tys,
-                    &mut substitutions,
-                ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
-                    && self.overload_substitutions_satisfy_constraints(signature, &substitutions);
+                let matches =
+                    self.loose_overload_signature_matches_args(
+                        signature,
+                        arguments,
+                        &lowered_arg_tys,
+                        &mut substitutions,
+                    ) && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
+                        && self
+                            .overload_substitutions_satisfy_constraints(signature, &substitutions);
                 self.types.pop_constraint_scope();
                 if !matches {
                     continue;
@@ -436,7 +443,9 @@ impl ModuleBuilder<'_> {
                     | Argument::ComputedMemberExpression(_)
             ),
             Some(Type::None) => matches!(argument, Argument::NullLiteral(_)),
-            Some(Type::Class { name, .. }) if self.stdlib_class_of_symbol(name) == Some(smelt_stdlib::StdlibClass::RegExp) => {
+            Some(Type::Class { name, .. })
+                if self.stdlib_class_of_symbol(name) == Some(smelt_stdlib::StdlibClass::RegExp) =>
+            {
                 matches!(
                     argument,
                     Argument::RegExpLiteral(_)
@@ -516,11 +525,7 @@ impl ModuleBuilder<'_> {
                     && matches!(rest_arguments.first(), Some(Argument::SpreadElement(_))) =>
             {
                 rest_args.first().is_some_and(|actual| {
-                    self.loose_overload_type_matches(
-                        rest_ty,
-                        *actual,
-                        &mut rest_substitutions,
-                    )
+                    self.loose_overload_type_matches(rest_ty, *actual, &mut rest_substitutions)
                 })
             }
             Some(Type::Tuple(items)) if items.len() == rest_args.len() => {
@@ -528,20 +533,19 @@ impl ModuleBuilder<'_> {
                     self.loose_overload_type_matches(*expected, *actual, &mut rest_substitutions)
                 })
             }
-            Some(Type::List(item_ty)) => rest_args.iter().zip(rest_arguments).all(
-                |(actual, argument)| {
-                    let expected = if matches!(argument, Argument::SpreadElement(_)) {
-                        rest_ty
-                    } else {
-                        item_ty
-                    };
-                    self.loose_overload_type_matches(
-                        expected,
-                        *actual,
-                        &mut rest_substitutions,
-                    )
-                },
-            ),
+            Some(Type::List(item_ty)) => {
+                rest_args
+                    .iter()
+                    .zip(rest_arguments)
+                    .all(|(actual, argument)| {
+                        let expected = if matches!(argument, Argument::SpreadElement(_)) {
+                            rest_ty
+                        } else {
+                            item_ty
+                        };
+                        self.loose_overload_type_matches(expected, *actual, &mut rest_substitutions)
+                    })
+            }
             _ => false,
         };
         if rest_matches {
@@ -769,7 +773,10 @@ impl ModuleBuilder<'_> {
     /// fixed tuple, or a union that lacks a collection member. This mirrors
     /// TypeScript assignability and prevents an empty literal from vacuously
     /// matching an element type whose only structural member is a tuple.
-    pub(in crate::lowering) fn type_accepts_empty_array_literal(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn type_accepts_empty_array_literal(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self
             .ctx
             .krate
@@ -908,25 +915,28 @@ impl ModuleBuilder<'_> {
                 let rest_supplied_by_spread =
                     matches!(rest_arguments.first(), Some(Argument::SpreadElement(_)));
                 (rest_supplied_by_spread || rest_args.len() >= signature.min_rest)
-                    && rest_args.iter().zip(rest_arguments).all(|(actual, argument)| {
-                        let expected = if matches!(argument, Argument::SpreadElement(_)) {
-                            rest_ty
-                        } else {
-                            item_ty
-                        };
-                        // An empty array literal (`[]`) is only assignable to a
-                        // collection-shaped element type. Without this guard its
-                        // `Unknown` element type lets it vacuously satisfy a
-                        // tuple/union element (e.g. an `OrderRule` rest), which
-                        // would steal a genuine data-first call (`firstBy([], rule)`)
-                        // into the variadic data-last overload.
-                        if Self::argument_is_empty_array_literal(argument)
-                            && !self.type_accepts_empty_array_literal(expected)
-                        {
-                            return false;
-                        }
-                        self.infer_overload_type(expected, *actual, &mut rest_substitutions)
-                    })
+                    && rest_args
+                        .iter()
+                        .zip(rest_arguments)
+                        .all(|(actual, argument)| {
+                            let expected = if matches!(argument, Argument::SpreadElement(_)) {
+                                rest_ty
+                            } else {
+                                item_ty
+                            };
+                            // An empty array literal (`[]`) is only assignable to a
+                            // collection-shaped element type. Without this guard its
+                            // `Unknown` element type lets it vacuously satisfy a
+                            // tuple/union element (e.g. an `OrderRule` rest), which
+                            // would steal a genuine data-first call (`firstBy([], rule)`)
+                            // into the variadic data-last overload.
+                            if Self::argument_is_empty_array_literal(argument)
+                                && !self.type_accepts_empty_array_literal(expected)
+                            {
+                                return false;
+                            }
+                            self.infer_overload_type(expected, *actual, &mut rest_substitutions)
+                        })
             }
             _ => false,
         };
@@ -989,7 +999,10 @@ impl ModuleBuilder<'_> {
 
     /// Peel the wrappers that do not decide a return's identity, then report
     /// the type parameter the leaf names, if it is one.
-    pub(in crate::lowering) fn return_leaf_type_param(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::Symbol> {
+    pub(in crate::lowering) fn return_leaf_type_param(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::Symbol> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { name }) => Some(*name),
             Some(Type::Future(inner) | Type::Optional(inner)) => {
@@ -1011,9 +1024,9 @@ impl ModuleBuilder<'_> {
     ) -> bool {
         match self.ctx.krate.types.get(constraint) {
             Some(Type::TypeParam { .. }) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-                self.overload_constraint_contains_unresolved_type_param(*item)
-            }
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.overload_constraint_contains_unresolved_type_param(*item),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.overload_constraint_contains_unresolved_type_param(*key)
                     || self.overload_constraint_contains_unresolved_type_param(*value)
@@ -1027,9 +1040,12 @@ impl ModuleBuilder<'_> {
                 .copied()
                 .any(|arg| self.overload_constraint_contains_unresolved_type_param(arg)),
             Some(Type::Function(function)) => {
-                function.params.iter().copied().any(|param| {
-                    self.overload_constraint_contains_unresolved_type_param(param)
-                }) || self.overload_constraint_contains_unresolved_type_param(function.return_ty)
+                function
+                    .params
+                    .iter()
+                    .copied()
+                    .any(|param| self.overload_constraint_contains_unresolved_type_param(param))
+                    || self.overload_constraint_contains_unresolved_type_param(function.return_ty)
             }
             Some(Type::Generator {
                 yield_ty,
@@ -1089,10 +1105,7 @@ impl ModuleBuilder<'_> {
                 return true;
             }
         }
-        let (
-            Some(Type::Dict(actual_key, actual_value)),
-            Some(Type::Class { name, args }),
-        ) = (
+        let (Some(Type::Dict(actual_key, actual_value)), Some(Type::Class { name, args })) = (
             self.ctx.krate.types.get(actual).cloned(),
             self.ctx.krate.types.get(constraint).cloned(),
         ) else {
@@ -1142,7 +1155,8 @@ impl ModuleBuilder<'_> {
         let substitutions = self
             .type_argument_substitution(&alias.type_params, args, self.span(0, 0))
             .ok()?;
-        self.types.alias_fields(name)
+        self.types
+            .alias_fields(name)
             .cloned()
             .map(|fields| self.substituted_fields(&fields, &substitutions))
     }

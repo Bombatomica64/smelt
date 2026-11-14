@@ -11,8 +11,7 @@ use smelt_stdlib::RuleId;
 /// What a type checker needs to know of the typed `JSON.parse<T>(text)` this
 /// module lowers: the call takes the target type as its type argument (the
 /// lib's `JSON.parse` has none) and returns it.
-pub(in crate::lowering) const JSON_PARSE_DECLARATION: &str =
-    "interface JSON {\n  parse<T = any>(text: string, reviver?: (this: any, key: string, value: any) => any): T;\n}\n";
+pub(in crate::lowering) const JSON_PARSE_DECLARATION: &str = "interface JSON {\n  parse<T = any>(text: string, reviver?: (this: any, key: string, value: any) => any): T;\n}\n";
 
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
@@ -182,7 +181,10 @@ impl ModuleBuilder<'_> {
         }
         let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text, target: Some(target) },
+            kind: ExprKind::JsonParse {
+                text,
+                target: Some(target),
+            },
             ty: target,
             span: self.span(span.start, span.end),
         })))
@@ -232,7 +234,10 @@ impl ModuleBuilder<'_> {
         };
         let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::JsonParse { text, target: Some(target) },
+            kind: ExprKind::JsonParse {
+                text,
+                target: Some(target),
+            },
             ty: target,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -264,7 +269,9 @@ impl ModuleBuilder<'_> {
         hint: Option<smelt_hir::TypeId>,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        let Some(Type::Future(target)) = hint.and_then(|hint| self.ctx.krate.types.get(hint)).cloned()
+        let Some(Type::Future(target)) = hint
+            .and_then(|hint| self.ctx.krate.types.get(hint))
+            .cloned()
         else {
             return value;
         };
@@ -492,10 +499,7 @@ impl ModuleBuilder<'_> {
     /// union (or the item of a list) rather than the whole type. Returns `ty`
     /// itself when the type is unserializable as a whole and has no narrower
     /// culprit, and `None` when it is serializable.
-    fn first_unserializable_member(
-        &mut self,
-        ty: smelt_hir::TypeId,
-    ) -> Option<smelt_hir::TypeId> {
+    fn first_unserializable_member(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         if self.is_json_serializable_type(ty) {
             return None;
         }

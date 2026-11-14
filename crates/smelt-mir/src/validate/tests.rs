@@ -27,7 +27,11 @@ fn program() -> Mir {
     let mut types = TypeInterner::default();
     types.intern(Type::Float);
     types.intern(Type::String);
-    Mir::new(types, SymbolInterner::default(), OriginalNameTable::default())
+    Mir::new(
+        types,
+        SymbolInterner::default(),
+        OriginalNameTable::default(),
+    )
 }
 
 /// `Float`.
@@ -37,7 +41,12 @@ const STRING: TypeId = TypeId(1);
 
 /// A local of `ty` and `kind`.
 fn local(ty: TypeId, kind: LocalKind) -> LocalDecl {
-    LocalDecl { ty, kind, span: span(), init: crate::LocalInit::Definite }
+    LocalDecl {
+        ty,
+        kind,
+        span: span(),
+        init: crate::LocalInit::Definite,
+    }
 }
 
 /// `copy %local`.
@@ -47,13 +56,23 @@ fn copy(local: u32) -> Operand {
 
 /// A block with `statements`, ending in `terminator`.
 fn block(id: u32, statements: Vec<Statement>, terminator: Terminator) -> BasicBlock {
-    BasicBlock { id: BlockId(id), statements, terminator: Some(terminator), span: span() }
+    BasicBlock {
+        id: BlockId(id),
+        statements,
+        terminator: Some(terminator),
+        span: span(),
+    }
 }
 
 /// A function returning `Float` with `locals` and `blocks`.
 fn function(locals: Vec<LocalDecl>, blocks: Vec<BasicBlock>) -> MirFunction {
-    let mut function =
-        MirFunction::new(FuncId(0), Symbol(0), HirOrigin::Body(BodyId(0)), FLOAT, span());
+    let mut function = MirFunction::new(
+        FuncId(0),
+        Symbol(0),
+        HirOrigin::Body(BodyId(0)),
+        FLOAT,
+        span(),
+    );
     function.locals = locals;
     function.blocks = blocks;
     function
@@ -85,7 +104,9 @@ fn closure(
 
 /// Whether some error message contains `needle`.
 fn reports(program: &Mir, needle: &str) -> bool {
-    validate(program).iter().any(|error| error.message.contains(needle))
+    validate(program)
+        .iter()
+        .any(|error| error.message.contains(needle))
 }
 
 /// A closure body is validated like a function body: a block with no
@@ -93,25 +114,50 @@ fn reports(program: &Mir, needle: &str) -> bool {
 #[test]
 fn a_closure_body_is_validated_like_a_function_body() {
     let mut mir = program();
-    mir.push_function(function(Vec::new(), vec![block(0, Vec::new(), Terminator::Return(Operand::Const(Constant::Float(0.0))))]));
+    mir.push_function(function(
+        Vec::new(),
+        vec![block(
+            0,
+            Vec::new(),
+            Terminator::Return(Operand::Const(Constant::Float(0.0))),
+        )],
+    ));
     let mut bad = closure(
         vec![local(FLOAT, LocalKind::Temp)],
         Vec::new(),
         vec![block(0, Vec::new(), Terminator::Return(copy(0)))],
     );
-    bad.blocks.push(BasicBlock { id: BlockId(1), statements: Vec::new(), terminator: None, span: span() });
+    bad.blocks.push(BasicBlock {
+        id: BlockId(1),
+        statements: Vec::new(),
+        terminator: None,
+        span: span(),
+    });
     mir.push_closure(bad);
     assert!(reports(&mir, "closure ClosureId(0) reads local LocalId(0)"));
-    assert!(reports(&mir, "Closure(ClosureId(0)) block BlockId(1) is missing a terminator"));
+    assert!(reports(
+        &mir,
+        "Closure(ClosureId(0)) block BlockId(1) is missing a terminator"
+    ));
 
     let mut good = program();
-    good.push_function(function(Vec::new(), vec![block(0, Vec::new(), Terminator::Return(Operand::Const(Constant::Float(0.0))))]));
+    good.push_function(function(
+        Vec::new(),
+        vec![block(
+            0,
+            Vec::new(),
+            Terminator::Return(Operand::Const(Constant::Float(0.0))),
+        )],
+    ));
     good.push_closure(closure(
         vec![local(FLOAT, LocalKind::Temp)],
         Vec::new(),
         vec![block(
             0,
-            vec![Statement::Assign { dest: LocalId(0), value: Rvalue::Use(Operand::Const(Constant::Float(1.0))) }],
+            vec![Statement::Assign {
+                dest: LocalId(0),
+                value: Rvalue::Use(Operand::Const(Constant::Float(1.0))),
+            }],
             Terminator::Return(copy(0)),
         )],
     ));
@@ -120,12 +166,7 @@ fn a_closure_body_is_validated_like_a_function_body() {
 
 /// A program whose function `%0: source_ty` is captured by closure 0 into
 /// its `%0: target_ty`, recorded as `capture_ty` from `recorded_source`.
-fn captured(
-    source_ty: TypeId,
-    capture_ty: TypeId,
-    target_ty: TypeId,
-    recorded_source: u32,
-) -> Mir {
+fn captured(source_ty: TypeId, capture_ty: TypeId, target_ty: TypeId, recorded_source: u32) -> Mir {
     let mut mir = program();
     mir.push_function(function(
         vec![
@@ -136,11 +177,20 @@ fn captured(
         vec![block(
             0,
             vec![
-                Statement::Assign { dest: LocalId(0), value: Rvalue::Use(Operand::Const(Constant::Float(1.0))) },
-                Statement::Assign { dest: LocalId(1), value: Rvalue::Use(Operand::Const(Constant::String("s".into()))) },
+                Statement::Assign {
+                    dest: LocalId(0),
+                    value: Rvalue::Use(Operand::Const(Constant::Float(1.0))),
+                },
+                Statement::Assign {
+                    dest: LocalId(1),
+                    value: Rvalue::Use(Operand::Const(Constant::String("s".into()))),
+                },
                 Statement::Assign {
                     dest: LocalId(2),
-                    value: Rvalue::Closure { id: ClosureId(0), captures: vec![copy(0)] },
+                    value: Rvalue::Closure {
+                        id: ClosureId(0),
+                        captures: vec![copy(0)],
+                    },
                 },
             ],
             Terminator::Return(Operand::Const(Constant::Float(0.0))),
@@ -165,16 +215,28 @@ fn captured(
 #[test]
 fn capture_types_must_agree_with_both_locals() {
     assert_eq!(validate(&captured(FLOAT, FLOAT, FLOAT, 0)), []);
-    assert!(reports(&captured(STRING, FLOAT, FLOAT, 0), "but its source local"));
-    assert!(reports(&captured(FLOAT, FLOAT, STRING, 0), "but its target local"));
+    assert!(reports(
+        &captured(STRING, FLOAT, FLOAT, 0),
+        "but its source local"
+    ));
+    assert!(reports(
+        &captured(FLOAT, FLOAT, STRING, 0),
+        "but its target local"
+    ));
 }
 
 /// A capture's `source_local` is the local its construction site reads
 /// (C4), and it must exist in the constructing body (C13).
 #[test]
 fn capture_source_must_match_its_construction_site() {
-    assert!(reports(&captured(FLOAT, FLOAT, FLOAT, 1), "but its construction captures"));
-    assert!(reports(&captured(FLOAT, FLOAT, FLOAT, 9), "is not a local of"));
+    assert!(reports(
+        &captured(FLOAT, FLOAT, FLOAT, 1),
+        "but its construction captures"
+    ));
+    assert!(reports(
+        &captured(FLOAT, FLOAT, FLOAT, 9),
+        "is not a local of"
+    ));
 }
 
 /// `sync_capture_sources` re-derives a stale `source_local` from the site.
@@ -187,7 +249,14 @@ fn capture_sources_are_derived_from_their_site() {
 
 /// A trivial `return 0.0` function.
 fn returning() -> MirFunction {
-    function(Vec::new(), vec![block(0, Vec::new(), Terminator::Return(Operand::Const(Constant::Float(0.0))))])
+    function(
+        Vec::new(),
+        vec![block(
+            0,
+            Vec::new(),
+            Terminator::Return(Operand::Const(Constant::Float(0.0))),
+        )],
+    )
 }
 
 /// `functions[i].id == i`, checked in release builds (C5).
@@ -197,7 +266,10 @@ fn a_function_id_must_equal_its_position() {
     mir.push_function(returning());
     assert_eq!(validate(&mir), []);
     mir.functions.push(returning());
-    assert!(reports(&mir, "function index 1 has mismatched id FuncId(0)"));
+    assert!(reports(
+        &mir,
+        "function index 1 has mismatched id FuncId(0)"
+    ));
 }
 
 /// Every type position is checked, including those normalization and the
@@ -206,14 +278,23 @@ fn a_function_id_must_equal_its_position() {
 fn every_type_position_is_validated() {
     let mut mir = program();
     mir.push_function(function(
-        vec![local(STRING, LocalKind::Temp), local(FLOAT, LocalKind::Temp)],
+        vec![
+            local(STRING, LocalKind::Temp),
+            local(FLOAT, LocalKind::Temp),
+        ],
         vec![block(
             0,
             vec![
-                Statement::Assign { dest: LocalId(0), value: Rvalue::Use(Operand::Const(Constant::String("1".into()))) },
+                Statement::Assign {
+                    dest: LocalId(0),
+                    value: Rvalue::Use(Operand::Const(Constant::String("1".into()))),
+                },
                 Statement::Assign {
                     dest: LocalId(1),
-                    value: Rvalue::JsonParse { text: copy(0), target: Some(TypeId(77)) },
+                    value: Rvalue::JsonParse {
+                        text: copy(0),
+                        target: Some(TypeId(77)),
+                    },
                 },
             ],
             Terminator::Return(copy(1)),
@@ -235,9 +316,16 @@ fn call_with_handler(read_in_catch: bool) -> Mir {
     mir.push_function(returning());
     let read = Terminator::Return(copy(0));
     let other = Terminator::Return(Operand::Const(Constant::Float(0.0)));
-    let (target, catch) = if read_in_catch { (other, read) } else { (read, other) };
+    let (target, catch) = if read_in_catch {
+        (other, read)
+    } else {
+        (read, other)
+    };
     mir.push_function(function(
-        vec![local(FLOAT, LocalKind::Temp), local(STRING, LocalKind::Temp)],
+        vec![
+            local(FLOAT, LocalKind::Temp),
+            local(STRING, LocalKind::Temp),
+        ],
         vec![
             block(
                 0,
@@ -247,7 +335,10 @@ fn call_with_handler(read_in_catch: bool) -> Mir {
                     args: Vec::new(),
                     dest: LocalId(0),
                     target: BlockId(1),
-                    unwind: Some(ExceptionHandler { catch_block: BlockId(2), exception_local: Some(LocalId(1)) }),
+                    unwind: Some(ExceptionHandler {
+                        catch_block: BlockId(2),
+                        exception_local: Some(LocalId(1)),
+                    }),
                 },
             ),
             block(1, Vec::new(), target),
@@ -278,8 +369,14 @@ fn a_binding_read_before_any_assignment_is_rejected() {
         ));
         mir
     };
-    assert!(reports(&read_first(LocalKind::UserBinding(Symbol(1))), "reads local LocalId(0)"));
-    assert!(reports(&read_first(LocalKind::Temp), "reads local LocalId(0)"));
+    assert!(reports(
+        &read_first(LocalKind::UserBinding(Symbol(1))),
+        "reads local LocalId(0)"
+    ));
+    assert!(reports(
+        &read_first(LocalKind::Temp),
+        "reads local LocalId(0)"
+    ));
 }
 
 /// Every block is reachable from the entry (C8): lowering removes the blocks
@@ -290,11 +387,18 @@ fn an_unreachable_block_is_rejected() {
     dead.push_function(function(
         vec![local(FLOAT, LocalKind::Temp)],
         vec![
-            block(0, Vec::new(), Terminator::Return(Operand::Const(Constant::Float(0.0)))),
+            block(
+                0,
+                Vec::new(),
+                Terminator::Return(Operand::Const(Constant::Float(0.0))),
+            ),
             block(1, Vec::new(), Terminator::Return(copy(0))),
         ],
     ));
-    assert!(reports(&dead, "has block BlockId(1), which no edge reaches from the entry"));
+    assert!(reports(
+        &dead,
+        "has block BlockId(1), which no edge reaches from the entry"
+    ));
 }
 
 /// A possibly-unbound binding.
@@ -327,7 +431,10 @@ fn check(binding: u32, dest: u32, target: u32) -> Terminator {
 
 /// `%dest = copy %source`.
 fn read_into(source: u32, dest: u32) -> Statement {
-    Statement::Assign { dest: LocalId(dest), value: Rvalue::Use(copy(source)) }
+    Statement::Assign {
+        dest: LocalId(dest),
+        value: Rvalue::Use(copy(source)),
+    }
 }
 
 /// A `MaybeUnbound` binding is read only where it is definitely assigned
@@ -339,7 +446,11 @@ fn a_maybe_unbound_binding_is_read_only_past_an_assignment_or_a_check() {
     let body = |blocks| {
         let mut mir = program();
         mir.push_function(function(
-            vec![maybe_unbound(FLOAT), local(FLOAT, LocalKind::Temp), local(FLOAT, LocalKind::Temp)],
+            vec![
+                maybe_unbound(FLOAT),
+                local(FLOAT, LocalKind::Temp),
+                local(FLOAT, LocalKind::Temp),
+            ],
             blocks,
         ));
         mir
@@ -349,24 +460,38 @@ fn a_maybe_unbound_binding_is_read_only_past_an_assignment_or_a_check() {
         block(1, vec![read_into(0, 2)], Terminator::Return(copy(2))),
     ]);
     assert_eq!(validate(&checked), []);
-    let unchecked = body(vec![block(0, vec![read_into(0, 1)], Terminator::Return(copy(1)))]);
+    let unchecked = body(vec![block(
+        0,
+        vec![read_into(0, 1)],
+        Terminator::Return(copy(1)),
+    )]);
     assert!(reports(&unchecked, "reads local LocalId(0)"));
     let assigned = Statement::Assign {
         dest: LocalId(0),
         value: Rvalue::Use(Operand::Const(Constant::Float(1.0))),
     };
-    let assigned_first = body(vec![block(0, vec![assigned, read_into(0, 1)], Terminator::Return(copy(1)))]);
+    let assigned_first = body(vec![block(
+        0,
+        vec![assigned, read_into(0, 1)],
+        Terminator::Return(copy(1)),
+    )]);
     assert_eq!(validate(&assigned_first), []);
     // A check is a call terminator, never a statement.
     let statement_check = body(vec![block(
         0,
         vec![Statement::Assign {
             dest: LocalId(1),
-            value: Rvalue::BindingCheck { binding: copy(0), unbound: smelt_hir::UnboundRead::PyLocal },
+            value: Rvalue::BindingCheck {
+                binding: copy(0),
+                unbound: smelt_hir::UnboundRead::PyLocal,
+            },
         }],
         Terminator::Return(Operand::Const(Constant::Float(0.0))),
     )]);
-    assert!(reports(&statement_check, "has a binding check outside a call terminator"));
+    assert!(reports(
+        &statement_check,
+        "has a binding check outside a call terminator"
+    ));
 }
 
 /// A `MaybeUnbound` binding is written only by a whole-local assignment (C8):
@@ -422,7 +547,10 @@ fn capture_before_assignment(source_init: crate::LocalInit, leak: bool) -> MirFu
     let closure_ty = TypeId(1);
     let make = Statement::Assign {
         dest: LocalId(1),
-        value: Rvalue::Closure { id: ClosureId(0), captures: vec![copy(0)] },
+        value: Rvalue::Closure {
+            id: ClosureId(0),
+            captures: vec![copy(0)],
+        },
     };
     let assign = Statement::Assign {
         dest: LocalId(0),
@@ -447,7 +575,14 @@ fn capture_before_assignment(source_init: crate::LocalInit, leak: bool) -> MirFu
     } else {
         vec![block(0, vec![make, assign], finish)]
     };
-    function(vec![source, local(closure_ty, LocalKind::Temp), local(FLOAT, LocalKind::Temp)], blocks)
+    function(
+        vec![
+            source,
+            local(closure_ty, LocalKind::Temp),
+            local(FLOAT, LocalKind::Temp),
+        ],
+        blocks,
+    )
 }
 
 /// A capture of a binding that is not yet assigned (C8): the binding and the
@@ -475,7 +610,15 @@ fn a_capture_before_assignment_shares_maybe_unbound_storage() {
         "whose target disagrees on whether it may be unassigned"
     ));
     // Not leaked: the closure's read is proven.
-    assert_eq!(validate(&program_with(MaybeUnbound, MaybeUnbound, read_into(0, 1), false)), []);
+    assert_eq!(
+        validate(&program_with(
+            MaybeUnbound,
+            MaybeUnbound,
+            read_into(0, 1),
+            false
+        )),
+        []
+    );
     // Leaked: the read needs a check.
     assert!(reports(
         &program_with(MaybeUnbound, MaybeUnbound, read_into(0, 1), true),
@@ -519,7 +662,10 @@ fn globals_and_member_ids_are_range_checked() {
         vec![local(FLOAT, LocalKind::Temp)],
         vec![block(
             0,
-            vec![Statement::Assign { dest: LocalId(0), value: Rvalue::GlobalGet { global: 3 } }],
+            vec![Statement::Assign {
+                dest: LocalId(0),
+                value: Rvalue::GlobalGet { global: 3 },
+            }],
             Terminator::Return(copy(0)),
         )],
     ));
@@ -545,5 +691,8 @@ fn globals_and_member_ids_are_range_checked() {
         protocols: Vec::new(),
         statics_of: None,
     });
-    assert!(reports(&with_class, "method references unknown function FuncId(4)"));
+    assert!(reports(
+        &with_class,
+        "method references unknown function FuncId(4)"
+    ));
 }

@@ -49,7 +49,11 @@ console.log(direct(ys, padded), viaCallback(ys, padded));
         &mut ctx,
     )?;
     let kinds = at_index_kinds(&ctx);
-    ensure!(kinds.len() == 2, "expected two `.at` calls, found {}", kinds.len());
+    ensure!(
+        kinds.len() == 2,
+        "expected two `.at` calls, found {}",
+        kinds.len()
+    );
     for kind in kinds {
         ensure!(
             matches!(

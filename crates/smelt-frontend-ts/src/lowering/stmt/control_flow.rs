@@ -332,7 +332,8 @@ impl ModuleBuilder<'_> {
         // Prime the first resume before the loop so the initial condition test
         // sees a real step.
         let step_symbol = self.intern_synthesized_name("__smelt_generator_step");
-        let first_resume = self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
+        let first_resume =
+            self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
         let step_local = body.push_local(LocalDecl {
             name: Some(step_symbol),
             ty: result_ty,
@@ -405,7 +406,8 @@ impl ModuleBuilder<'_> {
             ty: result_ty,
             span: iter_span,
         });
-        let update_value = self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
+        let update_value =
+            self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
 
         body.push_stmt_to_block(
             block,
@@ -607,7 +609,10 @@ impl ModuleBuilder<'_> {
                 // iterates string-keyed properties, so it is cast to
                 // `Record<string, unknown>`. An array's property names are its
                 // indices, which the erased array answers.
-                if matches!(self.ctx.krate.types.get(object_ty), Some(Type::List(_) | Type::Tuple(_))) {
+                if matches!(
+                    self.ctx.krate.types.get(object_ty),
+                    Some(Type::List(_) | Type::Tuple(_))
+                ) {
                     let ty = self.erase_with(ErasureReason::DynamicOperator, "for-in");
                     object = body.push_expr(Expr {
                         kind: ExprKind::TypeAssert { value: object },
@@ -693,11 +698,12 @@ impl ModuleBuilder<'_> {
     /// `export const stringTag = '[object String]'`. These fold to the same
     /// literal at compile time, so resolve any constant-foldable label through
     /// the shared exported-const folder before failing.
-    pub(in crate::lowering) fn literal_case_label(&mut self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
+    pub(in crate::lowering) fn literal_case_label(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Result<Literal, SmeltError> {
         match expression {
-            Expression::StringLiteral(lit) => {
-                Ok(js_str_literal(lit.value))
-            }
+            Expression::StringLiteral(lit) => Ok(js_str_literal(lit.value)),
             Expression::NumericLiteral(lit) => Ok(Literal::Float(lit.value)),
             Expression::BooleanLiteral(lit) => Ok(Literal::Bool(lit.value)),
             Expression::NullLiteral(_) => Ok(Literal::None),
@@ -732,7 +738,9 @@ impl ModuleBuilder<'_> {
                 .contains(&std::ptr::from_ref(expression).addr())
         {
             let span = self.expression_span(expression);
-            return Ok(self.match_array_view(lowered, span, body).unwrap_or(lowered));
+            return Ok(self
+                .match_array_view(lowered, span, body)
+                .unwrap_or(lowered));
         }
         Ok(lowered)
     }

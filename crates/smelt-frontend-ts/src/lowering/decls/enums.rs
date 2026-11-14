@@ -31,11 +31,10 @@ use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 use oxc::ast::ast::{ComputedMemberExpression, Expression, TSEnumDeclaration, TSEnumMemberName};
 use std::borrow::Cow;
 
-use crate::lowering::{ConstLiteral, ModuleBuilder};
-use crate::lowering::resolve::ValueBinding;
 use crate::error::SmeltError;
+use crate::lowering::resolve::ValueBinding;
+use crate::lowering::{ConstLiteral, ModuleBuilder};
 use smelt_hir::{Body, Expr, ExprId, ExprKind, Item, Literal, Type, TypeAlias};
-
 
 impl ModuleBuilder<'_> {
     /// Const-fold every statically-resolvable member of an `enum` declaration
@@ -61,7 +60,11 @@ impl ModuleBuilder<'_> {
     /// [`Self::collect_enum_declaration`], publishing the folded members to
     /// later modules only when `publish` (a module-level declaration they can
     /// import).
-    pub(in crate::lowering) fn collect_enum_members(&mut self, decl: &TSEnumDeclaration<'_>, publish: bool) {
+    pub(in crate::lowering) fn collect_enum_members(
+        &mut self,
+        decl: &TSEnumDeclaration<'_>,
+        publish: bool,
+    ) {
         let enum_name = decl.id.name.to_string();
         let mut reverse = Vec::new();
         let float_ty = self.ctx.krate.types.intern(Type::Float);
@@ -82,7 +85,8 @@ impl ModuleBuilder<'_> {
                 // (or any non-numeric value) also stops implicit auto-increment
                 // in TypeScript, but since we could not fold it we leave the
                 // counter untouched and let downstream code report the gap.
-                let Some(value) = self.enum_member_initializer_literal(initializer, &members) else {
+                let Some(value) = self.enum_member_initializer_literal(initializer, &members)
+                else {
                     continue;
                 };
                 value
@@ -121,7 +125,8 @@ impl ModuleBuilder<'_> {
 
         // Publish to the current module for immediate use, and to the shared
         // context so later modules that import this enum fold its members too.
-        self.consts.set_enum_members(enum_name.clone(), members.clone());
+        self.consts
+            .set_enum_members(enum_name.clone(), members.clone());
         if publish {
             self.publish_export(|ctx| &mut ctx.enum_members, enum_name, members);
         }
@@ -153,7 +158,10 @@ impl ModuleBuilder<'_> {
         };
         let mut table: Vec<(f64, String)> = Vec::new();
         for (value, name) in entries {
-            match table.iter_mut().find(|(existing, _)| existing.to_bits() == value.to_bits()) {
+            match table
+                .iter_mut()
+                .find(|(existing, _)| existing.to_bits() == value.to_bits())
+            {
                 Some(entry) => entry.1 = name,
                 None => table.push((value, name)),
             }
@@ -163,34 +171,64 @@ impl ModuleBuilder<'_> {
         let folded = self.literal_const_expression(&member.expression).ok();
         match folded.map(|key| key.literal) {
             Some(Literal::Float(key)) => {
-                let Some((_, name)) = table.iter().find(|(value, _)| value.to_bits() == key.to_bits()) else {
+                let Some((_, name)) = table
+                    .iter()
+                    .find(|(value, _)| value.to_bits() == key.to_bits())
+                else {
                     return Ok(None);
                 };
-                return Ok(Some(body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(name.clone())), ty: string_ty, span })));
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(name.clone())),
+                    ty: string_ty,
+                    span,
+                })));
             }
             Some(_) => return Ok(None),
             None => {}
         }
         let index = self.expression(&member.expression, body)?;
-        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::Float)) {
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, index)),
+            Some(Type::Float)
+        ) {
             return Ok(None);
         }
         let reverse_entries = table
             .into_iter()
             .map(|(value, member_name)| {
                 let value_key = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(Self::numeric_property_key_name(value))),
+                    kind: ExprKind::Literal(Literal::String(Self::numeric_property_key_name(
+                        value,
+                    ))),
                     ty: string_ty,
                     span,
                 });
-                let name_value =
-                    body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(member_name)), ty: string_ty, span });
+                let name_value = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(member_name)),
+                    ty: string_ty,
+                    span,
+                });
                 (value_key, name_value)
             })
             .collect();
-        let table_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty));
-        let reverse_table = body.push_expr(Expr { kind: ExprKind::DictLit(reverse_entries), ty: table_ty, span });
-        Ok(Some(body.push_expr(Expr { kind: ExprKind::Index { receiver: reverse_table, index }, ty: string_ty, span })))
+        let table_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, string_ty));
+        let reverse_table = body.push_expr(Expr {
+            kind: ExprKind::DictLit(reverse_entries),
+            ty: table_ty,
+            span,
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Index {
+                receiver: reverse_table,
+                index,
+            },
+            ty: string_ty,
+            span,
+        })))
     }
 
     /// Register the enum name as a HIR type alias to its underlying primitive.

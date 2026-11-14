@@ -173,7 +173,11 @@ impl GitCheckoutKey {
     fn new(name: &str, url: &str, commit: CommitSha) -> Self {
         use sha2::Digest as _;
         let digest = hex::encode(sha2::Sha256::digest(url.as_bytes()));
-        Self { name: cache_slug(name), url_hash: digest.chars().take(16).collect(), commit }
+        Self {
+            name: cache_slug(name),
+            url_hash: digest.chars().take(16).collect(),
+            commit,
+        }
     }
 
     /// The checkout's directory name in the cache.
@@ -194,7 +198,9 @@ fn resolve_revision(name: &str, url: &str, rev: &str) -> Result<CommitSha, Box<d
         return Ok(commit);
     }
     let listing = git(&["ls-remote", url, rev], None).map_err(|error| {
-        invalid(format!("[packages.{name}]: resolving `{rev}` of {url}: {error}"))
+        invalid(format!(
+            "[packages.{name}]: resolving `{rev}` of {url}: {error}"
+        ))
     })?;
     commit_from_ls_remote(&listing, rev).ok_or_else(|| {
         invalid(format!(
@@ -250,7 +256,11 @@ fn fetch_git_package(name: &str, url: &str, rev: &str) -> Result<PathBuf, Box<dy
         None,
     )
     .map_err(|error| invalid(format!("[packages.{name}]: cloning {url}: {error}")))?;
-    git(&["checkout", "--quiet", "--detach", &wanted], Some(&staging)).map_err(|error| {
+    git(
+        &["checkout", "--quiet", "--detach", &wanted],
+        Some(&staging),
+    )
+    .map_err(|error| {
         invalid(format!(
             "[packages.{name}]: checking out `{rev}` ({wanted}) of {url}: {error}"
         ))
@@ -301,17 +311,16 @@ fn cache_slug(text: &str) -> String {
 ///
 /// A staging directory is named `.<key>.<pid>` and a retired checkout
 /// `.<key>.retired.<pid>`; anything else in the cache is left alone.
-fn remove_stale_staging(
-    cache: &Path,
-    key: &str,
-    is_gone: impl Fn(u32) -> bool,
-) -> io::Result<()> {
+fn remove_stale_staging(cache: &Path, key: &str, is_gone: impl Fn(u32) -> bool) -> io::Result<()> {
     let prefix = format!(".{key}.");
     let own = std::process::id();
     for listed in std::fs::read_dir(cache)? {
         let dir_entry = listed?;
         let file_name = dir_entry.file_name();
-        let Some(suffix) = file_name.to_str().and_then(|text| text.strip_prefix(&prefix)) else {
+        let Some(suffix) = file_name
+            .to_str()
+            .and_then(|text| text.strip_prefix(&prefix))
+        else {
             continue;
         };
         let pid_text = suffix.strip_prefix("retired.").unwrap_or(suffix);
@@ -354,7 +363,9 @@ fn invalid(message: String) -> Box<dyn Error> {
 mod tests {
     //! Cache-protocol helpers.
 
-    use super::{CommitSha, GitCheckoutKey, cache_slug, commit_from_ls_remote, remove_stale_staging};
+    use super::{
+        CommitSha, GitCheckoutKey, cache_slug, commit_from_ls_remote, remove_stale_staging,
+    };
 
     /// A full id parses; an abbreviation or a branch name does not.
     #[test]
@@ -384,10 +395,19 @@ mod tests {
         let listing = format!(
             "{branch}\trefs/heads/v1\n{tag_object}\trefs/tags/v1\n{tag_commit}\trefs/tags/v1^{{}}\n{branch}\trefs/heads/x/v1\n"
         );
-        assert_eq!(commit_from_ls_remote(&listing, "v1"), CommitSha::parse(&tag_commit));
+        assert_eq!(
+            commit_from_ls_remote(&listing, "v1"),
+            CommitSha::parse(&tag_commit)
+        );
         let branch_only = format!("{branch}\trefs/heads/main\n");
-        assert_eq!(commit_from_ls_remote(&branch_only, "main"), CommitSha::parse(&branch));
-        assert_eq!(commit_from_ls_remote(&format!("{branch}\trefs/heads/x/v1\n"), "v1"), None);
+        assert_eq!(
+            commit_from_ls_remote(&branch_only, "main"),
+            CommitSha::parse(&branch)
+        );
+        assert_eq!(
+            commit_from_ls_remote(&format!("{branch}\trefs/heads/x/v1\n"), "v1"),
+            None
+        );
     }
 
     /// Dead owners' staging and retired trees go; live owners', other keys'
@@ -415,11 +435,21 @@ mod tests {
         remove_stale_staging(&cache, &key, |pid| pid == 123 || pid == 124).expect("clean");
         let mut left = std::fs::read_dir(&cache)
             .expect("list")
-            .map(|listed| listed.expect("entry").file_name().into_string().expect("utf8"))
+            .map(|listed| {
+                listed
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("utf8")
+            })
             .collect::<Vec<_>>();
         left.sort();
         std::fs::remove_dir_all(&cache).expect("remove");
-        let mut expected = vec![key.clone(), format!(".{key}-other.123"), format!(".{key}.4567")];
+        let mut expected = vec![
+            key.clone(),
+            format!(".{key}-other.123"),
+            format!(".{key}.4567"),
+        ];
         expected.sort();
         assert_eq!(left, expected);
     }

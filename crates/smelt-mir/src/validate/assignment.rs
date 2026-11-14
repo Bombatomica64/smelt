@@ -93,7 +93,13 @@ impl Checker<'_> {
         match statement {
             // The entry is located (base, key, seed read) before `current` is
             // bound, and only then is the stored value evaluated.
-            Statement::DictEntryUpdate { base, index, default, current, value } => {
+            Statement::DictEntryUpdate {
+                base,
+                index,
+                default,
+                current,
+                value,
+            } => {
                 self.read(*base, state, errors);
                 for operand in [index, default] {
                     operand.read_locals(&mut |local| self.read(local, state, errors));
@@ -116,8 +122,17 @@ impl Checker<'_> {
     }
 
     /// Checks the reads of one terminator.
-    fn terminator(self, terminator: &Terminator, state: &Assigned, errors: &mut Vec<ValidationError>) {
-        if let Terminator::Call { callee: Callee::Op(op, _), args, .. } = terminator
+    fn terminator(
+        self,
+        terminator: &Terminator,
+        state: &Assigned,
+        errors: &mut Vec<ValidationError>,
+    ) {
+        if let Terminator::Call {
+            callee: Callee::Op(op, _),
+            args,
+            ..
+        } = terminator
             && let Rvalue::BindingCheck { binding, .. } = op.as_ref()
         {
             if binding.local().is_none() {
@@ -157,7 +172,10 @@ impl Checker<'_> {
         state: &Assigned,
         errors: &mut Vec<ValidationError>,
     ) {
-        let targets = self.mir.closure(id).map_or(&[][..], |closure| closure.captures.as_slice());
+        let targets = self
+            .mir
+            .closure(id)
+            .map_or(&[][..], |closure| closure.captures.as_slice());
         for (index, operand) in operands.iter().enumerate() {
             let Some(source) = operand.local() else {
                 continue;
@@ -193,20 +211,27 @@ impl Checker<'_> {
         for block in self.body.blocks {
             for statement in &block.statements {
                 match statement {
-                    Statement::AssignPlace { place: Place::Local(local), .. }
+                    Statement::AssignPlace {
+                        place: Place::Local(local),
+                        ..
+                    }
                     | Statement::DictEntryUpdate { current: local, .. } => {
                         written.insert(*local);
                     }
                     Statement::Assign { .. } | Statement::AssignPlace { .. } => {}
                 }
-                if let Rvalue::GeneratorYield { unwind: Some(handler), .. } = statement.value()
+                if let Rvalue::GeneratorYield {
+                    unwind: Some(handler),
+                    ..
+                } = statement.value()
                     && let Some(local) = handler.exception_local
                 {
                     written.insert(local);
                 }
             }
-            if let Some(Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. }) =
-                &block.terminator
+            if let Some(
+                Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. },
+            ) = &block.terminator
             {
                 written.insert(*dest);
                 if let Some(local) = unwind.and_then(|handler| handler.exception_local) {
@@ -215,7 +240,10 @@ impl Checker<'_> {
                 }
             }
         }
-        let mut wrong: Vec<LocalId> = written.into_iter().filter(|local| self.maybe_unbound(*local)).collect();
+        let mut wrong: Vec<LocalId> = written
+            .into_iter()
+            .filter(|local| self.maybe_unbound(*local))
+            .collect();
         wrong.sort_unstable_by_key(|local| local.0);
         for local in wrong {
             errors.push(error(format!(

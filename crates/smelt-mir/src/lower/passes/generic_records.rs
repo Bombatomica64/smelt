@@ -235,9 +235,7 @@ mod tests {
         });
 
         assert!(
-            !mir.types
-                .all()
-                .contains(&Type::Optional(float)),
+            !mir.types.all().contains(&Type::Optional(float)),
             "the substituted field type must be absent before the pass runs"
         );
 

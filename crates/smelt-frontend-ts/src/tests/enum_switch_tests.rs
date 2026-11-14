@@ -145,7 +145,10 @@ export function levelLabel(l: Level): string {
 }
 
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn enum_member_read_folds_to_member_literal() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -166,9 +169,9 @@ export function okStatus(): number {
     let body = function_body(&ctx, function)?;
     // `Status.Ok` inlines its folded numeric value instead of a field read.
     ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(v)) if v == 200.0_f64)),
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(v)) if v == 200.0_f64)
+        ),
         "enum member read did not fold to its literal"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -176,7 +179,10 @@ export function okStatus(): number {
 }
 
 #[test]
-#[expect(clippy::float_cmp, reason = "exact folded literal value is the thing under test")]
+#[expect(
+    clippy::float_cmp,
+    reason = "exact folded literal value is the thing under test"
+)]
 fn enum_member_initializer_references_earlier_member() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

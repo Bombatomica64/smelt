@@ -19,8 +19,8 @@
 //! `i32` never takes part in arithmetic here. Integer-closed arithmetic is
 //! rendered only for the range-analysis widths (`usize`, `i64`).
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Renders an integer-closed binary operation over `FixedInt` operands.
@@ -39,7 +39,9 @@ impl FunctionEmitter<'_> {
         let counter = |ty: TypeId| {
             matches!(
                 self.mir.types.get(ty),
-                Some(Type::FixedInt(smelt_hir::IntWidth::Usize | smelt_hir::IntWidth::I64))
+                Some(Type::FixedInt(
+                    smelt_hir::IntWidth::Usize | smelt_hir::IntWidth::I64
+                ))
             )
         };
         let lhs_fixed = counter(self.operand_ty(lhs)?);
@@ -99,14 +101,21 @@ impl FunctionEmitter<'_> {
                 smelt_hir::PrimitiveCastOp::ToFloat | smelt_hir::PrimitiveCastOp::ToJsNumber,
                 Type::Float,
                 Type::FixedInt(_),
-            ) => Some(RustExpr::cast(format!("{operand_expr} as f64", operand_expr = operand_expr.as_cast_operand()))),
+            ) => Some(RustExpr::cast(format!(
+                "{operand_expr} as f64",
+                operand_expr = operand_expr.as_cast_operand()
+            ))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Optional(to), Type::Optional(from))
                 if is_float(to) && is_fixed(from) =>
             {
                 Some(operand_expr.postfix(".map(f64::from)"))
             }
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::FixedInt(width), Type::Float) => {
-                Some(RustExpr::cast(format!("{operand_expr} as {}", width.rust_name(), operand_expr = operand_expr.as_cast_operand())))
+                Some(RustExpr::cast(format!(
+                    "{operand_expr} as {}",
+                    width.rust_name(),
+                    operand_expr = operand_expr.as_cast_operand()
+                )))
             }
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::Optional(to), Type::Optional(from))
                 if is_fixed(to) && is_float(from) =>
@@ -122,7 +131,11 @@ impl FunctionEmitter<'_> {
     /// A collection's `len()` is already a `usize`, so a `usize` destination
     /// needs no cast at all; `len_expr` is returned unchanged in that case
     /// unless it is a float literal (a function's declared arity).
-    pub(super) fn fixed_int_len_expr(len_expr: String, is_float_literal: bool, width: smelt_hir::IntWidth) -> RustExpr {
+    pub(super) fn fixed_int_len_expr(
+        len_expr: String,
+        is_float_literal: bool,
+        width: smelt_hir::IntWidth,
+    ) -> RustExpr {
         if width == smelt_hir::IntWidth::Usize && !is_float_literal {
             return RustExpr::from(len_expr);
         }
@@ -137,14 +150,16 @@ impl FunctionEmitter<'_> {
     /// int32 operator agree with every JavaScript engine.
     pub(super) fn js_to_int32_expr(value_text: &RustExpr) -> RustExpr {
         RustExpr::atom(format!(
-            "{{ let smelt_int32_v = ({value_text} as f64).trunc(); if smelt_int32_v.is_finite() {{ smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 }} else {{ 0_i32 }} }}", value_text = value_text.as_cast_operand()
+            "{{ let smelt_int32_v = ({value_text} as f64).trunc(); if smelt_int32_v.is_finite() {{ smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 }} else {{ 0_i32 }} }}",
+            value_text = value_text.as_cast_operand()
         ))
     }
 
     /// JavaScript `ToUint32` of a numeric expression, as a `u32` expression.
     pub(super) fn js_to_uint32_expr(value_text: &RustExpr) -> RustExpr {
         RustExpr::atom(format!(
-            "{{ let smelt_uint32_v = ({value_text} as f64).trunc(); if smelt_uint32_v.is_finite() {{ smelt_uint32_v.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }} }}", value_text = value_text.as_cast_operand()
+            "{{ let smelt_uint32_v = ({value_text} as f64).trunc(); if smelt_uint32_v.is_finite() {{ smelt_uint32_v.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }} }}",
+            value_text = value_text.as_cast_operand()
         ))
     }
 
@@ -163,11 +178,23 @@ impl FunctionEmitter<'_> {
     ) -> RustExpr {
         let lhs = Self::js_to_int32_expr(lhs_text);
         let int32 = match op {
-            smelt_hir::BinOp::IMul => format!("({lhs}).wrapping_mul({})", Self::js_to_int32_expr(rhs_text).delimited(), lhs = lhs.delimited()),
+            smelt_hir::BinOp::IMul => format!(
+                "({lhs}).wrapping_mul({})",
+                Self::js_to_int32_expr(rhs_text).delimited(),
+                lhs = lhs.delimited()
+            ),
             smelt_hir::BinOp::Shl => {
-                format!("({lhs}).wrapping_shl({} & 31)", Self::js_to_uint32_expr(rhs_text).as_binary_operand(), lhs = lhs.delimited())
+                format!(
+                    "({lhs}).wrapping_shl({} & 31)",
+                    Self::js_to_uint32_expr(rhs_text).as_binary_operand(),
+                    lhs = lhs.delimited()
+                )
             }
-            _ => format!("({lhs}).wrapping_shr({} & 31)", Self::js_to_uint32_expr(rhs_text).as_binary_operand(), lhs = lhs.delimited()),
+            _ => format!(
+                "({lhs}).wrapping_shr({} & 31)",
+                Self::js_to_uint32_expr(rhs_text).as_binary_operand(),
+                lhs = lhs.delimited()
+            ),
         };
         RustExpr::atom(format!("(({int32}) as {result_cast})"))
     }
@@ -183,9 +210,7 @@ impl FunctionEmitter<'_> {
         usize_conversion: &str,
     ) -> Result<Option<RustExpr>, EmitError> {
         match self.mir.types.get(self.operand_ty(index)?) {
-            Some(Type::FixedInt(smelt_hir::IntWidth::Usize)) => {
-                Ok(Some(self.operand_expr(index)?))
-            }
+            Some(Type::FixedInt(smelt_hir::IntWidth::Usize)) => Ok(Some(self.operand_expr(index)?)),
             // `usize::try_from` accepts any signed width directly, so the
             // integer is bound as it is.
             Some(Type::FixedInt(_)) => Ok(Some(RustExpr::atom(format!(

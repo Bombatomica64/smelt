@@ -1,11 +1,10 @@
-
 //! Shared pure support functions for TypeScript lowering.
 
-use crate::lowering::body_arena::BodyArena;
 use super::{
     ConstItem, ConstLiteral, Declaration, ExprKind, HashMap, HashSet, Item, ModuleExportName,
     Program, PropertyKey, Statement, TSAccessibility, UnknownKind, Visibility,
 };
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
 
 /// The statements of an arrow function's block body.
@@ -75,10 +74,7 @@ pub(super) fn insert_visible_item(
         Item::Interface(_) => {
             interfaces.insert(name.to_owned(), item_id);
         }
-        Item::Function(_)
-        | Item::TypeAlias(_)
-        | Item::Const(_)
-        | Item::MutableGlobal(_) => {}
+        Item::Function(_) | Item::TypeAlias(_) | Item::Const(_) | Item::MutableGlobal(_) => {}
     }
 }
 
@@ -246,10 +242,7 @@ pub(super) fn statement_terminates(statement: &Statement<'_>) -> bool {
         // only keeps a caller's fallback, while a wrong `true` would type a
         // callback as if a fall-through path did not exist.
         Statement::SwitchStatement(switch_stmt) => {
-            let has_default = switch_stmt
-                .cases
-                .iter()
-                .any(|case| case.test.is_none());
+            let has_default = switch_stmt.cases.iter().any(|case| case.test.is_none());
             let every_clause_terminates = switch_stmt.cases.iter().all(|case| {
                 case.consequent.is_empty() || case.consequent.iter().any(statement_terminates)
             });

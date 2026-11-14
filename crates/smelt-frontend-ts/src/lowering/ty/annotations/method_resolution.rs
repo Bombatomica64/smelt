@@ -1,10 +1,10 @@
 //! Method resolution on a receiver type: the method a call reaches, including
 //! methods of a class still being lowered and methods returning their receiver.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::support::source_spelling;
 use smelt_hir::{ErasureReason, ExprKind, Item, Type};
 
@@ -16,10 +16,7 @@ impl ModuleBuilder<'_> {
     /// whose declared "returns my own class" annotation is JavaScript's
     /// polymorphic `this` rather than a genuine base-instance factory. A method
     /// with no body (declared-only) or no `return` at all answers `false`.
-    pub(in crate::lowering) fn method_returns_its_receiver(
-        &self,
-        item: smelt_hir::ItemId,
-    ) -> bool {
+    pub(in crate::lowering) fn method_returns_its_receiver(&self, item: smelt_hir::ItemId) -> bool {
         let Some(Item::Function(function)) = self
             .ctx
             .krate
@@ -28,10 +25,12 @@ impl ModuleBuilder<'_> {
         else {
             return false;
         };
-        let Some(body) = function
-            .body
-            .and_then(|body| self.ctx.krate.bodies.get(usize::try_from(body.0).unwrap_or(usize::MAX)))
-        else {
+        let Some(body) = function.body.and_then(|body| {
+            self.ctx
+                .krate
+                .bodies
+                .get(usize::try_from(body.0).unwrap_or(usize::MAX))
+        }) else {
             return false;
         };
         let Some(receiver) = body.params.first().copied() else {
@@ -83,8 +82,7 @@ impl ModuleBuilder<'_> {
             let mut return_types = Vec::with_capacity(items.len());
             for item in items {
                 let field_ty = self.class_field_type(item, method)?;
-                let Some(Type::Function(function)) =
-                    self.ctx.krate.types.get(field_ty).cloned()
+                let Some(Type::Function(function)) = self.ctx.krate.types.get(field_ty).cloned()
                 else {
                     // An erased member type was recorded by `class_field_type`.
                     let unknown = if self.ctx.krate.types.get(field_ty) == Some(&Type::Unknown) {
@@ -115,7 +113,8 @@ impl ModuleBuilder<'_> {
         if let Some(bound) = self.type_param_member_bound(receiver_ty) {
             return self.resolve_method(bound, method, span);
         }
-        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned()
+        else {
             // Non-class receiver: no concrete class method item exists. Fall to
             // the dynamic-dispatch boundary so records, interfaces, concrete
             // unions, and erased/builtin values (`string`, `number`, optionals,
@@ -159,8 +158,7 @@ impl ModuleBuilder<'_> {
                     &args,
                     self.span(span.start, span.end),
                 )?;
-                if let Some(method_sig) =
-                    interface.methods.iter().find(|item| item.name == method)
+                if let Some(method_sig) = interface.methods.iter().find(|item| item.name == method)
                 {
                     let return_ty =
                         self.substitute_type_params(method_sig.return_ty, &substitutions);
@@ -301,9 +299,7 @@ impl ModuleBuilder<'_> {
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
-        let Some(class_name) = source_spelling(&self.ctx.krate, class)
-            .map(str::to_owned)
-        else {
+        let Some(class_name) = source_spelling(&self.ctx.krate, class).map(str::to_owned) else {
             return Ok(None);
         };
         let Some(methods) = self.classes.methods(&class_name).cloned() else {

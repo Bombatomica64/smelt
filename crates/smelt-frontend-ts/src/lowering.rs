@@ -1,44 +1,44 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
+mod arguments_forwarding;
+mod asserted_member_read;
 mod bigint;
 mod body_arena;
 mod checker_types;
 mod conditional_base;
-mod super_method;
-mod null_absent;
-mod open_array_hint;
-mod tuple_rest;
-mod union_flat;
-mod typed_spread;
 mod erasure;
-mod arguments_forwarding;
-mod asserted_member_read;
 mod function_statics;
 mod hoisting;
-mod resolve;
-mod unchecked_returns;
-mod scoped_references;
 mod int32;
 mod js_text;
 mod narrowing;
+mod null_absent;
+mod open_array_hint;
 mod peel;
 mod postfix_deferral;
 mod presence_tested_locals;
-mod type_param_owners;
 mod promise_resolution;
+mod resolve;
+mod scoped_references;
 mod source_facts;
-mod speculation;
 mod specialization;
+mod speculation;
 pub(in crate::lowering) mod spread_arguments;
 mod state;
 mod stdlib;
 mod stdlib_dispatch;
+mod super_method;
 mod support;
 mod symbol_consts;
-mod type_predicates;
-mod union_member_read;
+mod tuple_rest;
 mod ty;
+mod type_param_owners;
+mod type_predicates;
+mod typed_spread;
+mod unchecked_returns;
+mod union_flat;
+mod union_member_read;
 use crate::lowering::js_text::js_str_text;
 use std::borrow::Cow;
 use std::{
@@ -274,7 +274,10 @@ pub struct FrontendOptions<'manifest> {
 /// unless type errors are explicitly allowed); a direct frontend caller with no
 /// checker gets the default, `Unchecked`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[expect(clippy::exhaustive_enums, reason = "a checker either accepted the source or it did not")]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "a checker either accepted the source or it did not"
+)]
 pub enum SourceTrust {
     /// The checker accepted the source: lowering may rely on what it rules out.
     Checked,
@@ -516,10 +519,16 @@ pub fn to_hir_with_options(
 #[must_use]
 pub fn ambient_test_globals(source: &str, path: &str) -> Vec<String> {
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
-        .with_options(ParseOptions::default())
-        .parse();
-    if !parsed.diagnostics.is_empty() || !module_init::test_tier::is_test_tier(path, &parsed.program) {
+    let parsed = Parser::new(
+        &allocator,
+        source,
+        SourceType::default().with_typescript(true),
+    )
+    .with_options(ParseOptions::default())
+    .parse();
+    if !parsed.diagnostics.is_empty()
+        || !module_init::test_tier::is_test_tier(path, &parsed.program)
+    {
         return Vec::new();
     }
     let imported = parsed
@@ -534,14 +543,21 @@ pub fn ambient_test_globals(source: &str, path: &str) -> Vec<String> {
         .map(|specifier| specifier.local().name.as_str().to_owned())
         .collect::<HashSet<_>>();
     let is_imported = |name: &str| imported.contains(name);
-    let mut specifiers = module_init::test_tier::ambient_test_builtin_names(&parsed.program, &is_imported)
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
+    let mut specifiers =
+        module_init::test_tier::ambient_test_builtin_names(&parsed.program, &is_imported)
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
     specifiers.extend(
         module_init::test_tier::ambient_mock_namespaces(&parsed.program, &is_imported)
             .into_iter()
-            .map(|name| if name == "vi" { name.to_owned() } else { format!("vi as {name}") }),
+            .map(|name| {
+                if name == "vi" {
+                    name.to_owned()
+                } else {
+                    format!("vi as {name}")
+                }
+            }),
     );
     specifiers
 }
@@ -553,7 +569,11 @@ pub fn ambient_test_globals(source: &str, path: &str) -> Vec<String> {
 /// (no imports or exports), so its `interface` merges into the global one.
 #[must_use]
 pub fn modeled_module_declarations() -> String {
-    format!("{}{}", int32::BUN_DECLARATION, stdlib::json::JSON_PARSE_DECLARATION)
+    format!(
+        "{}{}",
+        int32::BUN_DECLARATION,
+        stdlib::json::JSON_PARSE_DECLARATION
+    )
 }
 
 /// Predeclare TypeScript aliases and class method surfaces before manifest body lowering.
@@ -647,9 +667,13 @@ pub fn predeclare_unique_symbol_consts_with_path(
         return;
     }
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
-        .with_options(ParseOptions::default())
-        .parse();
+    let parsed = Parser::new(
+        &allocator,
+        source,
+        SourceType::default().with_typescript(true),
+    )
+    .with_options(ParseOptions::default())
+    .parse();
     if !parsed.diagnostics.is_empty() {
         return;
     }
@@ -788,12 +812,8 @@ pub fn scan_declared_type_names(source: &str, path: &str) -> Vec<String> {
 /// and an anonymous class expression has no name to answer with.
 fn declared_type_name(declaration: &Declaration<'_>) -> Option<String> {
     match declaration {
-        Declaration::ClassDeclaration(class) => {
-            class.id.as_ref().map(|id| id.name.to_string())
-        }
-        Declaration::TSInterfaceDeclaration(interface) => {
-            Some(interface.id.name.to_string())
-        }
+        Declaration::ClassDeclaration(class) => class.id.as_ref().map(|id| id.name.to_string()),
+        Declaration::TSInterfaceDeclaration(interface) => Some(interface.id.name.to_string()),
         Declaration::TSTypeAliasDeclaration(alias) => Some(alias.id.name.to_string()),
         Declaration::TSEnumDeclaration(enum_decl) => Some(enum_decl.id.name.to_string()),
         _ => None,
@@ -820,8 +840,7 @@ impl<'a> oxc::ast_visit::Visit<'a> for WrittenHostGlobalCollector<'_> {
 
 /// Return whether a declaration file was generated by Smelt itself.
 fn is_generated_declaration_file(path: &str, source: &str) -> bool {
-    is_typescript_declaration_path(path)
-        && source.starts_with(smelt_hir::TS_STUB_HEADER)
+    is_typescript_declaration_path(path) && source.starts_with(smelt_hir::TS_STUB_HEADER)
 }
 
 /// Return whether a path names a TypeScript declaration file.
@@ -1018,7 +1037,8 @@ struct ModuleBuilder<'ctx> {
     forced_class_name: Option<String>,
     /// Object constants that act as namespace-like API surfaces, each with its
     /// entries in source order.
-    object_namespaces: crate::context::Published<HashMap<String, IndexMap<String, smelt_hir::ItemId>>>,
+    object_namespaces:
+        crate::context::Published<HashMap<String, IndexMap<String, smelt_hir::ItemId>>>,
     /// Folded constant values visible to this module: literals, `enum` members,
     /// `RegExp` literals, object constants, collections and object-value
     /// projections.

@@ -68,16 +68,19 @@ impl LanguageCheck {
     /// How many errors the checker reported.
     fn errors(&self) -> usize {
         match self {
-            Self::Ran(diagnostics) => diagnostics.iter().filter(|diagnostic| is_error(diagnostic)).count(),
+            Self::Ran(diagnostics) => diagnostics
+                .iter()
+                .filter(|diagnostic| is_error(diagnostic))
+                .count(),
             Self::Absent | Self::Unverified(_) => 0,
         }
     }
-
 }
 
 /// Whether `diagnostic` is a checker error.
 fn is_error(diagnostic: &ManifestDiagnostic) -> bool {
-    diagnostic.category == DiagnosticCategory::TypeCheck && diagnostic.severity == Some(Severity::Error)
+    diagnostic.category == DiagnosticCategory::TypeCheck
+        && diagnostic.severity == Some(Severity::Error)
 }
 
 /// The checkers' verdict over every source of one run.
@@ -110,10 +113,14 @@ impl CheckReport {
                 LanguageCheck::Ran(_) | LanguageCheck::Unverified(_) => SourceTrust::Unchecked,
             };
         };
-        let rejected = diagnostics
-            .iter()
-            .any(|diagnostic| is_error(diagnostic) && (diagnostic.file.is_empty() || diagnostic.file == file));
-        if rejected { SourceTrust::Unchecked } else { SourceTrust::Checked }
+        let rejected = diagnostics.iter().any(|diagnostic| {
+            is_error(diagnostic) && (diagnostic.file.is_empty() || diagnostic.file == file)
+        });
+        if rejected {
+            SourceTrust::Unchecked
+        } else {
+            SourceTrust::Checked
+        }
     }
 
     /// Every checker diagnostic, then one warning per language no checker
@@ -123,7 +130,9 @@ impl CheckReport {
         for check in [&self.typescript, &self.python] {
             match check {
                 LanguageCheck::Ran(reported) => diagnostics.extend(reported.iter().cloned()),
-                LanguageCheck::Unverified(reason) => diagnostics.push(unverified_diagnostic(reason)),
+                LanguageCheck::Unverified(reason) => {
+                    diagnostics.push(unverified_diagnostic(reason));
+                }
                 LanguageCheck::Absent => {}
             }
         }
@@ -132,7 +141,10 @@ impl CheckReport {
 
     /// Why the run cannot pass the gate under `Deny`, or `None` when it can.
     fn refusal(&self) -> Option<TypeGateError> {
-        let errors = self.typescript.errors().saturating_add(self.python.errors());
+        let errors = self
+            .typescript
+            .errors()
+            .saturating_add(self.python.errors());
         let unverified = [&self.typescript, &self.python]
             .into_iter()
             .filter_map(|check| match check {
@@ -228,9 +240,16 @@ impl fmt::Display for TypeGateError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut causes = Vec::new();
         if self.errors > 0 {
-            causes.push(format!("the type checkers reported {} error(s)", self.errors));
+            causes.push(format!(
+                "the type checkers reported {} error(s)",
+                self.errors
+            ));
         }
-        causes.extend(self.unverified.iter().map(|reason| format!("the sources were not type-checked ({reason})")));
+        causes.extend(
+            self.unverified
+                .iter()
+                .map(|reason| format!("the sources were not type-checked ({reason})")),
+        );
         write!(
             formatter,
             "{}; Smelt lowers only programs that type-check. Fix the errors, or pass \
@@ -266,8 +285,16 @@ fn print_diagnostics(diagnostics: &[ManifestDiagnostic], policy: TypeErrorPolicy
             .line
             .zip(diagnostic.column)
             .map_or_else(String::new, |(line, column)| format!(":{line}:{column}"));
-        let location = if diagnostic.file.is_empty() { String::new() } else { format!("{}{position}: ", diagnostic.file) };
-        let _ignored = writeln!(stderr, "{label}[type-check]: {location}{}", diagnostic.message);
+        let location = if diagnostic.file.is_empty() {
+            String::new()
+        } else {
+            format!("{}{position}: ", diagnostic.file)
+        };
+        let _ignored = writeln!(
+            stderr,
+            "{label}[type-check]: {location}{}",
+            diagnostic.message
+        );
     }
 }
 
@@ -292,42 +319,91 @@ mod tests {
     /// A clean report passes either policy; an error passes only `Allow`.
     #[test]
     fn deny_refuses_errors_and_allow_does_not() {
-        let clean = || Checked::new(1_u8, CheckReport::new(LanguageCheck::Ran(Vec::new()), LanguageCheck::Absent));
+        let clean = || {
+            Checked::new(
+                1_u8,
+                CheckReport::new(LanguageCheck::Ran(Vec::new()), LanguageCheck::Absent),
+            )
+        };
         assert_eq!(clean().into_inner(TypeErrorPolicy::Deny), Ok(1_u8));
         assert_eq!(clean().into_inner(TypeErrorPolicy::Allow), Ok(1_u8));
-        let dirty = || Checked::new(1_u8, CheckReport::new(LanguageCheck::Ran(vec![error()]), LanguageCheck::Absent));
-        let refusal = dirty().into_inner(TypeErrorPolicy::Deny).expect_err("an error is refused");
+        let dirty = || {
+            Checked::new(
+                1_u8,
+                CheckReport::new(LanguageCheck::Ran(vec![error()]), LanguageCheck::Absent),
+            )
+        };
+        let refusal = dirty()
+            .into_inner(TypeErrorPolicy::Deny)
+            .expect_err("an error is refused");
         assert_eq!(refusal.errors, 1_usize);
-        assert!(refusal.to_string().contains("--allow-type-errors"), "{refusal}");
+        assert!(
+            refusal.to_string().contains("--allow-type-errors"),
+            "{refusal}"
+        );
         assert_eq!(dirty().into_inner(TypeErrorPolicy::Allow), Ok(1_u8));
     }
 
     /// Sources no checker vouched for are refused under `Deny`, like an error.
     #[test]
     fn unverified_sources_are_refused() {
-        let report = CheckReport::new(LanguageCheck::Absent, LanguageCheck::Unverified("no ty".to_owned()));
+        let report = CheckReport::new(
+            LanguageCheck::Absent,
+            LanguageCheck::Unverified("no ty".to_owned()),
+        );
         assert_eq!(report.typescript_trust("a.ts"), SourceTrust::Checked);
-        let refusal = Checked::new((), report).into_inner(TypeErrorPolicy::Deny).expect_err("unverified");
+        let refusal = Checked::new((), report)
+            .into_inner(TypeErrorPolicy::Deny)
+            .expect_err("unverified");
         assert_eq!(refusal.unverified, ["no ty".to_owned()]);
     }
 
     /// The TypeScript frontend trusts a source only when the checker accepted it.
     #[test]
     fn trust_follows_the_typescript_verdict_per_file() {
-        let trust = |typescript, file| CheckReport::new(typescript, LanguageCheck::Absent).typescript_trust(file);
-        assert_eq!(trust(LanguageCheck::Ran(Vec::new()), "a.ts"), SourceTrust::Checked);
-        assert_eq!(trust(LanguageCheck::Ran(vec![error()]), "a.ts"), SourceTrust::Unchecked);
-        assert_eq!(trust(LanguageCheck::Ran(vec![error()]), "b.ts"), SourceTrust::Checked);
-        let unplaced = ManifestDiagnostic { file: String::new(), ..error() };
-        assert_eq!(trust(LanguageCheck::Ran(vec![unplaced]), "b.ts"), SourceTrust::Unchecked);
-        assert_eq!(trust(LanguageCheck::Unverified("off".to_owned()), "a.ts"), SourceTrust::Unchecked);
+        let trust = |typescript, file| {
+            CheckReport::new(typescript, LanguageCheck::Absent).typescript_trust(file)
+        };
+        assert_eq!(
+            trust(LanguageCheck::Ran(Vec::new()), "a.ts"),
+            SourceTrust::Checked
+        );
+        assert_eq!(
+            trust(LanguageCheck::Ran(vec![error()]), "a.ts"),
+            SourceTrust::Unchecked
+        );
+        assert_eq!(
+            trust(LanguageCheck::Ran(vec![error()]), "b.ts"),
+            SourceTrust::Checked
+        );
+        let unplaced = ManifestDiagnostic {
+            file: String::new(),
+            ..error()
+        };
+        assert_eq!(
+            trust(LanguageCheck::Ran(vec![unplaced]), "b.ts"),
+            SourceTrust::Unchecked
+        );
+        assert_eq!(
+            trust(LanguageCheck::Unverified("off".to_owned()), "a.ts"),
+            SourceTrust::Unchecked
+        );
     }
 
     /// The manifest decides unless the flag allows.
     #[test]
     fn the_flag_overrides_the_manifest() {
-        assert_eq!(TypeErrorPolicy::resolve(TypeErrorPolicy::Deny, true), TypeErrorPolicy::Allow);
-        assert_eq!(TypeErrorPolicy::resolve(TypeErrorPolicy::Deny, false), TypeErrorPolicy::Deny);
-        assert_eq!(TypeErrorPolicy::resolve(TypeErrorPolicy::Allow, false), TypeErrorPolicy::Allow);
+        assert_eq!(
+            TypeErrorPolicy::resolve(TypeErrorPolicy::Deny, true),
+            TypeErrorPolicy::Allow
+        );
+        assert_eq!(
+            TypeErrorPolicy::resolve(TypeErrorPolicy::Deny, false),
+            TypeErrorPolicy::Deny
+        );
+        assert_eq!(
+            TypeErrorPolicy::resolve(TypeErrorPolicy::Allow, false),
+            TypeErrorPolicy::Allow
+        );
     }
 }

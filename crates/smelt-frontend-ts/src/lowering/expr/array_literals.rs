@@ -1,12 +1,12 @@
 //! Array literals: element types, contextual hints and spreads.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::js_text::js_str_literal;
 use crate::lowering::{
     ArrayExpressionElement, Body, Expr, ExprKind, Literal, ModuleBuilder, SetProjectionOp,
     SmeltError, Type,
 };
-use crate::lowering::js_text::js_str_literal;
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 
@@ -291,7 +291,9 @@ impl ModuleBuilder<'_> {
                 // to `null` made `[1, , 2]` and `[1, null, 2]` indistinguishable
                 // and `[...new Set([1, , 2])]` produce `null` where JavaScript
                 // produces `undefined`.
-                let ty = element_hint.unwrap_or_else(|| self.erase_with(ErasureReason::DynamicOperator, "array hole"));
+                let ty = element_hint.unwrap_or_else(|| {
+                    self.erase_with(ErasureReason::DynamicOperator, "array hole")
+                });
                 body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Undefined),
                     ty,
@@ -310,9 +312,8 @@ impl ModuleBuilder<'_> {
         // (`Unknown`), union, and `never`-assertion hints legitimately type array
         // literals, so only function-shaped hints are rejected; then fall back to
         // the inferred list type as if no hint was given.
-        let array_compatible_hint = type_hint.filter(|hint| {
-            !matches!(self.ctx.krate.types.get(*hint), Some(Type::Function(_)))
-        });
+        let array_compatible_hint = type_hint
+            .filter(|hint| !matches!(self.ctx.krate.types.get(*hint), Some(Type::Function(_))));
         let ty = if let Some(hint) = array_compatible_hint {
             // A hint that still mentions a type parameter (a generic callee's
             // `T[]`) takes its open positions from the elements; see
@@ -744,7 +745,9 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
-            Some(Type::Generator { is_async: false, .. }) => Ok(Self::generator_items_expr(
+            Some(Type::Generator {
+                is_async: false, ..
+            }) => Ok(Self::generator_items_expr(
                 value,
                 list_ty,
                 self.span(span.start, span.end),

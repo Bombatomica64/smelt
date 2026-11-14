@@ -5,7 +5,16 @@
 
 use std::fmt;
 
-use super::{AbortSignalOp, AsyncOp, BlobOp, BoolFoldOp, CryptoOp, DictProjectionOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, ErasedPatternMethod, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UriTranscodeOp, UrlField, UrlSearchParamsOp};
+use super::{
+    AbortSignalOp, AsyncOp, BlobOp, BoolFoldOp, CryptoOp, DictProjectionOp, ErasedPatternMethod,
+    EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ListCallbackOp,
+    ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, RequestOp, ResponseOp,
+    ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp,
+    StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UriTranscodeOp,
+    UrlField, UrlSearchParamsOp,
+};
 
 impl NumericRoundOp {
     /// The operation's `dump` spelling.

@@ -1,14 +1,14 @@
 //! Object literals: keys, accessors, spreads and the record type a literal takes from
 //! its context.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::js_text::{js_str_literal, js_str_text};
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     Body, Expr, ExprKind, Expression, Field, FunctionType, HashSet, Literal, LogicalOperator,
     ModuleBuilder, ObjectPropertyKind, PropertyKey, PropertyKind, SmeltError, Statement, Type,
 };
-use crate::lowering::js_text::{js_str_literal, js_str_text};
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 use std::borrow::Cow;
@@ -16,7 +16,10 @@ use std::borrow::Cow;
 /// Whether two literal values are the same JavaScript value (`1` and `1.0`
 /// are one number).
 pub(in crate::lowering) fn literal_values_equal(left: &Literal, right: &Literal) -> bool {
-    #[expect(clippy::cast_precision_loss, reason = "a JavaScript number literal is an f64")]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a JavaScript number literal is an f64"
+    )]
     let number = |literal: &Literal| match literal {
         Literal::Int(value) => Some(*value as f64),
         Literal::Float(value) => Some(*value),
@@ -24,7 +27,9 @@ pub(in crate::lowering) fn literal_values_equal(left: &Literal, right: &Literal)
     };
     match (number(left), number(right)) {
         // JavaScript `===` on numbers: exact IEEE equality is the semantics.
-        (Some(left), Some(right)) => left.total_cmp(&right).is_eq() || (left == 0.0 && right == 0.0),
+        (Some(left), Some(right)) => {
+            left.total_cmp(&right).is_eq() || (left == 0.0 && right == 0.0)
+        }
         _ => left == right,
     }
 }
@@ -64,7 +69,9 @@ impl ModuleBuilder<'_> {
                 // an accessor of that type; see `Crate::accessor_fields`.
                 let unknown_ty = self
                     .object_property_value_hint(object_property, type_hint)
-                    .unwrap_or_else(|| self.erase_with(ErasureReason::UnmodeledType, "object literal getter"));
+                    .unwrap_or_else(|| {
+                        self.erase_with(ErasureReason::UnmodeledType, "object literal getter")
+                    });
                 let getter =
                     if let Expression::FunctionExpression(function) = &object_property.value {
                         let getter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -177,7 +184,8 @@ impl ModuleBuilder<'_> {
         entries
             .into_iter()
             .map(|(key, value)| {
-                let Some(getter) = Self::accessor_marker_function(body, value, "__smelt_get") else {
+                let Some(getter) = Self::accessor_marker_function(body, value, "__smelt_get")
+                else {
                     return (key, value);
                 };
                 if let Some(ExprKind::Literal(Literal::String(field_key))) =
@@ -194,10 +202,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// The function an accessor marker `{ <marker>: fn }` wraps.
-    fn accessor_marker_function(body: &Body, value: smelt_hir::ExprId, marker: &str) -> Option<smelt_hir::ExprId> {
-        let Some(ExprKind::DictLit(pairs)) =
-            body.expr_at(value).map(|expr| &expr.kind)
-        else {
+    fn accessor_marker_function(
+        body: &Body,
+        value: smelt_hir::ExprId,
+        marker: &str,
+    ) -> Option<smelt_hir::ExprId> {
+        let Some(ExprKind::DictLit(pairs)) = body.expr_at(value).map(|expr| &expr.kind) else {
             return None;
         };
         let [(key, function)] = pairs.as_slice() else {
@@ -285,7 +295,13 @@ impl ModuleBuilder<'_> {
                         object.span,
                     );
                     if !hinted {
-                        self.note_spread_chunk_join(&sources, &mut chunks, record_ty, &mut heterogeneous, body);
+                        self.note_spread_chunk_join(
+                            &sources,
+                            &mut chunks,
+                            record_ty,
+                            &mut heterogeneous,
+                            body,
+                        );
                     }
                     if let Some(source) = self.conditional_object_spread_source(
                         &spread.argument,
@@ -318,7 +334,10 @@ impl ModuleBuilder<'_> {
                     };
                     let joins_erased = !hinted
                         && record_ty.is_some_and(|record| record != source_record)
-                        && matches!(self.ctx.krate.types.get(source_record), Some(Type::Dict(_, _)));
+                        && matches!(
+                            self.ctx.krate.types.get(source_record),
+                            Some(Type::Dict(_, _))
+                        );
                     if joins_erased {
                         heterogeneous = true;
                     }
@@ -332,7 +351,8 @@ impl ModuleBuilder<'_> {
                     {
                         let ty = record_ty.unwrap_or_else(|| {
                             let key_ty = self.ctx.krate.types.intern(Type::String);
-                            let value_ty = self.erase_with(ErasureReason::DynamicOperator, "object spread");
+                            let value_ty =
+                                self.erase_with(ErasureReason::DynamicOperator, "object spread");
                             self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
                         });
                         source = body.push_expr(Expr {
@@ -374,9 +394,15 @@ impl ModuleBuilder<'_> {
         }
         let key_ty = self.ctx.krate.types.intern(Type::String);
         if heterogeneous {
-            let fallback_value_ty =
-                self.erase_with(ErasureReason::DynamicOperator, "heterogeneous object spread");
-            let erased = self.ctx.krate.types.intern(Type::Dict(key_ty, fallback_value_ty));
+            let fallback_value_ty = self.erase_with(
+                ErasureReason::DynamicOperator,
+                "heterogeneous object spread",
+            );
+            let erased = self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Dict(key_ty, fallback_value_ty));
             for chunk in &chunks {
                 if let Some(expr) = body.expr_at_mut(*chunk) {
                     expr.ty = erased;
@@ -385,7 +411,8 @@ impl ModuleBuilder<'_> {
             record_ty = Some(erased);
         }
         let record_ty = record_ty.unwrap_or_else(|| {
-            let fallback_value_ty = self.erase_with(ErasureReason::DynamicOperator, "object spread");
+            let fallback_value_ty =
+                self.erase_with(ErasureReason::DynamicOperator, "object spread");
             self.ctx
                 .krate
                 .types
@@ -427,7 +454,9 @@ impl ModuleBuilder<'_> {
         }
         let cond = self.expression(&logical.left, body)?;
         let rhs_narrowing = self.guard_narrowing(&logical.left, body);
-        let then_expr = self.with_narrowing(rhs_narrowing, |this| this.expression_with_hint(&logical.right, body, record_ty))?;
+        let then_expr = self.with_narrowing(rhs_narrowing, |this| {
+            this.expression_with_hint(&logical.right, body, record_ty)
+        })?;
         let source_ty = Self::expr_ty(body, then_expr);
         self.accept_object_spread_source(source_ty, record_ty, span)?;
         let else_expr = body.push_expr(Expr {
@@ -628,7 +657,10 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(js_str_literal(lit.value)),
                 ty: key_ty,
-                span: self.span(object_property.key.span().start, object_property.key.span().end),
+                span: self.span(
+                    object_property.key.span().start,
+                    object_property.key.span().end,
+                ),
             }));
         }
         let key_text = match &object_property.key {
@@ -740,9 +772,7 @@ impl ModuleBuilder<'_> {
         if chunks.contains(&last) {
             return;
         }
-        let Some(ExprKind::DictLit(entries)) = body.expr_at(last)
-            .map(|expr| &expr.kind)
-        else {
+        let Some(ExprKind::DictLit(entries)) = body.expr_at(last).map(|expr| &expr.kind) else {
             return;
         };
         let entries = entries.clone();
@@ -792,10 +822,8 @@ impl ModuleBuilder<'_> {
                 // the caller replace the source with an EMPTY record, which
                 // silently dropped every copied property (Hono's trie-router
                 // lost a parent node's path params this way).
-                let record_holds_any = matches!(
-                    self.ctx.krate.types.get(record_value),
-                    Some(Type::Unknown)
-                );
+                let record_holds_any =
+                    matches!(self.ctx.krate.types.get(record_value), Some(Type::Unknown));
                 if self.map_key_type_compatible(record_key, *source_key)
                     && (record_value == *source_value
                         || record_holds_any
@@ -898,7 +926,15 @@ impl ModuleBuilder<'_> {
         } else if entries.iter().all(|(key, _)| {
             matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, *key)),
-                Some(Type::String | Type::Float | Type::Int | Type::FixedInt(_) | Type::Symbol | Type::PropKey | Type::Unknown)
+                Some(
+                    Type::String
+                        | Type::Float
+                        | Type::Int
+                        | Type::FixedInt(_)
+                        | Type::Symbol
+                        | Type::PropKey
+                        | Type::Unknown
+                )
             )
         }) {
             // Computed keys that are strings, numbers and symbols are all
@@ -913,15 +949,18 @@ impl ModuleBuilder<'_> {
             .map(|(_, value)| Self::expr_ty(body, *value));
         let value_ty = first_value_ty
             .filter(|first_ty| {
-                entries
-                    .iter()
-                    .all(|(_, value)| self.alpha_equivalent_types(Self::expr_ty(body, *value), *first_ty))
+                entries.iter().all(|(_, value)| {
+                    self.alpha_equivalent_types(Self::expr_ty(body, *value), *first_ty)
+                })
             })
             .unwrap_or_else(|| {
                 if entries.is_empty() {
                     self.erase_with(ErasureReason::MissingAnnotation, "empty object literal")
                 } else {
-                    self.erase_with(ErasureReason::DynamicOperator, "heterogeneous object literal")
+                    self.erase_with(
+                        ErasureReason::DynamicOperator,
+                        "heterogeneous object literal",
+                    )
                 }
             });
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
@@ -1004,7 +1043,9 @@ impl ModuleBuilder<'_> {
         };
         entries.iter().all(|(key, value)| {
             let expr = |id: smelt_hir::ExprId| body.expr_at(id);
-            let Some(ExprKind::Literal(Literal::String(field_key))) = expr(*key).map(|key| &key.kind) else {
+            let Some(ExprKind::Literal(Literal::String(field_key))) =
+                expr(*key).map(|key| &key.kind)
+            else {
                 return true;
             };
             let Some(ExprKind::Literal(written)) = expr(*value).map(|value| &value.kind) else {
@@ -1016,7 +1057,10 @@ impl ModuleBuilder<'_> {
             }) else {
                 return true;
             };
-            facts.literals.iter().any(|admitted| literal_values_equal(admitted, written))
+            facts
+                .literals
+                .iter()
+                .any(|admitted| literal_values_equal(admitted, written))
         })
     }
 

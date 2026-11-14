@@ -29,12 +29,7 @@ pub fn emit_crate(
     assert_runtime_symbols_defined([source.as_str()])?;
     write_if_changed(
         output_dir.join("Cargo.toml"),
-        &deps::cargo_toml(
-            &options.crate_name,
-            &root.dependencies,
-            allocator,
-            options,
-        ),
+        &deps::cargo_toml(&options.crate_name, &root.dependencies, allocator, options),
     )?;
     write_crate_root(&src_dir, options.crate_kind, &source)?;
     remove_stale_modules(&src_dir, options.crate_kind, &[])?;
@@ -76,7 +71,8 @@ pub fn emit_crate_with_modules_reporting(
     let allocator = options.effective_allocator();
     let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
     assert_runtime_symbols_defined(
-        std::iter::once(mapped.root.as_str()).chain(mapped.modules.iter().map(|module| module.source.as_str())),
+        std::iter::once(mapped.root.as_str())
+            .chain(mapped.modules.iter().map(|module| module.source.as_str())),
     )?;
     write_if_changed(
         output_dir.join("Cargo.toml"),
@@ -205,6 +201,9 @@ mod tests {
         for kept in ["main.rs", "kept.rs", "mine.rs", "notes.txt"] {
             assert!(src.join(kept).exists(), "{kept} must be kept");
         }
-        assert!(!src.join("stale.rs").exists(), "a stale generated module must be removed");
+        assert!(
+            !src.join("stale.rs").exists(),
+            "a stale generated module must be removed"
+        );
     }
 }

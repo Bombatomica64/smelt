@@ -2,18 +2,18 @@
 //! narrowing, param-pattern binding and inference, arrow closure bodies,
 //! throw analysis, and capture-name collection over expressions/statements.
 
-use crate::lowering::erasure::NotNewErasure;
+use super::super::support::{arrow_block_statements, statement_terminates};
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BinaryOperator, BindingPattern,
-    Body, CaptureMode, ChainElement, ClosureCapture, Expr,
-    ExprKind, Expression, ForStatementInit, ForStatementLeft, FunctionType, HashMap, HashSet,
-    LocalDecl, ModuleBuilder, ObjectPropertyKind, Param, SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
+    Argument, ArrayExpressionElement, AssignmentTarget, BinaryOperator, BindingPattern, Body,
+    CaptureMode, ChainElement, ClosureCapture, Expr, ExprKind, Expression, ForStatementInit,
+    ForStatementLeft, FunctionType, HashMap, HashSet, LocalDecl, ModuleBuilder, ObjectPropertyKind,
+    Param, SimpleAssignmentTarget, SmeltError, Span, Statement, Stmt, Type,
 };
 use smelt_hir::ErasureReason;
-use super::super::support::{arrow_block_statements, statement_terminates};
 /// The body form of a callback lowered through a real HIR closure body.
 ///
 /// Selects how [`ModuleBuilder::closure_body_expr_from_parts`] lowers the
@@ -58,12 +58,15 @@ impl ModuleBuilder<'_> {
             let ty = match (&param.pattern, ty) {
                 (BindingPattern::BindingIdentifier(binding), contextual)
                     if param.type_annotation.is_none()
-                        && contextual
-                            .is_none_or(|contextual_ty| matches!(self.ctx.krate.types.get(contextual_ty), Some(Type::Unknown))) =>
+                        && contextual.is_none_or(|contextual_ty| {
+                            matches!(self.ctx.krate.types.get(contextual_ty), Some(Type::Unknown))
+                        }) =>
                 {
                     let checked = self.checker_binding_type(binding.span.start, binding.span.end);
                     checked.unwrap_or_else(|| {
-                        contextual.unwrap_or_else(|| self.infer_unannotated_arrow_param_type(arrow, index))
+                        contextual.unwrap_or_else(|| {
+                            self.infer_unannotated_arrow_param_type(arrow, index)
+                        })
                     })
                 }
                 (_, Some(ty)) => ty,
@@ -117,7 +120,11 @@ impl ModuleBuilder<'_> {
             let contextual_tuple = contextual_function
                 .filter(|function| function.rest.is_none())
                 .map(|function| {
-                    let elements = function.params.get(rest_index..).unwrap_or_default().to_vec();
+                    let elements = function
+                        .params
+                        .get(rest_index..)
+                        .unwrap_or_default()
+                        .to_vec();
                     self.ctx.krate.types.intern(Type::Tuple(elements))
                 });
             // A tuple the SOURCE did not write is taken only when every element
@@ -125,9 +132,13 @@ impl ModuleBuilder<'_> {
             // into one erased parameter per element types nothing and erases
             // more values than the one list did.
             let typed_tuple = |builder: &Self, ty: smelt_hir::TypeId| {
-                builder.fixed_tuple_rest_elements(ty).is_some_and(|elements| {
-                    elements.iter().all(|element| !builder.type_contains_unknown(*element))
-                })
+                builder
+                    .fixed_tuple_rest_elements(ty)
+                    .is_some_and(|elements| {
+                        elements
+                            .iter()
+                            .all(|element| !builder.type_contains_unknown(*element))
+                    })
             };
             let tuple_ty = match annotated {
                 Some(ty) => self.fixed_tuple_rest_elements(ty).map(|_| ty),
@@ -185,10 +196,8 @@ impl ModuleBuilder<'_> {
                     })
                 })
                 .unwrap_or_else(|| {
-                    let item_ty = self.erase_with(
-                        ErasureReason::MissingAnnotation,
-                        "closure rest parameter",
-                    );
+                    let item_ty =
+                        self.erase_with(ErasureReason::MissingAnnotation, "closure rest parameter");
                     self.ctx.krate.types.intern(Type::List(item_ty))
                 });
             let Ok((ty, _)) = self.rest_param_array_type(ty) else {
@@ -289,7 +298,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a simple identifier name from a binding or defaulted binding pattern.
-    pub(in crate::lowering) fn simple_binding_pattern_name<'a>(pattern: &'a BindingPattern<'a>) -> Option<&'a str> {
+    pub(in crate::lowering) fn simple_binding_pattern_name<'a>(
+        pattern: &'a BindingPattern<'a>,
+    ) -> Option<&'a str> {
         match pattern {
             BindingPattern::BindingIdentifier(binding) => Some(binding.name.as_str()),
             BindingPattern::AssignmentPattern(assign) => {
@@ -310,7 +321,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Scan an expression for arithmetic involving a named identifier.
-    pub(in crate::lowering) fn expression_uses_identifier_in_arithmetic(expression: &Expression<'_>, name: &str) -> bool {
+    pub(in crate::lowering) fn expression_uses_identifier_in_arithmetic(
+        expression: &Expression<'_>,
+        name: &str,
+    ) -> bool {
         match expression {
             Expression::BinaryExpression(binary)
                 if matches!(
@@ -337,12 +351,11 @@ impl ModuleBuilder<'_> {
                             identifier.name.as_str(),
                             smelt_stdlib::StdlibClass::Date
                         )
-                )
-                    && new_expr.arguments.iter().any(|argument| {
-                        argument
-                            .as_expression()
-                            .is_some_and(|expr| Self::expression_contains_identifier(expr, name))
-                    })
+                ) && new_expr.arguments.iter().any(|argument| {
+                    argument
+                        .as_expression()
+                        .is_some_and(|expr| Self::expression_contains_identifier(expr, name))
+                })
             }
             Expression::ParenthesizedExpression(parenthesized) => {
                 Self::expression_uses_identifier_in_arithmetic(&parenthesized.expression, name)
@@ -355,7 +368,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression contains a named identifier.
-    pub(in crate::lowering) fn expression_contains_identifier(expression: &Expression<'_>, name: &str) -> bool {
+    pub(in crate::lowering) fn expression_contains_identifier(
+        expression: &Expression<'_>,
+        name: &str,
+    ) -> bool {
         match expression {
             Expression::Identifier(identifier) => identifier.name == name,
             Expression::BinaryExpression(binary) => {
@@ -395,7 +411,8 @@ impl ModuleBuilder<'_> {
         } else {
             ClosureBodyKind::Statements(arrow_block_statements(arrow))
         };
-        let declares_erased_return = self.declares_erased_return(arrow.return_type.as_deref(), return_ty)?;
+        let declares_erased_return =
+            self.declares_erased_return(arrow.return_type.as_deref(), return_ty)?;
         self.closure_body_expr_from_parts(
             &arrow.params,
             body_kind,
@@ -432,7 +449,8 @@ impl ModuleBuilder<'_> {
                 "function expression callbacks must have a body",
             ));
         };
-        let declares_erased_return = self.declares_erased_return(function.return_type.as_deref(), return_ty)?;
+        let declares_erased_return =
+            self.declares_erased_return(function.return_type.as_deref(), return_ty)?;
         self.closure_body_expr_from_parts(
             &function.params,
             ClosureBodyKind::Statements(&function_body.statements),
@@ -637,9 +655,13 @@ impl ModuleBuilder<'_> {
             let elements = self.fixed_tuple_rest_elements(tuple_ty).unwrap_or_default();
             let span = self.span(binding.span.start, binding.span.end);
             let previous = self.scope.lookup(binding.name.as_str());
-            for param in
-                self.bind_tuple_rest_params(binding.name.as_str(), tuple_ty, &elements, span, &mut closure_body)
-            {
+            for param in self.bind_tuple_rest_params(
+                binding.name.as_str(),
+                tuple_ty,
+                &elements,
+                span,
+                &mut closure_body,
+            ) {
                 closure_params.push(Param {
                     name: param.name,
                     local: param.local,
@@ -730,8 +752,7 @@ impl ModuleBuilder<'_> {
             else {
                 continue;
             };
-            let Some(source_decl) = outer_body.local_at(source_local)
-            else {
+            let Some(source_decl) = outer_body.local_at(source_local) else {
                 continue;
             };
             let symbol = source_decl
@@ -795,9 +816,9 @@ impl ModuleBuilder<'_> {
         // means the caller's fallback is kept.
         let body_always_returns = match &body_kind {
             ClosureBodyKind::ArrowExpression(_) => false,
-            ClosureBodyKind::Statements(statements) => {
-                statements.iter().any(|statement| statement_terminates(statement))
-            }
+            ClosureBodyKind::Statements(statements) => statements
+                .iter()
+                .any(|statement| statement_terminates(statement)),
         };
         let infer_block_return = !is_expression_body
             && body_always_returns
@@ -876,20 +897,26 @@ impl ModuleBuilder<'_> {
                                     } else {
                                         this.return_statement_value_hint()
                                     };
-                                    this.expression_with_hint(return_expression, &mut closure_body, hint)
-                                        .map(|value| {
-                                            if infer_expression_return {
-                                                actual_return_ty = Self::expr_ty(&closure_body, value);
-                                            }
-                                            closure_body.push_stmt(Stmt::Return(Some(value)));
-                                        })
+                                    this.expression_with_hint(
+                                        return_expression,
+                                        &mut closure_body,
+                                        hint,
+                                    )
+                                    .map(|value| {
+                                        if infer_expression_return {
+                                            actual_return_ty = Self::expr_ty(&closure_body, value);
+                                        }
+                                        closure_body.push_stmt(Stmt::Return(Some(value)));
+                                    })
                                 }
                                 Err(error) => Err(error),
                             }
                         }
                         ClosureBodyKind::Statements(statements) => {
                             let mut result = Ok(());
-                            for statement in crate::lowering::hoisting::hoisted_statements(statements) {
+                            for statement in
+                                crate::lowering::hoisting::hoisted_statements(statements)
+                            {
                                 if let Err(error) = this.statement(statement, &mut closure_body) {
                                     result = Err(error);
                                     break;
@@ -985,14 +1012,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Returns whether a HIR block contains a throw not protected by catch.
-    pub(in crate::lowering) fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
-        let Some(block_data) = body.block_at(block)
-        else {
+    pub(in crate::lowering) fn block_contains_uncaught_throw(
+        body: &Body,
+        block: smelt_hir::BlockId,
+    ) -> bool {
+        let Some(block_data) = body.block_at(block) else {
             return false;
         };
         block_data.stmts.iter().any(|stmt_id| {
-            let Some(stmt) = body.stmt_at(*stmt_id)
-            else {
+            let Some(stmt) = body.stmt_at(*stmt_id) else {
                 return false;
             };
             Self::stmt_contains_uncaught_throw(body, stmt)
@@ -1417,11 +1445,9 @@ impl ModuleBuilder<'_> {
         captures: &mut Vec<String>,
     ) {
         match argument {
-            Argument::SpreadElement(spread) => self.collect_expression_capture_names(
-                &spread.argument,
-                param_names,
-                captures,
-            ),
+            Argument::SpreadElement(spread) => {
+                self.collect_expression_capture_names(&spread.argument, param_names, captures);
+            }
             Argument::ArrowFunctionExpression(arrow) => {
                 let mut nested_params = param_names.clone();
                 for param in &arrow.params.items {
@@ -1456,11 +1482,7 @@ impl ModuleBuilder<'_> {
                 }
                 if let Some(body) = &function.body {
                     for statement in &body.statements {
-                        self.collect_statement_capture_names(
-                            statement,
-                            &nested_params,
-                            captures,
-                        );
+                        self.collect_statement_capture_names(statement, &nested_params, captures);
                     }
                 }
             }
@@ -1644,11 +1666,7 @@ impl ModuleBuilder<'_> {
                     Some(ForStatementInit::VariableDeclaration(decl)) => {
                         for declarator in &decl.declarations {
                             if let Some(init) = &declarator.init {
-                                self.collect_expression_capture_names(
-                                    init,
-                                    &local_names,
-                                    captures,
-                                );
+                                self.collect_expression_capture_names(init, &local_names, captures);
                             }
                         }
                     }
@@ -1728,7 +1746,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Add names declared by a `for...of` or `for...in` left binding to a local name set.
-    pub(in crate::lowering) fn collect_for_left_binding_names(left: &ForStatementLeft<'_>, names: &mut HashSet<String>) {
+    pub(in crate::lowering) fn collect_for_left_binding_names(
+        left: &ForStatementLeft<'_>,
+        names: &mut HashSet<String>,
+    ) {
         let ForStatementLeft::VariableDeclaration(decl) = left else {
             return;
         };
@@ -1738,5 +1759,4 @@ impl ModuleBuilder<'_> {
             names.extend(binding_names);
         }
     }
-
 }

@@ -214,7 +214,8 @@ impl ModuleBuilder<'_> {
         let Item::Const(const_item) = self.item_ref(item).clone() else {
             return Ok(None);
         };
-        let read = self.const_item_expression(&const_item, member.span.start, member.span.end, body)?;
+        let read =
+            self.const_item_expression(&const_item, member.span.start, member.span.end, body)?;
         Ok(Some(Self::folded_literal_of(body, read)))
     }
 
@@ -230,14 +231,19 @@ impl ModuleBuilder<'_> {
         use crate::lowering::body_arena::BodyArena as _;
         let mut current = read;
         while let Some(smelt_hir::Expr {
-            kind: smelt_hir::ExprKind::TypeAssert { value } | smelt_hir::ExprKind::UnknownCast { value, .. },
+            kind:
+                smelt_hir::ExprKind::TypeAssert { value }
+                | smelt_hir::ExprKind::UnknownCast { value, .. },
             ..
         }) = body.expr_at(current)
         {
             current = *value;
         }
         match body.expr_at(current) {
-            Some(smelt_hir::Expr { kind: smelt_hir::ExprKind::Literal(_), .. }) => current,
+            Some(smelt_hir::Expr {
+                kind: smelt_hir::ExprKind::Literal(_),
+                ..
+            }) => current,
             _ => read,
         }
     }

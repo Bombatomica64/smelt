@@ -1,7 +1,7 @@
 //! Host, global, HTTP, and external-class interop: reading/writing host-overridable globals, HTTP fetch text, and instantiating externally-defined classes.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Name the source site of the function currently being emitted.
@@ -46,7 +46,11 @@ impl FunctionEmitter<'_> {
     /// The read helper yields a `SmeltUnknown` (native-handle marker for
     /// `Native`, the stored ctor for `Ctor`, `undefined` for `Absent`); the
     /// result is coerced to the destination type.
-    pub(super) fn host_global_read_expr(&self, class: Symbol, dest_ty: TypeId) -> Result<RustExpr, EmitError> {
+    pub(super) fn host_global_read_expr(
+        &self,
+        class: Symbol,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         let slot = self.host_override_slot_ident(class)?;
         let name = self.symbol_name(class)?.to_owned();
         let unknown_ty = self.type_id(Type::Unknown)?;
@@ -72,7 +76,8 @@ impl FunctionEmitter<'_> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let call = RustExpr::chain(format!(
             "{slot}.with(|smelt_slot| {write}(smelt_slot, {erased}))",
-            write = smelt_stdlib::runtime_symbols::host_override::WRITE, erased = erased.delimited(),
+            write = smelt_stdlib::runtime_symbols::host_override::WRITE,
+            erased = erased.delimited(),
         ));
         self.rendered_at_type(&call, unknown_ty, dest_ty, &self.render_scope())
     }
@@ -83,7 +88,11 @@ impl FunctionEmitter<'_> {
     /// Node's `argv[0]` and `argv[1]` are, falling back to the name the
     /// program was started under when the platform cannot say.
     pub(super) fn process_argv_expr(&self) -> RustExpr {
-        let element = if self.indexes_utf16() { "JsString::from(smelt_arg.as_str())" } else { "smelt_arg" };
+        let element = if self.indexes_utf16() {
+            "JsString::from(smelt_arg.as_str())"
+        } else {
+            "smelt_arg"
+        };
         RustExpr::from(format!(
             "{{ let mut smelt_args = ::std::env::args(); let smelt_started = smelt_args.next().unwrap_or_default(); let smelt_exe = ::std::env::current_exe().map(|smelt_path| smelt_path.to_string_lossy().into_owned()).unwrap_or(smelt_started); ::std::iter::once(smelt_exe.clone()).chain(::std::iter::once(smelt_exe)).chain(smelt_args).map(|smelt_arg| {element}).collect::<Vec<_>>() }}"
         ))
@@ -204,9 +213,13 @@ impl FunctionEmitter<'_> {
         let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
-            Ok(RustExpr::chain(format!("{name}.with(::std::cell::Cell::get)")))
+            Ok(RustExpr::chain(format!(
+                "{name}.with(::std::cell::Cell::get)"
+            )))
         } else {
-            Ok(RustExpr::chain(format!("{name}.with(|smelt_value| smelt_value.borrow().clone())")))
+            Ok(RustExpr::chain(format!(
+                "{name}.with(|smelt_value| smelt_value.borrow().clone())"
+            )))
         }
     }
 
@@ -214,7 +227,8 @@ impl FunctionEmitter<'_> {
     /// its value: `NAME.with(|_| ())`. Used for a slot read whose result is
     /// never consumed.
     pub(super) fn global_touch_expr(&self, global: u32) -> RustExpr {
-        RustExpr::atom(crate::globals::global_static_name(self.mir, global)).postfix(".with(|_| ())")
+        RustExpr::atom(crate::globals::global_static_name(self.mir, global))
+            .postfix(".with(|_| ())")
     }
 
     /// Whether a mutable global of this type is backed by a `Cell` rather than
@@ -253,14 +267,23 @@ impl FunctionEmitter<'_> {
         let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         let value_text = self.value_at_type(value, ty)?;
-        let result_text = self.rendered_at_type(&RustExpr::path("smelt_global_value"), ty, dest_ty, &self.render_scope())?;
+        let result_text = self.rendered_at_type(
+            &RustExpr::path("smelt_global_value"),
+            ty,
+            dest_ty,
+            &self.render_scope(),
+        )?;
         if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|smelt_value| smelt_value.set(smelt_global_value)); {result_text} }}", value_text = value_text.delimited(), result_text = result_text.delimited()
+                "{{ let smelt_global_value = {value_text}; {name}.with(|smelt_value| smelt_value.set(smelt_global_value)); {result_text} }}",
+                value_text = value_text.delimited(),
+                result_text = result_text.delimited()
             )))
         } else {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_global_value = {value_text}; {name}.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); {result_text} }}", value_text = value_text.delimited(), result_text = result_text.delimited()
+                "{{ let smelt_global_value = {value_text}; {name}.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); {result_text} }}",
+                value_text = value_text.delimited(),
+                result_text = result_text.delimited()
             )))
         }
     }
@@ -268,13 +291,23 @@ impl FunctionEmitter<'_> {
     /// The statement storing the rendered `value` (already at the global's
     /// type) into mutable global `global`'s thread-local cell; the same store
     /// [`Self::global_set_expr`] emits.
-    pub(super) fn global_store_text(&self, global: u32, value: &RustExpr) -> Result<String, EmitError> {
+    pub(super) fn global_store_text(
+        &self,
+        global: u32,
+        value: &RustExpr,
+    ) -> Result<String, EmitError> {
         let name = crate::globals::global_static_name(self.mir, global);
         let ty = self.global_ty(global)?;
         Ok(if Self::global_uses_copy_cell(self.mir.types.get(ty)) {
-            format!("{name}.with(|smelt_cell| smelt_cell.set({value}))", value = value.delimited())
+            format!(
+                "{name}.with(|smelt_cell| smelt_cell.set({value}))",
+                value = value.delimited()
+            )
         } else {
-            format!("{name}.with(|smelt_cell| *smelt_cell.borrow_mut() = {value})", value = value.delimited())
+            format!(
+                "{name}.with(|smelt_cell| *smelt_cell.borrow_mut() = {value})",
+                value = value.delimited()
+            )
         })
     }
 
@@ -336,7 +369,9 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(RustExpr::chain(format!(
-            "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})", key_text = key_text.delimited(), rendered_value = rendered_value.delimited()
+            "{name}.with(|smelt_global_cell| {{              let smelt_global_key = {key_text};              let smelt_global_value = {rendered_value};              smelt_global_cell.borrow_mut().insert(smelt_global_key, smelt_global_value); }})",
+            key_text = key_text.delimited(),
+            rendered_value = rendered_value.delimited()
         )))
     }
 
@@ -373,7 +408,11 @@ impl FunctionEmitter<'_> {
                 || Ok(RustExpr::string_literal("")),
                 |arg| self.string_like_operand_expr(arg, "RegExp flags"),
             )?;
-            return Ok(RustExpr::atom(format!("SmeltRegExp::new({pattern}, {flags})", pattern = pattern.delimited(), flags = flags.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "SmeltRegExp::new({pattern}, {flags})",
+                pattern = pattern.delimited(),
+                flags = flags.delimited()
+            )));
         }
         let args_text = args
             .iter()

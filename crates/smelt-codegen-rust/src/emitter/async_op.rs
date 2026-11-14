@@ -60,7 +60,8 @@ impl FunctionEmitter<'_> {
                 let future_text = self.await_operand_expr(future)?;
                 Ok(RustExpr::atom(format!(
                     "{{ {spawn_promise_task}(Box::pin(async move {{ if let Err(smelt_error) = {future_text}.await {{ smelt_report_unhandled_rejection(&*smelt_error); }} }})); () }}",
-                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK, future_text = future_text.tight(),
+                    spawn_promise_task = smelt_stdlib::runtime_symbols::timers::SPAWN_PROMISE_TASK,
+                    future_text = future_text.tight(),
                 )))
             }
             smelt_hir::AsyncOp::CreateTask => {
@@ -71,7 +72,8 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_expr(future)?;
                 Ok(RustExpr::atom(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }}))", future_text = future_text.tight()
+                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }}))",
+                    future_text = future_text.tight()
                 )))
             }
             smelt_hir::AsyncOp::WaitFor => {
@@ -83,7 +85,8 @@ impl FunctionEmitter<'_> {
                 let future_text = self.await_operand_expr(future)?;
                 Ok(RustExpr::atom(format!(
                     "SmeltFuture::from_future(Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), async move {{ {future_text}.await }}).await.expect(\"async timeout\")? }}))",
-                    self.operand_expr(timeout)?.as_cast_operand(), future_text = future_text.tight()
+                    self.operand_expr(timeout)?.as_cast_operand(),
+                    future_text = future_text.tight()
                 )))
             }
             smelt_hir::AsyncOp::HttpFetch => self.http_fetch_async_expr(args),
@@ -125,7 +128,9 @@ impl FunctionEmitter<'_> {
             return Ok(if self.function_value_call_is_fallible(function) {
                 RustExpr::atom("(smelt_timer_callback)().map(|_| ())")
             } else {
-                RustExpr::loose(format!("Ok::<(), {ERROR_BOX}>({{ (smelt_timer_callback)(); () }})"))
+                RustExpr::loose(format!(
+                    "Ok::<(), {ERROR_BOX}>({{ (smelt_timer_callback)(); () }})"
+                ))
             });
         }
         // A callback with a statically-known function type (e.g. `delay`'s
@@ -172,14 +177,21 @@ impl FunctionEmitter<'_> {
         let prelude = if extra.is_some() {
             String::new()
         } else {
-            self.carrier_expr(self.carrier()?, &RustExpr::loose("let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); ")).into_string()
+            self.carrier_expr(
+                self.carrier()?,
+                &RustExpr::loose("let smelt_timer_args_empty: Vec<SmeltUnknown> = Vec::new(); "),
+            )
+            .into_string()
         };
         // The fully-erased `(...args: unknown[]) => unknown` callback lowers to a
         // `SmeltErasedFunction` struct rather than a bare `dyn Fn`, and is
         // invoked through its inherent `.call(...)` method (see the runtime
         // prelude). The forwarded argument vector is passed straight through.
         if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-            let call = format!("smelt_timer_callback.call({args_source}.clone())", args_source = args_source.tight());
+            let call = format!(
+                "smelt_timer_callback.call({args_source}.clone())",
+                args_source = args_source.tight()
+            );
             return Ok(RustExpr::atom(format!(
                 "{{ {prelude}let _ = {call}; Ok::<(), {ERROR_BOX}>(()) }}"
             )));
@@ -188,26 +200,38 @@ impl FunctionEmitter<'_> {
         for (index, param) in function.params.iter().enumerate() {
             if function.rest == Some(index) {
                 let rest_text = RustExpr::atom(format!(
-                    "SmeltList::from({args_source}.iter().skip({index}).cloned().collect::<Vec<_>>())", args_source = args_source.tight()
+                    "SmeltList::from({args_source}.iter().skip({index}).cloned().collect::<Vec<_>>())",
+                    args_source = args_source.tight()
                 ));
-                call_args.push(self.rendered_at_type(&rest_text, unknown_list_ty, *param, &self.render_scope())?);
+                call_args.push(self.rendered_at_type(
+                    &rest_text,
+                    unknown_list_ty,
+                    *param,
+                    &self.render_scope(),
+                )?);
             } else {
-                let arg_text = args_source.postfix(self.carrier_format(self.carrier()?, format_args!(
-                    ".get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
-                )));
-                let rendered = self.rendered_at_type(&arg_text, unknown_ty, *param, &self.render_scope())?;
+                let arg_text = args_source.postfix(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(".get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"),
+                ));
+                let rendered =
+                    self.rendered_at_type(&arg_text, unknown_ty, *param, &self.render_scope())?;
                 // The callback takes this parameter by shared reference; the
                 // converted value is a temporary living to the end of the call.
-                call_args.push(if self.callback_param_is_shared_reference(function, index, *param) {
-                    RustExpr::atom(format!("&({rendered})", rendered = rendered.delimited()))
-                } else {
-                    rendered
-                });
+                call_args.push(
+                    if self.callback_param_is_shared_reference(function, index, *param) {
+                        RustExpr::atom(format!("&({rendered})", rendered = rendered.delimited()))
+                    } else {
+                        rendered
+                    },
+                );
             }
         }
         let call = format!("(smelt_timer_callback)({})", call_args.join(", "));
         if self.function_value_call_is_fallible(function) {
-            Ok(RustExpr::atom(format!("{{ {prelude}({call}).map(|_| ()) }}")))
+            Ok(RustExpr::atom(format!(
+                "{{ {prelude}({call}).map(|_| ()) }}"
+            )))
         } else {
             Ok(RustExpr::atom(format!(
                 "{{ {prelude}let _ = {call}; Ok::<(), {ERROR_BOX}>(()) }}"
@@ -223,10 +247,13 @@ impl FunctionEmitter<'_> {
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args_ty = self.type_id(Type::List(unknown_ty))?;
-        Ok(self.carrier_format(self.carrier()?, format_args!(
-            "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
-            list_read_expr(&self.value_at_type(extra_operand, args_ty)?).tight()
-        )))
+        Ok(self.carrier_format(
+            self.carrier()?,
+            format_args!(
+                "let smelt_timer_args: Vec<SmeltUnknown> = {}.iter().cloned().collect(); ",
+                list_read_expr(&self.value_at_type(extra_operand, args_ty)?).tight()
+            ),
+        ))
     }
 
     /// Whether awaiting this operand yields an erased value that may itself be a
@@ -303,7 +330,11 @@ impl FunctionEmitter<'_> {
             // rest must be called with no arguments, dropping the value, or Rust
             // reports E0057 (too many arguments).
             if function.rest.is_none() && function.params.is_empty() {
-                return Ok(format!("({{ let _ = {arg_expr}; ({callback_text})() }})", arg_expr = arg_expr.delimited(), callback_text = callback_text.delimited()));
+                return Ok(format!(
+                    "({{ let _ = {arg_expr}; ({callback_text})() }})",
+                    arg_expr = arg_expr.delimited(),
+                    callback_text = callback_text.delimited()
+                ));
             }
             // The continuation's declared parameter may be by shared reference
             // (`callback_param_is_shared_reference`); `arg_expr` is an owned
@@ -315,10 +346,18 @@ impl FunctionEmitter<'_> {
                     param_ty,
                     arg_expr.to_owned().into_string(),
                 );
-                return Ok(format!("({callback_text})({arg_text})", callback_text = callback_text.delimited(), arg_text = arg_text.delimited()));
+                return Ok(format!(
+                    "({callback_text})({arg_text})",
+                    callback_text = callback_text.delimited(),
+                    arg_text = arg_text.delimited()
+                ));
             }
         }
-        Ok(format!("({callback_text})({arg_expr})", callback_text = callback_text.delimited(), arg_expr = arg_expr.delimited()))
+        Ok(format!(
+            "({callback_text})({arg_expr})",
+            callback_text = callback_text.delimited(),
+            arg_expr = arg_expr.delimited()
+        ))
     }
 
     /// Bind a `.then`/`.catch` continuation's settled value as
@@ -341,8 +380,7 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         invocation: &str,
     ) -> Result<(String, TypeId), EmitError> {
-        let (callback_return_ty, may_throw) = match self.mir.types.get(self.operand_ty(callback)?)
-        {
+        let (callback_return_ty, may_throw) = match self.mir.types.get(self.operand_ty(callback)?) {
             Some(Type::Function(function)) => (function.return_ty, function.may_throw),
             _ => (self.type_id(Type::Unknown)?, false),
         };
@@ -372,10 +410,7 @@ impl FunctionEmitter<'_> {
     /// place-based callback the prelude binds a clone in an enclosing block and
     /// the future moves that clone; an inline callback (a literal closure) is not
     /// live afterward and is left in place with an empty prelude.
-    fn promise_callback_hoist(
-        &self,
-        callback: &Operand,
-    ) -> Result<(String, String), EmitError> {
+    fn promise_callback_hoist(&self, callback: &Operand) -> Result<(String, String), EmitError> {
         self.promise_callback_hoist_as(callback, "smelt_promise_callback")
     }
 
@@ -389,7 +424,10 @@ impl FunctionEmitter<'_> {
         let callback_text = self.operand_expr(callback)?;
         if matches!(callback, Operand::Copy(_) | Operand::Move(_)) {
             Ok((
-                format!("let {binding} = ({callback_text}).clone(); ", callback_text = callback_text.delimited()),
+                format!(
+                    "let {binding} = ({callback_text}).clone(); ",
+                    callback_text = callback_text.delimited()
+                ),
                 binding.to_owned(),
             ))
         } else {
@@ -431,7 +469,8 @@ impl FunctionEmitter<'_> {
             && !matches!(function.origin, HirOrigin::ClassMethod { .. })
         {
             Ok(RustExpr::atom(format!(
-                "SmeltFuture::from_future(Box::pin({call_text}))", call_text = call_text.delimited()
+                "SmeltFuture::from_future(Box::pin({call_text}))",
+                call_text = call_text.delimited()
             )))
         } else {
             Ok(call_text)
@@ -447,7 +486,10 @@ impl FunctionEmitter<'_> {
         if self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::None) {
             return self.default_value(dest_ty);
         }
-        Ok(RustExpr::loose(format!("{}.await?", self.await_operand_expr(operand)?.tight())))
+        Ok(RustExpr::loose(format!(
+            "{}.await?",
+            self.await_operand_expr(operand)?.tight()
+        )))
     }
 
     /// A built-in async operation at its destination.
@@ -464,17 +506,15 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::atom(format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ {text}.await?; Ok::<_, {ERROR_BOX}>({}) }}))",
-                self.default_value(*item)?.delimited(), text = text.tight(),
+                self.default_value(*item)?.delimited(),
+                text = text.tight(),
             )));
         }
         Ok(text)
     }
 
     /// `Promise.all` and `Promise.allSettled`.
-    fn promise_all_expr(
-        &self,
-        args: &[Operand],
-    ) -> Result<RustExpr, EmitError> {
+    fn promise_all_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         if let [arg] = args
             && let Some(item_ty) = self.async_list_operand_item_type(arg)?
         {
@@ -488,11 +528,13 @@ impl FunctionEmitter<'_> {
             let item_is_erased = self.is_erased_future_type(item_ty);
             if item_is_erased {
                 return Ok(RustExpr::atom(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))", list = list.delimited()
+                    "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_pending = Vec::new(); for __smelt_future in {list} {{ __smelt_pending.push(__smelt_future.await?); }} let mut __smelt_values = Vec::with_capacity(__smelt_pending.len()); for __smelt_value in __smelt_pending {{ __smelt_values.push(smelt_await_flatten(__smelt_value).await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))",
+                    list = list.delimited()
                 )));
             }
             return Ok(RustExpr::atom(format!(
-                "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))", list = list.delimited()
+                "SmeltFuture::from_future(Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await?); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(__smelt_values)) }}))",
+                list = list.delimited()
             )));
         }
         let rendered_args = args
@@ -581,8 +623,7 @@ impl FunctionEmitter<'_> {
                     .join(" ");
                 format!(
                     "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, {ERROR_BOX}>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
-                    promise_race =
-                        smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
+                    promise_race = smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
                 )
             }
         };
@@ -614,17 +655,13 @@ impl FunctionEmitter<'_> {
         // the emitted `Ok(..)` agrees with the declared `SmeltFuture<T>`;
         // with no operand (`Promise.resolve()`) the item type is unit.
         let Some(duration) = args.first() else {
-            return Err(EmitError::new(
-                "async resolve requires a duration operand",
-            ));
+            return Err(EmitError::new("async resolve requires a duration operand"));
         };
         let duration_text = self.operand_expr(duration)?;
         let value_text = match args.get(1) {
             Some(value) => {
                 let Some(Type::Future(item_ty)) = self.mir.types.get(dest_ty) else {
-                    return Err(EmitError::new(
-                        "async resolve must produce a future type",
-                    ));
+                    return Err(EmitError::new("async resolve must produce a future type"));
                 };
                 self.value_at_type(value, *item_ty)?
             }
@@ -632,15 +669,14 @@ impl FunctionEmitter<'_> {
         };
         Ok(RustExpr::atom(format!(
             "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, {ERROR_BOX}>({value_text}) }}))",
-            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS, duration_text = duration_text.as_cast_operand(), value_text = value_text.delimited(),
+            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            duration_text = duration_text.as_cast_operand(),
+            value_text = value_text.delimited(),
         )))
     }
 
     /// `Promise.reject`.
-    fn promise_reject_expr(
-        &self,
-        args: &[Operand],
-    ) -> Result<RustExpr, EmitError> {
+    fn promise_reject_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         // `Promise.reject(reason)`: defer one microtask, then settle in
         // the error channel with the reason unchanged. The reason takes
         // the same `throw` path a `throw` statement takes, so a non-Error
@@ -648,9 +684,7 @@ impl FunctionEmitter<'_> {
         // value) and a program with no erased values keeps the plain
         // string error form.
         let Some(duration) = args.first() else {
-            return Err(EmitError::new(
-                "async reject requires a duration operand",
-            ));
+            return Err(EmitError::new("async reject requires a duration operand"));
         };
         let duration_text = self.operand_expr(duration)?;
         let payload = match args.get(1) {
@@ -659,7 +693,9 @@ impl FunctionEmitter<'_> {
         };
         Ok(RustExpr::atom(format!(
             "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, {ERROR_BOX}>({payload}) }}))",
-            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS, duration_text = duration_text.as_cast_operand(), payload = payload.delimited(),
+            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            duration_text = duration_text.as_cast_operand(),
+            payload = payload.delimited(),
         )))
     }
 
@@ -675,8 +711,11 @@ impl FunctionEmitter<'_> {
         let extra_binding = self.timer_extra_args_binding(extra.first())?;
         Ok(RustExpr::atom(format!(
             "{{ let smelt_timer_callback = {callback_text}.clone(); {extra_binding}{set_timeout}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
-            self.value_at_type(duration, self.type_id(Type::Float)?)?.as_cast_operand(),
-            set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT, callback_text = callback_text.tight(), callback_call = callback_call.delimited(),
+            self.value_at_type(duration, self.type_id(Type::Float)?)?
+                .as_cast_operand(),
+            set_timeout = smelt_stdlib::runtime_symbols::timers::SET_TIMEOUT,
+            callback_text = callback_text.tight(),
+            callback_call = callback_call.delimited(),
         )))
     }
 
@@ -696,8 +735,11 @@ impl FunctionEmitter<'_> {
         let extra_binding = self.timer_extra_args_binding(extra.first())?;
         Ok(RustExpr::atom(format!(
             "{{ let smelt_timer_callback = {callback_text}.clone(); {extra_binding}{set_interval}(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
-            self.value_at_type(duration, self.type_id(Type::Float)?)?.as_cast_operand(),
-            set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL, callback_text = callback_text.tight(), callback_call = callback_call.delimited(),
+            self.value_at_type(duration, self.type_id(Type::Float)?)?
+                .as_cast_operand(),
+            set_interval = smelt_stdlib::runtime_symbols::timers::SET_INTERVAL,
+            callback_text = callback_text.tight(),
+            callback_call = callback_call.delimited(),
         )))
     }
 
@@ -719,7 +761,8 @@ impl FunctionEmitter<'_> {
                 if function.rest == Some(0) && function.params.len() == 1 =>
             {
                 format!(
-                    "({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));", executor_text = executor_text.delimited()
+                    "({executor_text})(SmeltList::from(vec![smelt_resolve, smelt_reject]));",
+                    executor_text = executor_text.delimited()
                 )
             }
             // An executor that declares no parameters (e.g.
@@ -730,7 +773,8 @@ impl FunctionEmitter<'_> {
                 if function.rest.is_none() && function.params.is_empty() =>
             {
                 format!(
-                    "let _ = &smelt_resolve; let _ = &smelt_reject; ({executor_text})();", executor_text = executor_text.delimited()
+                    "let _ = &smelt_resolve; let _ = &smelt_reject; ({executor_text})();",
+                    executor_text = executor_text.delimited()
                 )
             }
             // An executor that only declares `resolve` (e.g.
@@ -740,9 +784,15 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(function))
                 if function.rest.is_none() && function.params.len() == 1 =>
             {
-                format!("let _ = &smelt_reject; ({executor_text})(smelt_resolve);", executor_text = executor_text.delimited())
+                format!(
+                    "let _ = &smelt_reject; ({executor_text})(smelt_resolve);",
+                    executor_text = executor_text.delimited()
+                )
             }
-            _ => format!("({executor_text})(smelt_resolve, smelt_reject);", executor_text = executor_text.delimited()),
+            _ => format!(
+                "({executor_text})(smelt_resolve, smelt_reject);",
+                executor_text = executor_text.delimited()
+            ),
         };
         // An `async` executor runs its first segment now; the rest has to stay
         // scheduled or a `resolve` after its first suspension never happens.
@@ -773,8 +823,7 @@ impl FunctionEmitter<'_> {
         // spelled `&SmeltList<..>` there. This synthesized resolver has to
         // match that spelling exactly or the executor call does not type-check,
         // and its body then needs an owned value to store into the result slot.
-        let resolve_by_ref =
-            self.synthesized_callback_param_is_shared_reference(resolve_input_ty);
+        let resolve_by_ref = self.synthesized_callback_param_is_shared_reference(resolve_input_ty);
         let resolve_input_text = if resolve_by_ref {
             format!("&{resolve_input_text}")
         } else {
@@ -797,8 +846,8 @@ impl FunctionEmitter<'_> {
         // executor's declared `reject` is spelled `&SmeltUnknown`, so the
         // synthesized closure has to match it and clone the reason out
         // before handing it to the throw adapter.
-        let reject_by_ref = self
-            .synthesized_callback_param_is_shared_reference(self.type_id(Type::Unknown)?);
+        let reject_by_ref =
+            self.synthesized_callback_param_is_shared_reference(self.type_id(Type::Unknown)?);
         self.context.note_carrier_use();
         let (reject_input_text, reject_value) = if reject_by_ref {
             ("&SmeltUnknown", "smelt_error.clone()")
@@ -813,7 +862,8 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, {ERROR_BOX}>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(smelt_result) = smelt_promise_result.borrow_mut().take() {{ break smelt_result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
             sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
-            throw_fn = crate::thrown::THROW_FN, resolve_value = resolve_value.delimited(),
+            throw_fn = crate::thrown::THROW_FN,
+            resolve_value = resolve_value.delimited(),
         )))
     }
 
@@ -833,14 +883,21 @@ impl FunctionEmitter<'_> {
         };
         let future_text = self.await_operand_expr(future)?;
         let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
-        let invocation =
-            self.promise_callback_invocation_with(callback, &RustExpr::opaque(callback_expr), &RustExpr::path("smelt_value"))?;
+        let invocation = self.promise_callback_invocation_with(
+            callback,
+            &RustExpr::opaque(callback_expr),
+            &RustExpr::path("smelt_value"),
+        )?;
         let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
             return Err(EmitError::new("Promise.then result must be a future"));
         };
         let (settle, settled_ty) = self.promise_callback_settle(callback, &invocation)?;
-        let output =
-            self.rendered_at_type(&RustExpr::path("smelt_callback_value"), settled_ty, *output_ty, &self.render_scope())?;
+        let output = self.rendered_at_type(
+            &RustExpr::path("smelt_callback_value"),
+            settled_ty,
+            *output_ty,
+            &self.render_scope(),
+        )?;
         if let Some(on_rejected) = rejected {
             let (rejected_prelude, rejected_expr) =
                 self.promise_callback_hoist_as(on_rejected, "smelt_promise_rejected")?;
@@ -849,7 +906,8 @@ impl FunctionEmitter<'_> {
                 &RustExpr::opaque(rejected_expr),
                 &crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error")),
             )?;
-            let (rejected_settle, rejected_settled_ty) = self.promise_callback_settle(on_rejected, &rejected_invocation)?;
+            let (rejected_settle, rejected_settled_ty) =
+                self.promise_callback_settle(on_rejected, &rejected_invocation)?;
             let rejected_output = self.rendered_at_type(
                 &RustExpr::path("smelt_callback_value"),
                 rejected_settled_ty,
@@ -864,22 +922,20 @@ impl FunctionEmitter<'_> {
             )));
         }
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}", future_text = future_text.tight(), output = output.delimited()
+            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}",
+            future_text = future_text.tight(),
+            output = output.delimited()
         )))
     }
 
     /// `.catch`.
-    fn promise_catch_expr(
-        &self,
-        args: &[Operand],
-    ) -> Result<RustExpr, EmitError> {
+    fn promise_catch_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         let [future, callback] = args else {
             return Err(EmitError::new(
                 "Promise.catch requires future and callback operands",
             ));
         };
-        let Some(Type::Future(output_ty)) = self.mir.types.get(self.operand_ty(future)?)
-        else {
+        let Some(Type::Future(output_ty)) = self.mir.types.get(self.operand_ty(future)?) else {
             return Err(EmitError::new("Promise.catch receiver must be a future"));
         };
         let future_text = self.await_operand_expr(future)?;
@@ -904,18 +960,21 @@ impl FunctionEmitter<'_> {
         // never answers `Promise<Promise<T>>`; this is the same
         // settle/flatten pair the `Then` arm above uses.
         let (settle, settled_ty) = self.promise_callback_settle(callback, &invocation)?;
-        let recovered =
-            self.rendered_at_type(&RustExpr::path("smelt_callback_value"), settled_ty, *output_ty, &self.render_scope())?;
+        let recovered = self.rendered_at_type(
+            &RustExpr::path("smelt_callback_value"),
+            settled_ty,
+            *output_ty,
+            &self.render_scope(),
+        )?;
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}", future_text = future_text.tight(), recovered = recovered.delimited()
+            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}",
+            future_text = future_text.tight(),
+            recovered = recovered.delimited()
         )))
     }
 
     /// `.finally`.
-    fn promise_finally_expr(
-        &self,
-        args: &[Operand],
-    ) -> Result<RustExpr, EmitError> {
+    fn promise_finally_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         let [future, callback] = args else {
             return Err(EmitError::new(
                 "Promise.finally requires future and callback operands",
@@ -928,8 +987,11 @@ impl FunctionEmitter<'_> {
         let (prelude, callback_expr) = self.promise_callback_hoist(callback)?;
         // `onFinally` takes no argument; the invocation helper drops the
         // placeholder for a zero-parameter callback.
-        let invocation =
-            self.promise_callback_invocation_with(callback, &RustExpr::opaque(callback_expr), &RustExpr::unit())?;
+        let invocation = self.promise_callback_invocation_with(
+            callback,
+            &RustExpr::opaque(callback_expr),
+            &RustExpr::unit(),
+        )?;
         // The settle step awaits a returned promise and propagates a
         // throw or rejection with `?` — which is exactly the case where
         // `finally`'s own rejection replaces the original outcome.
@@ -937,15 +999,13 @@ impl FunctionEmitter<'_> {
         // result (value or rejection) is the settled one.
         let (settle, _) = self.promise_callback_settle(callback, &invocation)?;
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_outcome = {future_text}.await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}", future_text = future_text.tight()
+            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_outcome = {future_text}.await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}",
+            future_text = future_text.tight()
         )))
     }
 
     /// `fetch`.
-    fn http_fetch_async_expr(
-        &self,
-        args: &[Operand],
-    ) -> Result<RustExpr, EmitError> {
+    fn http_fetch_async_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
         let Some(url) = args.first() else {
             return Err(EmitError::new("async fetch requires a URL operand"));
         };

@@ -157,7 +157,10 @@ mod tests {
         // typeof globalThis === "object" -> true
         assert_eq!(global_typeof_probe_value(true, "object", true), Some(true));
         // typeof globalThis !== "object" -> false
-        assert_eq!(global_typeof_probe_value(true, "object", false), Some(false));
+        assert_eq!(
+            global_typeof_probe_value(true, "object", false),
+            Some(false)
+        );
     }
 
     /// Non-global operands and unrelated compared kinds do not fold.

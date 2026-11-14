@@ -35,23 +35,28 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
         // — and that timing is exactly JavaScript's "module state is
         // initialized before any consumer runs", per generated test thread.
         let init = match &global.init {
-            MirGlobalInit::Constant(constant) => nullish_constant_at_type(constant, mir.types.get(global.ty), context)?
-                .unwrap_or_else(|| {
-                    emitter::literals::constant_expr(constant, !matches!(mir.types.get(global.ty), Some(Type::PyStr)))
-                }),
+            MirGlobalInit::Constant(constant) => {
+                nullish_constant_at_type(constant, mir.types.get(global.ty), context)?
+                    .unwrap_or_else(|| {
+                        emitter::literals::constant_expr(
+                            constant,
+                            !matches!(mir.types.get(global.ty), Some(Type::PyStr)),
+                        )
+                    })
+            }
             MirGlobalInit::Call(func_id) => {
                 let function = mir
                     .functions
                     .get(usize::try_from(func_id.0).unwrap_or(usize::MAX))
                     .ok_or_else(|| {
-                        EmitError::new(
-                            "mutable global initializer references an unknown function",
-                        )
+                        EmitError::new("mutable global initializer references an unknown function")
                     })?;
                 let function_name = context
                     .names()
                     .function(function.id)
-                    .ok_or_else(|| EmitError::new("mutable global initializer has no planned name"))?
+                    .ok_or_else(|| {
+                        EmitError::new("mutable global initializer has no planned name")
+                    })?
                     .as_str()
                     .to_owned();
                 // An initializer that can throw (`const db = new
@@ -63,7 +68,8 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                 // during module evaluation is always uncaught in JavaScript.
                 if function.can_throw {
                     any_fallible_init = true;
-                    RustExpr::atom(function_name).postfix("().unwrap_or_else(|error| smelt_module_init_failed(error))")
+                    RustExpr::atom(function_name)
+                        .postfix("().unwrap_or_else(|error| smelt_module_init_failed(error))")
                 } else {
                     RustExpr::atom(function_name).postfix("()")
                 }
@@ -96,7 +102,8 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
                 ));
             }
             _ => {
-                let value_ty = FunctionEmitter::type_text_for_with_context(mir, context, global.ty)?;
+                let value_ty =
+                    FunctionEmitter::type_text_for_with_context(mir, context, global.ty)?;
                 writer.line(format!(
                     "    static {name}: ::std::cell::RefCell<{value_ty}> = ::std::cell::RefCell::new({init});", init = init.delimited()
                 ));
@@ -168,7 +175,12 @@ pub(crate) fn global_read_text(mir: &Mir, index: u32) -> String {
     let copy = usize::try_from(index)
         .ok()
         .and_then(|idx| mir.globals.get(idx))
-        .is_some_and(|global| matches!(mir.types.get(global.ty), Some(Type::Float | Type::Int | Type::Bool)));
+        .is_some_and(|global| {
+            matches!(
+                mir.types.get(global.ty),
+                Some(Type::Float | Type::Int | Type::Bool)
+            )
+        });
     if copy {
         format!("{name}.with(::std::cell::Cell::get)")
     } else {

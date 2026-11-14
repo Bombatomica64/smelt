@@ -38,7 +38,9 @@ enum Token<'a> {
 /// All of a crate's sources are read together: a module may call a helper the
 /// crate root defines.
 #[must_use]
-pub(crate) fn undefined_runtime_symbols<'a>(sources: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+pub(crate) fn undefined_runtime_symbols<'a>(
+    sources: impl IntoIterator<Item = &'a str>,
+) -> Vec<String> {
     let mut defined = BTreeSet::new();
     let mut used = BTreeSet::new();
     for source in sources {
@@ -74,7 +76,11 @@ fn is_runtime_symbol(name: &str) -> bool {
 }
 
 /// Whether an identifier in this position introduces a name.
-fn binds_a_name(previous: Option<Token<'_>>, next: Option<Token<'_>>, after_next: Option<Token<'_>>) -> bool {
+fn binds_a_name(
+    previous: Option<Token<'_>>,
+    next: Option<Token<'_>>,
+    after_next: Option<Token<'_>>,
+) -> bool {
     if let Some(Token::Ident(
         "fn" | "struct" | "enum" | "union" | "trait" | "type" | "const" | "static" | "mod" | "let"
         | "mut" | "ref" | "for" | "macro_rules",
@@ -116,7 +122,9 @@ fn tokenize(source: &str) -> Vec<Token<'_>> {
             b'/' if bytes.get(at + 1) == Some(&b'*') => at = skip_block_comment(bytes, at),
             b'"' => at = skip_string(bytes, at),
             b'\'' => at = skip_char_or_lifetime(bytes, at),
-            b'r' | b'b' if raw_string_hashes(bytes, at).is_some() => at = skip_raw_string(bytes, at),
+            b'r' | b'b' if raw_string_hashes(bytes, at).is_some() => {
+                at = skip_raw_string(bytes, at);
+            }
             _ if byte == b'_' || byte.is_ascii_alphabetic() => {
                 let end = bytes
                     .iter()
@@ -203,7 +211,11 @@ fn skip_char_or_lifetime(bytes: &[u8], at: usize) -> usize {
     while bytes.get(end).is_some_and(|byte| byte & 0xC0 == 0x80) {
         end += 1;
     }
-    if bytes.get(end) == Some(&b'\'') { end + 1 } else { at + 1 }
+    if bytes.get(end) == Some(&b'\'') {
+        end + 1
+    } else {
+        at + 1
+    }
 }
 
 /// Returns the `#` count when a raw string literal starts at `at`.
@@ -216,7 +228,11 @@ fn raw_string_hashes(bytes: &[u8], at: usize) -> Option<usize> {
         return None;
     }
     cursor += 1;
-    let hashes = bytes.iter().skip(cursor).take_while(|byte| **byte == b'#').count();
+    let hashes = bytes
+        .iter()
+        .skip(cursor)
+        .take_while(|byte| **byte == b'#')
+        .count();
     (bytes.get(cursor + hashes) == Some(&b'"')).then_some(hashes)
 }
 
@@ -253,7 +269,11 @@ mod tests {
     #[test]
     fn a_called_helper_without_a_definition_is_reported() {
         let missing = undefined_runtime_symbols(["fn main() { smelt_missing(1); }"]);
-        assert_eq!(missing, ["smelt_missing"], "the undefined call must be named");
+        assert_eq!(
+            missing,
+            ["smelt_missing"],
+            "the undefined call must be named"
+        );
     }
 
     /// A declined helper reservation leaves a `__smelt_*` call behind: the
@@ -264,21 +284,34 @@ mod tests {
         let missing = undefined_runtime_symbols([
             "fn __smelt_fn_value_1() {} fn main() { __smelt_fn_value_1(); __smelt_record_adapter_7(x); }",
         ]);
-        assert_eq!(missing, ["__smelt_record_adapter_7"], "the released helper must be named");
+        assert_eq!(
+            missing,
+            ["__smelt_record_adapter_7"],
+            "the released helper must be named"
+        );
     }
 
     /// A type named but never declared is the E0412/E0433 sibling.
     #[test]
     fn a_named_type_without_a_definition_is_reported() {
-        let missing = undefined_runtime_symbols(["fn f() -> SmeltGenerator<f64> { SmeltGenerator::new() }"]);
-        assert_eq!(missing, ["SmeltGenerator"], "the undefined type must be named");
+        let missing =
+            undefined_runtime_symbols(["fn f() -> SmeltGenerator<f64> { SmeltGenerator::new() }"]);
+        assert_eq!(
+            missing,
+            ["SmeltGenerator"],
+            "the undefined type must be named"
+        );
     }
 
     /// A definition in another source of the crate satisfies the use.
     #[test]
     fn a_definition_in_another_module_counts() {
-        let missing = undefined_runtime_symbols(["fn smelt_helper() {}", "fn main() { smelt_helper(); }"]);
-        assert!(missing.is_empty(), "a crate-level definition must resolve: {missing:?}");
+        let missing =
+            undefined_runtime_symbols(["fn smelt_helper() {}", "fn main() { smelt_helper(); }"]);
+        assert!(
+            missing.is_empty(),
+            "a crate-level definition must resolve: {missing:?}"
+        );
     }
 
     /// Locals, parameters and closure parameters bind names too.
@@ -286,7 +319,10 @@ mod tests {
     fn local_bindings_are_not_reported() {
         let source = "fn f(smelt_a: fn()) { let smelt_b = smelt_a; smelt_b(); let g = |smelt_c: fn()| smelt_c(); }";
         let missing = undefined_runtime_symbols([source]);
-        assert!(missing.is_empty(), "local callables must not be reported: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "local callables must not be reported: {missing:?}"
+        );
     }
 
     /// Text in strings and comments is not code.
@@ -295,13 +331,20 @@ mod tests {
         let source = r##"// smelt_comment()
             fn f() -> &'static str { let c = '"'; let r = r#"smelt_raw()"#; "smelt_string()" }"##;
         let missing = undefined_runtime_symbols([source]);
-        assert!(missing.is_empty(), "literals and comments must be skipped: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "literals and comments must be skipped: {missing:?}"
+        );
     }
 
     /// A method or a path segment belongs to its receiver, not the crate root.
     #[test]
     fn members_are_not_uses() {
-        let missing = undefined_runtime_symbols(["fn f(x: T) { x.smelt_method(); T::smelt_assoc(); }"]);
-        assert!(missing.is_empty(), "members must not be reported: {missing:?}");
+        let missing =
+            undefined_runtime_symbols(["fn f(x: T) { x.smelt_method(); T::smelt_assoc(); }"]);
+        assert!(
+            missing.is_empty(),
+            "members must not be reported: {missing:?}"
+        );
     }
 }

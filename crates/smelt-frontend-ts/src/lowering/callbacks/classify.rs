@@ -2,15 +2,15 @@
 //! arrow/function callback recognizers, factory predicates, and opaque
 //! (local/member) callback values, plus building callbacks from param lists.
 
-use crate::lowering::erasure::NotNewErasure;
 use super::forwarding::{ForwardTarget, ForwardingCallback};
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
-    Argument, Body, Expr, ExprKind, Expression, FunctionType, HashMap, Item,
-    LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type,
+    Argument, Body, Expr, ExprKind, Expression, FunctionType, HashMap, Item, LocalDecl,
+    ModuleBuilder, Param, SmeltError, Span, Type,
 };
-use smelt_hir::ErasureReason;
 use oxc::span::GetSpan;
+use smelt_hir::ErasureReason;
 impl ModuleBuilder<'_> {
     /// Resolve a callback function symbol back to its normal HIR item.
     pub(in crate::lowering) fn callback_function_item(
@@ -121,7 +121,9 @@ impl ModuleBuilder<'_> {
         expected_param_tys: &[smelt_hir::TypeId],
         body: &mut Body,
     ) -> Result<ForwardingCallback, SmeltError> {
-        if let Some(callback) = self.asserted_forwarding_callback(argument, expected_param_tys, body)? {
+        if let Some(callback) =
+            self.asserted_forwarding_callback(argument, expected_param_tys, body)?
+        {
             return Ok(callback);
         }
         // A callback produced by a call (`xs.filter(negate(isEven))`) is not
@@ -142,12 +144,17 @@ impl ModuleBuilder<'_> {
             let mark = self.speculation_mark(body);
             if let Ok(selected) = self.argument(argument, body) {
                 let selected_ty = Self::expr_ty(body, selected);
-                if let Some(Type::Function(function)) = self.ctx.krate.types.get(selected_ty).cloned() {
+                if let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(selected_ty).cloned()
+                {
                     let span = self.span(argument.span().start, argument.span().end);
                     let symbol = self.ctx.krate.symbols.intern("__selected_callback");
                     let local = self.capture_bind_value(selected, selected_ty, symbol, span, body);
                     return Ok(ForwardingCallback {
-                        target: ForwardTarget::Local { local, ty: selected_ty },
+                        target: ForwardTarget::Local {
+                            local,
+                            ty: selected_ty,
+                        },
                         arity: expected_param_tys.len(),
                         ty: function.return_ty,
                     });
@@ -179,14 +186,16 @@ impl ModuleBuilder<'_> {
                 _ => self.unknown_type(NotNewErasure::ErasedUpstream),
             };
             return Ok(ForwardingCallback {
-                target: ForwardTarget::Local { local, ty: selected_ty },
+                target: ForwardTarget::Local {
+                    local,
+                    ty: selected_ty,
+                },
                 arity: expected_param_tys.len(),
                 ty: return_ty,
             });
         }
         if let Argument::ArrayExpression(array) = argument
-            && let Some(callback) =
-                self.matches_property_iteratee_callback(array, body)?
+            && let Some(callback) = self.matches_property_iteratee_callback(array, body)?
         {
             return Ok(callback);
         }
@@ -235,7 +244,10 @@ impl ModuleBuilder<'_> {
             // receiver supplies, down to zero (`values.filter(stubTrue)`), is
             // called with just its declared prefix.
             return Ok(Some(ForwardingCallback {
-                target: ForwardTarget::Item { function: function_name, ty: function_ty },
+                target: ForwardTarget::Item {
+                    function: function_name,
+                    ty: function_ty,
+                },
                 arity: function_params_len.min(expected_param_tys.len()),
                 ty: function_return_ty,
             }));
@@ -244,7 +256,10 @@ impl ModuleBuilder<'_> {
             let local_ty = Self::local_ty(body, local);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
                 return Ok(Some(ForwardingCallback {
-                    target: ForwardTarget::Local { local, ty: local_ty },
+                    target: ForwardTarget::Local {
+                        local,
+                        ty: local_ty,
+                    },
                     arity: function.params.len().min(expected_param_tys.len()),
                     ty: function.return_ty,
                 }));
@@ -265,9 +280,14 @@ impl ModuleBuilder<'_> {
         span_start: u32,
         span_end: u32,
     ) -> Result<(), SmeltError> {
-        self.imports.unresolved_value_import(name).map_or(Ok(()), |blocker| {
-            Err(SmeltError::missing_stdlib(self.span(span_start, span_end), blocker.to_owned()))
-        })
+        self.imports
+            .unresolved_value_import(name)
+            .map_or(Ok(()), |blocker| {
+                Err(SmeltError::missing_stdlib(
+                    self.span(span_start, span_end),
+                    blocker.to_owned(),
+                ))
+            })
     }
 
     /// Lower the lodash array iteratee shorthand `[path, srcValue]` passed as a
@@ -304,7 +324,12 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let field_ty = self.erase_with(ErasureReason::ByName, &js_str_text(path.value));
         Ok(Some(ForwardingCallback {
-            target: ForwardTarget::MatchesProperty { field, field_ty, value: local, value_ty },
+            target: ForwardTarget::MatchesProperty {
+                field,
+                field_ty,
+                value: local,
+                value_ty,
+            },
             arity: 1,
             ty: bool_ty,
         }))
@@ -328,9 +353,11 @@ impl ModuleBuilder<'_> {
                 expected_param_tys,
                 body,
             )?)),
-            Argument::TSSatisfiesExpression(satisfies) => Ok(Some(
-                self.asserted_callee_callback(&satisfies.expression, expected_param_tys, body)?,
-            )),
+            Argument::TSSatisfiesExpression(satisfies) => Ok(Some(self.asserted_callee_callback(
+                &satisfies.expression,
+                expected_param_tys,
+                body,
+            )?)),
             Argument::TSNonNullExpression(non_null) => Ok(Some(self.asserted_callee_callback(
                 &non_null.expression,
                 expected_param_tys,
@@ -398,7 +425,10 @@ impl ModuleBuilder<'_> {
     /// erased/generic surfaces — `unknown`/`any`, type parameters, and unions
     /// that include a function or erased branch — where the value is genuinely
     /// callable at runtime but lacks a clean static function type.
-    pub(in crate::lowering) fn callback_local_value_is_callable_surface(&mut self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn callback_local_value_is_callable_surface(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         self.callback_local_value_is_callable_surface_depth(ty, 0)
     }
 
@@ -533,14 +563,20 @@ impl ModuleBuilder<'_> {
             self.erase_with(ErasureReason::TypeLevel, "opaque local callback")
         };
         ForwardingCallback {
-            target: ForwardTarget::Local { local, ty: local_ty },
+            target: ForwardTarget::Local {
+                local,
+                ty: local_ty,
+            },
             arity: expected_param_tys.len(),
             ty: unknown_ty,
         }
     }
 
     /// Build an opaque callback expression for imported predicate/function members.
-    pub(in crate::lowering) fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> ForwardingCallback {
+    pub(in crate::lowering) fn opaque_member_callback(
+        &mut self,
+        expected_param_tys: &[smelt_hir::TypeId],
+    ) -> ForwardingCallback {
         let unknown_ty = self.erase_with(ErasureReason::UntypedPackage, "opaque member callback");
         let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: expected_param_tys.to_vec(),
@@ -601,5 +637,4 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn builtin_call_identifier_is_shadowed(&self, name: &str) -> bool {
         self.host_global_named(name).is_none()
     }
-
 }

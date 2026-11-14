@@ -207,7 +207,10 @@ impl<'a> TypeSubstitution<'a> {
     /// Return this environment's spellable names and their provenance.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "provenance is documentation, not a lowering input")
+        expect(
+            dead_code,
+            reason = "provenance is documentation, not a lowering input"
+        )
     )]
     pub(crate) const fn scope(&self) -> TypeParamScope<'a> {
         self.scope
@@ -286,7 +289,10 @@ mod tests {
         let substitution = TypeSubstitution::erased();
         assert!(!substitution.spells(name));
         assert_eq!(substitution.resolve(name).unwrap(), Resolved::Erased);
-        assert!(matches!(substitution.scope(), TypeParamScope::DeliberatelyErased));
+        assert!(matches!(
+            substitution.scope(),
+            TypeParamScope::DeliberatelyErased
+        ));
     }
 
     #[test]

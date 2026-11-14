@@ -12,9 +12,9 @@ use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
 use smelt_frontend_ts::{FrontendOptions, HirCtx, to_hir_with_options};
 use smelt_hir::FileId;
 use smelt_specialize::{
-    BackendAvailability, HashInputs, LinuxBubblewrapBackend, NodeModule,
-    NodeSpecializationRequest, NodeSpecializer, SandboxBackend, SandboxPolicyRecord,
-    SpecializationManifest, prereq::missing_prerequisite,
+    BackendAvailability, HashInputs, LinuxBubblewrapBackend, NodeModule, NodeSpecializationRequest,
+    NodeSpecializer, SandboxBackend, SandboxPolicyRecord, SpecializationManifest,
+    prereq::missing_prerequisite,
 };
 
 /// Result type shared by the parity fixture and its helpers, defaulting to a
@@ -176,8 +176,7 @@ fn emit_and_compare(
     emit_crate(
         &mir,
         &generated,
-        &EmitOptions::new("typescript_specialization_members")
-            .with_crate_kind(CrateKind::Program),
+        &EmitOptions::new("typescript_specialization_members").with_crate_kind(CrateKind::Program),
     )?;
     let actual = run_generated(&generated.join("Cargo.toml"), project)?;
     if actual != expected {

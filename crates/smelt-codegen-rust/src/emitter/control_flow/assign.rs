@@ -59,7 +59,8 @@ impl FunctionEmitter<'_> {
             } else {
                 out.push_str(&format!(
                     "    let {mutability}{name}: {} = {rendered_value};\n",
-                    self.rendered_type(decl.ty)?, rendered_value = rendered_value.delimited()
+                    self.rendered_type(decl.ty)?,
+                    rendered_value = rendered_value.delimited()
                 ));
             }
             self.mark_local_declared(*local);
@@ -78,7 +79,11 @@ impl FunctionEmitter<'_> {
             ));
             return Ok(());
         }
-        out.push_str(&format!("    {assignment} = {rendered_value};\n", assignment = assignment.delimited(), rendered_value = rendered_value.delimited()));
+        out.push_str(&format!(
+            "    {assignment} = {rendered_value};\n",
+            assignment = assignment.delimited(),
+            rendered_value = rendered_value.delimited()
+        ));
         Ok(())
     }
 
@@ -101,11 +106,11 @@ impl FunctionEmitter<'_> {
             && self.is_regexp_class_symbol(*name)?
             && matches!(self.symbol_name(field)?, "lastIndex" | "last_index")
         {
-            let rendered_value =
-                self.rvalue_expr_for_dest(value, self.type_id(Type::Float)?)?;
+            let rendered_value = self.rvalue_expr_for_dest(value, self.type_id(Type::Float)?)?;
             out.push_str(&format!(
                 "    *{}.last_index.borrow_mut() = ({rendered_value}) as usize;\n",
-                self.local_value(base)?.tight(), rendered_value = rendered_value.delimited()
+                self.local_value(base)?.tight(),
+                rendered_value = rendered_value.delimited()
             ));
             return Ok(true);
         }
@@ -127,7 +132,9 @@ impl FunctionEmitter<'_> {
             // the same bag through the free function.
             if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
                 out.push_str(&format!(
-                    "    {base_text}.smelt_set_property({field_name:?}, {rendered_value});\n", base_text = base_text.tight(), rendered_value = rendered_value.delimited()
+                    "    {base_text}.smelt_set_property({field_name:?}, {rendered_value});\n",
+                    base_text = base_text.tight(),
+                    rendered_value = rendered_value.delimited()
                 ));
             } else {
                 out.push_str(&format!(
@@ -136,9 +143,7 @@ impl FunctionEmitter<'_> {
             }
             return Ok(true);
         }
-        if let Some(statement) =
-            self.descriptor_setter_statement(base, field, value)?
-        {
+        if let Some(statement) = self.descriptor_setter_statement(base, field, value)? {
             out.push_str("    ");
             out.push_str(&statement);
             out.push('\n');
@@ -149,7 +154,9 @@ impl FunctionEmitter<'_> {
             let key_text = self.dict_field_key_expr(*key, field)?;
             out.push_str(&format!(
                 "    {}.insert({key_text}, {rendered_value});\n",
-                self.local_mut_value(base)?.tight(), key_text = key_text.delimited(), rendered_value = rendered_value.delimited(),
+                self.local_mut_value(base)?.tight(),
+                key_text = key_text.delimited(),
+                rendered_value = rendered_value.delimited(),
             ));
             return Ok(true);
         }
@@ -170,9 +177,7 @@ impl FunctionEmitter<'_> {
         // would drop the write silently. `x.k = v` and `x["k"] = v` are
         // one operation in TypeScript, so they take one rule here.
         if self.concrete_union_members(base_ty).is_some() {
-            if let Some(statement) =
-                self.concrete_union_field_assign_expr(base, field, value)?
-            {
+            if let Some(statement) = self.concrete_union_field_assign_expr(base, field, value)? {
                 out.push_str("    ");
                 out.push_str(statement.as_str());
                 out.push('\n');
@@ -182,8 +187,7 @@ impl FunctionEmitter<'_> {
             let rendered_value = self.rvalue_expr_for_dest(value, unknown_ty)?;
             let field_name = self.symbol_source_name(field)?;
             let union_text = self.union_rust_type(base_ty)?;
-            let erased =
-                self.erase_concrete_union_expr(&self.local_value(base)?, base_ty)?;
+            let erased = self.erase_concrete_union_expr(&self.local_value(base)?, base_ty)?;
             out.push_str(&format!(
                 "    {{ let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, {field_name:?}.to_owned(), smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
                 self.local_mut_value(base)?.delimited(), rendered_value = rendered_value.delimited(), erased = erased.delimited()
@@ -283,7 +287,8 @@ impl FunctionEmitter<'_> {
                 "    {}.{}.insert({}, {rendered_value});\n",
                 self.local_mut_value(base)?.tight(),
                 smelt_hir::CLASS_INDEX_STORE_FIELD,
-                self.dict_field_key_expr(key_ty, field)?.delimited(), rendered_value = rendered_value.delimited(),
+                self.dict_field_key_expr(key_ty, field)?.delimited(),
+                rendered_value = rendered_value.delimited(),
             ));
             return Ok(true);
         }
@@ -331,7 +336,8 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!(
                     "    {}.insert({}, {rendered_value});\n",
                     self.local_mut_value(base)?.tight(),
-                    key_text.delimited(), rendered_value = rendered_value.delimited()
+                    key_text.delimited(),
+                    rendered_value = rendered_value.delimited()
                 ));
             }
             Some(Type::List(item)) => {
@@ -373,7 +379,8 @@ impl FunctionEmitter<'_> {
                 let rendered_value = self.rvalue_expr_for_dest(value, item_ty)?;
                 out.push_str(&format!(
                     "    {}.{tuple_index} = {rendered_value};\n",
-                    self.local_mut_value(base)?.tight(), rendered_value = rendered_value.delimited()
+                    self.local_mut_value(base)?.tight(),
+                    rendered_value = rendered_value.delimited()
                 ));
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
@@ -401,8 +408,8 @@ impl FunctionEmitter<'_> {
                 // `SmeltUnknown` and keeps the direct call below.
                 if self.concrete_union_members(base_ty).is_some() {
                     let union_text = self.union_rust_type(base_ty)?;
-                    let erased = self
-                        .erase_concrete_union_expr(&self.local_value(base)?, base_ty)?;
+                    let erased =
+                        self.erase_concrete_union_expr(&self.local_value(base)?, base_ty)?;
                     out.push_str(&format!(
                         "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; let mut smelt_erased = {erased}; smelt_index_assign(&mut smelt_erased, smelt_key, smelt_value); {} = {union_text}::from_smelt_unknown(smelt_erased); }}\n",
                         self.local_mut_value(base)?.delimited(), key_text = key_text.delimited(), rendered_value = rendered_value.delimited(), erased = erased.delimited()
@@ -419,9 +426,7 @@ impl FunctionEmitter<'_> {
             // into `bag.__smelt_index_store` so the write round-trips to a
             // later `bag[key]` read. The value is rendered at the store's
             // declared value type, keeping `T` concrete.
-            Some(Type::Class { .. })
-                if self.class_index_store_types(base_ty).is_some() =>
-            {
+            Some(Type::Class { .. }) if self.class_index_store_types(base_ty).is_some() => {
                 let (key_ty, value_ty) = self
                     .class_index_store_types(base_ty)
                     .ok_or_else(|| EmitError::new("class index store types missing"))?;
@@ -440,7 +445,9 @@ impl FunctionEmitter<'_> {
                 out.push_str(&format!(
                     "    {}.{}.insert({key_text}, {rendered_value});\n",
                     self.local_mut_value(base)?.tight(),
-                    smelt_hir::CLASS_INDEX_STORE_FIELD, key_text = key_text.delimited(), rendered_value = rendered_value.delimited(),
+                    smelt_hir::CLASS_INDEX_STORE_FIELD,
+                    key_text = key_text.delimited(),
+                    rendered_value = rendered_value.delimited(),
                 ));
             }
             // A computed-key write into a class instance dispatches on
@@ -456,7 +463,10 @@ impl FunctionEmitter<'_> {
             }
             _ => {
                 let rendered_value = self.rvalue_expr(value)?;
-                out.push_str(&format!("    let _ = {rendered_value};\n", rendered_value = rendered_value.delimited()));
+                out.push_str(&format!(
+                    "    let _ = {rendered_value};\n",
+                    rendered_value = rendered_value.delimited()
+                ));
             }
         }
         Ok(())

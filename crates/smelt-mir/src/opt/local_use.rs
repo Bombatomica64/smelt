@@ -26,7 +26,8 @@ pub fn inline_absent_constant_temps(function: &mut MirFunction, candidates: &[Lo
             for statement in &block.statements {
                 if let Statement::Assign {
                     dest,
-                    value: Rvalue::Use(Operand::Const(value @ (Constant::Undefined | Constant::None))),
+                    value:
+                        Rvalue::Use(Operand::Const(value @ (Constant::Undefined | Constant::None))),
                 } = statement
                     && *dest == local
                 {
@@ -50,9 +51,9 @@ pub fn inline_absent_constant_temps(function: &mut MirFunction, candidates: &[Lo
             continue;
         }
         for block in &mut function.blocks {
-            block.statements.retain(|statement| {
-                !matches!(statement, Statement::Assign { dest, .. } if *dest == local)
-            });
+            block.statements.retain(
+                |statement| !matches!(statement, Statement::Assign { dest, .. } if *dest == local),
+            );
             for statement in &mut block.statements {
                 if let Statement::Assign { value, .. } = statement {
                     value.reads_mut(|operand| {

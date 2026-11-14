@@ -61,8 +61,8 @@ use indexmap::IndexMap;
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{BasicBlock, Mir, MirClass, MirFunction, MirInterface, Rvalue, Statement};
 
-use crate::classes::{effective_class_fields, effective_interface_fields};
 use crate::EmitError;
+use crate::classes::{effective_class_fields, effective_interface_fields};
 use crate::names::RustNames;
 
 /// The traits generated for bounded type parameters, keyed by bound name.
@@ -169,7 +169,10 @@ impl BoundTraitPlan {
         for (bound, bound_uses) in uses {
             if let Some(mut planned) = plan_trait(mir, names, bound, &bound_uses) {
                 let base_name = format!("{}Like", names.type_name(bound)?);
-                names.claim_generated_type(&base_name).as_str().clone_into(&mut planned.trait_name);
+                names
+                    .claim_generated_type(&base_name)
+                    .as_str()
+                    .clone_into(&mut planned.trait_name);
                 traits.insert(bound, planned);
             }
         }
@@ -198,7 +201,11 @@ impl BoundTrait {
         let Some(Type::Class { name, args }) = mir.types.get(ty) else {
             return false;
         };
-        args.is_empty() && self.implementors.iter().any(|implementor| implementor.name == *name)
+        args.is_empty()
+            && self
+                .implementors
+                .iter()
+                .any(|implementor| implementor.name == *name)
     }
 }
 
@@ -215,7 +222,8 @@ struct BoundUses {
 fn collect_uses(blocks: &[BasicBlock], uses: &mut IndexMap<Symbol, BoundUses>) {
     for block in blocks {
         for statement in &block.statements {
-            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) = statement
+            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) =
+                statement
             else {
                 continue;
             };
@@ -247,17 +255,18 @@ enum BoundDecl<'mir> {
 }
 
 /// Plan one bound's trait, or `None` when it cannot have one (module docs).
-fn plan_trait(
-    mir: &Mir,
-    names: &RustNames,
-    bound: Symbol,
-    uses: &BoundUses,
-) -> Option<BoundTrait> {
+fn plan_trait(mir: &Mir, names: &RustNames, bound: Symbol, uses: &BoundUses) -> Option<BoundTrait> {
     let decl = if let Some(class) = crate::classes::find_class(mir, bound) {
-        class.type_params.is_empty().then_some(BoundDecl::Class(class))?
+        class
+            .type_params
+            .is_empty()
+            .then_some(BoundDecl::Class(class))?
     } else {
         let interface = mir.interface_named(bound)?;
-        interface.type_params.is_empty().then_some(BoundDecl::Interface(interface))?
+        interface
+            .type_params
+            .is_empty()
+            .then_some(BoundDecl::Interface(interface))?
     };
     // A member the trait cannot carry is left out, not the whole trait: a
     // function reading it through the bound then keeps the erased parameter
@@ -274,7 +283,16 @@ fn plan_trait(
     };
     for &method in &uses.methods {
         let planned = bound_method_signature(mir, &decl, method).and_then(|(params, ret)| {
-            member(mir, names, method, BoundMemberKind::Method { params, ret, throws: false })
+            member(
+                mir,
+                names,
+                method,
+                BoundMemberKind::Method {
+                    params,
+                    ret,
+                    throws: false,
+                },
+            )
         });
         keep(planned, &mut members);
     }
@@ -313,7 +331,10 @@ fn plan_trait(
             *throws = implementors.iter().any(|implementor| {
                 matches!(
                     implementor.members.get(index),
-                    Some(MemberImpl::Method { throws: true, .. } | MemberImpl::FunctionField { throws: true })
+                    Some(
+                        MemberImpl::Method { throws: true, .. }
+                            | MemberImpl::FunctionField { throws: true }
+                    )
                 )
             });
         }
@@ -329,7 +350,12 @@ fn plan_trait(
 
 /// Build a member record with its Rust names: the trait method's (the class
 /// method's planned name for a method) and the implementor field's.
-fn member(mir: &Mir, names: &RustNames, name: Symbol, kind: BoundMemberKind) -> Option<BoundMember> {
+fn member(
+    mir: &Mir,
+    names: &RustNames,
+    name: Symbol,
+    kind: BoundMemberKind,
+) -> Option<BoundMember> {
     let spelling = crate::names::Spelling::of(mir, name)?;
     let rust_name = match (&kind, names.method(name)) {
         (BoundMemberKind::Method { .. }, Some(planned)) => planned.as_str().to_owned(),
@@ -351,7 +377,15 @@ fn member(mir: &Mir, names: &RustNames, name: Symbol, kind: BoundMemberKind) -> 
 /// method's ownership analysis, which a shared trait signature cannot follow.
 fn plain_member_type(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Float | Type::Int | Type::Bool | Type::String | Type::PyStr | Type::BigInt | Type::None) => true,
+        Some(
+            Type::Float
+            | Type::Int
+            | Type::Bool
+            | Type::String
+            | Type::PyStr
+            | Type::BigInt
+            | Type::None,
+        ) => true,
         Some(Type::Class { args, .. }) => args.is_empty(),
         Some(Type::List(item) | Type::Optional(item)) => plain_member_type(mir, *item),
         _ => false,
@@ -366,24 +400,30 @@ fn bound_method_signature(
     method: Symbol,
 ) -> Option<(Vec<TypeId>, TypeId)> {
     let (params, ret) = match decl {
-        BoundDecl::Class(class) => if let Some(function) = resolve_class_method(mir, class, method) {
-            method_function_signature(function)?
-        } else {
-            // An abstract method is declared by signature only.
-            let signature = class_chain(mir, class)
-                .into_iter()
-                .flat_map(|level| level.abstract_methods.iter())
-                .find(|signature| signature.name == method)?;
-            if signature.is_async || signature.rest.is_some() {
-                return None;
+        BoundDecl::Class(class) => {
+            if let Some(function) = resolve_class_method(mir, class, method) {
+                method_function_signature(function)?
+            } else {
+                // An abstract method is declared by signature only.
+                let signature = class_chain(mir, class)
+                    .into_iter()
+                    .flat_map(|level| level.abstract_methods.iter())
+                    .find(|signature| signature.name == method)?;
+                if signature.is_async || signature.rest.is_some() {
+                    return None;
+                }
+                (
+                    signature.params.iter().map(|param| param.ty).collect(),
+                    signature.return_ty,
+                )
             }
-            (
-                signature.params.iter().map(|param| param.ty).collect(),
-                signature.return_ty,
-            )
-        },
+        }
         BoundDecl::Interface(interface) => {
-            if let Some(signature) = interface.methods.iter().find(|signature| signature.name == method) {
+            if let Some(signature) = interface
+                .methods
+                .iter()
+                .find(|signature| signature.name == method)
+            {
                 if signature.is_async || signature.rest.is_some() {
                     return None;
                 }
@@ -435,7 +475,9 @@ fn bound_field_type(mir: &Mir, decl: &BoundDecl<'_>, field: Symbol) -> Option<Ty
         BoundDecl::Class(class) => effective_class_fields(mir, class),
         BoundDecl::Interface(interface) => effective_interface_fields(mir, interface),
     };
-    let declared = fields.into_iter().find(|candidate| candidate.name == field)?;
+    let declared = fields
+        .into_iter()
+        .find(|candidate| candidate.name == field)?;
     plain_member_type(mir, declared.ty).then_some(declared.ty)
 }
 
@@ -443,7 +485,11 @@ fn bound_field_type(mir: &Mir, decl: &BoundDecl<'_>, field: Symbol) -> Option<Ty
 fn class_chain<'mir>(mir: &'mir Mir, class: &'mir MirClass) -> Vec<&'mir MirClass> {
     let mut chain = vec![class];
     let mut seen = HashSet::from([class.name]);
-    while let Some(base) = chain.last().and_then(|last| last.base).and_then(|base| crate::classes::find_class(mir, base)) {
+    while let Some(base) = chain
+        .last()
+        .and_then(|last| last.base)
+        .and_then(|base| crate::classes::find_class(mir, base))
+    {
         if !seen.insert(base.name) {
             break;
         }
@@ -474,7 +520,9 @@ fn class_implementors(mir: &Mir, bound: Symbol) -> Vec<(Symbol, bool)> {
     for class in &mir.classes {
         if class.name != bound
             && class.type_params.is_empty()
-            && class_chain(mir, class).iter().any(|level| level.name == bound)
+            && class_chain(mir, class)
+                .iter()
+                .any(|level| level.name == bound)
         {
             found.push((class.name, true));
         }
@@ -493,7 +541,10 @@ fn interface_implementors(mir: &Mir, bound: Symbol) -> Vec<(Symbol, bool)> {
         changed = false;
         for interface in &mir.interfaces {
             if !family.contains(&interface.name)
-                && interface.extends.iter().any(|heritage| family.contains(&heritage.parent))
+                && interface
+                    .extends
+                    .iter()
+                    .any(|heritage| family.contains(&heritage.parent))
             {
                 family.push(interface.name);
                 changed = true;
@@ -523,7 +574,12 @@ fn interface_implementors(mir: &Mir, bound: Symbol) -> Vec<(Symbol, bool)> {
 
 /// How implementor `name` provides `member`, or `None` when it cannot with the
 /// bound's exact types.
-fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMember) -> Option<MemberImpl> {
+fn implement_member(
+    mir: &Mir,
+    name: Symbol,
+    is_class: bool,
+    member: &BoundMember,
+) -> Option<MemberImpl> {
     let fields = if is_class {
         effective_class_fields(mir, crate::classes::find_class(mir, name)?)
     } else {
@@ -552,7 +608,8 @@ fn implement_member(mir: &Mir, name: Symbol, is_class: bool, member: &BoundMembe
             if !is_class {
                 return None;
             }
-            let function = resolve_class_method(mir, crate::classes::find_class(mir, name)?, member.name)?;
+            let function =
+                resolve_class_method(mir, crate::classes::find_class(mir, name)?, member.name)?;
             let (own_params, own_ret) = method_function_signature(function)?;
             (own_params == *params && own_ret == *ret).then_some(MemberImpl::Method {
                 throws: function.can_throw,
@@ -598,7 +655,10 @@ pub(crate) fn constraint_is_date(mir: &Mir, constraint: Option<TypeId>) -> bool 
 /// parameters of its own — by the free function that does declare it.
 pub(crate) fn type_param_is_date_bounded(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
     let declared = |params: &[smelt_hir::TypeParamDef]| {
-        params.iter().find(|param| param.name == name).map(|param| constraint_is_date(mir, param.constraint))
+        params
+            .iter()
+            .find(|param| param.name == name)
+            .map(|param| constraint_is_date(mir, param.constraint))
     };
     declared(&function.type_params).unwrap_or_else(|| {
         mir.functions

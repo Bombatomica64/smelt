@@ -39,7 +39,10 @@ pub enum TsDiagnosticCategory {
 
 /// One TypeScript diagnostic.
 #[derive(Clone, PartialEq, Eq, Debug)]
-#[expect(clippy::exhaustive_structs, reason = "plain data built by the checker bridge in another crate")]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "plain data built by the checker bridge in another crate"
+)]
 pub struct TsDiagnostic {
     /// Program path of the file, or `None` for global diagnostics.
     pub file: Option<String>,
@@ -80,7 +83,13 @@ impl TsTypeFacts {
         by_span: HashMap<String, FileTypes>,
         type_nodes: HashMap<String, FileTypes>,
     ) -> Self {
-        Self { types, diagnostics, by_span, type_nodes, evolved_arrays: HashMap::new() }
+        Self {
+            types,
+            diagnostics,
+            by_span,
+            type_nodes,
+            evolved_arrays: HashMap::new(),
+        }
     }
 
     /// Adds the evolved types of evolving-array variables (see
@@ -144,6 +153,8 @@ impl TsTypeFacts {
 
     /// Diagnostics that are errors.
     pub fn errors(&self) -> impl Iterator<Item = &TsDiagnostic> {
-        self.diagnostics.iter().filter(|diagnostic| diagnostic.category == TsDiagnosticCategory::Error)
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.category == TsDiagnosticCategory::Error)
     }
 }

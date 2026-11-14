@@ -21,7 +21,10 @@ fn folds_tag_check_of_absent_ambient_global() {
 
     // The absent global's guard decides the whole expression, so the dead
     // operand is never lowered and the function folds to a constant.
-    assert_eq!(rust_fn(&source, "is_browser"), "fn is_browser() -> bool {\nreturn false;\n}");
+    assert_eq!(
+        rust_fn(&source, "is_browser"),
+        "fn is_browser() -> bool {\nreturn false;\n}"
+    );
 }
 
 /// A list reaching the exact-write path renders the way the console renders
@@ -127,7 +130,10 @@ function total(values: number[]): number {
         "{source}"
     );
     assert!(source.contains("let smelt_array = &values"), "{source}");
-    assert!(!source.contains("let smelt_array = values.clone()"), "{source}");
+    assert!(
+        !source.contains("let smelt_array = values.clone()"),
+        "{source}"
+    );
 }
 
 /// A closure body that needs an OWNED list still gets one, from the reference.

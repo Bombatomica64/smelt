@@ -111,7 +111,12 @@ type HandlerMark = (usize, Option<ExceptionHandler>);
 
 impl HandlerMarks {
     /// Records that statements of `block` from `index` on run under `handler`.
-    pub(super) fn record(&mut self, block: BlockId, index: usize, handler: Option<ExceptionHandler>) {
+    pub(super) fn record(
+        &mut self,
+        block: BlockId,
+        index: usize,
+        handler: Option<ExceptionHandler>,
+    ) {
         let marks = self.blocks.entry(block).or_default();
         if marks.last().is_none_or(|(_, last)| *last != handler) {
             marks.push((index, handler));
@@ -283,15 +288,15 @@ impl LoweringCtx<'_> {
     /// skipped entirely: `for (x of xs) { try { if (c) break } finally { log() } }`
     /// left the loop without calling `log()`.
     pub(super) fn lower_loop_exit(&mut self, exit: LoopExit) -> Result<(), LowerError> {
-        let Some((depth, targets)) = self
-            .scopes
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(depth, scope)| match scope {
-                ControlScope::Loop(targets) => Some((depth, *targets)),
-                ControlScope::Protected(_) | ControlScope::Label(_) => None,
-            })
+        let Some((depth, targets)) =
+            self.scopes
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(depth, scope)| match scope {
+                    ControlScope::Loop(targets) => Some((depth, *targets)),
+                    ControlScope::Protected(_) | ControlScope::Label(_) => None,
+                })
         else {
             return Err(self.error(
                 match exit {
@@ -314,14 +319,27 @@ impl LoweringCtx<'_> {
     /// Lowers `break label` / `continue label`: every `finally` clause between
     /// the cursor and the labelled statement runs, then control goes to the
     /// statement's end (`break`) or its loop's next iteration (`continue`).
-    pub(super) fn lower_label_exit(&mut self, exit: LoopExit, label: smelt_hir::Symbol) -> Result<(), LowerError> {
-        let found = self.scopes.iter().enumerate().rev().find_map(|(depth, scope)| match (exit, scope) {
-            (LoopExit::Break, ControlScope::Label(labelled)) if labelled.label == label => Some((depth, labelled.break_target)),
-            (LoopExit::Continue, ControlScope::Loop(targets)) if targets.label == Some(label) => {
-                Some((depth, targets.continue_target))
-            }
-            _ => None,
-        });
+    pub(super) fn lower_label_exit(
+        &mut self,
+        exit: LoopExit,
+        label: smelt_hir::Symbol,
+    ) -> Result<(), LowerError> {
+        let found = self
+            .scopes
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(depth, scope)| match (exit, scope) {
+                (LoopExit::Break, ControlScope::Label(labelled)) if labelled.label == label => {
+                    Some((depth, labelled.break_target))
+                }
+                (LoopExit::Continue, ControlScope::Loop(targets))
+                    if targets.label == Some(label) =>
+                {
+                    Some((depth, targets.continue_target))
+                }
+                _ => None,
+            });
         let Some((depth, target)) = found else {
             return Err(self.error(
                 match exit {

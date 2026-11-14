@@ -88,12 +88,30 @@ pub struct GlobalNamespace {
 /// builtins) whose members answer more than presence, so they are deliberately
 /// not routed through the generic namespace value.
 pub const GLOBAL_NAMESPACES: &[GlobalNamespace] = &[
-    GlobalNamespace { name: "Math", namespace_members: &[] },
-    GlobalNamespace { name: "JSON", namespace_members: &[] },
-    GlobalNamespace { name: "Reflect", namespace_members: &[] },
-    GlobalNamespace { name: "Atomics", namespace_members: &[] },
-    GlobalNamespace { name: "Intl", namespace_members: &[] },
-    GlobalNamespace { name: "crypto", namespace_members: &["subtle"] },
+    GlobalNamespace {
+        name: "Math",
+        namespace_members: &[],
+    },
+    GlobalNamespace {
+        name: "JSON",
+        namespace_members: &[],
+    },
+    GlobalNamespace {
+        name: "Reflect",
+        namespace_members: &[],
+    },
+    GlobalNamespace {
+        name: "Atomics",
+        namespace_members: &[],
+    },
+    GlobalNamespace {
+        name: "Intl",
+        namespace_members: &[],
+    },
+    GlobalNamespace {
+        name: "crypto",
+        namespace_members: &["subtle"],
+    },
 ];
 
 /// Look up a global namespace object by its source spelling.
@@ -108,8 +126,7 @@ pub fn global_namespace(name: &str) -> Option<&'static GlobalNamespace> {
 /// namespace object (`crypto.subtle`).
 #[must_use]
 pub fn global_namespace_member_is_namespace(name: &str, member: &str) -> bool {
-    global_namespace(name)
-        .is_some_and(|namespace| namespace.namespace_members.contains(&member))
+    global_namespace(name).is_some_and(|namespace| namespace.namespace_members.contains(&member))
 }
 
 /// Returns whether `name` is one of the modeled ECMAScript `Error` constructors.
@@ -122,10 +139,12 @@ pub fn is_error_class_name(name: &str) -> bool {
 /// (ECMAScript intrinsics plus widely available Web/Node runtime globals).
 #[must_use]
 pub fn is_javascript_global_builtin(name: &str) -> bool {
-    is_error_class_name(name) || GLOBAL_OBJECT_ALIASES.contains(&name) || matches!(
-        name,
-        // Core constructors and namespaces.
-        "Array" | "Object" | "Number" | "String" | "Boolean" | "BigInt"
+    is_error_class_name(name)
+        || GLOBAL_OBJECT_ALIASES.contains(&name)
+        || matches!(
+            name,
+            // Core constructors and namespaces.
+            "Array" | "Object" | "Number" | "String" | "Boolean" | "BigInt"
         | "Symbol" | "Function" | "Math" | "JSON" | "Reflect" | "Proxy"
         | "Date" | "RegExp" | "Promise" | "Map" | "Set" | "WeakMap"
         | "WeakSet" | "WeakRef" | "Iterator" | "Generator" | "Intl"
@@ -146,7 +165,7 @@ pub fn is_javascript_global_builtin(name: &str) -> bool {
         | "File" | "FormData" | "Headers" | "Request" | "Response" | "Buffer"
         | "AbortController" | "AbortSignal" | "Event" | "EventTarget"
         | "crypto"
-    )
+        )
 }
 
 /// Whether the JavaScript global `name` is a FUNCTION value in the target
@@ -161,7 +180,18 @@ pub fn is_global_function_value(name: &str) -> bool {
     is_javascript_global_builtin(name)
         && global_namespace(name).is_none()
         && !GLOBAL_OBJECT_ALIASES.contains(&name)
-        && !matches!(name, "Math" | "JSON" | "Reflect" | "Intl" | "crypto" | "console" | "process" | "window" | "Generator")
+        && !matches!(
+            name,
+            "Math"
+                | "JSON"
+                | "Reflect"
+                | "Intl"
+                | "crypto"
+                | "console"
+                | "process"
+                | "window"
+                | "Generator"
+        )
 }
 
 /// Compile-time availability of a global object member in the active target profile.
@@ -256,8 +286,18 @@ mod tests {
     /// Recognized intrinsics and runtime globals report as builtins.
     #[test]
     fn recognizes_known_globals() {
-        for name in ["Array", "Number", "Reflect", "Proxy", "TextEncoder", "globalThis"] {
-            assert!(is_javascript_global_builtin(name), "{name} should be a builtin");
+        for name in [
+            "Array",
+            "Number",
+            "Reflect",
+            "Proxy",
+            "TextEncoder",
+            "globalThis",
+        ] {
+            assert!(
+                is_javascript_global_builtin(name),
+                "{name} should be a builtin"
+            );
         }
     }
 
@@ -265,7 +305,10 @@ mod tests {
     #[test]
     fn rejects_user_identifiers() {
         for name in ["Foo", "curried", "myHelper", "Circle"] {
-            assert!(!is_javascript_global_builtin(name), "{name} should not be a builtin");
+            assert!(
+                !is_javascript_global_builtin(name),
+                "{name} should not be a builtin"
+            );
         }
     }
 
@@ -273,7 +316,11 @@ mod tests {
     #[test]
     fn recognized_node_globals_are_present() {
         for name in ["Map", "Set", "ArrayBuffer", "Reflect", "Promise", "process"] {
-            assert_eq!(global_member_presence(name), GlobalPresence::Present, "{name}");
+            assert_eq!(
+                global_member_presence(name),
+                GlobalPresence::Present,
+                "{name}"
+            );
         }
     }
 
@@ -288,7 +335,11 @@ mod tests {
             "removeEventListener",
             "dispatchEvent",
         ] {
-            assert_eq!(global_member_presence(name), GlobalPresence::Absent, "{name}");
+            assert_eq!(
+                global_member_presence(name),
+                GlobalPresence::Absent,
+                "{name}"
+            );
             assert!(global_is_absent(name), "{name} should report absent");
         }
     }
@@ -305,7 +356,11 @@ mod tests {
     #[test]
     fn unmodeled_members_are_unknown() {
         for name in ["DocumentFragment", "__feature", "structuredClone", "fetch"] {
-            assert_eq!(global_member_presence(name), GlobalPresence::Unknown, "{name}");
+            assert_eq!(
+                global_member_presence(name),
+                GlobalPresence::Unknown,
+                "{name}"
+            );
         }
     }
 

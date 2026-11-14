@@ -36,7 +36,6 @@ use crate::rust::RustExpr;
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::Mir;
 
-
 /// The generated accessor storage type.
 pub(crate) const ACCESSOR_TYPE: &str = "SmeltAccessor";
 
@@ -61,12 +60,18 @@ pub(crate) fn storage_type_text(value_ty_text: &str) -> String {
 
 /// Wraps a plain value as an accessor that answers it.
 pub(crate) fn constant_expr(value_text: &RustExpr) -> RustExpr {
-    RustExpr::atom(format!("{ACCESSOR_TYPE}::constant({value_text})", value_text = value_text.delimited()))
+    RustExpr::atom(format!(
+        "{ACCESSOR_TYPE}::constant({value_text})",
+        value_text = value_text.delimited()
+    ))
 }
 
 /// Wraps a getter closure (`Rc<dyn Fn() -> T>`) as an accessor.
 pub(crate) fn getter_expr(getter_expr: &RustExpr) -> RustExpr {
-    RustExpr::atom(format!("{ACCESSOR_TYPE}::new({getter_expr})", getter_expr = getter_expr.delimited()))
+    RustExpr::atom(format!(
+        "{ACCESSOR_TYPE}::new({getter_expr})",
+        getter_expr = getter_expr.delimited()
+    ))
 }
 
 /// Reads an accessor field: runs the getter.

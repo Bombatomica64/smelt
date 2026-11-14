@@ -1,12 +1,12 @@
 //! Conditional (ternary) expressions: lowering both arms and joining their
 //! types into one result type.
 
+use super::super::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use oxc::ast::ast::Expression;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Span, Type};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Lower one arm of a conditional expression, capturing any statement-level
@@ -195,7 +195,11 @@ impl ModuleBuilder<'_> {
 
     /// The union of two conditional arms, flattening an arm that is already a
     /// union so `A : (B | C)` is `A | B | C`.
-    fn union_of_branch_types(&mut self, then_ty: smelt_hir::TypeId, else_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    fn union_of_branch_types(
+        &mut self,
+        then_ty: smelt_hir::TypeId,
+        else_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         let mut members = Vec::new();
         for arm in [then_ty, else_ty] {
             match self.ctx.krate.types.get(arm).cloned() {
@@ -252,7 +256,10 @@ impl ModuleBuilder<'_> {
         // `never` arm's signature and type the join's result by its erased
         // return.
         let never_join = if self.compatible_function_branch_types(then_ty, else_ty) {
-            match (self.function_returns_never(then_ty), self.function_returns_never(else_ty)) {
+            match (
+                self.function_returns_never(then_ty),
+                self.function_returns_never(else_ty),
+            ) {
                 (true, false) => Some(else_ty),
                 (false, true) => Some(then_ty),
                 _ => None,
@@ -288,9 +295,7 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.intern(Type::Optional(else_ty))
         } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
             self.ctx.krate.types.intern(Type::Optional(then_ty))
-        } else if let Some(unified) =
-            self.unify_optional_conditional_branches(then_ty, else_ty)
-        {
+        } else if let Some(unified) = self.unify_optional_conditional_branches(then_ty, else_ty) {
             // One arm is `Optional<inner>` and the other unifies with
             // `inner`, so the TypeScript union `inner | undefined` IS
             // `Optional<inner>`, which is a closer answer than anything
@@ -303,9 +308,11 @@ impl ModuleBuilder<'_> {
             then_ty
         } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
             function_ty
-        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty)) {
+        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty))
+        {
             then_ty
-        } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
+        } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty))
+        {
             else_ty
         } else if type_hint
             .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
@@ -315,7 +322,8 @@ impl ModuleBuilder<'_> {
             // The hint or an arm is already erased; a concrete arm is erased
             // here, and recorded as such.
             self.erased_join(&[then_ty, else_ty])
-        } else if self.concrete_stdlib_class_type(then_ty) || self.concrete_stdlib_class_type(else_ty)
+        } else if self.concrete_stdlib_class_type(then_ty)
+            || self.concrete_stdlib_class_type(else_ty)
         {
             // A modeled stdlib class with a concrete runtime type (a typed
             // array, `Headers`, `URL`, ..) is no more string-compatible than a
@@ -374,8 +382,7 @@ impl ModuleBuilder<'_> {
             // element types when they have no closer common shape.
             let item_ty = self.unify_conditional_list_item_type(then_item, else_item);
             self.ctx.krate.types.intern(Type::List(item_ty))
-        } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
-        {
+        } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty) {
             // An arm already holds `unknown`; a concrete other arm is erased
             // here, and recorded as such.
             self.erased_join(&[then_ty, else_ty])
@@ -442,7 +449,8 @@ impl ModuleBuilder<'_> {
         let Some(host) = self.host_global_named(name) else {
             return false;
         };
-        smelt_stdlib::is_typed_array_class_name(name) || Self::is_known_defined_global_constructor(host)
+        smelt_stdlib::is_typed_array_class_name(name)
+            || Self::is_known_defined_global_constructor(host)
     }
 
     /// Compute the result type for a conditional expression's branches.
@@ -485,9 +493,11 @@ impl ModuleBuilder<'_> {
             Ok(then_ty)
         } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
             Ok(function_ty)
-        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty)) {
+        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty))
+        {
             Ok(then_ty)
-        } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
+        } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty))
+        {
             Ok(else_ty)
         } else if let (Some(Type::List(then_item)), Some(Type::List(else_item))) = (
             self.ctx.krate.types.get(then_ty).cloned(),
@@ -587,12 +597,8 @@ impl ModuleBuilder<'_> {
             (Some(then_inner), Some(else_inner)) => {
                 self.unify_compatible_branch_inner(then_inner, else_inner)?
             }
-            (Some(then_inner), None) => {
-                self.unify_compatible_branch_inner(then_inner, else_ty)?
-            }
-            (None, Some(else_inner)) => {
-                self.unify_compatible_branch_inner(then_ty, else_inner)?
-            }
+            (Some(then_inner), None) => self.unify_compatible_branch_inner(then_inner, else_ty)?,
+            (None, Some(else_inner)) => self.unify_compatible_branch_inner(then_ty, else_inner)?,
             (None, None) => return None,
         };
         Some(self.ctx.krate.types.intern(Type::Optional(inner)))

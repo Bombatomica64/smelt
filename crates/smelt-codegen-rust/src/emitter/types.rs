@@ -1,11 +1,11 @@
 //! Rendering a MIR type as Rust: `rust_type`, the scoped and lexical forms of it,
 //! and the small type lookups rendering needs.
 
-use crate::rust::RustType;
-use crate::rust::RustExpr;
-use crate::runtime_demand::Need;
 use super::*;
+use crate::runtime_demand::Need;
+use crate::rust::RustExpr;
 use crate::rust::RustShape;
+use crate::rust::RustType;
 use smelt_hir::{ErasureReason, FunctionType};
 
 /// Whether a callback parameter declared mutable gets a `&mut ` prefix.
@@ -102,7 +102,8 @@ impl FunctionEmitter<'_> {
     /// replacing the blocker being reported with a second one.
     pub(super) fn blocker_type_text(&self, ty: TypeId) -> String {
         self.rendered_type(ty)
-            .unwrap_or_else(|_err| RustType::from(format!("{:?}", self.mir.types.get(ty)))).into_string()
+            .unwrap_or_else(|_err| RustType::from(format!("{:?}", self.mir.types.get(ty))))
+            .into_string()
     }
 
     /// Finds the type ID for a type the program has: one in the MIR table, or
@@ -125,7 +126,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Renders a type in the scope of the current function.
-    pub(super) fn lexical_rust_type(&self, ty: TypeId, allow_impl_trait: bool) -> Result<RustType, EmitError> {
+    pub(super) fn lexical_rust_type(
+        &self,
+        ty: TypeId,
+        allow_impl_trait: bool,
+    ) -> Result<RustType, EmitError> {
         let scope = self.current_function_type_params();
         self.rust_type(ty, allow_impl_trait, &TypeSubstitution::lexical(&scope))
     }
@@ -164,7 +169,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// [`Self::carrier_format`] for a template with no parameters.
-    pub(super) fn carrier_expr(&self, _carrier: crate::runtime_demand::CarrierUse, text: &RustExpr) -> RustExpr {
+    pub(super) fn carrier_expr(
+        &self,
+        _carrier: crate::runtime_demand::CarrierUse,
+        text: &RustExpr,
+    ) -> RustExpr {
         self.context.note_carrier_use();
         text.clone()
     }
@@ -241,7 +250,9 @@ impl FunctionEmitter<'_> {
             }
             // An inherited copy renders in the receiving class's `impl`; the
             // declaring base's parameters are mapped by the role's substitution.
-            HirOrigin::ClassMethod { .. } if let Some(owner) = self.role.inherited_impl_owner() => owner,
+            HirOrigin::ClassMethod { .. } if let Some(owner) = self.role.inherited_impl_owner() => {
+                owner
+            }
             HirOrigin::ClassConstructor { class, .. }
             | HirOrigin::ClassMethod { class, .. }
             | HirOrigin::ClassStaticMethod { class, .. } => class,
@@ -318,7 +329,9 @@ impl FunctionEmitter<'_> {
             {
                 self.with_inherited_bound(|| self.rust_type(bound, allow_impl_trait, substitution))
             }
-            Type::TypeParam { name } => self.type_param_rust_type(*name, substitution, allow_impl_trait),
+            Type::TypeParam { name } => {
+                self.type_param_rust_type(*name, substitution, allow_impl_trait)
+            }
             Type::Class { name, args } => self.class_rust_type(*name, args, substitution),
             Type::None => Ok(RustType::raw("()")),
             Type::List(item) => {
@@ -340,18 +353,35 @@ impl FunctionEmitter<'_> {
             Type::Dict(key_ty, value_ty) if self.dict_uses_smelt_record(*key_ty) => {
                 let key = self.rust_type(*key_ty, false, substitution)?;
                 let value = self.rust_type(*value_ty, false, substitution)?;
-                Ok(RustType::composed(format!("SmeltRecord<{key}, {value}>"), [&key, &value]))
+                Ok(RustType::composed(
+                    format!("SmeltRecord<{key}, {value}>"),
+                    [&key, &value],
+                ))
             }
             // A property-key record is an object keyed by `ToPropertyKey`
             // results; its runtime type seals the key (see `prop_key.rs`).
             Type::Dict(key, value) if self.is_prop_key_record_key(*key) => {
                 let value_ty = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltPropKeyRecord<{value_ty}>")), [&value_ty]).on_carrier())
+                Ok(RustType::composed(
+                    self.carrier_format(
+                        self.carrier()?,
+                        format_args!("SmeltPropKeyRecord<{value_ty}>"),
+                    ),
+                    [&value_ty],
+                )
+                .on_carrier())
             }
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
+                Ok(RustType::composed(
+                    self.carrier_format(
+                        self.carrier()?,
+                        format_args!("SmeltJsMap<{key}, {value}>"),
+                    ),
+                    [&key, &value],
+                )
+                .on_carrier())
             }
             // Insertion-ordered, as a Python dict and a JavaScript object are;
             // see `dict_renders_as_index_map`.
@@ -371,14 +401,25 @@ impl FunctionEmitter<'_> {
             Type::JsMap(key, value) => {
                 let key = self.rust_type(*key, false, substitution)?;
                 let value = self.rust_type(*value, false, substitution)?;
-                Ok(RustType::composed(self.carrier_format(self.carrier()?, format_args!("SmeltJsMap<{key}, {value}>")), [&key, &value]).on_carrier())
+                Ok(RustType::composed(
+                    self.carrier_format(
+                        self.carrier()?,
+                        format_args!("SmeltJsMap<{key}, {value}>"),
+                    ),
+                    [&key, &value],
+                )
+                .on_carrier())
             }
             Type::Tuple(items) => {
                 let items = items
                     .iter()
                     .map(|item| self.rust_type(*item, false, substitution))
                     .collect::<Result<Vec<_>, _>>()?;
-                let items_text = items.iter().map(RustType::as_str).collect::<Vec<_>>().join(", ");
+                let items_text = items
+                    .iter()
+                    .map(RustType::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 let text = if items.len() == 1 {
                     format!("({items_text},)")
                 } else {
@@ -387,7 +428,8 @@ impl FunctionEmitter<'_> {
                 Ok(RustType::composed(text, &items))
             }
             Type::Optional(item) => {
-                let item = self.rust_type(self.flatten_optional_inner(*item), false, substitution)?;
+                let item =
+                    self.rust_type(self.flatten_optional_inner(*item), false, substitution)?;
                 Ok(RustType::composed(format!("Option<{item}>"), [&item]))
             }
             // The generated enum's arguments resolve through the same
@@ -404,7 +446,9 @@ impl FunctionEmitter<'_> {
                 );
                 Ok(RustType::erased())
             }
-            Type::Function(function) => self.function_rust_type(function, allow_impl_trait, substitution),
+            Type::Function(function) => {
+                self.function_rust_type(function, allow_impl_trait, substitution)
+            }
             // A source `Promise<T>` / `Type::Future(T)` lowers to the generic
             // promise-value ABI `SmeltFuture<T>` in every position, so the same
             // MIR future type renders one Rust type everywhere.
@@ -444,9 +488,7 @@ impl FunctionEmitter<'_> {
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         let inner = self.rendered_type(ty)?;
-        if (self.function.is_async || self.function.can_throw)
-            && !self.function.is_generator
-        {
+        if (self.function.is_async || self.function.can_throw) && !self.function.is_generator {
             Ok(RustType::raw(format!("Result<{inner}, {ERROR_BOX}>")))
         } else {
             Ok(inner)
@@ -455,7 +497,10 @@ impl FunctionEmitter<'_> {
 
     /// Return the value type produced by `return` inside the current body.
     pub(super) fn body_return_ty(&self) -> TypeId {
-        match (self.function.is_generator, self.mir.types.get(self.function.return_ty)) {
+        match (
+            self.function.is_generator,
+            self.mir.types.get(self.function.return_ty),
+        ) {
             (true, Some(Type::Generator { return_ty, .. })) => *return_ty,
             _ => self.function.return_ty,
         }
@@ -499,7 +544,11 @@ impl FunctionEmitter<'_> {
                     self.mir.types.get(bound),
                     Some(Type::TypeParam { name: bound_name }) if caller_scope.contains(bound_name)
                 ) {
-                    self.rust_type(bound, allow_impl_trait, &TypeSubstitution::lexical(&caller_scope))?
+                    self.rust_type(
+                        bound,
+                        allow_impl_trait,
+                        &TypeSubstitution::lexical(&caller_scope),
+                    )?
                 } else {
                     self.rust_type(bound, allow_impl_trait, &substitution.without_bindings())?
                 };
@@ -533,42 +582,30 @@ impl FunctionEmitter<'_> {
         if self.is_match_class_symbol(name)? {
             return Ok(RustType::raw("SmeltMatch"));
         }
-        if self.stdlib_class_of_symbol(name)?
-            == Some(smelt_stdlib::StdlibClass::Headers)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::Headers) {
             return Ok(RustType::raw("SmeltHeaders"));
         }
-        if self.stdlib_class_of_symbol(name)?
-            == Some(smelt_stdlib::StdlibClass::PyException)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::PyException) {
             return Ok(RustType::raw("SmeltPyException"));
         }
-        if self.stdlib_class_of_symbol(name)?
-            == Some(smelt_stdlib::StdlibClass::PyExceptionArgs)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::PyExceptionArgs) {
             return Ok(RustType::raw("SmeltPyExceptionArgs"));
         }
-        if self.stdlib_class_of_symbol(name)?
-            == Some(smelt_stdlib::StdlibClass::UrlSearchParams)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::UrlSearchParams) {
             return Ok(RustType::raw("SmeltUrlSearchParams"));
         }
         if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::Url) {
             return Ok(RustType::raw("SmeltUrl"));
         }
-        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::FormData)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::FormData) {
             return Ok(RustType::raw("SmeltFormData"));
         }
-        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::Response)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::Response) {
             return Ok(RustType::raw("SmeltResponse"));
         }
         // A body HANDLE is the generated body type itself: the
         // modeled `ReadableStream` is that handle and nothing else.
-        if self.stdlib_class_of_symbol(name)?
-            == Some(smelt_stdlib::StdlibClass::ReadableStream)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::ReadableStream) {
             return Ok(RustType::raw("SmeltBody"));
         }
         if let Some(codec_type) = match self.stdlib_class_of_symbol(name)? {
@@ -603,25 +640,15 @@ impl FunctionEmitter<'_> {
         if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::Request) {
             return Ok(RustType::raw("SmeltRequest"));
         }
-        if self.stdlib_class_of_symbol(name)?
-            == Some(smelt_stdlib::StdlibClass::EventEmitter)
-        {
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::EventEmitter) {
             return Ok(RustType::raw("SmeltEventEmitter"));
         }
         if let Some(http_type) = match self.stdlib_class_of_symbol(name)? {
             Some(smelt_stdlib::StdlibClass::HttpServer) => Some("SmeltHttpServer"),
-            Some(smelt_stdlib::StdlibClass::IncomingMessage) => {
-                Some("SmeltIncomingMessage")
-            }
-            Some(smelt_stdlib::StdlibClass::ServerResponse) => {
-                Some("SmeltServerResponse")
-            }
-            Some(smelt_stdlib::StdlibClass::SqliteDatabase) => {
-                Some("SmeltSqliteDatabase")
-            }
-            Some(smelt_stdlib::StdlibClass::SqliteStatement) => {
-                Some("SmeltSqliteStatement")
-            }
+            Some(smelt_stdlib::StdlibClass::IncomingMessage) => Some("SmeltIncomingMessage"),
+            Some(smelt_stdlib::StdlibClass::ServerResponse) => Some("SmeltServerResponse"),
+            Some(smelt_stdlib::StdlibClass::SqliteDatabase) => Some("SmeltSqliteDatabase"),
+            Some(smelt_stdlib::StdlibClass::SqliteStatement) => Some("SmeltSqliteStatement"),
             _ => None,
         } {
             return Ok(RustType::raw(http_type));
@@ -707,11 +734,10 @@ impl FunctionEmitter<'_> {
                 .map(|arg| arg.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            Ok(RustType::with_shape(
-                format!("{type_name}<{arg_text}>"),
-                RustShape::GenericClass,
+            Ok(
+                RustType::with_shape(format!("{type_name}<{arg_text}>"), RustShape::GenericClass)
+                    .holding(carried_args.iter().copied()),
             )
-            .holding(carried_args.iter().copied()))
         }
     }
 
@@ -723,19 +749,19 @@ impl FunctionEmitter<'_> {
         substitution: &TypeSubstitution<'_>,
     ) -> Result<RustType, EmitError> {
         if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-            return Ok(RustType::with_shape("SmeltErasedFunction", RustShape::ErasedFunction));
+            return Ok(RustType::with_shape(
+                "SmeltErasedFunction",
+                RustShape::ErasedFunction,
+            ));
         }
         let params = function
             .params
             .iter()
             .enumerate()
-            .map(|(index, param)| {
-                self.function_type_param(function, index, *param, substitution)
-            })
+            .map(|(index, param)| self.function_type_param(function, index, *param, substitution))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let return_ty =
-            self.function_value_return_type(function, substitution)?;
+        let return_ty = self.function_value_return_type(function, substitution)?;
         let text = if allow_impl_trait {
             format!("impl Fn({params}) -> {return_ty}")
         } else {

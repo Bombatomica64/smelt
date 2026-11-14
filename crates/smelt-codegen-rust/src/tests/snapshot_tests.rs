@@ -15,7 +15,9 @@ pub(super) fn assert_emitted_source_snapshot(name: &str, source: &str, case_star
             // The case starts in the program, so the search begins past the
             // runtime prelude, whose items can spell the same name (`fn add`
             // is `JsString`'s `Add` impl).
-            let program = full.find("@smelt:prelude-end").map_or(full.as_str(), |marker| &full[marker..]);
+            let program = full
+                .find("@smelt:prelude-end")
+                .map_or(full.as_str(), |marker| &full[marker..]);
             let case_text = program.find(start).map_or_else(
                 || panic!("missing case-specific module start `{start}`"),
                 |offset| &program[offset..],
@@ -51,7 +53,9 @@ pub(super) fn assert_emitted_py_source_snapshot(
             // The case starts in the program, so the search begins past the
             // runtime prelude, whose items can spell the same name (`fn add`
             // is `JsString`'s `Add` impl).
-            let program = emitted.find("@smelt:prelude-end").map_or(emitted.as_str(), |marker| &emitted[marker..]);
+            let program = emitted
+                .find("@smelt:prelude-end")
+                .map_or(emitted.as_str(), |marker| &emitted[marker..]);
             let case_text = program.find(case_start).map_or_else(
                 || panic!("missing case-specific module start `{case_start}`"),
                 |offset| &program[offset..],

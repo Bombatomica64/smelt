@@ -32,7 +32,10 @@ pub(crate) struct LayeredFs {
 impl LayeredFs {
     /// `memory` over the real file system.
     pub(crate) fn new(memory: Arc<dyn FS>) -> Self {
-        Self { memory, disk: tsrs_vfs::osvfs::fs() }
+        Self {
+            memory,
+            disk: tsrs_vfs::osvfs::fs(),
+        }
     }
 
     /// The disk path of a program path inside an installed package's tree
@@ -44,7 +47,9 @@ impl LayeredFs {
         if rest.starts_with("node_modules/") || rest == "node_modules" {
             return None;
         }
-        rest.split('/').any(|segment| segment == "node_modules").then(|| format!("/{rest}"))
+        rest.split('/')
+            .any(|segment| segment == "node_modules")
+            .then(|| format!("/{rest}"))
     }
 }
 
@@ -54,7 +59,8 @@ impl FS for LayeredFs {
     }
 
     fn file_exists(&self, path: &str) -> bool {
-        self.memory.file_exists(path) || Self::disk_path(path).is_some_and(|disk| self.disk.file_exists(&disk))
+        self.memory.file_exists(path)
+            || Self::disk_path(path).is_some_and(|disk| self.disk.file_exists(&disk))
     }
 
     fn read_file(&self, path: &str) -> Option<String> {
@@ -111,7 +117,9 @@ impl FS for LayeredFs {
     }
 
     fn stat(&self, path: &str) -> Option<FileInfo> {
-        self.memory.stat(path).or_else(|| Self::disk_path(path).and_then(|disk| self.disk.stat(&disk)))
+        self.memory
+            .stat(path)
+            .or_else(|| Self::disk_path(path).and_then(|disk| self.disk.stat(&disk)))
     }
 
     fn realpath(&self, path: &str) -> String {
@@ -139,7 +147,10 @@ mod tests {
             Some("/home/me/app/node_modules/geom/index.d.ts")
         );
         assert_eq!(LayeredFs::disk_path("/smelt/home/me/app/src/main.ts"), None);
-        assert_eq!(LayeredFs::disk_path("/smelt/node_modules/@types/node/index.d.ts"), None);
+        assert_eq!(
+            LayeredFs::disk_path("/smelt/node_modules/@types/node/index.d.ts"),
+            None
+        );
         assert_eq!(LayeredFs::disk_path("/elsewhere/node_modules/x"), None);
     }
 }

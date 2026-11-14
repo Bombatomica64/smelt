@@ -323,7 +323,11 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "arrayBuffer",
         RuleId::TsBlobBodyRead,
     ),
-    method(TypeScriptReceiverKind::Blob, "bytes", RuleId::TsBlobBodyRead),
+    method(
+        TypeScriptReceiverKind::Blob,
+        "bytes",
+        RuleId::TsBlobBodyRead,
+    ),
     method(TypeScriptReceiverKind::Blob, "slice", RuleId::TsBlobSlice),
     // The concrete typed-array family. `slice` is deliberately shared between
     // the view and its storage — one spec member, one entry — and `subarray`
@@ -372,10 +376,26 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
     // `URLSearchParams` are, with two differences that both come from the spec:
     // names are case-SENSITIVE (a header list's are not), and an entry's value
     // is `string | File` rather than a string.
-    method(TypeScriptReceiverKind::FormData, "get", RuleId::TsFormDataRead),
-    method(TypeScriptReceiverKind::FormData, "getAll", RuleId::TsFormDataRead),
-    method(TypeScriptReceiverKind::FormData, "has", RuleId::TsFormDataRead),
-    method(TypeScriptReceiverKind::FormData, "set", RuleId::TsFormDataMutation),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "get",
+        RuleId::TsFormDataRead,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "getAll",
+        RuleId::TsFormDataRead,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "has",
+        RuleId::TsFormDataRead,
+    ),
+    method(
+        TypeScriptReceiverKind::FormData,
+        "set",
+        RuleId::TsFormDataMutation,
+    ),
     method(
         TypeScriptReceiverKind::FormData,
         "append",
@@ -549,12 +569,36 @@ pub const TYPESCRIPT_METHODS: &[MethodRecognition] = &[
         "end",
         RuleId::TsServerResponseEnd,
     ),
-    method(TypeScriptReceiverKind::SqliteDatabase, "exec", RuleId::TsSqliteDatabase),
-    method(TypeScriptReceiverKind::SqliteDatabase, "prepare", RuleId::TsSqliteDatabase),
-    method(TypeScriptReceiverKind::SqliteDatabase, "close", RuleId::TsSqliteDatabase),
-    method(TypeScriptReceiverKind::SqliteStatement, "all", RuleId::TsSqliteStatement),
-    method(TypeScriptReceiverKind::SqliteStatement, "get", RuleId::TsSqliteStatement),
-    method(TypeScriptReceiverKind::SqliteStatement, "run", RuleId::TsSqliteStatement),
+    method(
+        TypeScriptReceiverKind::SqliteDatabase,
+        "exec",
+        RuleId::TsSqliteDatabase,
+    ),
+    method(
+        TypeScriptReceiverKind::SqliteDatabase,
+        "prepare",
+        RuleId::TsSqliteDatabase,
+    ),
+    method(
+        TypeScriptReceiverKind::SqliteDatabase,
+        "close",
+        RuleId::TsSqliteDatabase,
+    ),
+    method(
+        TypeScriptReceiverKind::SqliteStatement,
+        "all",
+        RuleId::TsSqliteStatement,
+    ),
+    method(
+        TypeScriptReceiverKind::SqliteStatement,
+        "get",
+        RuleId::TsSqliteStatement,
+    ),
+    method(
+        TypeScriptReceiverKind::SqliteStatement,
+        "run",
+        RuleId::TsSqliteStatement,
+    ),
 ];
 
 /// Return the shared rule for an exact TypeScript global or static namespace call.
@@ -573,9 +617,7 @@ pub fn typescript_method_rule(receiver: TypeScriptReceiverKind, member: &str) ->
     // twenty entries: `crate::data_view_accessor` reads the direction and
     // the width straight off the name, so adding an element type would add its
     // accessors without touching this table.
-    if receiver == TypeScriptReceiverKind::DataView
-        && crate::data_view_accessor(member).is_some()
-    {
+    if receiver == TypeScriptReceiverKind::DataView && crate::data_view_accessor(member).is_some() {
         return Some(RuleId::TsDataViewAccess);
     }
     TYPESCRIPT_METHODS

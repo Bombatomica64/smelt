@@ -1,9 +1,9 @@
 //! Tuple and rest-parameter annotations: tuple elements, rest tails, minimum
 //! arity, and the mutable-tuple parameter ABI.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{TSTupleElement, TSType, TSTypeName};
 use oxc::span::GetSpan;
 use smelt_hir::{ErasureReason, Type};
@@ -406,18 +406,18 @@ impl ModuleBuilder<'_> {
                 }
                 _ => Ok(self.erase(ErasureReason::UnmodeledType)),
             },
-            TSTupleElement::TSIndexedAccessType(_) => {
-                Ok(self.erase(ErasureReason::TypeLevel))
-            }
+            TSTupleElement::TSIndexedAccessType(_) => Ok(self.erase(ErasureReason::TypeLevel)),
             TSTupleElement::TSConditionalType(conditional) => {
                 let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
                 let false_ty = self.ts_type_to_hir(&conditional.false_type)?;
                 if true_ty == false_ty {
                     Ok(true_ty)
                 } else {
-                    Ok(self.ctx.krate.types.intern(Type::Union(vec![
-                        true_ty, false_ty,
-                    ])))
+                    Ok(self
+                        .ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![true_ty, false_ty])))
                 }
             }
             TSTupleElement::TSTypeOperatorType(operator)

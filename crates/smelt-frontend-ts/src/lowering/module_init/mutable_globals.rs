@@ -1,14 +1,14 @@
 //! Module global slots: top-level bindings that are mutated, or read from a
 //! separately lowered item, are lifted to module slots with a lazy initializer.
 
-use std::collections::HashSet;
+use super::super::{ConstLiteral, ModuleBuilder};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_literal;
 use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
 use smelt_hir::{
     Body, Expr, ExprKind, Function, FunctionOwner, Item, Literal, Module, Type, Visibility,
 };
-use super::super::{ConstLiteral, ModuleBuilder};
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Classify module-level `let`/`var` bindings that are mutated anywhere in
@@ -313,16 +313,16 @@ impl ModuleBuilder<'_> {
             }
             let span = self.span(binding.span.start, binding.span.end);
             let symbol = self.intern_source_name(name);
-            let item = self
-                .ctx
-                .krate
-                .push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
-                    name: symbol,
-                    ty,
-                    init: smelt_hir::MutableGlobalInit::Pending,
-                    visibility,
-                    span,
-                }));
+            let item =
+                self.ctx
+                    .krate
+                    .push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
+                        name: symbol,
+                        ty,
+                        init: smelt_hir::MutableGlobalInit::Pending,
+                        visibility,
+                        span,
+                    }));
             module.items.push(item);
             self.items.insert(name.to_owned(), item);
             self.mutable_global_items.insert(name.to_owned(), item);
@@ -457,13 +457,16 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             let symbol = self.intern_source_name(name);
-            let item = self.ctx.krate.push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
-                name: symbol,
-                ty,
-                init: init_kind,
-                visibility,
-                span,
-            }));
+            let item =
+                self.ctx
+                    .krate
+                    .push_item(Item::MutableGlobal(smelt_hir::MutableGlobalItem {
+                        name: symbol,
+                        ty,
+                        init: init_kind,
+                        visibility,
+                        span,
+                    }));
             module.items.push(item);
             self.items.insert(name.to_owned(), item);
             self.mutable_global_items.insert(name.to_owned(), item);
@@ -546,23 +549,21 @@ impl ModuleBuilder<'_> {
         // unreproducible outside the directory it was generated in. The item
         // index is unique crate-wide and deterministic for a given program,
         // which is all the disambiguation this needs.
-        let init_name = self.intern_synthesized_name(&format!("smelt_global_init__{name}__{}", item.0));
-        let init_item = self
-            .ctx
-            .krate
-            .push_item(Item::Function(Function {
-                name: init_name,
-                span,
-                type_params: Vec::new(),
-                params: Vec::new(),
-                rest: None,
-                required_params: Some(0),
-                return_ty: global_ty,
-                is_async: false,
-                is_test: false,
-                body: Some(body_id),
-                owner: FunctionOwner::Module,
-            }));
+        let init_name =
+            self.intern_synthesized_name(&format!("smelt_global_init__{name}__{}", item.0));
+        let init_item = self.ctx.krate.push_item(Item::Function(Function {
+            name: init_name,
+            span,
+            type_params: Vec::new(),
+            params: Vec::new(),
+            rest: None,
+            required_params: Some(0),
+            return_ty: global_ty,
+            is_async: false,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
         if let Some(Item::MutableGlobal(global)) = self
             .ctx
             .krate

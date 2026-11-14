@@ -36,7 +36,11 @@ pub(crate) enum Flow {
 impl Flow {
     /// The flow of a region that diverges exactly when `diverges` holds.
     pub(crate) const fn from_diverges(diverges: bool) -> Self {
-        if diverges { Self::Diverges } else { Self::FallsThrough }
+        if diverges {
+            Self::Diverges
+        } else {
+            Self::FallsThrough
+        }
     }
 
     /// Whether the region diverges.
@@ -115,10 +119,21 @@ impl LoopJump {
     /// The rendered jump statement (`continue 'smelt_loop_N;`, `break;`).
     pub(crate) fn statement(self) -> String {
         match self {
-            Self::Continue { header, labelled: true, .. } => format!("    continue {};\n", loop_label(header)),
-            Self::Continue { labelled: false, .. } => "    continue;\n".to_owned(),
-            Self::Break { header, labelled: true } => format!("    break {};\n", loop_label(header)),
-            Self::Break { labelled: false, .. } => "    break;\n".to_owned(),
+            Self::Continue {
+                header,
+                labelled: true,
+                ..
+            } => format!("    continue {};\n", loop_label(header)),
+            Self::Continue {
+                labelled: false, ..
+            } => "    continue;\n".to_owned(),
+            Self::Break {
+                header,
+                labelled: true,
+            } => format!("    break {};\n", loop_label(header)),
+            Self::Break {
+                labelled: false, ..
+            } => "    break;\n".to_owned(),
         }
     }
 
@@ -164,7 +179,10 @@ impl OpenLoopScope<'_> {
             .bytes()
             .take_while(|byte| *byte == b' ')
             .count();
-        out.insert_str(self.opened_at.saturating_add(indent), &format!("{}: ", loop_label(open.header)));
+        out.insert_str(
+            self.opened_at.saturating_add(indent),
+            &format!("{}: ", loop_label(open.header)),
+        );
     }
 }
 
@@ -253,7 +271,9 @@ impl LoopJoinScope<'_> {
     /// scope's own violation.
     fn restore(&self) -> bool {
         self.state.loop_join_stops.borrow_mut().pop();
-        self.state.loop_join_violation.replace(self.previous_violation)
+        self.state
+            .loop_join_violation
+            .replace(self.previous_violation)
     }
 }
 
@@ -333,7 +353,11 @@ impl ControlFlowState {
 
     /// Every pending join block.
     pub(crate) fn pending_joins(&self) -> Vec<smelt_mir::BlockId> {
-        self.loop_join_stops.borrow().iter().map(|stop| stop.join).collect()
+        self.loop_join_stops
+            .borrow()
+            .iter()
+            .map(|stop| stop.join)
+            .collect()
     }
 
     /// Push a generated loop whose opening line starts at byte `opened_at` of
@@ -451,7 +475,13 @@ impl ControlFlowState {
         self.open_loops
             .borrow()
             .iter()
-            .flat_map(|open| [Some(open.header), Some(open.continue_target), open.break_block])
+            .flat_map(|open| {
+                [
+                    Some(open.header),
+                    Some(open.continue_target),
+                    open.break_block,
+                ]
+            })
             .flatten()
             .collect()
     }

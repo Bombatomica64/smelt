@@ -14,7 +14,11 @@ fn messages(errors: &[SmeltError]) -> Vec<String> {
 }
 
 /// The async-ness and return type of the function item named `name`.
-fn function_named<'a>(ctx: &'a HirCtx, module_id: ModuleId, name: &str) -> Result<&'a smelt_hir::Function, String> {
+fn function_named<'a>(
+    ctx: &'a HirCtx,
+    module_id: ModuleId,
+    name: &str,
+) -> Result<&'a smelt_hir::Function, String> {
     let module = module(ctx, module_id)?;
     for item_id in &module.items {
         if let Item::Function(function) = item(ctx, *item_id)?
@@ -42,11 +46,15 @@ print(x)
     let mut ctx = HirCtx::new();
     let errors = messages(&lower_errors(source, &mut ctx)?);
     ensure(
-        errors.iter().any(|message| message.contains("unsupported type annotation form")),
+        errors
+            .iter()
+            .any(|message| message.contains("unsupported type annotation form")),
         format!("expected the annotation error, got {errors:?}"),
     )?;
     ensure(
-        errors.iter().any(|message| message.contains("unresolved name 'x'")),
+        errors
+            .iter()
+            .any(|message| message.contains("unresolved name 'x'")),
         format!("expected `x` to be unresolved at module level, got {errors:?}"),
     )
 }
@@ -64,7 +72,9 @@ print(self)
     let mut ctx = HirCtx::new();
     let errors = messages(&lower_errors(source, &mut ctx)?);
     ensure(
-        errors.iter().any(|message| message.contains("unresolved name 'self'")),
+        errors
+            .iter()
+            .any(|message| message.contains("unresolved name 'self'")),
         format!("expected `self` to be unresolved at module level, got {errors:?}"),
     )
 }
@@ -88,7 +98,9 @@ await lift(1)
     let mut ctx = HirCtx::new();
     let errors = messages(&lower_errors(source, &mut ctx)?);
     ensure(
-        errors.iter().any(|message| message.contains("only supported inside async functions")),
+        errors
+            .iter()
+            .any(|message| message.contains("only supported inside async functions")),
         format!("expected the module-level await to be rejected, got {errors:?}"),
     )
 }
@@ -145,12 +157,18 @@ async def run() -> int:
         {
             ensure(function.is_async, "an `async def` method lowers async")?;
             ensure(
-                matches!(ctx.krate.types.get(function.return_ty), Some(Type::Future(_))),
+                matches!(
+                    ctx.krate.types.get(function.return_ty),
+                    Some(Type::Future(_))
+                ),
                 "an async method returns a future",
             )?;
             async_methods += 1_usize;
         }
     }
     ensure_eq(&async_methods, &2_usize, "async method count")?;
-    ensure(function_named(&ctx, module_id, "run")?.is_async, "run stays async")
+    ensure(
+        function_named(&ctx, module_id, "run")?.is_async,
+        "run stays async",
+    )
 }

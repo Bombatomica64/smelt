@@ -43,14 +43,18 @@ impl FunctionEmitter<'_> {
                 &RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value(),
                 source_field.ty,
             )?;
-            entries.push(format!("({name:?}.to_owned(), {value})", value = value.delimited()));
+            entries.push(format!(
+                "({name:?}.to_owned(), {value})",
+                value = value.delimited()
+            ));
         }
         if entries.is_empty() {
             return Ok(call_field_text.to_owned());
         }
         Ok(RustExpr::atom(format!(
             "({call_field_text}).smelt_with_properties(vec![{}])",
-            entries.join(", "), call_field_text = call_field_text.delimited()
+            entries.join(", "),
+            call_field_text = call_field_text.delimited()
         )))
     }
 
@@ -73,7 +77,10 @@ impl FunctionEmitter<'_> {
             let Some(class) = crate::classes::find_class(self.mir, class_name) else {
                 return false;
             };
-            let declares = class.abstract_methods.iter().any(|method| method.name == field)
+            let declares = class
+                .abstract_methods
+                .iter()
+                .any(|method| method.name == field)
                 || class.methods.iter().any(|method_id| {
                     self.function_by_id(*method_id).is_some_and(|function| {
                         matches!(
@@ -104,7 +111,11 @@ impl FunctionEmitter<'_> {
         let Some(class) = self.class_for_type(source) else {
             return declared;
         };
-        let names = class.type_params.iter().map(|param| param.name).collect::<Vec<_>>();
+        let names = class
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect::<Vec<_>>();
         if names.is_empty() {
             return declared;
         }
@@ -190,7 +201,10 @@ impl FunctionEmitter<'_> {
                 self.virtual_method_slot_closure(instance_ty, instance_ty, slot, &receiver)?
             {
                 let name = self.context.names().field_text(self.mir, slot);
-                bindings.push(format!("{instance}.0.borrow_mut().{name} = {closure};", closure = closure.delimited()));
+                bindings.push(format!(
+                    "{instance}.0.borrow_mut().{name} = {closure};",
+                    closure = closure.delimited()
+                ));
             }
         }
         if bindings.is_empty() {
@@ -268,19 +282,32 @@ impl FunctionEmitter<'_> {
                     if function_ty.mutable_params.contains(&index) {
                         Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
-                        self.rendered_at_type(&RustExpr::path(format!("smelt_arg{index}")).cloned_value(), *param, *param, &self.render_scope())
+                        self.rendered_at_type(
+                            &RustExpr::path(format!("smelt_arg{index}")).cloned_value(),
+                            *param,
+                            *param,
+                            &self.render_scope(),
+                        )
                     }
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
             let method_name = self.context.names().field(self.mir, method);
             let call = if args.is_empty() {
-                RustExpr::atom(format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}"))
+                RustExpr::atom(format!(
+                    "{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}"
+                ))
             } else {
-                RustExpr::atom(format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}"))
+                RustExpr::atom(format!(
+                    "{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}"
+                ))
             };
-            let body =
-                self.rendered_at_type(&call, function_ty.return_ty, function_ty.return_ty, &self.render_scope())?;
+            let body = self.rendered_at_type(
+                &call,
+                function_ty.return_ty,
+                function_ty.return_ty,
+                &self.render_scope(),
+            )?;
             let return_ty = if function_ty.may_throw {
                 format!(
                     "Result<{}, {ERROR_BOX}>",
@@ -366,8 +393,12 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::path(format!("smelt_arg{index}")).cloned_value()
                 };
-                let arg_text =
-                    self.rendered_at_type(&arg_source_text, *target_param, source_param, &self.render_scope())?;
+                let arg_text = self.rendered_at_type(
+                    &arg_source_text,
+                    *target_param,
+                    source_param,
+                    &self.render_scope(),
+                )?;
                 if !dispatches_to_source_field
                     && let Some(source_local) =
                         source_function.params.get(index.saturating_add(1)).copied()
@@ -377,7 +408,10 @@ impl FunctionEmitter<'_> {
                         Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
                         let local_name = format!("smelt_arg_{index}");
-                        arg_preludes.push(format!("let mut {local_name} = {arg_text};", arg_text = arg_text.delimited()));
+                        arg_preludes.push(format!(
+                            "let mut {local_name} = {arg_text};",
+                            arg_text = arg_text.delimited()
+                        ));
                         Ok(RustExpr::loose(format!("&mut {local_name}")))
                     }
                 } else {
@@ -417,9 +451,13 @@ impl FunctionEmitter<'_> {
         };
         let call = if dispatches_to_source_field {
             if args.is_empty() {
-                RustExpr::atom(format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}"))
+                RustExpr::atom(format!(
+                    "{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable() }}"
+                ))
             } else {
-                RustExpr::atom(format!("{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}"))
+                RustExpr::atom(format!(
+                    "{{ let smelt_callable = {source_field_base}.{method_name}.clone(); smelt_callable({args}) }}"
+                ))
             }
         } else if args.is_empty() {
             RustExpr::chain(format!("smelt_method_receiver.{method_name}()"))
@@ -441,8 +479,12 @@ impl FunctionEmitter<'_> {
         } else {
             call
         };
-        let body =
-            self.rendered_at_type(&adjusted_call, source_return_ty, function_ty.return_ty, &self.render_scope())?;
+        let body = self.rendered_at_type(
+            &adjusted_call,
+            source_return_ty,
+            function_ty.return_ty,
+            &self.render_scope(),
+        )?;
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, {ERROR_BOX}>",

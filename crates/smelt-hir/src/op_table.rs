@@ -85,15 +85,23 @@ macro_rules! op_field_ty {
 /// Selects the HIR text of an entry's display clause.
 #[macro_export]
 macro_rules! op_hir_display {
-    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => { $hir };
-    (($both:expr)) => { $both };
+    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => {
+        $hir
+    };
+    (($both:expr)) => {
+        $both
+    };
 }
 
 /// Selects the MIR text of an entry's display clause.
 #[macro_export]
 macro_rules! op_mir_display {
-    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => { $mir };
-    (($both:expr)) => { $both };
+    ((hir: $hir:expr, mir: $mir:expr $(,)?)) => {
+        $mir
+    };
+    (($both:expr)) => {
+        $both
+    };
 }
 
 /// Expands to an entry's `fallible` condition; an entry without one cannot throw.

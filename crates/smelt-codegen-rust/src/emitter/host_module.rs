@@ -9,11 +9,11 @@
 //! through the view's boundary adapter exactly as `crypto.subtle.digest`
 //! reads its erased input.
 
-use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::call::RenderedCall;
-use smelt_stdlib::runtime_symbols::host_module as prelude;
+use crate::rust::RustExpr;
 use smelt_hir::{HashOp, HostModuleOp, PathOp};
+use smelt_stdlib::runtime_symbols::host_module as prelude;
 
 impl FunctionEmitter<'_> {
     /// Emit an INFALLIBLE host-module call (a `node:path` function).
@@ -37,7 +37,8 @@ impl FunctionEmitter<'_> {
             })
         };
         let text = |index: usize| -> Result<String, EmitError> {
-            self.string_like_operand_expr(arg(index)?, op.name()).map(RustExpr::into_string)
+            self.string_like_operand_expr(arg(index)?, op.name())
+                .map(RustExpr::into_string)
         };
         Ok(match op {
             PathOp::Join | PathOp::Resolve => {
@@ -49,10 +50,18 @@ impl FunctionEmitter<'_> {
                 let list = self.operand_expr(arg(0)?)?;
                 RustExpr::chain(format!("{helper}(&{})", list_read_expr(&list).tight()))
             }
-            PathOp::Normalize => RustExpr::atom(format!("{}(&{})", prelude::PATH_NORMALIZE_FN, text(0)?)),
-            PathOp::Dirname => RustExpr::atom(format!("{}(&{})", prelude::PATH_DIRNAME_FN, text(0)?)),
-            PathOp::Extname => RustExpr::atom(format!("{}(&{})", prelude::PATH_EXTNAME_FN, text(0)?)),
-            PathOp::IsAbsolute => RustExpr::atom(format!("{}(&{})", prelude::PATH_IS_ABSOLUTE_FN, text(0)?)),
+            PathOp::Normalize => {
+                RustExpr::atom(format!("{}(&{})", prelude::PATH_NORMALIZE_FN, text(0)?))
+            }
+            PathOp::Dirname => {
+                RustExpr::atom(format!("{}(&{})", prelude::PATH_DIRNAME_FN, text(0)?))
+            }
+            PathOp::Extname => {
+                RustExpr::atom(format!("{}(&{})", prelude::PATH_EXTNAME_FN, text(0)?))
+            }
+            PathOp::IsAbsolute => {
+                RustExpr::atom(format!("{}(&{})", prelude::PATH_IS_ABSOLUTE_FN, text(0)?))
+            }
             PathOp::Relative => RustExpr::atom(format!(
                 "{}(&{}, &{})",
                 prelude::PATH_RELATIVE_FN,
@@ -67,12 +76,19 @@ impl FunctionEmitter<'_> {
                     None => "None".to_owned(),
                     Some(suffix) => match self.mir.types.get(self.operand_ty(suffix)?) {
                         Some(Type::Optional(_)) => {
-                            format!("({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()", self.operand_expr(suffix)?.delimited())
+                            format!(
+                                "({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()",
+                                self.operand_expr(suffix)?.delimited()
+                            )
                         }
                         _ => format!("Some({}.to_string().as_str())", text(1)?),
                     },
                 };
-                RustExpr::atom(format!("{}(&{}, {suffix})", prelude::PATH_BASENAME_FN, text(0)?))
+                RustExpr::atom(format!(
+                    "{}(&{}, {suffix})",
+                    prelude::PATH_BASENAME_FN,
+                    text(0)?
+                ))
             }
         })
     }
@@ -100,7 +116,11 @@ impl FunctionEmitter<'_> {
         match op {
             HashOp::Create => {
                 let algorithm = self.string_like_operand_expr(arg(0)?, op.name())?;
-                Ok(RenderedCall::propagating(RustExpr::atom(format!("{}(&{algorithm})", prelude::HASH_CREATE_FN, algorithm = algorithm.tight()))))
+                Ok(RenderedCall::propagating(RustExpr::atom(format!(
+                    "{}(&{algorithm})",
+                    prelude::HASH_CREATE_FN,
+                    algorithm = algorithm.tight()
+                ))))
             }
             HashOp::Update => {
                 let hash = self.operand_expr(arg(0)?)?;
@@ -111,14 +131,17 @@ impl FunctionEmitter<'_> {
                 let encoding = self.string_like_operand_expr(arg(1)?, op.name())?;
                 Ok(RenderedCall::propagating(RustExpr::atom(format!(
                     "{}(&{hash}, &{encoding})",
-                    prelude::HASH_DIGEST_TEXT_FN, hash = hash.tight(), encoding = encoding.tight()
+                    prelude::HASH_DIGEST_TEXT_FN,
+                    hash = hash.tight(),
+                    encoding = encoding.tight()
                 ))))
             }
             HashOp::DigestBytes => {
                 let hash = self.operand_expr(arg(0)?)?;
                 Ok(RenderedCall::propagating(RustExpr::atom(format!(
                     "{}(&{hash}).map(SmeltUint8Array::from_bytes)",
-                    prelude::HASH_DIGEST_BYTES_FN, hash = hash.tight()
+                    prelude::HASH_DIGEST_BYTES_FN,
+                    hash = hash.tight()
                 ))))
             }
         }
@@ -144,11 +167,17 @@ impl FunctionEmitter<'_> {
             .transpose()?
             .unwrap_or_else(|| RustExpr::chain("\"utf8\".to_owned()"));
         let data_ty = self.operand_ty(data)?;
-        if matches!(self.mir.types.get(data_ty), Some(Type::String | Type::PyStr)) {
+        if matches!(
+            self.mir.types.get(data_ty),
+            Some(Type::String | Type::PyStr)
+        ) {
             let text = self.string_like_operand_expr(data, "hash.update data")?;
             return Ok(RenderedCall::propagating(RustExpr::atom(format!(
                 "{}(&{hash}, &{text}, &{encoding})",
-                prelude::HASH_UPDATE_TEXT_FN, hash = hash.tight(), text = text.tight(), encoding = encoding.tight()
+                prelude::HASH_UPDATE_TEXT_FN,
+                hash = hash.tight(),
+                text = text.tight(),
+                encoding = encoding.tight()
             ))));
         }
         if self.is_typed_array_view_class_type(data_ty)?
@@ -158,14 +187,18 @@ impl FunctionEmitter<'_> {
             return Ok(RenderedCall::propagating(RustExpr::atom(format!(
                 "{}(&{hash}, &({}).to_bytes())",
                 prelude::HASH_UPDATE_BYTES_FN,
-                self.operand_expr(data)?.delimited(), hash = hash.tight()
+                self.operand_expr(data)?.delimited(),
+                hash = hash.tight()
             ))));
         }
-        if let Some(bytes) = self.byte_source_union_bytes_expr(&self.operand_expr(data)?, data_ty)?
+        if let Some(bytes) =
+            self.byte_source_union_bytes_expr(&self.operand_expr(data)?, data_ty)?
         {
             return Ok(RenderedCall::propagating(RustExpr::atom(format!(
                 "{}(&{hash}, &{bytes})",
-                prelude::HASH_UPDATE_BYTES_FN, hash = hash.tight(), bytes = bytes.tight()
+                prelude::HASH_UPDATE_BYTES_FN,
+                hash = hash.tight(),
+                bytes = bytes.tight()
             ))));
         }
         let erased = self.erase(data)?;
@@ -190,10 +223,7 @@ impl FunctionEmitter<'_> {
     /// table the frontend filled when it typed the node: the `Hash` class for
     /// `createHash`/`update`, a `String` for an encoded digest and the
     /// `Uint8Array` view for the raw one.
-    pub(super) fn host_module_call_source_ty(
-        &self,
-        op: HostModuleOp,
-    ) -> Result<TypeId, EmitError> {
+    pub(super) fn host_module_call_source_ty(&self, op: HostModuleOp) -> Result<TypeId, EmitError> {
         let found = match op {
             HostModuleOp::Path(PathOp::IsAbsolute) => return self.type_id(Type::Bool),
             HostModuleOp::Path(_) | HostModuleOp::Hash(HashOp::DigestText) => {

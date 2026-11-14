@@ -57,7 +57,10 @@ impl<'run> ModuleGraph<'run> {
 
     /// The source a resolved edge's target is.
     fn source_at(&self, target: &Path) -> Option<&'run ManifestSource> {
-        self.by_path.get(&canonical(target)).and_then(|index| self.sources.get(*index)).copied()
+        self.by_path
+            .get(&canonical(target))
+            .and_then(|index| self.sources.get(*index))
+            .copied()
     }
 
     /// Whether `importer` (a source path as the checker reports it) has an
@@ -76,7 +79,11 @@ impl<'run> ModuleGraph<'run> {
     /// imports: the providers whose stubs one checker needs.
     pub(crate) fn cross_language_providers(&self, provider: Language) -> Vec<&'run ManifestSource> {
         let mut providers: Vec<&ManifestSource> = Vec::new();
-        for importer in self.sources.iter().filter(|source| Language::of(source.lang) == provider.other()) {
+        for importer in self
+            .sources
+            .iter()
+            .filter(|source| Language::of(source.lang) == provider.other())
+        {
             for edge in &importer.resolved_imports {
                 if let Some(target) = self.source_at(&edge.target)
                     && Language::of(target.lang) == provider
@@ -93,16 +100,28 @@ impl<'run> ModuleGraph<'run> {
     /// the run's (dependency) order.
     pub(crate) fn closure_of(&self, roots: &[&ManifestSource]) -> Vec<&'run ManifestSource> {
         let mut wanted = vec![false; self.sources.len()];
-        let mut pending = roots.iter().map(|root| canonical(&root.path)).collect::<Vec<_>>();
+        let mut pending = roots
+            .iter()
+            .map(|root| canonical(&root.path))
+            .collect::<Vec<_>>();
         while let Some(path) = pending.pop() {
-            let Some(&index) = self.by_path.get(&path) else { continue };
-            let Some(seen) = wanted.get_mut(index) else { continue };
+            let Some(&index) = self.by_path.get(&path) else {
+                continue;
+            };
+            let Some(seen) = wanted.get_mut(index) else {
+                continue;
+            };
             if *seen {
                 continue;
             }
             *seen = true;
             if let Some(source) = self.sources.get(index) {
-                pending.extend(source.dependencies.iter().map(|dependency| canonical(dependency)));
+                pending.extend(
+                    source
+                        .dependencies
+                        .iter()
+                        .map(|dependency| canonical(dependency)),
+                );
             }
         }
         self.sources
@@ -164,7 +183,10 @@ impl CrossLanguageStubs {
 
     /// The `.pyi` stubs, each at the path a Python import of its provider looks.
     pub(crate) fn python_declarations(&self) -> Vec<(PathBuf, &str)> {
-        self.python.iter().map(|(provider, text)| (stub_path(provider, "pyi", "__init__"), text.as_str())).collect()
+        self.python
+            .iter()
+            .map(|(provider, text)| (stub_path(provider, "pyi", "__init__"), text.as_str()))
+            .collect()
     }
 }
 
@@ -197,7 +219,10 @@ pub(crate) fn checker_location(source: &ManifestSource) -> PathBuf {
     if source.lang != SourceLang::TypeScript {
         return absolute;
     }
-    let swapped = match absolute.extension().and_then(|extension| extension.to_str()) {
+    let swapped = match absolute
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
         Some("js") => "ts",
         Some("mjs") => "mts",
         Some("cjs") => "cts",
@@ -209,7 +234,8 @@ pub(crate) fn checker_location(source: &ManifestSource) -> PathBuf {
 
 /// `path` canonicalized when it exists, made absolute otherwise.
 fn canonical(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()))
+    path.canonicalize()
+        .unwrap_or_else(|_| std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
 /// Whether `specifier` is bare (a package name), not relative or absolute.
@@ -220,7 +246,10 @@ fn is_bare(specifier: &str) -> bool {
 /// The TypeScript checker's program for `graph`, with `stubs` for the Python
 /// modules TypeScript imports.
 #[cfg(feature = "ts7")]
-pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageStubs) -> smelt_ts_types::CheckProgram {
+pub(crate) fn typescript_program(
+    graph: &ModuleGraph<'_>,
+    stubs: &CrossLanguageStubs,
+) -> smelt_ts_types::CheckProgram {
     let typescript = graph
         .sources()
         .iter()
@@ -230,10 +259,17 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
         .iter()
         .map(|source| {
             let mut text = source.source.clone();
-            let globals = smelt_frontend_ts::ambient_test_globals(&source.source, &source.path.display().to_string());
+            let globals = smelt_frontend_ts::ambient_test_globals(
+                &source.source,
+                &source.path.display().to_string(),
+            );
             if !globals.is_empty() {
                 // Appended, so every span of the lowered text is unchanged.
-                let _ = write!(text, "\n;import {{ {} }} from \"vitest\";\n", globals.join(", "));
+                let _ = write!(
+                    text,
+                    "\n;import {{ {} }} from \"vitest\";\n",
+                    globals.join(", ")
+                );
             }
             smelt_ts_types::SourceInput::new(source.path.display().to_string(), text)
                 .located_at(checker_location(source).display().to_string())
@@ -251,14 +287,21 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
     // import means: the checker reads it (its own diagnostics are not the
     // crate's) and resolves the import to it.
     let mut excluded = BTreeSet::new();
-    for edge in typescript.iter().flat_map(|importer| &importer.excluded_targets) {
+    for edge in typescript
+        .iter()
+        .flat_map(|importer| &importer.excluded_targets)
+    {
         let target = canonical(&edge.target);
-        let is_typescript = SourceLang::from_path(&target.display().to_string()).is_ok_and(SourceLang::is_typescript);
+        let is_typescript = SourceLang::from_path(&target.display().to_string())
+            .is_ok_and(SourceLang::is_typescript);
         if is_typescript
             && !excluded.contains(&target)
             && let Ok(text) = std::fs::read_to_string(&target)
         {
-            declarations.push(smelt_ts_types::SourceInput::new(target.display().to_string(), text));
+            declarations.push(smelt_ts_types::SourceInput::new(
+                target.display().to_string(),
+                text,
+            ));
             excluded.insert(target);
         }
     }
@@ -281,20 +324,37 @@ pub(crate) fn typescript_program(graph: &ModuleGraph<'_>, stubs: &CrossLanguageS
     }
     declarations.push(smelt_ts_types::SourceInput::new(
         HOST_MODULES_PATH,
-        format!("{}{modeled}{untyped_declarations}", host_module_declarations()),
+        format!(
+            "{}{modeled}{untyped_declarations}",
+            host_module_declarations()
+        ),
     ));
     let mut module_paths = BTreeMap::new();
     for importer in &typescript {
-        for edge in importer.excluded_targets.iter().filter(|edge| is_bare(&edge.specifier)) {
-            module_paths.entry(edge.specifier.clone()).or_insert_with(|| canonical(&edge.target).display().to_string());
+        for edge in importer
+            .excluded_targets
+            .iter()
+            .filter(|edge| is_bare(&edge.specifier))
+        {
+            module_paths
+                .entry(edge.specifier.clone())
+                .or_insert_with(|| canonical(&edge.target).display().to_string());
         }
-        for edge in importer.resolved_imports.iter().filter(|edge| is_bare(&edge.specifier)) {
-            let Some(target) = graph.source_at(&edge.target) else { continue };
+        for edge in importer
+            .resolved_imports
+            .iter()
+            .filter(|edge| is_bare(&edge.specifier))
+        {
+            let Some(target) = graph.source_at(&edge.target) else {
+                continue;
+            };
             let location = match Language::of(target.lang) {
                 Language::TypeScript => checker_location(target),
                 Language::Python => stub_path(&canonical(&target.path), "d.ts", "index"),
             };
-            module_paths.entry(edge.specifier.clone()).or_insert_with(|| location.display().to_string());
+            module_paths
+                .entry(edge.specifier.clone())
+                .or_insert_with(|| location.display().to_string());
         }
     }
     smelt_ts_types::CheckProgram::of_sources(sources)
@@ -319,15 +379,25 @@ const HOST_MODULES_PATH: &str = "__smelt_host_modules.d.ts";
 fn host_module_declarations() -> String {
     let mut text = String::new();
     for module in smelt_stdlib::HOST_MODULES {
-        if module.specifiers.iter().any(|specifier| specifier.starts_with("node:")) {
+        if module
+            .specifiers
+            .iter()
+            .any(|specifier| specifier.starts_with("node:"))
+        {
             continue;
         }
         let mut body = String::new();
         for export in module.exports {
-            if matches!(export.kind, smelt_stdlib::HostExportKind::Value | smelt_stdlib::HostExportKind::ValueAndType) {
+            if matches!(
+                export.kind,
+                smelt_stdlib::HostExportKind::Value | smelt_stdlib::HostExportKind::ValueAndType
+            ) {
                 let _ = writeln!(body, "  export const {}: any;", export.name);
             }
-            if matches!(export.kind, smelt_stdlib::HostExportKind::Type | smelt_stdlib::HostExportKind::ValueAndType) {
+            if matches!(
+                export.kind,
+                smelt_stdlib::HostExportKind::Type | smelt_stdlib::HostExportKind::ValueAndType
+            ) {
                 let _ = writeln!(body, "  export type {} = any;", export.name);
             }
         }
@@ -346,10 +416,22 @@ mod tests {
     /// beside it.
     #[test]
     fn stubs_go_where_the_import_looks() {
-        assert_eq!(stub_path(Path::new("/p/src/math.py"), "d.ts", "index"), Path::new("/p/src/math.d.ts"));
-        assert_eq!(stub_path(Path::new("/p/src/pkg/__init__.py"), "d.ts", "index"), Path::new("/p/src/pkg/index.d.ts"));
-        assert_eq!(stub_path(Path::new("/p/src/lib/index.ts"), "pyi", "__init__"), Path::new("/p/src/lib/__init__.pyi"));
-        assert_eq!(stub_path(Path::new("/p/src/util.ts"), "pyi", "__init__"), Path::new("/p/src/util.pyi"));
+        assert_eq!(
+            stub_path(Path::new("/p/src/math.py"), "d.ts", "index"),
+            Path::new("/p/src/math.d.ts")
+        );
+        assert_eq!(
+            stub_path(Path::new("/p/src/pkg/__init__.py"), "d.ts", "index"),
+            Path::new("/p/src/pkg/index.d.ts")
+        );
+        assert_eq!(
+            stub_path(Path::new("/p/src/lib/index.ts"), "pyi", "__init__"),
+            Path::new("/p/src/lib/__init__.pyi")
+        );
+        assert_eq!(
+            stub_path(Path::new("/p/src/util.ts"), "pyi", "__init__"),
+            Path::new("/p/src/util.pyi")
+        );
     }
 
     /// Every modeled npm package is declared with every export it models.
@@ -357,8 +439,14 @@ mod tests {
     #[test]
     fn modeled_npm_packages_are_declared() {
         let text = host_module_declarations();
-        assert!(text.contains("declare module \"@hono/node-server\" {\n  export const serve: any;"), "{text}");
-        assert!(!text.contains("\"node:"), "Node's own modules come from @types/node: {text}");
+        assert!(
+            text.contains("declare module \"@hono/node-server\" {\n  export const serve: any;"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("\"node:"),
+            "Node's own modules come from @types/node: {text}"
+        );
     }
 
     /// Bare specifiers are package names; relative and absolute ones are not.

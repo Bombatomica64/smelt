@@ -22,7 +22,8 @@ mod common;
 use std::{fs, path::Path};
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, ensure_python_agrees, smelt_in,
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees,
+    ensure_python_agrees, smelt_in,
 };
 
 /// Writes a one-entry project at `root` around the files of `sources`.
@@ -90,7 +91,11 @@ fn dynamic_addition_follows_javascript() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &DYNAMIC_ADD_OUTPUT.to_owned(), "the dynamic-addition program's output")?;
+    ensure_eq(
+        &output,
+        &DYNAMIC_ADD_OUTPUT.to_owned(),
+        "the dynamic-addition program's output",
+    )?;
     // Type preservation: the erased carrier only where `+` is decided at run
     // time; a definite string side and a declared `number` keep their types.
     let generated = fs::read_to_string(root.join("dist/src/source_main.rs"))?;
@@ -100,7 +105,10 @@ fn dynamic_addition_follows_javascript() -> TestResult {
         "fn h(u: SmeltUnknown) -> f64",
         "fn k(a: SmeltUnknown, b: SmeltUnknown) -> SmeltUnknown",
     ] {
-        ensure(generated.contains(signature), format!("generated Rust keeps `{signature}`"))?;
+        ensure(
+            generated.contains(signature),
+            format!("generated Rust keeps `{signature}`"),
+        )?;
     }
     Ok(())
 }
@@ -122,18 +130,28 @@ console.log(m?.join(","), m?.length, m?.[1], "q".match(/z/)?.[0]);
 "#;
 
 /// What Node prints for [`OPTIONAL_RECEIVER_TS`].
-const OPTIONAL_RECEIVER_OUTPUT: &str = "ab,b undefined\nb-b none\na,b undefined ABC undefined 4\nab,b 2 b undefined\n";
+const OPTIONAL_RECEIVER_OUTPUT: &str =
+    "ab,b undefined\nb-b none\na,b undefined ABC undefined 4\nab,b 2 b undefined\n";
 
 /// `receiver?.method()` lowers for any receiver whose present type has builtin methods.
 #[test]
 fn optional_builtin_calls_on_any_receiver() -> TestResult {
     let sources = [("main.ts", OPTIONAL_RECEIVER_TS)];
-    ensure_node_agrees(&sources, "main.ts", OPTIONAL_RECEIVER_OUTPUT, "optional receiver")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        OPTIONAL_RECEIVER_OUTPUT,
+        "optional receiver",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &OPTIONAL_RECEIVER_OUTPUT.to_owned(), "the optional-receiver program's output")
+    ensure_eq(
+        &output,
+        &OPTIONAL_RECEIVER_OUTPUT.to_owned(),
+        "the optional-receiver program's output",
+    )
 }
 
 /// A record whose members are named like `Map` methods (`has`, `get`,
@@ -157,7 +175,11 @@ fn record_members_named_like_map_methods_are_members() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &RECORD_MEMBERS_OUTPUT.to_owned(), "the record-members program's output")
+    ensure_eq(
+        &output,
+        &RECORD_MEMBERS_OUTPUT.to_owned(),
+        "the record-members program's output",
+    )
 }
 
 /// Every set builtin and operator `CPython` gives a `set`, including the
@@ -222,5 +244,9 @@ fn python_sets_match_cpython() -> TestResult {
     let root = temp.path();
     write_project(root, "main.py", &[("main.py", PYTHON_SETS)])?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &PYTHON_SETS_OUTPUT.to_owned(), "the python-sets program's output")
+    ensure_eq(
+        &output,
+        &PYTHON_SETS_OUTPUT.to_owned(),
+        "the python-sets program's output",
+    )
 }

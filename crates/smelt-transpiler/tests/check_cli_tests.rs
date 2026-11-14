@@ -11,7 +11,8 @@ use common::{TempProject, TestResult, ensure};
 const VALID: &str = "const n: number = 2;\nconsole.log(n);\n";
 
 /// A program `tsc` rejects on line 2, which Smelt can still lower.
-const REJECTED: &str = "function f(x: string): void {\n  const n: number = x;\n  console.log(n);\n}\nf(\"a\");\n";
+const REJECTED: &str =
+    "function f(x: string): void {\n  const n: number = x;\n  console.log(n);\n}\nf(\"a\");\n";
 
 /// Writes a one-entry project.
 fn project(dir: &Path, source: &str) -> TestResult {
@@ -64,12 +65,21 @@ fn deny_type_errors_fails_the_check() -> TestResult {
     ensure(stderr.contains("error[type-check]"), stderr.clone())?;
     ensure(stderr.contains("1 error(s)"), stderr)?;
 
-    let (passed, stdout, _) =
-        run(temp.path(), None, &["check", "--message-format", "json", "--deny-type-errors"])?;
-    ensure(!passed, "a checker error passed --deny-type-errors with JSON output")?;
+    let (passed, stdout, _) = run(
+        temp.path(),
+        None,
+        &["check", "--message-format", "json", "--deny-type-errors"],
+    )?;
+    ensure(
+        !passed,
+        "a checker error passed --deny-type-errors with JSON output",
+    )?;
     let rows: serde_json::Value = serde_json::from_str(&stdout)?;
     let row = rows.get(0).ok_or("no diagnostic row")?;
-    ensure(row["category"] == "type-check" && row["severity"] == "error", stdout.clone())?;
+    ensure(
+        row["category"] == "type-check" && row["severity"] == "error",
+        stdout.clone(),
+    )?;
     ensure(row["line"] == 2, stdout)
 }
 
@@ -95,8 +105,12 @@ fn smelt_ts7_zero_leaves_the_program_unverified() -> TestResult {
     project(temp.path(), REJECTED)?;
     let (ok, _, stderr) = run(temp.path(), Some("0"), &["check"])?;
     ensure(ok, stderr.clone())?;
-    ensure(stderr.contains("not type-checked") && !stderr.contains("TS2322"), stderr)?;
-    let (denied_ok, _, denied_stderr) = run(temp.path(), Some("0"), &["check", "--deny-type-errors"])?;
+    ensure(
+        stderr.contains("not type-checked") && !stderr.contains("TS2322"),
+        stderr,
+    )?;
+    let (denied_ok, _, denied_stderr) =
+        run(temp.path(), Some("0"), &["check", "--deny-type-errors"])?;
     ensure(!denied_ok, "an unchecked program passed --deny-type-errors")?;
     ensure(denied_stderr.contains("SMELT_TS7=0"), denied_stderr)
 }

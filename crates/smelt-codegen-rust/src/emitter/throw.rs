@@ -6,8 +6,8 @@
 //! through the same ABI. See `crate::thrown` for why the payload crosses the
 //! error channel as a `SmeltUnknown`.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 use crate::thrown;
 use smelt_mir::ClosureId;
 
@@ -37,7 +37,8 @@ impl FunctionEmitter<'_> {
     pub(super) fn throw_terminator_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let payload = self.thrown_payload_expr(operand)?;
         Ok(format!(
-            "    return Err::<_, {ERROR_BOX}>({payload});\n", payload = payload.delimited()
+            "    return Err::<_, {ERROR_BOX}>({payload});\n",
+            payload = payload.delimited()
         ))
     }
 
@@ -94,10 +95,16 @@ impl FunctionEmitter<'_> {
         error_text: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
         if self.is_py_exception_type(exception_ty) {
-            return Ok(RustExpr::atom(format!("SmeltPyException::from_error(&*{error_text})", error_text = error_text.tight())));
+            return Ok(RustExpr::atom(format!(
+                "SmeltPyException::from_error(&*{error_text})",
+                error_text = error_text.tight()
+            )));
         }
         match self.mir.types.get(exception_ty) {
-            Some(Type::String) => Ok(RustExpr::chain(format!("JsString::from({error_text}.to_string())", error_text = error_text.tight()))),
+            Some(Type::String) => Ok(RustExpr::chain(format!(
+                "JsString::from({error_text}.to_string())",
+                error_text = error_text.tight()
+            ))),
             Some(Type::PyStr) => Ok(error_text.postfix(".to_string()")),
             Some(Type::Unknown) => Ok(thrown::thrown_value_expr(error_text)),
             _ => self.default_value(exception_ty),
@@ -219,11 +226,7 @@ fn closure_captured_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId
         if !visited.insert(id) {
             continue;
         }
-        let Some(closure) = mir
-            .closures
-            .iter()
-            .find(|candidate| candidate.id == id)
-        else {
+        let Some(closure) = mir.closures.iter().find(|candidate| candidate.id == id) else {
             continue;
         };
         captured.extend(closure.captures.iter().map(|capture| capture.source_local));

@@ -75,8 +75,7 @@ fn emit_program(source: &str, crate_name: &str, crate_dir: &Path) {
             to_hir(&source, FileId(0), &mut ctx).expect("HIR lowering");
             let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
             smelt_mir::opt::optimize(&mut mir);
-            let options =
-                EmitOptions::new(crate_name).with_crate_kind(CrateKind::Program);
+            let options = EmitOptions::new(crate_name).with_crate_kind(CrateKind::Program);
             emit_crate(&mir, &crate_dir, &options).expect("crate emission");
         })
         .expect("spawn emitter thread")
@@ -114,7 +113,10 @@ fn run_generated_program(crate_dir: &Path, target_dir: &Path) -> String {
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("smelt-node-http-runtime-{}-{seq}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "smelt-node-http-runtime-{}-{seq}",
+        std::process::id()
+    ))
 }
 
 /// Emit `source` as a program crate, run it, and assert its whole stdout.

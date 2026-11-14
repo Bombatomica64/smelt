@@ -41,9 +41,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -199,7 +196,10 @@ fn a_nested_destructured_callback_parameter_reads_the_nested_value() {
     //
     // The one-level shapes are asserted alongside, because the recursion must
     // not change what they already answered.
-    run_fixture(CALLBACK_DESTRUCTURING_SOURCE, "smelt_callback_destructuring_nesting");
+    run_fixture(
+        CALLBACK_DESTRUCTURING_SOURCE,
+        "smelt_callback_destructuring_nesting",
+    );
 }
 
 #[test]

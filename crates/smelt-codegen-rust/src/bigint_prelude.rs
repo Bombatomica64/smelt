@@ -36,7 +36,6 @@
     reason = "crate-visible helpers are shared with the parent module and the emitter shards"
 )]
 
-
 use crate::rust::RustExpr;
 
 /// The Rust type a JavaScript `bigint` is carried as.
@@ -51,6 +50,8 @@ pub(crate) fn literal_expr(digits: &str) -> RustExpr {
     if let Ok(small) = digits.parse::<i64>() {
         RustExpr::atom(format!("{BIGINT_TYPE}::from({small}_i64)"))
     } else {
-        RustExpr::atom(format!("{digits:?}.parse::<{BIGINT_TYPE}>().expect(\"bigint literal digits\")"))
+        RustExpr::atom(format!(
+            "{digits:?}.parse::<{BIGINT_TYPE}>().expect(\"bigint literal digits\")"
+        ))
     }
 }

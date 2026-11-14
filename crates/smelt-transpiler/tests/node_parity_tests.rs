@@ -32,7 +32,12 @@ fn verify_node_parity_with(name: &str, modules: &[&str]) -> TestResult {
         .map(|module| fs::read_to_string(fixtures.join(name).join(module)))
         .collect::<Result<Vec<_>, _>>()?;
     let mut files = vec![("main.ts", source.as_str())];
-    files.extend(modules.iter().copied().zip(module_sources.iter().map(String::as_str)));
+    files.extend(
+        modules
+            .iter()
+            .copied()
+            .zip(module_sources.iter().map(String::as_str)),
+    );
     ensure_node_agrees(&files, "main.ts", &expected, name)?;
     let project = TempProject::new()?;
     let root = project.path();
@@ -227,7 +232,11 @@ fn contextual_add_and_symbol_keys() -> TestResult {
 #[test]
 fn uncaught_throw_exits_one_with_its_message() -> TestResult {
     let programs = [
-        ("returned out of main", "throw new TypeError('top level');\n", "TypeError: top level"),
+        (
+            "returned out of main",
+            "throw new TypeError('top level');\n",
+            "TypeError: top level",
+        ),
         (
             "through a callback",
             "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
@@ -265,9 +274,17 @@ build = false
             .current_dir(root)
             .env("RUSTFLAGS", "-Awarnings")
             .output()?;
-        ensure_eq(&output.status.code(), &Some(1_i32), format!("{name}: exit status"))?;
+        ensure_eq(
+            &output.status.code(),
+            &Some(1_i32),
+            format!("{name}: exit status"),
+        )?;
         let stderr = String::from_utf8_lossy(&output.stderr);
-        ensure_eq(&stderr.contains(message), &true, format!("{name}: stderr was {stderr}"))?;
+        ensure_eq(
+            &stderr.contains(message),
+            &true,
+            format!("{name}: stderr was {stderr}"),
+        )?;
     }
     Ok(())
 }
@@ -596,7 +613,10 @@ fn namespace_generic_calls() -> TestResult {
 /// importer, and a class may name itself from its own members.
 #[test]
 fn namespace_reexports() -> TestResult {
-    verify_node_parity_with("namespace_reexports", &["index.ts", "patterns.ts", "symbols.ts"])
+    verify_node_parity_with(
+        "namespace_reexports",
+        &["index.ts", "patterns.ts", "symbols.ts"],
+    )
 }
 
 /// A spread fills a rest parameter element by element through a function value.

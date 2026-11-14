@@ -79,7 +79,12 @@ fn ancestor_substitutions(mir: &mut Mir, class_index: usize) -> Vec<AncestorMemb
         if !map.is_empty()
             && let Some(base) = mir.classes.get(base_index)
         {
-            let members = base.methods.iter().copied().chain(base.constructor).collect();
+            let members = base
+                .methods
+                .iter()
+                .copied()
+                .chain(base.constructor)
+                .collect();
             result.push((members, map.clone()));
         }
         outer = map;

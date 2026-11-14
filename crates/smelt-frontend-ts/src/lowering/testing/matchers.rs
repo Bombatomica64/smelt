@@ -1,10 +1,10 @@
 //! Assertion lowering: vitest `expect(..)` matchers, asymmetric matchers, node
 //! `assert` calls and the HIR expressions they compare with.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::{ModuleBuilder, TestMatcher};
 use crate::SmeltError;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::{ModuleBuilder, TestMatcher};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -132,7 +132,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::TestHarness, "asymmetric matcher");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
 
         let mut sample_items = Vec::with_capacity(call.arguments.len());
@@ -373,17 +377,33 @@ impl ModuleBuilder<'_> {
                 span: hir_span,
             }),
         };
-        self.runtime_check("assertions_plan", planned, &[], false, call.span, &format!("expect.{name}"), body)
+        self.runtime_check(
+            "assertions_plan",
+            planned,
+            &[],
+            false,
+            call.span,
+            &format!("expect.{name}"),
+            body,
+        )
     }
 
     /// Count one vitest assertion when this test planned a number of them.
-    pub(in crate::lowering) fn tick_planned_assertion(&mut self, span: oxc::span::Span, body: &mut Body) {
+    pub(in crate::lowering) fn tick_planned_assertion(
+        &mut self,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) {
         if !self.test_counts_assertions {
             return;
         }
         let none = self.ctx.krate.types.intern(Type::None);
         let hir_span = self.span(span.start, span.end);
-        let actual = body.push_expr(Expr { kind: ExprKind::Literal(Literal::None), ty: none, span: hir_span });
+        let actual = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: none,
+            span: hir_span,
+        });
         let tick = self.runtime_check_expr("assertions_tick", actual, &[], span, body);
         self.push_stmt_to_sink(body, Stmt::Expr(tick));
     }
@@ -391,15 +411,26 @@ impl ModuleBuilder<'_> {
     /// Whether the source of `span` uses a planned assertion count.
     pub(in crate::lowering) fn span_plans_assertions(&self, span: oxc::span::Span) -> bool {
         self.source
-            .get(usize::try_from(span.start).unwrap_or(usize::MAX)..usize::try_from(span.end).unwrap_or(0))
+            .get(
+                usize::try_from(span.start).unwrap_or(usize::MAX)
+                    ..usize::try_from(span.end).unwrap_or(0),
+            )
             .is_some_and(|text| text.contains(".assertions(") || text.contains(".hasAssertions("))
     }
 
     /// Fail the test whose run did not make its planned number of assertions.
-    pub(in crate::lowering) fn verify_planned_assertions(&mut self, span: oxc::span::Span, body: &mut Body) {
+    pub(in crate::lowering) fn verify_planned_assertions(
+        &mut self,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) {
         let none = self.ctx.krate.types.intern(Type::None);
         let hir_span = self.span(span.start, span.end);
-        let actual = body.push_expr(Expr { kind: ExprKind::Literal(Literal::None), ty: none, span: hir_span });
+        let actual = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: none,
+            span: hir_span,
+        });
         let holds = self.runtime_check_expr("assertions_verify", actual, &[], span, body);
         self.assertion_holds(holds, false, "expect.assertions", span, body);
     }
@@ -429,9 +460,15 @@ impl ModuleBuilder<'_> {
             };
             let name = match &property.key {
                 oxc::ast::ast::PropertyKey::StaticIdentifier(key) => key.name.as_str().to_owned(),
-                oxc::ast::ast::PropertyKey::StringLiteral(key) => crate::lowering::js_text::js_str_text(key.value).into_owned(),
+                oxc::ast::ast::PropertyKey::StringLiteral(key) => {
+                    crate::lowering::js_text::js_str_text(key.value).into_owned()
+                }
                 _ => {
-                    self.unmodelled_assertion("expect.extend with a computed name", call.span, body);
+                    self.unmodelled_assertion(
+                        "expect.extend with a computed name",
+                        call.span,
+                        body,
+                    );
                     return Ok(());
                 }
             };
@@ -440,9 +477,21 @@ impl ModuleBuilder<'_> {
             let span = self.span(property.span.start, property.span.end);
             let binding = Self::custom_matcher_binding(&name);
             let symbol = self.intern_source_name(&binding);
-            let local = body.push_local(LocalDecl { name: Some(symbol), ty, mutable: false, span });
+            let local = body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: false,
+                span,
+            });
             let pat = body.push_pattern(Pattern::Binding(local));
-            self.push_stmt_to_sink(body, Stmt::Let { pat, ty, value: Some(value) });
+            self.push_stmt_to_sink(
+                body,
+                Stmt::Let {
+                    pat,
+                    ty,
+                    value: Some(value),
+                },
+            );
             self.scope.bind(binding, local);
         }
         Ok(())
@@ -471,7 +520,11 @@ impl ModuleBuilder<'_> {
         let matcher_ty = body.local_at(local).map(|decl| decl.ty).ok_or_else(|| {
             SmeltError::unsupported(span, "custom matcher binding has no declared type")
         })?;
-        let callee = body.push_expr(Expr { kind: ExprKind::Local(local), ty: matcher_ty, span });
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty: matcher_ty,
+            span,
+        });
         let mut args = vec![self.argument(actual, body)?];
         for argument in &call.arguments {
             args.push(self.argument(argument, body)?);
@@ -480,9 +533,19 @@ impl ModuleBuilder<'_> {
             Some(Type::Function(function)) => function.return_ty,
             _ => self.erase(ErasureReason::TestHarness),
         };
-        let result = body.push_expr(Expr { kind: ExprKind::ClosureCall { callee, args }, ty: result_ty, span });
+        let result = body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: result_ty,
+            span,
+        });
         let holds = self.runtime_check_expr("custom_matcher_passed", result, &[], call.span, body);
-        self.assertion_holds(holds, inverted, &format!("expect(...).{name}(...)"), call.span, body);
+        self.assertion_holds(
+            holds,
+            inverted,
+            &format!("expect(...).{name}(...)"),
+            call.span,
+            body,
+        );
         Ok(true)
     }
 
@@ -584,8 +647,10 @@ impl ModuleBuilder<'_> {
         match expression.get_inner_expression() {
             Expression::CallExpression(call) => self.is_expect_namespace(&call.callee),
             Expression::StaticMemberExpression(member) => {
-                matches!(member.property.name.as_str(), "not" | "resolves" | "rejects")
-                    && self.is_vitest_expect_receiver(&member.object)
+                matches!(
+                    member.property.name.as_str(),
+                    "not" | "resolves" | "rejects"
+                ) && self.is_vitest_expect_receiver(&member.object)
             }
             _ => false,
         }
@@ -670,8 +735,7 @@ impl ModuleBuilder<'_> {
             if !Self::matcher_name_is_modelled(name) {
                 return Ok(false);
             }
-            let (expect_call, inverted) =
-                self.expect_call_from_matcher_object(&member.object)?;
+            let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
             let Expression::Identifier(expect_ident) = &expect_call.callee else {
                 return Ok(false);
             };
@@ -686,10 +750,18 @@ impl ModuleBuilder<'_> {
                     format!("expect(...).{name}(...) requires an actual value"),
                 ));
             };
-            SiteActual::Argument { argument: actual_arg, inverted }
+            SiteActual::Argument {
+                argument: actual_arg,
+                inverted,
+            }
         };
         self.matcher_site_statement(
-            MatcherSite { name, arguments: &call.arguments, span: call.span, actual },
+            MatcherSite {
+                name,
+                arguments: &call.arguments,
+                span: call.span,
+                actual,
+            },
             body,
         )
     }
@@ -710,10 +782,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
         let canonical = Self::canonical_matcher_name(site.name);
-        if matches!(
-            canonical,
-            "toThrow" | "toThrowErrorMatchingInlineSnapshot"
-        ) {
+        if matches!(canonical, "toThrow" | "toThrowErrorMatchingInlineSnapshot") {
             // `toThrow` asserts on a callback, so a pre-lowered value cannot
             // stand in for it; `matcher_accepts_lowered_actual` keeps callers
             // from reaching here with one.
@@ -842,7 +911,10 @@ impl ModuleBuilder<'_> {
             );
             return Ok(true);
         }
-        if matches!(canonical, "toBeNaN" | "toBeCloseTo" | "toMatchInlineSnapshot") {
+        if matches!(
+            canonical,
+            "toBeNaN" | "toBeCloseTo" | "toMatchInlineSnapshot"
+        ) {
             return self.erased_value_matcher_statement(site, canonical, body);
         }
         if canonical == "toHaveBeenCalledExactlyOnceWith" {
@@ -957,12 +1029,12 @@ impl ModuleBuilder<'_> {
         // it while the numeric rule applies to the deep matchers too.
         let use_strict_identity = !uses_asymmetric_matcher
             && match matcher {
-            TestMatcher::Be => self.test_to_be_needs_strict_identity(actual, expected, body),
-            TestMatcher::Equal | TestMatcher::StrictEqual => {
-                self.test_numbers_need_same_value(actual, expected, body)
-            }
-            _ => false,
-        };
+                TestMatcher::Be => self.test_to_be_needs_strict_identity(actual, expected, body),
+                TestMatcher::Equal | TestMatcher::StrictEqual => {
+                    self.test_numbers_need_same_value(actual, expected, body)
+                }
+                _ => false,
+            };
         let mut failed = if uses_asymmetric_matcher {
             let holds = self.vitest_asymmetric_equal_expr(actual, expected, site.span, body);
             self.unary_bool_expr(UnaryOp::Not, holds, site.span, body)
@@ -1353,14 +1425,24 @@ impl ModuleBuilder<'_> {
     /// Whether `expected`'s literal shape cannot have `actual_ty`'s Rust type: an
     /// array against a record (a static type the value does not have), or an
     /// element a scalar list cannot hold (`[22, "hello"]` against `number[]`).
-    fn literal_contradicts_item_type(&self, expected: &Argument<'_>, actual_ty: smelt_hir::TypeId) -> bool {
+    fn literal_contradicts_item_type(
+        &self,
+        expected: &Argument<'_>,
+        actual_ty: smelt_hir::TypeId,
+    ) -> bool {
         let actual = self.ctx.krate.types.get(actual_ty);
-        let expected = expected.as_expression().map(Expression::get_inner_expression);
+        let expected = expected
+            .as_expression()
+            .map(Expression::get_inner_expression);
         // A shape the actual's own kind cannot be: the typed literal would not
         // even have the right Rust type.
         match (expected, actual) {
-            (Some(Expression::ArrayExpression(_)), Some(Type::Dict(_, _) | Type::Class { .. })) => return true,
-            (Some(Expression::ObjectExpression(_)), Some(Type::List(_) | Type::Tuple(_))) => return true,
+            (Some(Expression::ArrayExpression(_)), Some(Type::Dict(_, _) | Type::Class { .. })) => {
+                return true;
+            }
+            (Some(Expression::ObjectExpression(_)), Some(Type::List(_) | Type::Tuple(_))) => {
+                return true;
+            }
             _ => {}
         }
         let Some(Expression::ArrayExpression(array)) = expected else {
@@ -1418,7 +1500,9 @@ impl ModuleBuilder<'_> {
             .map(|argument| self.argument(argument, body))
             .collect::<Result<Vec<_>, _>>()?;
         let message = format!("expect(...).{canonical}(...)");
-        self.runtime_check(check, actual, &arguments, inverted, site.span, &message, body)?;
+        self.runtime_check(
+            check, actual, &arguments, inverted, site.span, &message, body,
+        )?;
         Ok(true)
     }
 
@@ -1443,12 +1527,19 @@ impl ModuleBuilder<'_> {
             .map(|argument| self.argument(argument, body))
             .collect::<Result<Vec<_>, _>>()?;
         let called_once = body.push_expr(Expr {
-            kind: ExprKind::VitestMockCalledTimes { mock: actual, count: one },
+            kind: ExprKind::VitestMockCalledTimes {
+                mock: actual,
+                count: one,
+            },
             ty: bool_ty,
             span: hir_span,
         });
         let with = body.push_expr(Expr {
-            kind: ExprKind::VitestMockCalledWith { mock: actual, args, last: false },
+            kind: ExprKind::VitestMockCalledWith {
+                mock: actual,
+                args,
+                last: false,
+            },
             ty: bool_ty,
             span: hir_span,
         });
@@ -1578,7 +1669,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::TestHarness, "matcher record");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let sample = body.push_expr(Expr {
             kind: ExprKind::ListLit(samples),
@@ -1811,7 +1906,10 @@ impl ModuleBuilder<'_> {
                 (Some(value), _) => value,
                 (None, Some(argument)) => self.argument(argument, body)?,
                 (None, None) => {
-                    return Err(SmeltError::unsupported(span, "expect(...).toThrow(...) requires a value"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "expect(...).toThrow(...) requires a value",
+                    ));
                 }
             };
             let callee_ty = self
@@ -1861,8 +1959,7 @@ impl ModuleBuilder<'_> {
                 ty: throwing_function_ty,
                 span: self.span(actual_span.start, actual_span.end),
             });
-            let try_block =
-                body.push_block(self.span(actual_span.start, actual_span.end));
+            let try_block = body.push_block(self.span(actual_span.start, actual_span.end));
             let mut args = Vec::new();
             for param_ty in function.params {
                 if !matches!(self.ctx.krate.types.get(param_ty), Some(Type::Optional(_))) {
@@ -1892,12 +1989,14 @@ impl ModuleBuilder<'_> {
         // error's SERIALIZATION (`[Error: message]`) with a snapshot, not its
         // message with a substring, so the message rules do not apply to it;
         // it keeps the any-throw check.
-        let compares_expected = Self::canonical_matcher_name(site.name)
-            != "toThrowErrorMatchingInlineSnapshot";
+        let compares_expected =
+            Self::canonical_matcher_name(site.name) != "toThrowErrorMatchingInlineSnapshot";
         let (catch_binding, matched) = match site.arguments.first().filter(|_| compares_expected) {
             Some(expected_arg) => self
                 .expected_error_predicate(expected_arg, site.arguments.get(1), body)?
-                .map_or((None, None), |(caught, matched)| (Some(caught), Some(matched))),
+                .map_or((None, None), |(caught, matched)| {
+                    (Some(caught), Some(matched))
+                }),
             None => (None, None),
         };
         let catch_block = body.push_block(span);
@@ -2021,13 +2120,10 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         match matcher {
             TestMatcher::Equal | TestMatcher::StrictEqual => {
-                let (actual, expected) =
-                    self.deep_equality_operands(actual, expected, span, body);
+                let (actual, expected) = self.deep_equality_operands(actual, expected, span, body);
                 Ok(self.comparison_expr(BinOp::NotEq, actual, expected, span, body))
             }
-            TestMatcher::Be => {
-                Ok(self.comparison_expr(BinOp::NotEq, actual, expected, span, body))
-            }
+            TestMatcher::Be => Ok(self.comparison_expr(BinOp::NotEq, actual, expected, span, body)),
             TestMatcher::Contain => {
                 let contains = self.contains_expr(actual, expected, span, body)?;
                 Ok(self.unary_bool_expr(UnaryOp::Not, contains, span, body))
@@ -2077,7 +2173,8 @@ impl ModuleBuilder<'_> {
             // value's type rather than its spelling.
             TestMatcher::Match => {
                 let expected_ty = Self::expr_ty(body, expected);
-                let is_regexp = self.stdlib_class_of_type(expected_ty) == Some(smelt_stdlib::StdlibClass::RegExp);
+                let is_regexp = self.stdlib_class_of_type(expected_ty)
+                    == Some(smelt_stdlib::StdlibClass::RegExp);
                 let holds = if is_regexp {
                     let bool_ty = self.ctx.krate.types.intern(Type::Bool);
                     body.push_expr(Expr {

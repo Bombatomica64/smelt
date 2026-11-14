@@ -1,9 +1,9 @@
 //! Destructuring patterns: `let { a, b: [c] } = value` and parameter patterns,
 //! lowered to one local declaration per bound name.
 
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_literal};
 use oxc::ast::ast::{BindingPattern, PropertyKey};
 use oxc::span::GetSpan;
@@ -77,59 +77,75 @@ impl ModuleBuilder<'_> {
                     // reads by its exact runtime key, as a computed key does.
                     let keyed_at_runtime = property.computed
                         || matches!(&property.key, PropertyKey::StringLiteral(literal) if has_lone_surrogate(literal.value));
-                    let (ty, extracted, omitted_key) = if keyed_at_runtime {
-                        let index = self.property_key_index_expression(&property.key, body)?;
-                        let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
-                        (
-                            ty,
-                            body.push_expr(Expr {
-                                kind: ExprKind::Index { receiver, index },
+                    let (ty, extracted, omitted_key) =
+                        if keyed_at_runtime {
+                            let index = self.property_key_index_expression(&property.key, body)?;
+                            let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
+                            (
                                 ty,
-                                span: self.span(property.span.start, property.span.end),
-                            }),
-                            index,
-                        )
-                    } else {
-                        let field = self.property_key_symbol(&property.key)?;
-                        let omitted_key =
-                            self.object_destructuring_static_key_expr(&property.key, body)?;
-                        let receiver_ty = Self::expr_ty(body, receiver);
-                        let field_span = self.span(property.span.start, property.span.end);
-                        let field_name = self.ctx.krate.symbols.get(field).unwrap_or_default().to_owned();
-                        if let Some(extracted) =
-                            self.iterator_result_member(receiver, receiver_ty, &field_name, field_span, body)
-                        {
-                            omitted_keys.push(omitted_key);
-                            let ty = Self::expr_ty(body, extracted);
-                            self.binding_declaration(&property.value, Some(extracted), Some(ty), mutable, body, block)?;
-                            continue;
-                        }
-                        let is_element_count = self
-                            .ctx
-                            .krate
-                            .symbols
-                            .get(field)
-                            .is_some_and(|name| self.element_count_member(receiver_ty, name));
-                        let ty = if is_element_count {
-                            self.ctx.krate.types.intern(Type::Float)
+                                body.push_expr(Expr {
+                                    kind: ExprKind::Index { receiver, index },
+                                    ty,
+                                    span: self.span(property.span.start, property.span.end),
+                                }),
+                                index,
+                            )
                         } else {
-                            self.class_field_type(receiver_ty, field)?
+                            let field = self.property_key_symbol(&property.key)?;
+                            let omitted_key =
+                                self.object_destructuring_static_key_expr(&property.key, body)?;
+                            let receiver_ty = Self::expr_ty(body, receiver);
+                            let field_span = self.span(property.span.start, property.span.end);
+                            let field_name = self
+                                .ctx
+                                .krate
+                                .symbols
+                                .get(field)
+                                .unwrap_or_default()
+                                .to_owned();
+                            if let Some(extracted) = self.iterator_result_member(
+                                receiver,
+                                receiver_ty,
+                                &field_name,
+                                field_span,
+                                body,
+                            ) {
+                                omitted_keys.push(omitted_key);
+                                let ty = Self::expr_ty(body, extracted);
+                                self.binding_declaration(
+                                    &property.value,
+                                    Some(extracted),
+                                    Some(ty),
+                                    mutable,
+                                    body,
+                                    block,
+                                )?;
+                                continue;
+                            }
+                            let is_element_count =
+                                self.ctx.krate.symbols.get(field).is_some_and(|name| {
+                                    self.element_count_member(receiver_ty, name)
+                                });
+                            let ty = if is_element_count {
+                                self.ctx.krate.types.intern(Type::Float)
+                            } else {
+                                self.class_field_type(receiver_ty, field)?
+                            };
+                            let extracted = if is_element_count {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::Len { operand: receiver },
+                                    ty,
+                                    span: self.span(property.span.start, property.span.end),
+                                })
+                            } else {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::Field { receiver, field },
+                                    ty,
+                                    span: self.span(property.span.start, property.span.end),
+                                })
+                            };
+                            (ty, extracted, omitted_key)
                         };
-                        let extracted = if is_element_count {
-                            body.push_expr(Expr {
-                                kind: ExprKind::Len { operand: receiver },
-                                ty,
-                                span: self.span(property.span.start, property.span.end),
-                            })
-                        } else {
-                            body.push_expr(Expr {
-                                kind: ExprKind::Field { receiver, field },
-                                ty,
-                                span: self.span(property.span.start, property.span.end),
-                            })
-                        };
-                        (ty, extracted, omitted_key)
-                    };
                     omitted_keys.push(omitted_key);
                     self.binding_declaration(
                         &property.value,
@@ -517,11 +533,11 @@ impl ModuleBuilder<'_> {
 
     /// Return the span for an expression already inserted into a body.
     pub(in crate::lowering) fn body_expr_span(body: &Body, expr: smelt_hir::ExprId) -> Span {
-        let root_span = body.block_at(body.root)
+        let root_span = body
+            .block_at(body.root)
             .or_else(|| body.blocks.first())
             .map_or(Span::new(FileId(0), 0, 0), |block| block.span);
-        body.expr_at(expr)
-            .map_or(root_span, |expr| expr.span)
+        body.expr_at(expr).map_or(root_span, |expr| expr.span)
     }
 
     /// Collect source names introduced by a binding pattern.

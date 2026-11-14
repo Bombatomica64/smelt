@@ -1,12 +1,12 @@
 //! Building arrays through the global: `Array.from`, `new Array(..)` and `Array(..)`.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::{
-    Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, ModuleBuilder, ObjectPropertyKind,
-    PrimitiveCastOp, PropertyKey, SetProjectionOp, SmeltError, Span, Type,
-};
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::js_str_text;
+use crate::lowering::{
+    Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, ModuleBuilder,
+    ObjectPropertyKind, PrimitiveCastOp, PropertyKey, SetProjectionOp, SmeltError, Span, Type,
+};
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 use std::borrow::Cow;
@@ -52,7 +52,9 @@ impl ModuleBuilder<'_> {
                 && let Some(list_ty) = self.sync_generator_list_ty(source_ty)
             {
                 let span = self.span(call.span.start, call.span.end);
-                return Ok(Some(Self::generator_items_expr(source, list_ty, span, body)));
+                return Ok(Some(Self::generator_items_expr(
+                    source, list_ty, span, body,
+                )));
             }
             let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
                 Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
@@ -127,7 +129,10 @@ impl ModuleBuilder<'_> {
             }
         }
         let Some(mapper_arg) = mapper_arg else {
-            let item_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Array.from of a length object");
+            let item_ty = self.erase_with(
+                ErasureReason::UntypedBuiltin,
+                "Array.from of a length object",
+            );
             let ty = self.ctx.krate.types.intern(Type::List(item_ty));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ListFromLength { length },
@@ -135,7 +140,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         };
-        let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Array.from mapper element");
+        let unknown_ty =
+            self.erase_with(ErasureReason::UntypedBuiltin, "Array.from mapper element");
         let index_ty = self.ctx.krate.types.intern(Type::Float);
         let callback = self.callback_argument_with_return_hint(
             mapper_arg,
@@ -355,8 +361,9 @@ impl ModuleBuilder<'_> {
                         span: self.span(start, end),
                     })
                 };
-                let item_ty = annotated_item_ty
-                    .unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "Array(n)"));
+                let item_ty = annotated_item_ty.unwrap_or_else(|| {
+                    self.erase_with(ErasureReason::MissingAnnotation, "Array(n)")
+                });
                 let ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ListFromLength { length },

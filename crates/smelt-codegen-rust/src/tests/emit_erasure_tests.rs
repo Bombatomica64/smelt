@@ -16,7 +16,9 @@ const entries = value as Entry<string>[];
     );
 
     assert!(
-        source.contains("smelt_values.into_iter().map(|smelt_value| smelt_value).collect::<Vec<_>>()"),
+        source.contains(
+            "smelt_values.into_iter().map(|smelt_value| smelt_value).collect::<Vec<_>>()"
+        ),
         "erased helper items should preserve unknown values instead of defaulting: {source}"
     );
     assert!(
@@ -124,8 +126,7 @@ function isNotOne(value: unknown): boolean {
     // reference identity for objects, value for primitives, NaN-unequal — NOT
     // SmeltUnknown's structural `==` (which `==`/`!=` and `isDeepEqual` use).
     assert!(
-        source
-            .contains("value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".into()))"),
+        source.contains("value.clone().js_strict_eq(&SmeltUnknown::String(\"trailing\".into()))"),
         "{source}"
     );
     assert!(
@@ -252,10 +253,7 @@ function elapsedSince(right: number): number {
     // `Int` at all: a `bigint` is its own unbounded type. The coercion under
     // test -- a `number` operand truncated into an integer destination -- is
     // unchanged, so a valid program pins it now.
-    assert!(
-        source.contains("(right as f64).trunc() as i64"),
-        "{source}"
-    );
+    assert!(source.contains("(right as f64).trunc() as i64"), "{source}");
     // The int-from-float coercion keeps only the parentheses `.trunc()` needs
     // as a method receiver; the whole cast is not wrapped again, which drew a
     // spurious `unused_parens` in every value position it landed in.
@@ -696,8 +694,7 @@ export function run(): Record<string, unknown> {
     );
 
     assert!(
-        source.contains("SmeltUnknown::Bool(value) => value")
-            && source.contains("=> false"),
+        source.contains("SmeltUnknown::Bool(value) => value") && source.contains("=> false"),
         "a never-returning predicate result must be coerced to bool via \
          truthiness\n{source}"
     );
@@ -810,7 +807,8 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     // -buffer attempt lives inside that helper, asserted just below.
     let indexed = source_for("export function f(value: any): any { return value[1]; }");
     assert!(
-        indexed.contains("SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values"),
+        indexed
+            .contains("SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values"),
         "an erased index read must resolve an object through the field helper:\n{indexed}"
     );
     let field = source_for("export function f(value: any): any { return value.length; }");
@@ -820,7 +818,8 @@ fn erased_reads_and_writes_reach_a_byte_buffers_bytes() {
     );
     let assign = source_for("export function f(value: any): void { value[1] = 2; }");
     assert!(
-        assign.contains("smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone())"),
+        assign
+            .contains("smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone())"),
         "an erased index write must offer the byte storage the write first:\n{assign}"
     );
 }
@@ -831,9 +830,8 @@ fn an_optional_erased_index_read_resolves_synthesized_properties() {
     // marker record's synthesized properties (an error's `name`, a Map's `size`,
     // the global object's constructors) are visible to both spellings. An
     // own-field-only `values.get(..)` was blind to every one of them.
-    let source = source_for(
-        "export function f(value: any, key: string): any { return value?.[key] ?? 1; }",
-    );
+    let source =
+        source_for("export function f(value: any, key: string): any { return value?.[key] ?? 1; }");
     assert!(
         source.contains("smelt_get_object_field(&smelt_values"),
         "an optional erased index read must use the field helper:\n{source}"
@@ -932,7 +930,8 @@ export function fill(b: string[], n: number[], nested: string[][], i: number): u
     );
     assert!(
         !source.contains("b.get({ let len = b.len()")
-            || !(source.contains("unwrap_or(String::new()).clone())") || source.contains("unwrap_or(JsString::new()).clone())")),
+            || !(source.contains("unwrap_or(String::new()).clone())")
+                || source.contains("unwrap_or(JsString::new()).clone())")),
         "a missing `string` element must not erase as the empty string:\n{source}"
     );
     assert!(

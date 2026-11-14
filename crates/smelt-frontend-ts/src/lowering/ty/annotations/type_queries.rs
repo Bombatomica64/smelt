@@ -2,20 +2,23 @@
 //! unknown and nullish membership, `never` values, indexed element types, static
 //! tuple indices and promise inner types.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{BinOp, Body, ErasureReason, ExprKind, Literal, Type, UnaryOp};
 
 impl ModuleBuilder<'_> {
     /// Return whether a concrete value of this type would contain a `never` value.
-    pub(in crate::lowering) fn concrete_type_requires_never_value(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn concrete_type_requires_never_value(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Never) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-                self.concrete_type_requires_never_value(*item)
-            }
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.concrete_type_requires_never_value(*item),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.concrete_type_requires_never_value(*key)
                     || self.concrete_type_requires_never_value(*value)
@@ -64,7 +67,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an array or tuple literal would need to materialize `never`.
-    pub(in crate::lowering) fn array_literal_needs_never_value(&self, ty: smelt_hir::TypeId, item_count: usize) -> bool {
+    pub(in crate::lowering) fn array_literal_needs_never_value(
+        &self,
+        ty: smelt_hir::TypeId,
+        item_count: usize,
+    ) -> bool {
         if item_count == 0 {
             return false;
         }
@@ -123,10 +130,10 @@ impl ModuleBuilder<'_> {
             // missing-key-is-`undefined` semantics — the honest element type is
             // `Optional<T>` rather than the erased `Unknown` boundary. Classes with
             // no index signature still fall through to `Unknown` below.
-            Some(Type::Class { name, .. })
-                if self.classes.has_index_value(*name) =>
-            {
-                let value_ty = self.classes.index_value(*name)
+            Some(Type::Class { name, .. }) if self.classes.has_index_value(*name) => {
+                let value_ty = self
+                    .classes
+                    .index_value(*name)
                     .unwrap_or_else(|| self.erase(ErasureReason::DynamicOperator));
                 Ok(self.optional_chain_result_type(value_ty))
             }
@@ -174,8 +181,15 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a type can be represented as a string at runtime.
     pub(in crate::lowering) fn is_string_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
-            Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
+                true
+            }
             Some(Type::Optional(item)) => self.is_string_compatible_type(*item),
             Some(Type::Union(items)) => items
                 .iter()
@@ -195,7 +209,9 @@ impl ModuleBuilder<'_> {
         if op.is_comparison() {
             return self.ctx.krate.types.intern(Type::Bool);
         }
-        if op == BinOp::Add && (self.has_static_string_type(lhs_ty) || self.has_static_string_type(rhs_ty)) {
+        if op == BinOp::Add
+            && (self.has_static_string_type(lhs_ty) || self.has_static_string_type(rhs_ty))
+        {
             return self.ctx.krate.types.intern(Type::String);
         }
         // A bigint operand makes every arithmetic, bitwise and shift result a
@@ -215,7 +231,11 @@ impl ModuleBuilder<'_> {
         {
             let float = self.ctx.krate.types.intern(Type::Float);
             let bigint = self.ctx.krate.types.intern(Type::BigInt);
-            return self.ctx.krate.types.intern(Type::Union(vec![float, bigint]));
+            return self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![float, bigint]));
         }
         if matches!(
             op,
@@ -271,24 +291,32 @@ impl ModuleBuilder<'_> {
             && self.addition_is_dynamic(lhs_ty, rhs_ty)
             && !self.checker_types_as_numeric(start, end)
             && !self.checker_types_as_string(start, end))
-            .then(|| {
-                // An `any` operand was erased, and recorded, where its type was
-                // decided: the result only carries that erasure on. A union
-                // that may hold a string is a new decision here.
-                if self.add_operand_is_erased(lhs_ty) || self.add_operand_is_erased(rhs_ty) {
-                    self.unknown_type(NotNewErasure::ErasedUpstream)
-                } else {
-                    self.erase_with(ErasureReason::DynamicOperator, "`+` with a dynamic operand")
-                }
-            })
+        .then(|| {
+            // An `any` operand was erased, and recorded, where its type was
+            // decided: the result only carries that erasure on. A union
+            // that may hold a string is a new decision here.
+            if self.add_operand_is_erased(lhs_ty) || self.add_operand_is_erased(rhs_ty) {
+                self.unknown_type(NotNewErasure::ErasedUpstream)
+            } else {
+                self.erase_with(ErasureReason::DynamicOperator, "`+` with a dynamic operand")
+            }
+        })
     }
 
     /// Whether a `+` operand of type `ty` is (or holds) the erased carrier.
     fn add_operand_is_erased(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::Unknown) => true,
             Some(Type::Optional(inner)) => self.add_operand_is_erased(*inner),
-            Some(Type::Union(items)) => items.iter().copied().any(|item| self.add_operand_is_erased(item)),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.add_operand_is_erased(item)),
             _ => false,
         }
     }
@@ -297,7 +325,9 @@ impl ModuleBuilder<'_> {
     /// time: neither side is definitely a string, and one side is
     /// [`Self::add_operand_is_dynamic`].
     fn addition_is_dynamic(&self, lhs_ty: smelt_hir::TypeId, rhs_ty: smelt_hir::TypeId) -> bool {
-        if self.add_operand_is_definitely_string(lhs_ty) || self.add_operand_is_definitely_string(rhs_ty) {
+        if self.add_operand_is_definitely_string(lhs_ty)
+            || self.add_operand_is_definitely_string(rhs_ty)
+        {
             return false;
         }
         self.add_operand_is_dynamic(lhs_ty) || self.add_operand_is_dynamic(rhs_ty)
@@ -307,11 +337,20 @@ impl ModuleBuilder<'_> {
     /// strings, or an optional string, whose absent arm concatenates as its
     /// absent word).
     fn add_operand_is_definitely_string(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::String) => true,
             Some(Type::Optional(inner)) => self.add_operand_is_definitely_string(*inner),
             Some(Type::Union(items)) => {
-                !items.is_empty() && items.iter().copied().all(|item| self.add_operand_is_definitely_string(item))
+                !items.is_empty()
+                    && items
+                        .iter()
+                        .copied()
+                        .all(|item| self.add_operand_is_definitely_string(item))
             }
             _ => false,
         }
@@ -321,12 +360,20 @@ impl ModuleBuilder<'_> {
     /// depending on its run-time value: `any`/`unknown`, or a union holding
     /// a string arm beside another arm (or an erased arm).
     fn add_operand_is_dynamic(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::Unknown) => true,
             Some(Type::Optional(inner)) => self.add_operand_is_dynamic(*inner),
             Some(Type::Union(items)) => items.iter().copied().any(|item| {
                 matches!(
-                    self.ctx.krate.types.get(self.type_param_constraint_or_self(item)),
+                    self.ctx
+                        .krate
+                        .types
+                        .get(self.type_param_constraint_or_self(item)),
                     Some(Type::Unknown | Type::String)
                 ) || self.add_operand_is_dynamic(item)
             }),
@@ -336,7 +383,12 @@ impl ModuleBuilder<'_> {
 
     /// Return whether arithmetic should coerce an optional numeric operand to a number.
     pub(in crate::lowering) fn is_optional_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::Optional(inner)) => self.is_numeric_like_type(*inner),
             _ => false,
         }
@@ -345,14 +397,22 @@ impl ModuleBuilder<'_> {
     /// Return whether an operand should use erased numeric arithmetic.
     pub(in crate::lowering) fn is_erased_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(
-            self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(ty)),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         )
     }
 
     /// Return whether a type is known to contain a string operand for `+`.
     pub(in crate::lowering) fn has_static_string_type(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::String) => true,
             Some(Type::Optional(item)) => self.has_static_string_type(*item),
             Some(Type::Union(items)) => items
@@ -389,7 +449,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a union contains at least one string-compatible branch.
-    pub(in crate::lowering) fn union_has_string_compatible_member(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn union_has_string_compatible_member(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::String) => true,
             Some(Type::Optional(item)) => self.union_has_string_compatible_member(*item),
@@ -409,8 +472,7 @@ impl ModuleBuilder<'_> {
         len: usize,
         span: oxc::span::Span,
     ) -> Result<usize, SmeltError> {
-        let Some(index_expr) = body.expr_at(index_expr_id)
-        else {
+        let Some(index_expr) = body.expr_at(index_expr_id) else {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "tuple index expression is invalid",
@@ -456,7 +518,10 @@ impl ModuleBuilder<'_> {
     /// (`arr[-1]`, `arr[-(2)]`) so it can be lowered with `undefined`/no-op
     /// semantics rather than element indexing. See the `negative_index` lowering
     /// module for how reads and writes are lowered.
-    pub(in crate::lowering) fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
+    pub(in crate::lowering) fn is_negative_numeric_expr(
+        body: &Body,
+        expr_id: smelt_hir::ExprId,
+    ) -> bool {
         let Some(candidate) = body.expr_at(expr_id) else {
             return false;
         };
@@ -465,16 +530,18 @@ impl ModuleBuilder<'_> {
             ExprKind::UnaryOp {
                 op: UnaryOp::Neg,
                 operand,
-            } => body.expr_at(*operand)
-                .is_some_and(|operand_expr| {
-                    matches!(operand_expr.kind, ExprKind::Literal(Literal::Float(_)))
-                }),
+            } => body.expr_at(*operand).is_some_and(|operand_expr| {
+                matches!(operand_expr.kind, ExprKind::Literal(Literal::Float(_)))
+            }),
             _ => false,
         }
     }
 
     /// Return the inner item type for a `Promise<T>` / `Future<T>` value.
-    pub(in crate::lowering) fn future_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn future_inner_type(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Future(inner)) => Some(*inner),
             _ => None,
@@ -490,7 +557,10 @@ impl ModuleBuilder<'_> {
     /// Anything else is not awaitable and returns `None`. This keeps the Vitest
     /// `resolves`/`rejects` matchers general over both concrete and erased
     /// promise actuals instead of demanding a statically-spelled `Promise<T>`.
-    pub(in crate::lowering) fn awaitable_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn awaitable_inner_type(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Future(inner)) => Some(*inner),
             // An erased actual is itself the `Unknown` type id; awaiting it

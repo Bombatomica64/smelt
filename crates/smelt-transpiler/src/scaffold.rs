@@ -41,21 +41,33 @@ impl EntryLanguage {
 /// `name` is a single directory name: a letter, then letters, digits, `-` or
 /// `_`, so it is valid in the manifest and as the base of a crate name. An
 /// existing non-empty directory of that name is an error; nothing is written.
-pub(crate) fn new_project(parent: &Path, name: &str, language: EntryLanguage) -> Result<PathBuf, String> {
+pub(crate) fn new_project(
+    parent: &Path,
+    name: &str,
+    language: EntryLanguage,
+) -> Result<PathBuf, String> {
     validate_name(name)?;
     let root = parent.join(name);
     if fs::read_dir(&root).is_ok_and(|mut entries| entries.next().is_some()) {
-        return Err(format!("`{}` already exists and is not empty", root.display()));
+        return Err(format!(
+            "`{}` already exists and is not empty",
+            root.display()
+        ));
     }
-    write_files(&root, name, language).map_err(|error| format!("cannot create `{}`: {error}", root.display()))?;
+    write_files(&root, name, language)
+        .map_err(|error| format!("cannot create `{}`: {error}", root.display()))?;
     Ok(root)
 }
 
 /// Rejects a name that is not one plain directory name.
 fn validate_name(name: &str) -> Result<(), String> {
     let mut characters = name.chars();
-    let starts_with_letter = characters.next().is_some_and(|first| first.is_ascii_alphabetic());
-    if starts_with_letter && characters.all(|rest| rest.is_ascii_alphanumeric() || rest == '-' || rest == '_') {
+    let starts_with_letter = characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic());
+    if starts_with_letter
+        && characters.all(|rest| rest.is_ascii_alphanumeric() || rest == '-' || rest == '_')
+    {
         return Ok(());
     }
     Err(format!(

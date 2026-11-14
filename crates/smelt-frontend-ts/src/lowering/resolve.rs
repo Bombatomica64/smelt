@@ -107,7 +107,10 @@ pub(in crate::lowering) enum TypeBinding {
 impl ModuleBuilder<'_> {
     /// Resolve the value name `name` at the current lowering point; see the
     /// module docs. The lexical scope is asked first, always.
-    pub(in crate::lowering) fn resolve_value<'name>(&self, name: &'name str) -> ValueBinding<'name> {
+    pub(in crate::lowering) fn resolve_value<'name>(
+        &self,
+        name: &'name str,
+    ) -> ValueBinding<'name> {
         if let Some(local) = self.scope.lookup(name) {
             return ValueBinding::Local(local);
         }
@@ -139,10 +142,16 @@ impl ModuleBuilder<'_> {
 
     /// The host global `name` is where it is read, or `None` when a source
     /// binding of that spelling shadows it; see [`Self::resolve_value`].
-    pub(in crate::lowering) fn host_global_named<'name>(&self, name: &'name str) -> Option<HostGlobal<'name>> {
+    pub(in crate::lowering) fn host_global_named<'name>(
+        &self,
+        name: &'name str,
+    ) -> Option<HostGlobal<'name>> {
         match self.resolve_value(name) {
             ValueBinding::Host(host) => Some(host),
-            ValueBinding::Local(_) | ValueBinding::Enum(_) | ValueBinding::Class | ValueBinding::Module => None,
+            ValueBinding::Local(_)
+            | ValueBinding::Enum(_)
+            | ValueBinding::Class
+            | ValueBinding::Module => None,
         }
     }
 
@@ -153,8 +162,12 @@ impl ModuleBuilder<'_> {
     /// does not shadow it: the override is written as a class EXPRESSION
     /// (`globalThis.File = class File extends Blob {}`), whose name binds only
     /// inside its own body, yet the lowering registers it as a module class.
-    pub(in crate::lowering) fn written_host_global<'name>(&self, name: &'name str) -> Option<HostGlobal<'name>> {
-        (self.scope.lookup(name).is_none() && self.is_written_host_global(name)).then_some(HostGlobal { name })
+    pub(in crate::lowering) fn written_host_global<'name>(
+        &self,
+        name: &'name str,
+    ) -> Option<HostGlobal<'name>> {
+        (self.scope.lookup(name).is_none() && self.is_written_host_global(name))
+            .then_some(HostGlobal { name })
     }
 
     /// Whether the bare name `name`, read here, is the host global `global`:
@@ -171,8 +184,12 @@ impl ModuleBuilder<'_> {
         expression: &'expr oxc::ast::ast::Expression<'_>,
     ) -> Option<HostGlobal<'expr>> {
         match expression {
-            oxc::ast::ast::Expression::Identifier(ident) => self.host_global_named(ident.name.as_str()),
-            oxc::ast::ast::Expression::ParenthesizedExpression(inner) => self.host_global(&inner.expression),
+            oxc::ast::ast::Expression::Identifier(ident) => {
+                self.host_global_named(ident.name.as_str())
+            }
+            oxc::ast::ast::Expression::ParenthesizedExpression(inner) => {
+                self.host_global(&inner.expression)
+            }
             _ => None,
         }
     }

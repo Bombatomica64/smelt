@@ -52,7 +52,10 @@ fn allow_is_silent_and_the_sidecar_records_everything() -> TestResult {
     let project = project("")?;
     let (ok, _, stderr) = run(project.path(), &["build"])?;
     ensure(ok, format!("build failed: {stderr}"))?;
-    ensure(!stderr.contains("erasure/"), format!("unexpected diagnostics: {stderr}"))?;
+    ensure(
+        !stderr.contains("erasure/"),
+        format!("unexpected diagnostics: {stderr}"),
+    )?;
     let sidecar = fs::read_to_string(project.path().join("out/smelt-erasure.json"))?;
     let json: serde_json::Value = serde_json::from_str(&sidecar)?;
     let records = json["records"].as_array().ok_or("records")?;
@@ -60,13 +63,19 @@ fn allow_is_silent_and_the_sidecar_records_everything() -> TestResult {
         .iter()
         .find(|record| record["reason"] == "explicit-any")
         .ok_or("explicit-any record")?;
-    ensure(any["file"] == "main.ts" && any["line"] == 1_u64 && any["column"] == 18_u64, format!("{any}"))?;
+    ensure(
+        any["file"] == "main.ts" && any["line"] == 1_u64 && any["column"] == 18_u64,
+        format!("{any}"),
+    )?;
     ensure(any["class"] == "avoidable", format!("{any}"))?;
     let external = records
         .iter()
         .find(|record| record["reason"] == "external-type")
         .ok_or("external-type record")?;
-    ensure(external["line"] == 4_u64 && external["class"] == "legitimate", format!("{external}"))?;
+    ensure(
+        external["line"] == 4_u64 && external["class"] == "legitimate",
+        format!("{external}"),
+    )?;
     Ok(())
 }
 
@@ -80,7 +89,10 @@ fn manifest_warn_prints_and_passes() -> TestResult {
         stderr.contains("warning[erasure/explicit-any]: main.ts:1:18: "),
         format!("missing warning: {stderr}"),
     )?;
-    ensure(!stderr.contains("external-type"), format!("allowed reason printed: {stderr}"))
+    ensure(
+        !stderr.contains("external-type"),
+        format!("allowed reason printed: {stderr}"),
+    )
 }
 
 /// A CLI `deny` fails both `build` and `check`, overriding the manifest.
@@ -104,7 +116,13 @@ fn json_check_includes_severity() -> TestResult {
     let project = project("")?;
     let stdout = smelt_in(
         project.path(),
-        &["check", "--message-format", "json", "--erasure", "external-type=warn"],
+        &[
+            "check",
+            "--message-format",
+            "json",
+            "--erasure",
+            "external-type=warn",
+        ],
     )?;
     let json: serde_json::Value = serde_json::from_str(&stdout)?;
     let diagnostics = json.as_array().ok_or("array")?;
@@ -117,7 +135,9 @@ fn json_check_includes_severity() -> TestResult {
         format!("missing diagnostic: {stdout}"),
     )?;
     ensure(
-        diagnostics.iter().all(|diagnostic| diagnostic["code"] != "erasure/explicit-any"),
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != "erasure/explicit-any"),
         format!("allowed reason reported: {stdout}"),
     )
 }
@@ -167,12 +187,26 @@ fn unknown_report_reads_the_sidecar() -> TestResult {
         markdown.contains("## Avoidable erasure by reason and source line"),
         markdown.clone(),
     )?;
-    ensure(markdown.contains("| `main.ts:1` | `explicit-any` |"), markdown.clone())?;
-    let json = smelt_in(project.path(), &["smelt-unknown-report", "out/src", "--format", "json"])?;
+    ensure(
+        markdown.contains("| `main.ts:1` | `explicit-any` |"),
+        markdown.clone(),
+    )?;
+    let json = smelt_in(
+        project.path(),
+        &["smelt-unknown-report", "out/src", "--format", "json"],
+    )?;
     let report: serde_json::Value = serde_json::from_str(&json)?;
-    ensure(report["erasure"]["avoidable"].as_u64() >= Some(1), json.clone())?;
+    ensure(
+        report["erasure"]["avoidable"].as_u64() >= Some(1),
+        json.clone(),
+    )?;
     // The legitimate JSON.parse decision is counted by reason but never
     // listed among the avoidable lines.
-    let lines = report["erasure"]["avoidable_lines"].as_array().ok_or("lines")?;
-    ensure(lines.iter().all(|line| line["reason"] != "external-type"), json)
+    let lines = report["erasure"]["avoidable_lines"]
+        .as_array()
+        .ok_or("lines")?;
+    ensure(
+        lines.iter().all(|line| line["reason"] != "external-type"),
+        json,
+    )
 }

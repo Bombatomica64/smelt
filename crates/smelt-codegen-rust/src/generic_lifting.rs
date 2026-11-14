@@ -10,16 +10,21 @@
     reason = "crate-visible items are shared with the crate root and the emitter shards"
 )]
 
-use std::{cell::RefCell, collections::{HashMap, HashSet}};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+};
 
 use smelt_hir::{AsyncOp, Symbol, Type, TypeId};
 use smelt_mir::{
-    BasicBlock, FuncId, LocalDecl, LocalId, Mir, MirFunction, Operand, Place, Rvalue,
-    Statement, Terminator,
+    BasicBlock, FuncId, LocalDecl, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement,
+    Terminator,
 };
 
 use crate::{
-    EmitError, bound_traits::BoundTraitPlan, classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
+    EmitError,
+    bound_traits::BoundTraitPlan,
+    classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
     generic_bindings, id_index,
 };
 
@@ -73,7 +78,14 @@ pub(crate) fn function_emits_rust_generics(
     bounds: &BoundTraitPlan,
     erased_arguments: &ErasedArgumentMemo,
 ) -> bool {
-    !liftable_type_params(mir, function, owned_callback_params, bounds, erased_arguments).is_empty()
+    !liftable_type_params(
+        mir,
+        function,
+        owned_callback_params,
+        bounds,
+        erased_arguments,
+    )
+    .is_empty()
 }
 
 /// Whether every value whose type mentions `name` is only ever *moved* in this
@@ -150,7 +162,8 @@ fn body_only_moves(
 
     for block in blocks {
         for statement in &block.statements {
-            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) = statement
+            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) =
+                statement
             else {
                 continue;
             };
@@ -205,7 +218,10 @@ fn body_only_moves(
         // Branching on a `T` needs JavaScript truthiness or an equality an
         // opaque `T` cannot answer. `Return` is a move and stays off this list.
         if let Some(
-            Terminator::Switch { cond: probe, .. } | Terminator::Match { scrutinee: probe, .. },
+            Terminator::Switch { cond: probe, .. }
+            | Terminator::Match {
+                scrutinee: probe, ..
+            },
         ) = &block.terminator
             && mentions(probe)
         {
@@ -215,7 +231,9 @@ fn body_only_moves(
         // callee has to be producing a `T`, and the only evidence available here
         // is that some argument carried one in. Calls are terminators, so the
         // statement walk above cannot see them.
-        if let Some(Terminator::Call { callee, args, dest, .. }) = &block.terminator
+        if let Some(Terminator::Call {
+            callee, args, dest, ..
+        }) = &block.terminator
             && local_mentions(*dest)
         {
             let mut mentioned = args.iter().any(&mentions);
@@ -349,11 +367,7 @@ pub(crate) fn liftable_type_params(
         .collect();
 
     if called_with_erased_type_param_argument_memoized(mir, function, erased_arguments)
-        || !callback_only_params_are_pinned_at_every_call_site(
-            mir,
-            function,
-            owned_callback_params,
-        )
+        || !callback_only_params_are_pinned_at_every_call_site(mir, function, owned_callback_params)
     {
         return HashSet::new();
     }
@@ -371,17 +385,17 @@ pub(crate) fn liftable_type_params(
                 return false;
             }
             let name = type_param.name;
-        // The parameter must have an inference source in the emitted signature.
-        // Either a direct value parameter position ...
-        let directly = param_types
-            .iter()
-            .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, name));
-        // ... or a position of a callback emitted as `&F{n}` with an
-        // `F{n}: Fn(..) + ?Sized` bound, which rustc infers through from the
-        // closure's own type. The disjunct deliberately calls the renderer's own
-        // eligibility predicate rather than a second copy of it, so a parameter
-        // can only be declared inferable through a callback that really will
-        // carry an `Fn` bound.
+            // The parameter must have an inference source in the emitted signature.
+            // Either a direct value parameter position ...
+            let directly = param_types
+                .iter()
+                .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, name));
+            // ... or a position of a callback emitted as `&F{n}` with an
+            // `F{n}: Fn(..) + ?Sized` bound, which rustc infers through from the
+            // closure's own type. The disjunct deliberately calls the renderer's own
+            // eligibility predicate rather than a second copy of it, so a parameter
+            // can only be declared inferable through a callback that really will
+            // carry an `Fn` bound.
             (directly
                 || type_param_inferable_through_callback(
                     mir,
@@ -495,9 +509,9 @@ fn callback_only_params_are_pinned_at_every_call_site(
         .type_params
         .iter()
         .filter(|type_param| {
-            !param_types
-                .iter()
-                .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, type_param.name))
+            !param_types.iter().any(|&param_ty| {
+                type_param_preserved_in_emitted_type(mir, param_ty, type_param.name)
+            })
         })
         .filter_map(|type_param| {
             type_param_inferable_through_callback(mir, function, owned, type_param.name)
@@ -591,9 +605,7 @@ fn bounded_type_param_liftable(
         }
     };
     let name = type_param.name;
-    let is_bare = |ty: TypeId| {
-        matches!(mir.types.get(ty), Some(Type::TypeParam { name: found }) if *found == name)
-    };
+    let is_bare = |ty: TypeId| matches!(mir.types.get(ty), Some(Type::TypeParam { name: found }) if *found == name);
     let mut bare_positions = Vec::new();
     for (index, param) in function.params.iter().enumerate() {
         let Some(ty) = id_index(param.0, "local index does not fit usize")
@@ -617,7 +629,11 @@ fn bounded_type_param_liftable(
         mir,
         &function.locals,
         &function.blocks,
-        &BoundUse { name, bound, planned },
+        &BoundUse {
+            name,
+            bound,
+            planned,
+        },
         &mut seen,
     ) {
         return false;
@@ -626,7 +642,13 @@ fn bounded_type_param_liftable(
     let callers = mir
         .functions
         .iter()
-        .map(|caller| (Some(caller), caller.locals.as_slice(), caller.blocks.as_slice()))
+        .map(|caller| {
+            (
+                Some(caller),
+                caller.locals.as_slice(),
+                caller.blocks.as_slice(),
+            )
+        })
         .chain(
             mir.closures
                 .iter()
@@ -669,8 +691,10 @@ fn bounded_type_param_liftable(
                         || (matches!(calling.origin, smelt_mir::HirOrigin::Body(_))
                             && calling.type_params.iter().any(|declared| {
                                 declared.name == *arg_param
-                                    && crate::bound_traits::constraint_bound(mir, declared.constraint)
-                                        == Some(bound)
+                                    && crate::bound_traits::constraint_bound(
+                                        mir,
+                                        declared.constraint,
+                                    ) == Some(bound)
                             }))
                 });
                 if !forwarded_by_caller {
@@ -773,7 +797,9 @@ fn body_uses_bound_only_through_trait(
             if let Some((receiver, bound, member)) = through_bound
                 && operand_is_param(receiver)
                 && (bound != bound_use.bound
-                    || bound_use.planned.is_none_or(|planned| planned.member(member).is_none()))
+                    || bound_use
+                        .planned
+                        .is_none_or(|planned| planned.member(member).is_none()))
             {
                 return false;
             }
@@ -859,7 +885,10 @@ pub(crate) fn bound_forwarding_callers(mir: &Mir, function: &MirFunction) -> Vec
                 if let Some(arg) = args.get(position)
                     && let Ok(arg_ty) = generic_bindings::operand_type(mir, caller, arg)
                     && let Some(Type::TypeParam { name }) = mir.types.get(arg_ty)
-                    && caller.type_params.iter().any(|declared| declared.name == *name)
+                    && caller
+                        .type_params
+                        .iter()
+                        .any(|declared| declared.name == *name)
                 {
                     found.push((caller.id, *name));
                 }
@@ -901,8 +930,11 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
     // Parameter positions whose declared type is exactly one of the function's
     // own type parameters (`x: T`). Nested shapes (`T[]`) still bind `T` from
     // the argument's element type, so only bare-parameter positions are checked.
-    let own_params: HashSet<Symbol> =
-        function.type_params.iter().map(|param| param.name).collect();
+    let own_params: HashSet<Symbol> = function
+        .type_params
+        .iter()
+        .map(|param| param.name)
+        .collect();
     let bare_type_param_positions: Vec<usize> = function
         .params
         .iter()
@@ -986,7 +1018,9 @@ fn forwards_same_bound(
                 .type_params
                 .iter()
                 .find(|declared| declared.name == *name)
-                .and_then(|declared| crate::bound_traits::constraint_bound(mir, declared.constraint)),
+                .and_then(|declared| {
+                    crate::bound_traits::constraint_bound(mir, declared.constraint)
+                }),
             _ => None,
         });
     let Some(callee_bound) = declared_bound else {
@@ -1113,7 +1147,9 @@ pub(crate) fn type_param_in_callback(mir: &Mir, ty: TypeId, name: Symbol) -> boo
         Some(function @ Type::Function(_)) => function
             .children()
             .any(|child| generic_bindings::type_param_occurs(mir, child, name)),
-        Some(other) => other.children().any(|child| type_param_in_callback(mir, child, name)),
+        Some(other) => other
+            .children()
+            .any(|child| type_param_in_callback(mir, child, name)),
         None => false,
     }
 }
@@ -1193,7 +1229,6 @@ fn type_param_inferable_through_callback(
     }
     None
 }
-
 
 /// Return whether every callback occurrence of `name` in `function`'s parameter
 /// list sits in a position the current callback representation can express.
@@ -1412,7 +1447,13 @@ pub(crate) fn function_impl_generics_list(
     bounds: &BoundTraitPlan,
     erased_arguments: &ErasedArgumentMemo,
 ) -> Result<Vec<String>, EmitError> {
-    let liftable = liftable_type_params(mir, function, owned_callback_params, bounds, erased_arguments);
+    let liftable = liftable_type_params(
+        mir,
+        function,
+        owned_callback_params,
+        bounds,
+        erased_arguments,
+    );
     if liftable.is_empty() {
         return Ok(Vec::new());
     }

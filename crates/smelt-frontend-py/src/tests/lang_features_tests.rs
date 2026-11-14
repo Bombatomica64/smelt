@@ -37,10 +37,15 @@ def run() -> int:
     let module = module(&ctx, module_id)?;
     let function_body = named_function_body(&ctx, module, "run")?;
     ensure(
-        function_body
-            .stmts
-            .iter()
-            .any(|stmt| matches!(stmt, Stmt::TryCatch { catch_body: Some(_), .. })),
+        function_body.stmts.iter().any(|stmt| {
+            matches!(
+                stmt,
+                Stmt::TryCatch {
+                    catch_body: Some(_),
+                    ..
+                }
+            )
+        }),
         "expected try/except to lower to a TryCatch with a catch body",
     )?;
     Ok(())
@@ -72,7 +77,10 @@ def describe() -> str:
             }
         )
     });
-    ensure(has_binding, "expected `except ... as error` to bind a catch local")?;
+    ensure(
+        has_binding,
+        "expected `except ... as error` to bind a catch local",
+    )?;
     Ok(())
 }
 
@@ -166,7 +174,10 @@ def run() -> int:
         .flat_map(|body| body.exprs.iter())
         .filter(|expr| matches!(expr.kind, ExprKind::PyExceptionCaughtBy { .. }))
         .count();
-    ensure(tests == 2, format!("expected one class test per except clause, got {tests}"))?;
+    ensure(
+        tests == 2,
+        format!("expected one class test per except clause, got {tests}"),
+    )?;
     Ok(())
 }
 
@@ -207,12 +218,15 @@ def run() -> int:
     let module = module(&ctx, module_id)?;
     // The lambda argument to `apply` recovers its `Callable[[int], int]` type
     // from the parameter hint and materializes a first-class closure value.
-    let has_closure = ctx
-        .krate
-        .bodies
-        .iter()
-        .any(|b| b.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::Closure(_))));
-    ensure(has_closure, "expected the lambda argument to lower to a closure")?;
+    let has_closure = ctx.krate.bodies.iter().any(|b| {
+        b.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+    });
+    ensure(
+        has_closure,
+        "expected the lambda argument to lower to a closure",
+    )?;
     let _ = module;
     Ok(())
 }
@@ -247,9 +261,10 @@ class Marker:
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
     ensure(
-        module.items.iter().any(|&item_id| {
-            matches!(item(&ctx, item_id), Ok(Item::Class(_)))
-        }),
+        module
+            .items
+            .iter()
+            .any(|&item_id| matches!(item(&ctx, item_id), Ok(Item::Class(_)))),
         "expected a class-body `...` placeholder to lower to a class",
     )?;
     Ok(())
@@ -266,9 +281,10 @@ class Doc:
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
     ensure(
-        module.items.iter().any(|&item_id| {
-            matches!(item(&ctx, item_id), Ok(Item::Class(_)))
-        }),
+        module
+            .items
+            .iter()
+            .any(|&item_id| matches!(item(&ctx, item_id), Ok(Item::Class(_)))),
         "expected a docstring + `...` class body to lower to a class",
     )?;
     Ok(())

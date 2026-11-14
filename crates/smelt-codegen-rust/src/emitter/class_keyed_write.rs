@@ -26,9 +26,9 @@
 //! key and are never candidates.
 
 use crate::rust::RustExpr;
-use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 use smelt_hir::{Type, TypeId};
 use smelt_mir::{LocalId, Operand, Rvalue};
+use smelt_stdlib::runtime_symbols::markers::SMELT_CALL;
 
 use super::{EmitError, FunctionEmitter};
 use smelt_mir::Place;
@@ -70,9 +70,17 @@ impl FunctionEmitter<'_> {
                 base,
                 field: field.name,
             })?;
-            let converted =
-                self.rendered_at_type(&RustExpr::path("smelt_keyed_value").cloned_value(), value_ty, field.ty, &scope)?;
-            arms.push(format!("{key:?} => {{ {lvalue} = {converted}; }}", lvalue = lvalue.delimited(), converted = converted.delimited()));
+            let converted = self.rendered_at_type(
+                &RustExpr::path("smelt_keyed_value").cloned_value(),
+                value_ty,
+                field.ty,
+                &scope,
+            )?;
+            arms.push(format!(
+                "{key:?} => {{ {lvalue} = {converted}; }}",
+                lvalue = lvalue.delimited(),
+                converted = converted.delimited()
+            ));
         }
         if arms.is_empty() {
             return Ok(None);
@@ -82,7 +90,8 @@ impl FunctionEmitter<'_> {
         Ok(Some(RustExpr::atom(format!(
             "{{ let smelt_keyed_value = {}; let smelt_key = ({key_text}).to_string(); match smelt_key.as_str() {{ {} _ => {{}} }} }}",
             self.operand_expr(value_operand)?.delimited(),
-            arms.join(" "), key_text = key_text.delimited()
+            arms.join(" "),
+            key_text = key_text.delimited()
         ))))
     }
 

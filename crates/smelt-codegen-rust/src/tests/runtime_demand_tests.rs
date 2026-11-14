@@ -44,9 +44,18 @@ main();
 fn a_generator_demands_its_crate_and_the_carrier() {
     let demand = demand_of("function* g(): Generator<number, void, void> { yield 1; }");
     assert!(demand.has(Need::Generator), "the function is a generator");
-    assert!(demand.has(Need::DepGenawaiter), "the state machine needs the crate");
-    assert!(demand.has(Need::Unknown), "the runtime lives in the carrier's block");
-    assert!(demand.has(Need::DepTokio), "the carrier block spells tokio types");
+    assert!(
+        demand.has(Need::DepGenawaiter),
+        "the state machine needs the crate"
+    );
+    assert!(
+        demand.has(Need::Unknown),
+        "the runtime lives in the carrier's block"
+    );
+    assert!(
+        demand.has(Need::DepTokio),
+        "the carrier block spells tokio types"
+    );
 }
 
 /// A program with nothing dynamic in it stays out of the carrier entirely.
@@ -55,7 +64,10 @@ fn a_wholly_typed_program_demands_no_carrier() {
     let demand = demand_of("export function add(a: number, b: number): number { return a + b; }");
     assert!(!demand.has(Need::Unknown), "no erased value exists here");
     assert!(!demand.has(Need::SmeltList), "no list exists here");
-    assert!(!demand.has(Need::ObjectIds), "no identity-bearing value exists here");
+    assert!(
+        !demand.has(Need::ObjectIds),
+        "no identity-bearing value exists here"
+    );
 }
 
 /// A `typeof` over a concrete value is decided statically, so it must not pull
@@ -63,7 +75,10 @@ fn a_wholly_typed_program_demands_no_carrier() {
 #[test]
 fn a_static_typeof_does_not_force_the_carrier() {
     let demand = demand_of("export function f(x: number): string { return typeof x; }");
-    assert!(!demand.has(Need::Unknown), "a concrete operand needs no carrier");
+    assert!(
+        !demand.has(Need::Unknown),
+        "a concrete operand needs no carrier"
+    );
 }
 
 /// The closure is transitive: a form reaches the blob runtime, the byte family
@@ -71,7 +86,14 @@ fn a_static_typeof_does_not_force_the_carrier() {
 #[test]
 fn the_requires_graph_closes_transitively() {
     let demand = demand_of("export function f(): FormData { return new FormData(); }");
-    for need in [Need::FormData, Need::Blob, Need::ByteArray, Need::ObjectIds, Need::HostOrigins, Need::DepUrl] {
+    for need in [
+        Need::FormData,
+        Need::Blob,
+        Need::ByteArray,
+        Need::ObjectIds,
+        Need::HostOrigins,
+        Need::DepUrl,
+    ] {
         assert!(demand.has(need), "a form must reach {need:?}");
     }
 }
@@ -107,7 +129,11 @@ export function orDefault<TDefault = unknown>(value: any, defaultValue?: TDefaul
 #[test]
 fn every_need_closes_to_a_self_contained_runtime() {
     use crate::runtime_prelude::{ProgramFacts, flag_for, rendered_text};
-    let all_facts = ProgramFacts { reference_classes: true, erased_view_write_through: true, reads_this: true };
+    let all_facts = ProgramFacts {
+        reference_classes: true,
+        erased_view_write_through: true,
+        reads_this: true,
+    };
     let mut failures = Vec::new();
     for need in Need::ALL {
         for facts in [ProgramFacts::default(), all_facts] {
@@ -120,7 +146,11 @@ fn every_need_closes_to_a_self_contained_runtime() {
             }
         }
     }
-    assert!(failures.is_empty(), "needs whose closure names undefined runtime symbols:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "needs whose closure names undefined runtime symbols:\n{}",
+        failures.join("\n")
+    );
 }
 
 /// `Need::ALL` holds every need once, at its own discriminant: the bit a need
@@ -147,7 +177,15 @@ fn every_need_has_its_own_bit() {
 #[test]
 fn an_unpredicted_runtime_use_is_refused_by_name() {
     let typed = demand_of("export function add(a: number, b: number): number { return a + b; }");
-    let refused = typed.carrier().err().map(|error| error.to_string()).unwrap_or_default();
+    let refused = typed
+        .carrier()
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
     assert!(refused.contains("`Unknown` runtime family"), "{refused}");
-    assert!(RuntimeDemand::closed_over(&[Need::Unknown]).carrier().is_ok());
+    assert!(
+        RuntimeDemand::closed_over(&[Need::Unknown])
+            .carrier()
+            .is_ok()
+    );
 }

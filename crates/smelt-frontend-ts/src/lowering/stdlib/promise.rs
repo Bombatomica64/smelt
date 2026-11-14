@@ -1,11 +1,11 @@
 //! `Promise`: its statics, its constructor and executor, and `then`/`catch`/`finally`.
 
-use crate::lowering::resolve::HostGlobal;
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
-use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::resolve::HostGlobal;
 use crate::lowering::support::arrow_block_statements;
+use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
 use oxc::ast::ast::{Argument, BindingPattern, Expression, Statement};
 use oxc::span::GetSpan;
 use smelt_hir::{AsyncOp, Body, ErasureReason, Expr, ExprKind, FunctionType, Literal, Type};
@@ -263,11 +263,9 @@ impl ModuleBuilder<'_> {
             ));
         };
         let bare_delay_timer = match executor_arg {
-            Argument::ArrowFunctionExpression(executor) => {
-                self.promise_executor_timer_call(executor).filter(|timer_call| {
-                    Self::promise_executor_is_bare_delay(executor, timer_call)
-                })
-            }
+            Argument::ArrowFunctionExpression(executor) => self
+                .promise_executor_timer_call(executor)
+                .filter(|timer_call| Self::promise_executor_is_bare_delay(executor, timer_call)),
             _ => None,
         };
         let mut lowered_executor = None;
@@ -314,8 +312,7 @@ impl ModuleBuilder<'_> {
             } else {
                 let mark = self.speculation_mark(body);
                 let executor_ty = self.promise_executor_type(output_ty);
-                let executor =
-                    self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
+                let executor = self.argument_with_hint(executor_arg, body, Some(executor_ty))?;
                 let resolved = if declared_output.is_none() {
                     self.promise_output_from_resolve_calls(body, executor)
                 } else {
@@ -399,7 +396,11 @@ impl ModuleBuilder<'_> {
         // runtime-helper signature: a valueless promise's resolve takes an ignored tagged value
         let unknown_ty = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
         let none_ty = self.ctx.krate.types.intern(Type::None);
-        let resolve_value_ty = if output_ty == none_ty { unknown_ty } else { output_ty };
+        let resolve_value_ty = if output_ty == none_ty {
+            unknown_ty
+        } else {
+            output_ty
+        };
         let resolve_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![resolve_value_ty],
             rest: None,
@@ -452,7 +453,10 @@ impl ModuleBuilder<'_> {
         let resolved = if calls.argument_types.iter().all(|ty| *ty == first) {
             first
         } else {
-            self.erase_with(ErasureReason::MissingAnnotation, "Promise resolve types disagree")
+            self.erase_with(
+                ErasureReason::MissingAnnotation,
+                "Promise resolve types disagree",
+            )
         };
         if calls.has_empty_call && !self.is_nullishable_type(resolved) {
             return Some(self.ctx.krate.types.intern(Type::Optional(resolved)));
@@ -519,7 +523,8 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return None;
         };
-        (self.names_host(callee.name.as_str(), "setTimeout") && call.arguments.len() == 2).then_some(call)
+        (self.names_host(callee.name.as_str(), "setTimeout") && call.arguments.len() == 2)
+            .then_some(call)
     }
 
     /// Return whether a `setTimeout`-bodied Promise executor is a pure delay.
@@ -605,15 +610,18 @@ impl ModuleBuilder<'_> {
             may_throw: false,
         }));
         let callback = self.argument_with_hint(callback_arg, body, Some(callback_ty))?;
-        let declared_callback_result = body.expr_at(callback)
+        let declared_callback_result = body
+            .expr_at(callback)
             .and_then(|expr| match &expr.kind {
                 ExprKind::Closure(closure) => Some(closure.return_ty),
                 _ => None,
             })
-            .or_else(|| match self.ctx.krate.types.get(Self::expr_ty(body, callback)) {
-                Some(Type::Function(function)) => Some(function.return_ty),
-                _ => None,
-            });
+            .or_else(
+                || match self.ctx.krate.types.get(Self::expr_ty(body, callback)) {
+                    Some(Type::Function(function)) => Some(function.return_ty),
+                    _ => None,
+                },
+            );
         let callback_result_ty = match declared_callback_result {
             Some(return_ty) => match self.ctx.krate.types.get(return_ty) {
                 // Promise callbacks flatten a returned promise rather than
@@ -647,16 +655,20 @@ impl ModuleBuilder<'_> {
                     ExprKind::Closure(closure) => Some(closure.return_ty),
                     _ => None,
                 })
-                .or_else(|| match self.ctx.krate.types.get(Self::expr_ty(body, rejected)) {
-                    Some(Type::Function(function)) => Some(function.return_ty),
-                    _ => None,
-                });
+                .or_else(
+                    || match self.ctx.krate.types.get(Self::expr_ty(body, rejected)) {
+                        Some(Type::Function(function)) => Some(function.return_ty),
+                        _ => None,
+                    },
+                );
             let rejected_result_ty = match rejected_return {
                 Some(ty) => match self.ctx.krate.types.get(ty) {
                     Some(Type::Future(item)) => *item,
                     _ => ty,
                 },
-                None => self.erase_with(ErasureReason::MissingAnnotation, "promise callback result"),
+                None => {
+                    self.erase_with(ErasureReason::MissingAnnotation, "promise callback result")
+                }
             };
             let joined = if rejected_result_ty == callback_result_ty {
                 callback_result_ty
@@ -681,7 +693,10 @@ impl ModuleBuilder<'_> {
         } else {
             (
                 AsyncOp::Then,
-                self.ctx.krate.types.intern(Type::Future(callback_result_ty)),
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Future(callback_result_ty)),
             )
         };
         Ok(Some(body.push_expr(Expr {

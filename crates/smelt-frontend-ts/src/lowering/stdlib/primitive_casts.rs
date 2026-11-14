@@ -101,7 +101,9 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
-        if self.names_host(callee.name.as_str(), "String") && matches!(operand_type, Some(Type::Bool)) {
+        if self.names_host(callee.name.as_str(), "String")
+            && matches!(operand_type, Some(Type::Bool))
+        {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "String currently supports number and string arguments",
@@ -136,10 +138,15 @@ impl ModuleBuilder<'_> {
         }
         if matches!(op, PrimitiveCastOp::ToFloat | PrimitiveCastOp::ToJsNumber) {
             // `Number(sym)` always throws a TypeError in JavaScript.
-            return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never | Type::Symbol));
+            return !matches!(
+                self.ctx.krate.types.get(operand_ty),
+                Some(Type::Never | Type::Symbol)
+            );
         }
         match self.ctx.krate.types.get(operand_ty) {
-            Some(Type::Bool | Type::String | Type::Int | Type::BigInt | Type::Float | Type::Unknown) => true,
+            Some(
+                Type::Bool | Type::String | Type::Int | Type::BigInt | Type::Float | Type::Unknown,
+            ) => true,
             // `String(sym)` is `"Symbol(d)"` and `Boolean(sym)` is `true`.
             // (`Number(sym)` throws, and is answered by the arm above.)
             Some(Type::Symbol) => matches!(op, PrimitiveCastOp::ToString | PrimitiveCastOp::ToBool),

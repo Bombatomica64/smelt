@@ -32,15 +32,20 @@ impl FunctionEmitter<'_> {
             // mutations must be written back through the reference even though
             // the returned value is dropped.
             if let Callee::Static(func) = callee
-                && let Some(adapter) =
-                    self.static_call_mut_list_adapter(*func, args, local.ty)?
+                && let Some(adapter) = self.static_call_mut_list_adapter(*func, args, local.ty)?
             {
-                out.push_str(&format!("    let _ = {adapter};\n", adapter = adapter.delimited()));
+                out.push_str(&format!(
+                    "    let _ = {adapter};\n",
+                    adapter = adapter.delimited()
+                ));
                 self.mark_local_declared(dest);
                 return Ok(());
             }
             let call_text = self.rendered_call(callee, args)?.into_expression();
-            out.push_str(&format!("    let _ = {call_text};\n", call_text = call_text.delimited()));
+            out.push_str(&format!(
+                "    let _ = {call_text};\n",
+                call_text = call_text.delimited()
+            ));
             self.mark_local_declared(dest);
             return Ok(());
         }
@@ -54,11 +59,15 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
-            out.push_str(&format!("    let {mutability}{name} = {call_text};\n", call_text = call_text.delimited()));
+            out.push_str(&format!(
+                "    let {mutability}{name} = {call_text};\n",
+                call_text = call_text.delimited()
+            ));
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {call_text};\n",
-                self.call_dest_type(callee, local.ty)?, call_text = call_text.delimited()
+                self.call_dest_type(callee, local.ty)?,
+                call_text = call_text.delimited()
             ));
         }
         self.mark_local_declared(dest);
@@ -98,18 +107,25 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
-        let raw_value = RustExpr::loose(format!("{}.await?", self.await_operand_expr(future)?.tight()));
+        let raw_value = RustExpr::loose(format!(
+            "{}.await?",
+            self.await_operand_expr(future)?.tight()
+        ));
         let source_ty = self.awaited_output_ty(future)?;
         let value = self.rendered_at_type(&raw_value, source_ty, local.ty, &self.render_scope())?;
         if matches!(
             self.mir.types.get(local.ty),
             Some(Type::Future(_) | Type::Function(_))
         ) {
-            out.push_str(&format!("    let {mutability}{name} = {value};\n", value = value.delimited()));
+            out.push_str(&format!(
+                "    let {mutability}{name} = {value};\n",
+                value = value.delimited()
+            ));
         } else {
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {value};\n",
-                self.rendered_type(local.ty)?, value = value.delimited()
+                self.rendered_type(local.ty)?,
+                value = value.delimited()
             ));
         }
         self.mark_local_declared(dest);
@@ -151,12 +167,17 @@ impl FunctionEmitter<'_> {
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
         let joined_tail = join.filter(|_| joined_continuation.is_some());
-        let hoist_dest = joined_tail.is_some_and(|tail| !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest));
+        let hoist_dest = joined_tail.is_some_and(|tail| {
+            !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest)
+        });
         let rendered = self.rendered_call(callee, args)?;
         if !rendered.propagates() {
             let call_text = rendered.into_call();
             let name = self.local_name(dest)?;
-            let dest_type_text = if matches!(self.mir.types.get(local.ty), Some(Type::Function(_) | Type::Future(_))) {
+            let dest_type_text = if matches!(
+                self.mir.types.get(local.ty),
+                Some(Type::Function(_) | Type::Future(_))
+            ) {
                 None
             } else {
                 Some(self.call_dest_type(callee, local.ty)?)
@@ -186,14 +207,28 @@ impl FunctionEmitter<'_> {
                 RustExpr::path("__smelt_value")
             } else {
                 let source_ty = self.call_emitted_source_ty(callee, args, local.ty)?;
-                self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?
+                self.rendered_at_type(
+                    &RustExpr::path("__smelt_value"),
+                    source_ty,
+                    local.ty,
+                    &self.render_scope(),
+                )?
             };
             if hoist_dest {
-                out.push_str(&format!("            {name} = {value_text};\n", value_text = value_text.delimited()));
+                out.push_str(&format!(
+                    "            {name} = {value_text};\n",
+                    value_text = value_text.delimited()
+                ));
             } else if let Some(type_text) = &dest_type_text {
-                out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n", value_text = value_text.delimited()));
+                out.push_str(&format!(
+                    "            let {mutability}{name}: {type_text} = {value_text};\n",
+                    value_text = value_text.delimited()
+                ));
             } else {
-                out.push_str(&format!("            let {mutability}{name} = {value_text};\n", value_text = value_text.delimited()));
+                out.push_str(&format!(
+                    "            let {mutability}{name} = {value_text};\n",
+                    value_text = value_text.delimited()
+                ));
             }
             self.mark_local_declared(dest);
             let __smelt_arm_declared = self.declared_scope();
@@ -236,7 +271,10 @@ impl FunctionEmitter<'_> {
                     }
                     _ => self.default_value(exception_decl.ty)?,
                 };
-                out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
+                out.push_str(
+                    self.exception_binding_expr(exception_local, &exception_name, &value)
+                        .as_str(),
+                );
                 self.mark_local_declared(exception_local);
             }
             self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -266,7 +304,10 @@ impl FunctionEmitter<'_> {
         #[cfg(debug_assertions)]
         self.debug_assert_declared_return_is_emitted_return(callee, args, local.ty, source_ty);
         let name = self.local_name(dest)?;
-        let dest_type_text = if matches!(self.mir.types.get(local.ty), Some(Type::Future(_) | Type::Function(_))) {
+        let dest_type_text = if matches!(
+            self.mir.types.get(local.ty),
+            Some(Type::Future(_) | Type::Function(_))
+        ) {
             None
         } else {
             Some(self.call_dest_type(callee, local.ty)?)
@@ -279,18 +320,32 @@ impl FunctionEmitter<'_> {
             "    match {{ smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})); smelt_panic_catch_leave(); smelt_caught }} {{\n", raw_call = raw_call.delimited()
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
-        let value_text = self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?;
+        let value_text = self.rendered_at_type(
+            &RustExpr::path("__smelt_value"),
+            source_ty,
+            local.ty,
+            &self.render_scope(),
+        )?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
         } else {
             ""
         };
         if hoist_dest {
-            out.push_str(&format!("            {name} = {value_text};\n", value_text = value_text.delimited()));
+            out.push_str(&format!(
+                "            {name} = {value_text};\n",
+                value_text = value_text.delimited()
+            ));
         } else if let Some(type_text) = &dest_type_text {
-            out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n", value_text = value_text.delimited()));
+            out.push_str(&format!(
+                "            let {mutability}{name}: {type_text} = {value_text};\n",
+                value_text = value_text.delimited()
+            ));
         } else {
-            out.push_str(&format!("            let {mutability}{name} = {value_text};\n", value_text = value_text.delimited()));
+            out.push_str(&format!(
+                "            let {mutability}{name} = {value_text};\n",
+                value_text = value_text.delimited()
+            ));
         }
         self.mark_local_declared(dest);
         // Each of the three arms re-emits the SAME continuation into its own
@@ -310,8 +365,12 @@ impl FunctionEmitter<'_> {
             // catch variable through `smelt_panic_error_value`, which answers the
             // value a panic-routed throw parked in `SMELT_PANIC_VALUE`, and a
             // class-and-message record only for a panic with no parked value.)
-            let value = self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
-            out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
+            let value =
+                self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
+            out.push_str(
+                self.exception_binding_expr(exception_local, &exception_name, &value)
+                    .as_str(),
+            );
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -319,9 +378,9 @@ impl FunctionEmitter<'_> {
         __smelt_arm_declared.reset();
         out.push_str("        Err(__smelt_panic) => {\n");
         out.push_str(&format!(
-                "            let __smelt_error = {};\n",
-                crate::thrown::caught_panic_message_expr("__smelt_panic").delimited()
-            ));
+            "            let __smelt_error = {};\n",
+            crate::thrown::caught_panic_message_expr("__smelt_panic").delimited()
+        ));
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
@@ -341,7 +400,10 @@ impl FunctionEmitter<'_> {
                 }
                 _ => self.default_value(exception_decl.ty)?,
             };
-            out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
+            out.push_str(
+                self.exception_binding_expr(exception_local, &exception_name, &value)
+                    .as_str(),
+            );
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -396,10 +458,15 @@ impl FunctionEmitter<'_> {
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
         let joined_tail = join.filter(|_| joined_continuation.is_some());
-        let hoist_dest = joined_tail.is_some_and(|tail| !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest));
+        let hoist_dest = joined_tail.is_some_and(|tail| {
+            !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest)
+        });
         let future_text = self.await_operand_expr(future)?;
         let name = self.local_name(dest)?;
-        let dest_type_text = if matches!(self.mir.types.get(local.ty), Some(Type::Future(_) | Type::Function(_))) {
+        let dest_type_text = if matches!(
+            self.mir.types.get(local.ty),
+            Some(Type::Future(_) | Type::Function(_))
+        ) {
             None
         } else if self.mir.types.get(local.ty) == Some(&Type::None) {
             Some("()".to_owned())
@@ -410,7 +477,10 @@ impl FunctionEmitter<'_> {
             out.push_str(&self.throwing_dest_predeclaration(dest, dest_type_text.as_deref())?);
             self.mark_local_declared(dest);
         }
-        out.push_str(&format!("    match {future_text}.await {{\n", future_text = future_text.tight()));
+        out.push_str(&format!(
+            "    match {future_text}.await {{\n",
+            future_text = future_text.tight()
+        ));
         out.push_str("        Ok(__smelt_value) => {\n");
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
@@ -425,14 +495,24 @@ impl FunctionEmitter<'_> {
         let value_text = if self.mir.types.get(local.ty) == Some(&Type::None) {
             "{ let _ = __smelt_value; }".to_owned()
         } else {
-            self.rendered_at_type(&RustExpr::path("__smelt_value"), source_ty, local.ty, &self.render_scope())?.into_string()
+            self.rendered_at_type(
+                &RustExpr::path("__smelt_value"),
+                source_ty,
+                local.ty,
+                &self.render_scope(),
+            )?
+            .into_string()
         };
         if hoist_dest {
             out.push_str(&format!("            {name} = {value_text};\n"));
         } else if let Some(type_text) = &dest_type_text {
-            out.push_str(&format!("            let {mutability}{name}: {type_text} = {value_text};\n"));
+            out.push_str(&format!(
+                "            let {mutability}{name}: {type_text} = {value_text};\n"
+            ));
         } else {
-            out.push_str(&format!("            let {mutability}{name} = {value_text};\n"));
+            out.push_str(&format!(
+                "            let {mutability}{name} = {value_text};\n"
+            ));
         }
         self.mark_local_declared(dest);
         let __smelt_arm_declared = self.declared_scope();
@@ -452,8 +532,12 @@ impl FunctionEmitter<'_> {
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
-            let value = self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
-            out.push_str(self.exception_binding_expr(exception_local, &exception_name, &value).as_str());
+            let value =
+                self.caught_error_value(exception_decl.ty, &RustExpr::path("__smelt_error"))?;
+            out.push_str(
+                self.exception_binding_expr(exception_local, &exception_name, &value)
+                    .as_str(),
+            );
             self.mark_local_declared(exception_local);
         }
         self.emit_continuation(handler.catch_block, arm_continuation, out)?;
@@ -483,9 +567,15 @@ impl FunctionEmitter<'_> {
     /// the unassigned outer binding. Otherwise it is a fresh `let`.
     fn exception_binding_expr(&self, local: LocalId, name: &str, value: &RustExpr) -> RustExpr {
         if self.is_local_declared(local) {
-            RustExpr::loose(format!("            {name} = {value};\n", value = value.delimited()))
+            RustExpr::loose(format!(
+                "            {name} = {value};\n",
+                value = value.delimited()
+            ))
         } else {
-            RustExpr::loose(format!("            let {name} = {value};\n", value = value.delimited()))
+            RustExpr::loose(format!(
+                "            let {name} = {value};\n",
+                value = value.delimited()
+            ))
         }
     }
 }

@@ -54,7 +54,10 @@ pub(crate) fn write_report(output: Option<&str>, report: &str) -> CliResult<()> 
 /// Returning `Err` instead would route through the default `Termination`
 /// impl, which Debug-prints the string with escaped newlines — unreadable for
 /// a CI gate.
-#[expect(clippy::exit, reason = "a failing CI gate exits 1 with its message as written")]
+#[expect(
+    clippy::exit,
+    reason = "a failing CI gate exits 1 with its message as written"
+)]
 pub(crate) fn finish_gated(
     outcome: &GatedOutcome,
     output: Option<&str>,
@@ -157,7 +160,10 @@ impl<'de, S: Schema> serde::Deserialize<'de> for SchemaVersion<S> {
 /// `kind` prefixes the path in the message: `"baseline "` for a file that can
 /// only be a baseline, `""` for one that can be a sidecar too. Only a
 /// versioned format loads ([`Schema`]); its version is checked as it is read.
-pub(crate) fn load_json<T: DeserializeOwned + Schema>(path: &Path, kind: &str) -> Result<T, String> {
+pub(crate) fn load_json<T: DeserializeOwned + Schema>(
+    path: &Path,
+    kind: &str,
+) -> Result<T, String> {
     let text = std::fs::read_to_string(path)
         .map_err(|error| format!("failed to read {kind}`{}`: {error}", path.display()))?;
     serde_json::from_str(&text)
@@ -262,19 +268,36 @@ mod tests {
     fn load_json_names_the_file_it_could_not_read() {
         let missing = Path::new("does/not/exist.json");
         let error = load_json::<Probe>(missing, "baseline ").expect_err("missing file");
-        assert!(error.starts_with("failed to read baseline `does/not/exist.json`: "), "{error}");
+        assert!(
+            error.starts_with("failed to read baseline `does/not/exist.json`: "),
+            "{error}"
+        );
         let unnamed = load_json::<Probe>(missing, "").expect_err("missing file");
-        assert!(unnamed.starts_with("failed to read `does/not/exist.json`: "), "{unnamed}");
+        assert!(
+            unnamed.starts_with("failed to read `does/not/exist.json`: "),
+            "{unnamed}"
+        );
     }
 
     /// The current version round-trips; another version, or none, is refused.
     #[test]
     fn a_schema_version_reads_only_the_current_version() {
-        let written = serde_json::to_string(&Probe { version: SchemaVersion::CURRENT }).expect("serialize");
+        let written = serde_json::to_string(&Probe {
+            version: SchemaVersion::CURRENT,
+        })
+        .expect("serialize");
         assert_eq!(written, r#"{"version":3}"#);
         assert!(serde_json::from_str::<Probe>(&written).is_ok());
-        let refused = serde_json::from_str::<Probe>(r#"{"version":2}"#).expect_err("old version").to_string();
-        assert!(refused.contains("probe version 2") && refused.contains("(3)"), "{refused}");
-        assert!(serde_json::from_str::<Probe>("{}").is_err(), "a missing version is refused");
+        let refused = serde_json::from_str::<Probe>(r#"{"version":2}"#)
+            .expect_err("old version")
+            .to_string();
+        assert!(
+            refused.contains("probe version 2") && refused.contains("(3)"),
+            "{refused}"
+        );
+        assert!(
+            serde_json::from_str::<Probe>("{}").is_err(),
+            "a missing version is refused"
+        );
     }
 }

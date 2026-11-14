@@ -1,8 +1,8 @@
 //! Statement blocks: building a HIR block from a statement and closing its lexical
 //! scope.
 
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Statement;
 use smelt_hir::Body;
 
@@ -35,7 +35,9 @@ impl ModuleBuilder<'_> {
     /// `let`/`const` declarators (not `var`, which is function-scoped) and a
     /// nested `for (let ..)` head's bindings are handled by the loop itself.
     /// Used to close the block's scope ([`LocalScope::close_lexical_block`]).
-    pub(in crate::lowering) fn lexically_declared_names(statements: &[Statement<'_>]) -> Vec<String> {
+    pub(in crate::lowering) fn lexically_declared_names(
+        statements: &[Statement<'_>],
+    ) -> Vec<String> {
         let mut names = Vec::new();
         for statement in statements {
             if let Statement::VariableDeclaration(decl) = statement

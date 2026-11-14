@@ -1,14 +1,14 @@
 //! Operator expressions: binary, unary, `in`, `delete` and `void`.
 
 use crate::lowering::body_arena::BodyArena;
-use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::js_text::js_str_text;
-use smelt_hir::{ErasureReason, PropertyLookup};
+use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     BinOp, BinaryOperator, Body, Expr, ExprKind, Expression, Item, Literal, ModuleBuilder,
     PrimitiveCastOp, SmeltError, Span, Stmt, Type, UnaryOp, UnaryOperator,
 };
 use oxc::span::GetSpan;
+use smelt_hir::{ErasureReason, PropertyLookup};
 
 impl ModuleBuilder<'_> {
     /// Lower a binary expression.
@@ -94,9 +94,13 @@ impl ModuleBuilder<'_> {
         let rhs_ty = Self::expr_ty(body, rhs);
         let op = self.loose_equality_op(op, lhs_ty, rhs_ty);
         // Erased operands say nothing about `+`; the checker may know it concatenates.
-        let ty = if op == BinOp::Add && self.checker_types_as_string(binary.span.start, binary.span.end) {
+        let ty = if op == BinOp::Add
+            && self.checker_types_as_string(binary.span.start, binary.span.end)
+        {
             self.ctx.krate.types.intern(Type::String)
-        } else if let Some(dynamic) = self.dynamic_addition_type(op, lhs_ty, rhs_ty, binary.span.start, binary.span.end) {
+        } else if let Some(dynamic) =
+            self.dynamic_addition_type(op, lhs_ty, rhs_ty, binary.span.start, binary.span.end)
+        {
             dynamic
         } else {
             self.binary_result_type(op, lhs_ty, rhs_ty)
@@ -185,8 +189,19 @@ impl ModuleBuilder<'_> {
         let Some(span) = body.expr_at(operand).map(|expr| expr.span) else {
             return operand;
         };
-        let nan = body.push_expr(Expr { kind: ExprKind::Literal(Literal::Float(f64::NAN)), ty: inner, span });
-        body.push_expr(Expr { kind: ExprKind::OptionalCoalesce { optional: operand, fallback: nan }, ty: inner, span })
+        let nan = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(f64::NAN)),
+            ty: inner,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce {
+                optional: operand,
+                fallback: nan,
+            },
+            ty: inner,
+            span,
+        })
     }
 
     /// Lower one operand of a binary expression.
@@ -201,8 +216,10 @@ impl ModuleBuilder<'_> {
         operand: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let comparing =
-            matches!(op, BinOp::JsStrictEq | BinOp::JsStrictNotEq | BinOp::Eq | BinOp::NotEq);
+        let comparing = matches!(
+            op,
+            BinOp::JsStrictEq | BinOp::JsStrictNotEq | BinOp::Eq | BinOp::NotEq
+        );
         if comparing
             && let Some(host) = self.host_global(operand)
             && matches!(host.name(), "Number" | "String" | "Boolean")
@@ -210,7 +227,11 @@ impl ModuleBuilder<'_> {
             let name = host.name().to_owned();
             let span = self.expression_span(operand);
             let ty = self.erase_at(ErasureReason::ByName, span, "global namespace");
-            return Ok(body.push_expr(Expr { kind: ExprKind::BuiltinNamespace { name }, ty, span }));
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::BuiltinNamespace { name },
+                ty,
+                span,
+            }));
         }
         self.expression(operand, body)
     }
@@ -416,8 +437,7 @@ impl ModuleBuilder<'_> {
                 self.resolve_value(receiver_ident.name.as_str()),
                 crate::lowering::resolve::ValueBinding::Local(_)
             )
-            && let Some(object_const) = self.consts.object(receiver_ident.name.as_str())
-                .cloned()
+            && let Some(object_const) = self.consts.object(receiver_ident.name.as_str()).cloned()
         {
             let mut key = self.expression(key_expr, body)?;
             if Self::expr_ty(body, key) != string_ty {
@@ -469,8 +489,10 @@ impl ModuleBuilder<'_> {
         let mut key = self.expression(key_expr, body)?;
         // An iterator result's own properties are fixed by the protocol, so a
         // literal key is answered without erasing the typed result.
-        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::GeneratorResult { .. }))
-            && let Expression::StringLiteral(name) = &key_expr
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::GeneratorResult { .. })
+        ) && let Expression::StringLiteral(name) = &key_expr
         {
             let present = name.value == "done" || name.value == "value";
             return Ok(body.push_expr(Expr {
@@ -891,7 +913,17 @@ struct ValueKinds {
 impl ValueKinds {
     /// How many distinct non-nullish kinds were seen.
     fn count(&self) -> usize {
-        [self.number, self.bigint, self.string, self.boolean, self.symbol, self.object].into_iter().filter(|kind| *kind).count()
+        [
+            self.number,
+            self.bigint,
+            self.string,
+            self.boolean,
+            self.symbol,
+            self.object,
+        ]
+        .into_iter()
+        .filter(|kind| *kind)
+        .count()
     }
 }
 
@@ -907,7 +939,12 @@ impl ModuleBuilder<'_> {
     /// that can hold different kinds (a union, `unknown`, `bigint` against
     /// `number`) get [`BinOp::JsLooseEq`], which converts across kinds at run
     /// time. A generic parameter keeps the typed equality its bounds give.
-    pub(in crate::lowering) fn loose_equality_op(&self, op: BinOp, lhs: smelt_hir::TypeId, rhs: smelt_hir::TypeId) -> BinOp {
+    pub(in crate::lowering) fn loose_equality_op(
+        &self,
+        op: BinOp,
+        lhs: smelt_hir::TypeId,
+        rhs: smelt_hir::TypeId,
+    ) -> BinOp {
         let (same_kind, objects, crossing) = match op {
             BinOp::Eq => (BinOp::Eq, BinOp::JsStrictEq, BinOp::JsLooseEq),
             BinOp::NotEq => (BinOp::NotEq, BinOp::JsStrictNotEq, BinOp::JsLooseNotEq),

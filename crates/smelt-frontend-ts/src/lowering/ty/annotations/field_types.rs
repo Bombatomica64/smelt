@@ -2,12 +2,12 @@
 //! optional and dynamic fields, and the bounds of type parameters a field read
 //! goes through.
 
-use crate::lowering::erasure::NotNewErasure;
-use std::collections::{HashMap, HashSet};
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::support::source_spelling;
 use smelt_hir::{Class, ErasureReason, FunctionType, Item, Type};
+use std::collections::{HashMap, HashSet};
 
 impl ModuleBuilder<'_> {
     /// The type an instance read of a source getter `get name(): T` produces.
@@ -68,12 +68,8 @@ impl ModuleBuilder<'_> {
                 None => Ok(self.erase(ErasureReason::ByName)),
             },
             Type::Tuple(_) => Ok(self.erase(ErasureReason::ByName)),
-            Type::Bool => {
-                Ok(self.erase(ErasureReason::ByName))
-            }
-            Type::Float | Type::Int
-                if self.ctx.krate.symbols.get(field) == Some("constructor") =>
-            {
+            Type::Bool => Ok(self.erase(ErasureReason::ByName)),
+            Type::Float | Type::Int if self.ctx.krate.symbols.get(field) == Some("constructor") => {
                 Ok(self.erase(ErasureReason::ByName))
             }
             Type::String if self.ctx.krate.symbols.get(field) == Some("length") => {
@@ -109,7 +105,9 @@ impl ModuleBuilder<'_> {
             // instead of rejecting source that TypeScript accepts.
             Type::String => Ok(self.erase(ErasureReason::UntypedBuiltin)),
             Type::Function(_) => {
-                if let Some(field) = self.types.callable_fields(receiver_ty)
+                if let Some(field) = self
+                    .types
+                    .callable_fields(receiver_ty)
                     .and_then(|fields| fields.iter().find(|item| item.name == field))
                 {
                     return Ok(if field.optional {
@@ -183,8 +181,9 @@ impl ModuleBuilder<'_> {
                         self.type_argument_substitution(&class.type_params, &args, self.span(0, 0))?
                     }
                     None => match self.ctx.class_type_params.get(&name).cloned() {
-                        Some(type_params) if !args.is_empty() => self
-                            .type_argument_substitution(&type_params, &args, self.span(0, 0))?,
+                        Some(type_params) if !args.is_empty() => {
+                            self.type_argument_substitution(&type_params, &args, self.span(0, 0))?
+                        }
                         _ => HashMap::new(),
                     },
                 };
@@ -194,8 +193,11 @@ impl ModuleBuilder<'_> {
                     return Ok(self.substitute_type_params(ty, &class_substitutions));
                 }
                 let class_field = if let Some(class) = &class_item {
-                    let substitutions =
-                        self.type_argument_substitution(&class.type_params, &args, self.span(0, 0))?;
+                    let substitutions = self.type_argument_substitution(
+                        &class.type_params,
+                        &args,
+                        self.span(0, 0),
+                    )?;
                     class
                         .fields
                         .iter()
@@ -206,8 +208,7 @@ impl ModuleBuilder<'_> {
                 } else {
                     None
                 };
-                let class_name = source_spelling(&self.ctx.krate, name)
-                    .map(str::to_owned);
+                let class_name = source_spelling(&self.ctx.krate, name).map(str::to_owned);
                 let sidecar_field = class_name
                     .as_deref()
                     .and_then(|class_name| {
@@ -227,7 +228,9 @@ impl ModuleBuilder<'_> {
                 // the receiver's scope.
                 let method_substitutions = class_substitutions.clone();
                 let sidecar_method = class_name.as_deref().and_then(|class_name| {
-                    let method = self.classes.methods(class_name)?
+                    let method = self
+                        .classes
+                        .methods(class_name)?
                         .iter()
                         .find(|item| item.name == field)?
                         .clone();
@@ -236,7 +239,8 @@ impl ModuleBuilder<'_> {
                         .iter()
                         .map(|param| self.substitute_type_params(param.ty, &method_substitutions))
                         .collect::<Vec<_>>();
-                    let return_ty = self.substitute_type_params(method.return_ty, &method_substitutions);
+                    let return_ty =
+                        self.substitute_type_params(method.return_ty, &method_substitutions);
                     let mutable_params =
                         self.mutable_params_from_returned_tuple_state(&params, return_ty);
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -261,9 +265,11 @@ impl ModuleBuilder<'_> {
                         .iter()
                         .find(|item| item.name == field)
                         .map(|item| (item.ty, item.optional));
-                    field_data.map(|(ty, optional)| {
-                        self.instantiate_field_type(ty, optional, &substitutions)
-                    }).or_else(|| self.interfaces.index_value(name))
+                    field_data
+                        .map(|(ty, optional)| {
+                            self.instantiate_field_type(ty, optional, &substitutions)
+                        })
+                        .or_else(|| self.interfaces.index_value(name))
                 } else {
                     None
                 };
@@ -290,34 +296,35 @@ impl ModuleBuilder<'_> {
                         may_throw: false,
                     })))
                 });
-                let alias_fields = self.types.alias_fields(name)
-                    .cloned()
-                    .unwrap_or_default();
-                let spelling = source_spelling(&self.ctx.krate, name).unwrap_or_default().to_owned();
-                let alias_field = if let Some(alias) = self.visible_type_alias(name, &spelling).cloned() {
-                    let substitutions = self.type_argument_substitution(
-                        &alias.type_params,
-                        &args,
-                        self.span(0, 0),
-                    )?;
-                    let field_data = alias_fields
-                        .iter()
-                        .find(|item| item.name == field)
-                        .map(|item| (item.ty, item.optional));
-                    field_data.map(|(ty, optional)| {
-                        self.instantiate_field_type(ty, optional, &substitutions)
-                    })
-                } else {
-                    // A class's predeclared member surface, spelled in its
-                    // own scope like the sidecar members above.
-                    let field_data = alias_fields
-                        .iter()
-                        .find(|item| item.name == field)
-                        .map(|item| (item.ty, item.optional));
-                    field_data.map(|(ty, optional)| {
-                        self.instantiate_field_type(ty, optional, &class_substitutions)
-                    })
-                };
+                let alias_fields = self.types.alias_fields(name).cloned().unwrap_or_default();
+                let spelling = source_spelling(&self.ctx.krate, name)
+                    .unwrap_or_default()
+                    .to_owned();
+                let alias_field =
+                    if let Some(alias) = self.visible_type_alias(name, &spelling).cloned() {
+                        let substitutions = self.type_argument_substitution(
+                            &alias.type_params,
+                            &args,
+                            self.span(0, 0),
+                        )?;
+                        let field_data = alias_fields
+                            .iter()
+                            .find(|item| item.name == field)
+                            .map(|item| (item.ty, item.optional));
+                        field_data.map(|(ty, optional)| {
+                            self.instantiate_field_type(ty, optional, &substitutions)
+                        })
+                    } else {
+                        // A class's predeclared member surface, spelled in its
+                        // own scope like the sidecar members above.
+                        let field_data = alias_fields
+                            .iter()
+                            .find(|item| item.name == field)
+                            .map(|item| (item.ty, item.optional));
+                        field_data.map(|(ty, optional)| {
+                            self.instantiate_field_type(ty, optional, &class_substitutions)
+                        })
+                    };
                 // A class string/number index signature contributes a keyed
                 // store whose value type is statically known. When no declared
                 // named field or method matches, resolve the access through the
@@ -338,8 +345,8 @@ impl ModuleBuilder<'_> {
                 if let Some(ty) = self.builtin_class_field_type(name, field) {
                     return Ok(ty);
                 }
-                if let Some((base, base_args)) =
-                    class_item.and_then(|class| class.base.map(|base| (base, class.base_args)))
+                if let Some((base, base_args)) = class_item
+                    .and_then(|class| class.base.map(|base| (base, class.base_args)))
                     // Symbol-keyed, not name-keyed: the source spelling of a
                     // class renamed for a cross-module collision is shared with
                     // the class that displaced it, so a by-name fallback made an
@@ -407,11 +414,14 @@ impl ModuleBuilder<'_> {
         class_name: smelt_hir::Symbol,
         method_name: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        let class_text = source_spelling(&self.ctx.krate, class_name)
-            .map(str::to_owned)?;
+        let class_text = source_spelling(&self.ctx.krate, class_name).map(str::to_owned)?;
         let methods = self.classes.methods(&class_text).cloned()?;
         let method = methods.into_iter().find(|item| item.name == method_name)?;
-        let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+        let params = method
+            .params
+            .iter()
+            .map(|param| param.ty)
+            .collect::<Vec<_>>();
         let mutable_params =
             self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
@@ -464,7 +474,8 @@ impl ModuleBuilder<'_> {
                 .into_iter()
                 .map(|arg| self.substitute_type_params(arg, &child_substitutions))
                 .collect::<Vec<_>>();
-            if let Some(ty) = self.interface_declared_field_type(parent.parent, &parent_args, field)?
+            if let Some(ty) =
+                self.interface_declared_field_type(parent.parent, &parent_args, field)?
             {
                 return Ok(Some(ty));
             }
@@ -524,7 +535,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Resolve the value type for dynamic object field extraction.
-    pub(in crate::lowering) fn dynamic_field_type(&mut self, receiver_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn dynamic_field_type(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         let receiver_ty = self.type_param_constraint_or_self(receiver_ty);
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Dict(_, value)) => value,
@@ -532,9 +546,7 @@ impl ModuleBuilder<'_> {
                 self.unknown_type(NotNewErasure::ErasedUpstream) // not a new erasure: receiver already erased
             }
             Some(Type::Class { name, .. }) => {
-                let fields = self.types.alias_fields(name)
-                    .cloned()
-                    .unwrap_or_default();
+                let fields = self.types.alias_fields(name).cloned().unwrap_or_default();
                 let mut value_tys = Vec::new();
                 for field in fields {
                     let ty = if field.optional {
@@ -573,7 +585,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the inner type for an optional receiver, or the original type otherwise.
-    pub(in crate::lowering) fn optional_receiver_inner_type(&self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn optional_receiver_inner_type(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty) {
             *inner
         } else {
@@ -582,7 +597,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Wrap a result type in `Optional`, avoiding nested optionals from optional fields.
-    pub(in crate::lowering) fn optional_chain_result_type(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn optional_chain_result_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
     }
 
@@ -621,16 +639,23 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let constraint = self.types.param_constraint(*name)?;
-        let Some(Type::Class { name: bound_name, args }) = self.ctx.krate.types.get(constraint) else {
+        let Some(Type::Class {
+            name: bound_name,
+            args,
+        }) = self.ctx.krate.types.get(constraint)
+        else {
             return None;
         };
         if !args.is_empty() {
             return None;
         }
         let bound = *bound_name;
-        let declared_class = self.class_by_symbol(bound).is_some_and(|class| class.type_params.is_empty())
-            || source_spelling(&self.ctx.krate, bound)
-                .is_some_and(|spelling| self.classes.item(spelling).is_some() && self.class_by_symbol(bound).is_none());
+        let declared_class = self
+            .class_by_symbol(bound)
+            .is_some_and(|class| class.type_params.is_empty())
+            || source_spelling(&self.ctx.krate, bound).is_some_and(|spelling| {
+                self.classes.item(spelling).is_some() && self.class_by_symbol(bound).is_none()
+            });
         let declared_interface = self
             .find_interface(bound)
             .is_some_and(|interface| interface.type_params.is_empty());
@@ -660,8 +685,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(ty) else {
             return false;
         };
-        let Some(spelling) = source_spelling(&self.ctx.krate, *name)
-        else {
+        let Some(spelling) = source_spelling(&self.ctx.krate, *name) else {
             return true;
         };
         // In scope means THIS parameter is what its spelling resolves to here:

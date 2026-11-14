@@ -23,9 +23,9 @@
 //! is emitted exactly as before.
 
 use crate::rust::RustExpr;
-use smelt_stdlib::runtime_symbols::markers::{SMELT_GET_CALLABLE_FIELD, SMELT_SET_FIELD};
 use smelt_hir::Type;
 use smelt_mir::{Mir, Place, Statement};
+use smelt_stdlib::runtime_symbols::markers::{SMELT_GET_CALLABLE_FIELD, SMELT_SET_FIELD};
 
 use super::{EmitError, FunctionEmitter};
 
@@ -84,16 +84,23 @@ pub(crate) fn program_writes_erased_fields(mir: &Mir) -> bool {
 /// `into_smelt_unknown` (`self`, `__smelt_entries`) and the emitter's inline
 /// struct adapter (`smelt_struct_value`, `smelt_object_entries`), so the two
 /// views of one instance agree.
-pub(crate) fn erased_view_entry_expr(receiver: &RustExpr, entries: &str, live_reads: bool) -> RustExpr {
+pub(crate) fn erased_view_entry_expr(
+    receiver: &RustExpr,
+    entries: &str,
+    live_reads: bool,
+) -> RustExpr {
     let setter = RustExpr::loose(format!(
-        "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); ", receiver = receiver.tight()
+        "{entries}.push(({SET_FIELD_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() {{ smelt_receiver.{SET_FIELD_METHOD}(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); }} Ok(SmeltUnknown::Undefined) }} }})))); ",
+        receiver = receiver.tight()
     ));
     if !live_reads {
         return setter;
     }
     // The live-read hook (see `LIVE_MEMBER_PRELUDE`).
     RustExpr::loose(format!(
-        "{setter}{entries}.push(({GET_CALLABLE_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ Ok(match smelt_args.first() {{ Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.{GET_CALLABLE_METHOD}(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }}) }} }})))); ", setter = setter.delimited(), receiver = receiver.tight()
+        "{setter}{entries}.push(({GET_CALLABLE_KEY:?}.to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({{ let smelt_receiver = {receiver}.clone(); move |smelt_args: Vec<SmeltUnknown>| {{ Ok(match smelt_args.first() {{ Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.{GET_CALLABLE_METHOD}(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }}) }} }})))); ",
+        setter = setter.delimited(),
+        receiver = receiver.tight()
     ))
 }
 
@@ -131,17 +138,24 @@ impl FunctionEmitter<'_> {
                 continue;
             }
             let key = self.symbol_source_name(field.name)?;
-            let field_name =
-                self.context.names().field(self.mir, field.name).into_string();
-            let Ok(erased) =
-                self.erase_rendered(&RustExpr::chain(format!("self.0.borrow().{field_name}")).cloned_value(), field.ty)
-            else {
+            let field_name = self
+                .context
+                .names()
+                .field(self.mir, field.name)
+                .into_string();
+            let Ok(erased) = self.erase_rendered(
+                &RustExpr::chain(format!("self.0.borrow().{field_name}")).cloned_value(),
+                field.ty,
+            ) else {
                 continue;
             };
             // A closure capturing this instance weakly holds it strongly once
             // erased (see `emitter::weak_receiver`).
             let erased = if self.weak_receiver_field(field.name) {
-                format!("smelt_keep_receiver_alive({erased}, self)", erased = erased.delimited())
+                format!(
+                    "smelt_keep_receiver_alive({erased}, self)",
+                    erased = erased.delimited()
+                )
             } else {
                 erased.into_string()
             };
@@ -184,8 +198,11 @@ impl FunctionEmitter<'_> {
             };
             let key = self.symbol_source_name(field.name)?;
             // The same spelling the inner record's declaration uses.
-            let field_name =
-                self.context.names().field(self.mir, field.name).into_string();
+            let field_name = self
+                .context
+                .names()
+                .field(self.mir, field.name)
+                .into_string();
             arms.push_str(&format!(
                 "            {key:?} => {{ let smelt_field_value = {converted}; {pin}self.0.borrow_mut().{field_name} = smelt_field_value; }}\n",
                 // Overwriting a weak-receiver closure someone else still holds

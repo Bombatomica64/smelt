@@ -35,7 +35,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
 /// A `delay` helper reused by every fixture: awaiting it advances the shared
 /// virtual-time timer queue so scheduled timers fire deterministically.
 const DELAY_HELPER: &str = r"
@@ -43,8 +42,6 @@ async function delay(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 ";
-
-
 
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {

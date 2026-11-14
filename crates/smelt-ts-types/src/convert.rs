@@ -94,7 +94,14 @@ pub(crate) struct Converter<'checker> {
 impl<'checker> Converter<'checker> {
     /// Creates a converter over `checker`.
     pub(crate) fn new(checker: &'checker mut Checker, spellings: Spellings) -> Self {
-        Self { checker, table: TsTypeTable::default(), seen: HashMap::new(), depth: 0, budget: 0, spellings }
+        Self {
+            checker,
+            table: TsTypeTable::default(),
+            seen: HashMap::new(),
+            depth: 0,
+            budget: 0,
+            spellings,
+        }
     }
 
     /// Gives mutable access to the checker for queries outside conversion.
@@ -112,7 +119,10 @@ impl<'checker> Converter<'checker> {
     /// Every [`Self::convert`] fills the slot it reserves before returning, so
     /// no slot is left pending.
     pub(crate) fn finish(self) -> TsTypeTable {
-        debug_assert!(self.table.is_complete(), "a reserved type slot was never filled");
+        debug_assert!(
+            self.table.is_complete(),
+            "a reserved type slot was never filled"
+        );
         self.table
     }
 
@@ -138,7 +148,17 @@ impl<'checker> Converter<'checker> {
     /// `walk::joined_evolved_array`).
     pub(crate) fn array_of(&mut self, element: TsTypeId) -> TsTypeId {
         let id = self.table.reserve();
-        self.table.fill(id, TsType { kind: TsTypeKind::Array { element, readonly: false }, display: None, alias: None });
+        self.table.fill(
+            id,
+            TsType {
+                kind: TsTypeKind::Array {
+                    element,
+                    readonly: false,
+                },
+                display: None,
+                alias: None,
+            },
+        );
         id
     }
 
@@ -155,10 +175,18 @@ impl<'checker> Converter<'checker> {
         }
         let id = self.table.reserve();
         self.seen.insert(ty, id);
-        let display = (self.spellings == Spellings::Recorded).then(|| self.checker.type_to_string_exported(ty));
+        let display = (self.spellings == Spellings::Recorded)
+            .then(|| self.checker.type_to_string_exported(ty));
         let kind = self.kind_of(ty);
         let alias = self.alias_of(ty);
-        self.table.fill(id, TsType { kind, display, alias });
+        self.table.fill(
+            id,
+            TsType {
+                kind,
+                display,
+                alias,
+            },
+        );
         id
     }
 
@@ -166,8 +194,15 @@ impl<'checker> Converter<'checker> {
     fn alias_of(&mut self, ty: P<Type>) -> Option<TsAlias> {
         let alias = ty.alias()?;
         let symbol = alias.symbol()?;
-        let type_arguments = alias.type_arguments().iter().map(|&argument| self.convert(argument)).collect();
-        Some(TsAlias { symbol: self.symbol_ref(symbol), type_arguments })
+        let type_arguments = alias
+            .type_arguments()
+            .iter()
+            .map(|&argument| self.convert(argument))
+            .collect();
+        Some(TsAlias {
+            symbol: self.symbol_ref(symbol),
+            type_arguments,
+        })
     }
 
     /// Classifies `ty` and converts its constituents.
@@ -197,7 +232,9 @@ impl<'checker> Converter<'checker> {
         DEFERRED
             .iter()
             .find(|(flag, _)| flags.intersects(*flag))
-            .map_or(TsTypeKind::Truncated, |(_, kind)| TsTypeKind::Deferred(*kind))
+            .map_or(TsTypeKind::Truncated, |(_, kind)| {
+                TsTypeKind::Deferred(*kind)
+            })
     }
 
     /// An enum member: its literal value plus the declaring enum.
@@ -205,22 +242,35 @@ impl<'checker> Converter<'checker> {
     /// Members of a computed (non-literal) enum carry no literal value; the
     /// checker types them as `number`, so the value slot is `number` too.
     fn enum_member_kind(&mut self, ty: P<Type>) -> TsTypeKind {
-        let (value_kind, display) =
-            literal_kind_and_display(ty).unwrap_or_else(|| (TsTypeKind::Number, "number".to_owned()));
-        let parent = ty.symbol().and_then(|member| self.checker.get_parent_of_symbol_exported(member));
+        let (value_kind, display) = literal_kind_and_display(ty)
+            .unwrap_or_else(|| (TsTypeKind::Number, "number".to_owned()));
+        let parent = ty
+            .symbol()
+            .and_then(|member| self.checker.get_parent_of_symbol_exported(member));
         let Some(enum_declaration) = parent else {
             return value_kind;
         };
         let enum_symbol = self.symbol_ref(enum_declaration);
         let value = self.table.reserve();
         let spelled = (self.spellings == Spellings::Recorded).then_some(display);
-        self.table.fill(value, TsType { kind: value_kind, display: spelled, alias: None });
+        self.table.fill(
+            value,
+            TsType {
+                kind: value_kind,
+                display: spelled,
+                alias: None,
+            },
+        );
         TsTypeKind::EnumMember { enum_symbol, value }
     }
 
     /// A union (possibly an enum type) or an intersection.
     fn union_or_intersection_kind(&mut self, ty: P<Type>) -> TsTypeKind {
-        let members: Vec<TsTypeId> = ty.types().iter().map(|&member| self.convert(member)).collect();
+        let members: Vec<TsTypeId> = ty
+            .types()
+            .iter()
+            .map(|&member| self.convert(member))
+            .collect();
         if !ty.flags().intersects(TypeFlags::Union) {
             return TsTypeKind::Intersection(members);
         }
@@ -228,18 +278,27 @@ impl<'checker> Converter<'checker> {
             .symbol()
             .filter(|symbol| symbol.flags().intersects(SymbolFlags::Enum))
             .map(|symbol| self.symbol_ref(symbol));
-        TsTypeKind::Union { members, enum_symbol }
+        TsTypeKind::Union {
+            members,
+            enum_symbol,
+        }
     }
 
     /// A free type parameter with its constraint.
     fn type_parameter_kind(&mut self, ty: P<Type>) -> TsTypeKind {
-        let name = ty.symbol().map_or_else(String::new, |symbol| symbol.name().to_owned());
+        let name = ty
+            .symbol()
+            .map_or_else(String::new, |symbol| symbol.name().to_owned());
         let constraint = self
             .checker
             .get_constraint_of_type_parameter_exported(ty)
             .map(|constraint| self.convert(constraint));
         let is_this = ty.as_type_parameter().is_this_type();
-        TsTypeKind::TypeParameter { name, constraint, is_this }
+        TsTypeKind::TypeParameter {
+            name,
+            constraint,
+            is_this,
+        }
     }
 
     /// Arrays, tuples, nominal references and structural objects.
@@ -250,12 +309,17 @@ impl<'checker> Converter<'checker> {
                 .and_then(|target| target.symbol())
                 .is_some_and(|symbol| symbol.name() == "ReadonlyArray");
             let element = self.type_arguments(ty, 1).first().copied();
-            return element.map_or(TsTypeKind::Truncated, |id| TsTypeKind::Array { element: id, readonly });
+            return element.map_or(TsTypeKind::Truncated, |id| TsTypeKind::Array {
+                element: id,
+                readonly,
+            });
         }
         if tsrs_checker::is_tuple_type_exported(ty) {
             return self.tuple_kind(ty);
         }
-        if ty.object_flags().intersects(ObjectFlags::ClassOrInterface | ObjectFlags::Reference)
+        if ty
+            .object_flags()
+            .intersects(ObjectFlags::ClassOrInterface | ObjectFlags::Reference)
             && let Some(kind) = self.named_kind(ty)
         {
             return kind;
@@ -274,21 +338,35 @@ impl<'checker> Converter<'checker> {
         let elements = arguments
             .into_iter()
             .zip(flags)
-            .map(|(element, flag)| TsTupleElement { ty: element, kind: element_kind(flag) })
+            .map(|(element, flag)| TsTupleElement {
+                ty: element,
+                kind: element_kind(flag),
+            })
             .collect();
-        TsTypeKind::Tuple { elements, readonly: tuple.is_readonly() }
+        TsTypeKind::Tuple {
+            elements,
+            readonly: tuple.is_readonly(),
+        }
     }
 
     /// A class or interface, referenced nominally by its declaring symbol.
     fn named_kind(&mut self, ty: P<Type>) -> Option<TsTypeKind> {
         let target = ty.target().unwrap_or(ty);
         let declared = target.symbol()?;
-        if !declared.flags().intersects(SymbolFlags::Class | SymbolFlags::Interface) {
+        if !declared
+            .flags()
+            .intersects(SymbolFlags::Class | SymbolFlags::Interface)
+        {
             return None;
         }
-        let arity = target.try_as_interface_type().map_or(0, |interface| interface.type_parameters().len());
+        let arity = target
+            .try_as_interface_type()
+            .map_or(0, |interface| interface.type_parameters().len());
         let type_arguments = self.type_arguments(ty, arity);
-        Some(TsTypeKind::Named { symbol: self.symbol_ref(declared), type_arguments })
+        Some(TsTypeKind::Named {
+            symbol: self.symbol_ref(declared),
+            type_arguments,
+        })
     }
 
     /// The first `arity` type arguments of a reference, dropping the implicit `this` argument.
@@ -301,7 +379,11 @@ impl<'checker> Converter<'checker> {
             return Vec::new();
         }
         let arguments = self.checker.get_type_arguments_exported(ty);
-        arguments.iter().take(arity).map(|&argument| self.convert(argument)).collect()
+        arguments
+            .iter()
+            .take(arity)
+            .map(|&argument| self.convert(argument))
+            .collect()
     }
 
     /// An anonymous, mapped or object-literal type, expanded to its members.
@@ -321,7 +403,10 @@ impl<'checker> Converter<'checker> {
     /// Resolved properties of a structural type.
     fn properties(&mut self, ty: P<Type>) -> Vec<TsProperty> {
         let symbols = self.checker.get_properties_of_type_exported(ty);
-        symbols.iter().map(|&symbol| self.property(symbol)).collect()
+        symbols
+            .iter()
+            .map(|&symbol| self.property(symbol))
+            .collect()
     }
 
     /// One property: its type and modifiers.
@@ -335,7 +420,9 @@ impl<'checker> Converter<'checker> {
         let optional = symbol.flags().intersects(SymbolFlags::Optional);
         let mut property_ty = self.checker.get_type_of_symbol_exported(symbol);
         if optional {
-            property_ty = self.checker.remove_missing_or_undefined_type_exported(property_ty);
+            property_ty = self
+                .checker
+                .remove_missing_or_undefined_type_exported(property_ty);
         }
         TsProperty {
             name: symbol.name().to_owned(),
@@ -348,27 +435,40 @@ impl<'checker> Converter<'checker> {
     /// Call or construct signatures of `ty`.
     fn signatures(&mut self, ty: P<Type>, kind: SignatureKind) -> Vec<TsSignature> {
         let signatures = self.checker.get_signatures_of_type_exported(ty, kind);
-        signatures.iter().map(|&signature| self.signature(signature)).collect()
+        signatures
+            .iter()
+            .map(|&signature| self.signature(signature))
+            .collect()
     }
 
     /// Converts one signature.
     pub(crate) fn signature(&mut self, signature: P<Signature>) -> TsSignature {
-        let type_parameters =
-            signature.type_parameters().iter().map(|&parameter| self.convert(parameter)).collect();
+        let type_parameters = signature
+            .type_parameters()
+            .iter()
+            .map(|&parameter| self.convert(parameter))
+            .collect();
         let parameters = signature
             .parameters()
             .iter()
             .map(|&parameter| {
                 let parameter_ty = self.checker.get_type_of_symbol_exported(parameter);
-                TsParameter { name: parameter.name().to_owned(), ty: self.convert(parameter_ty) }
+                TsParameter {
+                    name: parameter.name().to_owned(),
+                    ty: self.convert(parameter_ty),
+                }
             })
             .collect();
-        let return_ty = self.checker.get_return_type_of_signature_exported(signature);
+        let return_ty = self
+            .checker
+            .get_return_type_of_signature_exported(signature);
         TsSignature {
             type_parameters,
             parameters,
             min_argument_count: signature.min_argument_count(),
-            has_rest: self.checker.has_effective_rest_parameter_exported(signature),
+            has_rest: self
+                .checker
+                .has_effective_rest_parameter_exported(signature),
             return_type: self.convert(return_ty),
         }
     }
@@ -391,7 +491,10 @@ impl<'checker> Converter<'checker> {
         TsSymbolRef {
             name: symbol.name().to_owned(),
             qualified_name: self.checker.get_fully_qualified_name_exported(symbol),
-            declaration: symbol.declarations().first().and_then(|&node| location_of(node)),
+            declaration: symbol
+                .declarations()
+                .first()
+                .and_then(|&node| location_of(node)),
         }
     }
 }
@@ -411,10 +514,16 @@ fn literal_kind_and_display(ty: P<Type>) -> Option<(TsTypeKind, String)> {
         return None;
     }
     Some(match ty.as_literal_type().value()? {
-        LiteralValue::String(text) => (TsTypeKind::StringLiteral(text.to_owned()), format!("{text:?}")),
+        LiteralValue::String(text) => (
+            TsTypeKind::StringLiteral(text.to_owned()),
+            format!("{text:?}"),
+        ),
         LiteralValue::Number(number) => (TsTypeKind::NumberLiteral(number.0), number.0.to_string()),
         LiteralValue::Boolean(value) => (TsTypeKind::BooleanLiteral(value), value.to_string()),
-        LiteralValue::BigInt(value) => (TsTypeKind::BigIntLiteral(value.to_string()), format!("{value}n")),
+        LiteralValue::BigInt(value) => (
+            TsTypeKind::BigIntLiteral(value.to_string()),
+            format!("{value}n"),
+        ),
     })
 }
 

@@ -18,7 +18,8 @@ impl FunctionEmitter<'_> {
         Ok(match implementation {
             Some(implementation) => RustExpr::chain(format!(
                 "smelt_vitest_mock_new(Some({}))",
-                self.value_at_type(implementation, self.type_id(Type::Unknown)?)?.delimited()
+                self.value_at_type(implementation, self.type_id(Type::Unknown)?)?
+                    .delimited()
             )),
             None => RustExpr::chain("smelt_vitest_mock_new(None)"),
         })
@@ -35,7 +36,10 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|arg| Ok(self.value_at_type(arg, unknown_ty)?.delimited().to_owned()))
             .collect::<Result<Vec<_>, EmitError>>()?;
-        Ok(RustExpr::chain(format!("smelt_test_check({check:?}, vec![{}])", rendered.join(", "))))
+        Ok(RustExpr::chain(format!(
+            "smelt_test_check({check:?}, vec![{}])",
+            rendered.join(", ")
+        )))
     }
 
     /// `test.prop(arbitraries, parameters)(name, predicate)`.
@@ -47,7 +51,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let unknown_ty = self.type_id(Type::Unknown)?;
         let parameter_text = match parameters {
-            Some(given) => format!("Some(&({}))", self.value_at_type(given, unknown_ty)?.delimited()),
+            Some(given) => format!(
+                "Some(&({}))",
+                self.value_at_type(given, unknown_ty)?.delimited()
+            ),
             None => "None".to_owned(),
         };
         Ok(RustExpr::chain(format!(
@@ -65,8 +72,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_mock_called_times(&({}), ({}) as f64)",
-            self.value_at_type(mock, self.type_id(Type::Unknown)?)?.delimited(),
-            self.value_at_type(count, self.type_id(Type::Float)?)?.delimited()
+            self.value_at_type(mock, self.type_id(Type::Unknown)?)?
+                .delimited(),
+            self.value_at_type(count, self.type_id(Type::Float)?)?
+                .delimited()
         )))
     }
 
@@ -79,7 +88,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_mock_called_with(&({}), vec![{}], {})",
-            self.value_at_type(mock, self.type_id(Type::Unknown)?)?.delimited(),
+            self.value_at_type(mock, self.type_id(Type::Unknown)?)?
+                .delimited(),
             args.iter()
                 .map(|arg| self.value_at_type(arg, self.type_id(Type::Unknown)?))
                 .collect::<Result<Vec<_>, _>>()?
@@ -96,8 +106,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_spy_on(&({}), &({}))",
-            self.value_at_type(target, self.type_id(Type::Unknown)?)?.delimited(),
-            self.value_at_type(name, self.type_id(Type::String)?)?.delimited()
+            self.value_at_type(target, self.type_id(Type::Unknown)?)?
+                .delimited(),
+            self.value_at_type(name, self.type_id(Type::String)?)?
+                .delimited()
         )))
     }
 
@@ -115,8 +127,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
-            self.value_at_type(actual, self.type_id(Type::Unknown)?)?.delimited(),
-            self.value_at_type(expected, self.type_id(Type::Unknown)?)?.delimited()
+            self.value_at_type(actual, self.type_id(Type::Unknown)?)?
+                .delimited(),
+            self.value_at_type(expected, self.type_id(Type::Unknown)?)?
+                .delimited()
         )))
     }
 
@@ -128,8 +142,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::chain(format!(
             "smelt_vitest_mock_last_resolved_with(&({}), {})",
-            self.value_at_type(mock, self.type_id(Type::Unknown)?)?.delimited(),
-            self.value_at_type(expected, self.type_id(Type::Unknown)?)?.delimited()
+            self.value_at_type(mock, self.type_id(Type::Unknown)?)?
+                .delimited(),
+            self.value_at_type(expected, self.type_id(Type::Unknown)?)?
+                .delimited()
         )))
     }
 }

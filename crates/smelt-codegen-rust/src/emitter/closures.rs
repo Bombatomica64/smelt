@@ -1,12 +1,12 @@
 //! Closure rendering engine: emits Rust closure literals and their block/match bodies for MIR closures, including extra-parameter adapters, await detection, and closure operand text.
 
 use super::core::terminator_successors;
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 use local_binding::{CellUpgrade, LocalBinding, SELF_CAPTURE_NAME, SharedCell};
-use std::borrow::Cow;
 use smelt_hir::FunctionType;
+use std::borrow::Cow;
 
 /// A rendered closure literal.
 struct RenderedClosure {
@@ -29,7 +29,10 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_expr(&self, id: smelt_mir::ClosureId) -> Result<RustExpr, EmitError> {
-        Ok(RustExpr::atom(self.closure_text_with_extra_params(id, &[], &[], None, None)?.text))
+        Ok(RustExpr::atom(
+            self.closure_text_with_extra_params(id, &[], &[], None, None)?
+                .text,
+        ))
     }
 
     /// Whether a contextual `target_ty` re-types a closure parameter whose own
@@ -92,9 +95,7 @@ impl FunctionEmitter<'_> {
             }
             _ => Vec::new(),
         };
-        let has_captures = !self.mir_closure(id)?
-            .captures
-            .is_empty();
+        let has_captures = !self.mir_closure(id)?.captures.is_empty();
         let target_return_ty = match self.mir.types.get(dest_ty) {
             Some(Type::Function(function)) => Some(function.return_ty),
             _ => None,
@@ -125,7 +126,10 @@ impl FunctionEmitter<'_> {
             target_return_ty,
             target_function.as_ref(),
         )?;
-        let RenderedClosure { text: closure, binds_captures } = closure;
+        let RenderedClosure {
+            text: closure,
+            binds_captures,
+        } = closure;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
             let adjusted_closure = if !has_captures || binds_captures {
                 closure
@@ -150,7 +154,12 @@ impl FunctionEmitter<'_> {
                         {
                             return None;
                         }
-                        if self.local_binding(capture.source_local).ok()?.shared_cell().is_some() {
+                        if self
+                            .local_binding(capture.source_local)
+                            .ok()?
+                            .shared_cell()
+                            .is_some()
+                        {
                             return None;
                         }
                         let name = self.local_name(capture.source_local).ok()?.into_owned();
@@ -253,9 +262,21 @@ impl FunctionEmitter<'_> {
                         // returns JavaScript `undefined`, not `null`. Yield
                         // `SmeltUnknown::Undefined` so `!== undefined` guards on
                         // the callback result behave as in JS.
-                        self.carrier_format(self.carrier()?, format_args!("{{ {call}; SmeltUnknown::Undefined }}", call = call.delimited()))
+                        self.carrier_format(
+                            self.carrier()?,
+                            format_args!(
+                                "{{ {call}; SmeltUnknown::Undefined }}",
+                                call = call.delimited()
+                            ),
+                        )
                     } else {
-                        self.rendered_at_type(&call, source_closure.return_ty, unknown_ty, &self.render_scope())?.into_string()
+                        self.rendered_at_type(
+                            &call,
+                            source_closure.return_ty,
+                            unknown_ty,
+                            &self.render_scope(),
+                        )?
+                        .into_string()
                     };
                 let length = source_closure
                     .required_params
@@ -275,7 +296,8 @@ impl FunctionEmitter<'_> {
                 // function in JavaScript).
                 if let Some(key) = source_closure.function_item_key {
                     self.context
-                        .minted.function_item_erased_fn_accessors
+                        .minted
+                        .function_item_erased_fn_accessors
                         .borrow_mut()
                         .entry(key)
                         .or_insert_with(|| erased_function.into_string());
@@ -379,7 +401,9 @@ impl FunctionEmitter<'_> {
         if self.is_weak_emitter_capture(id, capture) {
             // Registered as a listener on the emitter it captures: read through
             // a weak handle (see `emitter::weak_receiver`).
-            return Ok(LocalBinding::WeakEmitter { name: name.into_owned() });
+            return Ok(LocalBinding::WeakEmitter {
+                name: name.into_owned(),
+            });
         }
         if self.is_weak_receiver_capture(id, capture) {
             // Stored on the instance it captures: read through a weak capture
@@ -400,7 +424,9 @@ impl FunctionEmitter<'_> {
             } else {
                 CellUpgrade::Strong
             };
-            return Ok(LocalBinding::SharedCapture(SharedCell::named(&name, upgrade)));
+            return Ok(LocalBinding::SharedCapture(SharedCell::named(
+                &name, upgrade,
+            )));
         }
         Ok(match (alias, source) {
             (Some(alias), _) => LocalBinding::Plain(alias.clone()),
@@ -481,15 +507,20 @@ impl FunctionEmitter<'_> {
                 }
             }
             let closure_return_ty = return_override.unwrap_or(closure.return_ty);
-            let closure_is_async = matches!(
-                self.mir.types.get(closure.return_ty),
-                Some(Type::Future(_))
-            ) || closure.blocks.iter().any(|block| {
-                matches!(block.terminator, Some(Terminator::Await { .. }))
-                    || block.statements.iter().any(|statement| {
-                        matches!(statement, Statement::Assign { value: Rvalue::Await(_), .. })
-                    })
-            });
+            let closure_is_async =
+                matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
+                    || closure.blocks.iter().any(|block| {
+                        matches!(block.terminator, Some(Terminator::Await { .. }))
+                            || block.statements.iter().any(|statement| {
+                                matches!(
+                                    statement,
+                                    Statement::Assign {
+                                        value: Rvalue::Await(_),
+                                        ..
+                                    }
+                                )
+                            })
+                    });
             let function = MirFunction {
                 id: FuncId::SYNTHETIC,
                 name: Symbol(u32::MAX),
@@ -519,7 +550,9 @@ impl FunctionEmitter<'_> {
             // generic trial) carry into its body: see `child_for_closure`.
             let mut emitter = self.child_for_closure(&function, &closure.captures)?;
             for (index, param) in closure.params.iter().enumerate() {
-                emitter.bindings.insert(*param, LocalBinding::ClosureArg(index));
+                emitter
+                    .bindings
+                    .insert(*param, LocalBinding::ClosureArg(index));
             }
             for capture in &closure.captures {
                 if let Some(target) = capture.target_local {
@@ -577,20 +610,24 @@ impl FunctionEmitter<'_> {
                     // case keeps the coercion a lossless `unwrap_or` and avoids
                     // re-typing params whose contextual type is a genuinely
                     // different shape (which would break the body).
-                    let retype = target_param_tys
-                        .get(index)
-                        .copied()
-                        .filter(|target_ty| {
-                            emitter.optional_target_matches_flat_local(*target_ty, local.ty)
-                        });
+                    let retype = target_param_tys.get(index).copied().filter(|target_ty| {
+                        emitter.optional_target_matches_flat_local(*target_ty, local.ty)
+                    });
                     // An `if let` with an early return rather than a two-arm
                     // `match`: the fall-through arm below is a block, which
                     // `clippy::single_match_else` rejects.
                     if let Some(target_ty) = retype {
                         let target_ty_text = emitter.rendered_type(target_ty)?;
-                        let coerced = emitter.rendered_at_type(&name, target_ty, local.ty, &self.render_scope())?;
+                        let coerced = emitter.rendered_at_type(
+                            &name,
+                            target_ty,
+                            local.ty,
+                            &self.render_scope(),
+                        )?;
                         param_rebinds.push_str(&format!(
-                            "let {mutability}{name}: {local_ty_text} = {coerced};\n", name = name.delimited(), coerced = coerced.delimited()
+                            "let {mutability}{name}: {local_ty_text} = {coerced};\n",
+                            name = name.delimited(),
+                            coerced = coerced.delimited()
                         ));
                         return Ok(format!("{name}: {target_ty_text}", name = name.delimited()));
                     }
@@ -612,14 +649,18 @@ impl FunctionEmitter<'_> {
                         // the caller-visible case its own `&mut` ABI). The copy is per
                         // CALL and only in bodies that need it, never per element.
                         owned_param_prelude.push_str(&format!(
-                            "let {mutability}{name}: {local_ty_text} = {name}.clone(); ", name = name.tight()
+                            "let {mutability}{name}: {local_ty_text} = {name}.clone(); ",
+                            name = name.tight()
                         ));
                         return Ok(format!("{name}: &{local_ty_text}", name = name.delimited()));
                     }
                     if !by_ref.is_empty() {
                         by_reference_param_locals.push(*param);
                     }
-                    Ok(format!("{mutability}{name}: {by_ref}{local_ty_text}", name = name.delimited()))
+                    Ok(format!(
+                        "{mutability}{name}: {by_ref}{local_ty_text}",
+                        name = name.delimited()
+                    ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
             // A parameter a nested closure writes lives in a cell from entry on,
@@ -655,9 +696,10 @@ impl FunctionEmitter<'_> {
             };
             let mut body_text = param_rebinds;
             emitter.emit_mutable_local_preludes(&mut body_text)?;
-            let (body_outcome, body_returns_early) = emitter
-                .binding_uses
-                .tracking_early_return(|| emitter.emit_closure_block(emitter.entry_block()?, &mut body_text));
+            let (body_outcome, body_returns_early) =
+                emitter.binding_uses.tracking_early_return(|| {
+                    emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)
+                });
             body_outcome?;
             let returns_future = matches!(
                 emitter.mir.types.get(function.return_ty),
@@ -764,8 +806,7 @@ impl FunctionEmitter<'_> {
                 // discarding its operand.
                 let async_value_needs_await = emitter.closure_yields_future_value()?;
                 let return_value = if closure.can_throw && async_value_needs_await {
-                    if output_is_erased
-                    {
+                    if output_is_erased {
                         self.carrier_format(self.carrier()?, format_args!("let smelt_async_output = smelt_async_value?.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
                         format!(
@@ -773,16 +814,12 @@ impl FunctionEmitter<'_> {
                         )
                     }
                 } else if closure.can_throw {
-                    if output_is_erased
-                    {
+                    if output_is_erased {
                         self.carrier_format(self.carrier()?, format_args!("Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_value?.into_smelt_unknown())"))
                     } else {
-                        format!(
-                            "Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value?)"
-                        )
+                        format!("Ok::<{output_text}, {ERROR_BOX}>(smelt_async_value?)")
                     }
-                } else if output_is_erased
-                {
+                } else if output_is_erased {
                     if async_value_needs_await {
                         self.carrier_format(self.carrier()?, format_args!("let smelt_async_output = smelt_async_value.await?; Ok::<SmeltUnknown, {ERROR_BOX}>(smelt_async_output.into_smelt_unknown())"))
                     } else {
@@ -805,25 +842,23 @@ impl FunctionEmitter<'_> {
                 // `smelt_async_value`, so the block is a `Result<Ok, Box<dyn Error>>`
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
-                let async_value_annotation: Option<String> =
-                    if body_returns_early {
-                        // Explicit returns diverge from the inner block, so pin
-                        // its otherwise-unconstrained binding for Rust inference.
-                        // Reaching this branch already proves the wrapper is
-                        // async; contextual function types can lose their
-                        // `is_async` flag while retaining a future return.
-                        Some(format!(": {output_text}"))
-                    } else if closure.can_throw && !async_value_needs_await {
-                        let ok_ty_text = if output_is_erased
-                        {
-                            "SmeltUnknown"
-                        } else {
-                            output_text.as_str()
-                        };
-                        Some(format!(": Result<{ok_ty_text}, {ERROR_BOX}>"))
+                let async_value_annotation: Option<String> = if body_returns_early {
+                    // Explicit returns diverge from the inner block, so pin
+                    // its otherwise-unconstrained binding for Rust inference.
+                    // Reaching this branch already proves the wrapper is
+                    // async; contextual function types can lose their
+                    // `is_async` flag while retaining a future return.
+                    Some(format!(": {output_text}"))
+                } else if closure.can_throw && !async_value_needs_await {
+                    let ok_ty_text = if output_is_erased {
+                        "SmeltUnknown"
                     } else {
-                        None
+                        output_text.as_str()
                     };
+                    Some(format!(": Result<{ok_ty_text}, {ERROR_BOX}>"))
+                } else {
+                    None
+                };
                 let async_value_annotation_text = async_value_annotation.unwrap_or_default();
                 let mut cloned_async_captures = HashSet::new();
                 let async_capture_lines = closure
@@ -883,8 +918,7 @@ impl FunctionEmitter<'_> {
                 // alone (E0282/E0283). Spell the return type explicitly so both
                 // parameters are pinned; the `Ok::<T, _>` returns emitted for this
                 // closure already use this same `T`, so the annotation is exact.
-                let return_ty_text =
-                    emitter.rendered_type(function.return_ty)?;
+                let return_ty_text = emitter.rendered_type(function.return_ty)?;
                 format!(
                     "|{params_text}| -> Result<{return_ty_text}, {ERROR_BOX}> {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
@@ -908,8 +942,7 @@ impl FunctionEmitter<'_> {
                 // shapes). Spelling the declared return type makes the return
                 // the coercion site, which is what the source says the closure
                 // produces.
-                let return_ty_text =
-                    emitter.rendered_type(function.return_ty)?;
+                let return_ty_text = emitter.rendered_type(function.return_ty)?;
                 format!(
                     "|{params_text}| -> {return_ty_text} {{{owned_param_prelude_block}\n{body_text}    }}"
                 )
@@ -935,7 +968,10 @@ impl FunctionEmitter<'_> {
             ""
         };
         if capture_prefix.is_empty() {
-            return Ok(RenderedClosure { text: body, binds_captures: false });
+            return Ok(RenderedClosure {
+                text: body,
+                binds_captures: false,
+            });
         }
         let mut cloned_captures = HashSet::new();
         let capture_prelude = closure
@@ -1032,7 +1068,10 @@ impl FunctionEmitter<'_> {
                 capture_prelude.join("\n    ")
             )
         };
-        Ok(RenderedClosure { text, binds_captures: true })
+        Ok(RenderedClosure {
+            text,
+            binds_captures: true,
+        })
     }
 
     /// Return whether this closure's own MIR body performs an `await`.
@@ -1112,7 +1151,10 @@ impl FunctionEmitter<'_> {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
             {
-                out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
+                out.push_str(&format!(
+                    "    {};\n",
+                    self.operand_expr(operand)?.delimited()
+                ));
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
@@ -1136,7 +1178,8 @@ impl FunctionEmitter<'_> {
             let return_ty_text = self.rendered_type(return_ty)?;
             self.binding_uses.record_early_return();
             out.push_str(&format!(
-                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
+                "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n",
+                value = value.delimited()
             ));
         } else {
             out.push_str(&format!("    return {value};\n", value = value.delimited()));
@@ -1179,9 +1222,16 @@ impl FunctionEmitter<'_> {
             .copied()
             .filter(|candidate| *candidate != block_id)
             .collect::<Vec<_>>();
-        terminator_successors(terminator).into_iter().any(|successor| {
-            self.block_reaches_target_avoiding(successor, block_id, &enclosing, &mut BlockIdSet::default())
-        })
+        terminator_successors(terminator)
+            .into_iter()
+            .any(|successor| {
+                self.block_reaches_target_avoiding(
+                    successor,
+                    block_id,
+                    &enclosing,
+                    &mut BlockIdSet::default(),
+                )
+            })
     }
 
     /// Emits a closure block, structuring its loops.
@@ -1253,7 +1303,11 @@ impl FunctionEmitter<'_> {
             // reach must become an explicit `return` (see `in_loop`).
             self.emit_closure_terminator(block, terminator, &mut body, active, Some(block.id), true)
         })();
-        let labelled = self.closure_loops.borrow_mut().pop().is_some_and(|(_, used)| used);
+        let labelled = self
+            .closure_loops
+            .borrow_mut()
+            .pop()
+            .is_some_and(|(_, used)| used);
         emitted?;
         if labelled {
             out.push_str(&format!("    '{}: loop {{\n", closure_loop_label(block.id)));
@@ -1267,7 +1321,11 @@ impl FunctionEmitter<'_> {
 
     /// Emits the edge to `target`, a block already on the emission path: a
     /// labelled `continue` when `target` heads an open loop, else an error.
-    fn emit_closure_back_edge(&self, target: smelt_mir::BlockId, out: &mut String) -> Result<(), EmitError> {
+    fn emit_closure_back_edge(
+        &self,
+        target: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         let mut loops = self.closure_loops.borrow_mut();
         let Some(open) = loops.iter_mut().rev().find(|(header, _)| *header == target) else {
             return Err(EmitError::new(format!(
@@ -1311,7 +1369,10 @@ impl FunctionEmitter<'_> {
                     if !matches!(operand, Operand::Const(Constant::None))
                         && self.operand_ty(operand)? != self.none_ty
                     {
-                        out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
+                        out.push_str(&format!(
+                            "    {};\n",
+                            self.operand_expr(operand)?.delimited()
+                        ));
                     }
                     if self.function.can_throw {
                         out.push_str(&format!("    Ok::<(), {ERROR_BOX}>(())\n"));
@@ -1345,7 +1406,8 @@ impl FunctionEmitter<'_> {
                     if self.function.can_throw {
                         let return_ty_text = self.rendered_type(return_ty)?;
                         out.push_str(&format!(
-                            "    Ok::<{return_ty_text}, {ERROR_BOX}>({value})\n", value = value.delimited()
+                            "    Ok::<{return_ty_text}, {ERROR_BOX}>({value})\n",
+                            value = value.delimited()
                         ));
                     } else {
                         out.push_str(&format!("    {value}\n", value = value.delimited()));
@@ -1444,7 +1506,15 @@ impl FunctionEmitter<'_> {
                 // whole continuation per path (exponential in sequential
                 // branches). Statements follow the `if`, so an arm that returns
                 // must say `return` (the loop-body rule, `in_loop`).
-                self.emit_closure_if(cond, *then_block, *else_block, out, active, Some(join), true)?;
+                self.emit_closure_if(
+                    cond,
+                    *then_block,
+                    *else_block,
+                    out,
+                    active,
+                    Some(join),
+                    true,
+                )?;
                 self.emit_closure_block_inner(self.block(join)?, out, active, stop, in_loop)
             }
             Terminator::Switch {
@@ -1477,7 +1547,10 @@ impl FunctionEmitter<'_> {
         in_loop: bool,
     ) -> Result<(), EmitError> {
         let branch_declared = self.declared_scope();
-        out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
+        out.push_str(&format!(
+            "    if {} {{\n",
+            self.truthy_operand_expr(cond)?.delimited()
+        ));
         self.emit_closure_block_inner(self.block(then_block)?, out, active, stop, in_loop)?;
         out.push_str("    } else {\n");
         branch_declared.reset();
@@ -1496,7 +1569,11 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let name = self.local_name(dest)?;
-        out.push_str(&format!("    let {name}: {} = {};\n", self.rendered_type(ty)?, value.delimited()));
+        out.push_str(&format!(
+            "    let {name}: {} = {};\n",
+            self.rendered_type(ty)?,
+            value.delimited()
+        ));
         self.mark_local_declared(dest);
         Ok(())
     }
@@ -1557,7 +1634,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let join = self.match_join(arms, default)?;
         let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
-        out.push_str(&format!("    match {scrutinee_text} {{\n", scrutinee_text = scrutinee_text.delimited()));
+        out.push_str(&format!(
+            "    match {scrutinee_text} {{\n",
+            scrutinee_text = scrutinee_text.delimited()
+        ));
         let match_declared = self.declared_scope();
         for arm in arms {
             out.push_str(&format!(
@@ -1660,7 +1740,10 @@ impl FunctionEmitter<'_> {
             .flat_map(|block| &block.statements)
             .filter(|statement| match statement {
                 Statement::Assign { dest, .. } => *dest == local,
-                Statement::AssignPlace { place: Place::Local(written), .. } => *written == local,
+                Statement::AssignPlace {
+                    place: Place::Local(written),
+                    ..
+                } => *written == local,
                 _ => false,
             })
             .count()

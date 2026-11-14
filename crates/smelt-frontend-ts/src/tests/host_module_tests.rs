@@ -48,7 +48,11 @@ export function describeHandle(handle: Session): string {
 "),
         &mut ctx,
     )?;
-    ensure_signature(&ctx, "describe_handle", "describe_handle(handle: Session) -> String")?;
+    ensure_signature(
+        &ctx,
+        "describe_handle",
+        "describe_handle(handle: Session) -> String",
+    )?;
     Ok(())
 }
 
@@ -114,9 +118,16 @@ it("builds an extension date", () => {
 "#),
         &mut ctx,
     )?;
-    ensure_signature(&ctx, "test_builds_an_extension_date", "test_builds_an_extension_date() -> None")?;
+    ensure_signature(
+        &ctx,
+        "test_builds_an_extension_date",
+        "test_builds_an_extension_date() -> None",
+    )?;
     ensure_exprs!(&ctx, InstanceOf);
-    ensure!(crate_has_new(&ctx, "UTCDate"), "no construction of `UTCDate`");
+    ensure!(
+        crate_has_new(&ctx, "UTCDate"),
+        "no construction of `UTCDate`"
+    );
     Ok(())
 }
 
@@ -326,7 +337,9 @@ export const parsed = parse('/etc/key.pub');
         &mut ctx,
     )?;
     ensure!(
-        errors.iter().any(|error| error.message.contains("node:path")),
+        errors
+            .iter()
+            .any(|error| error.message.contains("node:path")),
         "node:path parse must block by name: {errors:?}",
     );
     Ok(())
@@ -450,7 +463,10 @@ serve({ fetch, port: 8080 }, (): void => {
         .flat_map(|body| body.exprs.iter())
         .map(|expr| &expr.kind)
         .collect::<Vec<_>>();
-    if !kinds.iter().any(|kind| matches!(kind, ExprKind::HttpCreateFetchServer { .. })) {
+    if !kinds
+        .iter()
+        .any(|kind| matches!(kind, ExprKind::HttpCreateFetchServer { .. }))
+    {
         return Err("serve did not build a fetch server".to_owned());
     }
     if !kinds.iter().any(|kind| {
@@ -475,10 +491,15 @@ serve({ fetch, port: 8080, overrideGlobalObjects: false });
 "),
         &mut ctx,
     )?;
-    if errors.iter().any(|error| format!("{error:?}").contains("overrideGlobalObjects")) {
+    if errors
+        .iter()
+        .any(|error| format!("{error:?}").contains("overrideGlobalObjects"))
+    {
         Ok(())
     } else {
-        Err(format!("expected a blocker naming the option, got {errors:?}"))
+        Err(format!(
+            "expected a blocker naming the option, got {errors:?}"
+        ))
     }
 }
 
@@ -509,7 +530,11 @@ console.log(serve({ port: 1 }));
 
 /// Whether any body of the crate holds an expression satisfying `predicate`.
 fn any_expr(ctx: &HirCtx, predicate: impl Fn(&smelt_hir::Expr) -> bool) -> bool {
-    ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(predicate)
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| &body.exprs)
+        .any(predicate)
 }
 
 /// The diagnostics for `source`, which must not lower.
@@ -555,7 +580,9 @@ export const run = (values: { a: number }[]) => values.map(omit("a"));
     ] {
         let messages = blockers(source)?;
         ensure!(
-            messages.iter().any(|message| message.contains("unresolved package")),
+            messages
+                .iter()
+                .any(|message| message.contains("unresolved package")),
             "expected a package blocker for {source}, got {messages:?}",
         );
     }
@@ -567,7 +594,10 @@ export const run = (values: { a: number }[]) => values.map(omit("a"));
 #[test]
 fn unmodeled_host_namespace_members_block() -> Result<(), String> {
     for (source, expected) in [
-        ("export const dir = process.cwd();", "`process.cwd` is not modeled"),
+        (
+            "export const dir = process.cwd();",
+            "`process.cwd` is not modeled",
+        ),
         (
             "export const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;",
             "`Intl.DateTimeFormat` is not modeled",
@@ -619,9 +649,13 @@ fn undeclared_framework_global_does_not_resolve() -> Result<(), String> {
 /// of the corpus spelling keeps no name-keyed arity.
 #[test]
 fn library_type_names_have_no_rule_of_their_own() -> Result<(), String> {
-    let messages =
-        blockers(ts!("export const head = (...xs: NonEmptyArray<number>): number => xs[0];\n"))?;
-    ensure!(!messages.is_empty(), "expected undeclared `NonEmptyArray` to stay unresolved");
+    let messages = blockers(ts!(
+        "export const head = (...xs: NonEmptyArray<number>): number => xs[0];\n"
+    ))?;
+    ensure!(
+        !messages.is_empty(),
+        "expected undeclared `NonEmptyArray` to stay unresolved"
+    );
     Ok(())
 }
 
@@ -639,7 +673,10 @@ export const named = zone("Europe/Rome");
         &mut ctx,
     )?;
     ensure!(
-        any_expr(&ctx, |expr| matches!(expr.kind, ExprKind::DateTimezoneContext { .. })),
+        any_expr(&ctx, |expr| matches!(
+            expr.kind,
+            ExprKind::DateTimezoneContext { .. }
+        )),
         "expected the renamed import to reach the timezone rule",
     );
     let mut ctx = HirCtx::new();
@@ -652,7 +689,10 @@ export const named = tz("Europe/Rome");
         &mut ctx,
     )?;
     ensure!(
-        !any_expr(&ctx, |expr| matches!(expr.kind, ExprKind::DateTimezoneContext { .. })),
+        !any_expr(&ctx, |expr| matches!(
+            expr.kind,
+            ExprKind::DateTimezoneContext { .. }
+        )),
         "a local `tz` must not reach the timezone rule",
     );
     Ok(())

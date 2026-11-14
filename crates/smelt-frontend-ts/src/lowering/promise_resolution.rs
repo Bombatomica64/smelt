@@ -82,7 +82,10 @@ fn collect_calls(
                             // `resolve()` reaches an erased parameter as its
                             // padded absent value, and `resolve(undefined)`
                             // says the same thing.
-                            Some(Expr { kind: ExprKind::Literal(Literal::None | Literal::Undefined), .. }) => {
+                            Some(Expr {
+                                kind: ExprKind::Literal(Literal::None | Literal::Undefined),
+                                ..
+                            }) => {
                                 calls.has_empty_call = true;
                             }
                             Some(argument) => calls.argument_types.push(argument.ty),
@@ -128,5 +131,6 @@ fn expr_at(body: &Body, id: ExprId) -> Option<&Expr> {
 
 /// Whether `expr` in `body` is a plain read of `local`.
 fn reads_local(body: &Body, expr: ExprId, local: LocalId) -> bool {
-    expr_at(body, expr).is_some_and(|expr| matches!(expr.kind, ExprKind::Local(read) if read == local))
+    expr_at(body, expr)
+        .is_some_and(|expr| matches!(expr.kind, ExprKind::Local(read) if read == local))
 }

@@ -14,7 +14,9 @@ def test_raises():
 "#,
         "tests/test_raises.py",
     );
-    assert_eq!(rust_items(&source, &["fn test_raises"]), r#"fn test_raises() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_raises"]),
+        r#"fn test_raises() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_1: SmeltPyException;
 let _smelt_tmp_2: bool;
 let mut __smelt_pytest_raised: bool = false;
@@ -26,7 +28,8 @@ return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKi
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -41,7 +44,9 @@ def test_raises_match():
 "#,
         "tests/test_raises_match.py",
     );
-    assert_eq!(rust_items(&source, &["fn test_raises_match"]), r#"fn test_raises_match() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_raises_match"]),
+        r#"fn test_raises_match() -> Result<(), Box<dyn std::error::Error>> {
 let __smelt_pytest_exception: String;
 let _smelt_tmp_2: SmeltPyException;
 let _smelt_tmp_3: bool;
@@ -63,7 +68,8 @@ return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKi
 return Ok(());
 }
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -77,7 +83,9 @@ test("adds numbers", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_adds_numbers"]), r#"fn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_adds_numbers"]),
+        r#"fn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_0: f64 = 1.0 + 1.0;
 let _smelt_tmp_1: bool = !({ let smelt_lhs: f64 = _smelt_tmp_0; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_1 {
@@ -85,7 +93,8 @@ return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKi
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -100,7 +109,9 @@ test("nullish", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_nullish"]), r#"fn test_nullish() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_nullish"]),
+        r#"fn test_nullish() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_1: bool;
 let _smelt_tmp_0: bool = !(true);
 if _smelt_tmp_0 {
@@ -113,7 +124,8 @@ return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKi
 return Ok(());
 }
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -134,7 +146,9 @@ test("optional unknown", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_optional_unknown"]), r#"fn test_optional_unknown() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_optional_unknown"]),
+        r#"fn test_optional_unknown() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_1: bool;
 let _smelt_tmp_0: Option<SmeltUnknown> = maybe_value(true);
 _smelt_tmp_1 = !(_smelt_tmp_0.as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Undefined)));
@@ -143,7 +157,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("ex
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -155,9 +170,12 @@ function value(): unknown {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn value"]), r"fn value() -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn value"]),
+        r"fn value() -> SmeltUnknown {
 return SmeltUnknown::Undefined;
-}");
+}"
+    );
 }
 
 #[test]
@@ -169,9 +187,12 @@ function value(): unknown {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn value"]), r"fn value() -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn value"]),
+        r"fn value() -> SmeltUnknown {
 return SmeltUnknown::Undefined;
-}");
+}"
+    );
 }
 
 #[test]
@@ -183,9 +204,12 @@ function value(): unknown {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn value"]), r"fn value() -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn value"]),
+        r"fn value() -> SmeltUnknown {
 return SmeltUnknown::Null;
-}");
+}"
+    );
 }
 
 #[test]
@@ -201,7 +225,9 @@ describe("math helpers", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_math_helpers_adds_numbers"]), r#"fn test_math_helpers_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_math_helpers_adds_numbers"]),
+        r#"fn test_math_helpers_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_0: f64 = 1.0 + 1.0;
 let _smelt_tmp_1: bool = !({ let smelt_lhs: f64 = _smelt_tmp_0; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_1 {
@@ -209,7 +235,8 @@ return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKi
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -253,7 +280,10 @@ describe("outer", () => {
         })
         .count();
     assert_eq!(person_structs, 2, "{source}");
-    assert!(source.contains("::new(JsString::from(\"jake\"))"), "{source}");
+    assert!(
+        source.contains("::new(JsString::from(\"jake\"))"),
+        "{source}"
+    );
     assert!(source.contains(".self_ ="), "{source}");
     assert!(source.contains(".friends ="), "{source}");
 }
@@ -277,7 +307,9 @@ test("common matchers", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_common_matchers"]), r#"fn test_common_matchers() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_common_matchers"]),
+        r#"fn test_common_matchers() -> Result<(), Box<dyn std::error::Error>> {
 let user: SmeltRecord<JsString, JsString>;
 let _smelt_tmp_3: SmeltList<f64>;
 let _smelt_tmp_4: bool;
@@ -353,7 +385,8 @@ return Ok(());
 }
 }
 }
-}"#);
+}"#
+    );
 }
 
 /// Vitest compares primitive numbers with `Object.is` under every equality
@@ -381,7 +414,9 @@ test("nan", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_nan"]), r#"fn test_nan() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_nan"]),
+        r#"fn test_nan() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_2: bool;
 let _smelt_tmp_3: SmeltList<f64>;
 let _smelt_tmp_5: bool;
@@ -410,7 +445,8 @@ return Ok(());
 }
 }
 }
-}"#);
+}"#
+    );
 }
 
 /// A failed assertion must name the source assertion and its location.
@@ -463,7 +499,9 @@ test("array reference identity", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_array_reference_identity"]), r#"fn test_array_reference_identity() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_array_reference_identity"]),
+        r#"fn test_array_reference_identity() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_6: bool;
 let _smelt_tmp_7: bool;
 let original: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)].into());
@@ -485,7 +523,8 @@ return Ok(());
 }
 }
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -497,10 +536,13 @@ export function same(data: unknown, other: unknown): boolean {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn same"]), r"fn same(data: SmeltUnknown, other: SmeltUnknown) -> bool {
+    assert_eq!(
+        rust_items(&source, &["fn same"]),
+        r"fn same(data: SmeltUnknown, other: SmeltUnknown) -> bool {
 let _smelt_tmp_2: bool = data.clone().same_js_key(&other);
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -520,7 +562,9 @@ function compare(left?: { a: unknown }, right?: { a: unknown }): void {
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn compare"]), r#"fn compare(left: Option<SmeltRecord<JsString, SmeltUnknown>>, right: Option<SmeltRecord<JsString, SmeltUnknown>>) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn compare"]),
+        r#"fn compare(left: Option<SmeltRecord<JsString, SmeltUnknown>>, right: Option<SmeltRecord<JsString, SmeltUnknown>>) -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_3: bool;
 let _smelt_tmp_2: bool = !(match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false });
 if _smelt_tmp_2 {
@@ -533,7 +577,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("ex
 return Ok(());
 }
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -546,13 +591,16 @@ const has = mapping.has("a");
 const value = mapping.get("a");
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn main"]), r#"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r#"fn main() {
 let mapping: SmeltJsMap<JsString, f64> = SmeltJsMap::from([]);
 let literal: SmeltJsMap<JsString, f64> = SmeltJsMap::from([(JsString::from("a"), 1.0), (JsString::from("b"), 2.0)]);
 let has: bool = mapping.contains_key(&JsString::from("a"));
 let value: Option<f64> = mapping.get(&JsString::from("a"));
 return;
-}"#);
+}"#
+    );
 }
 
 /// A literal whose only nullish spelling is uniform still uses `Option`.
@@ -570,14 +618,15 @@ export function rows(): number {
 }
 ",
     );
-    assert_eq!(rust_items(&source, &["fn rows"]), r"fn rows() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn rows"]),
+        r"fn rows() -> f64 {
 let row: SmeltList<Option<f64>> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Option<f64>> = vec![Some(1.0), Some(2.0), None::<f64>]; smelt_list_items }));
 let _smelt_tmp_2: f64 = row.len() as f64;
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
-
-
 
 #[test]
 fn emits_reference_identity_for_typed_map_strict_equality() {
@@ -596,7 +645,9 @@ test("map identity", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_map_identity"]), r#"fn test_map_identity() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_map_identity"]),
+        r#"fn test_map_identity() -> Result<(), Box<dyn std::error::Error>> {
 let map: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"))]);
 let alias: SmeltJsMap<f64, JsString> = map.clone();
 let _smelt_tmp_3: bool = !(map.clone().id == map.clone().id);
@@ -605,7 +656,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("ex
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -623,7 +675,9 @@ test("set identity", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_set_identity"]), r#"fn test_set_identity() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_set_identity"]),
+        r#"fn test_set_identity() -> Result<(), Box<dyn std::error::Error>> {
 let values: SmeltJsSet<f64> = SmeltJsSet::from([1.0]);
 let alias: SmeltJsSet<f64> = values.clone();
 let _smelt_tmp_3: bool = !(values.clone().id == values.clone().id);
@@ -632,7 +686,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("ex
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -653,7 +708,9 @@ test("map structural", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_map_structural"]), r#"fn test_map_structural() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_map_structural"]),
+        r#"fn test_map_structural() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_5: bool;
 let map: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"))]);
 let copy: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"))]);
@@ -668,7 +725,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("ex
 return Ok(());
 }
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -684,14 +742,17 @@ function compare(left?: Map<number, string>, right?: Map<number, string>): void 
 }
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn compare"]), r#"fn compare(left: Option<SmeltJsMap<f64, JsString>>, right: Option<SmeltJsMap<f64, JsString>>) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn compare"]),
+        r#"fn compare(left: Option<SmeltJsMap<f64, JsString>>, right: Option<SmeltJsMap<f64, JsString>>) -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_2: bool = !(match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false });
 if _smelt_tmp_2 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).toBe(right) (<memory>:5:3)".into())));
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -710,7 +771,9 @@ test("tuple identity", () => {
 });
 "#,
     );
-    assert_eq!(rust_items(&source, &["fn test_tuple_identity"]), r#"fn test_tuple_identity() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn test_tuple_identity"]),
+        r#"fn test_tuple_identity() -> Result<(), Box<dyn std::error::Error>> {
 let pair: (f64, f64) = (1.0, 2.0);
 let other: (f64, f64) = (1.0, 2.0);
 let _smelt_tmp_4: bool = false;
@@ -719,5 +782,6 @@ return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKi
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }

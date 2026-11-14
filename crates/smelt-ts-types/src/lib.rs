@@ -41,8 +41,8 @@ use std::fmt;
 
 pub use project::{CheckProgram, SourceInput, declares_module};
 pub use smelt_ts_model::{
-    FileTypes, SpanKey, TsDiagnostic, TsDiagnosticCategory, TsType, TsTypeFacts, TsTypeId, TsTypeKind, TsTypeTable,
-    model,
+    FileTypes, SpanKey, TsDiagnostic, TsDiagnosticCategory, TsType, TsTypeFacts, TsTypeId,
+    TsTypeKind, TsTypeTable, model,
 };
 
 use crate::convert::Converter;
@@ -65,8 +65,12 @@ pub enum TsTypesError {
 impl fmt::Display for TsTypesError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Config(message) => write!(formatter, "tsrs rejected the generated tsconfig: {message}"),
-            Self::MissingFile(path) => write!(formatter, "tsrs program has no source file `{path}`"),
+            Self::Config(message) => {
+                write!(formatter, "tsrs rejected the generated tsconfig: {message}")
+            }
+            Self::MissingFile(path) => {
+                write!(formatter, "tsrs program has no source file `{path}`")
+            }
             Self::Checker(message) => write!(formatter, "tsrs checker failed: {message}"),
         }
     }
@@ -109,7 +113,10 @@ pub fn analyze(inputs: Vec<SourceInput>) -> Result<TsTypeFacts, TsTypesError> {
 /// # Errors
 ///
 /// As [`analyze`].
-pub fn analyze_with(inputs: Vec<SourceInput>, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
+pub fn analyze_with(
+    inputs: Vec<SourceInput>,
+    spellings: Spellings,
+) -> Result<TsTypeFacts, TsTypesError> {
     analyze_program(CheckProgram::of_sources(inputs), spellings)
 }
 
@@ -120,7 +127,10 @@ pub fn analyze_with(inputs: Vec<SourceInput>, spellings: Spellings) -> Result<Ts
 /// # Errors
 ///
 /// As [`analyze`].
-pub fn analyze_program(program: CheckProgram, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
+pub fn analyze_program(
+    program: CheckProgram,
+    spellings: Spellings,
+) -> Result<TsTypeFacts, TsTypesError> {
     std::thread::Builder::new()
         .name("smelt-tsrs".to_owned())
         .stack_size(CHECKER_STACK_BYTES)
@@ -131,7 +141,10 @@ pub fn analyze_program(program: CheckProgram, spellings: Spellings) -> Result<Ts
 }
 
 /// Builds, checks and walks the program; runs on the checker thread.
-fn analyze_on_checker_thread(check: &CheckProgram, spellings: Spellings) -> Result<TsTypeFacts, TsTypesError> {
+fn analyze_on_checker_thread(
+    check: &CheckProgram,
+    spellings: Spellings,
+) -> Result<TsTypeFacts, TsTypesError> {
     let inputs = &check.sources;
     let program = project::build_program(check)?;
     let ctx = tsrs_compiler::Context::default();
@@ -155,7 +168,8 @@ fn analyze_on_checker_thread(check: &CheckProgram, spellings: Spellings) -> Resu
     }
     let types = converter.finish();
     drop(checker);
-    Ok(TsTypeFacts::new(types, diagnostics, by_span, type_nodes).with_evolved_arrays(evolved_arrays))
+    Ok(TsTypeFacts::new(types, diagnostics, by_span, type_nodes)
+        .with_evolved_arrays(evolved_arrays))
 }
 
 /// Best-effort text of a thread panic payload.

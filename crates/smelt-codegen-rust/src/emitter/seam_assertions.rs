@@ -48,9 +48,9 @@
 //! never reached, so "it is green" is not evidence and must not be treated as
 //! such when a new seam is added here.
 
-use crate::rust::RustType;
 use super::*;
 use crate::rust::RustShape;
+use crate::rust::RustType;
 use call_generics::CallMonomorphization;
 
 impl FunctionEmitter<'_> {
@@ -78,8 +78,10 @@ impl FunctionEmitter<'_> {
     /// reads `f64`, which is the contrast. The lexical scope is preserved, so a
     /// non-monomorphizing site still spells the caller's own parameters.
     fn seam_type(&self, ty: TypeId, substitution: &TypeSubstitution<'_>) -> RustType {
-        RustType::from(self.rust_type(ty, false, &substitution.without_bindings())
-            .map_or_else(|_| "<unrenderable>".to_owned(), RustType::into_string))
+        RustType::from(
+            self.rust_type(ty, false, &substitution.without_bindings())
+                .map_or_else(|_| "<unrenderable>".to_owned(), RustType::into_string),
+        )
     }
 
     /// Seam 1: a callback adapter's parameter *declaration* and its body

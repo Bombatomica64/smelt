@@ -33,8 +33,10 @@ fn body<'a>(dump: &'a str, header: &str) -> &'a str {
     let start = if dump.starts_with(header) {
         0
     } else {
-        dump.find(&format!("\n{header}"))
-            .map_or_else(|| fail(format!("no `{header}` in:\n{dump}")), |at| at.saturating_add(1))
+        dump.find(&format!("\n{header}")).map_or_else(
+            || fail(format!("no `{header}` in:\n{dump}")),
+            |at| at.saturating_add(1),
+        )
     };
     let rest = &dump[start..];
     let after_header = rest.get(1..).unwrap_or_default();
@@ -54,13 +56,19 @@ fn a_closure_read_in_the_temporal_dead_zone_is_checked() {
         "function f(): number {\n  const read = (): number => late + 1\n  const first = read()\n  const late = 2\n  return first + read()\n}\nconsole.log(f())\n",
     );
     let function = body(&dump, "fn f ");
-    assert!(function.contains("(maybe unbound)") && function.contains("user late: "), "{dump}");
+    assert!(
+        function.contains("(maybe unbound)") && function.contains("user late: "),
+        "{dump}"
+    );
     let closure = body(&dump, "closure ClosureId(0)");
     assert!(closure.contains("(maybe unbound)"), "{dump}");
     assert!(closure.contains("call @binding_check_tdz("), "{dump}");
     // The function never reads `late` itself, and `read` keeps plain storage.
     assert!(!function.contains("binding_check"), "{dump}");
-    assert!(!function.contains("user read: fn() -> Float (maybe unbound)"), "{dump}");
+    assert!(
+        !function.contains("user read: fn() -> Float (maybe unbound)"),
+        "{dump}"
+    );
 }
 
 /// A `switch` case that skips another case's declaration reads it unassigned;
@@ -73,7 +81,11 @@ fn a_switch_case_read_of_a_skipped_declaration_is_checked() {
     let function = body(&dump, "fn f ");
     assert!(function.contains("(maybe unbound)"), "{dump}");
     // Only the case that skipped the declaration checks it.
-    assert_eq!(function.matches("call @binding_check_tdz(").count(), 1, "{dump}");
+    assert_eq!(
+        function.matches("call @binding_check_tdz(").count(),
+        1,
+        "{dump}"
+    );
 }
 
 /// A recursive arrow captures its own binding before the binding is
@@ -86,7 +98,10 @@ fn a_recursive_arrow_reads_itself_proven() {
         "function f(n: number): number {\n  const fact = (k: number): number => (k <= 1 ? 1 : k * fact(k - 1))\n  return fact(n)\n}\nconsole.log(f(5))\n",
     );
     let closure = body(&dump, "closure ClosureId(0)");
-    assert!(closure.contains("fact: fn(Float) -> Float (maybe unbound)"), "{dump}");
+    assert!(
+        closure.contains("fact: fn(Float) -> Float (maybe unbound)"),
+        "{dump}"
+    );
     assert!(!dump.contains("binding_check"), "{dump}");
     assert!(!closure.contains("throws"), "{dump}");
 }
@@ -135,6 +150,9 @@ fn a_function_expression_naming_itself_reads_its_assigned_binding() {
         .find(|line| line.contains("user wrapper: Unknown (maybe unbound)"))
         .and_then(|line| line.split_whitespace().next())
         .unwrap_or_else(|| fail(format!("no provisional binding:\n{dump}")));
-    assert!(function.contains(&format!("    {provisional} = copy ")), "{dump}");
+    assert!(
+        function.contains(&format!("    {provisional} = copy ")),
+        "{dump}"
+    );
     assert!(!dump.contains("binding_check"), "{dump}");
 }

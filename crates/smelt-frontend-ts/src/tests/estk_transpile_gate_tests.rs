@@ -14,9 +14,9 @@ use smelt_hir::{DictProjectionOp, Literal, UnknownKind};
 /// Return whether any body in the crate contains a string literal `text`.
 fn crate_has_string_literal(ctx: &HirCtx, text: &str) -> bool {
     ctx.krate.bodies.iter().any(|body| {
-        body.exprs.iter().any(|expr| {
-            matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == text)
-        })
+        body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == text),
+        )
     })
 }
 
@@ -78,10 +78,7 @@ export function make() {
         &mut ctx,
     )?;
     ensure!(
-        crate_has_expr(&ctx, |kind| matches!(
-            kind,
-            ExprKind::New { .. }
-        )),
+        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::New { .. })),
         "`new RegExp()` should still lower to a RegExp construction",
     );
     Ok(())
@@ -225,9 +222,9 @@ export function use(): string {
         &mut ctx,
     )?;
     ensure!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("tagged template literals are only supported for the `String.raw`")),
+        errors.iter().any(|error| error
+            .message
+            .contains("tagged template literals are only supported for the `String.raw`")),
         "non-`String.raw` tagged templates should still be rejected: {errors:?}",
     );
     Ok(())

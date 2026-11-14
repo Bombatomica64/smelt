@@ -21,7 +21,10 @@ export function run(items: number[]): number {
     return total;
 }
 ";
-    assert_eq!(structure_under(source, "index_1"), structure_under(source, "cursor_1"));
+    assert_eq!(
+        structure_under(source, "index_1"),
+        structure_under(source, "cursor_1")
+    );
 }
 
 #[test]
@@ -32,7 +35,10 @@ function NAME(): (x: number) => unknown {
 }
 export const add: (x: number) => number = NAME() as (x: number) => number;
 ";
-    assert_eq!(structure_under(source, "piped"), structure_under(source, "factory"));
+    assert_eq!(
+        structure_under(source, "piped"),
+        structure_under(source, "factory")
+    );
 }
 
 #[test]

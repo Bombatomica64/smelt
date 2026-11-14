@@ -34,7 +34,9 @@ pub(crate) fn constant_expr(constant: &Constant, js_text: bool) -> RustExpr {
         Constant::String(value) => RustExpr::string_literal(value),
         // A symbol constant is a typed `symbol`; an erased slot takes it
         // through the coercion seam like any other typed value.
-        Constant::Symbol(value) => RustExpr::chain(format!("SmeltSymbol::from_spelling({value:?})")),
+        Constant::Symbol(value) => {
+            RustExpr::chain(format!("SmeltSymbol::from_spelling({value:?})"))
+        }
         Constant::Undefined => RustExpr::unit(),
         Constant::None => RustExpr::unit(),
     }
@@ -42,7 +44,11 @@ pub(crate) fn constant_expr(constant: &Constant, js_text: bool) -> RustExpr {
 
 /// A number literal: a primary, unless the sign makes it a unary expression.
 fn number_literal(text: String, negative: bool) -> RustExpr {
-    if negative { RustExpr::loose(text) } else { RustExpr::chain(text) }
+    if negative {
+        RustExpr::loose(text)
+    } else {
+        RustExpr::chain(text)
+    }
 }
 
 /// Computes the set of locals that are assigned after their initial declaration.
@@ -99,7 +105,10 @@ pub(super) fn assigned_locals(
                 locals.insert(*base);
             }
         }
-        if let Some(Terminator::Call { callee: Callee::Op(op, Some(_)), .. }) = &block.terminator
+        if let Some(Terminator::Call {
+            callee: Callee::Op(op, Some(_)),
+            ..
+        }) = &block.terminator
             && let Some(local) = op.mutated_receiver().and_then(operand_mutation_root)
         {
             locals.insert(local);

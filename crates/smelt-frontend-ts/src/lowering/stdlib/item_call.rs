@@ -8,7 +8,9 @@ use crate::lowering::spread_arguments::CallArg;
 use crate::lowering::{ModuleBuilder, RestParam};
 use crate::{OverloadSignature, SmeltError};
 use oxc::ast::ast::Argument;
-use smelt_hir::{Body, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, Type, TypeParamDef};
+use smelt_hir::{
+    Body, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, Type, TypeParamDef,
+};
 use std::collections::HashMap;
 
 /// What a resolved function item declares about its own call surface.
@@ -83,8 +85,7 @@ impl ModuleBuilder<'_> {
         let return_ty = selected_overload
             .as_ref()
             .map_or(callee.return_ty, |signature| signature.return_ty);
-        let return_ty =
-            self.representable_overload_return_ty(callee.return_ty, return_ty);
+        let return_ty = self.representable_overload_return_ty(callee.return_ty, return_ty);
         if callee
             .params
             .iter()
@@ -124,9 +125,19 @@ impl ModuleBuilder<'_> {
         let return_ty = if self.ctx.unchecked_generic_returns.contains(&callee.item) {
             // The callee returns an erased value as its `T`; the instantiation
             // is a promise its body never checks (`lowering::unchecked_returns`).
-            self.erase_with(ErasureReason::ExplicitAny, "generic return fed by an erased value")
+            self.erase_with(
+                ErasureReason::ExplicitAny,
+                "generic return fed by an erased value",
+            )
         } else if selected_overload.is_none() {
-            self.instantiated_call_return(&callee.type_params, &callee.params, &args, return_ty, call, body)?
+            self.instantiated_call_return(
+                &callee.type_params,
+                &callee.params,
+                &args,
+                return_ty,
+                call,
+                body,
+            )?
         } else {
             return_ty
         };
@@ -186,8 +197,7 @@ impl ModuleBuilder<'_> {
         // the array argument is packed into a spurious one-element list.
         if rest.is_none()
             && call.arguments.len() > params.len()
-            && let Some(candidate) =
-                self.functions.rest(name)
+            && let Some(candidate) = self.functions.rest(name)
             && candidate.index < params.len()
             && matches!(
                 params
@@ -209,12 +219,7 @@ impl ModuleBuilder<'_> {
         callee: &ItemCallee,
         body: &mut Body,
     ) -> Result<Option<OverloadSignature>, SmeltError> {
-        match self.selected_overload_signature(
-            name,
-            &call.arguments,
-            call.span,
-            body,
-        ) {
+        match self.selected_overload_signature(name, &call.arguments, call.span, body) {
             Ok(selected) => Ok(selected),
             // A sibling in the same library may call the *implementation*
             // signature directly (e.g. es-toolkit's `sortedLastIndexBy`
@@ -226,11 +231,7 @@ impl ModuleBuilder<'_> {
                 let required = callee.required_params.unwrap_or(callee.params.len());
                 let arity_fits = call.arguments.len() >= required
                     && (callee.rest.is_some() || call.arguments.len() <= callee.params.len());
-                if arity_fits {
-                    Ok(None)
-                } else {
-                    Err(error)
-                }
+                if arity_fits { Ok(None) } else { Err(error) }
             }
         }
     }
@@ -317,9 +318,9 @@ impl ModuleBuilder<'_> {
             .any(|param| self.overload_constraint_contains_unresolved_type_param(*param));
         let hint_at = |builder: &mut Self, index: usize, arg: &Argument<'_>| {
             let implementation_hint = params.get(index).copied();
-            if let Some(bound) = implementation_hint.and_then(|hint| {
-                builder.object_literal_bound_hint(hint, callee_type_params, arg)
-            }) {
+            if let Some(bound) = implementation_hint
+                .and_then(|hint| builder.object_literal_bound_hint(hint, callee_type_params, arg))
+            {
                 return Some(bound);
             }
             // An object literal is never typed by a RECORD hint that names the
@@ -379,8 +380,7 @@ impl ModuleBuilder<'_> {
             lowered[index] = Some(self.lower_call_arg(*arg, hint, body)?);
         }
         if !deferred.is_empty() {
-            let substitutions =
-                self.deferred_callback_bindings(call, callee, &lowered, body);
+            let substitutions = self.deferred_callback_bindings(call, callee, &lowered, body);
             for index in deferred {
                 let arg = fixed_arguments[index];
                 // Only a `Source` entry is ever deferred (the loop above
@@ -505,10 +505,7 @@ impl ModuleBuilder<'_> {
                     // Still instantiate the implementation's unbound
                     // parameters (this one included) to `unknown`, so the
                     // erased return never leaks a raw callee `TypeParam`.
-                    self.complete_callee_type_substitution(
-                        callee_type_params,
-                        &mut substitutions,
-                    );
+                    self.complete_callee_type_substitution(callee_type_params, &mut substitutions);
                     self.substitute_type_params(implementation_return_ty, &substitutions)
                 }
             }
@@ -540,9 +537,7 @@ impl ModuleBuilder<'_> {
             .copied()
             .filter(|ty| matches!(self.ctx.krate.types.get(*ty), Some(Type::Function(_))))
             .unwrap_or(item_ty);
-        if let Some(Type::Function(function)) =
-            self.ctx.krate.types.get(item_ty).cloned()
-        {
+        if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
             // Read the item's VALUE as the callee. `identifier_expression`
             // is the general "read this name" path and inlines a
             // module const's initializer, so it produces the real
@@ -559,8 +554,11 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
-            let spread_positions =
-                call.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+            let spread_positions = call
+                .arguments
+                .iter()
+                .map(Argument::is_spread)
+                .collect::<Vec<_>>();
             let span = self.span(call.span.start, call.span.end);
             let args =
                 self.pack_value_call_arguments(&function, args, &spread_positions, span, body);

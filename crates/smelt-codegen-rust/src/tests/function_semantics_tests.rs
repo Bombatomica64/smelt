@@ -85,7 +85,9 @@ export function pickStatus(arg?: number | PlainInit | Response): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "pick_status"), r#"fn pick_status(arg: Option<SmeltUnion3>) -> f64 {
+    assert_eq!(
+        rust_fn(&source, "pick_status"),
+        r#"fn pick_status(arg: Option<SmeltUnion3>) -> f64 {
 let mut _smelt_tmp_2: f64;
 let _smelt_tmp_3: Option<f64>;
 let _smelt_tmp_4: f64;
@@ -99,5 +101,6 @@ _smelt_tmp_4 = _smelt_tmp_3.clone().unwrap_or(200.0);
 _smelt_tmp_2 = _smelt_tmp_4;
 }
 return _smelt_tmp_2;
-}"#);
+}"#
+    );
 }

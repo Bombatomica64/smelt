@@ -63,8 +63,8 @@
 //! definitions: they are boundary adapters from the erased JSON value
 //! (`SmeltUnknown`, the parser's output) into concrete storage.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 /// Name of the per-type value decoder for a composite `ty`.
 fn decoder_fn_name(ty: TypeId) -> String {
@@ -80,25 +80,30 @@ pub(crate) fn json_decode_entry_name(ty: TypeId) -> String {
 fn literal_condition(value_text: &RustExpr, literal: &smelt_hir::Literal) -> Option<String> {
     match literal {
         smelt_hir::Literal::String(text) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::String(text) if text.eq_str({text:?}))", value_text = value_text.delimited()
+            "matches!({value_text}, SmeltUnknown::String(text) if text.eq_str({text:?}))",
+            value_text = value_text.delimited()
         )),
         smelt_hir::Literal::StringUnits(units) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::String(text) if text.units() == {units:?})", value_text = value_text.delimited()
+            "matches!({value_text}, SmeltUnknown::String(text) if text.units() == {units:?})",
+            value_text = value_text.delimited()
         )),
         smelt_hir::Literal::Float(number) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)", value_text = value_text.delimited()
+            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number:?}_f64)",
+            value_text = value_text.delimited()
         )),
         // JSON has no bigint, so no parsed value is ever a bigint literal.
         smelt_hir::Literal::BigInt(_) => None,
         smelt_hir::Literal::Int(number) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number}_f64)", value_text = value_text.delimited()
+            "matches!({value_text}, SmeltUnknown::Number(number) if *number == {number}_f64)",
+            value_text = value_text.delimited()
         )),
         smelt_hir::Literal::Bool(flag) => Some(format!(
-            "matches!({value_text}, SmeltUnknown::Bool({flag}))", value_text = value_text.delimited()
+            "matches!({value_text}, SmeltUnknown::Bool({flag}))",
+            value_text = value_text.delimited()
         )),
-        smelt_hir::Literal::Symbol(_) | smelt_hir::Literal::Undefined | smelt_hir::Literal::None => {
-            None
-        }
+        smelt_hir::Literal::Symbol(_)
+        | smelt_hir::Literal::Undefined
+        | smelt_hir::Literal::None => None,
     }
 }
 
@@ -106,7 +111,9 @@ fn literal_condition(value_text: &RustExpr, literal: &smelt_hir::Literal) -> Opt
 fn literal_type_text(literal: &smelt_hir::Literal) -> String {
     match literal {
         smelt_hir::Literal::String(text) => format!("{text:?}"),
-        smelt_hir::Literal::StringUnits(units) => format!("\"{}\"", smelt_hir::string_units_text(units)),
+        smelt_hir::Literal::StringUnits(units) => {
+            format!("\"{}\"", smelt_hir::string_units_text(units))
+        }
         smelt_hir::Literal::BigInt(digits) => format!("{digits}n"),
         smelt_hir::Literal::Float(number) => {
             if number.fract() == 0.0 && number.abs() < 1e21 {
@@ -143,7 +150,8 @@ impl FunctionEmitter<'_> {
     /// parse (the erased value, coerced by the destination as before).
     pub(super) fn json_decode_target(&self, target: Option<TypeId>) -> Option<TypeId> {
         let declared = target?;
-        self.json_decodable(declared, &mut Vec::new()).then_some(declared)
+        self.json_decodable(declared, &mut Vec::new())
+            .then_some(declared)
     }
 
     /// Whether `ty` has a Rust shape a strict decoder can build.
@@ -158,7 +166,8 @@ impl FunctionEmitter<'_> {
                 | Type::Int
                 | Type::FixedInt(_)
                 | Type::Float
-                | Type::String | Type::PyStr
+                | Type::String
+                | Type::PyStr
                 | Type::None
                 | Type::Unknown,
             ) => true,
@@ -169,14 +178,19 @@ impl FunctionEmitter<'_> {
             // a record, which the dict arm reads.
             Some(Type::Symbol | Type::PropKey) => false,
             Some(Type::List(item) | Type::Optional(item)) => self.json_decodable(*item, visiting),
-            Some(Type::Tuple(items)) => items.iter().all(|item| self.json_decodable(*item, visiting)),
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.json_decodable(*item, visiting)),
             Some(Type::Dict(key, value)) => {
                 matches!(self.mir.types.get(*key), Some(Type::String | Type::PyStr))
                     && self.dict_uses_smelt_record(*key)
                     && self.json_decodable(*value, visiting)
             }
             Some(Type::Union(items)) => {
-                items.len() >= 2 && items.iter().all(|item| self.json_decodable(*item, visiting))
+                items.len() >= 2
+                    && items
+                        .iter()
+                        .all(|item| self.json_decodable(*item, visiting))
             }
             Some(Type::Class { .. }) => {
                 if visiting.contains(&ty) {
@@ -250,7 +264,12 @@ impl FunctionEmitter<'_> {
 
     /// The expression decoding `value_text` (a `&SmeltUnknown`) at `ty`, as a
     /// `Result<RustT, SmeltDecodeIssue>`; composite types are queued in `deps`.
-    fn json_decode_call(&self, ty: TypeId, value_text: &RustExpr, deps: &mut Vec<TypeId>) -> String {
+    fn json_decode_call(
+        &self,
+        ty: TypeId,
+        value_text: &RustExpr,
+        deps: &mut Vec<TypeId>,
+    ) -> String {
         let primitive = match self.mir.types.get(ty) {
             Some(Type::Bool) => Some("smelt_decode_boolean"),
             Some(Type::Int) => Some("smelt_decode_integer"),
@@ -267,16 +286,27 @@ impl FunctionEmitter<'_> {
             _ => None,
         };
         if let Some(helper) = primitive {
-            return format!("{helper}({value_text}, path)", value_text = value_text.delimited());
+            return format!(
+                "{helper}({value_text}, path)",
+                value_text = value_text.delimited()
+            );
         }
         if !deps.contains(&ty) {
             deps.push(ty);
         }
-        format!("{}({value_text}, path)", decoder_fn_name(ty), value_text = value_text.delimited())
+        format!(
+            "{}({value_text}, path)",
+            decoder_fn_name(ty),
+            value_text = value_text.delimited()
+        )
     }
 
     /// Render the decoder function for one composite type.
-    fn json_decoder_fn_text(&self, ty: TypeId, deps: &mut Vec<TypeId>) -> Result<String, EmitError> {
+    fn json_decoder_fn_text(
+        &self,
+        ty: TypeId,
+        deps: &mut Vec<TypeId>,
+    ) -> Result<String, EmitError> {
         let rust_ty = self.rendered_type(ty)?;
         let expected = self.json_decode_expected(ty);
         let body = match self.mir.types.get(ty).cloned() {
@@ -296,7 +326,11 @@ impl FunctionEmitter<'_> {
                     len = items.len()
                 ));
                 for (index, item) in items.iter().enumerate() {
-                    let item_call = self.json_decode_call(*item, &RustExpr::loose(format!("&item_{index}")), deps);
+                    let item_call = self.json_decode_call(
+                        *item,
+                        &RustExpr::loose(format!("&item_{index}")),
+                        deps,
+                    );
                     text.push_str(&self.carrier_format(self.carrier()?, format_args!(
                         "    let item_{index} = items.get({index}).unwrap_or(SmeltUnknown::Undefined);\n    \
                          let mark = smelt_decode_enter_index(path, {index}); let item_{index} = {item_call}?; path.truncate(mark);\n"
@@ -331,7 +365,8 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Union(items)) => {
                 let concrete = self.concrete_union_members(ty).is_some();
-                let mut text = "let mark = path.len();\n    let mut issues = Vec::new();\n".to_owned();
+                let mut text =
+                    "let mark = path.len();\n    let mut issues = Vec::new();\n".to_owned();
                 for (index, item) in items.iter().enumerate() {
                     let item_call = self.json_decode_call(*item, &RustExpr::path("value"), deps);
                     let success = if concrete {
@@ -407,7 +442,11 @@ impl FunctionEmitter<'_> {
         ));
         let mut inits = Vec::new();
         for (index, field) in interface.fields.iter().enumerate() {
-            let rust_field = self.context.names().field(self.mir, field.name).into_string();
+            let rust_field = self
+                .context
+                .names()
+                .field(self.mir, field.name)
+                .into_string();
             let key = self
                 .mir
                 .names
@@ -475,7 +514,10 @@ impl FunctionEmitter<'_> {
                 ))
             };
             let null_arm = if facts.admits_null {
-                self.carrier_expr(self.carrier()?, &RustExpr::loose("Some(SmeltUnknown::Null) => None, "))
+                self.carrier_expr(
+                    self.carrier()?,
+                    &RustExpr::loose("Some(SmeltUnknown::Null) => None, "),
+                )
             } else {
                 RustExpr::opaque("")
             };
@@ -491,7 +533,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Render the text entry adapter `smelt_json_decode_<ty>` for one target.
-    fn json_decode_entry_fn_text(&self, ty: TypeId, deps: &mut Vec<TypeId>) -> Result<String, EmitError> {
+    fn json_decode_entry_fn_text(
+        &self,
+        ty: TypeId,
+        deps: &mut Vec<TypeId>,
+    ) -> Result<String, EmitError> {
         let rust_ty = self.rendered_type(ty)?;
         let expected = self.json_decode_expected(ty);
         let decode = self.json_decode_call(ty, &RustExpr::loose("&value"), deps);
@@ -514,7 +560,11 @@ fn json_decode_targets(mir: &Mir) -> Vec<TypeId> {
         .functions
         .iter()
         .map(|function| (&function.blocks, &function.locals))
-        .chain(mir.closures.iter().map(|closure| (&closure.blocks, &closure.locals)));
+        .chain(
+            mir.closures
+                .iter()
+                .map(|closure| (&closure.blocks, &closure.locals)),
+        );
     for (blocks, locals) in bodies {
         for block in blocks {
             if let Some(Terminator::Call {
@@ -547,7 +597,9 @@ fn json_decode_targets(mir: &Mir) -> Vec<TypeId> {
                 else {
                     continue;
                 };
-                let Some(local) = usize::try_from(dest.0).ok().and_then(|index| locals.get(index))
+                let Some(local) = usize::try_from(dest.0)
+                    .ok()
+                    .and_then(|index| locals.get(index))
                 else {
                     continue;
                 };
@@ -596,7 +648,8 @@ impl FunctionEmitter<'_> {
         let receiver_text = self.operand_expr(receiver)?;
         Ok(RustExpr::atom(format!(
             "{{ let smelt_body_owner = {receiver_text}.clone(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_text = smelt_body_owner.take_text()?; {decode}(&smelt_text) }})) }}",
-            decode = json_decode_entry_name(target), receiver_text = receiver_text.tight()
+            decode = json_decode_entry_name(target),
+            receiver_text = receiver_text.tight()
         )))
     }
 }
@@ -799,4 +852,3 @@ pub(crate) fn ts_type_text(mir: &Mir, ty: TypeId) -> String {
         _ => "value".to_owned(),
     }
 }
-

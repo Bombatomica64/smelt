@@ -74,11 +74,16 @@ impl ModuleBuilder<'_> {
     fn union_call_signature(&mut self, members: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
         let first = *members.first()?;
         let shape = |this: &Self, ty: smelt_hir::TypeId| match this.ctx.krate.types.get(ty) {
-            Some(Type::Function(function)) => Some((function.params.len(), function.rest.is_some())),
+            Some(Type::Function(function)) => {
+                Some((function.params.len(), function.rest.is_some()))
+            }
             _ => None,
         };
         let first_shape = shape(self, first);
-        if members.iter().all(|member| shape(self, *member) == first_shape) {
+        if members
+            .iter()
+            .all(|member| shape(self, *member) == first_shape)
+        {
             return Some(first);
         }
         let item_ty = self.erase(ErasureReason::TypeLevel);

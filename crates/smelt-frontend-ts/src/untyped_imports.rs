@@ -34,9 +34,13 @@ pub fn untyped_callback_parameter_spans(source: &str, untyped_modules: &[&str]) 
         return Vec::new();
     }
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, source, SourceType::default().with_typescript(true))
-        .with_options(ParseOptions::default())
-        .parse();
+    let parsed = Parser::new(
+        &allocator,
+        source,
+        SourceType::default().with_typescript(true),
+    )
+    .with_options(ParseOptions::default())
+    .parse();
     if !parsed.diagnostics.is_empty() {
         return Vec::new();
     }
@@ -46,7 +50,12 @@ pub fn untyped_callback_parameter_spans(source: &str, untyped_modules: &[&str]) 
             continue;
         };
         // A specifier with a lone surrogate names no installable package.
-        if !import.source.value.as_str().is_some_and(|specifier| untyped_modules.contains(&specifier)) {
+        if !import
+            .source
+            .value
+            .as_str()
+            .is_some_and(|specifier| untyped_modules.contains(&specifier))
+        {
             continue;
         }
         for specifier in import.specifiers.iter().flatten() {
@@ -58,7 +67,10 @@ pub fn untyped_callback_parameter_spans(source: &str, untyped_modules: &[&str]) 
             bindings.insert(local.name.as_str().to_owned());
         }
     }
-    let mut collector = CallbackCollector { bindings, spans: Vec::new() };
+    let mut collector = CallbackCollector {
+        bindings,
+        spans: Vec::new(),
+    };
     collector.visit_program(&parsed.program);
     collector.spans
 }
@@ -79,9 +91,15 @@ impl CallbackCollector {
         let mut current = callee.without_parentheses();
         loop {
             match current {
-                Expression::Identifier(identifier) => return self.bindings.contains(identifier.name.as_str()),
-                Expression::StaticMemberExpression(member) => current = member.object.without_parentheses(),
-                Expression::ComputedMemberExpression(member) => current = member.object.without_parentheses(),
+                Expression::Identifier(identifier) => {
+                    return self.bindings.contains(identifier.name.as_str());
+                }
+                Expression::StaticMemberExpression(member) => {
+                    current = member.object.without_parentheses();
+                }
+                Expression::ComputedMemberExpression(member) => {
+                    current = member.object.without_parentheses();
+                }
                 Expression::CallExpression(call) => current = call.callee.without_parentheses(),
                 _ => return false,
             }
@@ -114,7 +132,9 @@ mod tests {
     fn finds_callbacks_of_untyped_calls_only() {
         let source = "import fc from 'fast-check';\nimport { map } from './typed';\nfc.assert(fc.property(fc.array(fc.integer()), (array, size) => array));\nmap([1], (value) => value);\n";
         let spans = untyped_callback_parameter_spans(source, &["fast-check"]);
-        let start = source.find("(array, size)").and_then(|at| u32::try_from(at).ok());
+        let start = source
+            .find("(array, size)")
+            .and_then(|at| u32::try_from(at).ok());
         let expected = start.map(|at| vec![(at, at + 13)]);
         assert_eq!(Some(spans), expected);
     }

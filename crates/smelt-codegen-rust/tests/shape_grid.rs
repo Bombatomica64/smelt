@@ -579,9 +579,11 @@ impl Shape {
     /// type at a call site (`"number"`, `"string"`).
     fn cb_ty(&self, t_ty: &str, u_ty: &str) -> String {
         match (self.generics, self.tpos) {
-            (Generics::None, TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested) | (Generics::One, TPos::Value) => {
-                "(v: number) => number".to_owned()
-            }
+            (
+                Generics::None,
+                TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested,
+            )
+            | (Generics::One, TPos::Value) => "(v: number) => number".to_owned(),
             (Generics::One, TPos::CbParam) => format!("(v: {t_ty}) => number"),
             (Generics::One, TPos::CbReturn) => format!("(v: number) => {t_ty}"),
             (Generics::One, TPos::Both) => format!("(v: {t_ty}) => {t_ty}"),
@@ -596,9 +598,11 @@ impl Shape {
     /// An arrow expression inhabiting [`Shape::cb_ty`] at the given pins.
     fn cb_arrow(&self, t_ty: &str, u_ty: &str) -> String {
         match (self.generics, self.tpos) {
-            (Generics::None, TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested) | (Generics::One, TPos::Value) => {
-                "(v: number) => v + 1".to_owned()
-            }
+            (
+                Generics::None,
+                TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested,
+            )
+            | (Generics::One, TPos::Value) => "(v: number) => v + 1".to_owned(),
             (Generics::One, TPos::CbParam) => format!("(v: {t_ty}) => 1"),
             (Generics::One, TPos::CbReturn) => format!("(v: number) => {}", sample(t_ty)),
             (Generics::One, TPos::Both) => format!("(v: {t_ty}) => v"),
@@ -616,7 +620,11 @@ impl Shape {
     /// pins, for [`ArgKind::FnItem`].
     fn cb_item(&self, name: &str, t_ty: &str, u_ty: &str) -> String {
         match (self.generics, self.tpos) {
-            (Generics::None, TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested) | (Generics::One, TPos::Value) => {
+            (
+                Generics::None,
+                TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested,
+            )
+            | (Generics::One, TPos::Value) => {
                 format!("export function {name}(v: number): number {{ return v + 1; }}")
             }
             (Generics::One, TPos::CbParam) => {
@@ -681,11 +689,16 @@ impl Shape {
     /// callback, needed by the `cb === undefined` arm of an optional callback.
     const fn callback_free_payload(&self) -> Option<&'static str> {
         match (self.generics, self.tpos) {
-            (Generics::None, TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested) | (Generics::One, TPos::Value | TPos::Both) => {
-                Some("items[0]")
-            }
+            (
+                Generics::None,
+                TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested,
+            )
+            | (Generics::One, TPos::Value | TPos::Both) => Some("items[0]"),
             (Generics::One, TPos::CbParam | TPos::CbReturn | TPos::Nested)
-            | (Generics::Two, TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested) => None,
+            | (
+                Generics::Two,
+                TPos::Value | TPos::CbParam | TPos::CbReturn | TPos::Both | TPos::Nested,
+            ) => None,
         }
     }
 
@@ -739,7 +752,9 @@ impl Shape {
         // the callback unconditionally.
         if self.cb == CbShape::Optional {
             body.push("  if (cb === undefined) {".to_owned());
-            if self.ret == Ret::None { body.push("    return;".to_owned()) } else {
+            if self.ret == Ret::None {
+                body.push("    return;".to_owned());
+            } else {
                 let free = self
                     .callback_free_payload()
                     .expect("legality guarantees a callback-free payload");
@@ -1288,8 +1303,7 @@ fn pairwise_cover(shapes: &[Shape]) -> Vec<Shape> {
         pairs
     };
 
-    let mut uncovered: BTreeSet<AxisPair> =
-        shapes.iter().flat_map(&pairs_of).collect();
+    let mut uncovered: BTreeSet<AxisPair> = shapes.iter().flat_map(&pairs_of).collect();
 
     let mut chosen: Vec<Shape> = Vec::new();
     while !uncovered.is_empty() {
@@ -1391,10 +1405,15 @@ fn run_grid(shapes: &[Shape], full: bool) {
     // triage run can re-check exactly the failing shapes — in another worktree,
     // at another commit — in a single invocation that pays for the emitted
     // crates' shared dependency build only once.
-    let only: Option<Vec<String>> = std::env::var("SMELT_GRID_ONLY")
+    let only: Option<Vec<String>> = std::env::var("SMELT_GRID_ONLY").ok().map(|value| {
+        value
+            .split(',')
+            .map(|name| name.trim().to_owned())
+            .collect()
+    });
+    let dump = std::env::var("SMELT_GRID_DUMP")
         .ok()
-        .map(|value| value.split(',').map(|name| name.trim().to_owned()).collect());
-    let dump = std::env::var("SMELT_GRID_DUMP").ok().map(std::path::PathBuf::from);
+        .map(std::path::PathBuf::from);
     if let Some(dir) = &dump {
         std::fs::create_dir_all(dir).expect("create dump dir");
     }
@@ -1417,18 +1436,17 @@ fn run_grid(shapes: &[Shape], full: bool) {
         }
         checked += 1;
         let crate_dir = crates_dir.join(&name);
-        let outcome = emit_typescript_crate(&name, &source, &crate_dir)
-            .and_then(|()| {
-                if let Some(dir) = &dump {
-                    // The emitted Rust is what a defect report has to quote, and
-                    // the scratch crate is deleted when the tier finishes.
-                    drop(std::fs::copy(
-                        crate_dir.join("src").join("main.rs"),
-                        dir.join(format!("{name}.rs")),
-                    ));
-                }
-                cargo_check(&crate_dir, &target_dir)
-            });
+        let outcome = emit_typescript_crate(&name, &source, &crate_dir).and_then(|()| {
+            if let Some(dir) = &dump {
+                // The emitted Rust is what a defect report has to quote, and
+                // the scratch crate is deleted when the tier finishes.
+                drop(std::fs::copy(
+                    crate_dir.join("src").join("main.rs"),
+                    dir.join(format!("{name}.rs")),
+                ));
+            }
+            cargo_check(&crate_dir, &target_dir)
+        });
         let expected = GRID_EXPECTED_FAILURES
             .iter()
             .find(|entry| entry.name == name);
@@ -1571,8 +1589,11 @@ fn grid_is_enumerable() {
         let dump_dir = std::path::PathBuf::from(raw_dir);
         std::fs::create_dir_all(&dump_dir).expect("create dump dir");
         for shape in &shapes {
-            std::fs::write(dump_dir.join(format!("{}.ts", shape.name())), shape.render())
-                .expect("dump source");
+            std::fs::write(
+                dump_dir.join(format!("{}.ts", shape.name())),
+                shape.render(),
+            )
+            .expect("dump source");
         }
     }
     let names: BTreeSet<String> = shapes.iter().map(Shape::name).collect();

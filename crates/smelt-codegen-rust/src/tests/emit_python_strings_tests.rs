@@ -74,7 +74,10 @@ const context = tz("Asia/Singapore");
 "#,
     );
 
-    assert!(source.contains("if smelt_timestamp_ms.is_finite()"), "{source}");
+    assert!(
+        source.contains("if smelt_timestamp_ms.is_finite()"),
+        "{source}"
+    );
     assert!(source.contains("else { f64::NAN }"), "{source}");
 }
 
@@ -156,7 +159,6 @@ const id = scheduled(() => {}, 4);
     // the prelude gate must scan closure rvalues too.
     assert!(source.contains("fn smelt_set_timeout("), "{source}");
 }
-
 
 /// A module-level `const` holding a modeled host value, read from a FUNCTION,
 /// reaches a module-global slot rather than the declared type's default.
@@ -254,7 +256,10 @@ export function report(): number {
         source.contains("fn smelt_module_init_failed(error: Box<dyn std::error::Error>) -> !"),
         "{source}"
     );
-    assert!(source.contains("eprintln!(\"Error: {error:?}\");"), "{source}");
+    assert!(
+        source.contains("eprintln!(\"Error: {error:?}\");"),
+        "{source}"
+    );
     // The infallible initializer is untouched.
     assert!(
         source.contains("::std::cell::RefCell::new(smelt_global_init__encoder__1());"),
@@ -270,7 +275,10 @@ export function encoded(text: string): number {
 }
 ",
     );
-    assert!(!infallible.contains("smelt_module_init_failed"), "{infallible}");
+    assert!(
+        !infallible.contains("smelt_module_init_failed"),
+        "{infallible}"
+    );
 }
 
 /// A module-level binding used ONLY in the module body keeps its ordinary
@@ -318,7 +326,6 @@ if (direct instanceof Headers) {
         "the erased member path must not be reached after narrowing\n{source}"
     );
 }
-
 
 /// A modeled class whose state is not a record erases through its own adapter,
 /// carrying a registry identity marker, so `instanceof` on the erased value is
@@ -469,7 +476,10 @@ console.log(value);
 #[test]
 fn every_host_marker_is_in_the_internal_key_namespace() {
     for marker in smelt_stdlib::host_object_markers() {
-        assert!(marker.starts_with("__smelt"), "host marker {marker} is outside the internal namespace");
+        assert!(
+            marker.starts_with("__smelt"),
+            "host marker {marker} is outside the internal namespace"
+        );
     }
     let source = source_for(
         r"
@@ -478,7 +488,8 @@ console.log(JSON.stringify(enc), JSON.stringify({ a: 1 }));
 ",
     );
     assert!(
-        source.contains("fn smelt_is_internal_key(&self) -> bool { self.starts_with(\"__smelt\") }"),
+        source
+            .contains("fn smelt_is_internal_key(&self) -> bool { self.starts_with(\"__smelt\") }"),
         "{source}"
     );
     assert!(

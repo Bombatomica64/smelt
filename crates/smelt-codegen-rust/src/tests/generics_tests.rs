@@ -23,7 +23,17 @@ class Container<T> {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Container<T>", "struct ContainerInner<T>", "sig get", "sig set"]), r"struct Container<T>(::std::rc::Rc<::std::cell::RefCell<ContainerInner<T>>>);
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "struct Container<T>",
+                "struct ContainerInner<T>",
+                "sig get",
+                "sig set"
+            ]
+        ),
+        r"struct Container<T>(::std::rc::Rc<::std::cell::RefCell<ContainerInner<T>>>);
 
 struct ContainerInner<T> {
 value: T,
@@ -32,9 +42,13 @@ _smelt_phantom: ::std::marker::PhantomData<(T)>,
 
 fn get(&self) -> T
 
-fn set(&self, value: T) -> ()");
+fn set(&self, value: T) -> ()"
+    );
     assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Container<T> {"), "{source}");
-    assert!(source.contains("Container(::std::rc::Rc::clone(&self.0))"), "identity `Clone` shares the cell:\n{source}");
+    assert!(
+        source.contains("Container(::std::rc::Rc::clone(&self.0))"),
+        "identity `Clone` shares the cell:\n{source}"
+    );
 }
 
 #[test]
@@ -57,14 +71,17 @@ function useBox(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn use_box"]), r"fn use_box() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn use_box"]),
+        r"fn use_box() -> f64 {
 let b: Container<f64>;
 let _smelt_tmp_1: Container<f64> = Container::new(3.0);
 b = _smelt_tmp_1;
 let _ = b.set(5.0);
 let _smelt_tmp_3: f64 = b.get();
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 #[test]
@@ -87,7 +104,9 @@ function usePair(): string {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["struct Pair<A, B>", "fn use_pair"]), r#"struct Pair<A, B> {
+    assert_eq!(
+        rust_items(&source, &["struct Pair<A, B>", "fn use_pair"]),
+        r#"struct Pair<A, B> {
 first: A,
 second: B,
 _smelt_phantom: ::std::marker::PhantomData<(A, B)>,
@@ -99,7 +118,8 @@ let _smelt_tmp_1: Pair<f64, JsString> = Pair::new(1.0, JsString::from("x"));
 p = _smelt_tmp_1;
 let _smelt_tmp_2: JsString = p.get_second();
 return _smelt_tmp_2;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -113,7 +133,10 @@ export function identity<T>(x: T): T {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig identity"]), r"fn identity<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> T");
+    assert_eq!(
+        rust_items(&source, &["sig identity"]),
+        r"fn identity<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> T"
+    );
 }
 
 #[test]
@@ -131,10 +154,13 @@ export function useIdentity(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn use_identity"]), r"fn use_identity() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn use_identity"]),
+        r"fn use_identity() -> f64 {
 let _smelt_tmp_0: f64 = identity(3.0);
 return _smelt_tmp_0;
-}");
+}"
+    );
 }
 
 #[test]
@@ -148,7 +174,10 @@ export function pair<A, B>(first: A, second: B): B {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pair"]), r"fn pair<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first: A, second: B) -> B");
+    assert_eq!(
+        rust_items(&source, &["sig pair"]),
+        r"fn pair<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first: A, second: B) -> B"
+    );
 }
 
 #[test]
@@ -162,7 +191,10 @@ export function first<T>(xs: T[]): T {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig first"]), r"fn first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> T");
+    assert_eq!(
+        rust_items(&source, &["sig first"]),
+        r"fn first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> T"
+    );
 }
 
 #[test]
@@ -180,13 +212,16 @@ export function flags<R extends RegExp>(value: R): string {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn invalid", "sig flags"]), r"fn invalid<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: D) -> bool {
+    assert_eq!(
+        rust_items(&source, &["fn invalid", "sig flags"]),
+        r"fn invalid<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: D) -> bool {
 let _smelt_tmp_1: f64 = ((value.clone()).smelt_date()).get_time();
 let _smelt_tmp_2: bool = _smelt_tmp_1.is_nan();
 return _smelt_tmp_2;
 }
 
-fn flags(value: SmeltUnknown) -> JsString");
+fn flags(value: SmeltUnknown) -> JsString"
+    );
 }
 
 #[test]
@@ -213,7 +248,17 @@ export function main(): void {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["fn loud", "trait AnimalLike", "impl AnimalLike for Animal", "impl AnimalLike for Dog"]), r#"fn loud<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> A {
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "fn loud",
+                "trait AnimalLike",
+                "impl AnimalLike for Animal",
+                "impl AnimalLike for Dog"
+            ]
+        ),
+        r#"fn loud<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> A {
 let _smelt_tmp_1: JsString = a.speak();
 let _smelt_tmp_2: f64 = a.legs();
 let _ = { println!("{} {}", _smelt_tmp_1, smelt_console_number(_smelt_tmp_2)); };
@@ -233,7 +278,8 @@ fn legs(&self) -> f64 { self.0.borrow().legs.clone() }
 impl AnimalLike for Dog {
 fn speak(&self) -> JsString { let smelt_callable = self.0.borrow().speak.clone(); (smelt_callable)() }
 fn legs(&self) -> f64 { self.0.borrow().legs.clone() }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -258,9 +304,12 @@ export function main(): void {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig grow", "sig legs_of"]), r"fn grow(mut a: SmeltUnknown) -> f64
+    assert_eq!(
+        rust_items(&source, &["sig grow", "sig legs_of"]),
+        r"fn grow(mut a: SmeltUnknown) -> f64
 
-fn legs_of<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> f64");
+fn legs_of<A: AnimalLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(a: A) -> f64"
+    );
 }
 
 #[test]
@@ -275,7 +324,10 @@ export function same<T>(a: T, b: T): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig same"]), r"fn same(a: SmeltUnknown, b: SmeltUnknown) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig same"]),
+        r"fn same(a: SmeltUnknown, b: SmeltUnknown) -> bool"
+    );
 }
 
 #[test]
@@ -293,12 +345,15 @@ export function passErased(u: unknown): unknown {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig identity", "fn pass_erased"]), r"fn identity(x: SmeltUnknown) -> SmeltUnknown
+    assert_eq!(
+        rust_items(&source, &["sig identity", "fn pass_erased"]),
+        r"fn identity(x: SmeltUnknown) -> SmeltUnknown
 
 fn pass_erased(u: SmeltUnknown) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltUnknown = (identity(u.clone())).into_smelt_unknown();
 return _smelt_tmp_1;
-}");
+}"
+    );
 }
 
 #[test]
@@ -318,14 +373,17 @@ function makeOk(v: number): Outcome<number, string> {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["struct Outcome<T, E>", "sig make_ok"]), r"struct Outcome<T, E> {
+    assert_eq!(
+        rust_items(&source, &["struct Outcome<T, E>", "sig make_ok"]),
+        r"struct Outcome<T, E> {
 ok: bool,
 value: T,
 error: E,
 _smelt_phantom: ::std::marker::PhantomData<(T, E)>,
 }
 
-fn make_ok(v: f64) -> Outcome<f64, JsString>");
+fn make_ok(v: f64) -> Outcome<f64, JsString>"
+    );
 }
 
 #[test]
@@ -359,7 +417,12 @@ class Box<T> {
 ",
     );
 
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box_<T> {"), "the impl block keeps the minimal bound set:\n{source}");
+    assert!(
+        source.contains(
+            "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box_<T> {"
+        ),
+        "the impl block keeps the minimal bound set:\n{source}"
+    );
 }
 
 #[test]
@@ -375,10 +438,19 @@ export function difference<T>(firstArr: readonly T[], secondArr: readonly T[]): 
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig difference"]), r"fn difference<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first_arr: SmeltList<T>, second_arr: SmeltList<T>) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig difference"]),
+        r"fn difference<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first_arr: SmeltList<T>, second_arr: SmeltList<T>) -> SmeltList<T>"
+    );
     let body = rust_fn(&source, "difference");
-    assert!(body.contains("move |closure_arg_0: &T,"), "the callback element stays `&T`:\n{body}");
-    assert!(body.contains("let second_set: SmeltJsSet<T> ="), "the captured set keeps its element type:\n{body}");
+    assert!(
+        body.contains("move |closure_arg_0: &T,"),
+        "the callback element stays `&T`:\n{body}"
+    );
+    assert!(
+        body.contains("let second_set: SmeltJsSet<T> ="),
+        "the captured set keeps its element type:\n{body}"
+    );
 }
 
 #[test]
@@ -406,7 +478,10 @@ export function zipLike<T, R>(
         body.contains("let _smelt_tmp_2: SmeltUnknown = iteratee.clone().expect("),
         "the guarded callee must reach the runtime call without its Option: {body}"
     );
-    assert!(body.contains("match smelt_value.clone() { SmeltUnknown::Function"), "{body}");
+    assert!(
+        body.contains("match smelt_value.clone() { SmeltUnknown::Function"),
+        "{body}"
+    );
 }
 
 #[test]
@@ -426,13 +501,16 @@ export function usePair(): number[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pair", "fn use_pair"]), r"fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltList<T>
+    assert_eq!(
+        rust_items(&source, &["sig pair", "fn use_pair"]),
+        r"fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltList<T>
 
 fn use_pair() -> SmeltList<f64> {
 let data: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 let _smelt_tmp_2: SmeltList<f64> = pair(data);
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -451,11 +529,14 @@ export function useWrap(): number[][] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn use_wrap"]), r"fn use_wrap() -> SmeltList<SmeltList<f64>> {
+    assert_eq!(
+        rust_items(&source, &["fn use_wrap"]),
+        r"fn use_wrap() -> SmeltList<SmeltList<f64>> {
 let data: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
 let _smelt_tmp_2: SmeltList<SmeltList<f64>> = wrap(data);
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -473,12 +554,15 @@ export function usePair(us: unknown[]): unknown[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pair", "fn use_pair"]), r"fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltList<T>
+    assert_eq!(
+        rust_items(&source, &["sig pair", "fn use_pair"]),
+        r"fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltList<T>
 
 fn use_pair(us: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
 let _smelt_tmp_1: SmeltList<SmeltUnknown> = smelt_alias_erased_generic_list(pair(Into::<SmeltList<_>>::into(us.clone())).clone());
 return _smelt_tmp_1;
-}");
+}"
+    );
 }
 
 #[test]
@@ -499,8 +583,14 @@ export function useBoth(): number[] {
     );
 
     let body = rust_fn(&source, "use_both");
-    assert!(body.contains("SmeltUnknown::Number(smelt_value as f64)"), "{body}");
-    assert!(body.contains("SmeltUnknown::String(smelt_value.into())"), "{body}");
+    assert!(
+        body.contains("SmeltUnknown::Number(smelt_value as f64)"),
+        "{body}"
+    );
+    assert!(
+        body.contains("SmeltUnknown::String(smelt_value.into())"),
+        "{body}"
+    );
     assert!(!body.contains("both(xs, ys)"), "{body}");
 }
 
@@ -520,13 +610,16 @@ export function useMaybe(): number[] | string {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig maybe", "fn use_maybe"]), r"fn maybe(xs: SmeltList<SmeltUnknown>) -> SmeltUnknown
+    assert_eq!(
+        rust_items(&source, &["sig maybe", "fn use_maybe"]),
+        r"fn maybe(xs: SmeltList<SmeltUnknown>) -> SmeltUnknown
 
 fn use_maybe() -> SmeltUnion7 {
 let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
 let _smelt_tmp_2: SmeltUnion7 = SmeltUnion7::from_smelt_unknown((maybe({ let smelt_l: SmeltList<_> = xs.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect::<Vec<_>>()) })).into_smelt_unknown());
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -548,7 +641,10 @@ export function usePadded(): number[] {
 
     let body = rust_fn(&source, "use_padded");
     assert!(body.contains(", None::<SmeltUnknown>)"), "{body}");
-    assert!(body.contains("SmeltUnknown::Number(smelt_value as f64)"), "the site demotes wholesale:\n{body}");
+    assert!(
+        body.contains("SmeltUnknown::Number(smelt_value as f64)"),
+        "the site demotes wholesale:\n{body}"
+    );
     assert!(!body.contains("padded(xs,"), "{body}");
 }
 
@@ -570,7 +666,9 @@ function useBox(): number[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig all", "fn use_box"]), r"fn all(&self) -> SmeltList<T>
+    assert_eq!(
+        rust_items(&source, &["sig all", "fn use_box"]),
+        r"fn all(&self) -> SmeltList<T>
 
 fn use_box() -> SmeltList<f64> {
 let b: Box_<f64>;
@@ -578,7 +676,8 @@ let _smelt_tmp_1: Box_<f64> = Box_::new(1.0);
 b = _smelt_tmp_1;
 let _smelt_tmp_2: SmeltList<f64> = b.all();
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -595,7 +694,10 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig take_while"]), r"fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig take_while"]),
+        r"fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>"
+    );
 }
 
 #[test]
@@ -610,7 +712,10 @@ export function takeWhile<F0>(xs: F0[], keep: (item: F0) => boolean): F0[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig take_while"]), r"fn take_while<F0: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F1: Fn(&F0) -> bool + ?Sized>(xs: SmeltList<F0>, keep: &F1) -> SmeltList<F0>");
+    assert_eq!(
+        rust_items(&source, &["sig take_while"]),
+        r"fn take_while<F0: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F1: Fn(&F0) -> bool + ?Sized>(xs: SmeltList<F0>, keep: &F1) -> SmeltList<F0>"
+    );
 }
 
 #[test]
@@ -624,7 +729,10 @@ export function both<T>(xs: T[], a: (item: T) => boolean, b: (item: T) => boolea
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig both"]), r"fn both<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized, F1: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, a: &F0, b: &F1) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig both"]),
+        r"fn both<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized, F1: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, a: &F0, b: &F1) -> SmeltList<T>"
+    );
 }
 
 #[test]
@@ -640,7 +748,10 @@ export function mapAll<T>(xs: T[], make: (item: T) => Promise<T>): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig map_all"]), r"fn map_all<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltFuture<T> + ?Sized>(xs: SmeltList<T>, make: &F0) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig map_all"]),
+        r"fn map_all<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltFuture<T> + ?Sized>(xs: SmeltList<T>, make: &F0) -> SmeltList<T>"
+    );
 }
 
 #[test]
@@ -659,12 +770,15 @@ export function outer<T>(xs: T[], cb: (item: T) => boolean): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig inner", "fn outer"]), r"fn inner<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0) -> SmeltList<T>
+    assert_eq!(
+        rust_items(&source, &["sig inner", "fn outer"]),
+        r"fn inner<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0) -> SmeltList<T>
 
 fn outer<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, cb: &F0) -> SmeltList<T> {
 let _smelt_tmp_2: SmeltList<T> = inner(xs.clone(), &*cb);
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 #[test]
@@ -679,7 +793,10 @@ export function attempt<T>(make: () => T): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig attempt"]), r"fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig attempt"]),
+        r"fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>"
+    );
 }
 
 #[test]
@@ -694,7 +811,10 @@ export function unionBy<T, U>(arr1: T[], arr2: T[], mapper: (item: T) => U): T[]
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig union_by"]), r"fn union_by<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> U + ?Sized>(arr1: SmeltList<T>, arr2: SmeltList<T>, mapper: &F0) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig union_by"]),
+        r"fn union_by<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> U + ?Sized>(arr1: SmeltList<T>, arr2: SmeltList<T>, mapper: &F0) -> SmeltList<T>"
+    );
 }
 
 #[test]
@@ -708,7 +828,10 @@ export function feed<T>(cb: (item: T) => boolean): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig feed"]), r"fn feed<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(cb: &F0) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig feed"]),
+        r"fn feed<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(cb: &F0) -> bool"
+    );
 }
 
 #[test]
@@ -723,7 +846,10 @@ export function pick<T>(cb: (value: T | string) => boolean): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pick"]), r"fn pick(cb: &dyn Fn(&SmeltUnknown) -> bool) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig pick"]),
+        r"fn pick(cb: &dyn Fn(&SmeltUnknown) -> bool) -> bool"
+    );
 }
 
 #[test]
@@ -738,7 +864,10 @@ export function higher<T>(cb: (inner: (value: T) => void) => void): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig higher"]), r"fn higher(cb: &dyn Fn(::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()>) -> ()) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig higher"]),
+        r"fn higher(cb: &dyn Fn(::std::rc::Rc<dyn Fn(&SmeltUnknown) -> ()>) -> ()) -> bool"
+    );
 }
 
 #[test]
@@ -754,7 +883,10 @@ export function maybe<T>(cb?: (value: T) => boolean): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig maybe"]), r"fn maybe(cb: Option<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig maybe"]),
+        r"fn maybe(cb: Option<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> bool"
+    );
 }
 
 #[test]
@@ -768,7 +900,10 @@ export function keep<T>(cb: (value: T) => boolean): (value: T) => boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig keep"]), r"fn keep(cb: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>");
+    assert_eq!(
+        rust_items(&source, &["sig keep"]),
+        r"fn keep(cb: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>"
+    );
 }
 
 #[test]
@@ -783,7 +918,10 @@ export function spread<T>(cb: (...args: unknown[]) => T): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig spread"]), r"fn spread(cb: &dyn Fn(SmeltList<SmeltUnknown>) -> SmeltUnknown) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig spread"]),
+        r"fn spread(cb: &dyn Fn(SmeltList<SmeltUnknown>) -> SmeltUnknown) -> bool"
+    );
 }
 
 #[test]
@@ -801,11 +939,17 @@ export function run(spy: unknown): unknown[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig attempt", "sig run"]), r"fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>
+    assert_eq!(
+        rust_items(&source, &["sig attempt", "sig run"]),
+        r"fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>
 
-fn run(spy: SmeltUnknown) -> SmeltList<SmeltUnknown>");
+fn run(spy: SmeltUnknown) -> SmeltList<SmeltUnknown>"
+    );
     let body = rust_fn(&source, "run");
-    assert!(body.contains("attempt(&mut {"), "the call hands an adapter to the generic definition:\n{body}");
+    assert!(
+        body.contains("attempt(&mut {"),
+        "the call hands an adapter to the generic definition:\n{body}"
+    );
 }
 
 #[test]
@@ -823,7 +967,10 @@ export function run(): unknown[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig attempt_two"]), r"fn attempt_two(make: &dyn Fn() -> SmeltUnknown, other: &dyn Fn() -> SmeltUnknown) -> SmeltList<SmeltUnknown>");
+    assert_eq!(
+        rust_items(&source, &["sig attempt_two"]),
+        r"fn attempt_two(make: &dyn Fn() -> SmeltUnknown, other: &dyn Fn() -> SmeltUnknown) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 #[test]
@@ -841,14 +988,17 @@ export function pinned(xs: number[], ys: number[]): number[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn pinned"]), r"fn pinned(xs: SmeltList<f64>, ys: SmeltList<f64>) -> SmeltList<f64> {
+    assert_eq!(
+        rust_items(&source, &["fn pinned"]),
+        r"fn pinned(xs: SmeltList<f64>, ys: SmeltList<f64>) -> SmeltList<f64> {
 let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64| {
 let _smelt_tmp_1: JsString = JsString::from(smelt_number_to_string(closure_arg_0));
 _smelt_tmp_1.clone()
 });
 let _smelt_tmp_3: SmeltList<f64> = union_by(xs.clone(), ys.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_2.clone(); move |smelt_arg0: &f64| -> JsString { (_smelt_adapted_callback)(smelt_arg0.clone()) } });
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 #[test]
@@ -868,7 +1018,9 @@ export function outer<T>(items: T[]): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig sink", "fn outer"]), r"fn sink(x: f64, cb: &dyn Fn(f64) -> SmeltUnknown) -> f64
+    assert_eq!(
+        rust_items(&source, &["sig sink", "fn outer"]),
+        r"fn sink(x: f64, cb: &dyn Fn(f64) -> SmeltUnknown) -> f64
 
 fn outer(items: SmeltList<SmeltUnknown>) -> f64 {
 let _smelt_tmp_2: f64;
@@ -877,7 +1029,8 @@ let _smelt_tmp_1: f64 = sink(1.0, &|smelt_arg0: f64| SmeltUnknown::Null);
 _smelt_tmp_2 = items.len() as f64;
 _smelt_tmp_3 = _smelt_tmp_1 + _smelt_tmp_2;
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 #[test]
@@ -901,9 +1054,12 @@ export function outer<T>(xs: T[]): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig inner", "sig outer"]), r"fn inner(xs: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>
+    assert_eq!(
+        rust_items(&source, &["sig inner", "sig outer"]),
+        r"fn inner(xs: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>
 
-fn outer(xs: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>");
+fn outer(xs: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 #[test]
@@ -918,7 +1074,10 @@ export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig group_by"]), r"fn group_by<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(xs: SmeltList<T>, key: &F0) -> SmeltList<SmeltUnknown>");
+    assert_eq!(
+        rust_items(&source, &["sig group_by"]),
+        r"fn group_by<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> SmeltUnknown + ?Sized>(xs: SmeltList<T>, key: &F0) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 #[test]
@@ -936,7 +1095,10 @@ export function run(xs: unknown[], cb: unknown): unknown[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig each"]), r"fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> () + ?Sized>(xs: SmeltList<T>, cb: &F0) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig each"]),
+        r"fn each<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> () + ?Sized>(xs: SmeltList<T>, cb: &F0) -> SmeltList<T>"
+    );
 }
 
 #[test]
@@ -957,9 +1119,16 @@ export function uniqWith<T>(xs: T[], same: (a: T, b: T) => boolean): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig uniq_with"]), r"fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T, &T) -> bool + ?Sized>(xs: SmeltList<T>, same: &F0) -> SmeltList<T>");
+    assert_eq!(
+        rust_items(&source, &["sig uniq_with"]),
+        r"fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T, &T) -> bool + ?Sized>(xs: SmeltList<T>, same: &F0) -> SmeltList<T>"
+    );
     let body = rust_fn(&source, "uniq_with");
-    assert!(body.contains("_smelt_tmp_8 = ::std::rc::Rc::new({") && body.contains("move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {"), "the handle and its closure agree in the body's scope:\n{body}");
+    assert!(
+        body.contains("_smelt_tmp_8 = ::std::rc::Rc::new({")
+            && body.contains("move |closure_arg_0: &T, _arg0: i64, _arg1: &SmeltList<T>| {"),
+        "the handle and its closure agree in the body's scope:\n{body}"
+    );
 }
 
 #[test]
@@ -979,14 +1148,16 @@ export function useSubset(): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn use_subset"]), r"fn use_subset() -> bool {
+    assert_eq!(
+        rust_items(&source, &["fn use_subset"]),
+        r"fn use_subset() -> bool {
 let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
 let ys: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![2.0]; smelt_list_items }));
 let _smelt_tmp_4: bool = is_subset(xs, ys);
 return _smelt_tmp_4;
-}");
+}"
+    );
 }
-
 
 #[test]
 fn optional_callback_type_param_demotes() {
@@ -1004,7 +1175,10 @@ export function useDefault(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pick"]), r"fn pick(x: SmeltUnknown, cb: Option<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> SmeltUnknown");
+    assert_eq!(
+        rust_items(&source, &["sig pick"]),
+        r"fn pick(x: SmeltUnknown, cb: Option<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> SmeltUnknown"
+    );
 }
 
 #[test]
@@ -1019,7 +1193,10 @@ export function keep<T>(x: T, cb: (v: T) => boolean): (v: T) => boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig keep"]), r"fn keep(x: SmeltUnknown, cb: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>");
+    assert_eq!(
+        rust_items(&source, &["sig keep"]),
+        r"fn keep(x: SmeltUnknown, cb: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>"
+    );
 }
 
 #[test]
@@ -1034,7 +1211,10 @@ export function pick<T>(xs: T[], cbs: ((v: T) => boolean)[]): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pick"]), r"fn pick(xs: SmeltList<SmeltUnknown>, cbs: SmeltList<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> SmeltList<SmeltUnknown>");
+    assert_eq!(
+        rust_items(&source, &["sig pick"]),
+        r"fn pick(xs: SmeltList<SmeltUnknown>, cbs: SmeltList<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 #[test]
@@ -1049,7 +1229,10 @@ export function pick<T>(xs: T[], ...cbs: ((v: T) => boolean)[]): T[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pick"]), r"fn pick(xs: SmeltList<SmeltUnknown>, cbs: SmeltList<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> SmeltList<SmeltUnknown>");
+    assert_eq!(
+        rust_items(&source, &["sig pick"]),
+        r"fn pick(xs: SmeltList<SmeltUnknown>, cbs: SmeltList<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>>) -> SmeltList<SmeltUnknown>"
+    );
 }
 
 #[test]
@@ -1064,7 +1247,10 @@ export function apply<T>(x: T, cb: (f: (v: T) => boolean) => boolean): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig apply"]), r"fn apply(x: SmeltUnknown, cb: &dyn Fn(::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> bool) -> bool");
+    assert_eq!(
+        rust_items(&source, &["sig apply"]),
+        r"fn apply(x: SmeltUnknown, cb: &dyn Fn(::std::rc::Rc<dyn Fn(&SmeltUnknown) -> bool>) -> bool) -> bool"
+    );
 }
 
 #[test]
@@ -1079,7 +1265,10 @@ export function make<T>(x: T): (v: T) => boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig make"]), r"fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(&T) -> bool>");
+    assert_eq!(
+        rust_items(&source, &["sig make"]),
+        r"fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(&T) -> bool>"
+    );
 }
 
 #[test]
@@ -1103,7 +1292,9 @@ export function use0(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn run"]), r"fn run(items: SmeltList<SmeltUnknown>, cb: &dyn Fn(f64) -> f64) -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r"fn run(items: SmeltList<SmeltUnknown>, cb: &dyn Fn(f64) -> f64) -> SmeltUnknown {
 let out: SmeltUnknown;
 let touched: f64 = cb(1.0);
 let _smelt_tmp_5: bool = touched < 0.0;
@@ -1113,7 +1304,8 @@ return items.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(s
 out = items.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnknown::Undefined);
 return out;
 }
-}");
+}"
+    );
 }
 
 #[test]
@@ -1133,7 +1325,10 @@ export function use0(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig count"]), r"fn count<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> SmeltUnion4");
+    assert_eq!(
+        rust_items(&source, &["sig count"]),
+        r"fn count<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> SmeltUnion4"
+    );
 }
 #[test]
 fn borrowed_callback_packed_into_container_is_owned() {
@@ -1152,7 +1347,10 @@ export function use0(cbp0: (v: number) => number): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig use0"]), r"fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Result<f64, Box<dyn std::error::Error>>");
+    assert_eq!(
+        rust_items(&source, &["sig use0"]),
+        r"fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Result<f64, Box<dyn std::error::Error>>"
+    );
 }
 
 #[test]
@@ -1172,7 +1370,10 @@ export function use0(cbp0: (v: number) => number): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig use0"]), r"fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Result<f64, Box<dyn std::error::Error>>");
+    assert_eq!(
+        rust_items(&source, &["sig use0"]),
+        r"fn use0(cbp0: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Result<f64, Box<dyn std::error::Error>>"
+    );
 }
 
 #[test]
@@ -1236,8 +1437,14 @@ export function fill(store: Store<[string, number]>): number {
     );
 
     let body = rust_fn(&source, "fill");
-    assert!(body.contains("(store.add.clone())(JsString::from(\"first\"), &("), "the declared `&T` slot is called by reference:\n{body}");
-    assert!(rust_items(&source, &["sig fill"]).starts_with("fn fill(store: Store<(JsString, f64)>)"), "{source}");
+    assert!(
+        body.contains("(store.add.clone())(JsString::from(\"first\"), &("),
+        "the declared `&T` slot is called by reference:\n{body}"
+    );
+    assert!(
+        rust_items(&source, &["sig fill"]).starts_with("fn fill(store: Store<(JsString, f64)>)"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -1260,7 +1467,9 @@ export function fill(raw: unknown): number {
 
     let body = rust_declaration(&source, "fn __smelt_from_unknown_record_0");
     assert!(
-        body.contains("smelt_slot_adapted: ::std::rc::Rc<dyn Fn(JsString, &(JsString, f64)) -> ()>"),
+        body.contains(
+            "smelt_slot_adapted: ::std::rc::Rc<dyn Fn(JsString, &(JsString, f64)) -> ()>"
+        ),
         "the rebuilt slot must be adapted to the declared `&T` ABI: {body}"
     );
 }
@@ -1290,13 +1499,16 @@ export function build(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn build"]), r"fn build() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn build"]),
+        r"fn build() -> f64 {
 let _smelt_tmp_2: Cell<f64>;
 let _smelt_tmp_0: Cell<f64> = Cell::new(7.0);
 let _smelt_tmp_1: Pair<f64> = Pair::new(_smelt_tmp_0);
 _smelt_tmp_2 = _smelt_tmp_1.left.clone();
 return _smelt_tmp_2.value;
-}");
+}"
+    );
 }
 
 // --- Type-parameter elision (see `crate::generic_elision`) ------------------
@@ -1320,9 +1532,12 @@ export function useTagged(): string { return new Tagged<number>('x').read(); }
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Tagged"]), r"struct Tagged {
+    assert_eq!(
+        rust_items(&source, &["struct Tagged"]),
+        r"struct Tagged {
 label: JsString,
-}");
+}"
+    );
 }
 
 #[test]
@@ -1339,7 +1554,9 @@ export function useCell(): string { return new Cell<string>('hi').get(); }
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Cell<T>", "fn use_cell"]), r#"struct Cell<T> {
+    assert_eq!(
+        rust_items(&source, &["struct Cell<T>", "fn use_cell"]),
+        r#"struct Cell<T> {
 value: T,
 _smelt_phantom: ::std::marker::PhantomData<(T)>,
 }
@@ -1348,7 +1565,8 @@ fn use_cell() -> JsString {
 let _smelt_tmp_0: Cell<JsString> = Cell::new(JsString::from("hi"));
 let _smelt_tmp_1: JsString = _smelt_tmp_0.get();
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -1367,10 +1585,13 @@ export function useSession(): string { return new Session<number>('s').label(); 
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Session"]), r"struct Session {
+    assert_eq!(
+        rust_items(&source, &["struct Session"]),
+        r"struct Session {
 name: JsString,
 next: Option<::std::rc::Rc<dyn Fn(Session) -> JsString>>,
-}");
+}"
+    );
 }
 
 #[test]
@@ -1402,11 +1623,14 @@ export function usePair(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Pair<Carried>"]), r"struct Pair<Carried> {
+    assert_eq!(
+        rust_items(&source, &["struct Pair<Carried>"]),
+        r"struct Pair<Carried> {
 left: Cell<Carried>,
 right: Tagged,
 _smelt_phantom: ::std::marker::PhantomData<(Carried)>,
-}");
+}"
+    );
 }
 
 #[test]
@@ -1426,7 +1650,10 @@ export function useSink(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Sink<T>"]), r"struct Sink<T>(::std::rc::Rc<::std::cell::RefCell<SinkInner<T>>>);");
+    assert_eq!(
+        rust_items(&source, &["struct Sink<T>"]),
+        r"struct Sink<T>(::std::rc::Rc<::std::cell::RefCell<SinkInner<T>>>);"
+    );
 }
 
 /// A union only an inherited member copy spells has to be declared.
@@ -1465,8 +1692,14 @@ console.log(new YearParser().priority);
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|word| word.starts_with("SmeltUnion"))
         .collect();
-    assert!(!names.is_empty(), "the program should need a union: {source}");
+    assert!(
+        !names.is_empty(),
+        "the program should need a union: {source}"
+    );
     for name in names {
-        assert!(source.contains(&format!("enum {name}")), "{name} is not declared: {source}");
+        assert!(
+            source.contains(&format!("enum {name}")),
+            "{name} is not declared: {source}"
+        );
     }
 }

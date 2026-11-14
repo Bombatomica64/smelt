@@ -1,7 +1,7 @@
 //! `Number` statics and methods, and `parseInt`/`parseFloat`.
 
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, Literal, NumericPredicateOp, PrimitiveCastOp, Type};
@@ -32,7 +32,9 @@ impl ModuleBuilder<'_> {
                 };
                 (op, format!("Number.{}", member.property.name), false)
             }
-            Expression::Identifier(identifier) if self.names_host(identifier.name.as_str(), "isNaN") => {
+            Expression::Identifier(identifier)
+                if self.names_host(identifier.name.as_str(), "isNaN") =>
+            {
                 // A value import, module item, or local binding of `isNaN`
                 // shadows the global predicate (es-toolkit's own
                 // `import { isNaN } from './isNaN'` accepts `any`). Defer to the
@@ -71,16 +73,16 @@ impl ModuleBuilder<'_> {
             );
         if non_coercing_optional
             || matches!(op, NumericPredicateOp::IsSafeInteger)
-            && matches!(
-                self.ctx.krate.types.get(operand_ty),
-                Some(
-                    Type::Unknown
-                        | Type::TypeParam { .. }
-                        | Type::Class { .. }
-                        | Type::Optional(_)
-                        | Type::Union(_)
+                && matches!(
+                    self.ctx.krate.types.get(operand_ty),
+                    Some(
+                        Type::Unknown
+                            | Type::TypeParam { .. }
+                            | Type::Class { .. }
+                            | Type::Optional(_)
+                            | Type::Union(_)
+                    )
                 )
-            )
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(Some(body.push_expr(Expr {
@@ -89,7 +91,10 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
+        if !matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Int | Type::Float)
+        ) {
             if ((source_name == "isNaN" || source_name == "Number.isNaN")
                 && self.is_date_constructor_arg_type(operand_ty))
                 || matches!(
@@ -145,7 +150,8 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if !self.names_host(object.name.as_str(), "Number") || member.property.name != "parseFloat" {
+        if !self.names_host(object.name.as_str(), "Number") || member.property.name != "parseFloat"
+        {
             return Ok(None);
         }
         let operand = self.parse_float_operand("Number.parseFloat", call, body)?;
@@ -362,7 +368,8 @@ impl ModuleBuilder<'_> {
                     | Type::TypeParam { .. }
                     | Type::Class { .. }
             )
-        ) || (call.arguments.is_empty() && self.union_arms_stringify_faithfully(operand_ty));
+        ) || (call.arguments.is_empty()
+            && self.union_arms_stringify_faithfully(operand_ty));
         if !stringifiable {
             return Ok(None);
         }
@@ -391,7 +398,10 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 })));
             }
-            if !matches!(self.ctx.krate.types.get(radix_ty), Some(Type::Int | Type::Float)) {
+            if !matches!(
+                self.ctx.krate.types.get(radix_ty),
+                Some(Type::Int | Type::Float)
+            ) {
                 return Err(SmeltError::unsupported(
                     self.span(radix_argument.span().start, radix_argument.span().end),
                     "number.toString radix argument must be numeric",

@@ -24,7 +24,9 @@ export function count(a: boolean, b: boolean): number {
 
     // `result` is a counter proven to stay in `0..=1`, so integer range
     // analysis makes it an integer, and the `number` result is its exact conversion.
-    assert_eq!(rust_fn(&source, "count"), r"fn count(a: bool, b: bool) -> f64 {
+    assert_eq!(
+        rust_fn(&source, "count"),
+        r"fn count(a: bool, b: bool) -> f64 {
 let mut result: usize;
 let _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: bool;
@@ -51,7 +53,8 @@ result = _smelt_tmp_8;
 _smelt_tmp_9 = result as f64;
 return _smelt_tmp_9;
 }
-}");
+}"
+    );
 }
 
 #[test]
@@ -72,9 +75,12 @@ chosen: int = pick(value=5, **extras)
 
     // `values[0]` raises `IndexError` and `kwargs["value"]` raises `KeyError`, so
     // both functions can fail, and the collected parameters keep their element types.
-    assert_eq!(rust_items(&source, &["sig sum_values", "sig pick"]), r"fn sum_values(values: SmeltList<i64>) -> Result<i64, Box<dyn std::error::Error>>
+    assert_eq!(
+        rust_items(&source, &["sig sum_values", "sig pick"]),
+        r"fn sum_values(values: SmeltList<i64>) -> Result<i64, Box<dyn std::error::Error>>
 
-fn pick(kwargs: SmeltRecord<String, i64>) -> Result<i64, Box<dyn std::error::Error>>");
+fn pick(kwargs: SmeltRecord<String, i64>) -> Result<i64, Box<dyn std::error::Error>>"
+    );
 }
 
 #[test]
@@ -135,8 +141,14 @@ def run() -> None:
     assert!(py_source.contains("smelt_json_parse(&"), "{py_source}");
     assert!(!ts_source.contains("JSON parse failed"), "{ts_source}");
     assert!(!py_source.contains("JSON parse failed"), "{py_source}");
-    assert!(ts_source.contains("let values: SmeltList<f64>"), "{ts_source}");
-    assert!(py_source.contains("let values: SmeltList<i64>"), "{py_source}");
+    assert!(
+        ts_source.contains("let values: SmeltList<f64>"),
+        "{ts_source}"
+    );
+    assert!(
+        py_source.contains("let values: SmeltList<i64>"),
+        "{py_source}"
+    );
 }
 
 #[test]
@@ -178,11 +190,9 @@ const bag = JSON.parse(text) as Record<string, unknown>;
 "#,
     );
 
-    assert!(
-        ts_source.contains(
-            "#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]"
-        )
-    );
+    assert!(ts_source.contains(
+        "#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]"
+    ));
     // Every destination -- a generated interface struct as much as a
     // `Record<string, unknown>` -- is decoded from the parsed dynamic value by
     // a generated strict decoder (`emitter::json_decode`), so there is one
@@ -252,7 +262,8 @@ const order: Order = JSON.parse("{}");
         "{ts_source}"
     );
     assert!(
-        ts_source.contains("path: &mut String) -> Result<SmeltRecord<JsString, f64>, SmeltDecodeIssue>"),
+        ts_source
+            .contains("path: &mut String) -> Result<SmeltRecord<JsString, f64>, SmeltDecodeIssue>"),
         "{ts_source}"
     );
     // A number is a JSON number: no string coercion.
@@ -264,7 +275,8 @@ const order: Order = JSON.parse("{}");
     );
     // Literal properties are checked by value, including through an alias.
     assert!(
-        ts_source.contains("matches!(&field, SmeltUnknown::String(text) if text.eq_str(\"order\"))"),
+        ts_source
+            .contains("matches!(&field, SmeltUnknown::String(text) if text.eq_str(\"order\"))"),
         "{ts_source}"
     );
     assert!(
@@ -281,10 +293,7 @@ const order: Order = JSON.parse("{}");
         ),
         "{ts_source}"
     );
-    assert!(
-        ts_source.contains("None => None };"),
-        "{ts_source}"
-    );
+    assert!(ts_source.contains("None => None };"), "{ts_source}");
     assert!(
         ts_source.contains(
             "match object.get(\"discount\") { Some(SmeltUnknown::Null) => None, Some(field) =>"
@@ -331,11 +340,15 @@ const bare: Pair = JSON.parse("{}");
         "{ts_source}"
     );
     assert!(
-        ts_source.contains("match object.get(\"pair\") { Some(field) => { smelt_decode_unknown(&field, path)? }"),
+        ts_source.contains(
+            "match object.get(\"pair\") { Some(field) => { smelt_decode_unknown(&field, path)? }"
+        ),
         "{ts_source}"
     );
     assert!(
-        ts_source.contains("match object.get(\"id\") { Some(field) => { smelt_decode_number(&field, path)? }"),
+        ts_source.contains(
+            "match object.get(\"id\") { Some(field) => { smelt_decode_number(&field, path)? }"
+        ),
         "{ts_source}"
     );
     assert!(
@@ -387,7 +400,10 @@ const fromSource = new Set(source);
     // membership, and a `Set<string>` uses `SmeltPrimSet`, which hashes the
     // values directly and so does not drag in the erased-value carrier.
     assert!(source.contains("let values: SmeltJsSet<f64>"), "{source}");
-    assert!(source.contains("let empty: SmeltPrimSet<JsString>"), "{source}");
+    assert!(
+        source.contains("let empty: SmeltPrimSet<JsString>"),
+        "{source}"
+    );
     assert!(source.contains(".contains(&2.0)"));
     assert!(source.contains("SmeltPrimSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<SmeltJsSet<_>>()"));
@@ -424,14 +440,17 @@ def test_truth():
     );
 
     assert!(source.contains("#[test]\nfn test_truth()"), "{source}");
-    assert_eq!(rust_fn(&source, "test_truth"), r#"fn test_truth() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_fn(&source, "test_truth"),
+        r#"fn test_truth() -> Result<(), Box<dyn std::error::Error>> {
 let _smelt_tmp_0: bool = !(true);
 if _smelt_tmp_0 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "assertion failed".to_owned())).into());
 } else {
 return Ok(());
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -452,7 +471,9 @@ export function build(total: number): number[] {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "build"), r#"fn build(total: f64) -> SmeltList<f64> {
+    assert_eq!(
+        rust_fn(&source, "build"),
+        r#"fn build(total: f64) -> SmeltList<f64> {
 let mut _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: f64;
 let mut result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (total as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| 0.0).collect::<Vec<_>>() });
@@ -465,7 +486,8 @@ _smelt_tmp_5 = i + 1.0;
 i = _smelt_tmp_5;
 }
 return result;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -487,12 +509,18 @@ export function strings(n: number): string[] {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "numbers"), r"fn numbers(n: f64) -> SmeltList<f64> {
+    assert_eq!(
+        rust_fn(&source, "numbers"),
+        r"fn numbers(n: f64) -> SmeltList<f64> {
 let result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (n as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| 0.0).collect::<Vec<_>>() });
 return result;
-}");
-    assert_eq!(rust_fn(&source, "strings"), r"fn strings(n: f64) -> SmeltList<JsString> {
+}"
+    );
+    assert_eq!(
+        rust_fn(&source, "strings"),
+        r"fn strings(n: f64) -> SmeltList<JsString> {
 let result: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (n as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| JsString::new()).collect::<Vec<_>>() });
 return result;
-}");
+}"
+    );
 }

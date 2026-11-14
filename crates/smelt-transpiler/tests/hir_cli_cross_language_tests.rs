@@ -556,7 +556,11 @@ build = true
         "constructor-function fields must be typed from their writes",
     )?;
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &expected, "constructor-function field behaviour")?;
+    ensure_eq(
+        &actual_stdout,
+        &expected,
+        "constructor-function field behaviour",
+    )?;
     Ok(())
 }
 
@@ -725,7 +729,11 @@ clone-strategy = "aggressive"
     // lower at all ("unknown class method `bump`"); a rename that lost the
     // declaring module's field metadata instead printed an empty first line.
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &"abc\n1\n2\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(
+        &actual_stdout,
+        &"abc\n1\n2\n".to_owned(),
+        "unexpected stdout",
+    )?;
 
     Ok(())
 }
@@ -826,12 +834,18 @@ build = true
 clone-strategy = "aggressive"
 "#,
     )?;
-    fs::write(project_path.join("src/trie.ts"), SELF_CONSTRUCTING_CLASS_TRIE)?;
+    fs::write(
+        project_path.join("src/trie.ts"),
+        SELF_CONSTRUCTING_CLASS_TRIE,
+    )?;
     fs::write(
         project_path.join("src/regexp.ts"),
         SELF_CONSTRUCTING_CLASS_OTHER,
     )?;
-    fs::write(project_path.join("src/main.ts"), SELF_CONSTRUCTING_CLASS_MAIN)?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        SELF_CONSTRUCTING_CLASS_MAIN,
+    )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
@@ -839,10 +853,15 @@ clone-strategy = "aggressive"
     // `describe('a')` sees the child the insert stored; `describe('b')` sees
     // nothing. Before the fix the generated crate did not compile at all.
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &"set
+    ensure_eq(
+        &actual_stdout,
+        &"set
 none
 1
-".to_owned(), "unexpected stdout")?;
+"
+        .to_owned(),
+        "unexpected stdout",
+    )?;
 
     Ok(())
 }
@@ -943,7 +962,8 @@ clone-strategy = "aggressive"
         &"first
 set
 none
-".to_owned(),
+"
+        .to_owned(),
         "unexpected stdout",
     )?;
 
@@ -1087,7 +1107,8 @@ named
 text:plain
 number:7
 tag:shape
-".to_owned(),
+"
+        .to_owned(),
         "unexpected stdout",
     )?;
 
@@ -1289,8 +1310,14 @@ build = true
 clone-strategy = "aggressive"
 "#,
     )?;
-    fs::write(project_path.join("src/base.ts"), "class Store {\n  label: string;\n  constructor(label: string) {\n    this.label = label;\n  }\n  describe(): string {\n    return 'store:' + this.label;\n  }\n  rename(label: string): Store {\n    this.label = label;\n    return this;\n  }\n}\n\nexport { Store as StoreBase };\n")?;
-    fs::write(project_path.join("src/main.ts"), "import { StoreBase } from './base';\n\nexport class Store extends StoreBase {\n  extra: number;\n  constructor(label: string, extra: number) {\n    super(label);\n    this.extra = extra;\n  }\n  report(): string {\n    return this.describe() + '/' + this.extra;\n  }\n}\n\nconst store = new Store('a', 2);\nconsole.log(store.report());\nconsole.log(store.rename('b').describe());\n")?;
+    fs::write(
+        project_path.join("src/base.ts"),
+        "class Store {\n  label: string;\n  constructor(label: string) {\n    this.label = label;\n  }\n  describe(): string {\n    return 'store:' + this.label;\n  }\n  rename(label: string): Store {\n    this.label = label;\n    return this;\n  }\n}\n\nexport { Store as StoreBase };\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { StoreBase } from './base';\n\nexport class Store extends StoreBase {\n  extra: number;\n  constructor(label: string, extra: number) {\n    super(label);\n    this.extra = extra;\n  }\n  report(): string {\n    return this.describe() + '/' + this.extra;\n  }\n}\n\nconst store = new Store('a', 2);\nconsole.log(store.report());\nconsole.log(store.rename('b').describe());\n",
+    )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
@@ -1636,7 +1663,11 @@ console.log(ns.compose(addOne, addOne, three)())
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure_eq(&actual_stdout, &"4\n5\na-b-c\n4\n5\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(
+        &actual_stdout,
+        &"4\n5\na-b-c\n4\n5\n".to_owned(),
+        "unexpected stdout",
+    )?;
 
     Ok(())
 }
@@ -1711,7 +1742,11 @@ clone-strategy = "aggressive"
         let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
         smelt_shared(&["--manifest-path", &manifest_arg, "build"], &shared)?;
         let actual_stdout = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
-        ensure_eq(&actual_stdout, &expected, format!("unexpected stdout for {name}"))?;
+        ensure_eq(
+            &actual_stdout,
+            &expected,
+            format!("unexpected stdout for {name}"),
+        )?;
         // `expected.stdout` is documented as Node's output; check that it is.
         // A fixture that imports npm packages at run time pins them in its own
         // `package.json`, which the oracle installs.
@@ -1786,7 +1821,11 @@ console.log(c[5][1]);
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     // 4 choose 2 = 6 tuples; first is [0,1] and last is [2,3].
-    ensure_eq(&actual_stdout, &"6\n0\n1\n2\n3\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(
+        &actual_stdout,
+        &"6\n0\n1\n2\n3\n".to_owned(),
+        "unexpected stdout",
+    )?;
 
     Ok(())
 }

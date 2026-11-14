@@ -325,7 +325,10 @@ impl HostObject {
 
     /// This entry with `base` as its direct prototype-chain parent.
     const fn extending(self, base: &'static str) -> Self {
-        Self { base: Some(base), ..self }
+        Self {
+            base: Some(base),
+            ..self
+        }
     }
 }
 
@@ -363,7 +366,12 @@ const fn byte_buffer(
     role: ByteBufferRole,
     element: Option<TypedArrayElement>,
 ) -> HostObject {
-    entry(class_name, marker, to_string_tag, HostKind::Bytes { role, element })
+    entry(
+        class_name,
+        marker,
+        to_string_tag,
+        HostKind::Bytes { role, element },
+    )
 }
 
 /// Concise constructor for one of the eleven typed-array view registry entries.
@@ -377,7 +385,13 @@ const fn typed_array(
     marker: &'static str,
     element: TypedArrayElement,
 ) -> HostObject {
-    byte_buffer(class_name, marker, class_name, ByteBufferRole::View, Some(element))
+    byte_buffer(
+        class_name,
+        marker,
+        class_name,
+        ByteBufferRole::View,
+        Some(element),
+    )
 }
 
 /// Concise constructor for a boxed-primitive-wrapper registry entry.
@@ -399,7 +413,8 @@ const fn helper_backed(class_name: &'static str, marker: &'static str) -> HostOb
 ///
 /// Constructing one is a blocker rather than a marker-only host object, because
 /// the value would be consulted for behaviour Smelt does not provide.
-pub const UNMODELED_HOST_CONSTRUCTORS: &[&str] = &["Intl.DateTimeFormat", "Intl.RelativeTimeFormat"];
+pub const UNMODELED_HOST_CONSTRUCTORS: &[&str] =
+    &["Intl.DateTimeFormat", "Intl.RelativeTimeFormat"];
 
 /// Ambient namespace objects whose unclaimed member calls are blockers.
 ///
@@ -678,9 +693,12 @@ pub fn host_object_markers() -> impl Iterator<Item = &'static str> {
 /// iterator is what keeps "which markers have bytes" from being restated per
 /// call site.
 pub fn byte_buffer_host_objects() -> impl Iterator<Item = (&'static str, ByteBufferRole)> {
-    HOST_OBJECTS
-        .iter()
-        .filter_map(|host_entry| host_entry.kind.byte_buffer_role().map(|role| (host_entry.marker, role)))
+    HOST_OBJECTS.iter().filter_map(|host_entry| {
+        host_entry
+            .kind
+            .byte_buffer_role()
+            .map(|role| (host_entry.marker, role))
+    })
 }
 
 /// Return the byte-storage role of a host constructor, or `None` when the host
@@ -699,9 +717,11 @@ pub fn byte_buffer_role(class_name: &str) -> Option<ByteBufferRole> {
 /// `Float64Array` element" from being restated in the `length` computation, the
 /// indexed read, the indexed write, and the constructor.
 pub fn typed_array_host_objects() -> impl Iterator<Item = (&'static str, TypedArrayElement)> {
-    HOST_OBJECTS
-        .iter()
-        .filter_map(|host_entry| host_entry.element().map(|element| (host_entry.marker, element)))
+    HOST_OBJECTS.iter().filter_map(|host_entry| {
+        host_entry
+            .element()
+            .map(|element| (host_entry.marker, element))
+    })
 }
 
 /// Return the fixed element type of a host constructor's view, or `None`.
@@ -753,8 +773,14 @@ mod tests {
         assert!(!builtin_class_extends("Error", "DOMException"));
         assert!(!builtin_class_extends("Blob", "File"));
         assert!(!builtin_class_extends("TypeError", "RangeError"));
-        assert_eq!(host_markers_extending("Error").collect::<Vec<_>>(), ["__smelt_domexception"]);
-        assert_eq!(host_markers_extending("Blob").collect::<Vec<_>>(), ["__smelt_file"]);
+        assert_eq!(
+            host_markers_extending("Error").collect::<Vec<_>>(),
+            ["__smelt_domexception"]
+        );
+        assert_eq!(
+            host_markers_extending("Blob").collect::<Vec<_>>(),
+            ["__smelt_file"]
+        );
     }
 
     /// Every registry marker is a distinct `__smelt_`-prefixed key. Distinctness
@@ -817,7 +843,12 @@ mod tests {
     #[test]
     fn byte_buffer_field_projects_the_kind() {
         for entry in HOST_OBJECTS {
-            assert_eq!(entry.byte_buffer, entry.kind.byte_buffer_role(), "{}", entry.class_name);
+            assert_eq!(
+                entry.byte_buffer,
+                entry.kind.byte_buffer_role(),
+                "{}",
+                entry.class_name
+            );
         }
     }
 
@@ -851,7 +882,10 @@ mod tests {
                 "DataView",
             ],
         );
-        assert_eq!(byte_buffer_role("ArrayBuffer"), Some(ByteBufferRole::Storage));
+        assert_eq!(
+            byte_buffer_role("ArrayBuffer"),
+            Some(ByteBufferRole::Storage)
+        );
         assert_eq!(byte_buffer_role("Buffer"), Some(ByteBufferRole::View));
         assert_eq!(byte_buffer_role("Float32Array"), Some(ByteBufferRole::View));
         assert_eq!(byte_buffer_role("WeakMap"), None);
@@ -876,7 +910,10 @@ mod tests {
             typed_array_element("Uint8ClampedArray"),
             Some(TypedArrayElement::Uint8Clamped),
         );
-        assert_eq!(typed_array_element("Buffer"), Some(TypedArrayElement::Uint8));
+        assert_eq!(
+            typed_array_element("Buffer"),
+            Some(TypedArrayElement::Uint8)
+        );
         assert_eq!(typed_array_element("ArrayBuffer"), None);
         assert_eq!(typed_array_element("DataView"), None);
         assert_eq!(typed_array_element("WeakMap"), None);
@@ -892,7 +929,11 @@ mod tests {
             .iter()
             .map(|(_marker, element)| element.tag())
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(tags.len(), 11, "one tag per element type, `Buffer` reusing `uint8`");
+        assert_eq!(
+            tags.len(),
+            11,
+            "one tag per element type, `Buffer` reusing `uint8`"
+        );
     }
 
     /// Every typed-array class name in the shared frontend list has a registry

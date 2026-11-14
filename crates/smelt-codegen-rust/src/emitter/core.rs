@@ -1,12 +1,12 @@
 //! The function emitter itself: how one is built for a function, closure or
 //! generated item, and the MIR, local and symbol lookups every shard shares.
 
-use crate::rust::RustType;
-use crate::rust::RustExpr;
 use super::*;
 use crate::emitter::local_binding::{CellUpgrade, LocalBinding, SharedCell};
 use crate::emitter::local_declaration::predeclared_locals_for_function;
 use crate::emitter::typeof_str_locals;
+use crate::rust::RustExpr;
+use crate::rust::RustType;
 use std::borrow::Cow;
 
 impl<'mir> FunctionEmitter<'mir> {
@@ -137,16 +137,17 @@ impl<'mir> FunctionEmitter<'mir> {
     where
         'mir: 'c,
     {
-        let base_initializer = self.role.base_initializer().map(|parent| {
-            emit_role::BaseInitializerReceiver {
-                owner: parent.owner,
-                receivers: captures
-                    .iter()
-                    .filter(|capture| parent.receivers.contains(&capture.source_local))
-                    .filter_map(|capture| capture.target_local)
-                    .collect(),
-            }
-        });
+        let base_initializer =
+            self.role
+                .base_initializer()
+                .map(|parent| emit_role::BaseInitializerReceiver {
+                    owner: parent.owner,
+                    receivers: captures
+                        .iter()
+                        .filter(|capture| parent.receivers.contains(&capture.source_local))
+                        .filter_map(|capture| capture.target_local)
+                        .collect(),
+                });
         let scope = emit_role::ClosureScope {
             enclosing_type_params: self.current_function_type_params(),
             trial_function: self.trial_generic_function(),
@@ -294,12 +295,18 @@ impl<'mir> FunctionEmitter<'mir> {
     /// A capture of an enclosing shared cell carries the cell in its binding; a
     /// local of this frame that lives in shared storage reaches its own cell once
     /// that cell is declared.
-    pub(super) fn local_shared_cell(&self, local: LocalId) -> Result<Option<SharedCell>, EmitError> {
+    pub(super) fn local_shared_cell(
+        &self,
+        local: LocalId,
+    ) -> Result<Option<SharedCell>, EmitError> {
         if let Some(cell) = self.local_binding(local)?.shared_cell() {
             return Ok(Some(cell.clone()));
         }
         if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
-            return Ok(Some(SharedCell::named(&self.local_name(local)?, CellUpgrade::Strong)));
+            return Ok(Some(SharedCell::named(
+                &self.local_name(local)?,
+                CellUpgrade::Strong,
+            )));
         }
         Ok(None)
     }
@@ -342,7 +349,11 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Every capture-cell declaration spells the local's type; for the receiver
     /// of a base initializer copy that is `Self` (see
     /// [`Self::is_base_initializer_receiver`]).
-    pub(super) fn capture_cell_type(&self, local: LocalId, ty: TypeId) -> Result<RustType, EmitError> {
+    pub(super) fn capture_cell_type(
+        &self,
+        local: LocalId,
+        ty: TypeId,
+    ) -> Result<RustType, EmitError> {
         if self.is_base_initializer_receiver(local) {
             return Ok(RustType::raw("Self"));
         }
@@ -430,7 +441,11 @@ impl<'mir> FunctionEmitter<'mir> {
         let binding = self.local_binding(local)?;
         self.binding_uses.record(binding);
         let expr = binding.expr();
-        Ok(if self.binds_borrowed_callback(local)? { expr.borrowed_callback() } else { expr })
+        Ok(if self.binds_borrowed_callback(local)? {
+            expr.borrowed_callback()
+        } else {
+            expr
+        })
     }
 
     /// The Rust name a local is bound to, recording the use.
@@ -475,7 +490,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .ok_or_else(|| EmitError::new("MIR references an unknown symbol"))
     }
 }
-
 
 /// Return all direct successor blocks of a terminator.
 pub(super) fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {

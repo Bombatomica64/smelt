@@ -1,9 +1,9 @@
 //! Structured control flow: blocks, statements and terminators, with assignment,
 //! call, switch and loop emission in the child modules.
 
-use crate::rust::RustExpr;
-use super::*;
 use super::flow_state::{Flow, LoopJump};
+use super::*;
+use crate::rust::RustExpr;
 
 mod assign;
 mod calls;
@@ -122,7 +122,11 @@ impl RegionExit {
     /// continuation has to agree with it: inside a loop body an edge to `stop`
     /// is the back edge (`continue`), inside a forward arm it is the end of the
     /// arm (nothing at all).
-    pub(super) fn continuation(self, stop: smelt_mir::BlockId, visited: &BlockIdSet) -> Continuation<'_> {
+    pub(super) fn continuation(
+        self,
+        stop: smelt_mir::BlockId,
+        visited: &BlockIdSet,
+    ) -> Continuation<'_> {
         match self {
             Self::LoopBody { break_block } => Continuation::InLoop {
                 continue_target: stop,
@@ -151,7 +155,9 @@ impl FunctionEmitter<'_> {
         // not structure. Writing a default `return` in place of the rest of the
         // body would be a silent miscompile, so it is an error.
         let Some(_depth) = self.flow.enter_block(limit) else {
-            return Err(self.unstructured_control_flow(format!("block emission exceeds {limit} levels")));
+            return Err(
+                self.unstructured_control_flow(format!("block emission exceeds {limit} levels"))
+            );
         };
         stacker::maybe_grow(256 * 1024, 4 * 1024 * 1024, || {
             self.emit_block_body(block, out)
@@ -190,7 +196,9 @@ impl FunctionEmitter<'_> {
         let latch = latch_block.map(|latch| self.block(latch)).transpose()?;
         let else_ = self.block(else_block)?;
         let loop_declared = self.declared_scope();
-        let open_loop = self.flow.open_loop(block.id, latch_block, Some(else_block), out.len());
+        let open_loop = self
+            .flow
+            .open_loop(block.id, latch_block, Some(else_block), out.len());
         self.open_while_loop(block, cond, cond_statement_idx, out)?;
         self.emit_block_until_goto(
             then,
@@ -224,7 +232,9 @@ impl FunctionEmitter<'_> {
             let repeated = self.block(repeat_block)?;
             let exit = self.block(exit_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self.flow.open_loop(block.id, None, Some(exit_block), out.len());
+            let open_loop = self
+                .flow
+                .open_loop(block.id, None, Some(exit_block), out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -351,7 +361,9 @@ impl FunctionEmitter<'_> {
                 }
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                if matches!(value, Rvalue::Closure { .. }) && !self.closure_binding_is_read(*dest)? {
+                if matches!(value, Rvalue::Closure { .. })
+                    && !self.closure_binding_is_read(*dest)?
+                {
                     return Ok(());
                 }
                 // A UNIT-typed slot read is a touch: it only forces the slot's
@@ -368,7 +380,10 @@ impl FunctionEmitter<'_> {
                         Some(Type::None)
                     )
                 {
-                    out.push_str(&format!("    {};\n", self.global_touch_expr(*global).delimited()));
+                    out.push_str(&format!(
+                        "    {};\n",
+                        self.global_touch_expr(*global).delimited()
+                    ));
                     self.mark_local_declared(*dest);
                     return Ok(());
                 }
@@ -392,16 +407,20 @@ impl FunctionEmitter<'_> {
                     Rvalue::Struct { .. } if self.is_base_initializer_receiver(*dest) => {
                         crate::base_init::BASE_INIT_RECEIVER.to_owned()
                     }
-                    Rvalue::TypeofValue { value: typeof_operand }
-                        if self.local_is_static_typeof_str(*dest) =>
-                    {
+                    Rvalue::TypeofValue {
+                        value: typeof_operand,
+                    } if self.local_is_static_typeof_str(*dest) => {
                         self.typeof_str_expr(typeof_operand)?.into_string()
                     }
                     _ => self.rvalue_expr_for_dest(value, local.ty)?.into_string(),
                 };
                 if self.local_is_maybe_unbound(*dest)? {
                     // Declared up front as `SmeltBinding<T>`; an assignment fills it.
-                    return self.emit_binding_assignment(*dest, &RustExpr::from(rendered_value), out);
+                    return self.emit_binding_assignment(
+                        *dest,
+                        &RustExpr::from(rendered_value),
+                        out,
+                    );
                 }
                 if self.deferred_capture_cells.borrow().contains(dest) {
                     // The cell was declared without a value; its one
@@ -417,7 +436,10 @@ impl FunctionEmitter<'_> {
                         || self.predeclared_locals.contains(dest))
                 {
                     let assignment = self.assignment_place_expr(&Place::Local(*dest))?;
-                    out.push_str(&format!("    {assignment} = {rendered_value};\n", assignment = assignment.delimited()));
+                    out.push_str(&format!(
+                        "    {assignment} = {rendered_value};\n",
+                        assignment = assignment.delimited()
+                    ));
                     return Ok(());
                 }
                 let mutability = if name != "_" && self.local_binding_needs_mut(*dest) {
@@ -662,9 +684,10 @@ impl FunctionEmitter<'_> {
     /// emitter cannot render faithfully, naming the function and `detail`.
     pub(super) fn unstructured_control_flow(&self, detail: String) -> EmitError {
         let name = self.symbol_name(self.function.name).unwrap_or("<unnamed>");
-        EmitError::new(format!("control flow of `{name}` could not be structured: {detail}"))
+        EmitError::new(format!(
+            "control flow of `{name}` could not be structured: {detail}"
+        ))
     }
-
 }
 
 /// Returns successor blocks for MIR terminators that continue execution.
@@ -696,11 +719,7 @@ pub(super) fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir:
 
 impl FunctionEmitter<'_> {
     /// A `return`, with the adoption and wrapping the function kind asks of it.
-    fn emit_return_terminator(
-        &self,
-        operand: &Operand,
-        out: &mut String,
-    ) -> Result<(), EmitError> {
+    fn emit_return_terminator(&self, operand: &Operand, out: &mut String) -> Result<(), EmitError> {
         let body_return_ty = self.body_return_ty();
         // `async function f(): Promise<T> { return p; }` ADOPTS `p` in
         // JavaScript: the returned promise is awaited and `f`'s promise
@@ -719,23 +738,30 @@ impl FunctionEmitter<'_> {
         if self.function.is_async
             && !self.function.is_generator
             && !matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
-            && let Some(&Type::Future(item_ty)) =
-                self.mir.types.get(self.operand_ty(operand)?)
+            && let Some(&Type::Future(item_ty)) = self.mir.types.get(self.operand_ty(operand)?)
             && !matches!(self.mir.types.get(body_return_ty), Some(Type::Future(_)))
         {
             let future_text = self.operand_expr(operand)?;
             out.push_str(&format!(
-                "    let smelt_adopted = {future_text}.await?;\n", future_text = future_text.tight()
+                "    let smelt_adopted = {future_text}.await?;\n",
+                future_text = future_text.tight()
             ));
             if body_return_ty == self.none_ty {
                 out.push_str("    let _ = smelt_adopted;\n");
                 self.binding_uses.record_early_return();
                 out.push_str("    return Ok(());\n");
             } else {
-                let value =
-                    self.rendered_at_type(&RustExpr::path("smelt_adopted"), item_ty, body_return_ty, &self.render_scope())?;
+                let value = self.rendered_at_type(
+                    &RustExpr::path("smelt_adopted"),
+                    item_ty,
+                    body_return_ty,
+                    &self.render_scope(),
+                )?;
                 self.binding_uses.record_early_return();
-                out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
+                out.push_str(&format!(
+                    "    return Ok({value});\n",
+                    value = value.delimited()
+                ));
             }
             return Ok(());
         }
@@ -747,7 +773,10 @@ impl FunctionEmitter<'_> {
                     self.operand_expr(operand)?.delimited()
                 ));
             } else {
-                out.push_str(&format!("    return {};\n", self.operand_expr(operand)?.delimited()));
+                out.push_str(&format!(
+                    "    return {};\n",
+                    self.operand_expr(operand)?.delimited()
+                ));
             }
         } else if body_return_ty == self.none_ty {
             // A `void`/`None` return still evaluates its operand for
@@ -758,7 +787,10 @@ impl FunctionEmitter<'_> {
             if !matches!(operand, Operand::Const(Constant::None))
                 && self.operand_ty(operand)? != self.none_ty
             {
-                out.push_str(&format!("    {};\n", self.operand_expr(operand)?.delimited()));
+                out.push_str(&format!(
+                    "    {};\n",
+                    self.operand_expr(operand)?.delimited()
+                ));
             }
             if self.function.can_throw || self.function.is_async {
                 self.binding_uses.record_early_return();
@@ -782,33 +814,38 @@ impl FunctionEmitter<'_> {
             {
                 let value = self.default_value(body_return_ty)?;
                 if self.function.is_generator {
-                    let return_ty_text =
-                        self.rendered_type(body_return_ty)?;
+                    let return_ty_text = self.rendered_type(body_return_ty)?;
                     self.binding_uses.record_early_return();
                     out.push_str(&format!(
-                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n",
+                        value = value.delimited()
                     ));
                 } else {
                     self.binding_uses.record_early_return();
-                    out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
+                    out.push_str(&format!(
+                        "    return Ok({value});\n",
+                        value = value.delimited()
+                    ));
                 }
             } else {
                 let value = self.value_at_type(operand, body_return_ty)?;
                 if self.function.is_generator {
-                    let return_ty_text =
-                        self.rendered_type(body_return_ty)?;
+                    let return_ty_text = self.rendered_type(body_return_ty)?;
                     self.binding_uses.record_early_return();
                     out.push_str(&format!(
-                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n", value = value.delimited()
+                        "    return Ok::<{return_ty_text}, {ERROR_BOX}>({value});\n",
+                        value = value.delimited()
                     ));
                 } else {
                     self.binding_uses.record_early_return();
-                    out.push_str(&format!("    return Ok({value});\n", value = value.delimited()));
+                    out.push_str(&format!(
+                        "    return Ok({value});\n",
+                        value = value.delimited()
+                    ));
                 }
             }
         } else if self.mir.types.get(body_return_ty) == Some(&Type::Unknown)
-            && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
-                operand
+            && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
             && let Some(source) = self.single_assignment_unknown_cast_source(*local)
             && self.mir.types.get(self.operand_ty(source)?) == Some(&Type::Unknown)
         {

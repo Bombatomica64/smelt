@@ -18,10 +18,11 @@ use serde::Serialize;
 use smelt_hir::{FileId, ModuleId};
 use smelt_stdlib::DiagnosticCategory;
 
+use crate::check_program::{CrossLanguageStubs, Language, ModuleGraph};
+use crate::config::Config;
 use crate::manifest::{
     ManifestSource, dependency_closure, order_manifest_sources, read_manifest_source,
 };
-use crate::config::Config;
 use crate::sound::SoundSettings;
 use crate::source_files::{
     SourceLang, discover_source_files, discover_test_paths, resolve_manifest_path,
@@ -30,12 +31,13 @@ use crate::source_files::{
 use crate::specialization::PreparedSpecialization;
 use crate::timing;
 use crate::ts_facts::TsCheck;
-use crate::check_program::{CrossLanguageStubs, Language, ModuleGraph};
 use crate::type_gate::{CheckReport, Checked};
 
 mod driver;
 
-use driver::{ManifestSeed, ModuleInputs, PredeclaredLowering, RecoverableLowering, SeededLowering};
+use driver::{
+    ManifestSeed, ModuleInputs, PredeclaredLowering, RecoverableLowering, SeededLowering,
+};
 
 /// A lowered crate: its HIR, its modules, and the text each was lowered from.
 pub(crate) struct LoweredCrate {
@@ -51,7 +53,10 @@ impl LoweredCrate {
     /// The module lowered from the source at `path`.
     pub(crate) fn module_of(&self, path: &Path) -> Option<ModuleId> {
         let wanted = path.display().to_string();
-        self.modules.iter().find(|(module_path, _)| *module_path == wanted).map(|(_, module)| *module)
+        self.modules
+            .iter()
+            .find(|(module_path, _)| *module_path == wanted)
+            .map(|(_, module)| *module)
     }
 }
 
@@ -83,7 +88,9 @@ impl LoweredSources {
     /// Texts by file id, for a test that lowers nothing.
     #[cfg(test)]
     pub(crate) fn from_texts(texts: impl IntoIterator<Item = (FileId, String)>) -> Self {
-        Self { texts: texts.into_iter().collect() }
+        Self {
+            texts: texts.into_iter().collect(),
+        }
     }
 
     /// The text the file `file` was lowered from.
@@ -133,7 +140,13 @@ impl ManifestLowering {
                 Some(sound_settings(config, manifest_dir)),
             )
         })?;
-        mark_entries(&mut sources, config.entries().iter().map(|path| resolve_manifest_path(manifest_dir, path)));
+        mark_entries(
+            &mut sources,
+            config
+                .entries()
+                .iter()
+                .map(|path| resolve_manifest_path(manifest_dir, path)),
+        );
         // Ordering cannot fail (import cycles are cut deliberately).
         let Ok(sources) = timing::measure("manifest.order_sources", || {
             Ok::<_, std::convert::Infallible>(in_dependency_order(sources))
@@ -150,7 +163,8 @@ impl ManifestLowering {
             crate::specialization::prepare(config, manifest_path, &ordered)
         })?;
         let outside_crate = sources_outside_crate(config, manifest_dir, &ordered);
-        let module_names = manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
+        let module_names =
+            manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
         let file_ids = file_ids(sources.len())?;
         Ok(Self {
             sources,
@@ -223,26 +237,45 @@ impl ManifestLowering {
             let lowered = self.lower_subset(&graph.closure_of(&python_providers), None)?;
             for provider in python_providers {
                 if let Some(module) = lowered.module_of(&provider.path) {
-                    stubs.add_typescript(&provider.path, crate::stubs::typescript_stub(&lowered.krate, module));
+                    stubs.add_typescript(
+                        &provider.path,
+                        crate::stubs::typescript_stub(&lowered.krate, module),
+                    );
                 }
             }
         }
         let ts_check = crate::ts_facts::analyze_graph(&graph, &stubs);
         let typescript_providers = graph.cross_language_providers(Language::TypeScript);
         if !typescript_providers.is_empty() {
-            let lowered =
-                self.lower_subset(&graph.closure_of(&typescript_providers), ts_check.facts.as_ref())?;
+            let lowered = self.lower_subset(
+                &graph.closure_of(&typescript_providers),
+                ts_check.facts.as_ref(),
+            )?;
             for provider in typescript_providers {
                 if let Some(module) = lowered.module_of(&provider.path) {
-                    stubs.add_python(&provider.path, crate::stubs::python_stub(&lowered.krate, module));
+                    stubs.add_python(
+                        &provider.path,
+                        crate::stubs::python_stub(&lowered.krate, module),
+                    );
                 }
             }
         }
         let Ok(python) = timing::measure("manifest.ty_check", || {
-            Ok::<_, std::convert::Infallible>(crate::python::check_sources(&ordered, &self.project_dir, &stubs))
+            Ok::<_, std::convert::Infallible>(crate::python::check_sources(
+                &ordered,
+                &self.project_dir,
+                &stubs,
+            ))
         });
         let report = CheckReport::new(ts_check.language_check(&graph), python);
-        Ok(Checked::new(ReadyLowering { run: self, ts_check, report: report.clone() }, report))
+        Ok(Checked::new(
+            ReadyLowering {
+                run: self,
+                ts_check,
+                report: report.clone(),
+            },
+            report,
+        ))
     }
 
     /// Lowers `subset` of this run's sources (a dependency-closed part of it,
@@ -254,9 +287,13 @@ impl ManifestLowering {
         subset: &[&ManifestSource],
         ts_facts: Option<&smelt_ts_model::TsTypeFacts>,
     ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-        let sources = subset.iter().map(|source| (*source).clone()).collect::<Vec<_>>();
+        let sources = subset
+            .iter()
+            .map(|source| (*source).clone())
+            .collect::<Vec<_>>();
         let ordered = sources.iter().collect::<Vec<_>>();
-        let module_names = manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
+        let module_names =
+            manifest_module_names(&ordered, |source| manifest_module_name(&source.path));
         let run = Self {
             file_ids: file_ids(sources.len())?,
             module_names,
@@ -267,10 +304,16 @@ impl ManifestLowering {
             focus: None,
         };
         let unchecked = CheckReport::new(
-            crate::type_gate::LanguageCheck::Unverified("lowered for a cross-language stub".to_owned()),
+            crate::type_gate::LanguageCheck::Unverified(
+                "lowered for a cross-language stub".to_owned(),
+            ),
             crate::type_gate::LanguageCheck::Absent,
         );
-        let inputs = ModuleInputs { specialization: &run.specialization, ts_facts, check: &unchecked };
+        let inputs = ModuleInputs {
+            specialization: &run.specialization,
+            ts_facts,
+            check: &unchecked,
+        };
         lower_run(&run, inputs)
     }
 }
@@ -296,9 +339,15 @@ fn prepare_run(run: &ManifestLowering) -> Result<Prepared<'_>, Box<dyn std::erro
 }
 
 /// Lowers every source of `run` into one crate; the first file that fails stops it.
-fn lower_run(run: &ManifestLowering, inputs: ModuleInputs<'_>) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+fn lower_run(
+    run: &ManifestLowering,
+    inputs: ModuleInputs<'_>,
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     timing::measure("manifest.frontend_lower", || {
-        let Prepared { ordered, mut lowering } = prepare_run(run)?;
+        let Prepared {
+            ordered,
+            mut lowering,
+        } = prepare_run(run)?;
         let mut modules = Vec::new();
         for ((source, file_id), name) in ordered.iter().zip(&run.file_ids).zip(&run.module_names) {
             let module = lowering
@@ -316,7 +365,11 @@ fn lower_run(run: &ManifestLowering, inputs: ModuleInputs<'_>) -> Result<Lowered
             None => modules,
         };
         let sources = LoweredSources::of(&ordered, &run.file_ids);
-        Ok(LoweredCrate { krate: lowering.into_crate(), modules: focused, sources })
+        Ok(LoweredCrate {
+            krate: lowering.into_crate(),
+            modules: focused,
+            sources,
+        })
     })
 }
 
@@ -351,7 +404,10 @@ impl ReadyLowering {
         erasure: Option<&crate::erasure::ErasureSettings>,
     ) -> Result<Vec<ManifestDiagnostic>, Box<dyn std::error::Error>> {
         let _quiet = QuietPanics::install();
-        let Prepared { ordered, lowering: predeclared } = prepare_run(&self.run)?;
+        let Prepared {
+            ordered,
+            lowering: predeclared,
+        } = prepare_run(&self.run)?;
         let inputs = self.module_inputs();
         let mut lowering = RecoverableLowering::new(predeclared);
         let mut diagnostics = Vec::new();
@@ -378,7 +434,12 @@ impl ReadyLowering {
         // A poisoned crate has no erasure records worth reading.
         if let (Some(settings), Some(krate)) = (erasure, lowering.krate()) {
             let sources = LoweredSources::of(&ordered, &self.run.file_ids);
-            diagnostics.extend(erasure_diagnostics(krate, &sources, &self.run.project_dir, settings));
+            diagnostics.extend(erasure_diagnostics(
+                krate,
+                &sources,
+                &self.run.project_dir,
+                settings,
+            ));
         }
         if erasure.is_some() {
             diagnostics.extend(self.report.diagnostics());
@@ -413,7 +474,10 @@ fn file_ids(count: usize) -> Result<Vec<FileId>, io::Error> {
     (0..count)
         .map(|index| {
             u32::try_from(index).map(FileId).map_err(|error| {
-                io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("too many source files: {error}"),
+                )
             })
         })
         .collect()
@@ -493,7 +557,9 @@ impl QuietPanics {
             }));
         });
         QUIET_PANIC_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-        Self { _not_send: std::marker::PhantomData }
+        Self {
+            _not_send: std::marker::PhantomData,
+        }
     }
 }
 
@@ -584,7 +650,10 @@ fn scan_written_host_globals(sources: &[&ManifestSource]) -> std::collections::H
 /// [`manifest_module_names`] already computes for module BODIES, so a
 /// module-private item's qualified Rust name depends on the module's place in
 /// the crate rather than on the absolute path the compiler was handed (H55).
-fn manifest_module_identities(sources: &[&ManifestSource], names: &[String]) -> HashMap<String, String> {
+fn manifest_module_identities(
+    sources: &[&ManifestSource],
+    names: &[String],
+) -> HashMap<String, String> {
     names
         .iter()
         .zip(sources.iter())
@@ -731,11 +800,14 @@ fn sources_outside_crate(
 fn manifest_source_error(source: &ManifestSource, diagnostics: &[ManifestDiagnostic]) -> io::Error {
     let path = source.path.display();
     let Some(origin) = &source.typed_version else {
-        return io::Error::new(io::ErrorKind::InvalidData, format!("{path}:\n{diagnostics:#?}"));
+        return io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{path}:\n{diagnostics:#?}"),
+        );
     };
-    let first = diagnostics
-        .first()
-        .map_or_else(String::new, |diagnostic| format!(": {}", diagnostic.message));
+    let first = diagnostics.first().map_or_else(String::new, |diagnostic| {
+        format!(": {}", diagnostic.message)
+    });
     io::Error::new(
         io::ErrorKind::InvalidData,
         format!(
@@ -841,7 +913,10 @@ fn manifest_module_names(
     sources: &[&ManifestSource],
     base_name: impl Fn(&ManifestSource) -> String,
 ) -> Vec<String> {
-    let bases = sources.iter().map(|source| base_name(source)).collect::<Vec<_>>();
+    let bases = sources
+        .iter()
+        .map(|source| base_name(source))
+        .collect::<Vec<_>>();
     let mut totals = HashMap::<String, usize>::new();
     for base in &bases {
         let total = totals.entry(base.clone()).or_insert(0);
@@ -880,7 +955,9 @@ mod tests {
             let _inner = QuietPanics::install();
             assert!(panics_are_quiet());
             // Another thread is never silenced by this thread's guards.
-            let other = std::thread::spawn(panics_are_quiet).join().expect("thread ran");
+            let other = std::thread::spawn(panics_are_quiet)
+                .join()
+                .expect("thread ran");
             assert!(!other);
         }
         // Dropping the inner guard keeps the outer one in force.

@@ -24,7 +24,11 @@ pub fn reachable_blocks(blocks: &[BasicBlock], entry: BlockId) -> HashSet<BlockI
         };
         let mut targets: Vec<BlockId> = Vec::new();
         for statement in &block.statements {
-            targets.extend(crate::definite_assignment::yield_edges(statement).into_iter().map(|(target, _)| target));
+            targets.extend(
+                crate::definite_assignment::yield_edges(statement)
+                    .into_iter()
+                    .map(|(target, _)| target),
+            );
         }
         if let Some(terminator) = &block.terminator {
             targets.extend(terminator.successors());
@@ -81,7 +85,10 @@ fn remove_unreachable(blocks: &mut Vec<BasicBlock>, entry: &mut BlockId) {
     for block in &mut kept {
         map(&mut block.id);
         for statement in &mut block.statements {
-            if let Rvalue::GeneratorYield { unwind, cleanup, .. } = statement.value_mut() {
+            if let Rvalue::GeneratorYield {
+                unwind, cleanup, ..
+            } = statement.value_mut()
+            {
                 if let Some(handler) = unwind {
                     map(&mut handler.catch_block);
                 }
@@ -112,7 +119,11 @@ fn remap_terminator(terminator: &mut Terminator, map: &BlockMap<'_>) {
                 map(&mut handler.catch_block);
             }
         }
-        Terminator::Switch { then_block, else_block, .. } => {
+        Terminator::Switch {
+            then_block,
+            else_block,
+            ..
+        } => {
             map(then_block);
             map(else_block);
         }

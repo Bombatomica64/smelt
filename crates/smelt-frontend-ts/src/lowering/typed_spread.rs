@@ -24,8 +24,8 @@
 //! behind. Explicit values and sources are then bound to locals in source
 //! order, so the struct literal's field order cannot reorder their effects.
 
-use crate::lowering::support::source_spelling;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
+use crate::lowering::support::source_spelling;
 use oxc::ast::ast::{Expression, ObjectExpression, ObjectPropertyKind, PropertyKey};
 use smelt_hir::{Body, Expr, ExprKind, Field, Literal, Type};
 use std::borrow::Cow;
@@ -55,7 +55,9 @@ impl Piece<'_> {
     /// optional one may be absent).
     fn writes(&self, name: smelt_hir::Symbol) -> bool {
         match self {
-            Self::Spread { fields, .. } => fields.iter().any(|field| field.name == name && !field.optional),
+            Self::Spread { fields, .. } => fields
+                .iter()
+                .any(|field| field.name == name && !field.optional),
             Self::Explicit { name: written, .. } => *written == name,
         }
     }
@@ -111,7 +113,11 @@ impl ModuleBuilder<'_> {
                         PropertyKey::StaticIdentifier(identifier) => {
                             Cow::Borrowed(identifier.name.as_str())
                         }
-                        PropertyKey::StringLiteral(literal) if !has_lone_surrogate(literal.value) => js_str_text(literal.value),
+                        PropertyKey::StringLiteral(literal)
+                            if !has_lone_surrogate(literal.value) =>
+                        {
+                            js_str_text(literal.value)
+                        }
                         _ => return Ok(None),
                     };
                     let name = self.intern_source_name(&key);
@@ -136,10 +142,14 @@ impl ModuleBuilder<'_> {
             if self.trust == crate::lowering::SourceTrust::Checked {
                 return Ok(None);
             }
-            let name = source_spelling(&self.ctx.krate, missing.name).unwrap_or_default().to_owned();
+            let name = source_spelling(&self.ctx.krate, missing.name)
+                .unwrap_or_default()
+                .to_owned();
             return Err(SmeltError::ill_typed(
                 span,
-                format!("object literal does not set the required property `{name}` of its record type"),
+                format!(
+                    "object literal does not set the required property `{name}` of its record type"
+                ),
             ));
         }
         // Committed: from here on every expression is part of the result.
@@ -257,7 +267,9 @@ impl ModuleBuilder<'_> {
     /// A getter could still run behind a member read; the field check in
     /// [`Self::plain_record_fields`] only admits interface records, whose
     /// members are data.
-    pub(in crate::lowering) fn spread_source_is_side_effect_free(expression: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn spread_source_is_side_effect_free(
+        expression: &Expression<'_>,
+    ) -> bool {
         match expression {
             Expression::Identifier(_) | Expression::ThisExpression(_) => true,
             Expression::StaticMemberExpression(member) => {
@@ -301,6 +313,8 @@ impl ModuleBuilder<'_> {
         }
         let span = interface.span;
         let substitutions = self.type_argument_substitution(&interface.type_params, &args, span)?;
-        Ok(Some(self.substituted_fields(&interface.fields, &substitutions)))
+        Ok(Some(
+            self.substituted_fields(&interface.fields, &substitutions),
+        ))
     }
 }

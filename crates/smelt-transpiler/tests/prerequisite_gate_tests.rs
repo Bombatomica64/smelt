@@ -10,7 +10,9 @@ mod common;
 
 use std::{env, process::Command};
 
-use common::{TempProject, TestResult, ensure, ensure_node_agrees, ensure_python_agrees, tool_missing};
+use common::{
+    TempProject, TestResult, ensure, ensure_node_agrees, ensure_python_agrees, tool_missing,
+};
 use smelt_specialize::prereq::REQUIRE_SANDBOX_ENV;
 
 /// Reaches the Node oracle.
@@ -59,11 +61,20 @@ fn run_probe(probe: &str, strict: bool) -> TestResult<(bool, String)> {
 fn a_missing_tool_is_a_reported_skip_and_a_strict_failure() -> TestResult {
     for probe in ["probe_node_oracle", "probe_python_oracle", "probe_tool"] {
         let (passed, text) = run_probe(probe, false)?;
-        ensure(passed, format!("{probe} must skip without strict mode: {text}"))?;
-        ensure(text.contains("SKIP"), format!("{probe} skipped silently: {text}"))?;
+        ensure(
+            passed,
+            format!("{probe} must skip without strict mode: {text}"),
+        )?;
+        ensure(
+            text.contains("SKIP"),
+            format!("{probe} skipped silently: {text}"),
+        )?;
         let (passed, text) = run_probe(probe, true)?;
         ensure(!passed, format!("{probe} passed in strict mode: {text}"))?;
-        ensure(text.contains("required prerequisite"), format!("{probe}: {text}"))?;
+        ensure(
+            text.contains("required prerequisite"),
+            format!("{probe}: {text}"),
+        )?;
     }
     Ok(())
 }

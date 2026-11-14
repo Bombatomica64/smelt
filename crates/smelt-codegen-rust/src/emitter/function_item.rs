@@ -55,14 +55,22 @@ impl FunctionEmitter<'_> {
     /// that reports only a shape (`list unshift item must match the list
     /// element type`) is unfindable in a corpus the size of Hono, which cost
     /// two rounds of bisecting a manifest's `exclude` list.
-    pub(crate) fn emit(&mut self, out: &mut String, visibility: FreeFunctionVisibility) -> Result<(), EmitError> {
+    pub(crate) fn emit(
+        &mut self,
+        out: &mut String,
+        visibility: FreeFunctionVisibility,
+    ) -> Result<(), EmitError> {
         self.apply_crate_generic_decision();
         let emitted = self.emit_free_function(out, visibility);
         emitted.map_err(|error| error.with_site(|| self.current_function_site()))
     }
 
     /// Emits a free function definition.
-    fn emit_free_function(&mut self, out: &mut String, visibility: FreeFunctionVisibility) -> Result<(), EmitError> {
+    fn emit_free_function(
+        &mut self,
+        out: &mut String,
+        visibility: FreeFunctionVisibility,
+    ) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
         // A `#[tokio::test]` is found by the harness and never re-exported.
         let visibility = if self.function.is_test && self.function.is_async {
@@ -88,7 +96,9 @@ impl FunctionEmitter<'_> {
             // builds its own runtime inside the body, so the two questions are
             // answered separately.
             if self.function.can_throw {
-                out.push_str(&format!("{visibility}fn main() -> Result<(), {ERROR_BOX}> {{\n"));
+                out.push_str(&format!(
+                    "{visibility}fn main() -> Result<(), {ERROR_BOX}> {{\n"
+                ));
             } else {
                 out.push_str(&format!("{visibility}fn main() {{\n"));
             }
@@ -210,7 +220,10 @@ impl FunctionEmitter<'_> {
             declared.extend(self.function.params.iter().copied());
         }
         self.deferred_capture_cells.borrow_mut().clear();
-        self.conversions.record_conversion_stack.borrow_mut().clear();
+        self.conversions
+            .record_conversion_stack
+            .borrow_mut()
+            .clear();
         self.conversions.type_expansion_stack.borrow_mut().clear();
         self.hoisted_module_item.set(false);
         self.inherited_bound_suspended.set(false);
@@ -231,7 +244,7 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str("    let mut smelt_generator = smelt_generator;\n");
             let completion = if self.function.can_throw {
-            "smelt_value.unwrap_or_else(|error| smelt_panic_throw(error))"
+                "smelt_value.unwrap_or_else(|error| smelt_panic_throw(error))"
             } else {
                 "smelt_value"
             };
@@ -415,7 +428,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// The emitted-signature key for `function` (see [`SignatureKey`]).
-    pub(super) fn emitted_signature_key(&self, function: &MirFunction) -> Result<SignatureKey, EmitError> {
+    pub(super) fn emitted_signature_key(
+        &self,
+        function: &MirFunction,
+    ) -> Result<SignatureKey, EmitError> {
         Ok(SignatureKey::of(function))
     }
 
@@ -487,8 +503,10 @@ impl FunctionEmitter<'_> {
                 if self.is_base_initializer_copy() {
                     // `fn __smelt_init_Base(smelt_receiver: Self, ..) -> Self`:
                     // the same body, handed the instance instead of building it.
-                    let class = crate::base_init::constructor_class(self.function)
-                        .ok_or_else(|| EmitError::new("base initializer copy is not a constructor"))?;
+                    let class =
+                        crate::base_init::constructor_class(self.function).ok_or_else(|| {
+                            EmitError::new("base initializer copy is not a constructor")
+                        })?;
                     let name = crate::base_init::base_initializer_name(self.context, class)?;
                     let receiver = crate::base_init::BASE_INIT_RECEIVER;
                     let params = if method_params.is_empty() {
@@ -498,7 +516,9 @@ impl FunctionEmitter<'_> {
                     };
                     out.push_str(&format!("    fn {name}({params}) -> {return_text} {{\n"));
                 } else {
-                    out.push_str(&format!("    fn new({method_params}) -> {return_text} {{\n"));
+                    out.push_str(&format!(
+                        "    fn new({method_params}) -> {return_text} {{\n"
+                    ));
                 }
             }
             HirOrigin::ClassMethod { method, .. } => {
@@ -747,22 +767,31 @@ impl SignatureKey {
     pub(crate) const fn of(function: &MirFunction) -> Self {
         match function.origin {
             HirOrigin::Body(_) => Self::Free(function.id),
-            HirOrigin::ClassConstructor { class, .. } => {
-                Self::Member { class, name: function.name, kind: MemberKind::Constructor }
-            }
-            HirOrigin::ClassMethod { class, method, .. } => {
-                Self::Member { class, name: method, kind: MemberKind::Instance }
-            }
-            HirOrigin::ClassStaticMethod { class, method, .. } => {
-                Self::Member { class, name: method, kind: MemberKind::Static }
-            }
+            HirOrigin::ClassConstructor { class, .. } => Self::Member {
+                class,
+                name: function.name,
+                kind: MemberKind::Constructor,
+            },
+            HirOrigin::ClassMethod { class, method, .. } => Self::Member {
+                class,
+                name: method,
+                kind: MemberKind::Instance,
+            },
+            HirOrigin::ClassStaticMethod { class, method, .. } => Self::Member {
+                class,
+                name: method,
+                kind: MemberKind::Static,
+            },
         }
     }
 }
 
 /// The Rust name of the static method `function`, planned inside its class's
 /// `impl` block (see [`crate::names::RustNames::static_method`]).
-pub(crate) fn static_method_rust_name(context: &EmitContext, function: FuncId) -> Result<String, EmitError> {
+pub(crate) fn static_method_rust_name(
+    context: &EmitContext,
+    function: FuncId,
+) -> Result<String, EmitError> {
     context
         .names()
         .static_method(function)

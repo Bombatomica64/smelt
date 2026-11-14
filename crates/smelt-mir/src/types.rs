@@ -217,7 +217,8 @@ impl Mir {
     /// is out of range.
     #[must_use]
     pub fn global(&self, index: u32) -> Option<&MirGlobal> {
-        self.globals.get(usize::try_from(index).unwrap_or(usize::MAX))
+        self.globals
+            .get(usize::try_from(index).unwrap_or(usize::MAX))
     }
 }
 

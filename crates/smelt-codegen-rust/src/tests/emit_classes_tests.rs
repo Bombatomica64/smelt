@@ -66,12 +66,21 @@ export function mixedSize(bag: MixedBag): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig read_bag", "sig mixed_size"]), r"fn read_bag(bag: StringBag, key: JsString) -> Option<JsString>
+    assert_eq!(
+        rust_items(&source, &["sig read_bag", "sig mixed_size"]),
+        r"fn read_bag(bag: StringBag, key: JsString) -> Option<JsString>
 
-fn mixed_size(bag: MixedBag) -> f64");
+fn mixed_size(bag: MixedBag) -> f64"
+    );
     assert!(source.contains("size: f64"), "{source}");
-    assert!(source.contains(".__smelt_index_store.get(&"), "the keyed read routes to the store:\n{source}");
-    assert!(source.contains(".__smelt_index_store.insert("), "the keyed write routes to the store:\n{source}");
+    assert!(
+        source.contains(".__smelt_index_store.get(&"),
+        "the keyed read routes to the store:\n{source}"
+    );
+    assert!(
+        source.contains(".__smelt_index_store.insert("),
+        "the keyed write routes to the store:\n{source}"
+    );
 }
 
 #[test]
@@ -89,9 +98,18 @@ const count = keyCount(new PrivateBox());
 "#,
     );
 
-    assert!(!source.contains("(\"value\".to_owned(), SmeltUnknown::String(self.value))"), "private class fields must not become enumerable erased object keys: {source}");
-    assert!(!source.contains("smelt_object_entries.insert(\"value\".to_owned()"), "direct class-to-unknown erasure must also omit private fields: {source}");
-    assert_eq!(rust_items(&source, &["sig key_count"]), r"fn key_count(value: SmeltUnknown) -> f64");
+    assert!(
+        !source.contains("(\"value\".to_owned(), SmeltUnknown::String(self.value))"),
+        "private class fields must not become enumerable erased object keys: {source}"
+    );
+    assert!(
+        !source.contains("smelt_object_entries.insert(\"value\".to_owned()"),
+        "direct class-to-unknown erasure must also omit private fields: {source}"
+    );
+    assert_eq!(
+        rust_items(&source, &["sig key_count"]),
+        r"fn key_count(value: SmeltUnknown) -> f64"
+    );
 }
 
 #[test]
@@ -111,8 +129,14 @@ const count = keyCount(new GetterBox());
 "#,
     );
 
-    assert!(!source.contains("smelt_object_entries.insert(\"value\".to_owned()"), "class accessors live on the prototype and must not erase as own enumerable fields: {source}");
-    assert_eq!(rust_items(&source, &["sig key_count"]), r"fn key_count(value: SmeltUnknown) -> f64");
+    assert!(
+        !source.contains("smelt_object_entries.insert(\"value\".to_owned()"),
+        "class accessors live on the prototype and must not erase as own enumerable fields: {source}"
+    );
+    assert_eq!(
+        rust_items(&source, &["sig key_count"]),
+        r"fn key_count(value: SmeltUnknown) -> f64"
+    );
 }
 
 #[test]
@@ -182,7 +206,10 @@ const yes = value instanceof Error;
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["sig make_error"]), r"fn make_error() -> SmeltUnknown");
+    assert_eq!(
+        rust_items(&source, &["sig make_error"]),
+        r"fn make_error() -> SmeltUnknown"
+    );
 }
 
 #[test]
@@ -202,7 +229,9 @@ export function make(count: number): number[] {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn make"]), r#"fn make(count: f64) -> SmeltList<f64> {
+    assert_eq!(
+        rust_items(&source, &["fn make"]),
+        r#"fn make(count: f64) -> SmeltList<f64> {
 let mut _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: f64;
 let mut _smelt_tmp_6: f64;
@@ -217,7 +246,8 @@ _smelt_tmp_6 = index + 1.0;
 index = _smelt_tmp_6;
 }
 return { let smelt_item = |smelt_value: SmeltUnknown| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; { let smelt_src = ((output.clone()).into_smelt_unknown()).clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_item(SmeltUnknown::String(smelt_ch))).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } } };
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -233,12 +263,15 @@ export function make(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn make"]), r"fn make() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn make"]),
+        r"fn make() -> f64 {
 let _smelt_tmp_1: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 let values: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::BigUint64, &_smelt_tmp_1.to_vec());
 let _smelt_tmp_3: f64 = values.length();
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 /// An implicit derived constructor declares the base constructor's parameters, not one
@@ -258,7 +291,10 @@ const p = new Point3(1, 2);
 ",
     );
 
-    assert!(source.contains("fn new(x: f64, y: f64) -> Self"), "{source}");
+    assert!(
+        source.contains("fn new(x: f64, y: f64) -> Self"),
+        "{source}"
+    );
     assert!(source.contains("Point3::new(1.0, 2.0)"), "{source}");
     assert!(
         !source.contains("_smelt_super_arg"),
@@ -267,7 +303,10 @@ const p = new Point3(1, 2);
     // The forwarded `super(..)` is what makes the base's parameter properties
     // run at all; without it the derived struct kept the field defaults. It runs
     // the base constructor over the derived instance (see `base_init`).
-    assert!(source.contains("Self::__smelt_init_Point(this, x, y)"), "{source}");
+    assert!(
+        source.contains("Self::__smelt_init_Point(this, x, y)"),
+        "{source}"
+    );
 }
 
 /// The erased forwarded argument survives only where the base is NOT a
@@ -332,9 +371,12 @@ export function read(holder: Holder): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn read"]), r"fn read(holder: Holder) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn read"]),
+        r"fn read(holder: Holder) -> f64 {
 return holder.__smelt_get___smelt_symbol_unique__at_13();
-}");
+}"
+    );
 }
 
 #[test]
@@ -358,7 +400,9 @@ export function read(body: Body, key: 'json' | 'text'): string {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn read"]), r#"fn read(body: Body, key: JsString) -> JsString {
+    assert_eq!(
+        rust_items(&source, &["fn read"]),
+        r#"fn read(body: Body, key: JsString) -> JsString {
 let mut _smelt_tmp_3: JsString;
 let _smelt_tmp_2: bool = key == "json";
 if _smelt_tmp_2 {
@@ -370,7 +414,8 @@ let _smelt_tmp_5: JsString = body.text();
 _smelt_tmp_3 = _smelt_tmp_5;
 return _smelt_tmp_3;
 }
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -394,10 +439,13 @@ export function read(body: Body, key: 'json' | 'text'): string {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn read"]), r#"fn read(body: Body, key: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(&source, &["fn read"]),
+        r#"fn read(body: Body, key: JsString) -> Result<JsString, Box<dyn std::error::Error>> {
 let _smelt_tmp_2: SmeltUnknown = { let smelt_function_value = smelt_get_unknown_field(&{ let smelt_object_value = body.clone(); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new();  smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Body".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }, &key.clone()).clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltUnknown::String("p".into())]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)) } else { smelt_value_not_callable() } };
 return Ok(match _smelt_tmp_2.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) });
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -633,8 +681,9 @@ const parser: Parser<any> = new ForwardingParser(new YearParser());
     );
 
     assert!(
-        source
-            .contains("ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone();"),
+        source.contains(
+            "ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone();"
+        ),
         "{source}"
     );
     assert!(
@@ -666,9 +715,8 @@ function make(parser: Parser): ValueSetter {
         "{source}"
     );
     assert!(
-        !source.contains(
-            "sub_priority.clone().expect(\"optional value was absent after narrowing\")"
-        ),
+        !source
+            .contains("sub_priority.clone().expect(\"optional value was absent after narrowing\")"),
         "{source}"
     );
 }
@@ -725,13 +773,19 @@ export function startsAt(s: string, t: string, p: number): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig pad", "sig first_char", "sig repeated", "sig starts_at"]), r"fn pad(s: JsString, n: f64, c: JsString) -> JsString
+    assert_eq!(
+        rust_items(
+            &source,
+            &["sig pad", "sig first_char", "sig repeated", "sig starts_at"]
+        ),
+        r"fn pad(s: JsString, n: f64, c: JsString) -> JsString
 
 fn first_char(s: SmeltUnknown) -> JsString
 
 fn repeated(s: JsString, n: f64) -> JsString
 
-fn starts_at(s: JsString, t: JsString, p: f64) -> bool");
+fn starts_at(s: JsString, t: JsString, p: f64) -> bool"
+    );
 }
 
 #[test]
@@ -876,11 +930,17 @@ def area(radius: float) -> float:
     );
 
     assert!(source.contains("fn square(value: f64) -> f64"), "{source}");
-    assert!(!source.contains("fn square(&self") && !source.contains("fn square(&mut self"), "static method must not take a receiver: {source}");
+    assert!(
+        !source.contains("fn square(&self") && !source.contains("fn square(&mut self"),
+        "static method must not take a receiver: {source}"
+    );
     assert!(source.contains("MathUtils::square("), "{source}");
-    assert_eq!(rust_items(&source, &["fn __smelt_static_PI"]), r"fn __smelt_static_PI() -> i64 {
+    assert_eq!(
+        rust_items(&source, &["fn __smelt_static_PI"]),
+        r"fn __smelt_static_PI() -> i64 {
 3
-}");
+}"
+    );
 }
 
 /// A module const whose initializer is a concat/slice method chain
@@ -899,11 +959,14 @@ export function numberCount(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn number_count"]), r"fn number_count() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn number_count"]),
+        r"fn number_count() -> f64 {
 let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_SMALL_NUMBERS_0.with(|smelt_value| smelt_value.borrow().clone()));
 let _smelt_tmp_2: f64 = values.len() as f64;
 return _smelt_tmp_2;
-}");
+}"
+    );
 }
 
 /// A derived constructor's `super(...)` runs the base constructor against the derived
@@ -929,7 +992,9 @@ const child = new Child('hello');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl Child {"]), r"impl Child {
+    assert_eq!(
+        rust_items(&source, &["impl Child {"]),
+        r"impl Child {
 fn new(message: JsString) -> Self {
 let mut this: Self = Child { message: JsString::new() };
 let _smelt_tmp_2: Self = Self::__smelt_init_Base(this, message.clone());
@@ -941,7 +1006,8 @@ let mut this: Self = smelt_receiver;
 this.message = message.clone();
 return this;
 }
-}");
+}"
+    );
 }
 
 /// `super(...)` chains through every inheritance level.
@@ -977,7 +1043,9 @@ const value = new C();
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl C {"]), r"impl C {
+    assert_eq!(
+        rust_items(&source, &["impl C {"]),
+        r"impl C {
 fn new() -> Self {
 let mut this: Self = C { a: 0.0, b: 0.0, c: 0.0 };
 let _smelt_tmp_1: Self = Self::__smelt_init_B(this);
@@ -997,7 +1065,8 @@ let mut this: Self = smelt_receiver;
 this.a = 1.0;
 return this;
 }
-}");
+}"
+    );
 }
 
 /// A closure the base constructor stores captures the DERIVED instance.
@@ -1028,7 +1097,10 @@ console.log(new Smart().greet());
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Smart("]), r"struct Smart(::std::rc::Rc<::std::cell::RefCell<SmartInner>>);");
+    assert_eq!(
+        rust_items(&source, &["struct Smart("]),
+        r"struct Smart(::std::rc::Rc<::std::cell::RefCell<SmartInner>>);"
+    );
 }
 
 /// An argument read through a reference class's cell is bound before a call
@@ -1052,10 +1124,13 @@ console.log(new Tally().twice());
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn twice"]), r"fn twice(&self) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn twice"]),
+        r"fn twice(&self) -> f64 {
 let _ = { let smelt_call_arg_0 = self.0.borrow().total.clone(); self.bump(smelt_call_arg_0) };
 return self.0.borrow().total.clone();
-}");
+}"
+    );
 }
 
 /// A base of a reference class is a reference class too.
@@ -1084,9 +1159,12 @@ console.log(m.x);
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Plain(", "struct Mutated("]), r"struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>);
+    assert_eq!(
+        rust_items(&source, &["struct Plain(", "struct Mutated("]),
+        r"struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>);
 
-struct Mutated(::std::rc::Rc<::std::cell::RefCell<MutatedInner>>);");
+struct Mutated(::std::rc::Rc<::std::cell::RefCell<MutatedInner>>);"
+    );
 }
 
 /// A class extending a host `Error` constructor gets the base constructor's
@@ -1108,7 +1186,9 @@ const failure = new ParseFailure('bad input');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl ParseFailure {"]), r#"impl ParseFailure {
+    assert_eq!(
+        rust_items(&source, &["impl ParseFailure {"]),
+        r#"impl ParseFailure {
 fn new(message: JsString) -> Self {
 let mut this: Self = ParseFailure { name: JsString::new(), message: JsString::new(), stack: None::<JsString>, cause: SmeltUnknown::Null };
 this.name = JsString::from("TypeError");
@@ -1116,7 +1196,8 @@ this.message = message.clone();
 this.stack = Some(JsString::new());
 return this;
 }
-}"#);
+}"#
+    );
 }
 
 /// The inherited `Error` slots keep concrete types; only `cause` erases.
@@ -1139,12 +1220,15 @@ const failure = new ParseFailure('bad input');
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct ParseFailure"]), r"struct ParseFailure {
+    assert_eq!(
+        rust_items(&source, &["struct ParseFailure"]),
+        r"struct ParseFailure {
 name: JsString,
 message: JsString,
 stack: Option<JsString>,
 cause: SmeltUnknown,
-}");
+}"
+    );
 }
 
 /// Constructor parameter defaults are applied in the constructor body, exactly
@@ -1166,14 +1250,17 @@ const greeting = new Greeting();
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl Greeting {"]), r#"impl Greeting {
+    assert_eq!(
+        rust_items(&source, &["impl Greeting {"]),
+        r#"impl Greeting {
 fn new(text: Option<JsString>) -> Self {
 let mut this: Self = Greeting { text: JsString::new() };
 let text_1: JsString = text.clone().unwrap_or(JsString::from("hi there"));
 this.text = text_1;
 return this;
 }
-}"#);
+}"#
+    );
 }
 
 /// `(globalThis as any)[name]` is the erased read of a dynamic global: the key is
@@ -1181,10 +1268,11 @@ return this;
 /// observed in `class_inheritance_behaviour`.
 #[test]
 fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
-    let source = source_for(
-        "export function f(name: any): any { return (globalThis as any)[name]; }",
-    );
-    assert_eq!(rust_items(&source, &["fn f"]), r"fn f(name: SmeltUnknown) -> SmeltUnknown {
+    let source =
+        source_for("export function f(name: any): any { return (globalThis as any)[name]; }");
+    assert_eq!(
+        rust_items(&source, &["fn f"]),
+        r"fn f(name: SmeltUnknown) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
 return match _smelt_tmp_1.clone() {
 SmeltUnknown::String(smelt_value) => {
@@ -1203,7 +1291,8 @@ SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsS
 smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &JsString::from(smelt_property_key(name.clone()))),
 _ => SmeltUnknown::Undefined,
 };
-}");
+}"
+    );
 }
 
 /// JavaScript exposes one object per global builtin name, so a bare host
@@ -1212,10 +1301,13 @@ _ => SmeltUnknown::Undefined,
 #[test]
 fn a_bare_host_constructor_reference_is_interned() {
     let source = source_for("export function f(): any { return Blob; }");
-    assert_eq!(rust_items(&source, &["fn f"]), r#"fn f() -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn f"]),
+        r#"fn f() -> SmeltUnknown {
 let _smelt_tmp_0: SmeltUnknown = smelt_builtin_namespace("Blob");
 return _smelt_tmp_0;
-}"#);
+}"#
+    );
 }
 
 /// A subclass's `impl` block carries the methods it inherits.
@@ -1242,7 +1334,9 @@ class B(A):
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl B {"]), r"impl B {
+    assert_eq!(
+        rust_items(&source, &["impl B {"]),
+        r"impl B {
 fn new(x: i64, y: i64) -> Self {
 let mut self_: B = B { x: 0, y: 0 };
 self_.x = x;
@@ -1261,7 +1355,8 @@ let _smelt_tmp_1: i64 = self.fetch();
 _smelt_tmp_2 = _smelt_tmp_1 + self.y;
 return _smelt_tmp_2;
 }
-}");
+}"
+    );
 }
 
 /// An override replaces the inherited slot instead of emitting a second method
@@ -1282,7 +1377,9 @@ class B(A):
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl B {"]), r"impl B {
+    assert_eq!(
+        rust_items(&source, &["impl B {"]),
+        r"impl B {
 fn new(x: i64) -> Self {
 let __smelt_super: A;
 let mut self_: B = B { x: 0 };
@@ -1297,7 +1394,8 @@ return 99;
 fn __smelt_super_fetch(&self) -> i64 {
 return self.x;
 }
-}");
+}"
+    );
 }
 
 /// Python `super().method()` calls the immediate base implementation without
@@ -1316,7 +1414,9 @@ class B(A):
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl B {"]), r"impl B {
+    assert_eq!(
+        rust_items(&source, &["impl B {"]),
+        r"impl B {
 fn new() -> Self {
 let self_: B = B {  };
 return self_;
@@ -1331,7 +1431,8 @@ fn __smelt_super_greet(&self, value: i64) -> i64 {
 let _smelt_tmp_2: i64 = value + 1;
 return _smelt_tmp_2;
 }
-}");
+}"
+    );
 }
 
 /// A Python `super().__init__(..)` runs the base constructor and copies the
@@ -1356,7 +1457,9 @@ class C(B):
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl C {"]), r"impl C {
+    assert_eq!(
+        rust_items(&source, &["impl C {"]),
+        r"impl C {
 fn new() -> Self {
 let __smelt_super: B;
 let mut self_: C = C { x: 0, y: 0, z: 0 };
@@ -1367,7 +1470,8 @@ self_.y = __smelt_super.y;
 self_.z = 3;
 return self_;
 }
-}");
+}"
+    );
 }
 
 /// A Python `@property` getter emits a Rust method, and a read through the
@@ -1393,7 +1497,9 @@ def read(o: Ok) -> int:
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Ok_", "fn ok_value", "fn read"]), r"struct Ok_ {
+    assert_eq!(
+        rust_items(&source, &["struct Ok_", "fn ok_value", "fn read"]),
+        r"struct Ok_ {
 _value: i64,
 }
 
@@ -1403,7 +1509,8 @@ return self._value;
 
 fn read(o: Ok_) -> i64 {
 return o.ok_value();
-}");
+}"
+    );
 }
 
 /// A callback stored into an INHERITED field of a returned subclass enters its
@@ -1431,9 +1538,12 @@ export function makeSub(cb: (x: number) => number): Sub {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig make_base", "sig make_sub"]), r"fn make_base(cb: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Handler
+    assert_eq!(
+        rust_items(&source, &["sig make_base", "sig make_sub"]),
+        r"fn make_base(cb: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Handler
 
-fn make_sub(cb: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Sub");
+fn make_sub(cb: ::std::rc::Rc<dyn Fn(f64) -> f64>) -> Sub"
+    );
 }
 
 /// A method body predeclares its function-scope locals.
@@ -1464,7 +1574,9 @@ console.log(counter.step(true, 2));
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn step"]), r"fn step(&self, flag: bool, amount: f64) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn step"]),
+        r"fn step(&self, flag: bool, amount: f64) -> f64 {
 let _smelt_tmp_4: f64;
 let _smelt_tmp_5: f64;
 let mut next: f64 = 0.0;
@@ -1477,7 +1589,8 @@ next = _smelt_tmp_5;
 }
 self.0.borrow_mut().total = next;
 return next;
-}");
+}"
+    );
 }
 
 /// A value asked for at `bool` is a truthiness test, not a cast: wherever
@@ -1499,12 +1612,15 @@ console.log(has({}, 'a'));
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn has"]), r"fn has(nodes: SmeltRecord<JsString, Node>, key: JsString) -> bool {
+    assert_eq!(
+        rust_items(&source, &["fn has"]),
+        r"fn has(nodes: SmeltRecord<JsString, Node>, key: JsString) -> bool {
 let found: Option<Node> = nodes.clone().get(&key.clone());
 let _smelt_tmp_5: bool = !(found.is_some());
 let present: bool = !(_smelt_tmp_5);
 return present;
-}");
+}"
+    );
 }
 
 /// A subclass of a reference class is itself a reference class.
@@ -1543,7 +1659,12 @@ console.log(store.total());
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Store(", "struct CountingStore(", "fn total"]), r#"struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>);
+    assert_eq!(
+        rust_items(
+            &source,
+            &["struct Store(", "struct CountingStore(", "fn total"]
+        ),
+        r#"struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>);
 
 struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>);
 
@@ -1567,7 +1688,8 @@ sum = _smelt_tmp_8;
 _smelt_tmp_4 = _smelt_tmp_4 + 1;
 }
 return sum;
-}"#);
+}"#
+    );
 }
 
 /// A method VALUE read off a reference class captures the handle: the class has
@@ -1598,11 +1720,14 @@ console.log(bump('a'));
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Counter(", "fn handler"]), r#"struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
+    assert_eq!(
+        rust_items(&source, &["struct Counter(", "fn handler"]),
+        r#"struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
 
 fn handler(&self) -> ::std::rc::Rc<dyn Fn(JsString) -> f64> {
 return { let smelt_source_value = (({ let smelt_receiver = self.clone(); let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number(smelt_receiver.bump(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) as f64))); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::bump")); SmeltUnknown::Function(smelt_method) }).clone()); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get("__smelt_call") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(JsString) -> f64>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_arg0: JsString| (smelt_original)(smelt_arg0)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(SmeltUnknown::String(smelt_arg0.into())); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); match smelt_result.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> f64> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> f64 { smelt_value_not_callable() }); smelt_default_callback } } };
-}"#);
+}"#
+    );
 }
 
 /// A getter that can throw is emitted returning `Result`, so reading the
@@ -1640,7 +1765,12 @@ export class Holder {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn __smelt_get_active", "fn spread", "fn rethrow"]), r#"fn __smelt_get_active(&self) -> Result<JsString, Box<dyn std::error::Error>> {
+    assert_eq!(
+        rust_items(
+            &source,
+            &["fn __smelt_get_active", "fn spread", "fn rethrow"]
+        ),
+        r#"fn __smelt_get_active(&self) -> Result<JsString, Box<dyn std::error::Error>> {
 let _smelt_tmp_1: bool = self.inner == "";
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("empty".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
@@ -1662,7 +1792,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(Sme
 } else {
 return Ok((self.__smelt_get_active()?).clone());
 }
-}"#);
+}"#
+    );
 }
 
 /// A method the class reassigns through `this` becomes a function-typed field;
@@ -1688,7 +1819,9 @@ export class Picker {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct PickerInner", "impl Picker {"]), r#"struct PickerInner {
+    assert_eq!(
+        rust_items(&source, &["struct PickerInner", "impl Picker {"]),
+        r#"struct PickerInner {
 tag: SmeltUnknown,
 pick: ::std::rc::Rc<dyn Fn(JsString) -> JsString>,
 }
@@ -1727,7 +1860,8 @@ smelt_proto_entries.push(("__smelt_method:other".to_owned(), { let smelt_method:
 smelt_proto_entries.push(("__smelt_method:run".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.run(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined)))?; Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Picker::run")); SmeltUnknown::Function(smelt_method) }));
 smelt_proto_entries
 }
-}"#);
+}"#
+    );
 }
 
 /// `ConstructorParameters<C>` is the constructor position of `Parameters<F>`.
@@ -1772,9 +1906,12 @@ console.log(options.webSocket === undefined);
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct ClientRequestOptions"]), r"struct ClientRequestOptions {
+    assert_eq!(
+        rust_items(&source, &["struct ClientRequestOptions"]),
+        r"struct ClientRequestOptions {
 web_socket: Option<SmeltErasedFunction>,
-}");
+}"
+    );
 }
 
 /// A directly constructed subclass binds its virtual method slots to its own
@@ -1798,7 +1935,9 @@ export function show(): string { return new Square().describe(); }
 ",
     );
 
-    assert_eq!(rust_items(&source, &["impl Square {"]), r#"impl Square {
+    assert_eq!(
+        rust_items(&source, &["impl Square {"]),
+        r#"impl Square {
 fn new() -> Self {
 let mut this: Self = { let smelt_instance = Square(::std::rc::Rc::new(::std::cell::RefCell::new(SquareInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
 let _smelt_tmp_1: Self = Self::__smelt_init_Shape(this);
@@ -1826,5 +1965,6 @@ return JsString::from("square");
 fn sides(&self) -> f64 {
 return 4.0;
 }
-}"#);
+}"#
+    );
 }

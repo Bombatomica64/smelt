@@ -9,8 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{
-    FuncId, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface, Operand, Place,
-    Terminator,
+    FuncId, LocalId, Mir, MirClass, MirField, MirFunction, MirInterface, Operand, Place, Terminator,
 };
 
 use crate::{EmitError, emitter::EmitContext, generic_bindings};
@@ -33,7 +32,10 @@ pub(crate) const GENERATED_TYPE_PARAM_BOUNDS: &str =
 
 /// Return the Rust storage type name of a MIR class, from the crate's name
 /// plan (see [`crate::names`]).
-pub(crate) fn class_name_text(context: &EmitContext, class: &MirClass) -> Result<String, EmitError> {
+pub(crate) fn class_name_text(
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<String, EmitError> {
     Ok(context.names().type_name(class.name)?.as_str().to_owned())
 }
 
@@ -183,7 +185,9 @@ pub(crate) fn type_param_in_dict_key(mir: &Mir, ty: TypeId, name: Symbol) -> boo
             generic_bindings::type_param_occurs(mir, *key, name)
                 || type_param_in_dict_key(mir, *value, name)
         }
-        Some(other) => other.children().any(|child| type_param_in_dict_key(mir, child, name)),
+        Some(other) => other
+            .children()
+            .any(|child| type_param_in_dict_key(mir, child, name)),
         None => false,
     }
 }
@@ -325,7 +329,10 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
         for declared in &owner.fields {
             let mut field = declared.clone();
             field.ty = generic_bindings::substitute_existing_type(mir, declared.ty, substitutions);
-            if let Some(existing) = slots.get(&field.name).and_then(|slot| fields.get_mut(*slot)) {
+            if let Some(existing) = slots
+                .get(&field.name)
+                .and_then(|slot| fields.get_mut(*slot))
+            {
                 *existing = field;
             } else {
                 slots.insert(field.name, fields.len());
@@ -381,7 +388,12 @@ fn chain_type_substitutions(mir: &Mir, chain: &[&MirClass]) -> Vec<HashMap<Symbo
             .type_params
             .iter()
             .zip(&derived.base_args)
-            .map(|(param, arg)| (param.name, generic_bindings::substitute_existing_type(mir, *arg, &outer)))
+            .map(|(param, arg)| {
+                (
+                    param.name,
+                    generic_bindings::substitute_existing_type(mir, *arg, &outer),
+                )
+            })
             .collect();
         levels.push(map);
     }
@@ -414,7 +426,9 @@ pub(crate) fn inherited_type_substitution(
     if chain.last().is_none_or(|last| last.name != declaring) {
         return HashMap::new();
     }
-    chain_type_substitutions(mir, &chain).pop().unwrap_or_default()
+    chain_type_substitutions(mir, &chain)
+        .pop()
+        .unwrap_or_default()
 }
 
 /// The declaring class of a method or constructor copied into `owner`'s
@@ -486,7 +500,9 @@ pub(crate) fn substituted_inherited_member(
     // the base instantiation.
     // A method that answers its receiver (`route(..): Hono<..> { return this }`,
     // JavaScript's polymorphic `this`) answers the receiving class as well.
-    if let smelt_mir::HirOrigin::ClassMethod { class: declaring, .. } = function.origin
+    if let smelt_mir::HirOrigin::ClassMethod {
+        class: declaring, ..
+    } = function.origin
         && let Some(owner_ty) = class_self_type(mir, owner)
     {
         if returns_the_receiver_at_its_own_class(mir, function) {
@@ -525,7 +541,10 @@ pub(crate) fn returns_the_receiver_at_its_own_class(mir: &Mir, function: &MirFun
     for block in &function.blocks {
         if let Some(Terminator::Return(operand)) = &block.terminator {
             saw_return = true;
-            if !matches!(operand, Operand::Copy(Place::Local(LocalId(0))) | Operand::Move(Place::Local(LocalId(0)))) {
+            if !matches!(
+                operand,
+                Operand::Copy(Place::Local(LocalId(0))) | Operand::Move(Place::Local(LocalId(0)))
+            ) {
                 return false;
             }
         }
@@ -589,14 +608,15 @@ pub(crate) fn own_virtual_slot_names(mir: &Mir, class: &MirClass) -> Vec<Symbol>
 /// typed-array family became concrete. Shared by the emitter and by the
 /// prelude's "does this crate need the carrier" question, which must agree.
 pub(crate) fn class_name_renders_erased(mir: &Mir, name: Symbol) -> bool {
-    if !mir.has_class(name) && mir.symbols.get(name).is_some_and(|type_name| {
-        smelt_stdlib::typescript_stdlib_class(type_name)
-            .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
-    }) {
+    if !mir.has_class(name)
+        && mir.symbols.get(name).is_some_and(|type_name| {
+            smelt_stdlib::typescript_stdlib_class(type_name)
+                .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
+        })
+    {
         return false;
     }
-    !mir.has_class(name)
-        && !mir.has_interface(name)
+    !mir.has_class(name) && !mir.has_interface(name)
 }
 
 /// Return the flattened method set for a class: its own methods plus every
@@ -662,7 +682,10 @@ fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
 /// Static members are emitted as associated getter functions because owned
 /// values such as `String` cannot be Rust `const` items. `js_text` says
 /// whether a string value is a JavaScript string (`JsString`).
-pub(crate) fn materialized_static_value(literal: Option<&smelt_hir::Literal>, js_text: bool) -> RustExpr {
+pub(crate) fn materialized_static_value(
+    literal: Option<&smelt_hir::Literal>,
+    js_text: bool,
+) -> RustExpr {
     match literal {
         Some(smelt_hir::Literal::Bool(value)) => RustExpr::chain(value.to_string()),
         Some(smelt_hir::Literal::Int(value)) => RustExpr::chain(value.to_string()),
@@ -706,7 +729,10 @@ pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) ->
     let mut fields: Vec<MirField> = Vec::new();
     let mut slots: HashMap<Symbol, usize> = HashMap::new();
     for field in &interface.fields {
-        if let Some(existing) = slots.get(&field.name).and_then(|slot| fields.get_mut(*slot)) {
+        if let Some(existing) = slots
+            .get(&field.name)
+            .and_then(|slot| fields.get_mut(*slot))
+        {
             *existing = field.clone();
         } else {
             slots.insert(field.name, fields.len());
@@ -736,10 +762,14 @@ pub(crate) fn super_copy_name(context: &EmitContext, function: &MirFunction) -> 
 /// a `super` call: `function` is declared on a strict ancestor, and the method
 /// of that name `receiver` has is another one.
 pub(crate) fn is_super_call(mir: &Mir, receiver: Symbol, function: FuncId) -> bool {
-    let Some(declared) = usize::try_from(function.0).ok().and_then(|index| mir.functions.get(index)) else {
+    let Some(declared) = usize::try_from(function.0)
+        .ok()
+        .and_then(|index| mir.functions.get(index))
+    else {
         return false;
     };
-    if !matches!(declared.origin, smelt_mir::HirOrigin::ClassMethod { class, .. } if class != receiver) {
+    if !matches!(declared.origin, smelt_mir::HirOrigin::ClassMethod { class, .. } if class != receiver)
+    {
         return false;
     }
     let Some(class) = find_class(mir, receiver) else {
@@ -758,19 +788,28 @@ pub(crate) fn super_calls(mir: &Mir) -> Vec<(Symbol, FuncId)> {
         .functions
         .iter()
         .map(|function| (&function.locals, &function.blocks))
-        .chain(mir.closures.iter().map(|closure| (&closure.locals, &closure.blocks)));
+        .chain(
+            mir.closures
+                .iter()
+                .map(|closure| (&closure.locals, &closure.blocks)),
+        );
     for (locals, blocks) in bodies {
         for block in blocks {
-            let Some(Terminator::Call { callee: smelt_mir::Callee::Static(function), args, .. }) =
-                &block.terminator
+            let Some(Terminator::Call {
+                callee: smelt_mir::Callee::Static(function),
+                args,
+                ..
+            }) = &block.terminator
             else {
                 continue;
             };
             let Some(receiver) = args.first().and_then(Operand::local) else {
                 continue;
             };
-            let Some(Type::Class { name, .. }) =
-                usize::try_from(receiver.0).ok().and_then(|index| locals.get(index)).and_then(|local| mir.types.get(local.ty))
+            let Some(Type::Class { name, .. }) = usize::try_from(receiver.0)
+                .ok()
+                .and_then(|index| locals.get(index))
+                .and_then(|local| mir.types.get(local.ty))
             else {
                 continue;
             };

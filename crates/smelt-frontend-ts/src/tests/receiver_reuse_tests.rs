@@ -31,12 +31,22 @@ fn lowered_size(links: usize) -> Result<(usize, usize), String> {
 }
 
 #[test]
-fn each_link_of_a_method_chain_adds_one_closure_body_and_constant_expressions() -> Result<(), String> {
+fn each_link_of_a_method_chain_adds_one_closure_body_and_constant_expressions() -> Result<(), String>
+{
     let (bodies_2, exprs_2) = lowered_size(2)?;
     let (bodies_4, exprs_4) = lowered_size(4)?;
     let (bodies_6, exprs_6) = lowered_size(6)?;
-    ensure!(bodies_4 - bodies_2 == 2, "one body per closure: {bodies_2} {bodies_4}");
-    ensure!(bodies_6 - bodies_4 == 2, "one body per closure: {bodies_4} {bodies_6}");
-    ensure!(exprs_6 - exprs_4 == exprs_4 - exprs_2, "expressions grow linearly: {exprs_2} {exprs_4} {exprs_6}");
+    ensure!(
+        bodies_4 - bodies_2 == 2,
+        "one body per closure: {bodies_2} {bodies_4}"
+    );
+    ensure!(
+        bodies_6 - bodies_4 == 2,
+        "one body per closure: {bodies_4} {bodies_6}"
+    );
+    ensure!(
+        exprs_6 - exprs_4 == exprs_4 - exprs_2,
+        "expressions grow linearly: {exprs_2} {exprs_4} {exprs_6}"
+    );
     Ok(())
 }

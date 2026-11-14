@@ -11,14 +11,16 @@ use smelt_mir::{Mir, Rvalue, Statement};
 /// Iterates over all rvalues that can require generated backend dependencies.
 pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
     let function_rvalues = mir.functions.iter().flat_map(|function| {
-        function.blocks.iter().flat_map(|block| {
-            block.statements.iter().map(Statement::value)
-        })
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter().map(Statement::value))
     });
     let closure_rvalues = mir.closures.iter().flat_map(|closure| {
-        closure.blocks.iter().flat_map(|block| {
-            block.statements.iter().map(Statement::value)
-        })
+        closure
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter().map(Statement::value))
     });
     function_rvalues.chain(closure_rvalues)
 }
@@ -113,10 +115,10 @@ pub(crate) fn host_override_slot_suffix(name: &str) -> String {
 pub(crate) fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     match mir.types.get(ty) {
         Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => true,
-        Some(Type::Optional(inner) | Type::Future(inner)) => {
-            module_hash_set_key_safe(mir, *inner)
-        }
-        Some(Type::Union(items)) => items.iter().all(|item| module_hash_set_key_safe(mir, *item)),
+        Some(Type::Optional(inner) | Type::Future(inner)) => module_hash_set_key_safe(mir, *inner),
+        Some(Type::Union(items)) => items
+            .iter()
+            .all(|item| module_hash_set_key_safe(mir, *item)),
         _ => false,
     }
 }

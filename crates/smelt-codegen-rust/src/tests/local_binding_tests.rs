@@ -24,7 +24,9 @@ function run(): number {
 console.log(run());
 ",
     );
-    assert_eq!(rust_fn(&source, "run"), r#"fn run() -> f64 {
+    assert_eq!(
+        rust_fn(&source, "run"),
+        r#"fn run() -> f64 {
 let smelt_capture_walk: ::std::rc::Rc<::std::cell::RefCell<SmeltBinding<::std::rc::Rc<dyn Fn(f64) -> f64>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));
 let _smelt_tmp_1 = ::std::rc::Rc::new({
 let smelt_capture_walk = ::std::rc::Rc::downgrade(&smelt_capture_walk);
@@ -48,7 +50,8 @@ _smelt_tmp_3
 { let smelt_next_value = _smelt_tmp_1.clone(); (*smelt_capture_walk.borrow_mut()).bind(smelt_next_value); }
 let _smelt_tmp_2: f64 = { let smelt_callable = ::std::clone::Clone::clone(&(*(*smelt_capture_walk.borrow()).bound())); (smelt_callable)(3.0) };
 return _smelt_tmp_2;
-}"#);
+}"#
+    );
 }
 
 /// An async method's future owns its receiver only when the body reads it.
@@ -65,15 +68,21 @@ new Box1().uses();
 new Box1().ignores();
 ",
     );
-    assert_eq!(rust_fn(&source, "uses"), r"fn uses(&self) -> SmeltFuture<f64> {
+    assert_eq!(
+        rust_fn(&source, "uses"),
+        r"fn uses(&self) -> SmeltFuture<f64> {
 let self_owned = self.clone();
 SmeltFuture::<f64>::from_future_primed(Box::pin(async move {
 return Ok(self_owned.value);
 }))
-}");
-    assert_eq!(rust_fn(&source, "ignores"), r"fn ignores(&self) -> SmeltFuture<f64> {
+}"
+    );
+    assert_eq!(
+        rust_fn(&source, "ignores"),
+        r"fn ignores(&self) -> SmeltFuture<f64> {
 SmeltFuture::<f64>::from_future_primed(Box::pin(async move {
 return Ok(2.0);
 }))
-}");
+}"
+    );
 }

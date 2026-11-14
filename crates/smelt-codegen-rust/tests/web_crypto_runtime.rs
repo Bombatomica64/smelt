@@ -59,7 +59,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
 /// The source helper every digest case shares.
 ///
 /// `subtle.digest` answers an `ArrayBuffer`, which is not indexable, so a
@@ -77,13 +76,14 @@ function hex(digest: ArrayBuffer): string {
 }
 "#;
 
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("smelt-web-crypto-runtime-{}-{seq}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "smelt-web-crypto-runtime-{}-{seq}",
+        std::process::id()
+    ))
 }
 
 /// Emit `source` as a crate and run its generated Vitest tests.

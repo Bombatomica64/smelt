@@ -178,7 +178,10 @@ impl SoundOverlay {
             return;
         };
         let directory = installed.canonicalize().unwrap_or(installed);
-        if self.with_state(|state| state.packages.get(&directory).map(|_| ())).is_some() {
+        if self
+            .with_state(|state| state.packages.get(&directory).map(|_| ()))
+            .is_some()
+        {
             return;
         }
 
@@ -188,7 +191,10 @@ impl SoundOverlay {
                 (Lookup::NotUsed, Vec::new(), Some(found.message))
             }
             Some(found) => {
-                let origin = Arc::new(TypedVersionOrigin { name: found.name, shown: found.shown });
+                let origin = Arc::new(TypedVersionOrigin {
+                    name: found.name,
+                    shown: found.shown,
+                });
                 let laid_files = found
                     .files
                     .into_iter()
@@ -200,7 +206,10 @@ impl SoundOverlay {
                             .take_while(|directory_path| !directory_path.exists())
                             .map(Path::to_path_buf)
                             .collect::<Vec<_>>();
-                        let source = LaidSource { text: file.text, origin: Arc::clone(&origin) };
+                        let source = LaidSource {
+                            text: file.text,
+                            origin: Arc::clone(&origin),
+                        };
                         (file.path, source, layer_only_directories)
                     })
                     .collect();
@@ -236,7 +245,8 @@ impl SoundOverlay {
 
     /// Whether `path` is a laid file.
     pub(crate) fn is_laid(&self, path: &Path) -> bool {
-        self.with_state(|state| state.files.contains_key(path).then_some(())).is_some()
+        self.with_state(|state| state.files.contains_key(path).then_some(()))
+            .is_some()
     }
 
     /// Read a file's text through the layer.
@@ -290,7 +300,8 @@ impl SoundOverlay {
         let Ok(rest) = path.strip_prefix(existing) else {
             return Err(error);
         };
-        self.with_state(|state| state.stored(&canonical.join(rest))).ok_or(error)
+        self.with_state(|state| state.stored(&canonical.join(rest)))
+            .ok_or(error)
     }
 
     /// The layer's metadata for a laid file or layer-only directory.
@@ -299,7 +310,10 @@ impl SoundOverlay {
             if state.files.contains_key(path) {
                 Some(FileMetadata::new(true, false, false))
             } else {
-                state.directories.contains(path).then(|| FileMetadata::new(false, true, false))
+                state
+                    .directories
+                    .contains(path)
+                    .then(|| FileMetadata::new(false, true, false))
             }
         })
     }

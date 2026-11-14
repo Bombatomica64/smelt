@@ -1,10 +1,10 @@
 //! Local declarations: `var`/`let`/`const` statements, `catch` bindings, and the
 //! forward declarations a body needs before its statements run.
 
+use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::ModuleBuilder;
-use crate::SmeltError;
 use crate::lowering::js_text::{js_str_text, static_name_text};
 use oxc::ast::ast::{BindingPattern, Expression, Statement};
 use smelt_hir::{Body, ErasureReason, FunctionType, LocalDecl, Pattern, Stmt, Type};
@@ -59,7 +59,9 @@ impl ModuleBuilder<'_> {
         ) {
             return false;
         }
-        let previous = self.scope.bind(name.to_owned(), smelt_hir::LocalId(u32::MAX));
+        let previous = self
+            .scope
+            .bind(name.to_owned(), smelt_hir::LocalId(u32::MAX));
         let mut captures = Vec::new();
         self.collect_expression_capture_names(initializer, &HashSet::new(), &mut captures);
         if let Some(previous) = previous {
@@ -201,7 +203,10 @@ impl ModuleBuilder<'_> {
     /// the capture walk reports exactly the BOUND names such code reads, and
     /// whether it reports one name does not depend on whether another is
     /// bound, so each candidate's answer is the one the per-name walk gave.
-    fn first_capture_read_indices(&mut self, statements: &[Statement<'_>]) -> HashMap<String, usize> {
+    fn first_capture_read_indices(
+        &mut self,
+        statements: &[Statement<'_>],
+    ) -> HashMap<String, usize> {
         let mut candidates = Vec::new();
         for statement in statements {
             let Statement::VariableDeclaration(decl) = statement else {
@@ -227,7 +232,13 @@ impl ModuleBuilder<'_> {
         }
         let previous = candidates
             .iter()
-            .map(|name| (*name, self.scope.bind((*name).to_owned(), smelt_hir::LocalId(u32::MAX))))
+            .map(|name| {
+                (
+                    *name,
+                    self.scope
+                        .bind((*name).to_owned(), smelt_hir::LocalId(u32::MAX)),
+                )
+            })
             .collect::<Vec<_>>();
         for (index, statement) in statements.iter().enumerate() {
             let mut captures = Vec::new();
@@ -303,7 +314,9 @@ impl ModuleBuilder<'_> {
         let sibling_names: HashSet<&str> = statements
             .iter()
             .filter_map(|statement| match statement {
-                Statement::FunctionDeclaration(function) => function.id.as_ref().map(|id| id.name.as_str()),
+                Statement::FunctionDeclaration(function) => {
+                    function.id.as_ref().map(|id| id.name.as_str())
+                }
                 _ => None,
             })
             .collect();
@@ -311,7 +324,11 @@ impl ModuleBuilder<'_> {
         if !sibling_names.is_empty() {
             for statement in statements {
                 constructed.extend(
-                    crate::lowering::scoped_references::statement_name_uses(statement, &sibling_names).constructed,
+                    crate::lowering::scoped_references::statement_name_uses(
+                        statement,
+                        &sibling_names,
+                    )
+                    .constructed,
                 );
             }
         }
@@ -496,7 +513,8 @@ impl ModuleBuilder<'_> {
                 && (self.expr_is_global_alias(initializer)
                     || self.expr_folds_to_global_alias(initializer))
             {
-                self.imports.mark_global_object_alias(binding.name.as_str().to_owned());
+                self.imports
+                    .mark_global_object_alias(binding.name.as_str().to_owned());
                 continue;
             }
             // A `const f = (…) => …` arrow is an immutable closure local, sound
@@ -537,9 +555,10 @@ impl ModuleBuilder<'_> {
             // An unannotated `= []` takes the type TypeScript evolves it to
             // through later pushes, as if that were its annotation.
             let annotated_ty = match (&declarator.id, &declarator.init) {
-                (BindingPattern::BindingIdentifier(binding), Some(Expression::ArrayExpression(array)))
-                    if annotated_ty.is_none() && array.elements.is_empty() =>
-                {
+                (
+                    BindingPattern::BindingIdentifier(binding),
+                    Some(Expression::ArrayExpression(array)),
+                ) if annotated_ty.is_none() && array.elements.is_empty() => {
                     self.checker_evolved_array_type(binding.span.start, binding.span.end)
                 }
                 _ => annotated_ty,
@@ -547,13 +566,12 @@ impl ModuleBuilder<'_> {
             // Both shapes assign into a local reserved before this statement
             // list was lowered: an initializer that mentions its own binding,
             // and a binding a closure in an earlier statement already reads.
-            let reserved_forward_local = if let BindingPattern::BindingIdentifier(binding) =
-                &declarator.id
-            {
-                self.take_forward_local_reservation(binding.name.as_str())
-            } else {
-                false
-            };
+            let reserved_forward_local =
+                if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
+                    self.take_forward_local_reservation(binding.name.as_str())
+                } else {
+                    false
+                };
             let deferred_self_local = if let BindingPattern::BindingIdentifier(binding) =
                 &declarator.id
                 && (reserved_forward_local
@@ -562,8 +580,7 @@ impl ModuleBuilder<'_> {
                             initializer,
                             binding.name.as_str(),
                         )
-                    }))
-            {
+                    })) {
                 self.local_arrow_existing_body_local(binding.name.as_str(), body)
             } else {
                 None
@@ -574,7 +591,8 @@ impl ModuleBuilder<'_> {
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
             {
                 // not a new erasure: provisional self-binding while the initializer lowers
-                let ty = annotated_ty.unwrap_or_else(|| self.unknown_type(NotNewErasure::ErasedUpstream));
+                let ty = annotated_ty
+                    .unwrap_or_else(|| self.unknown_type(NotNewErasure::ErasedUpstream));
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
@@ -598,18 +616,18 @@ impl ModuleBuilder<'_> {
                     .map(|init| this.expression_with_hint(init, body, annotated_ty))
                     .transpose()
             };
-            let (value_result, deferred_updates) = if declarator
-                .init
-                .as_ref()
-                .is_none_or(crate::lowering::postfix_deferral::initializer_can_defer_postfix_updates)
-            {
+            let (value_result, deferred_updates) = if declarator.init.as_ref().is_none_or(
+                crate::lowering::postfix_deferral::initializer_can_defer_postfix_updates,
+            ) {
                 self.with_deferred_updates(lower_init)
             } else {
                 (lower_init(self), Vec::new())
             };
             let value = value_result?;
-            let annotated_ty = self.presence_widened_binding_type(declarator, annotated_ty, value, body);
-            let value = value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
+            let annotated_ty =
+                self.presence_widened_binding_type(declarator, annotated_ty, value, body);
+            let value =
+                value.map(|value| self.keyed_read_into_optional_slot(value, annotated_ty, body));
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && value.is_none()
                 && let Some(previous) = predeclared_self
@@ -697,26 +715,46 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) {
-        let captured = body.exprs.get(first_initializer_expr..).is_some_and(|exprs| {
-            exprs.iter().any(|expr| {
-                matches!(&expr.kind, smelt_hir::ExprKind::Closure(closure)
+        let captured = body
+            .exprs
+            .get(first_initializer_expr..)
+            .is_some_and(|exprs| {
+                exprs.iter().any(|expr| {
+                    matches!(&expr.kind, smelt_hir::ExprKind::Closure(closure)
                     if closure.captures.iter().any(|capture| capture.source_local == provisional))
-            })
-        });
-        let Some(declared) = self.scope.lookup(name).filter(|declared| *declared != provisional) else {
+                })
+            });
+        let Some(declared) = self
+            .scope
+            .lookup(name)
+            .filter(|declared| *declared != provisional)
+        else {
             return;
         };
         if !captured {
             return;
         }
-        let (Some(declared_decl), Some(provisional_decl)) = (body.local_at(declared), body.local_at(provisional))
+        let (Some(declared_decl), Some(provisional_decl)) =
+            (body.local_at(declared), body.local_at(provisional))
         else {
             return;
         };
-        let (declared_ty, provisional_ty, span) = (declared_decl.ty, provisional_decl.ty, provisional_decl.span);
-        let value = body.push_expr(smelt_hir::Expr { kind: smelt_hir::ExprKind::Local(declared), ty: declared_ty, span });
+        let (declared_ty, provisional_ty, span) =
+            (declared_decl.ty, provisional_decl.ty, provisional_decl.span);
+        let value = body.push_expr(smelt_hir::Expr {
+            kind: smelt_hir::ExprKind::Local(declared),
+            ty: declared_ty,
+            span,
+        });
         let pat = body.push_pattern(Pattern::Binding(provisional));
-        body.push_stmt_to_block(block, Stmt::Let { pat, ty: provisional_ty, value: Some(value) });
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat,
+                ty: provisional_ty,
+                value: Some(value),
+            },
+        );
     }
 
     /// The declared type of a local the program assigns a keyed read and
@@ -738,7 +776,11 @@ impl ModuleBuilder<'_> {
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return annotated_ty;
         };
-        let Some(test) = self.presence_widened_bindings.get(&binding.span.start).copied() else {
+        let Some(test) = self
+            .presence_widened_bindings
+            .get(&binding.span.start)
+            .copied()
+        else {
             return annotated_ty;
         };
         let Some(declared) = annotated_ty.or_else(|| value.map(|value| Self::expr_ty(body, value)))
@@ -788,7 +830,8 @@ impl ModuleBuilder<'_> {
         let Some(local) = self.scope.lookup(name) else {
             return;
         };
-        self.scope.record_callable_local_interface(local, annotated_ty);
+        self.scope
+            .record_callable_local_interface(local, annotated_ty);
     }
 
     /// Register `const { A: B } = await import('./mod')` bindings as import aliases.

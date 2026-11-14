@@ -53,6 +53,11 @@ pub(super) fn literal_text(literal: &Literal) -> String {
 #[must_use]
 pub fn string_units_text(units: &[u16]) -> String {
     char::decode_utf16(units.iter().copied())
-        .map(|decoded| decoded.map_or_else(|lone| format!("\\u{:04X}", lone.unpaired_surrogate()), String::from))
+        .map(|decoded| {
+            decoded.map_or_else(
+                |lone| format!("\\u{:04X}", lone.unpaired_surrogate()),
+                String::from,
+            )
+        })
         .collect()
 }

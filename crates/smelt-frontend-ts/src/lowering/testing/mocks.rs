@@ -1,11 +1,11 @@
 //! Test doubles: `vi.fn`, `vi.spyOn` and the methods of the mock handle they return,
 //! under both the `vi` and the `jest` spelling.
 
+use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Type};
-use crate::SmeltError;
-use crate::lowering::ModuleBuilder;
 
 /// Whether an identifier names a test framework's mock/timer namespace.
 ///

@@ -50,8 +50,10 @@ impl ModuleBuilder<'_> {
         &mut self,
         lower: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let previous =
-            std::mem::replace(&mut self.unknown_index_access, UnknownIndexAccess::TypeTestArgument);
+        let previous = std::mem::replace(
+            &mut self.unknown_index_access,
+            UnknownIndexAccess::TypeTestArgument,
+        );
         let result = lower(self);
         self.unknown_index_access = previous;
         result

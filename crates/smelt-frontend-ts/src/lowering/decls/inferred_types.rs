@@ -2,9 +2,9 @@
 //! body returns or yields, and the generator type of an unannotated generator
 //! with its yield accumulator.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{GeneratorYieldAccumulator, ModuleBuilder};
-use crate::lowering::body_arena::BodyArena;
 use smelt_hir::{Body, ErasureReason, ExprKind, Stmt, Type};
 
 impl ModuleBuilder<'_> {
@@ -20,7 +20,8 @@ impl ModuleBuilder<'_> {
             return_ty: _,
             next_ty,
         }) = self
-            .fn_ctx.return_ty
+            .fn_ctx
+            .return_ty
             .and_then(|ty| self.ctx.krate.types.get(ty))
         {
             return GeneratorYieldAccumulator {
@@ -197,7 +198,8 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let shared = self.conditional_branch_type(left, right, None, 0, 0).ok()?;
-        let lost_a_type = self.ctx.krate.types.get(shared) == Some(&Type::Unknown) && !either_erased;
+        let lost_a_type =
+            self.ctx.krate.types.get(shared) == Some(&Type::Unknown) && !either_erased;
         (!lost_a_type).then_some(shared)
     }
 }

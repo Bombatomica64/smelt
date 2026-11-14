@@ -180,7 +180,12 @@ export function add(amount: number): number {
         let ExprKind::GlobalSet { value, .. } = &expr.kind else {
             return false;
         };
-        let ExprKind::BinOp { op: BinOp::Add, lhs, .. } = &body.exprs[value.0 as usize].kind else {
+        let ExprKind::BinOp {
+            op: BinOp::Add,
+            lhs,
+            ..
+        } = &body.exprs[value.0 as usize].kind
+        else {
             return false;
         };
         matches!(body.exprs[lhs.0 as usize].kind, ExprKind::GlobalGet { .. })
@@ -532,7 +537,10 @@ export function forward(xs: number[]): number {
     )?;
     let string_ty = ctx.krate.types.intern(Type::String);
     let float_ty = ctx.krate.types.intern(Type::Float);
-    let tuple_ty = ctx.krate.types.intern(Type::Tuple(vec![string_ty, float_ty]));
+    let tuple_ty = ctx
+        .krate
+        .types
+        .intern(Type::Tuple(vec![string_ty, float_ty]));
     let tuple_list = ctx.krate.types.intern(Type::List(tuple_ty));
     let module = module(&ctx, module_id)?;
     let keys = function_body(&ctx, named_function_item(&ctx, module, "keys")?)?;
@@ -546,10 +554,13 @@ export function forward(xs: number[]): number {
     );
     let forward = function_body(&ctx, named_function_item(&ctx, module, "forward")?)?;
     ensure!(
-        forward
-            .exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::ListReduce { from_right: false, .. })),
+        forward.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::ListReduce {
+                from_right: false,
+                ..
+            }
+        )),
         "reduce keeps the left-to-right fold",
     );
     Ok(())
@@ -630,7 +641,8 @@ export function shift(xs: string[]): number[] {
 }
 
 #[test]
-fn erased_and_constructed_module_consts_read_from_functions_are_module_slots() -> Result<(), String> {
+fn erased_and_constructed_module_consts_read_from_functions_are_module_slots() -> Result<(), String>
+{
     // `const emptyParams = createNullObject()` (an `any`-returning helper) and
     // `const shared = new Counter()` are each ONE object that functions read
     // and compare by identity. A read used to fabricate a fresh empty record
@@ -662,7 +674,8 @@ export function count(): number {
         })
         .collect::<Vec<_>>();
     ensure!(
-        slots.iter().any(|name| name == "empty_params") && slots.iter().any(|name| name == "shared"),
+        slots.iter().any(|name| name == "empty_params")
+            && slots.iter().any(|name| name == "shared"),
         "expected module slots for `emptyParams` and `shared`, got {slots:?}",
     );
     // The fabricated read was `UnknownCast` of an EMPTY record literal.
@@ -674,10 +687,15 @@ export function count(): number {
             usize::try_from(value.0)
                 .ok()
                 .and_then(|index| body.exprs.get(index))
-                .is_some_and(|value| matches!(&value.kind, ExprKind::DictLit(entries) if entries.is_empty()))
+                .is_some_and(
+                    |value| matches!(&value.kind, ExprKind::DictLit(entries) if entries.is_empty()),
+                )
         })
     });
-    ensure!(!fabricates, "a module-const read must not fabricate an erased record");
+    ensure!(
+        !fabricates,
+        "a module-const read must not fabricate an erased record"
+    );
     Ok(())
 }
 
@@ -702,7 +720,10 @@ fn body_reads_a_slot(body: &smelt_hir::Body) -> bool {
 
 /// Return the position among `body`'s root statements of the first expression
 /// statement whose expression satisfies `pred`.
-fn root_expr_stmt_position(body: &smelt_hir::Body, pred: impl Fn(&ExprKind) -> bool) -> Option<usize> {
+fn root_expr_stmt_position(
+    body: &smelt_hir::Body,
+    pred: impl Fn(&ExprKind) -> bool,
+) -> Option<usize> {
     let root = body.blocks.get(body.root.0 as usize)?;
     root.stmts
         .iter()
@@ -714,7 +735,8 @@ fn root_expr_stmt_position(body: &smelt_hir::Body, pred: impl Fn(&ExprKind) -> b
 }
 
 #[test]
-fn an_unfoldable_record_literal_const_read_from_a_function_is_a_module_slot() -> Result<(), String> {
+fn an_unfoldable_record_literal_const_read_from_a_function_is_a_module_slot() -> Result<(), String>
+{
     // `{ k: [zero(), 'a'] }` calls a function, so the const folder cannot
     // record it. The read used to fabricate the declared type's default, an
     // EMPTY record, so `p[key]` missed the entry the module built.
@@ -736,7 +758,10 @@ export function entry(key: string): string {
     );
     let module = module(&ctx, module_id)?;
     let body = function_body(&ctx, named_function_item(&ctx, module, "entry")?)?;
-    ensure!(body_reads_a_slot(body), "`entry` should read `p` through its slot");
+    ensure!(
+        body_reads_a_slot(body),
+        "`entry` should read `p` through its slot"
+    );
     ensure!(
         !body
             .exprs
@@ -777,7 +802,10 @@ console.log(cnt());
             _ => false,
         })
     });
-    ensure!(closure_reads_slot, "the `cnt` closure should read `zs` through its slot");
+    ensure!(
+        closure_reads_slot,
+        "the `cnt` closure should read `zs` through its slot"
+    );
     Ok(())
 }
 
@@ -821,7 +849,9 @@ export function lookup(key: string): number {
         .and_then(|body| ctx.krate.bodies.get(body.0 as usize))
         .ok_or("expected a synthesized initializer for `table`")?;
     ensure!(
-        init.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::Item(_))),
+        init.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Item(_))),
         "the initializer should call `double` as an item",
     );
     ensure!(
@@ -882,7 +912,10 @@ export function read(): number {
     );
     let module = module(&ctx, module_id)?;
     let body = function_body(&ctx, named_function_item(&ctx, module, "read")?)?;
-    ensure!(body_reads_a_slot(body), "`read` should read `count` through its slot");
+    ensure!(
+        body_reads_a_slot(body),
+        "`read` should read `count` through its slot"
+    );
     Ok(())
 }
 
@@ -982,6 +1015,9 @@ console.log(job.label, report());
         .flat_map(|body| body.locals.iter())
         .filter(|local| matches!(ctx.krate.types.get(local.ty), Some(Type::Unknown)))
         .count();
-    ensure!(erased_locals == 0, "{erased_locals} module-body local(s) are still Unknown");
+    ensure!(
+        erased_locals == 0,
+        "{erased_locals} module-body local(s) are still Unknown"
+    );
     Ok(())
 }

@@ -48,7 +48,9 @@ fn ensure_signature(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
     if actual == expected {
         Ok(())
     } else {
-        Err(format!("signature of `{name}`:\n  actual: {actual}\nexpected: {expected}"))
+        Err(format!(
+            "signature of `{name}`:\n  actual: {actual}\nexpected: {expected}"
+        ))
     }
 }
 
@@ -77,7 +79,10 @@ fn ensure_class_shape(ctx: &HirCtx, name: &str, expected: &str) -> TestResult {
         .iter()
         .map(|field| {
             render(field.name).map(|field_name| {
-                format!("{field_name}: {}", smelt_hir::type_display(&ctx.krate, field.ty))
+                format!(
+                    "{field_name}: {}",
+                    smelt_hir::type_display(&ctx.krate, field.ty)
+                )
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -314,10 +319,10 @@ mod collections_a_tests;
 mod collections_b_tests;
 mod collections_reject_a_tests;
 mod collections_reject_b_tests;
+mod fn_scope_tests;
 mod lang_features_tests;
 mod name_resolution_tests;
 mod packages_tests;
-mod fn_scope_tests;
 mod pytest_tests;
 mod specialization_tests;
 #[cfg(feature = "ty")]

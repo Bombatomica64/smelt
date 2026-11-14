@@ -58,7 +58,10 @@ mod tests {
     #[test]
     fn a_chain_is_never_parenthesized() {
         let value = RenderedValue::new(RustExpr::chain("smelt_value.to_lowercase()"), TY);
-        assert_eq!(value.parenthesized_if_needed(), "smelt_value.to_lowercase()");
+        assert_eq!(
+            value.parenthesized_if_needed(),
+            "smelt_value.to_lowercase()"
+        );
     }
 
     /// A loose operand must be wrapped before it is dropped into a tighter
@@ -75,12 +78,18 @@ mod tests {
     fn cast_operand_wrapping_matches_erase_number_arm() {
         let chain = RenderedValue::new(RustExpr::path("value"), TY);
         assert_eq!(
-            format!("SmeltUnknown::Number({} as f64)", chain.parenthesized_if_needed()),
+            format!(
+                "SmeltUnknown::Number({} as f64)",
+                chain.parenthesized_if_needed()
+            ),
             "SmeltUnknown::Number(value as f64)"
         );
         let loose = RenderedValue::new(RustExpr::loose("a + b"), TY);
         assert_eq!(
-            format!("SmeltUnknown::Number({} as f64)", loose.parenthesized_if_needed()),
+            format!(
+                "SmeltUnknown::Number({} as f64)",
+                loose.parenthesized_if_needed()
+            ),
             "SmeltUnknown::Number((a + b) as f64)"
         );
     }

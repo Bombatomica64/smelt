@@ -58,8 +58,7 @@ pub(in crate::lowering) fn has_lone_surrogate(value: JSStr<'_>) -> bool {
 }
 
 /// The diagnostic for a name a lone surrogate would have to be replaced in.
-pub(in crate::lowering) const LONE_SURROGATE_NAME: &str =
-    "a member name holding a lone surrogate cannot be a Rust field; use a string-keyed record (`Record<string, T>`)";
+pub(in crate::lowering) const LONE_SURROGATE_NAME: &str = "a member name holding a lone surrogate cannot be a Rust field; use a string-keyed record (`Record<string, T>`)";
 
 /// Returns the Rust text of an optional JavaScript string value (see [`js_str_text`]).
 pub(in crate::lowering) fn opt_js_str_text(value: Option<JSStr<'_>>) -> Option<Cow<'_, str>> {
@@ -80,10 +79,13 @@ pub(in crate::lowering) fn static_name_text(name: StaticPropertyName<'_>) -> Cow
 /// Returns a template literal quasi as a HIR literal: its cooked value (see
 /// [`js_str_literal`], so a lone surrogate keeps its code units), or the raw source text
 /// when the quasi has no cooked value.
-pub(in crate::lowering) fn template_element_literal(value: &TemplateElementValue<'_>) -> smelt_hir::Literal {
-    value
-        .cooked
-        .map_or_else(|| smelt_hir::Literal::String(value.raw.as_str().to_owned()), js_str_literal)
+pub(in crate::lowering) fn template_element_literal(
+    value: &TemplateElementValue<'_>,
+) -> smelt_hir::Literal {
+    value.cooked.map_or_else(
+        || smelt_hir::Literal::String(value.raw.as_str().to_owned()),
+        js_str_literal,
+    )
 }
 
 #[cfg(test)]
@@ -113,8 +115,15 @@ mod tests {
         builder.push_code_unit(0xDC00);
         let value = builder.into_js_str();
         let expected = String::from_utf16_lossy(&value.encode_utf16().collect::<Vec<_>>());
-        assert_eq!(js_str_text(value), expected, "lossy text must match from_utf16_lossy");
-        assert_eq!(expected, "a\u{FFFD}b\u{FFFD}", "each lone surrogate is one U+FFFD");
+        assert_eq!(
+            js_str_text(value),
+            expected,
+            "lossy text must match from_utf16_lossy"
+        );
+        assert_eq!(
+            expected, "a\u{FFFD}b\u{FFFD}",
+            "each lone surrogate is one U+FFFD"
+        );
     }
 
     #[test]
@@ -124,7 +133,15 @@ mod tests {
         builder.push('a');
         builder.push_code_unit(0xD83D);
         let value = builder.into_js_str();
-        assert_eq!(js_str_literal(value), smelt_hir::Literal::StringUnits(vec![0x61, 0xD83D]), "the exact units");
-        assert_eq!(js_str_literal(JSStr::from("é🦀")), smelt_hir::Literal::String("é🦀".to_owned()), "valid text stays text");
+        assert_eq!(
+            js_str_literal(value),
+            smelt_hir::Literal::StringUnits(vec![0x61, 0xD83D]),
+            "the exact units"
+        );
+        assert_eq!(
+            js_str_literal(JSStr::from("é🦀")),
+            smelt_hir::Literal::String("é🦀".to_owned()),
+            "valid text stays text"
+        );
     }
 }

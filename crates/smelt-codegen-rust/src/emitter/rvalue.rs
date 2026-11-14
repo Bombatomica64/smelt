@@ -27,7 +27,10 @@ impl FunctionEmitter<'_> {
         // rvalue already produced a `SmeltList` (the blanket `From<T> for T`) and
         // wraps a fresh-identity list otherwise (`From<Vec<T>>`).
         if matches!(self.mir.types.get(dest_ty), Some(Type::List(_))) {
-            return Ok(RustExpr::atom(format!("Into::<SmeltList<_>>::into({text})", text = text.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "Into::<SmeltList<_>>::into({text})",
+                text = text.delimited()
+            )));
         }
         Ok(text)
     }
@@ -43,7 +46,11 @@ impl FunctionEmitter<'_> {
     /// function carries erased renders as that same carrier, so
     /// `defaultValue as TDefault` with `defaultValue?: TDefault` is
     /// `undefined` too (radash `get(null, 'a')`), not a panic.
-    pub(super) fn use_expr(&self, operand: &Operand, dest_ty: TypeId) -> Result<RustExpr, EmitError> {
+    pub(super) fn use_expr(
+        &self,
+        operand: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
             || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
                 && self.renders_erased(dest_ty).unwrap_or(false))
@@ -69,7 +76,9 @@ impl FunctionEmitter<'_> {
             // whole optional twice (a regex match's captures, per request,
             // in Hono's router).
             let receiver = self.operand_borrow_expr(operand)?;
-            return Ok(receiver.postfix(".clone().expect(\"optional value was absent after narrowing\")"));
+            return Ok(
+                receiver.postfix(".clone().expect(\"optional value was absent after narrowing\")")
+            );
         }
         self.value_at_type(operand, dest_ty)
     }
@@ -748,9 +757,14 @@ impl FunctionEmitter<'_> {
     /// alone.
     fn host_text_at_type(&self, text: RustExpr, dest_ty: TypeId) -> RustExpr {
         match self.mir.types.get(dest_ty) {
-            Some(Type::String) => RustExpr::chain(format!("JsString::from({text})", text = text.delimited())),
+            Some(Type::String) => {
+                RustExpr::chain(format!("JsString::from({text})", text = text.delimited()))
+            }
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
-                RustExpr::atom(format!("({text}).map(JsString::from)", text = text.delimited()))
+                RustExpr::atom(format!(
+                    "({text}).map(JsString::from)",
+                    text = text.delimited()
+                ))
             }
             _ => text,
         }

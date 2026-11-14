@@ -80,10 +80,12 @@ answer: int = subtract(right=2, left=5)
         .ok_or("expected function call")?;
     let values = call_args
         .iter()
-        .map(|arg| match &call_body.exprs[usize::try_from(arg.0).unwrap_or(usize::MAX)].kind {
-            ExprKind::Literal(Literal::Int(value)) => Ok(*value),
-            _ => Err("expected integer keyword argument".to_owned()),
-        })
+        .map(
+            |arg| match &call_body.exprs[usize::try_from(arg.0).unwrap_or(usize::MAX)].kind {
+                ExprKind::Literal(Literal::Int(value)) => Ok(*value),
+                _ => Err("expected integer keyword argument".to_owned()),
+            },
+        )
         .collect::<Result<Vec<_>, _>>()?;
     ensure_eq(&values, &vec![5, 2], "keyword argument order")?;
     Ok(())
@@ -176,10 +178,8 @@ value: str | None = obj.id or None
     let code = module_code(&ctx, module)?;
     ensure(
         code.exprs().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::Conditional { .. }
-            ) && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+            matches!(expr.kind, ExprKind::Conditional { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
         }),
         "expected value-returning or to lower to an optional conditional",
     )?;
@@ -346,15 +346,32 @@ def tick(asyncio: Clock) -> int:
     let module = module(&ctx, module_id)?;
     let mut sleeps = 0;
     for item_id in &module.items {
-        let Item::Function(function) = item(&ctx, *item_id)? else { continue };
-        let Some(body_id) = function.body else { continue };
+        let Item::Function(function) = item(&ctx, *item_id)? else {
+            continue;
+        };
+        let Some(body_id) = function.body else {
+            continue;
+        };
         sleeps += body(&ctx, body_id)?
             .exprs
             .iter()
-            .filter(|expr| matches!(expr.kind, ExprKind::AsyncOp { op: AsyncOp::Sleep, .. }))
+            .filter(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::AsyncOp {
+                        op: AsyncOp::Sleep,
+                        ..
+                    }
+                )
+            })
             .count();
     }
-    ensure(sleeps == 1, format!("expected exactly the aliased `aio.sleep` to lower to AsyncOp::Sleep, found {sleeps}"))?;
+    ensure(
+        sleeps == 1,
+        format!(
+            "expected exactly the aliased `aio.sleep` to lower to AsyncOp::Sleep, found {sleeps}"
+        ),
+    )?;
     Ok(())
 }
 
@@ -430,13 +447,8 @@ def greet(name: str, count: int) -> str:
     let body = body(&ctx, body_id)?;
     ensure(
         body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::BinOp {
-                    op: BinOp::Add,
-                    ..
-                }
-            ) && ctx.krate.types.get(expr.ty) == Some(&Type::PyStr)
+            matches!(expr.kind, ExprKind::BinOp { op: BinOp::Add, .. })
+                && ctx.krate.types.get(expr.ty) == Some(&Type::PyStr)
         }),
         "expected f-string to lower to a String addition chain",
     )?;
@@ -522,7 +534,9 @@ fn single_function_body(ctx: &HirCtx, module_id: ModuleId) -> Result<&Body, Stri
     let Item::Function(function) = item(ctx, item_id)? else {
         return Err("expected function item".to_owned());
     };
-    let body_id = function.body.ok_or_else(|| "expected function body".to_owned())?;
+    let body_id = function
+        .body
+        .ok_or_else(|| "expected function body".to_owned())?;
     body(ctx, body_id)
 }
 
@@ -674,7 +688,10 @@ def firsts(pairs: list[tuple[int, int]]) -> list[int]:
 
 /// Every expression of every body in the crate.
 fn all_exprs(ctx: &HirCtx) -> impl Iterator<Item = &smelt_hir::Expr> {
-    ctx.krate.bodies.iter().flat_map(|candidate| candidate.exprs.iter())
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|candidate| candidate.exprs.iter())
 }
 
 #[test]
@@ -707,9 +724,16 @@ def bump() -> int:
     let constructions = all_exprs(&ctx)
         .filter(|expr| matches!(expr.kind, ExprKind::New { .. }))
         .count();
-    ensure_eq(&constructions, &1, "only the initializer constructs the Counter")?;
+    ensure_eq(
+        &constructions,
+        &1,
+        "only the initializer constructs the Counter",
+    )?;
     ensure(
-        all_exprs(&ctx).filter(|expr| matches!(expr.kind, ExprKind::GlobalGet { .. })).count() >= 2,
+        all_exprs(&ctx)
+            .filter(|expr| matches!(expr.kind, ExprKind::GlobalGet { .. }))
+            .count()
+            >= 2,
         "bump reads the global",
     )
 }
@@ -767,7 +791,15 @@ def show(x: float, n: int) -> str:
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     let casts = all_exprs(&ctx)
-        .filter(|expr| matches!(expr.kind, ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToString, .. }))
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToString,
+                    ..
+                }
+            )
+        })
         .count();
     ensure_eq(&casts, &2, "each number interpolation is a str() cast")
 }

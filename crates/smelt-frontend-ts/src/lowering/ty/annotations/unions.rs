@@ -1,8 +1,8 @@
 //! Union annotations: flattening members, dropping members, the union-or-unknown
 //! join, and the dict/list/byte-source unions annotations name.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{ErasureReason, Type};
 
 impl ModuleBuilder<'_> {
@@ -126,7 +126,10 @@ impl ModuleBuilder<'_> {
     /// `getQueryParams` pushed into a `string[]` entry of a record built as the
     /// `string` arm and read `"[object Object]"` back. Arms with different key
     /// types do not merge.
-    pub(in crate::lowering) fn dict_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn dict_union_type(
+        &mut self,
+        items: &[smelt_hir::TypeId],
+    ) -> Option<smelt_hir::TypeId> {
         if items.len() < 2 {
             return None;
         }
@@ -153,7 +156,10 @@ impl ModuleBuilder<'_> {
 
     /// Collapse unions of list-like arms, which differ by an empty tuple branch or by
     /// element type, into a list type.
-    pub(in crate::lowering) fn list_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
+    pub(in crate::lowering) fn list_union_type(
+        &mut self,
+        items: &[smelt_hir::TypeId],
+    ) -> Option<smelt_hir::TypeId> {
         let mut element_tys = Vec::new();
         for item in items {
             match self.ctx.krate.types.get(*item).cloned() {

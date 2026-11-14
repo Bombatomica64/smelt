@@ -18,19 +18,20 @@ fn write_lowers_class_expression_and_undefined() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     seed(&mut ctx, &["File", "Blob"]);
     lower_ok(
-        ts!(
-            "export function setup() {\n\
+        ts!("export function setup() {\n\
              globalThis.File = class File extends Blob {\n\
                name: string;\n\
                constructor(chunks: any[], filename: string) { super(chunks); this.name = filename; }\n\
              };\n\
              globalThis.Blob = undefined;\n\
-             }\n"
-        ),
+             }\n"),
         &mut ctx,
     )?;
     ensure!(
-        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalWrite { .. })),
+        crate_has_expr(&ctx, |kind| matches!(
+            kind,
+            ExprKind::HostGlobalWrite { .. }
+        )),
         "expected a HostGlobalWrite for the globalThis writes"
     );
     // The class-expression write stores a constructor closure so `new File(...)`
@@ -91,12 +92,10 @@ fn save_restore_round_trip_lowers_read_and_write() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     seed(&mut ctx, &["File"]);
     lower_ok(
-        ts!(
-            "export function roundTrip() {\n\
+        ts!("export function roundTrip() {\n\
              const original = globalThis.File;\n\
              globalThis.File = original;\n\
-             }\n"
-        ),
+             }\n"),
         &mut ctx,
     )?;
     ensure!(
@@ -104,7 +103,10 @@ fn save_restore_round_trip_lowers_read_and_write() -> Result<(), String> {
         "the saved read must lower to HostGlobalRead"
     );
     ensure!(
-        crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::HostGlobalWrite { .. })),
+        crate_has_expr(&ctx, |kind| matches!(
+            kind,
+            ExprKind::HostGlobalWrite { .. }
+        )),
         "the restore must lower to HostGlobalWrite"
     );
     Ok(())

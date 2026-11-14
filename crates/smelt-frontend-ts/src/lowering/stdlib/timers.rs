@@ -202,12 +202,7 @@ impl ModuleBuilder<'_> {
                     })));
                 }
 
-                let extra = self.packed_spread_arguments(
-                    unknown_ty,
-                    extra_args,
-                    span,
-                    body,
-                )?;
+                let extra = self.packed_spread_arguments(unknown_ty, extra_args, span, body)?;
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::AsyncOp {
                         op,

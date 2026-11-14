@@ -61,7 +61,9 @@ use oxc::ast::ast::BindingPattern;
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use smelt_hir::{Body, ErasureReason, Expr, ExprKind, LocalDecl, LocalId, Literal, Param, Pattern, Stmt, Type};
+use smelt_hir::{
+    Body, ErasureReason, Expr, ExprKind, Literal, LocalDecl, LocalId, Param, Pattern, Stmt, Type,
+};
 
 /// The synthetic rest-parameter name holding a variadic function's argument list.
 ///
@@ -244,7 +246,6 @@ impl ModuleBuilder<'_> {
             bound,
         }))
     }
-
 }
 
 impl ArgumentsForwarding {

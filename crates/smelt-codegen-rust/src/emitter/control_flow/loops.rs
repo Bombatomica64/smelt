@@ -25,7 +25,11 @@ impl FunctionEmitter<'_> {
 
     /// Writes `jump`: the latch statements a `continue` must run first, then
     /// the jump statement itself.
-    pub(in crate::emitter) fn emit_loop_jump(&self, jump: LoopJump, out: &mut String) -> Result<(), EmitError> {
+    pub(in crate::emitter) fn emit_loop_jump(
+        &self,
+        jump: LoopJump,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         if let Some(latch) = jump.latch() {
             for statement in &self.block(latch)?.statements {
                 self.emit_statement(statement, out)?;
@@ -46,12 +50,19 @@ impl FunctionEmitter<'_> {
     /// the outer update of a source `continue outer` and never terminated),
     /// and ending the region drops the cycle. Both are silent miscompiles, so
     /// it is an error.
-    fn emit_region_cycle(&self, block: smelt_mir::BlockId, out: &mut String) -> Result<(), EmitError> {
+    fn emit_region_cycle(
+        &self,
+        block: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         if self.flow.is_innermost_loop_continue(block) {
             out.push_str("    continue;\n");
             return Ok(());
         }
-        Err(self.unstructured_control_flow(format!("block {} closes a cycle outside the loop being emitted", block.0)))
+        Err(self.unstructured_control_flow(format!(
+            "block {} closes a cycle outside the loop being emitted",
+            block.0
+        )))
     }
 
     /// Opens the loop of a `while` header: a plain `while cond` when the header
@@ -79,7 +90,8 @@ impl FunctionEmitter<'_> {
         }
         out.push_str(&format!(
             "    if !({}) {{ break; }}\n",
-            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?.delimited()
+            self.truthy_operand_expr(&Operand::Copy(Place::Local(self.switch_cond_local(block)?)))?
+                .delimited()
         ));
         Ok(())
     }
@@ -93,8 +105,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let Some(Terminator::Switch {
-            cond:
-                Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
+            cond: Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
             then_block,
             else_block,
         }) = &block.terminator
@@ -192,8 +203,10 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        let then_repeats = self.block_reaches_target(*then_block, block.id, &mut BlockIdSet::default());
-        let else_repeats = self.block_reaches_target(*else_block, block.id, &mut BlockIdSet::default());
+        let then_repeats =
+            self.block_reaches_target(*then_block, block.id, &mut BlockIdSet::default());
+        let else_repeats =
+            self.block_reaches_target(*else_block, block.id, &mut BlockIdSet::default());
         if then_repeats == else_repeats {
             return Ok(None);
         }
@@ -233,8 +246,7 @@ impl FunctionEmitter<'_> {
     /// Returns the local that stores a structured switch condition.
     fn switch_cond_local(&self, block: &BasicBlock) -> Result<LocalId, EmitError> {
         let Some(Terminator::Switch {
-            cond:
-                Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
+            cond: Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
             ..
         }) = &block.terminator
         else {
@@ -254,7 +266,13 @@ impl FunctionEmitter<'_> {
         visited: &mut BlockIdSet,
     ) -> Result<bool, EmitError> {
         let cache_key = (block.id, continue_target, break_target);
-        if let Some(result) = self.caches.loop_exit_cache.borrow().get(&cache_key).copied() {
+        if let Some(result) = self
+            .caches
+            .loop_exit_cache
+            .borrow()
+            .get(&cache_key)
+            .copied()
+        {
             return Ok(result);
         }
         if !visited.insert(block.id) {
@@ -274,12 +292,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             Some(
-                Terminator::Call {
-                    target, unwind, ..
-                }
-                | Terminator::Await {
-                    target, unwind, ..
-                },
+                Terminator::Call { target, unwind, .. } | Terminator::Await { target, unwind, .. },
             ) => {
                 // A throwing call and an `await` both fork: the normal edge and,
                 // when the region sits inside a `try`, the handler edge. Both are
@@ -347,12 +360,13 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(all_exit)
             }
-            Some(Terminator::Return(_) | Terminator::Throw(_)) => {
-                Ok(true)
-            }
+            Some(Terminator::Return(_) | Terminator::Throw(_)) => Ok(true),
             _ => Ok(false),
         }?;
-        self.caches.loop_exit_cache.borrow_mut().insert(cache_key, result);
+        self.caches
+            .loop_exit_cache
+            .borrow_mut()
+            .insert(cache_key, result);
         Ok(result)
     }
 
@@ -423,8 +437,7 @@ impl FunctionEmitter<'_> {
         EmitError,
     > {
         let Some(Terminator::Switch {
-            cond:
-                Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
+            cond: Operand::Copy(Place::Local(cond_local)) | Operand::Move(Place::Local(cond_local)),
             then_block,
             else_block,
         }) = &block.terminator
@@ -698,7 +711,10 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
+                out.push_str(&format!(
+                    "    if {} {{\n",
+                    self.truthy_operand_expr(cond)?.delimited()
+                ));
                 self.emit_condition_region(self.block(*then_block)?, decision, out, visited)?;
                 out.push_str("    } else {\n");
                 self.emit_condition_region(self.block(*else_block)?, decision, out, visited)?;
@@ -734,10 +750,15 @@ impl FunctionEmitter<'_> {
             self.truthy_operand_expr(cond)?
         };
         let loop_declared = self.declared_scope();
-        let open_loop = self.flow.open_loop(block.id, None, Some(exit_entry), out.len());
+        let open_loop = self
+            .flow
+            .open_loop(block.id, None, Some(exit_entry), out.len());
         out.push_str("    loop {\n");
         self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
-        out.push_str(&format!("    if {cond_text} {{\n", cond_text = cond_text.delimited()));
+        out.push_str(&format!(
+            "    if {cond_text} {{\n",
+            cond_text = cond_text.delimited()
+        ));
         if body_is_then {
             self.emit_block_until_goto(
                 self.block(body_entry)?,
@@ -780,7 +801,8 @@ impl FunctionEmitter<'_> {
         // through a shape it cannot structure, and the only honest answer is
         // an error rather than dropping the rest of the loop body.
         let Some(_depth) = self.flow.enter_until(limit) else {
-            return Err(self.unstructured_control_flow(format!("nested loop regions exceed {limit} levels")));
+            return Err(self
+                .unstructured_control_flow(format!("nested loop regions exceed {limit} levels")));
         };
         self.emit_block_until_goto_inner(block, stop, exit, out, &mut BlockIdSet::default())
     }
@@ -886,7 +908,10 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) if break_target.is_some() => {
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
+                out.push_str(&format!(
+                    "    if {} {{\n",
+                    self.truthy_operand_expr(cond)?.delimited()
+                ));
                 self.emit_loop_branch(self.block(*then_block)?, stop, break_target, out)?;
                 out.push_str("    } else {\n");
                 self.emit_loop_branch(self.block(*else_block)?, stop, break_target, out)?;
@@ -913,9 +938,10 @@ impl FunctionEmitter<'_> {
                 else {
                     return self.emit_terminator(
                         block.id,
-                        block.terminator.as_ref().ok_or_else(|| {
-                            EmitError::new("basic block has no terminator")
-                        })?,
+                        block
+                            .terminator
+                            .as_ref()
+                            .ok_or_else(|| EmitError::new("basic block has no terminator"))?,
                         out,
                     );
                 };
@@ -924,11 +950,17 @@ impl FunctionEmitter<'_> {
                 if *then_block == join && *else_block == join {
                     // Both edges already are the join: no branch to emit.
                 } else if *then_block == join {
-                    out.push_str(&format!("    if !({cond_text}) {{\n", cond_text = cond_text.delimited()));
+                    out.push_str(&format!(
+                        "    if !({cond_text}) {{\n",
+                        cond_text = cond_text.delimited()
+                    ));
                     self.emit_join_region_arm(*else_block, join, stop, out)?;
                     out.push_str("    }\n");
                 } else {
-                    out.push_str(&format!("    if {cond_text} {{\n", cond_text = cond_text.delimited()));
+                    out.push_str(&format!(
+                        "    if {cond_text} {{\n",
+                        cond_text = cond_text.delimited()
+                    ));
                     self.emit_join_region_arm(*then_block, join, stop, out)?;
                     if *else_block != join {
                         out.push_str("    } else {\n");
@@ -947,15 +979,9 @@ impl FunctionEmitter<'_> {
                 scrutinee,
                 arms,
                 default,
-            }) if break_target.is_some() => self.emit_loop_match(
-                scrutinee,
-                arms,
-                *default,
-                stop,
-                break_target,
-                out,
-                visited,
-            ),
+            }) if break_target.is_some() => {
+                self.emit_loop_match(scrutinee, arms, *default, stop, break_target, out, visited)
+            }
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
@@ -1116,7 +1142,10 @@ impl FunctionEmitter<'_> {
                 // which must declare it again (E0425 `_smelt_tmp_N` when the
                 // else-arm assigned it bare).
                 let branch_declared = self.declared_scope();
-                out.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
+                out.push_str(&format!(
+                    "    if {} {{\n",
+                    self.truthy_operand_expr(cond)?.delimited()
+                ));
                 // Each branch can legitimately converge on the same join block.
                 // Sharing the recursion guard across siblings makes the later
                 // branch look cyclic and incorrectly emits `continue`.
@@ -1219,13 +1248,19 @@ impl FunctionEmitter<'_> {
             if is_exit(block_id) {
                 exit
             } else {
-                region.iter().position(|candidate| *candidate == block_id).unwrap_or(exit)
+                region
+                    .iter()
+                    .position(|candidate| *candidate == block_id)
+                    .unwrap_or(exit)
             }
         };
         let region_successors = region
             .iter()
             .map(|block_id| {
-                let mut next = successors_of(*block_id).into_iter().map(node_of).collect::<Vec<_>>();
+                let mut next = successors_of(*block_id)
+                    .into_iter()
+                    .map(node_of)
+                    .collect::<Vec<_>>();
                 if next.is_empty() {
                     next.push(exit);
                 }
@@ -1236,7 +1271,11 @@ impl FunctionEmitter<'_> {
         // itself plus the intersection of its successors' sets.
         let width = exit.saturating_add(1);
         let mut post_dominators: Vec<Vec<bool>> = (0..width)
-            .map(|node| (0..width).map(|member| node != exit || member == exit).collect())
+            .map(|node| {
+                (0..width)
+                    .map(|member| node != exit || member == exit)
+                    .collect()
+            })
             .collect();
         let mut changed = true;
         while changed {
@@ -1306,7 +1345,10 @@ impl FunctionEmitter<'_> {
         let join_scope = self.flow.push_loop_join_stop(join, continue_target);
         let mut arms = String::new();
         let emitted = (|| -> Result<(), EmitError> {
-            arms.push_str(&format!("    if {} {{\n", self.truthy_operand_expr(cond)?.delimited()));
+            arms.push_str(&format!(
+                "    if {} {{\n",
+                self.truthy_operand_expr(cond)?.delimited()
+            ));
             let mut then_visited = visited.clone();
             self.emit_loop_branch_inner(
                 self.block(then_block)?,
@@ -1335,7 +1377,13 @@ impl FunctionEmitter<'_> {
             return Ok(false);
         }
         out.push_str(&arms);
-        self.emit_loop_branch_inner(self.block(join)?, continue_target, break_target, out, visited)?;
+        self.emit_loop_branch_inner(
+            self.block(join)?,
+            continue_target,
+            break_target,
+            out,
+            visited,
+        )?;
         Ok(true)
     }
 
@@ -1387,14 +1435,20 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            let Some(break_block) =
-                self.nested_loop_break_block(then_block, else_block, stop, exit, &[block.id, else_block])
-            else {
+            let Some(break_block) = self.nested_loop_break_block(
+                then_block,
+                else_block,
+                stop,
+                exit,
+                &[block.id, else_block],
+            ) else {
                 return Ok(false);
             };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self.flow.open_loop(block.id, None, Some(break_block), out.len());
+            let open_loop = self
+                .flow
+                .open_loop(block.id, None, Some(break_block), out.len());
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
@@ -1412,14 +1466,20 @@ impl FunctionEmitter<'_> {
         }
 
         if let Some((then_block, else_block)) = self.constant_true_loop_header(block)? {
-            let Some(break_block) =
-                self.nested_loop_break_block(then_block, else_block, stop, exit, &[block.id, else_block])
-            else {
+            let Some(break_block) = self.nested_loop_break_block(
+                then_block,
+                else_block,
+                stop,
+                exit,
+                &[block.id, else_block],
+            ) else {
                 return Ok(false);
             };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self.flow.open_loop(block.id, None, Some(break_block), out.len());
+            let open_loop = self
+                .flow
+                .open_loop(block.id, None, Some(break_block), out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -1454,12 +1514,9 @@ impl FunctionEmitter<'_> {
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self.flow.open_loop(
-                block.id,
-                Some(latch_block),
-                Some(break_block),
-                out.len(),
-            );
+            let open_loop =
+                self.flow
+                    .open_loop(block.id, Some(latch_block), Some(break_block), out.len());
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
@@ -1480,9 +1537,13 @@ impl FunctionEmitter<'_> {
         }
 
         if let Some((repeat_block, exit_block)) = self.call_condition_loop(block, &boundary)? {
-            let Some(break_block) =
-                self.nested_loop_break_block(repeat_block, exit_block, stop, exit, &[block.id, exit_block])
-            else {
+            let Some(break_block) = self.nested_loop_break_block(
+                repeat_block,
+                exit_block,
+                stop,
+                exit,
+                &[block.id, exit_block],
+            ) else {
                 return Ok(false);
             };
             self.emit_call_condition_loop(block, break_block, out)?;
@@ -1524,9 +1585,11 @@ impl FunctionEmitter<'_> {
                     }
                     current = self.block(*target)?;
                 }
-                Some(Terminator::Switch { then_block, else_block, .. })
-                    if current.id != block.id =>
-                {
+                Some(Terminator::Switch {
+                    then_block,
+                    else_block,
+                    ..
+                }) if current.id != block.id => {
                     break (*then_block, *else_block);
                 }
                 _ => return Ok(None),
@@ -1558,7 +1621,9 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let loop_declared = self.declared_scope();
-        let open_loop = self.flow.open_loop(block.id, None, Some(break_block), out.len());
+        let open_loop = self
+            .flow
+            .open_loop(block.id, None, Some(break_block), out.len());
         out.push_str("    loop {\n");
         for statement in &block.statements {
             self.emit_statement_for_block(block, statement, out)?;
@@ -1571,23 +1636,42 @@ impl FunctionEmitter<'_> {
             visited: &visited,
         };
         match &block.terminator {
-            Some(Terminator::Call { callee, args, dest, target, unwind }) => {
+            Some(Terminator::Call {
+                callee,
+                args,
+                dest,
+                target,
+                unwind,
+            }) => {
                 if let Some(handler) = unwind {
-                    self.emit_throwing_call_terminator(callee, args, *dest, *target, *handler, &in_loop, out)?;
+                    self.emit_throwing_call_terminator(
+                        callee, args, *dest, *target, *handler, &in_loop, out,
+                    )?;
                 } else {
                     self.emit_call_terminator_statement(callee, args, *dest, out)?;
                     self.emit_continuation(*target, &in_loop, out)?;
                 }
             }
-            Some(Terminator::Await { future, dest, target, unwind }) => {
+            Some(Terminator::Await {
+                future,
+                dest,
+                target,
+                unwind,
+            }) => {
                 if let Some(handler) = unwind {
-                    self.emit_throwing_await_terminator(future, *dest, *target, *handler, &in_loop, out)?;
+                    self.emit_throwing_await_terminator(
+                        future, *dest, *target, *handler, &in_loop, out,
+                    )?;
                 } else {
                     self.emit_await_terminator_statement(future, *dest, out)?;
                     self.emit_continuation(*target, &in_loop, out)?;
                 }
             }
-            _ => return Err(EmitError::new("call-condition loop header must end in a call or await")),
+            _ => {
+                return Err(EmitError::new(
+                    "call-condition loop header must end in a call or await",
+                ));
+            }
         }
         out.push_str("    }\n");
         open_loop.close(out);
@@ -1621,18 +1705,28 @@ impl FunctionEmitter<'_> {
         exit: RegionExit,
         avoiding: &[smelt_mir::BlockId],
     ) -> Option<smelt_mir::BlockId> {
-        if !self.block_reaches_target_avoiding(then_block, stop, avoiding, &mut BlockIdSet::default()) {
+        if !self.block_reaches_target_avoiding(
+            then_block,
+            stop,
+            avoiding,
+            &mut BlockIdSet::default(),
+        ) {
             return Some(else_block);
         }
         if self.empty_goto_chain_reaches(else_block, stop) {
             return Some(stop);
         }
-        (matches!(exit, RegionExit::LoopBody { .. }) && self.flow.in_open_loop()).then_some(else_block)
+        (matches!(exit, RegionExit::LoopBody { .. }) && self.flow.in_open_loop())
+            .then_some(else_block)
     }
 
     /// Whether following blocks that hold no statement and only `goto` leads
     /// from `from` to `target`.
-    fn empty_goto_chain_reaches(&self, from: smelt_mir::BlockId, target: smelt_mir::BlockId) -> bool {
+    fn empty_goto_chain_reaches(
+        &self,
+        from: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+    ) -> bool {
         let mut current = from;
         let mut seen = BlockIdSet::default();
         while current != target {

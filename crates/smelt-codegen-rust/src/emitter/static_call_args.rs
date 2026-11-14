@@ -306,34 +306,42 @@ impl FunctionEmitter<'_> {
                 rendered_args.push(self.erase(arg)?.into_string());
             }
             StaticArgumentKind::CalleeGeneric { target_ty } => {
-                rendered_args.push(self.callee_generic_argument_expr(
-                    arg,
-                    function,
-                    target_ty,
-                    free_function_type_params,
-                )?.into_string());
+                rendered_args.push(
+                    self.callee_generic_argument_expr(
+                        arg,
+                        function,
+                        target_ty,
+                        free_function_type_params,
+                    )?
+                    .into_string(),
+                );
             }
             StaticArgumentKind::BorrowedCallback { target_ty } => {
-                rendered_args.push(self.borrowed_function_argument_expr(
-                    arg,
-                    target_ty,
-                    callee_bindings,
-                )?.into_string());
+                rendered_args.push(
+                    self.borrowed_function_argument_expr(arg, target_ty, callee_bindings)?
+                        .into_string(),
+                );
             }
             StaticArgumentKind::MutableReference {
                 substituted_target_ty,
             } => {
-                rendered_args.push(self.mutable_reference_argument_expr(
-                    arg,
-                    substituted_target_ty,
-                    Some(free_function_type_params),
-                )?.into_string());
+                rendered_args.push(
+                    self.mutable_reference_argument_expr(
+                        arg,
+                        substituted_target_ty,
+                        Some(free_function_type_params),
+                    )?
+                    .into_string(),
+                );
             }
             StaticArgumentKind::MonomorphizingPassthrough { source_ty } => {
                 rendered_args.push(self.value_at_type(arg, source_ty)?.into_string());
             }
             StaticArgumentKind::DemotingErased { place, source_ty } => {
-                rendered_args.push(self.demoting_erased_argument_expr(place, source_ty)?.into_string());
+                rendered_args.push(
+                    self.demoting_erased_argument_expr(place, source_ty)?
+                        .into_string(),
+                );
             }
             StaticArgumentKind::ErasedFunctionDefault { target_ty } => {
                 rendered_args.push(self.default_value(target_ty)?.into_string());
@@ -342,11 +350,14 @@ impl FunctionEmitter<'_> {
                 // The target is the CALLEE's declared parameter type, so the
                 // render scope is the seam's intersection rather than the
                 // caller's own lexical scope (H42).
-                rendered_args.push(self.value_at_type_in(
-                    arg,
-                    target_ty,
-                    &self.callee_parameter_render_scope(function),
-                )?.into_string());
+                rendered_args.push(
+                    self.value_at_type_in(
+                        arg,
+                        target_ty,
+                        &self.callee_parameter_render_scope(function),
+                    )?
+                    .into_string(),
+                );
             }
         }
         Ok(())

@@ -5,10 +5,10 @@ use std::collections::BTreeMap;
 use super::*;
 use smelt_specialize::{
     BindingMode, CallableProvenance, ClassDefinition, ConstructorShape, Definition,
-    DescriptorDefinition, FieldDefinition, FunctionDefinition, FunctionSignature, GraphValue, GraphValueKind,
-    HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, MaterializedDefinition, ModuleRecord,
-    SandboxPolicyRecord, SourceProvenance, SourceSpan, SpecializationManifest, StaticType,
-    ValueGraph, ValueId,
+    DescriptorDefinition, FieldDefinition, FunctionDefinition, FunctionSignature, GraphValue,
+    GraphValueKind, HashInputs, HostLanguage, MANIFEST_SCHEMA_VERSION, MaterializedDefinition,
+    ModuleRecord, SandboxPolicyRecord, SourceProvenance, SourceSpan, SpecializationManifest,
+    StaticType, ValueGraph, ValueId,
 };
 
 const DECORATED_SOURCE: &str = r#"
@@ -118,10 +118,7 @@ fn manifest_materializes_instance_private_accessor_and_static_fields() -> Result
                 "materialized accessor '{expected_name}' is not a function"
             ));
         };
-        ensure_eq!(
-            ctx.krate.symbols.get(function.name),
-            Some(expected_name)
-        );
+        ensure_eq!(ctx.krate.symbols.get(function.name), Some(expected_name));
     }
     ensure_eq!(ctx.krate.types.get(title.read_ty), Some(&Type::String));
     ensure!(
@@ -320,12 +317,23 @@ fn case_statics_manifest() -> SpecializationManifest {
         module.globals = BTreeMap::from([("Consts".to_owned(), ValueId(2))]);
     }
     manifest.values.nodes = vec![
-        GraphValue { id: ValueId(0), ty: StaticType::Float, value: GraphValueKind::Float(1.0) },
-        GraphValue { id: ValueId(1), ty: StaticType::Float, value: GraphValueKind::Float(2.0) },
+        GraphValue {
+            id: ValueId(0),
+            ty: StaticType::Float,
+            value: GraphValueKind::Float(1.0),
+        },
+        GraphValue {
+            id: ValueId(1),
+            ty: StaticType::Float,
+            value: GraphValueKind::Float(2.0),
+        },
         GraphValue {
             id: ValueId(2),
             ty: StaticType::Named("fixture.Consts".to_owned()),
-            value: GraphValueKind::ClassRef { module: "fixture".to_owned(), qualified_name: "Consts".to_owned() },
+            value: GraphValueKind::ClassRef {
+                module: "fixture".to_owned(),
+                qualified_name: "Consts".to_owned(),
+            },
         },
     ];
     manifest
@@ -342,7 +350,10 @@ fn materialized_static_reads_match_the_source_key() -> Result<(), String> {
         FileId(0),
         "fixture.ts",
         &mut ctx,
-        FrontendOptions { specialization: Some(&manifest), ..FrontendOptions::default() },
+        FrontendOptions {
+            specialization: Some(&manifest),
+            ..FrontendOptions::default()
+        },
     )
     .map_err(|errors| format!("manifest-aware lowering failed: {errors:?}"))?;
     let floats = ctx
@@ -355,8 +366,14 @@ fn materialized_static_reads_match_the_source_key() -> Result<(), String> {
             _ => None,
         })
         .collect::<Vec<_>>();
-    ensure!(floats.contains(&2.0_f64), "`Consts.PI` must read PI's 2: {floats:?}");
-    ensure!(!floats.contains(&1.0_f64), "`Consts.PI` read pi's 1: {floats:?}");
+    ensure!(
+        floats.contains(&2.0_f64),
+        "`Consts.PI` must read PI's 2: {floats:?}"
+    );
+    ensure!(
+        !floats.contains(&1.0_f64),
+        "`Consts.PI` read pi's 1: {floats:?}"
+    );
     Ok(())
 }
 
@@ -414,12 +431,23 @@ fn a_callable_from_another_file_is_not_lifted_from_this_one() -> Result<(), Stri
             FileId(0),
             "fixture.ts",
             &mut ctx,
-            FrontendOptions { specialization: Some(&manifest), ..FrontendOptions::default() },
+            FrontendOptions {
+                specialization: Some(&manifest),
+                ..FrontendOptions::default()
+            },
         )
         .map(|_| ())
     };
-    lower("fixture.ts").map_err(|errors| format!("the method of this file must lift: {errors:?}"))?;
-    let errors = lower("elsewhere.ts").err().ok_or("a method of another file was lifted from this one")?;
-    ensure!(errors.iter().any(|error| error.message.contains("elsewhere.ts")), "{errors:?}");
+    lower("fixture.ts")
+        .map_err(|errors| format!("the method of this file must lift: {errors:?}"))?;
+    let errors = lower("elsewhere.ts")
+        .err()
+        .ok_or("a method of another file was lifted from this one")?;
+    ensure!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("elsewhere.ts")),
+        "{errors:?}"
+    );
     Ok(())
 }

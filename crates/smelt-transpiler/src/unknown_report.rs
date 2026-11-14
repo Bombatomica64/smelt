@@ -205,9 +205,7 @@ const TOP_OFFENDER_LIMIT: usize = 10;
 /// rose above the baseline, the message saying so; only `--fail-on-regression`
 /// turns that into a nonzero exit. A scan with a coverage loss never rewrites
 /// the baseline.
-pub(crate) fn unknown_report(
-    options: &UnknownReportOptions<'_>,
-) -> CliResult<GatedOutcome> {
+pub(crate) fn unknown_report(options: &UnknownReportOptions<'_>) -> CliResult<GatedOutcome> {
     let files = discover_rust_files(options.roots)?;
     let mut scan = scan_files(&files)?;
     let sidecars = discover_erasure_sidecars(options.roots, options.erasure_sidecars)?;
@@ -220,7 +218,10 @@ pub(crate) fn unknown_report(
         Some(path) => Some(report::load_json::<UnknownReport>(path, "baseline ")?),
         None => None,
     };
-    let lost_coverage = options.baseline.as_ref().and_then(|_| coverage_loss(scanned, baseline.as_ref()));
+    let lost_coverage = options
+        .baseline
+        .as_ref()
+        .and_then(|_| coverage_loss(scanned, baseline.as_ref()));
     if options.update_baseline
         && lost_coverage.is_none()
         && let Some(path) = &options.baseline
@@ -232,7 +233,9 @@ pub(crate) fn unknown_report(
         ReportFormat::Json => serde_json::to_string_pretty(scanned)?,
         ReportFormat::Markdown => render_markdown(scanned, baseline.as_ref()),
     };
-    let regression = baseline.as_ref().and_then(|prior| detect_regression(&scan, prior));
+    let regression = baseline
+        .as_ref()
+        .and_then(|prior| detect_regression(&scan, prior));
     Ok(GatedOutcome {
         rendered,
         regression: lost_coverage.or_else(|| regression.as_ref().map(regression_message)),

@@ -1,10 +1,10 @@
 //! Re-export declarations: `export { a } from`, `export * from` and
 //! `export * as ns from`, which forward another module's exports under this one.
 
-use crate::lowering::js_text::js_str_text;
-use smelt_hir::{Import, Module};
 use super::super::ModuleBuilder;
 use super::super::support::module_export_name;
+use crate::lowering::js_text::js_str_text;
+use smelt_hir::{Import, Module};
 
 impl ModuleBuilder<'_> {
     /// Alias locally declared items re-exported by name: `export { a, b as c }`.
@@ -47,7 +47,9 @@ impl ModuleBuilder<'_> {
         let mut members = self
             .items
             .iter()
-            .filter_map(|(name, item)| Some((format!("{exported}.{}", name.strip_prefix(&prefix)?), *item)))
+            .filter_map(|(name, item)| {
+                Some((format!("{exported}.{}", name.strip_prefix(&prefix)?), *item))
+            })
             .collect::<Vec<_>>();
         members.sort_by(|left, right| left.0.cmp(&right.0));
         for (alias, item) in members {
@@ -83,7 +85,11 @@ impl ModuleBuilder<'_> {
                 module.reexports.push((exported_symbol, item));
             }
             if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
-                self.publish_export(|ctx| &mut ctx.object_namespaces, exported.clone(), namespace);
+                self.publish_export(
+                    |ctx| &mut ctx.object_namespaces,
+                    exported.clone(),
+                    namespace,
+                );
             }
             if let Some(value) = self.consts.object(exported.as_str()).cloned() {
                 self.publish_export(|ctx| &mut ctx.object_consts, exported.clone(), value);
@@ -129,7 +135,11 @@ impl ModuleBuilder<'_> {
     /// `Types.Id` only for exports that came from `./types`. Keeping this
     /// source-scoped prevents namespace imports in large barrel graphs from
     /// repeatedly re-aliasing every previously seen item.
-    pub(in crate::lowering) fn alias_source_exports_under_namespace(&mut self, source: &str, namespace: &str) {
+    pub(in crate::lowering) fn alias_source_exports_under_namespace(
+        &mut self,
+        source: &str,
+        namespace: &str,
+    ) {
         let Some(exports) = self.source_module_exports(source) else {
             return;
         };

@@ -57,18 +57,12 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
             }
             let bound = projected_bind_locals(&function.blocks, &function.locals, &facts.types);
             let can_throw = function.blocks.iter().any(|block| {
-                block
-                    .statements
-                    .iter()
-                    .any(|statement| {
-                        statement_can_throw(statement, &function.locals, &bound, &facts)
-                    })
-                    || block
-                        .terminator
-                        .as_ref()
-                        .is_some_and(|terminator| {
-                            terminator_can_throw(terminator, &facts.throwing)
-                        })
+                block.statements.iter().any(|statement| {
+                    statement_can_throw(statement, &function.locals, &bound, &facts)
+                }) || block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator_can_throw(terminator, &facts.throwing))
             });
             if can_throw {
                 function.can_throw = true;
@@ -82,18 +76,12 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
             }
             let bound = projected_bind_locals(&closure.blocks, &closure.locals, &facts.types);
             let can_throw = closure.blocks.iter().any(|block| {
-                block
-                    .statements
-                    .iter()
-                    .any(|statement| {
-                        statement_can_throw(statement, &closure.locals, &bound, &facts)
-                    })
-                    || block
-                        .terminator
-                        .as_ref()
-                        .is_some_and(|terminator| {
-                            terminator_can_throw(terminator, &facts.throwing)
-                        })
+                block.statements.iter().any(|statement| {
+                    statement_can_throw(statement, &closure.locals, &bound, &facts)
+                }) || block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator_can_throw(terminator, &facts.throwing))
             });
             if can_throw {
                 closure.can_throw = true;
@@ -259,11 +247,10 @@ fn optional_method_can_throw(
         return false;
     };
     class.methods.iter().any(|func| {
-        usize_from_u32(func.0, "MIR function index does not fit in usize")
-            .is_ok_and(|index| {
-                facts.function_names.get(index).copied() == Some(method)
-                    && facts.throwing.get(index).copied().unwrap_or(false)
-            })
+        usize_from_u32(func.0, "MIR function index does not fit in usize").is_ok_and(|index| {
+            facts.function_names.get(index).copied() == Some(method)
+                && facts.throwing.get(index).copied().unwrap_or(false)
+        })
     })
 }
 
@@ -299,20 +286,24 @@ fn bound_method_can_throw(bound: Symbol, method: Symbol, facts: &CrateThrowFacts
             })
         })
     };
-    facts.classes.iter().filter(|class| reaches_bound(class)).any(|class| {
-        let mut current = Some(class);
-        let mut steps = 0usize;
-        while let Some(candidate) = current
-            && steps <= facts.classes.len()
-        {
-            if declares_throwing(candidate) {
-                return true;
+    facts
+        .classes
+        .iter()
+        .filter(|class| reaches_bound(class))
+        .any(|class| {
+            let mut current = Some(class);
+            let mut steps = 0usize;
+            while let Some(candidate) = current
+                && steps <= facts.classes.len()
+            {
+                if declares_throwing(candidate) {
+                    return true;
+                }
+                current = candidate.base.and_then(class_named);
+                steps = steps.saturating_add(1);
             }
-            current = candidate.base.and_then(class_named);
-            steps = steps.saturating_add(1);
-        }
-        false
-    })
+            false
+        })
 }
 
 /// Returns whether a terminator can leave through an uncaught exception path.
@@ -344,7 +335,6 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
         | Terminator::Await { .. }
         | Terminator::Switch { .. }
         | Terminator::Match { .. }
-        | Terminator::Return(_)
-        => false,
+        | Terminator::Return(_) => false,
     }
 }

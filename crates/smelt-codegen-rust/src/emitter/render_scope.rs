@@ -127,7 +127,11 @@ impl RenderScope {
         let narrowed = match &self.scope {
             OwnedTypeParamScope::DeliberatelyErased => HashSet::new(),
             OwnedTypeParamScope::Lexical(names) | OwnedTypeParamScope::LexicalSubset(names) => {
-                names.iter().filter(|name| other.contains(name)).copied().collect()
+                names
+                    .iter()
+                    .filter(|name| other.contains(name))
+                    .copied()
+                    .collect()
             }
         };
         Self {

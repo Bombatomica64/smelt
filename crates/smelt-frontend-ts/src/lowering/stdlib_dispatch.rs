@@ -95,7 +95,10 @@ fn namespace_path(expr: &Expression<'_>) -> Option<String> {
 
 /// Return the pure Math operation for a static `Math.*` call, excluding non-foldable APIs.
 #[must_use]
-pub(super) fn pure_math_call(call: &CallExpression<'_>, names_host: NamesHost<'_>) -> Option<MathFunction> {
+pub(super) fn pure_math_call(
+    call: &CallExpression<'_>,
+    names_host: NamesHost<'_>,
+) -> Option<MathFunction> {
     let Expression::StaticMemberExpression(member) = &call.callee else {
         return None;
     };
@@ -106,12 +109,18 @@ pub(super) fn pure_math_call(call: &CallExpression<'_>, names_host: NamesHost<'_
         return None;
     }
     smelt_stdlib::math_function(member.property.name.as_str()).filter(|function| {
-        !matches!(function, MathFunction::Imul | MathFunction::Clz32 | MathFunction::Random)
+        !matches!(
+            function,
+            MathFunction::Imul | MathFunction::Clz32 | MathFunction::Random
+        )
     })
 }
 
 /// Return the rule matching a static member call.
-fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>, names_host: NamesHost<'_>) -> Option<RuleId> {
+fn static_member_rule(
+    member: &oxc::ast::ast::StaticMemberExpression<'_>,
+    names_host: NamesHost<'_>,
+) -> Option<RuleId> {
     let property = member.property.name.as_str();
     // The receiver is the whole DOTTED namespace path, not just an identifier.
     // `Math.random()` and `crypto.subtle.digest(..)` are the same shape at

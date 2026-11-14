@@ -50,7 +50,10 @@ pub(crate) const BASE_INIT_RECEIVER: &str = "smelt_receiver";
 /// Named after the class whose constructor body it is, so a class several
 /// levels down carries one initializer per ancestor and the names never clash
 /// with each other or with a source method.
-pub(crate) fn base_initializer_name(context: &EmitContext, base: smelt_hir::Symbol) -> Result<String, EmitError> {
+pub(crate) fn base_initializer_name(
+    context: &EmitContext,
+    base: smelt_hir::Symbol,
+) -> Result<String, EmitError> {
     Ok(format!("__smelt_init_{}", context.names().type_name(base)?))
 }
 
@@ -63,14 +66,17 @@ pub(crate) fn constructed_class_ty(
     mir: &Mir,
     class: smelt_hir::Symbol,
 ) -> Result<Option<smelt_hir::TypeId>, EmitError> {
-    let Some(constructor) = crate::classes::find_class(mir, class)
-        .and_then(|candidate| candidate.constructor)
+    let Some(constructor) =
+        crate::classes::find_class(mir, class).and_then(|candidate| candidate.constructor)
     else {
         return Ok(None);
     };
     Ok(mir
         .functions
-        .get(id_index(constructor.0, "constructor index does not fit usize")?)
+        .get(id_index(
+            constructor.0,
+            "constructor index does not fit usize",
+        )?)
         .map(|function| function.return_ty))
 }
 
@@ -90,7 +96,10 @@ pub(crate) const fn constructor_class(function: &MirFunction) -> Option<smelt_hi
 /// each once. An abstract class emits no constructor and therefore no
 /// initializers of its own; a concrete descendant re-emits the abstract class's
 /// constructor as one of ITS initializers instead.
-pub(crate) fn base_initializer_chain(mir: &Mir, class: &MirClass) -> Result<Vec<FuncId>, EmitError> {
+pub(crate) fn base_initializer_chain(
+    mir: &Mir,
+    class: &MirClass,
+) -> Result<Vec<FuncId>, EmitError> {
     let mut chain = Vec::new();
     if class.is_abstract {
         return Ok(chain);

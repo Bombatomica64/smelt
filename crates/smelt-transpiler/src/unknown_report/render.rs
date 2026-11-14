@@ -1,6 +1,5 @@
 //! The Markdown rendering of a report.
 
-
 use super::{Category, UnknownReport};
 use crate::report::{escape_cell, push_fmt};
 
@@ -9,8 +8,14 @@ pub(super) fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownR
     let mut out = String::new();
     push_fmt(&mut out, format_args!("# SmeltUnknown usage report\n"));
     out.push('\n');
-    push_fmt(&mut out, format_args!("- Files scanned: {}\n", report.files_scanned));
-    push_fmt(&mut out, format_args!("- Total `SmeltUnknown` occurrences: {}\n", report.total));
+    push_fmt(
+        &mut out,
+        format_args!("- Files scanned: {}\n", report.files_scanned),
+    );
+    push_fmt(
+        &mut out,
+        format_args!("- Total `SmeltUnknown` occurrences: {}\n", report.total),
+    );
     push_fmt(
         &mut out,
         format_args!(
@@ -58,7 +63,10 @@ pub(super) fn render_markdown(report: &UnknownReport, baseline: Option<&UnknownR
 fn render_baseline_delta(out: &mut String, report: &UnknownReport, baseline: &UnknownReport) {
     push_fmt(out, format_args!("## Change vs baseline\n"));
     out.push('\n');
-    push_fmt(out, format_args!("| Category | Baseline | Current | Delta |\n"));
+    push_fmt(
+        out,
+        format_args!("| Category | Baseline | Current | Delta |\n"),
+    );
     push_fmt(out, format_args!("| --- | ---: | ---: | ---: |\n"));
     for category in Category::all() {
         let before = baseline.category_total(category);
@@ -82,9 +90,7 @@ fn render_baseline_delta(out: &mut String, report: &UnknownReport, baseline: &Un
         Some(0) | None => {
             push_fmt(
                 out,
-                format_args!(
-                    "Avoidable erasure did not increase versus the baseline.\n"
-                ),
+                format_args!("Avoidable erasure did not increase versus the baseline.\n"),
             );
         }
         Some(increase) => {
@@ -115,10 +121,16 @@ fn render_shape_table(out: &mut String, report: &UnknownReport) {
     push_fmt(out, format_args!("## Occurrence shapes\n"));
     out.push('\n');
     if report.shapes.is_empty() {
-        push_fmt(out, format_args!("No `SmeltUnknown` occurrences were found.\n"));
+        push_fmt(
+            out,
+            format_args!("No `SmeltUnknown` occurrences were found.\n"),
+        );
         return;
     }
-    push_fmt(out, format_args!("| Occurrences | Files | Category | Shape | Example |\n"));
+    push_fmt(
+        out,
+        format_args!("| Occurrences | Files | Category | Shape | Example |\n"),
+    );
     push_fmt(out, format_args!("| ---: | ---: | --- | --- | --- |\n"));
     for shape in &report.shapes {
         push_fmt(

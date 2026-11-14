@@ -24,7 +24,8 @@ mod common;
 use std::{fs, path::Path};
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure_eq, ensure_node_agrees, ensure_python_agrees, smelt_in,
+    TempProject, TestResult, cargo_run_manifest, ensure_eq, ensure_node_agrees,
+    ensure_python_agrees, smelt_in,
 };
 
 /// Writes a one-entry project at `root` around the files of `sources`.
@@ -153,7 +154,11 @@ fn typescript_names_resolve_like_node() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &TS_SOURCES)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &MAIN_TS_OUTPUT.to_owned(), "the name-resolution program's output")
+    ensure_eq(
+        &output,
+        &MAIN_TS_OUTPUT.to_owned(),
+        "the name-resolution program's output",
+    )
 }
 
 /// A Python method and a container keep their declared return types (A8).
@@ -192,7 +197,11 @@ fn python_declared_returns_are_kept() -> TestResult {
     let root = temp.path();
     write_project(root, "main.py", &[("main.py", MAIN_PY)])?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &MAIN_PY_OUTPUT.to_owned(), "the declared-returns program's output")
+    ensure_eq(
+        &output,
+        &MAIN_PY_OUTPUT.to_owned(),
+        "the declared-returns program's output",
+    )
 }
 
 /// `size` and `length` count elements only on a receiver whose TYPE is a
@@ -223,7 +232,11 @@ fn count_members_are_resolved_by_receiver_type() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &COUNT_MEMBERS_OUTPUT.to_owned(), "the count-members program's output")
+    ensure_eq(
+        &output,
+        &COUNT_MEMBERS_OUTPUT.to_owned(),
+        "the count-members program's output",
+    )
 }
 
 /// Generic record helpers instantiate from their arguments, the way tsc does,
@@ -255,19 +268,27 @@ console.log(mapValues({ a: 1, b: 2 }, (_, key) => key + "!"), mapValues({ a: 1, 
 "#;
 
 /// What Node prints for [`GENERIC_RECORDS_TS`].
-const GENERIC_RECORDS_OUTPUT: &str =
-    "{ '1': 'a', '2': 'b', '3': 'c' } { p: 'x', q: 'y' } 3 b y\n{ a: 'a!', b: 'b!' } { a: 10, b: 20 }\n";
+const GENERIC_RECORDS_OUTPUT: &str = "{ '1': 'a', '2': 'b', '3': 'c' } { p: 'x', q: 'y' } 3 b y\n{ a: 'a!', b: 'b!' } { a: 10, b: 20 }\n";
 
 /// Generic record helpers instantiate concretely and behave like Node.
 #[test]
 fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
     let sources = [("main.ts", GENERIC_RECORDS_TS)];
-    ensure_node_agrees(&sources, "main.ts", GENERIC_RECORDS_OUTPUT, "generic records")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        GENERIC_RECORDS_OUTPUT,
+        "generic records",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &GENERIC_RECORDS_OUTPUT.to_owned(), "the generic-records program's output")?;
+    ensure_eq(
+        &output,
+        &GENERIC_RECORDS_OUTPUT.to_owned(),
+        "the generic-records program's output",
+    )?;
     let rust = fs::read_dir(root.join("dist/src"))?
         .map(|entry| fs::read_to_string(entry?.path()))
         .collect::<Result<String, _>>()?;
@@ -290,7 +311,10 @@ fn generic_record_helpers_instantiate_from_their_arguments() -> TestResult {
         "let s: SmeltPropKeyRecord<SmeltUnion",
         "let r: SmeltPropKeyRecord<SmeltUnion",
     ] {
-        common::ensure(rust.contains(typed), format!("generated crate must spell `{typed}`"))?;
+        common::ensure(
+            rust.contains(typed),
+            format!("generated crate must spell `{typed}`"),
+        )?;
     }
     Ok(())
 }
@@ -328,12 +352,21 @@ const UNCHECKED_RETURNS_OUTPUT: &str = "null { a: 1, b: 2 } 3\n";
 #[test]
 fn a_callback_result_returned_as_t_keeps_its_runtime_value() -> TestResult {
     let sources = [("main.ts", UNCHECKED_RETURNS_TS)];
-    ensure_node_agrees(&sources, "main.ts", UNCHECKED_RETURNS_OUTPUT, "unchecked returns")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        UNCHECKED_RETURNS_OUTPUT,
+        "unchecked returns",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &UNCHECKED_RETURNS_OUTPUT.to_owned(), "the unchecked-returns program's output")
+    ensure_eq(
+        &output,
+        &UNCHECKED_RETURNS_OUTPUT.to_owned(),
+        "the unchecked-returns program's output",
+    )
 }
 
 /// A parameter named like a host global is the parameter, on every path where
@@ -415,5 +448,9 @@ fn parameters_shadow_host_globals_everywhere() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &HOST_SHADOW_OUTPUT.to_owned(), "the host-shadowing program's output")
+    ensure_eq(
+        &output,
+        &HOST_SHADOW_OUTPUT.to_owned(),
+        "the host-shadowing program's output",
+    )
 }

@@ -234,7 +234,11 @@ mod tests {
         let merged = krate.upsert_interface(interface(1, 99));
         assert_ne!(merged, first);
         assert_eq!(
-            krate.items.iter().filter(|item| matches!(item, Item::Interface(_))).count(),
+            krate
+                .items
+                .iter()
+                .filter(|item| matches!(item, Item::Interface(_)))
+                .count(),
             2
         );
     }

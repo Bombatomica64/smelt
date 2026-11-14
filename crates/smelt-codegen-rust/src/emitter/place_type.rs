@@ -18,7 +18,11 @@ impl FunctionEmitter<'_> {
                 "internal: a mutable-global place has no read type",
             )),
             Place::Field { base, field } => self.field_place_ty(*base, *field),
-            Place::Index { base, index, negative } => self.index_place_ty(*base, index, *negative),
+            Place::Index {
+                base,
+                index,
+                negative,
+            } => self.index_place_ty(*base, index, *negative),
         }
     }
 
@@ -141,7 +145,10 @@ impl FunctionEmitter<'_> {
         // interpolation ran the `SmeltUnknown` ToString match over an
         // `i64` and did not compile. `string_field_read` decides the
         // text and the type together; ask it for the type.
-        if matches!(self.mir.types.get(base_ty), Some(Type::String | Type::PyStr)) {
+        if matches!(
+            self.mir.types.get(base_ty),
+            Some(Type::String | Type::PyStr)
+        ) {
             return Ok(self.string_field_read(&RustExpr::loose(""), field)?.1);
         }
         // A GENERATED union receiver whose every arm declares the field
@@ -176,9 +183,7 @@ impl FunctionEmitter<'_> {
         // concrete value.
         // `URLSearchParams.size` is the one data property the spec
         // defines on a concrete params value; it is a number.
-        if self.is_url_search_params_class_type(base_ty)?
-            && self.symbol_name(field)? == "size"
-        {
+        if self.is_url_search_params_class_type(base_ty)? && self.symbol_name(field)? == "size" {
             return self.type_id(Type::Float);
         }
         if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
@@ -187,9 +192,7 @@ impl FunctionEmitter<'_> {
             let member = self.symbol_name(field)?;
             return match smelt_stdlib::regexp_member(member) {
                 Some(kind) => self.regexp_member_ty(kind),
-                None => self.erased_fallback_ty(|| {
-                    format!("the read of `{member}` on a `RegExp`")
-                }),
+                None => self.erased_fallback_ty(|| format!("the read of `{member}` on a `RegExp`")),
             };
         }
         match self.mir.types.get(base_ty) {
@@ -211,10 +214,7 @@ impl FunctionEmitter<'_> {
                     .into_iter()
                     .find(|record_field| record_field.name == field)
                     .map(|record_field| {
-                        if matches!(
-                            self.mir.types.get(record_field.ty),
-                            Some(Type::Optional(_))
-                        ) {
+                        if matches!(self.mir.types.get(record_field.ty), Some(Type::Optional(_))) {
                             record_field.ty
                         } else {
                             self.type_id(Type::Optional(record_field.ty))
@@ -229,7 +229,10 @@ impl FunctionEmitter<'_> {
                             "optional record field `{}` is unknown on {}",
                             self.symbol_name(field).unwrap_or("<unnamed>"),
                             self.rendered_type(*inner)
-                                .unwrap_or_else(|_| RustType::from(format!("{:?}", self.mir.types.get(*inner)))),
+                                .unwrap_or_else(|_| RustType::from(format!(
+                                    "{:?}",
+                                    self.mir.types.get(*inner)
+                                ))),
                         ))
                     })
             }
@@ -245,9 +248,7 @@ impl FunctionEmitter<'_> {
             // the lookup order (class, then interface) is kept as it
             // was.
             Some(Type::Class { name, args }) => {
-                let field_ty = if let Some(class) =
-                    crate::classes::find_class(self.mir, *name)
-                {
+                let field_ty = if let Some(class) = crate::classes::find_class(self.mir, *name) {
                     self.substitute_record_field_type_params(
                         &class.type_params,
                         args,
@@ -311,9 +312,7 @@ impl FunctionEmitter<'_> {
         // Decided by the same rule that renders the read
         // (`place::place_expr`), so callers coerce from the arm-typed
         // value rather than re-narrowing an erased one.
-        if let Some((read_ty, _)) =
-            self.concrete_union_index_reads(base_ty, index, negative)?
-        {
+        if let Some((read_ty, _)) = self.concrete_union_index_reads(base_ty, index, negative)? {
             return Ok(read_ty);
         }
         // An indexed read on a typed-array view decodes ONE element at
@@ -363,14 +362,13 @@ impl FunctionEmitter<'_> {
             // answer (`PropertyKey | PropertyKey[]`: a number has no
             // elements) is read through its erased form (`place_expr`), so the
             // value it reads is erased too, not the union itself.
-            Some(Type::Union(_)) if self.concrete_union_members(base_ty).is_some() => {
-                self.erased_fallback_ty(|| {
+            Some(Type::Union(_)) if self.concrete_union_members(base_ty).is_some() => self
+                .erased_fallback_ty(|| {
                     format!(
                         "the indexed read on the union `{}`, whose arms are not all indexable",
                         self.blocker_type_text(base_ty)
                     )
-                })
-            }
+                }),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;

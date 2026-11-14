@@ -100,7 +100,8 @@ impl FunctionEmitter<'_> {
              let _smelt_this_guard = smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_slot_receiver.clone(); ::std::rc::Rc::new(move || {erase}) }}); \
              let smelt_slot_callee = {callee}; \
              (smelt_slot_callee)({args}) }}); smelt_slot }}",
-            ty = self.rendered_type(target_field.ty)?, callee = callee.delimited(),
+            ty = self.rendered_type(target_field.ty)?,
+            callee = callee.delimited(),
         ))))
     }
 

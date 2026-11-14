@@ -1,8 +1,8 @@
 //! The `Math` global: its call forms, its constants, and reads of its members as
 //! values.
 
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;

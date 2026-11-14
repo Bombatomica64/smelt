@@ -54,12 +54,18 @@ function read(value: Left | Right): string {
 "#,
     );
 
-    assert!(source.matches("pub enum SmeltUnion").count() >= 3, "{source}");
+    assert!(
+        source.matches("pub enum SmeltUnion").count() >= 3,
+        "{source}"
+    );
     assert!(
         source.contains("union guard selected an excluded member"),
         "{source}"
     );
-    assert!(source.contains("matches!(value.clone(), SmeltUnion"), "{source}");
+    assert!(
+        source.contains("matches!(value.clone(), SmeltUnion"),
+        "{source}"
+    );
 }
 
 /// A class field typed as a concrete union (`string | number`) lowers the field
@@ -94,10 +100,7 @@ export function getVal(h: Holder): string | number {
         source.contains("impl ::std::fmt::Debug for SmeltUnion"),
         "{source}"
     );
-    assert!(
-        source.contains("impl Default for SmeltUnion"),
-        "{source}"
-    );
+    assert!(source.contains("impl Default for SmeltUnion"), "{source}");
     // Default selects the first union arm.
     assert!(source.contains("Self::M0("), "{source}");
 }
@@ -223,7 +226,11 @@ export function sameKind(a: unknown, b: unknown): boolean {
             && source.contains("_smelt_tmp_5 = smelt_typeof(&a);"),
         "{source}"
     );
-    assert!(!source.contains("smelt_typeof(&a).to_owned()") && !source.contains("JsString::from(smelt_typeof(&a))"), "{source}");
+    assert!(
+        !source.contains("smelt_typeof(&a).to_owned()")
+            && !source.contains("JsString::from(smelt_typeof(&a))"),
+        "{source}"
+    );
     // The equality compares the two borrowed spellings directly, and the
     // `switch` matches the binding rather than an `.as_str()` it does not have.
     assert!(
@@ -244,7 +251,11 @@ function describe(value: string | number[]): string {
 
     // A concrete union decides its arms per member type, so the match stays at
     // the site -- but it selects a `&'static str` and borrows its scrutinee.
-    assert!(!source.contains("\"string\".to_owned(), ") && !source.contains("JsString::from(\"string\"), "), "{source}");
+    assert!(
+        !source.contains("\"string\".to_owned(), ")
+            && !source.contains("JsString::from(\"string\"), "),
+        "{source}"
+    );
     assert!(
         source.contains("=> match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let len = values.len(); let start = smelt_builtin_relative_index(&first, len, 0); let end = smelt_builtin_relative_index(&second, len, len); SmeltUnknown::Array(values.into_iter().skip(start).take(end.saturating_sub(start)).collect::<Vec<_>>().into()) } Non")
             && source.contains("::M0(_) => \"string\", ")
@@ -581,7 +592,9 @@ function sortMixed(values: Array<string | number>): Array<string | number> {
     );
 
     assert!(
-        source.contains(".sort_by(|smelt_left, smelt_right| (match smelt_left.clone().into_smelt_unknown()"),
+        source.contains(
+            ".sort_by(|smelt_left, smelt_right| (match smelt_left.clone().into_smelt_unknown()"
+        ),
         "union default sort should compare erased string coercions\n{source}"
     );
     assert!(
@@ -864,7 +877,8 @@ const r = show(pick(true));
         .and_then(|rest| rest.split("\nfn ").next())
         .unwrap_or_else(|| panic!("expected a generated `pick`:\n{source}"));
     assert!(
-        !pick_body.contains("let mut _smelt_tmp_1: String;") && !pick_body.contains("let mut _smelt_tmp_1: JsString;"),
+        !pick_body.contains("let mut _smelt_tmp_1: String;")
+            && !pick_body.contains("let mut _smelt_tmp_1: JsString;"),
         "a class branch must not be assigned into a `String` local:\n{source}"
     );
     assert!(
@@ -932,7 +946,6 @@ m.set(pick(true), 1);
         "a generated union must be recoverable from its erased view:\n{source}"
     );
 }
-
 
 /// Narrowing a callable object to a callable interface that declares fewer
 /// members keeps the dropped members readable as own properties of the

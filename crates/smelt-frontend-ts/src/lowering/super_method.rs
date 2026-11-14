@@ -27,8 +27,10 @@ impl ModuleBuilder<'_> {
         let Expression::Super(super_expr) = &member.object else {
             return Ok(None);
         };
-        let this = self.identifier_expression("this", super_expr.span.start, super_expr.span.end, body)?;
-        let Some(Type::Class { name: own, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, this)).cloned()
+        let this =
+            self.identifier_expression("this", super_expr.span.start, super_expr.span.end, body)?;
+        let Some(Type::Class { name: own, .. }) =
+            self.ctx.krate.types.get(Self::expr_ty(body, this)).cloned()
         else {
             return Ok(None);
         };
@@ -41,17 +43,29 @@ impl ModuleBuilder<'_> {
         let return_ty = function.return_ty;
         let span = self.span(call.span.start, call.span.end);
         let callee_ty = self.item_expr_type(item, span)?;
-        let callee = body.push_expr(Expr { kind: ExprKind::Item(item), ty: callee_ty, span });
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::Item(item),
+            ty: callee_ty,
+            span,
+        });
         let mut args = vec![this];
         for argument in &call.arguments {
             args.push(self.argument(argument, body)?);
         }
-        Ok(Some(body.push_expr(Expr { kind: ExprKind::Call { callee, args }, ty: return_ty, span })))
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Call { callee, args },
+            ty: return_ty,
+            span,
+        })))
     }
 
     /// The item of the method `name` declared by the nearest ancestor of the
     /// class `own`.
-    fn ancestor_method_item(&self, own: smelt_hir::Symbol, name: &str) -> Option<smelt_hir::ItemId> {
+    fn ancestor_method_item(
+        &self,
+        own: smelt_hir::Symbol,
+        name: &str,
+    ) -> Option<smelt_hir::ItemId> {
         let mut class = self
             .classes
             .base_of_symbol(own)

@@ -4,10 +4,12 @@
 //! resolution, interface satisfaction checks, and small accessors for looking
 //! up expression, local, and item types.
 
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::js_text::{LONE_SURROGATE_NAME, has_lone_surrogate, js_str_literal, js_str_text};
-use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use crate::SmeltError;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::js_text::{
+    LONE_SURROGATE_NAME, has_lone_surrogate, js_str_literal, js_str_text,
+};
+use crate::lowering::{ModuleBuilder, field_type_satisfies};
 use oxc::ast::ast::{Expression, PropertyKey, TSTypeName};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, Interface, Item, Literal, Type};
@@ -40,16 +42,20 @@ impl ModuleBuilder<'_> {
                 Ok(self.intern_private_name(ident.name.as_str()))
             }
             PropertyKey::StringLiteral(lit) if has_lone_surrogate(lit.value) => {
-                Err(SmeltError::unsupported(self.span(lit.span.start, lit.span.end), LONE_SURROGATE_NAME))
+                Err(SmeltError::unsupported(
+                    self.span(lit.span.start, lit.span.end),
+                    LONE_SURROGATE_NAME,
+                ))
             }
             PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(&js_str_text(lit.value))),
             PropertyKey::NumericLiteral(lit) => {
                 // JavaScript coerces numeric property keys to their string form
                 // (`{ 0: x }` names the member `"0"`). Prefer the raw spelling
                 // when available so canonical integer keys round-trip cleanly.
-                let name = lit
-                    .raw
-                    .as_ref().map_or_else(|| Self::numeric_property_key_name(lit.value), ToString::to_string);
+                let name = lit.raw.as_ref().map_or_else(
+                    || Self::numeric_property_key_name(lit.value),
+                    ToString::to_string,
+                );
                 Ok(self.intern_source_name(&name))
             }
             // A computed key such as `[SOME_CONST]`, `[MyEnum.Member]`, or a
@@ -117,9 +123,9 @@ impl ModuleBuilder<'_> {
                 literal.computed_member_name().map(|name| (name, false))
             }
             // An inline `[Symbol.for("k")]` call key folds to its registry key.
-            PropertyKey::CallExpression(call) => {
-                self.symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
-            }
+            PropertyKey::CallExpression(call) => self
+                .symbol_for_call_key(call)
+                .map(|symbol_key| (symbol_key, true)),
             // A bare identifier reference folds to its const value when known;
             // a `Symbol.for(...)`-aliased const yields a synthetic symbol key.
             PropertyKey::Identifier(identifier) => {
@@ -158,9 +164,9 @@ impl ModuleBuilder<'_> {
                 let literal = self.member_literal_const_expression(member).ok()?;
                 literal.computed_member_name().map(|name| (name, false))
             }
-            Expression::CallExpression(call) => {
-                self.symbol_for_call_key(call).map(|symbol_key| (symbol_key, true))
-            }
+            Expression::CallExpression(call) => self
+                .symbol_for_call_key(call)
+                .map(|symbol_key| (symbol_key, true)),
             Expression::Identifier(identifier) => {
                 self.identifier_computed_key_name(identifier.name.as_str())
             }
@@ -242,7 +248,10 @@ impl ModuleBuilder<'_> {
     /// const/enum/symbol folding of [`Self::resolve_static_computed_key_name`],
     /// so class/interface member gates route resolvable computed keys through the
     /// named-member path instead of rejecting them as dynamic.
-    pub(in crate::lowering) fn is_resolvable_property_key(&mut self, key: &PropertyKey<'_>) -> bool {
+    pub(in crate::lowering) fn is_resolvable_property_key(
+        &mut self,
+        key: &PropertyKey<'_>,
+    ) -> bool {
         crate::lowering::support::is_static_property_key(key)
             || self.resolve_static_computed_key_name(key).is_some()
     }
@@ -311,13 +320,12 @@ impl ModuleBuilder<'_> {
                 identifier.span.end,
                 body,
             ),
-            PropertyKey::StaticIdentifier(identifier) => self
-                .identifier_expression(
-                    identifier.name.as_str(),
-                    identifier.span.start,
-                    identifier.span.end,
-                    body,
-                ),
+            PropertyKey::StaticIdentifier(identifier) => self.identifier_expression(
+                identifier.name.as_str(),
+                identifier.span.start,
+                identifier.span.end,
+                body,
+            ),
             PropertyKey::StringLiteral(literal) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
@@ -437,7 +445,10 @@ impl ModuleBuilder<'_> {
     /// counterparts. Looking from the end keeps source declarations from being
     /// shadowed by earlier, weaker declarations while preserving ordinary
     /// dependency-first lookup.
-    pub(in crate::lowering) fn find_interface(&self, name: smelt_hir::Symbol) -> Option<&Interface> {
+    pub(in crate::lowering) fn find_interface(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<&Interface> {
         self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::Interface(interface) = item {
                 if interface.name == name {
@@ -453,12 +464,22 @@ impl ModuleBuilder<'_> {
     /// (`type Input = { value: 'a' }` in one test, `type Input = Map<..>` in the
     /// next) are lowered in source order, and the one lowered last is the one in
     /// scope, whichever kind each is.
-    pub(in crate::lowering) fn alias_shadows_interface(&self, name: smelt_hir::Symbol, source_name: &str) -> bool {
-        let latest_is_alias = self.ctx.krate.items.iter().rev().find_map(|item| match item {
-            Item::Interface(interface) if interface.name == name => Some(false),
-            Item::TypeAlias(alias) if alias.name == name => Some(true),
-            _ => None,
-        });
+    pub(in crate::lowering) fn alias_shadows_interface(
+        &self,
+        name: smelt_hir::Symbol,
+        source_name: &str,
+    ) -> bool {
+        let latest_is_alias = self
+            .ctx
+            .krate
+            .items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                Item::Interface(interface) if interface.name == name => Some(false),
+                Item::TypeAlias(alias) if alias.name == name => Some(true),
+                _ => None,
+            });
         latest_is_alias == Some(true) && self.visible_type_alias(name, source_name).is_some()
     }
 
@@ -466,7 +487,10 @@ impl ModuleBuilder<'_> {
     ///
     /// This mirrors interface lookup so `.ts` aliases can refine generated
     /// declaration-file aliases when both appear in one manifest.
-    pub(in crate::lowering) fn find_type_alias(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::TypeAlias> {
+    pub(in crate::lowering) fn find_type_alias(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<&smelt_hir::TypeAlias> {
         self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::TypeAlias(alias) = item
                 && alias.name == name
@@ -493,8 +517,9 @@ impl ModuleBuilder<'_> {
         // Imports are recorded with their source before any type is
         // predeclared (`predeclare_import_provenance`), so this holds in the
         // predeclaration pass as well as the body pass.
-        (self.imports.import_source(source_name).is_some() || self.imports.is_imported_binding(source_name))
-            .then_some(alias)
+        (self.imports.import_source(source_name).is_some()
+            || self.imports.is_imported_binding(source_name))
+        .then_some(alias)
     }
 
     /// Find the latest previously lowered class declaration by symbol.
@@ -504,7 +529,10 @@ impl ModuleBuilder<'_> {
     /// item wins. Used by type-reference lowering to read a generic class's
     /// declared type parameters — in particular their DEFAULTS — when a
     /// reference omits trailing type arguments.
-    pub(in crate::lowering) fn find_class(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::Class> {
+    pub(in crate::lowering) fn find_class(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<&smelt_hir::Class> {
         self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::Class(class) = item
                 && class.name == name
@@ -523,12 +551,19 @@ impl ModuleBuilder<'_> {
             return false;
         };
         args.is_empty()
-            && (self.find_interface(*name).is_some_and(|interface| interface.type_params.is_empty())
-                || self.find_class(*name).is_some_and(|class| class.type_params.is_empty()))
+            && (self
+                .find_interface(*name)
+                .is_some_and(|interface| interface.type_params.is_empty())
+                || self
+                    .find_class(*name)
+                    .is_some_and(|class| class.type_params.is_empty()))
     }
 
     /// Validate that a lowered class satisfies all declared interfaces.
-    pub(in crate::lowering) fn validate_implements(&mut self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
+    pub(in crate::lowering) fn validate_implements(
+        &mut self,
+        class_item: smelt_hir::ItemId,
+    ) -> Result<(), SmeltError> {
         let Item::Class(class) = self.item_ref(class_item).clone() else {
             return Ok(());
         };
@@ -616,13 +651,16 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .chain(&inherited.fields)
                     .find(|field| field.name == required.name)
-                    && let Some(Type::Function(function)) = self.ctx.krate.types.get(field.ty).cloned()
+                    && let Some(Type::Function(function)) =
+                        self.ctx.krate.types.get(field.ty).cloned()
                 {
                     let parameters_match = function.params.len() == required.params.len()
-                        && function.params.iter().zip(&required.params).all(|(actual, required)| {
-                            self.type_assignable_to(required.ty, *actual)
-                        });
-                    if parameters_match && self.type_assignable_to(function.return_ty, required.return_ty) {
+                        && function.params.iter().zip(&required.params).all(
+                            |(actual, required)| self.type_assignable_to(required.ty, *actual),
+                        );
+                    if parameters_match
+                        && self.type_assignable_to(function.return_ty, required.return_ty)
+                    {
                         continue;
                     }
                 }
@@ -658,8 +696,7 @@ impl ModuleBuilder<'_> {
                             self.type_assignable_to(*required_param, *actual_param)
                         },
                     );
-                let return_matches =
-                    self.type_assignable_to(actual.return_ty, required.return_ty);
+                let return_matches = self.type_assignable_to(actual.return_ty, required.return_ty);
                 if !parameters_match || !return_matches {
                     let name = self
                         .ctx
@@ -709,7 +746,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Look up the type of an existing local.
-    pub(in crate::lowering) fn local_ty(body: &Body, local: smelt_hir::LocalId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn local_ty(
+        body: &Body,
+        local: smelt_hir::LocalId,
+    ) -> smelt_hir::TypeId {
         body.local_at(local)
             .expect("local id should point to an existing local")
             .ty

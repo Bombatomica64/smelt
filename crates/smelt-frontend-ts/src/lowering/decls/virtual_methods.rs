@@ -1,8 +1,6 @@
 //! Virtual method fields: methods a subclass overrides or a constructor assigns
 //! on `this`, carried as function-typed fields so dispatch reaches the override.
 
-use std::borrow::Cow;
-use std::collections::HashSet;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{
@@ -10,6 +8,8 @@ use oxc::ast::ast::{
     ObjectPropertyKind, PropertyKey, Statement,
 };
 use smelt_hir::{Field, FunctionType, Item, MethodSig, Type};
+use std::borrow::Cow;
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Add callable storage slots for a class's virtual method surface.
@@ -110,9 +110,7 @@ impl ModuleBuilder<'_> {
             return;
         }
 
-        let existing_fields = self.classes.fields(&base_name)
-            .cloned()
-            .unwrap_or_default();
+        let existing_fields = self.classes.fields(&base_name).cloned().unwrap_or_default();
         let new_fields =
             self.virtual_class_method_fields(&existing_fields, &base_methods, &overridden_methods);
         if new_fields.is_empty() {

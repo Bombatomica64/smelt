@@ -47,7 +47,9 @@ use crate::lowering::ModuleBuilder;
 use crate::lowering::support::visibility;
 use oxc::ast::ast::{ClassElement, Expression, MethodDefinitionKind, PropertyKey};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, Field, Item, LocalDecl, Param, Pattern, Span, Stmt, Type, Visibility};
+use smelt_hir::{
+    Body, Expr, ExprKind, Field, Item, LocalDecl, Param, Pattern, Span, Stmt, Type, Visibility,
+};
 
 /// Name of the hidden instance field an owner's instances carry their frame in.
 pub(in crate::lowering) const STATICS_FRAME_FIELD: &str = "__smelt_statics";
@@ -91,7 +93,10 @@ impl ModuleBuilder<'_> {
         let frame_name = smelt_hir::SynthesizedName::new(format!("{class_text}__smelt_statics"));
         let frame_text = frame_name.as_str().to_owned();
         let frame = self.intern_synthesized_type_name(&frame_name);
-        let frame_ty = self.ctx.krate.types.intern(Type::Class { name: frame, args: Vec::new() });
+        let frame_ty = self.ctx.krate.types.intern(Type::Class {
+            name: frame,
+            args: Vec::new(),
+        });
         let frame_field = self.intern_synthesized_name(STATICS_FRAME_FIELD);
         let evaluation = EvaluationStatics {
             owner: class_name,
@@ -101,7 +106,8 @@ impl ModuleBuilder<'_> {
             frame_ty,
             frame_field,
         };
-        self.evaluation_statics.insert(class_name, evaluation.clone());
+        self.evaluation_statics
+            .insert(class_name, evaluation.clone());
         self.evaluation_frames.insert(frame, class_name);
         Some(evaluation)
     }
@@ -155,7 +161,8 @@ impl ModuleBuilder<'_> {
                     let key_span = property.key.span();
                     let ty = if let Some(annotation) = &property.type_annotation {
                         self.ts_type_to_hir(&annotation.type_annotation)?
-                    } else if let Some(ty) = self.checker_binding_type(key_span.start, key_span.end) {
+                    } else if let Some(ty) = self.checker_binding_type(key_span.start, key_span.end)
+                    {
                         ty
                     } else {
                         return Err(SmeltError::unsupported(
@@ -205,7 +212,10 @@ impl ModuleBuilder<'_> {
             let ClassElement::MethodDefinition(method) = element else {
                 continue;
             };
-            if method.kind != MethodDefinitionKind::Method || !method.r#static || method.value.body.is_none() {
+            if method.kind != MethodDefinitionKind::Method
+                || !method.r#static
+                || method.value.body.is_none()
+            {
                 continue;
             }
             methods.push(self.abstract_class_method_sig(method)?);
@@ -267,19 +277,40 @@ impl ModuleBuilder<'_> {
                 &[(evaluation.frame_field, local, evaluation.frame_ty, span)],
                 body,
             );
-            return Some(Param { name: evaluation.frame_field, local, ty: evaluation.frame_ty, span });
+            return Some(Param {
+                name: evaluation.frame_field,
+                local,
+                ty: evaluation.frame_ty,
+                span,
+            });
         }
         if let Some(binding) = evaluation.binding.as_ref().filter(|_| names_class) {
-            let receiver = body.push_expr(Expr { kind: ExprKind::Local(this_local), ty: class_ty, span });
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(this_local),
+                ty: class_ty,
+                span,
+            });
             let frame = body.push_expr(Expr {
-                kind: ExprKind::Field { receiver, field: evaluation.frame_field },
+                kind: ExprKind::Field {
+                    receiver,
+                    field: evaluation.frame_field,
+                },
                 ty: evaluation.frame_ty,
                 span,
             });
             let symbol = self.intern_source_name(binding);
-            let local = body.push_local(LocalDecl { name: Some(symbol), ty: evaluation.frame_ty, mutable: false, span });
+            let local = body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty: evaluation.frame_ty,
+                mutable: false,
+                span,
+            });
             let pat = body.push_pattern(Pattern::Binding(local));
-            body.push_stmt(Stmt::Let { pat, ty: evaluation.frame_ty, value: Some(frame) });
+            body.push_stmt(Stmt::Let {
+                pat,
+                ty: evaluation.frame_ty,
+                value: Some(frame),
+            });
             self.scope.bind(binding.clone(), local);
         }
         None
@@ -295,13 +326,21 @@ impl ModuleBuilder<'_> {
     ) -> Option<(String, Option<smelt_hir::LocalId>)> {
         let evaluation = self.lowering_evaluation_statics.clone()?;
         let binding = evaluation.binding?;
-        let local = body.push_local(LocalDecl { name: Some(evaluation.frame_field), ty: evaluation.frame_ty, mutable: false, span });
+        let local = body.push_local(LocalDecl {
+            name: Some(evaluation.frame_field),
+            ty: evaluation.frame_ty,
+            mutable: false,
+            span,
+        });
         let previous = self.scope.bind(binding.clone(), local);
         Some((binding, previous))
     }
 
     /// Undo [`Self::bind_scratch_evaluation_frame`].
-    pub(in crate::lowering) fn restore_scratch_evaluation_frame(&mut self, saved: Option<(String, Option<smelt_hir::LocalId>)>) {
+    pub(in crate::lowering) fn restore_scratch_evaluation_frame(
+        &mut self,
+        saved: Option<(String, Option<smelt_hir::LocalId>)>,
+    ) {
         let Some((binding, previous)) = saved else {
             return;
         };
@@ -392,16 +431,37 @@ impl ModuleBuilder<'_> {
             Some(binding) => self.intern_source_name(binding),
             None => self.intern_synthesized_name(STATICS_FRAME_FIELD),
         };
-        let frame_local =
-            body.push_local(LocalDecl { name: Some(local_name), ty: evaluation.frame_ty, mutable: false, span });
-        let construct =
-            body.push_expr(Expr { kind: ExprKind::New { class: evaluation.frame, args: Vec::new() }, ty: evaluation.frame_ty, span });
+        let frame_local = body.push_local(LocalDecl {
+            name: Some(local_name),
+            ty: evaluation.frame_ty,
+            mutable: false,
+            span,
+        });
+        let construct = body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: evaluation.frame,
+                args: Vec::new(),
+            },
+            ty: evaluation.frame_ty,
+            span,
+        });
         let pat = body.push_pattern(Pattern::Binding(frame_local));
-        self.push_stmt_to_sink(body, Stmt::Let { pat, ty: evaluation.frame_ty, value: Some(construct) });
+        self.push_stmt_to_sink(
+            body,
+            Stmt::Let {
+                pat,
+                ty: evaluation.frame_ty,
+                value: Some(construct),
+            },
+        );
         if let Some(binding) = &evaluation.binding {
             self.scope.bind(binding.clone(), frame_local);
         }
-        let fields = self.classes.fields(&evaluation.frame_text).cloned().unwrap_or_default();
+        let fields = self
+            .classes
+            .fields(&evaluation.frame_text)
+            .cloned()
+            .unwrap_or_default();
         let previous_this = self.scope.bind("this".to_owned(), frame_local);
         let lowered = (|| {
             for element in &class.body.body {
@@ -411,7 +471,10 @@ impl ModuleBuilder<'_> {
                 let Some(value) = property.value.as_ref().filter(|_| property.r#static) else {
                     continue;
                 };
-                if matches!(value, Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)) {
+                if matches!(
+                    value,
+                    Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+                ) {
                     continue;
                 }
                 let name = self.property_key_symbol(&property.key)?;
@@ -420,9 +483,19 @@ impl ModuleBuilder<'_> {
                 };
                 let value_span = self.span(value.span().start, value.span().end);
                 let value = self.expression_with_hint(value, body, Some(field.ty))?;
-                let receiver =
-                    body.push_expr(Expr { kind: ExprKind::Local(frame_local), ty: evaluation.frame_ty, span: value_span });
-                let target = body.push_expr(Expr { kind: ExprKind::Field { receiver, field: name }, ty: field.ty, span: value_span });
+                let receiver = body.push_expr(Expr {
+                    kind: ExprKind::Local(frame_local),
+                    ty: evaluation.frame_ty,
+                    span: value_span,
+                });
+                let target = body.push_expr(Expr {
+                    kind: ExprKind::Field {
+                        receiver,
+                        field: name,
+                    },
+                    ty: field.ty,
+                    span: value_span,
+                });
                 self.push_stmt_to_sink(body, Stmt::Assign { target, value });
             }
             Ok::<_, SmeltError>(())
@@ -438,7 +511,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// The owner class whose statics frame `ty` is, if it is one.
-    pub(in crate::lowering) fn statics_frame_owner(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::Symbol> {
+    pub(in crate::lowering) fn statics_frame_owner(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::Symbol> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Class { name, .. }) => self.evaluation_frames.get(name).copied(),
             _ => None,
@@ -469,15 +545,27 @@ impl ModuleBuilder<'_> {
             let Some(owner) = self.statics_frame_owner(ty) else {
                 return Ok(None);
             };
-            return Ok(Some((body.push_expr(Expr { kind: ExprKind::Local(local), ty, span }), owner)));
+            return Ok(Some((
+                body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty,
+                    span,
+                }),
+                owner,
+            )));
         }
         if self.evaluation_frames.is_empty()
-            || !matches!(self.resolve_value(name), crate::lowering::resolve::ValueBinding::Module)
+            || !matches!(
+                self.resolve_value(name),
+                crate::lowering::resolve::ValueBinding::Module
+            )
         {
             return Ok(None);
         }
         let value = self.expression(expression, body)?;
-        Ok(self.statics_frame_owner(Self::expr_ty(body, value)).map(|owner| (value, owner)))
+        Ok(self
+            .statics_frame_owner(Self::expr_ty(body, value))
+            .map(|owner| (value, owner)))
     }
 
     /// Lower `new C(args)` where `C` is a statics frame: construct the owner
@@ -498,16 +586,34 @@ impl ModuleBuilder<'_> {
             .class_by_symbol(owner)
             .and_then(|class| class.constructor)
             .and_then(|constructor| match self.item_ref(constructor) {
-                Item::Function(function) => Some(function.params.iter().skip(1).map(|param| param.ty).collect::<Vec<_>>()),
+                Item::Function(function) => Some(
+                    function
+                        .params
+                        .iter()
+                        .skip(1)
+                        .map(|param| param.ty)
+                        .collect::<Vec<_>>(),
+                ),
                 _ => None,
             })
             .unwrap_or_default();
         let mut args = vec![frame];
         for (index, arg) in new_expr.arguments.iter().enumerate() {
-            args.push(self.argument_with_hint(arg, body, constructor_params.get(index).copied())?);
+            args.push(self.argument_with_hint(
+                arg,
+                body,
+                constructor_params.get(index).copied(),
+            )?);
         }
-        let ty = self.ctx.krate.types.intern(Type::Class { name: owner, args: Vec::new() });
-        Ok(Some(body.push_expr(Expr { kind: ExprKind::New { class: owner, args }, ty, span })))
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name: owner,
+            args: Vec::new(),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::New { class: owner, args },
+            ty,
+            span,
+        })))
     }
 }
 

@@ -41,13 +41,12 @@ pub(crate) fn dump_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Write as _;
 
     let source = std::fs::read_to_string(file)?;
-    let module =
-        smelt_frontend_py::parse_module(&source, FileId(0)).map_err(|errors| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("{}:\n{errors:#?}", std::path::Path::new(file).display()),
-            )
-        })?;
+    let module = smelt_frontend_py::parse_module(&source, FileId(0)).map_err(|errors| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{}:\n{errors:#?}", std::path::Path::new(file).display()),
+        )
+    })?;
     let mut stdout = std::io::stdout().lock();
     writeln!(stdout, "{module:#?}")?;
     Ok(())
@@ -84,7 +83,10 @@ pub(crate) fn lower_manifest_source(
         file_id,
         file_string,
         &mut ctx,
-        smelt_frontend_py::FrontendOptions { specialization, is_entry },
+        smelt_frontend_py::FrontendOptions {
+            specialization,
+            is_entry,
+        },
     )
     .map_err(|errors| {
         crate::lowering::manifest_diagnostics(
@@ -203,7 +205,10 @@ pub(crate) fn check_sources(
     }
     let inputs = python
         .iter()
-        .map(|source| CheckSource { path: &source.path, text: &source.source })
+        .map(|source| CheckSource {
+            path: &source.path,
+            text: &source.source,
+        })
         .collect::<Vec<_>>();
     let declared = stubs.python_declarations();
     let declarations = declared
@@ -212,7 +217,11 @@ pub(crate) fn check_sources(
         .collect::<Vec<_>>();
     let reported = match smelt_frontend_py::check_sources(&inputs, &declarations, project_dir) {
         Ok(reported) => reported,
-        Err(error) => return LanguageCheck::Unverified(format!("ty could not check the Python sources: {error:#}")),
+        Err(error) => {
+            return LanguageCheck::Unverified(format!(
+                "ty could not check the Python sources: {error:#}"
+            ));
+        }
     };
     let diagnostics = reported
         .into_iter()
@@ -264,7 +273,8 @@ fn python_sources<'source>(
         .filter(|source| {
             matches!(
                 source.lang,
-                crate::source_files::SourceLang::Python | crate::source_files::SourceLang::PythonDeclaration
+                crate::source_files::SourceLang::Python
+                    | crate::source_files::SourceLang::PythonDeclaration
             )
         })
         .collect()

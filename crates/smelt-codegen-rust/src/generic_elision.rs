@@ -246,26 +246,14 @@ pub(crate) fn compute(mir: &Mir) -> TypeParamElision {
             let mut seen = HashSet::new();
             for ty in &root.types {
                 scan_type(
-                    mir,
-                    *ty,
-                    &positions,
-                    &carried,
-                    &declared,
-                    &mut found,
-                    &mut seen,
+                    mir, *ty, &positions, &carried, &declared, &mut found, &mut seen,
                 );
             }
             for (parent_name, parent_args) in &root.parents {
                 for (index, arg) in parent_args.iter().enumerate() {
                     if position_is_carried(&carried, &declared, *parent_name, index) {
                         scan_type(
-                            mir,
-                            *arg,
-                            &positions,
-                            &carried,
-                            &declared,
-                            &mut found,
-                            &mut seen,
+                            mir, *arg, &positions, &carried, &declared, &mut found, &mut seen,
                         );
                     }
                 }
@@ -426,11 +414,7 @@ fn collect_block_types(
 }
 
 /// Records the type and closure a single rvalue names, if any.
-fn collect_rvalue_types(
-    rvalue: &Rvalue,
-    types: &mut Vec<TypeId>,
-    closures: &mut Vec<ClosureId>,
-) {
+fn collect_rvalue_types(rvalue: &Rvalue, types: &mut Vec<TypeId>, closures: &mut Vec<ClosureId>) {
     match rvalue {
         Rvalue::UnknownCast { target, .. } => types.push(*target),
         Rvalue::Closure { id, .. } => closures.push(*id),
@@ -455,7 +439,6 @@ fn collect_closure_types(mir: &Mir, closures: &mut Vec<ClosureId>, types: &mut V
     }
 }
 
-
 /// Debug-only: renders a type id as a shallow tree, for `SMELT_ELISION_DEBUG`.
 ///
 /// Truncates at `depth` so a self-referential type prints in bounded space.
@@ -474,7 +457,10 @@ fn describe(mir: &Mir, ty: TypeId, depth: usize) -> String {
         Type::Class { name, args } => format!(
             "{}<{}>",
             mir.symbols.get(*name).unwrap_or("?"),
-            args.iter().map(|arg| child(*arg)).collect::<Vec<_>>().join(", ")
+            args.iter()
+                .map(|arg| child(*arg))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         Type::Optional(inner) => format!("Optional({})", child(*inner)),
         Type::List(inner) => format!("List({})", child(*inner)),
@@ -484,11 +470,19 @@ fn describe(mir: &Mir, ty: TypeId, depth: usize) -> String {
         Type::JsMap(key, value) => format!("JsMap({}, {})", child(*key), child(*value)),
         Type::Tuple(items) => format!(
             "Tuple({})",
-            items.iter().map(|arg| child(*arg)).collect::<Vec<_>>().join(", ")
+            items
+                .iter()
+                .map(|arg| child(*arg))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         Type::Union(items) => format!(
             "Union({})",
-            items.iter().map(|arg| child(*arg)).collect::<Vec<_>>().join(" | ")
+            items
+                .iter()
+                .map(|arg| child(*arg))
+                .collect::<Vec<_>>()
+                .join(" | ")
         ),
         Type::Function(signature) => format!(
             "fn({}) -> {}",

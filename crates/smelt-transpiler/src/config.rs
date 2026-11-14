@@ -134,8 +134,15 @@ impl Config {
         if self.strict.python == Some(false) {
             return Some("strict.python=false is not supported in v1.0".to_owned());
         }
-        if let Some(strategy) = self.runtime.clone_strategy.as_deref().filter(|value| *value != "aggressive") {
-            return Some(format!("runtime.clone-strategy={strategy:?} is not supported in v1.0"));
+        if let Some(strategy) = self
+            .runtime
+            .clone_strategy
+            .as_deref()
+            .filter(|value| *value != "aggressive")
+        {
+            return Some(format!(
+                "runtime.clone-strategy={strategy:?} is not supported in v1.0"
+            ));
         }
         None
     }
@@ -352,7 +359,7 @@ impl TryFrom<PackageSourceToml> for PackageSource {
             (Some(path), None, None) => PackageLocation::Path(path),
             (Some(_), None, Some(_)) => {
                 return Err(
-                    "`rev` pins a `git` source; a `path` package has no revision to pin".to_owned()
+                    "`rev` pins a `git` source; a `path` package has no revision to pin".to_owned(),
                 );
             }
             (None, Some(url), Some(rev)) => PackageLocation::Git { url, rev },
@@ -363,7 +370,11 @@ impl TryFrom<PackageSourceToml> for PackageSource {
                 return Err("give exactly one of `path` and `git`".to_owned());
             }
         };
-        Ok(Self { location, entry: raw.entry, exclude: raw.exclude })
+        Ok(Self {
+            location,
+            entry: raw.entry,
+            exclude: raw.exclude,
+        })
     }
 }
 

@@ -23,9 +23,9 @@ pub(crate) fn has_emitter_prefix(name: &str) -> bool {
     let rest = name.trim_start_matches('_');
     ["smelt", "Smelt", "SMELT"].iter().any(|prefix| {
         rest.strip_prefix(prefix).is_some_and(|tail| {
-            tail.chars()
-                .next()
-                .is_none_or(|next| next == '_' || next.is_ascii_uppercase() || next.is_ascii_digit())
+            tail.chars().next().is_none_or(|next| {
+                next == '_' || next.is_ascii_uppercase() || next.is_ascii_digit()
+            })
         })
     })
 }
@@ -65,12 +65,43 @@ pub(super) fn is_reserved(name: &str, space: NameSpace) -> bool {
 pub(crate) fn is_rust_prelude_name(name: &str) -> bool {
     matches!(
         name,
-        "Box" | "Vec" | "Option" | "Result" | "String" | "Some" | "None" | "Ok" | "Err" | "main"
-            | "JsString" | "JsStr"
-            | "AsRef" | "Clone" | "Copy" | "Default" | "Drop" | "Eq" | "Ord" | "PartialEq" | "PartialOrd"
-            | "Fn" | "FnMut" | "FnOnce" | "From" | "Into" | "FromIterator" | "IntoIterator" | "Iterator"
-            | "IntoFuture" | "Send" | "Sized" | "ToOwned" | "ToString" | "drop"
-            | "DateLike" | "IntoSmeltUnknown"
+        "Box"
+            | "Vec"
+            | "Option"
+            | "Result"
+            | "String"
+            | "Some"
+            | "None"
+            | "Ok"
+            | "Err"
+            | "main"
+            | "JsString"
+            | "JsStr"
+            | "AsRef"
+            | "Clone"
+            | "Copy"
+            | "Default"
+            | "Drop"
+            | "Eq"
+            | "Ord"
+            | "PartialEq"
+            | "PartialOrd"
+            | "Fn"
+            | "FnMut"
+            | "FnOnce"
+            | "From"
+            | "Into"
+            | "FromIterator"
+            | "IntoIterator"
+            | "Iterator"
+            | "IntoFuture"
+            | "Send"
+            | "Sized"
+            | "ToOwned"
+            | "ToString"
+            | "drop"
+            | "DateLike"
+            | "IntoSmeltUnknown"
     )
 }
 

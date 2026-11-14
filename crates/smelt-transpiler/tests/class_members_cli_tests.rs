@@ -23,7 +23,9 @@ mod common;
 
 use std::{fs, path::Path};
 
-use common::{TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in};
+use common::{
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in,
+};
 
 /// Writes a one-entry project at `root` around the files of `sources`.
 fn write_project(root: &Path, entry: &str, sources: &[(&str, &str)]) -> TestResult {
@@ -90,10 +92,17 @@ fn static_fields_are_live_through_class_values() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &STATICS_OUTPUT.to_owned(), "the live-statics program's output")?;
+    ensure_eq(
+        &output,
+        &STATICS_OUTPUT.to_owned(),
+        "the live-statics program's output",
+    )?;
     // Type preservation: the storage keeps the field's own type.
     let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
-    ensure(generated.contains("::std::cell::Cell<f64> = const { ::std::cell::Cell::new(7.0) }"), "`Box.PI` is an `f64` cell")
+    ensure(
+        generated.contains("::std::cell::Cell<f64> = const { ::std::cell::Cell::new(7.0) }"),
+        "`Box.PI` is an `f64` cell",
+    )
 }
 
 /// The class a module exports, mutated by its importer: an expression
@@ -129,7 +138,11 @@ fn static_fields_are_shared_across_modules() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &COUNTER_OUTPUT.to_owned(), "the cross-module statics program's output")
+    ensure_eq(
+        &output,
+        &COUNTER_OUTPUT.to_owned(),
+        "the cross-module statics program's output",
+    )
 }
 
 /// A constructor function whose prototype method reads and writes its own
@@ -154,21 +167,36 @@ const SELF_READING_FIELD_OUTPUT: &str = "1 2 3 3.5 neg 2 1\n";
 #[test]
 fn self_reading_constructor_function_field_stays_typed() -> TestResult {
     let sources = [("main.ts", SELF_READING_FIELD_TS)];
-    ensure_node_agrees(&sources, "main.ts", SELF_READING_FIELD_OUTPUT, "self-reading field")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        SELF_READING_FIELD_OUTPUT,
+        "self-reading field",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &SELF_READING_FIELD_OUTPUT.to_owned(), "the self-reading-field program's output")?;
+    ensure_eq(
+        &output,
+        &SELF_READING_FIELD_OUTPUT.to_owned(),
+        "the self-reading-field program's output",
+    )?;
     let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
-    ensure(generated.contains("    count: f64,"), "the fixed point keeps `count: f64`")
+    ensure(
+        generated.contains("    count: f64,"),
+        "the fixed point keeps `count: f64`",
+    )
 }
 
 /// The storage declaration of the static `CLASS_FIELD` (upper-cased, as
 /// the global is named), or an empty string.
 fn static_storage_line<'a>(generated: &'a str, field: &str) -> &'a str {
     let needle = format!("static SMELT_GLOBAL_{field}_");
-    generated.lines().find(|line| line.contains(&needle)).unwrap_or_default()
+    generated
+        .lines()
+        .find(|line| line.contains(&needle))
+        .unwrap_or_default()
 }
 
 /// Static fields initialized by expressions: side effects in source order
@@ -201,20 +229,28 @@ console.log(Box.items.join("+"), Box.items.length, Box.cache.get("k"), Box.cache
 "#;
 
 /// What Node prints for [`STATIC_INITIALIZERS_TS`].
-const STATIC_INITIALIZERS_OUTPUT: &str =
-    "before\ninit first\ninit limit\nbetween\ninit extra\nafter 5 6 14 40 50 12\na+b 2 5 1 9 c 0 6\n";
+const STATIC_INITIALIZERS_OUTPUT: &str = "before\ninit first\ninit limit\nbetween\ninit extra\nafter 5 6 14 40 50 12\na+b 2 5 1 9 c 0 6\n";
 
 /// Expression static initializers run once at class definition, in source
 /// order, and their storage keeps the initializer's precise type.
 #[test]
 fn static_initializers_run_at_class_definition() -> TestResult {
     let sources = [("main.ts", STATIC_INITIALIZERS_TS)];
-    ensure_node_agrees(&sources, "main.ts", STATIC_INITIALIZERS_OUTPUT, "static initializers")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        STATIC_INITIALIZERS_OUTPUT,
+        "static initializers",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &STATIC_INITIALIZERS_OUTPUT.to_owned(), "the static-initializers program's output")?;
+    ensure_eq(
+        &output,
+        &STATIC_INITIALIZERS_OUTPUT.to_owned(),
+        "the static-initializers program's output",
+    )?;
     // Type preservation: each storage cell has the initializer's own type,
     // and `this` in an initializer is the class, read statically rather than
     // through the dynamic `this` channel.
@@ -224,14 +260,26 @@ fn static_initializers_run_at_class_definition() -> TestResult {
         ("BOX_DOUBLED", "::std::cell::Cell<f64>"),
         ("BOX_LIMIT", "::std::cell::Cell<f64>"),
         ("BOX_ITEMS", "::std::cell::RefCell<SmeltList<JsString>>"),
-        ("BOX_CACHE", "::std::cell::RefCell<SmeltJsMap<JsString, f64>>"),
+        (
+            "BOX_CACHE",
+            "::std::cell::RefCell<SmeltJsMap<JsString, f64>>",
+        ),
         ("SUB_EXTRA", "::std::cell::Cell<f64>"),
     ] {
-        ensure(static_storage_line(&generated, field).contains(ty), format!("`{field}` is stored as `{ty}`"))?;
+        ensure(
+            static_storage_line(&generated, field).contains(ty),
+            format!("`{field}` is stored as `{ty}`"),
+        )?;
     }
     let conf = static_storage_line(&generated, "BOX_CONF");
-    ensure(conf.contains("RefCell<SmeltRecord") && !conf.contains("SmeltUnknown"), format!("`Box.conf` keeps its declared struct type: {conf}"))?;
-    ensure(!generated.contains("smelt_this()"), "`this` in a static initializer is the class, not the dynamic `this`")
+    ensure(
+        conf.contains("RefCell<SmeltRecord") && !conf.contains("SmeltUnknown"),
+        format!("`Box.conf` keeps its declared struct type: {conf}"),
+    )?;
+    ensure(
+        !generated.contains("smelt_this()"),
+        "`this` in a static initializer is the class, not the dynamic `this`",
+    )
 }
 
 /// A class value enumerated: own static fields in definition order without
@@ -281,7 +329,11 @@ fn class_values_enumerate_their_static_fields() -> TestResult {
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &CLASS_KEYS_OUTPUT.to_owned(), "the class-value keys program's output")
+    ensure_eq(
+        &output,
+        &CLASS_KEYS_OUTPUT.to_owned(),
+        "the class-value keys program's output",
+    )
 }
 
 /// A write through a class value, by name and by computed key, in a program
@@ -305,14 +357,26 @@ const PROXY_STATICS_OUTPUT: &str = "9 2 [[\"PI\",9],[\"tags\",[\"a\"]]]\n12 PI,t
 #[test]
 fn class_value_writes_stay_live_beside_a_proxy() -> TestResult {
     let sources = [("main.ts", PROXY_STATICS_TS)];
-    ensure_node_agrees(&sources, "main.ts", PROXY_STATICS_OUTPUT, "statics beside a proxy")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        PROXY_STATICS_OUTPUT,
+        "statics beside a proxy",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &PROXY_STATICS_OUTPUT.to_owned(), "the proxy-statics program's output")?;
+    ensure_eq(
+        &output,
+        &PROXY_STATICS_OUTPUT.to_owned(),
+        "the proxy-statics program's output",
+    )?;
     let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
-    ensure(generated.contains("smelt_index_assign(&mut"), "the write goes through the generic keyed store")
+    ensure(
+        generated.contains("smelt_index_assign(&mut"),
+        "the write goes through the generic keyed store",
+    )
 }
 
 /// Static fields declared without an initializer: a read before the first
@@ -358,21 +422,42 @@ const UNINITIALIZED_STATICS_OUTPUT: &str = concat!(
 #[test]
 fn uninitialized_statics_read_undefined_until_written() -> TestResult {
     let sources = [("main.ts", UNINITIALIZED_STATICS_TS)];
-    ensure_node_agrees(&sources, "main.ts", UNINITIALIZED_STATICS_OUTPUT, "uninitialized statics")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        UNINITIALIZED_STATICS_OUTPUT,
+        "uninitialized statics",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &UNINITIALIZED_STATICS_OUTPUT.to_owned(), "the uninitialized-statics program's output")?;
+    ensure_eq(
+        &output,
+        &UNINITIALIZED_STATICS_OUTPUT.to_owned(),
+        "the uninitialized-statics program's output",
+    )?;
     // Type preservation: the storage is the declared type widened with
     // `undefined`, never an erased value.
     let generated = fs::read_to_string(root.join("dist/src/main.rs"))?;
     for (field, ty) in [
-        ("BOX_X", "::std::cell::RefCell<Option<f64>> = ::std::cell::RefCell::new(None)"),
-        ("BOX_LABEL", "::std::cell::RefCell<Option<JsString>> = ::std::cell::RefCell::new(None)"),
-        ("BOX_CACHE", "::std::cell::RefCell<Option<SmeltJsMap<JsString, f64>>> = ::std::cell::RefCell::new(None)"),
+        (
+            "BOX_X",
+            "::std::cell::RefCell<Option<f64>> = ::std::cell::RefCell::new(None)",
+        ),
+        (
+            "BOX_LABEL",
+            "::std::cell::RefCell<Option<JsString>> = ::std::cell::RefCell::new(None)",
+        ),
+        (
+            "BOX_CACHE",
+            "::std::cell::RefCell<Option<SmeltJsMap<JsString, f64>>> = ::std::cell::RefCell::new(None)",
+        ),
     ] {
-        ensure(static_storage_line(&generated, field).contains(ty), format!("`{field}` is stored as `{ty}`"))?;
+        ensure(
+            static_storage_line(&generated, field).contains(ty),
+            format!("`{field}` is stored as `{ty}`"),
+        )?;
     }
     Ok(())
 }
@@ -423,12 +508,21 @@ const FACTORY_STATICS_OUTPUT: &str = concat!(
 #[test]
 fn factory_classes_have_per_evaluation_statics() -> TestResult {
     let sources = [("main.ts", FACTORY_STATICS_TS)];
-    ensure_node_agrees(&sources, "main.ts", FACTORY_STATICS_OUTPUT, "per-evaluation statics")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        FACTORY_STATICS_OUTPUT,
+        "per-evaluation statics",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &FACTORY_STATICS_OUTPUT.to_owned(), "the per-evaluation statics program's output")?;
+    ensure_eq(
+        &output,
+        &FACTORY_STATICS_OUTPUT.to_owned(),
+        "the per-evaluation statics program's output",
+    )?;
     // Type preservation: the statics frame is a typed reference class whose
     // fields keep their types, the instance holds it, and no static is a
     // module global (one storage for every evaluation).
@@ -436,9 +530,18 @@ fn factory_classes_have_per_evaluation_statics() -> TestResult {
     let source = fs::read_to_string(root.join("dist/src/source_main.rs")).unwrap_or_default();
     let all = format!("{generated}\n{source}");
     ensure(all.contains("struct Box__smelt_statics(::std::rc::Rc<::std::cell::RefCell<Box__smelt_staticsInner>>)"), "the frame is a reference class")?;
-    ensure(all.contains("    size: f64,") && all.contains("    history: SmeltList<f64>,"), "the frame's fields keep their types")?;
-    ensure(all.contains("    __smelt_statics: Box__smelt_statics,"), "each instance holds its frame")?;
-    ensure(!all.contains("SMELT_GLOBAL_BOX_SIZE"), "no evaluation-shared storage")
+    ensure(
+        all.contains("    size: f64,") && all.contains("    history: SmeltList<f64>,"),
+        "the frame's fields keep their types",
+    )?;
+    ensure(
+        all.contains("    __smelt_statics: Box__smelt_statics,"),
+        "each instance holds its frame",
+    )?;
+    ensure(
+        !all.contains("SMELT_GLOBAL_BOX_SIZE"),
+        "no evaluation-shared storage",
+    )
 }
 
 /// An anonymous class expression returned by a factory, reached only
@@ -483,10 +586,19 @@ const FACTORY_CLASS_EXPRESSION_OUTPUT: &str = concat!(
 #[test]
 fn factory_class_expressions_are_class_values_per_evaluation() -> TestResult {
     let sources = [("main.ts", FACTORY_CLASS_EXPRESSION_TS)];
-    ensure_node_agrees(&sources, "main.ts", FACTORY_CLASS_EXPRESSION_OUTPUT, "per-evaluation class expressions")?;
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        FACTORY_CLASS_EXPRESSION_OUTPUT,
+        "per-evaluation class expressions",
+    )?;
     let temp = TempProject::new()?;
     let root = temp.path();
     write_project(root, "main.ts", &sources)?;
     let output = build_and_run(root)?;
-    ensure_eq(&output, &FACTORY_CLASS_EXPRESSION_OUTPUT.to_owned(), "the per-evaluation class-expression program's output")
+    ensure_eq(
+        &output,
+        &FACTORY_CLASS_EXPRESSION_OUTPUT.to_owned(),
+        "the per-evaluation class-expression program's output",
+    )
 }

@@ -1,10 +1,10 @@
 //! `await` expressions: the awaited value's type, including awaited unions.
 
-use crate::lowering::erasure::NotNewErasure;
+use super::super::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Type};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Lower a JavaScript `await` operand into a HIR await, or into the operand
@@ -59,16 +59,14 @@ impl ModuleBuilder<'_> {
                 // erased to `SmeltUnknown`, so Hono's
                 // `new Response(null, await this.#dispatch(..))` reported an
                 // erased init for an operand whose awaited type is one class.
-                let resolved_ty = type_hint
-                    .or(awaited_union_ty)
-                    .unwrap_or_else(|| {
-                        if matches!(self.ctx.krate.types.get(awaited_ty), Some(Type::Unknown)) {
-                            // not a new erasure: the awaited operand is already erased
-                            self.unknown_type(NotNewErasure::ErasedUpstream)
-                        } else {
-                            self.erase_with(ErasureReason::DynamicOperator, "await union")
-                        }
-                    });
+                let resolved_ty = type_hint.or(awaited_union_ty).unwrap_or_else(|| {
+                    if matches!(self.ctx.krate.types.get(awaited_ty), Some(Type::Unknown)) {
+                        // not a new erasure: the awaited operand is already erased
+                        self.unknown_type(NotNewErasure::ErasedUpstream)
+                    } else {
+                        self.erase_with(ErasureReason::DynamicOperator, "await union")
+                    }
+                });
 
                 let future_ty = self.ctx.krate.types.intern(Type::Future(resolved_ty));
                 let future = body.push_expr(Expr {
