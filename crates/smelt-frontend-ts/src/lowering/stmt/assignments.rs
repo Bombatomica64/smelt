@@ -227,8 +227,19 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let target_ty = Self::expr_ty(body, target);
+        // A local narrowed to `null` (`if (!xs) { xs = []; .. }`) is a fact
+        // about what it holds now, not about what it may hold: the stored
+        // value is hinted by the local's declared storage. Hinting `[]` with
+        // the narrowed `None` typed the empty list as `()`.
+        let store_ty = match (
+            body.expr_at(target).map(|expr| &expr.kind),
+            self.ctx.krate.types.get(target_ty),
+        ) {
+            (Some(ExprKind::Local(local)), Some(Type::None)) => Self::local_ty(body, *local),
+            _ => target_ty,
+        };
         let right_ty_hint = match assign.operator {
-            AssignmentOperator::Assign => Some(target_ty),
+            AssignmentOperator::Assign => Some(store_ty),
             AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
             AssignmentOperator::LogicalOr | AssignmentOperator::LogicalAnd => Some(target_ty),
             _ => None,
