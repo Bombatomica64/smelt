@@ -1,0 +1,2900 @@
+[
+{
+"module": "crates/smelt-transpiler/tests",
+"commits": 257,
+"lines": 14218,
+"changed": 12984
+},
+{
+"module": "crates/smelt-codegen-rust/src/tests",
+"commits": 169,
+"lines": 24435,
+"changed": 67268
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/stdlib",
+"commits": 137,
+"lines": 26058,
+"changed": 48727
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/expr",
+"commits": 94,
+"lines": 11061,
+"changed": 18068
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/coercion",
+"commits": 94,
+"lines": 8414,
+"changed": 17749
+},
+{
+"module": "crates/smelt-frontend-ts/src/tests",
+"commits": 82,
+"lines": 38784,
+"changed": 14399
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/decls",
+"commits": 74,
+"lines": 10377,
+"changed": 20735
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/ty",
+"commits": 73,
+"lines": 8847,
+"changed": 16116
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/module_init",
+"commits": 73,
+"lines": 7233,
+"changed": 17403
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/mod",
+"commits": 72,
+"lines": 1672,
+"changed": 1607
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/core",
+"commits": 71,
+"lines": 564,
+"changed": 11498
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/callbacks",
+"commits": 69,
+"lines": 5683,
+"changed": 11818
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/call",
+"commits": 69,
+"lines": 1209,
+"changed": 7828
+},
+{
+"module": "crates/smelt-codegen-rust/src/lib",
+"commits": 69,
+"lines": 142,
+"changed": 14633
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/types",
+"commits": 65,
+"lines": 778,
+"changed": 5361
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/stmt",
+"commits": 64,
+"lines": 7306,
+"changed": 9821
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/call_runtime",
+"commits": 61,
+"lines": 0,
+"changed": 6486
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/new_expr",
+"commits": 59,
+"lines": 2923,
+"changed": 8305
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering",
+"commits": 55,
+"lines": 1143,
+"changed": 766
+},
+{
+"module": "crates/smelt-codegen-rust/src/runtime_demand",
+"commits": 51,
+"lines": 1744,
+"changed": 2613
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/control_flow",
+"commits": 50,
+"lines": 4586,
+"changed": 10809
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/place",
+"commits": 48,
+"lines": 1797,
+"changed": 3675
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/strings",
+"commits": 47,
+"lines": 1951,
+"changed": 3082
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/map",
+"commits": 45,
+"lines": 1621,
+"changed": 1948
+},
+{
+"module": "crates/smelt-codegen-rust/tests",
+"commits": 44,
+"lines": 26926,
+"changed": 16541
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/testing",
+"commits": 43,
+"lines": 6905,
+"changed": 10232
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/union",
+"commits": 43,
+"lines": 2270,
+"changed": 2459
+},
+{
+"module": "crates/smelt-codegen-rust/src/classes",
+"commits": 42,
+"lines": 837,
+"changed": 3400
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/closures",
+"commits": 41,
+"lines": 1887,
+"changed": 1843
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/guards",
+"commits": 41,
+"lines": 1280,
+"changed": 2898
+},
+{
+"module": "crates/smelt-hir/src/expr",
+"commits": 39,
+"lines": 3346,
+"changed": 6666
+},
+{
+"module": "crates/smelt-mir/src/lower/expr",
+"commits": 36,
+"lines": 1424,
+"changed": 4487
+},
+{
+"module": "crates/smelt-hir/src/op_table",
+"commits": 35,
+"lines": 2902,
+"changed": 3598
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/optional_access",
+"commits": 34,
+"lines": 942,
+"changed": 1292
+},
+{
+"module": "crates/smelt-mir/src/lower/mod",
+"commits": 33,
+"lines": 1132,
+"changed": 1053
+},
+{
+"module": "crates/smelt-transpiler/src/unknown_report",
+"commits": 32,
+"lines": 2626,
+"changed": 6205
+},
+{
+"module": "crates/smelt-mir/src/types",
+"commits": 32,
+"lines": 1186,
+"changed": 2892
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/numeric",
+"commits": 32,
+"lines": 781,
+"changed": 1004
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/binary_ops",
+"commits": 31,
+"lines": 2104,
+"changed": 2256
+},
+{
+"module": "crates/smelt-codegen-rust/src/runtime_prelude",
+"commits": 30,
+"lines": 374,
+"changed": 562
+},
+{
+"module": "crates/smelt-frontend-py/src/tests",
+"commits": 29,
+"lines": 8843,
+"changed": 4081
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/list",
+"commits": 28,
+"lines": 1360,
+"changed": 1322
+},
+{
+"module": "crates/smelt-hir/src/format",
+"commits": 28,
+"lines": 967,
+"changed": 2476
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/rvalue",
+"commits": 28,
+"lines": 785,
+"changed": 865
+},
+{
+"module": "crates/smelt-mir/src/format",
+"commits": 28,
+"lines": 694,
+"changed": 2542
+},
+{
+"module": "crates/smelt-transpiler/src/lowering",
+"commits": 27,
+"lines": 1408,
+"changed": 3425
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/list_query",
+"commits": 27,
+"lines": 1163,
+"changed": 1233
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/state",
+"commits": 26,
+"lines": 3057,
+"changed": 1738
+},
+{
+"module": "crates/smelt-mir/src/opt/mod",
+"commits": 25,
+"lines": 539,
+"changed": 1831
+},
+{
+"module": "crates/smelt-runtime/src/order",
+"commits": 24,
+"lines": 254,
+"changed": 280
+},
+{
+"module": "crates/smelt-hir/src/lib",
+"commits": 24,
+"lines": 117,
+"changed": 170
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/fetch_types",
+"commits": 23,
+"lines": 1297,
+"changed": 2415
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/list_mutation",
+"commits": 23,
+"lines": 1143,
+"changed": 1150
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/console_inspect",
+"commits": 22,
+"lines": 754,
+"changed": 992
+},
+{
+"module": "crates/smelt-runtime/src/runtime/property_access",
+"commits": 22,
+"lines": 516,
+"changed": 668
+},
+{
+"module": "crates/smelt-codegen-rust/src/stdlib",
+"commits": 22,
+"lines": 124,
+"changed": 2317
+},
+{
+"module": "crates/smelt-mir/src/lower/passes",
+"commits": 21,
+"lines": 1688,
+"changed": 1930
+},
+{
+"module": "crates/smelt-mir/src/validate",
+"commits": 21,
+"lines": 1621,
+"changed": 4478
+},
+{
+"module": "crates/smelt-stdlib/src/runtime_symbols",
+"commits": 21,
+"lines": 904,
+"changed": 610
+},
+{
+"module": "crates/smelt-frontend-ts/src/context",
+"commits": 21,
+"lines": 503,
+"changed": 437
+},
+{
+"module": "crates/smelt-mir/src/traversal",
+"commits": 20,
+"lines": 1196,
+"changed": 3209
+},
+{
+"module": "crates/smelt-codegen-rust/src/rust",
+"commits": 20,
+"lines": 996,
+"changed": 1439
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/capture_analysis",
+"commits": 20,
+"lines": 915,
+"changed": 273
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/typedness",
+"commits": 20,
+"lines": 585,
+"changed": 949
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/fallible_op",
+"commits": 20,
+"lines": 534,
+"changed": 772
+},
+{
+"module": "crates/smelt-mir/src/opt/integer_range",
+"commits": 19,
+"lines": 1826,
+"changed": 2216
+},
+{
+"module": "crates/smelt-mir/src/list_escape",
+"commits": 18,
+"lines": 2248,
+"changed": 917
+},
+{
+"module": "crates/smelt-transpiler/src/manifest",
+"commits": 18,
+"lines": 1549,
+"changed": 1165
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/json_decode",
+"commits": 18,
+"lines": 854,
+"changed": 1134
+},
+{
+"module": "crates/smelt-transpiler/src/cli_parser",
+"commits": 18,
+"lines": 574,
+"changed": 563
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/strings_io",
+"commits": 18,
+"lines": 563,
+"changed": 763
+},
+{
+"module": "crates/smelt-stdlib/src/lib",
+"commits": 18,
+"lines": 70,
+"changed": 114
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/literals",
+"commits": 17,
+"lines": 1228,
+"changed": 577
+},
+{
+"module": "crates/smelt-mir/src/lib",
+"commits": 17,
+"lines": 1133,
+"changed": 382
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/closure_call",
+"commits": 17,
+"lines": 978,
+"changed": 1327
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/local_analysis",
+"commits": 17,
+"lines": 903,
+"changed": 947
+},
+{
+"module": "crates/smelt-codegen-rust/src/class_proto",
+"commits": 17,
+"lines": 879,
+"changed": 878
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/spread_arguments",
+"commits": 17,
+"lines": 729,
+"changed": 943
+},
+{
+"module": "crates/smelt-codegen-rust/src/classify",
+"commits": 17,
+"lines": 721,
+"changed": 623
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/host_interop",
+"commits": 17,
+"lines": 431,
+"changed": 453
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/http_server",
+"commits": 17,
+"lines": 395,
+"changed": 695
+},
+{
+"module": "crates/smelt-runtime/src/runtime/function_object",
+"commits": 17,
+"lines": 388,
+"changed": 506
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/call",
+"commits": 16,
+"lines": 1475,
+"changed": 503
+},
+{
+"module": "crates/smelt-mir/src/lower/stmt",
+"commits": 16,
+"lines": 1071,
+"changed": 1321
+},
+{
+"module": "crates/smelt-stdlib/src/classes",
+"commits": 16,
+"lines": 976,
+"changed": 915
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/function_item",
+"commits": 16,
+"lines": 830,
+"changed": 1128
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/bigint",
+"commits": 16,
+"lines": 569,
+"changed": 1005
+},
+{
+"module": "crates/smelt-mir/src/opt/let_temp_elision",
+"commits": 16,
+"lines": 543,
+"changed": 730
+},
+{
+"module": "crates/smelt-transpiler/src/cli",
+"commits": 16,
+"lines": 359,
+"changed": 769
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/throw",
+"commits": 16,
+"lines": 346,
+"changed": 246
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/tuple",
+"commits": 16,
+"lines": 284,
+"changed": 247
+},
+{
+"module": "crates/smelt-codegen-rust/src/fetch_types_prelude",
+"commits": 16,
+"lines": 0,
+"changed": 2658
+},
+{
+"module": "crates/smelt-codegen-rust/src/generic_bindings",
+"commits": 15,
+"lines": 1694,
+"changed": 826
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/callable_object",
+"commits": 15,
+"lines": 802,
+"changed": 1024
+},
+{
+"module": "crates/smelt-transpiler/src/typedness_report",
+"commits": 15,
+"lines": 766,
+"changed": 1250
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/type_facts",
+"commits": 15,
+"lines": 717,
+"changed": 877
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering",
+"commits": 15,
+"lines": 613,
+"changed": 422
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/list_ordering",
+"commits": 15,
+"lines": 539,
+"changed": 554
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/typed_array",
+"commits": 15,
+"lines": 518,
+"changed": 864
+},
+{
+"module": "crates/smelt-mir/src/lower/place",
+"commits": 15,
+"lines": 355,
+"changed": 722
+},
+{
+"module": "crates/smelt-runtime/src/source",
+"commits": 14,
+"lines": 1008,
+"changed": 976
+},
+{
+"module": "crates/smelt-transpiler/src/probe",
+"commits": 14,
+"lines": 864,
+"changed": 659
+},
+{
+"module": "crates/smelt-mir/src/lower/closures",
+"commits": 14,
+"lines": 812,
+"changed": 221
+},
+{
+"module": "crates/smelt-hir/src/ty",
+"commits": 14,
+"lines": 716,
+"changed": 606
+},
+{
+"module": "crates/smelt-codegen-rust/src/crate_builder",
+"commits": 14,
+"lines": 686,
+"changed": 810
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/aggregate_literal",
+"commits": 14,
+"lines": 635,
+"changed": 1033
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/default_value",
+"commits": 14,
+"lines": 471,
+"changed": 679
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/class",
+"commits": 13,
+"lines": 2098,
+"changed": 929
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/async_op",
+"commits": 13,
+"lines": 1036,
+"changed": 1384
+},
+{
+"module": "crates/smelt-stdlib/src/host_object",
+"commits": 13,
+"lines": 988,
+"changed": 678
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/specialization",
+"commits": 13,
+"lines": 915,
+"changed": 458
+},
+{
+"module": "crates/smelt-codegen-rust/src/program_types",
+"commits": 13,
+"lines": 592,
+"changed": 1050
+},
+{
+"module": "crates/smelt-mir/src/lower/volatile_locals",
+"commits": 13,
+"lines": 550,
+"changed": 703
+},
+{
+"module": "crates/smelt-mir/src/lower/context",
+"commits": 13,
+"lines": 539,
+"changed": 321
+},
+{
+"module": "crates/smelt-frontend-py/src/lib",
+"commits": 13,
+"lines": 461,
+"changed": 132
+},
+{
+"module": "crates/smelt-codegen-rust/src/deps",
+"commits": 13,
+"lines": 347,
+"changed": 494
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/control_flow_match",
+"commits": 13,
+"lines": 289,
+"changed": 147
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/host_module",
+"commits": 13,
+"lines": 248,
+"changed": 496
+},
+{
+"module": "crates/smelt-codegen-rust/src/thrown",
+"commits": 13,
+"lines": 180,
+"changed": 1149
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/receiver_bound_slot",
+"commits": 13,
+"lines": 162,
+"changed": 258
+},
+{
+"module": "crates/smelt-transpiler/src/stubs",
+"commits": 12,
+"lines": 939,
+"changed": 888
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/field_access",
+"commits": 12,
+"lines": 754,
+"changed": 1080
+},
+{
+"module": "crates/smelt-codegen-rust/src/derive_impls",
+"commits": 12,
+"lines": 527,
+"changed": 731
+},
+{
+"module": "crates/smelt-runtime/src/runtime/thrown",
+"commits": 12,
+"lines": 522,
+"changed": 662
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/crypto",
+"commits": 12,
+"lines": 258,
+"changed": 478
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/construct",
+"commits": 12,
+"lines": 258,
+"changed": 321
+},
+{
+"module": "crates/smelt-transpiler/src/pipeline",
+"commits": 12,
+"lines": 247,
+"changed": 240
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/view_write_through",
+"commits": 12,
+"lines": 224,
+"changed": 348
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/literals",
+"commits": 12,
+"lines": 184,
+"changed": 130
+},
+{
+"module": "crates/smelt-codegen-rust/src/reference_origin",
+"commits": 12,
+"lines": 160,
+"changed": 268
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/specialization",
+"commits": 11,
+"lines": 1534,
+"changed": 349
+},
+{
+"module": "crates/smelt-codegen-rust/src/generic_lifting",
+"commits": 11,
+"lines": 1497,
+"changed": 1824
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/statement",
+"commits": 11,
+"lines": 1051,
+"changed": 404
+},
+{
+"module": "crates/smelt-runtime/src/runtime_tests",
+"commits": 11,
+"lines": 1013,
+"changed": 1133
+},
+{
+"module": "crates/smelt-mir/src/opt/temp_copy_forwarding",
+"commits": 11,
+"lines": 754,
+"changed": 854
+},
+{
+"module": "crates/smelt-transpiler/src/specialization",
+"commits": 11,
+"lines": 684,
+"changed": 438
+},
+{
+"module": "crates/smelt-codegen-rust/src/reference_storage",
+"commits": 11,
+"lines": 567,
+"changed": 653
+},
+{
+"module": "crates/smelt-transpiler/src/config",
+"commits": 11,
+"lines": 534,
+"changed": 397
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/map",
+"commits": 11,
+"lines": 453,
+"changed": 174
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/operand",
+"commits": 11,
+"lines": 422,
+"changed": 542
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/form_data",
+"commits": 11,
+"lines": 376,
+"changed": 612
+},
+{
+"module": "crates/smelt-transpiler/src/ts_facts",
+"commits": 11,
+"lines": 326,
+"changed": 688
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/seam_assertions",
+"commits": 11,
+"lines": 311,
+"changed": 49
+},
+{
+"module": "crates/smelt-runtime/src/lib",
+"commits": 11,
+"lines": 167,
+"changed": 204
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/blob",
+"commits": 11,
+"lines": 138,
+"changed": 264
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/list",
+"commits": 10,
+"lines": 843,
+"changed": 800
+},
+{
+"module": "crates/smelt-transpiler/src/ts7_parity_report",
+"commits": 10,
+"lines": 618,
+"changed": 810
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/virtual_slots",
+"commits": 10,
+"lines": 609,
+"changed": 771
+},
+{
+"module": "crates/smelt-ts-types/src/convert",
+"commits": 10,
+"lines": 553,
+"changed": 677
+},
+{
+"module": "crates/smelt-runtime/src/runtime/erased_method",
+"commits": 10,
+"lines": 499,
+"changed": 839
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/record_slot_abi",
+"commits": 10,
+"lines": 429,
+"changed": 559
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/host_override",
+"commits": 10,
+"lines": 397,
+"changed": 121
+},
+{
+"module": "crates/smelt-stdlib/src/deps",
+"commits": 10,
+"lines": 394,
+"changed": 466
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/set",
+"commits": 10,
+"lines": 394,
+"changed": 377
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/bound_dispatch",
+"commits": 10,
+"lines": 308,
+"changed": 444
+},
+{
+"module": "crates/smelt-codegen-rust/src/globals",
+"commits": 10,
+"lines": 206,
+"changed": 288
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/url",
+"commits": 10,
+"lines": 144,
+"changed": 240
+},
+{
+"module": "crates/smelt-transpiler/src/lib",
+"commits": 10,
+"lines": 71,
+"changed": 77
+},
+{
+"module": "crates/smelt-transpiler/src/main",
+"commits": 10,
+"lines": 35,
+"changed": 972
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/int32",
+"commits": 9,
+"lines": 1988,
+"changed": 2212
+},
+{
+"module": "crates/smelt-stdlib/src/recognition",
+"commits": 9,
+"lines": 741,
+"changed": 499
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/checker_types",
+"commits": 9,
+"lines": 731,
+"changed": 926
+},
+{
+"module": "crates/smelt-codegen-rust/src/bound_traits",
+"commits": 9,
+"lines": 680,
+"changed": 888
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/weak_receiver",
+"commits": 9,
+"lines": 678,
+"changed": 894
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/control_flow",
+"commits": 9,
+"lines": 633,
+"changed": 303
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/primitive_cast",
+"commits": 9,
+"lines": 513,
+"changed": 793
+},
+{
+"module": "crates/smelt-stdlib/src/host_modules",
+"commits": 9,
+"lines": 512,
+"changed": 750
+},
+{
+"module": "crates/smelt-codegen-rust/src/generic_elision",
+"commits": 9,
+"lines": 499,
+"changed": 659
+},
+{
+"module": "crates/smelt-transpiler/src/list_escape_report",
+"commits": 9,
+"lines": 498,
+"changed": 394
+},
+{
+"module": "crates/smelt-transpiler/src/python",
+"commits": 9,
+"lines": 336,
+"changed": 220
+},
+{
+"module": "crates/smelt-runtime/src/runtime/conversions",
+"commits": 9,
+"lines": 334,
+"changed": 370
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/typed_spread",
+"commits": 9,
+"lines": 320,
+"changed": 374
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/text_codec",
+"commits": 9,
+"lines": 270,
+"changed": 466
+},
+{
+"module": "crates/smelt-hir/src/krate",
+"commits": 9,
+"lines": 257,
+"changed": 128
+},
+{
+"module": "crates/smelt-mir/src/lower/transcribe",
+"commits": 9,
+"lines": 240,
+"changed": 290
+},
+{
+"module": "crates/smelt-ts-types/src/walk",
+"commits": 9,
+"lines": 238,
+"changed": 320
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/sqlite",
+"commits": 9,
+"lines": 156,
+"changed": 250
+},
+{
+"module": "crates/smelt-codegen-rust/src/http_server_prelude",
+"commits": 9,
+"lines": 0,
+"changed": 1394
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/narrowing",
+"commits": 8,
+"lines": 1281,
+"changed": 1339
+},
+{
+"module": "crates/smelt-ts-types/tests",
+"commits": 8,
+"lines": 722,
+"changed": 890
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/instance_of",
+"commits": 8,
+"lines": 626,
+"changed": 822
+},
+{
+"module": "crates/smelt-hir/src/validate",
+"commits": 8,
+"lines": 514,
+"changed": 227
+},
+{
+"module": "crates/smelt-ts-types/src/project",
+"commits": 8,
+"lines": 411,
+"changed": 529
+},
+{
+"module": "crates/smelt-mir/src/opt/dict_default_insert_elision",
+"commits": 8,
+"lines": 388,
+"changed": 77
+},
+{
+"module": "crates/smelt-stdlib/src/globals",
+"commits": 8,
+"lines": 380,
+"changed": 264
+},
+{
+"module": "crates/smelt-mir/src/opt/dict_entry_update",
+"commits": 8,
+"lines": 371,
+"changed": 47
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/local_binding",
+"commits": 8,
+"lines": 314,
+"changed": 368
+},
+{
+"module": "crates/smelt-runtime/src/runtime/object_model",
+"commits": 8,
+"lines": 311,
+"changed": 369
+},
+{
+"module": "crates/smelt-runtime/src/runtime/regexp_match",
+"commits": 8,
+"lines": 267,
+"changed": 501
+},
+{
+"module": "crates/smelt-runtime/src/runtime/py_repr",
+"commits": 8,
+"lines": 254,
+"changed": 270
+},
+{
+"module": "crates/smelt-codegen-rust/src/console_inspect_prelude",
+"commits": 8,
+"lines": 248,
+"changed": 1324
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/fixed_int",
+"commits": 8,
+"lines": 223,
+"changed": 377
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/typeof_str_locals",
+"commits": 8,
+"lines": 212,
+"changed": 181
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/string_units",
+"commits": 8,
+"lines": 196,
+"changed": 324
+},
+{
+"module": "crates/smelt-ts-types/src/lib",
+"commits": 8,
+"lines": 182,
+"changed": 312
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/host_member_read",
+"commits": 8,
+"lines": 171,
+"changed": 193
+},
+{
+"module": "crates/smelt-codegen-rust/src/typed_array_prelude",
+"commits": 8,
+"lines": 166,
+"changed": 2252
+},
+{
+"module": "crates/smelt-mir/src/opt/unobserved_receiver_bind",
+"commits": 8,
+"lines": 157,
+"changed": 159
+},
+{
+"module": "crates/smelt-runtime/src/runtime/for_in",
+"commits": 8,
+"lines": 148,
+"changed": 214
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/dict_entry_update",
+"commits": 8,
+"lines": 120,
+"changed": 46
+},
+{
+"module": "crates/smelt-codegen-rust/src/erased_list_alias",
+"commits": 8,
+"lines": 104,
+"changed": 244
+},
+{
+"module": "crates/smelt-frontend-ts/src/lib",
+"commits": 8,
+"lines": 77,
+"changed": 34
+},
+{
+"module": "crates/smelt-codegen-rust/src/bigint_prelude",
+"commits": 8,
+"lines": 57,
+"changed": 383
+},
+{
+"module": "crates/smelt-transpiler/src/erasure",
+"commits": 7,
+"lines": 776,
+"changed": 926
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/types",
+"commits": 7,
+"lines": 766,
+"changed": 110
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/callback_handle",
+"commits": 7,
+"lines": 632,
+"changed": 850
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/generator",
+"commits": 7,
+"lines": 560,
+"changed": 812
+},
+{
+"module": "crates/smelt-hir/src/item",
+"commits": 7,
+"lines": 507,
+"changed": 147
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/stdlib_call",
+"commits": 7,
+"lines": 504,
+"changed": 176
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/flow_state",
+"commits": 7,
+"lines": 503,
+"changed": 567
+},
+{
+"module": "crates/smelt-runtime/src/runtime/console_inspect",
+"commits": 7,
+"lines": 491,
+"changed": 597
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/union_member_read",
+"commits": 7,
+"lines": 422,
+"changed": 446
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/pytest",
+"commits": 7,
+"lines": 422,
+"changed": 402
+},
+{
+"module": "crates/smelt-mir/src/index",
+"commits": 7,
+"lines": 388,
+"changed": 462
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/place_type",
+"commits": 7,
+"lines": 388,
+"changed": 450
+},
+{
+"module": "crates/smelt-runtime/src/runtime/unknown",
+"commits": 7,
+"lines": 368,
+"changed": 414
+},
+{
+"module": "crates/smelt-mir/src/erased_record_promote",
+"commits": 7,
+"lines": 343,
+"changed": 311
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/module_imports",
+"commits": 7,
+"lines": 304,
+"changed": 135
+},
+{
+"module": "crates/smelt-mir/src/opt/move_on_last_use",
+"commits": 7,
+"lines": 300,
+"changed": 289
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/null_absent",
+"commits": 7,
+"lines": 273,
+"changed": 311
+},
+{
+"module": "crates/smelt-mir/src/lower/generics",
+"commits": 7,
+"lines": 261,
+"changed": 90
+},
+{
+"module": "crates/smelt-stdlib/src/rules",
+"commits": 7,
+"lines": 236,
+"changed": 764
+},
+{
+"module": "crates/smelt-transpiler/src/config_parser",
+"commits": 7,
+"lines": 233,
+"changed": 238
+},
+{
+"module": "crates/smelt-runtime/src/runtime/record",
+"commits": 7,
+"lines": 223,
+"changed": 273
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/stdlib_dispatch",
+"commits": 7,
+"lines": 216,
+"changed": 217
+},
+{
+"module": "crates/smelt-runtime/src/runtime/object",
+"commits": 7,
+"lines": 150,
+"changed": 238
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/class_keyed_write",
+"commits": 7,
+"lines": 125,
+"changed": 173
+},
+{
+"module": "crates/smelt-codegen-rust/src/accessor_prelude",
+"commits": 7,
+"lines": 80,
+"changed": 204
+},
+{
+"module": "crates/smelt-mir/src/opt/local_use",
+"commits": 7,
+"lines": 68,
+"changed": 329
+},
+{
+"module": "crates/smelt-codegen-rust/src/lazy_view",
+"commits": 7,
+"lines": 66,
+"changed": 220
+},
+{
+"module": "crates/smelt-codegen-rust/src/host_module_prelude",
+"commits": 7,
+"lines": 0,
+"changed": 1312
+},
+{
+"module": "crates/smelt-codegen-rust/src/form_data_prelude",
+"commits": 7,
+"lines": 0,
+"changed": 1120
+},
+{
+"module": "crates/smelt-codegen-rust/src/event_emitter_prelude",
+"commits": 7,
+"lines": 0,
+"changed": 462
+},
+{
+"module": "crates/smelt-codegen-rust/src/byte_buffer_prelude",
+"commits": 7,
+"lines": 0,
+"changed": 637
+},
+{
+"module": "crates/smelt-specialize/src/sandbox",
+"commits": 6,
+"lines": 1480,
+"changed": 450
+},
+{
+"module": "crates/smelt-specialize/src/python",
+"commits": 6,
+"lines": 1033,
+"changed": 292
+},
+{
+"module": "crates/smelt-frontend-py/src/name_resolution",
+"commits": 6,
+"lines": 844,
+"changed": 1018
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/call_generics",
+"commits": 6,
+"lines": 766,
+"changed": 838
+},
+{
+"module": "crates/smelt-py-types/src/lib",
+"commits": 6,
+"lines": 553,
+"changed": 99
+},
+{
+"module": "crates/smelt-transpiler/src/ts7_parity",
+"commits": 6,
+"lines": 552,
+"changed": 626
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/module_variables",
+"commits": 6,
+"lines": 483,
+"changed": 529
+},
+{
+"module": "crates/smelt-runtime/src/runtime/regexp",
+"commits": 6,
+"lines": 434,
+"changed": 904
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/hoisting",
+"commits": 6,
+"lines": 427,
+"changed": 735
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/type_predicates",
+"commits": 6,
+"lines": 426,
+"changed": 466
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/callback_signature",
+"commits": 6,
+"lines": 422,
+"changed": 488
+},
+{
+"module": "crates/smelt-runtime/src/runtime/timers",
+"commits": 6,
+"lines": 386,
+"changed": 448
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/function_statics",
+"commits": 6,
+"lines": 326,
+"changed": 113
+},
+{
+"module": "crates/smelt-transpiler/src/report",
+"commits": 6,
+"lines": 303,
+"changed": 331
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/type_helpers",
+"commits": 6,
+"lines": 290,
+"changed": 43
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/bigint",
+"commits": 6,
+"lines": 282,
+"changed": 310
+},
+{
+"module": "crates/smelt-codegen-rust/src/module_map",
+"commits": 6,
+"lines": 217,
+"changed": 273
+},
+{
+"module": "crates/smelt-runtime/src/runtime/reflection",
+"commits": 6,
+"lines": 159,
+"changed": 269
+},
+{
+"module": "crates/smelt-runtime/src/runtime/prim_set",
+"commits": 6,
+"lines": 99,
+"changed": 199
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/abort_signal",
+"commits": 6,
+"lines": 87,
+"changed": 129
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/speculation",
+"commits": 6,
+"lines": 85,
+"changed": 95
+},
+{
+"module": "crates/smelt-codegen-rust/src/reflection_prelude",
+"commits": 6,
+"lines": 80,
+"changed": 321
+},
+{
+"module": "crates/smelt-runtime/src/runtime/string_units",
+"commits": 6,
+"lines": 0,
+"changed": 362
+},
+{
+"module": "crates/smelt-codegen-rust/src/url_prelude",
+"commits": 6,
+"lines": 0,
+"changed": 474
+},
+{
+"module": "crates/smelt-codegen-rust/src/text_codec_prelude",
+"commits": 6,
+"lines": 0,
+"changed": 460
+},
+{
+"module": "crates/smelt-codegen-rust/src/sqlite_prelude",
+"commits": 6,
+"lines": 0,
+"changed": 652
+},
+{
+"module": "crates/smelt-runtime/src/runtime/fetch_types",
+"commits": 5,
+"lines": 949,
+"changed": 1565
+},
+{
+"module": "crates/smelt-runtime/src/runtime/js_string",
+"commits": 5,
+"lines": 751,
+"changed": 997
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/mut_list_call",
+"commits": 5,
+"lines": 572,
+"changed": 652
+},
+{
+"module": "crates/smelt-runtime/src/runtime/callable_registry",
+"commits": 5,
+"lines": 505,
+"changed": 777
+},
+{
+"module": "crates/smelt-transpiler/src/check_program",
+"commits": 5,
+"lines": 458,
+"changed": 558
+},
+{
+"module": "crates/smelt-transpiler/src/package_sources",
+"commits": 5,
+"lines": 456,
+"changed": 600
+},
+{
+"module": "crates/smelt-mir/src/lower/scope",
+"commits": 5,
+"lines": 434,
+"changed": 480
+},
+{
+"module": "crates/smelt-ts-model/src/model",
+"commits": 5,
+"lines": 411,
+"changed": 126
+},
+{
+"module": "crates/smelt-codegen-rust/src/type_substitution",
+"commits": 5,
+"lines": 370,
+"changed": 155
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/static_call_args",
+"commits": 5,
+"lines": 365,
+"changed": 116
+},
+{
+"module": "crates/smelt-hir/src/symbol",
+"commits": 5,
+"lines": 364,
+"changed": 219
+},
+{
+"module": "crates/smelt-hir/src/type_normalize",
+"commits": 5,
+"lines": 318,
+"changed": 31
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/presence_tested_locals",
+"commits": 5,
+"lines": 297,
+"changed": 325
+},
+{
+"module": "crates/smelt-runtime/src/runtime/js_set",
+"commits": 5,
+"lines": 294,
+"changed": 420
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/support",
+"commits": 5,
+"lines": 285,
+"changed": 65
+},
+{
+"module": "crates/smelt-stdlib/src/erased_prototype_methods",
+"commits": 5,
+"lines": 279,
+"changed": 309
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/source_facts",
+"commits": 5,
+"lines": 264,
+"changed": 336
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/arguments_forwarding",
+"commits": 5,
+"lines": 263,
+"changed": 17
+},
+{
+"module": "crates/smelt-runtime/src/runtime/vitest_mock",
+"commits": 5,
+"lines": 259,
+"changed": 411
+},
+{
+"module": "crates/smelt-runtime/src/runtime/symbol",
+"commits": 5,
+"lines": 256,
+"changed": 470
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/render_scope",
+"commits": 5,
+"lines": 228,
+"changed": 280
+},
+{
+"module": "crates/smelt-mir/src/opt/dict_entry_mutation",
+"commits": 5,
+"lines": 219,
+"changed": 50
+},
+{
+"module": "crates/smelt-codegen-rust/src/crate_writer",
+"commits": 5,
+"lines": 211,
+"changed": 245
+},
+{
+"module": "crates/smelt-runtime/src/runtime/blob",
+"commits": 5,
+"lines": 186,
+"changed": 292
+},
+{
+"module": "crates/smelt-runtime/src/runtime/url",
+"commits": 5,
+"lines": 159,
+"changed": 249
+},
+{
+"module": "crates/smelt-runtime/src/runtime/string_to_number",
+"commits": 5,
+"lines": 152,
+"changed": 182
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/js_text",
+"commits": 5,
+"lines": 147,
+"changed": 191
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/erasure",
+"commits": 5,
+"lines": 145,
+"changed": 183
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/symbol_consts",
+"commits": 5,
+"lines": 141,
+"changed": 155
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/py_exception",
+"commits": 5,
+"lines": 139,
+"changed": 165
+},
+{
+"module": "crates/smelt-hir/src/op_field_types",
+"commits": 5,
+"lines": 137,
+"changed": 139
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/promise_resolution",
+"commits": 5,
+"lines": 136,
+"changed": 152
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/local_declaration",
+"commits": 5,
+"lines": 131,
+"changed": 155
+},
+{
+"module": "crates/smelt-runtime/src/runtime/boxing",
+"commits": 5,
+"lines": 122,
+"changed": 140
+},
+{
+"module": "crates/smelt-runtime/src/runtime/this_channel",
+"commits": 5,
+"lines": 109,
+"changed": 111
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/asserted_member_read",
+"commits": 5,
+"lines": 100,
+"changed": 246
+},
+{
+"module": "crates/smelt-runtime/src/runtime/key_eq",
+"commits": 5,
+"lines": 83,
+"changed": 103
+},
+{
+"module": "crates/smelt-specialize/src/lib",
+"commits": 5,
+"lines": 48,
+"changed": 17
+},
+{
+"module": "crates/smelt-runtime/src/runtime/to_string_tag",
+"commits": 5,
+"lines": 15,
+"changed": 37
+},
+{
+"module": "crates/smelt-codegen-rust/src/string_to_number_prelude",
+"commits": 5,
+"lines": 0,
+"changed": 204
+},
+{
+"module": "crates/smelt-codegen-rust/src/number_format_prelude",
+"commits": 5,
+"lines": 0,
+"changed": 420
+},
+{
+"module": "crates/smelt-codegen-rust/src/host_value_erasure",
+"commits": 5,
+"lines": 0,
+"changed": 310
+},
+{
+"module": "crates/smelt-codegen-rust/src/function_object_prelude",
+"commits": 5,
+"lines": 0,
+"changed": 214
+},
+{
+"module": "crates/smelt-codegen-rust/src/crypto_prelude",
+"commits": 5,
+"lines": 0,
+"changed": 810
+},
+{
+"module": "crates/smelt-codegen-rust/src/callable_registry",
+"commits": 5,
+"lines": 0,
+"changed": 1034
+},
+{
+"module": "crates/smelt-codegen-rust/src/builtin_member_prelude",
+"commits": 5,
+"lines": 0,
+"changed": 190
+},
+{
+"module": "crates/smelt-codegen-rust/src/blob_prelude",
+"commits": 5,
+"lines": 0,
+"changed": 516
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/stdlib_types",
+"commits": 4,
+"lines": 680,
+"changed": 42
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/stdlib_collections",
+"commits": 4,
+"lines": 560,
+"changed": 152
+},
+{
+"module": "crates/smelt-transpiler/src/test_report",
+"commits": 4,
+"lines": 483,
+"changed": 562
+},
+{
+"module": "crates/smelt-specialize/src/detection",
+"commits": 4,
+"lines": 476,
+"changed": 133
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/scoped_references",
+"commits": 4,
+"lines": 467,
+"changed": 843
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/member",
+"commits": 4,
+"lines": 451,
+"changed": 106
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/math",
+"commits": 4,
+"lines": 431,
+"changed": 75
+},
+{
+"module": "crates/smelt-mir/src/opt/rest_call_fusion",
+"commits": 4,
+"lines": 401,
+"changed": 452
+},
+{
+"module": "crates/smelt-codegen-rust/src/runtime_symbols_check",
+"commits": 4,
+"lines": 350,
+"changed": 390
+},
+{
+"module": "crates/smelt-runtime/src/runtime/number_format",
+"commits": 4,
+"lines": 348,
+"changed": 356
+},
+{
+"module": "crates/smelt-runtime/src/runtime/field_store",
+"commits": 4,
+"lines": 346,
+"changed": 502
+},
+{
+"module": "crates/smelt-specialize/src/prereq",
+"commits": 4,
+"lines": 295,
+"changed": 47
+},
+{
+"module": "crates/smelt-py-types/src/check",
+"commits": 4,
+"lines": 267,
+"changed": 315
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/render_state",
+"commits": 4,
+"lines": 265,
+"changed": 319
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/stdlib_slice",
+"commits": 4,
+"lines": 249,
+"changed": 27
+},
+{
+"module": "crates/smelt-codegen-rust/src/options",
+"commits": 4,
+"lines": 239,
+"changed": 247
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/validate",
+"commits": 4,
+"lines": 232,
+"changed": 41
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/resolve",
+"commits": 4,
+"lines": 224,
+"changed": 260
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/inherited_render",
+"commits": 4,
+"lines": 224,
+"changed": 228
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/conditional_base",
+"commits": 4,
+"lines": 222,
+"changed": 270
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/helper_reservation",
+"commits": 4,
+"lines": 220,
+"changed": 250
+},
+{
+"module": "crates/smelt-frontend-py/src/helpers",
+"commits": 4,
+"lines": 214,
+"changed": 37
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/post_dominance",
+"commits": 4,
+"lines": 210,
+"changed": 224
+},
+{
+"module": "crates/smelt-py-types/src/db",
+"commits": 4,
+"lines": 185,
+"changed": 40
+},
+{
+"module": "crates/smelt-runtime/src/runtime/json_serde",
+"commits": 4,
+"lines": 178,
+"changed": 190
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/throwing_join",
+"commits": 4,
+"lines": 177,
+"changed": 189
+},
+{
+"module": "crates/smelt-runtime/src/runtime/js_map",
+"commits": 4,
+"lines": 168,
+"changed": 194
+},
+{
+"module": "crates/smelt-runtime/src/runtime/py_exception",
+"commits": 4,
+"lines": 167,
+"changed": 219
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/truthiness",
+"commits": 4,
+"lines": 152,
+"changed": 222
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/vitest_mock",
+"commits": 4,
+"lines": 151,
+"changed": 195
+},
+{
+"module": "crates/smelt-codegen-rust/src/base_init",
+"commits": 4,
+"lines": 132,
+"changed": 164
+},
+{
+"module": "crates/smelt-runtime/src/runtime/bigint",
+"commits": 4,
+"lines": 112,
+"changed": 126
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/rendered_value",
+"commits": 4,
+"lines": 96,
+"changed": 587
+},
+{
+"module": "crates/smelt-runtime/src/runtime/generator",
+"commits": 4,
+"lines": 85,
+"changed": 109
+},
+{
+"module": "crates/smelt-runtime/src/runtime/symbol_keys",
+"commits": 4,
+"lines": 62,
+"changed": 66
+},
+{
+"module": "crates/smelt-runtime/src/runtime/math",
+"commits": 4,
+"lines": 52,
+"changed": 60
+},
+{
+"module": "crates/smelt-codegen-rust/src/gates",
+"commits": 4,
+"lines": 31,
+"changed": 63
+},
+{
+"module": "crates/smelt-python/src/lib",
+"commits": 4,
+"lines": 0,
+"changed": 150
+},
+{
+"module": "crates/smelt-codegen-rust/src/erased_method_prelude",
+"commits": 4,
+"lines": 0,
+"changed": 840
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/rendered_text_rewrite",
+"commits": 4,
+"lines": 0,
+"changed": 738
+},
+{
+"module": "crates/smelt-specialize/src/manifest",
+"commits": 3,
+"lines": 951,
+"changed": 45
+},
+{
+"module": "crates/smelt-runtime/src/runtime/typed_array",
+"commits": 3,
+"lines": 796,
+"changed": 1044
+},
+{
+"module": "crates/smelt-transpiler/src/source_files",
+"commits": 3,
+"lines": 670,
+"changed": 686
+},
+{
+"module": "crates/smelt-hir/src/erasure",
+"commits": 3,
+"lines": 588,
+"changed": 672
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/exceptions",
+"commits": 3,
+"lines": 586,
+"changed": 606
+},
+{
+"module": "crates/smelt-runtime/src/runtime/host_module",
+"commits": 3,
+"lines": 535,
+"changed": 607
+},
+{
+"module": "crates/smelt-runtime/src/runtime/http_server",
+"commits": 3,
+"lines": 512,
+"changed": 754
+},
+{
+"module": "crates/smelt-ts-types/src/node_types",
+"commits": 3,
+"lines": 456,
+"changed": 678
+},
+{
+"module": "crates/smelt-mir/src/type_positions",
+"commits": 3,
+"lines": 455,
+"changed": 471
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/class_init",
+"commits": 3,
+"lines": 413,
+"changed": 351
+},
+{
+"module": "crates/smelt-transpiler/src/type_gate",
+"commits": 3,
+"lines": 409,
+"changed": 471
+},
+{
+"module": "crates/smelt-hir/src/body",
+"commits": 3,
+"lines": 402,
+"changed": 112
+},
+{
+"module": "crates/smelt-specialize/src/artifact",
+"commits": 3,
+"lines": 378,
+"changed": 140
+},
+{
+"module": "crates/smelt-runtime/src/runtime/form_data",
+"commits": 3,
+"lines": 377,
+"changed": 533
+},
+{
+"module": "crates/smelt-transpiler/src/sound_overlay",
+"commits": 3,
+"lines": 356,
+"changed": 492
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/closure",
+"commits": 3,
+"lines": 330,
+"changed": 330
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/local_use",
+"commits": 3,
+"lines": 328,
+"changed": 352
+},
+{
+"module": "crates/smelt-runtime/src/runtime/uri",
+"commits": 3,
+"lines": 322,
+"changed": 90
+},
+{
+"module": "crates/smelt-runtime/src/runtime/array",
+"commits": 3,
+"lines": 311,
+"changed": 515
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/type_param_owners",
+"commits": 3,
+"lines": 301,
+"changed": 361
+},
+{
+"module": "crates/smelt-runtime/src/runtime/sqlite",
+"commits": 3,
+"lines": 297,
+"changed": 373
+},
+{
+"module": "crates/smelt-runtime/src/runtime/byte_buffer",
+"commits": 3,
+"lines": 280,
+"changed": 530
+},
+{
+"module": "crates/smelt-transpiler/src/clean",
+"commits": 3,
+"lines": 259,
+"changed": 317
+},
+{
+"module": "crates/smelt-runtime/src/runtime/crypto",
+"commits": 3,
+"lines": 259,
+"changed": 281
+},
+{
+"module": "crates/smelt-specialize/tests",
+"commits": 3,
+"lines": 232,
+"changed": 31
+},
+{
+"module": "crates/smelt-runtime/src/runtime/test_checks",
+"commits": 3,
+"lines": 226,
+"changed": 228
+},
+{
+"module": "crates/smelt-hir/src/language_view",
+"commits": 3,
+"lines": 222,
+"changed": 278
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/emit_role",
+"commits": 3,
+"lines": 206,
+"changed": 218
+},
+{
+"module": "crates/smelt-stdlib/src/well_known_symbols",
+"commits": 3,
+"lines": 184,
+"changed": 18
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/ambient_globals",
+"commits": 3,
+"lines": 184,
+"changed": 31
+},
+{
+"module": "crates/smelt-ts-model/src/lib",
+"commits": 3,
+"lines": 160,
+"changed": 170
+},
+{
+"module": "crates/smelt-ts-types/src/layered_fs",
+"commits": 3,
+"lines": 156,
+"changed": 172
+},
+{
+"module": "crates/smelt-runtime/src/runtime/event_emitter",
+"commits": 3,
+"lines": 150,
+"changed": 212
+},
+{
+"module": "crates/smelt-mir/src/lower/function_slots",
+"commits": 3,
+"lines": 149,
+"changed": 159
+},
+{
+"module": "crates/smelt-runtime/src/runtime/text_codec",
+"commits": 3,
+"lines": 136,
+"changed": 188
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/union_flat",
+"commits": 3,
+"lines": 135,
+"changed": 141
+},
+{
+"module": "crates/smelt-runtime/src/runtime/builtin_member",
+"commits": 3,
+"lines": 131,
+"changed": 189
+},
+{
+"module": "crates/smelt-transpiler/src/scaffold",
+"commits": 3,
+"lines": 128,
+"changed": 138
+},
+{
+"module": "crates/smelt-runtime/src/runtime/structural_eq",
+"commits": 3,
+"lines": 113,
+"changed": 129
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/cfg_queries",
+"commits": 3,
+"lines": 112,
+"changed": 48
+},
+{
+"module": "crates/smelt-runtime/src/runtime/date",
+"commits": 3,
+"lines": 105,
+"changed": 131
+},
+{
+"module": "crates/smelt-runtime/src/runtime/blob_record",
+"commits": 3,
+"lines": 102,
+"changed": 180
+},
+{
+"module": "crates/smelt-stdlib/src/category",
+"commits": 3,
+"lines": 101,
+"changed": 16
+},
+{
+"module": "crates/smelt-mir/src/closure_sites",
+"commits": 3,
+"lines": 101,
+"changed": 115
+},
+{
+"module": "crates/smelt-runtime/src/runtime/strings",
+"commits": 3,
+"lines": 99,
+"changed": 54
+},
+{
+"module": "crates/smelt-mir/src/compile",
+"commits": 3,
+"lines": 73,
+"changed": 81
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/date_clock",
+"commits": 3,
+"lines": 67,
+"changed": 91
+},
+{
+"module": "crates/smelt-runtime/src/runtime/host_override",
+"commits": 3,
+"lines": 65,
+"changed": 97
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/backend_erasure",
+"commits": 3,
+"lines": 62,
+"changed": 68
+},
+{
+"module": "crates/smelt-ts-types/src/diagnostics",
+"commits": 3,
+"lines": 60,
+"changed": 124
+},
+{
+"module": "crates/smelt-codegen-rust/src/contract",
+"commits": 3,
+"lines": 51,
+"changed": 63
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/proto_argument",
+"commits": 3,
+"lines": 49,
+"changed": 67
+},
+{
+"module": "crates/smelt-codegen-rust/src/date_prelude",
+"commits": 3,
+"lines": 0,
+"changed": 254
+},
+{
+"module": "crates/smelt-codegen-rust/src/asymmetric_matcher_prelude",
+"commits": 3,
+"lines": 0,
+"changed": 145
+},
+{
+"module": "crates/smelt-codegen-rust/src/names",
+"commits": 2,
+"lines": 1094,
+"changed": 1178
+},
+{
+"module": "crates/smelt-specialize/src/node",
+"commits": 2,
+"lines": 847,
+"changed": 20
+},
+{
+"module": "crates/smelt-gui/src/workspace",
+"commits": 2,
+"lines": 748,
+"changed": 114
+},
+{
+"module": "crates/smelt-mir/src/definite_assignment",
+"commits": 2,
+"lines": 617,
+"changed": 659
+},
+{
+"module": "crates/smelt-gui/src/compiler",
+"commits": 2,
+"lines": 433,
+"changed": 517
+},
+{
+"module": "crates/smelt-specialize/src/cache_key",
+"commits": 2,
+"lines": 420,
+"changed": 460
+},
+{
+"module": "crates/smelt-stdlib/src/symbol_keys",
+"commits": 2,
+"lines": 329,
+"changed": 335
+},
+{
+"module": "crates/smelt-runtime/src/runtime/promise",
+"commits": 2,
+"lines": 319,
+"changed": 419
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/tuple_rest",
+"commits": 2,
+"lines": 314,
+"changed": 316
+},
+{
+"module": "crates/smelt-runtime/src/runtime/list",
+"commits": 2,
+"lines": 279,
+"changed": 42
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/statics_frame",
+"commits": 2,
+"lines": 254,
+"changed": 278
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/open_array_hint",
+"commits": 2,
+"lines": 231,
+"changed": 271
+},
+{
+"module": "crates/smelt-stdlib/src/math",
+"commits": 2,
+"lines": 209,
+"changed": 215
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/unchecked_returns",
+"commits": 2,
+"lines": 207,
+"changed": 231
+},
+{
+"module": "crates/smelt-frontend-ts/examples",
+"commits": 2,
+"lines": 197,
+"changed": 8
+},
+{
+"module": "crates/smelt-mir/src/lower/optional_call",
+"commits": 2,
+"lines": 191,
+"changed": 209
+},
+{
+"module": "crates/smelt-runtime/src/runtime/host_value_erasure",
+"commits": 2,
+"lines": 170,
+"changed": 288
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/binding_storage",
+"commits": 2,
+"lines": 165,
+"changed": 189
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/default_params",
+"commits": 2,
+"lines": 149,
+"changed": 149
+},
+{
+"module": "crates/smelt-mir/src/opt/shared_locals",
+"commits": 2,
+"lines": 147,
+"changed": 165
+},
+{
+"module": "crates/smelt-frontend-ts/src/untyped_imports",
+"commits": 2,
+"lines": 141,
+"changed": 159
+},
+{
+"module": "crates/smelt-mir/src/reachability",
+"commits": 2,
+"lines": 140,
+"changed": 146
+},
+{
+"module": "crates/smelt-runtime/src/runtime/clock",
+"commits": 2,
+"lines": 127,
+"changed": 8
+},
+{
+"module": "crates/smelt-runtime/src/runtime/erased_function",
+"commits": 2,
+"lines": 124,
+"changed": 166
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/generic_trial",
+"commits": 2,
+"lines": 106,
+"changed": 106
+},
+{
+"module": "crates/smelt-frontend-py/src/ty_resolve",
+"commits": 2,
+"lines": 101,
+"changed": 19
+},
+{
+"module": "crates/smelt-runtime/src/runtime/identity",
+"commits": 2,
+"lines": 96,
+"changed": 148
+},
+{
+"module": "crates/smelt-runtime/src/runtime/abort",
+"commits": 2,
+"lines": 96,
+"changed": 98
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/super_method",
+"commits": 2,
+"lines": 91,
+"changed": 101
+},
+{
+"module": "crates/smelt-codegen-rust/src/error",
+"commits": 2,
+"lines": 91,
+"changed": 91
+},
+{
+"module": "crates/smelt-runtime/src/runtime/accessor",
+"commits": 2,
+"lines": 50,
+"changed": 58
+},
+{
+"module": "crates/smelt-runtime/src/runtime/json_indent",
+"commits": 2,
+"lines": 40,
+"changed": 42
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/stdlib_dispatch",
+"commits": 2,
+"lines": 39,
+"changed": 78
+},
+{
+"module": "crates/smelt-mir/src/type_normalize",
+"commits": 2,
+"lines": 18,
+"changed": 141
+},
+{
+"module": "crates/smelt-runtime/src/runtime/view_write_through",
+"commits": 2,
+"lines": 12,
+"changed": 14
+},
+{
+"module": "crates/smelt-ts-types/src/model",
+"commits": 2,
+"lines": 0,
+"changed": 316
+},
+{
+"module": "crates/smelt-test/src/ts",
+"commits": 2,
+"lines": 0,
+"changed": 573
+},
+{
+"module": "crates/smelt-frontend-ts/src/checker",
+"commits": 2,
+"lines": 0,
+"changed": 42
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/callback_expr",
+"commits": 2,
+"lines": 0,
+"changed": 136
+},
+{
+"module": "crates/smelt-transpiler/src/sound",
+"commits": 1,
+"lines": 861,
+"changed": 861
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/function",
+"commits": 1,
+"lines": 420,
+"changed": 117
+},
+{
+"module": "crates/smelt-gui/src/output",
+"commits": 1,
+"lines": 369,
+"changed": 59
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/format",
+"commits": 1,
+"lines": 339,
+"changed": 38
+},
+{
+"module": "crates/smelt-stdlib/src/js_regex",
+"commits": 1,
+"lines": 326,
+"changed": 104
+},
+{
+"module": "crates/smelt-runtime/src/runtime/fast_check",
+"commits": 1,
+"lines": 278,
+"changed": 278
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/postfix_deferral",
+"commits": 1,
+"lines": 242,
+"changed": 242
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/assertion_views",
+"commits": 1,
+"lines": 235,
+"changed": 235
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/match",
+"commits": 1,
+"lines": 216,
+"changed": 14
+},
+{
+"module": "crates/smelt-stdlib/src/builtin_members",
+"commits": 1,
+"lines": 164,
+"changed": 13
+},
+{
+"module": "crates/smelt-gui/src/examples",
+"commits": 1,
+"lines": 164,
+"changed": 7
+},
+{
+"module": "crates/smelt-frontend-py/examples",
+"commits": 1,
+"lines": 138,
+"changed": 2
+},
+{
+"module": "crates/smelt-codegen-rust/src/startup",
+"commits": 1,
+"lines": 136,
+"changed": 136
+},
+{
+"module": "crates/smelt-frontend-ts/src/error",
+"commits": 1,
+"lines": 135,
+"changed": 18
+},
+{
+"module": "crates/smelt-runtime/src/runtime/captures",
+"commits": 1,
+"lines": 134,
+"changed": 0
+},
+{
+"module": "crates/smelt-gui/src/theme",
+"commits": 1,
+"lines": 131,
+"changed": 2
+},
+{
+"module": "crates/smelt-codegen-rust/src/emitter/this_frame",
+"commits": 1,
+"lines": 85,
+"changed": 85
+},
+{
+"module": "crates/smelt-stdlib/src/fetch_init",
+"commits": 1,
+"lines": 60,
+"changed": 60
+},
+{
+"module": "crates/smelt-runtime/src/runtime/value",
+"commits": 1,
+"lines": 55,
+"changed": 0
+},
+{
+"module": "crates/smelt-frontend-ts/src/test_support",
+"commits": 1,
+"lines": 53,
+"changed": 12
+},
+{
+"module": "crates/smelt-runtime/src/runtime/binding",
+"commits": 1,
+"lines": 52,
+"changed": 52
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/body_arena",
+"commits": 1,
+"lines": 51,
+"changed": 51
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/peel",
+"commits": 1,
+"lines": 40,
+"changed": 40
+},
+{
+"module": "crates/smelt-runtime/src/runtime/host_method",
+"commits": 1,
+"lines": 38,
+"changed": 38
+},
+{
+"module": "crates/smelt-transpiler/src/timing",
+"commits": 1,
+"lines": 29,
+"changed": 17
+},
+{
+"module": "crates/smelt-frontend-ts/src/lowering/own_this",
+"commits": 1,
+"lines": 24,
+"changed": 24
+},
+{
+"module": "crates/smelt-frontend-py/src/test_support",
+"commits": 1,
+"lines": 24,
+"changed": 14
+},
+{
+"module": "crates/smelt-test/src/py",
+"commits": 1,
+"lines": 0,
+"changed": 252
+},
+{
+"module": "crates/smelt-test/src/lib",
+"commits": 1,
+"lines": 0,
+"changed": 193
+},
+{
+"module": "crates/smelt-stdlib/src/diagnostics",
+"commits": 1,
+"lines": 0,
+"changed": 41
+},
+{
+"module": "crates/smelt-specialize/src/adapter",
+"commits": 1,
+"lines": 0,
+"changed": 91
+},
+{
+"module": "crates/smelt-runtime/src/value",
+"commits": 1,
+"lines": 0,
+"changed": 4
+},
+{
+"module": "crates/smelt-runtime/src/uri",
+"commits": 1,
+"lines": 0,
+"changed": 226
+},
+{
+"module": "crates/smelt-runtime/src/captures",
+"commits": 1,
+"lines": 0,
+"changed": 8
+},
+{
+"module": "crates/smelt-frontend-ts/src/parser",
+"commits": 1,
+"lines": 0,
+"changed": 0
+},
+{
+"module": "crates/smelt-asyncio/src/lib",
+"commits": 1,
+"lines": 0,
+"changed": 42
+},
+{
+"module": "crates/smelt-transpiler/src/diagnostics",
+"commits": 0,
+"lines": 319,
+"changed": 0
+},
+{
+"module": "crates/smelt-hir/src/ids",
+"commits": 0,
+"lines": 76,
+"changed": 0
+},
+{
+"module": "crates/smelt-gui/src/pipeline",
+"commits": 0,
+"lines": 67,
+"changed": 0
+},
+{
+"module": "crates/smelt-stdlib/src/fields",
+"commits": 0,
+"lines": 52,
+"changed": 0
+},
+{
+"module": "crates/smelt-gui/src/main",
+"commits": 0,
+"lines": 51,
+"changed": 0
+},
+{
+"module": "crates/smelt-frontend-ts/src/ident",
+"commits": 0,
+"lines": 32,
+"changed": 0
+},
+{
+"module": "crates/smelt-frontend-py/src/lowering/stdlib",
+"commits": 0,
+"lines": 20,
+"changed": 0
+}
+]

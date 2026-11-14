@@ -10,7 +10,7 @@ this file: [`reference-class-modeling-port.rs`](./reference-class-modeling-port.
 Implemented on `claude/reference-classes` (classification in
 `crates/smelt-codegen-rust/src/classify.rs`; emission in `lib.rs` +
 `emitter/place.rs`; getter lowering in the frontend). All four phases shipped.
-As-built V1 deviations, documented in `blocker-logs/reference-classes.md`:
+As-built V1 deviations, documented in `reference-classes.md` (in git history):
 - **Index-signature classes** (`[key: string]: T`) stay value classes for now —
   their `__smelt_index_store` access is not yet projected through the cell, so
   the spec's `obj[key] = …` trigger is narrowed to declared-field writes in V1.
@@ -189,4 +189,4 @@ miscompile). Reassignment/aliasing of a reference-class binding clones the handl
 `es-toolkit` `src/promise/{semaphore,mutex}.ts` and their `.spec.ts` files:
 generated crate compiles and the semaphore/mutex generated tests pass (the
 reference port's scenarios are the acceptance shape). Confirm no regression on the
-value-class path (remeda stays 1789/1789 — see `blocker-logs/remeda-regression.md`).
+value-class path (remeda stays 1789/1789 — see `remeda-regression.md` (in git history)).

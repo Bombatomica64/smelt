@@ -1406,7 +1406,7 @@ fn a_data_view_accessor_is_a_fallible_call_with_the_specs_to_index() {
     // as an rvalue could not reach a `try` at all. It is therefore a call to
     // `Rvalue::DataViewAccess` behind the generated throwing adapter, the
     // same route `JSON.parse` takes. See
-    // `blocker-logs/standards-throwing-rvalue.md`; executed end to end by
+    // `standards-throwing-rvalue.md` (in git history); executed end to end by
     // `examples/typescript/end-to-end/88_data_view_range_error`.
     let read = source_for("export function f(view: DataView) { return view.getInt16(1); }");
     assert!(

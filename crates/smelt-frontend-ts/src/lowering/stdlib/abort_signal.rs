@@ -6,7 +6,7 @@
 //! `unknown` — the same type `new AbortController().signal` has, and by the
 //! same design decision: the signal's own `reason` holds any JavaScript value,
 //! so nothing about it is concrete yet (see
-//! `blocker-logs/abort-signal-reason-and-statics.md`).
+//! `abort-signal-reason-and-statics.md` (in git history)).
 //!
 //! A user class named `AbortSignal` still wins, as with every other modeled
 //! host name: the registry models the host name, not the spelling.

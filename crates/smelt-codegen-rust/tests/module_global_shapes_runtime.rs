@@ -27,7 +27,7 @@
 //! fixture for it asserts the property a copy would break — a write from one
 //! function is visible to another — because a type-level test cannot see the
 //! difference. A **nested** write (`cache[a][b] = value`) is still a named
-//! blocker. See `blocker-logs/hono-h6-place-global.md`.
+//! blocker. See `hono-h6-place-global.md` (in git history).
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!

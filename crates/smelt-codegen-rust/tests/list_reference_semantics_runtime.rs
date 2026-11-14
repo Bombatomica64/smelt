@@ -246,7 +246,7 @@ fn array_of_length_gives_each_slot_its_own_array() {
     // Smelt cannot deliver it today — `fill` erases `a` to `SmeltUnknown::Array`
     // and the conversion back rebuilds every element from scratch, so the shared
     // identity is lost at the round trip. That is the copying erasure boundary in
-    // blocker-logs/smeltlist-shared-buffer.md, not this rule; a fixture for it
+    // smeltlist-shared-buffer.md (in git history), not this rule; a fixture for it
     // belongs with that work.
     let source = r#"
 import { test, expect } from "vitest";

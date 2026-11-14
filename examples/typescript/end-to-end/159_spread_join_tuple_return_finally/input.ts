@@ -1,5 +1,5 @@
 // Spread joins, tuple returns, bitwise operands and `finally` —
-// blocker-logs/hono-v5-phase4.md (Hono v5 `helper/cookie`, `utils/accept`,
+// hono-v5-phase4.md (in git history) (Hono v5 `helper/cookie`, `utils/accept`,
 // `utils/cookie`, `compose`).
 //
 // 1. An object literal with spreads keeps an OPTIONAL record source's

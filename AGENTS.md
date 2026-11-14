@@ -8,6 +8,8 @@ They give each value the most precise type the source supports: concrete struct/
 a real dynamic boundary. So: types correct all the way down to runtime, as few `SmeltUnknown`s as possible.
 They would also refuse to merge a rule that only fires for one library's spelling.
 
+Visual map of the architecture (where each concern lives): `docs/architecture/index.html`.
+
 ## Build commands (corgi required)
 Use [corgi](https://corgi.build/) (`cargo install corgi-build`, one shared cache in `~/.local/share/corgi`)
 instead of `cargo` for every build, check, clippy and run, from the workspace root. Tight loop (`--lib` skips inline tests):
@@ -42,6 +44,7 @@ replace this with unconditional `fs::write`; do not touch or regenerate generate
   (sorted by count: start with the biggest class)
 - Runtime-compatibility failures: `skills/smelt-debug-workflow/SKILL.md` and `smelt rust-test-report`, not
   repeated hand-run test/diagnostics commands. Report to `blocker-logs/<name>.md`; load raw context only for the selected failure family.
+- Reports in `blocker-logs/` are temporary: delete yours in the PR that closes the investigation, durable conclusions go to `docs/` (`blocker-logs/README.md`).
 
 ## Code rules
 - Put docstrings in modules and functions.
@@ -81,6 +84,7 @@ replace this with unconditional `fs::write`; do not touch or regenerate generate
 | `smelt-unknown-baseline.json` | examples | hard invariant: stays 0 | blocking, `--fail-on-regression` |
 | `smelt-unknown-baseline-es-toolkit.json` | es-toolkit | ratchet: may only stay equal or fall | blocking, `--fail-on-regression` |
 | `smelt-unknown-baseline-remeda.json` | remeda | advisory, a diff reference | never blocks |
+| `smelt-unknown-baseline-hono.json` | hono | advisory, a diff reference | never blocks |
 
 - An avoidable rise blocks merge unless the PR (1) documents the boundary at the emit site and (2) adds the
   regression test; then reclassify via `classify_line` (`crates/smelt-transpiler/src/unknown_report/classify.rs`)

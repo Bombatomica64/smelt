@@ -230,7 +230,7 @@ impossible (a `Host` receiver matches none of `Dict`/`JsMap`/`Set` at
 change that most directly serves the "what a skilled team would hand-write" bar.
 
 Full site inventory, scope argument, staged checkpoints and regression tests:
-`blocker-logs/phase2-type-host-spec.md`.
+`phase2-type-host-spec.md` (in git history).
 
 ### C · `ModuleBuilder`'s state was never split
 
