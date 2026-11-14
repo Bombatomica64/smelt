@@ -445,6 +445,7 @@ impl RuntimeDemand {
                 self.add(Need::ErasedAnswer);
             }
             Rvalue::GeneratorNext { .. }
+            | Rvalue::GeneratorCollect { .. }
             | Rvalue::GeneratorDone { .. }
             | Rvalue::GeneratorValue { .. }
             | Rvalue::GeneratorDelegate { .. }

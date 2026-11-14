@@ -481,7 +481,7 @@ fn generator_in_erased_slot_erases_through_into_smelt_unknown() {
         "erased-slot generator must erase through IntoSmeltUnknown: {source}"
     );
     assert!(
-        source.contains("impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N>"),
+        source.contains("impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + Default + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltGenerator<Y, R, N>"),
         "prelude must define the generator boundary adapter: {source}"
     );
     // Consumers of an erased iterable must drain the iterator protocol the

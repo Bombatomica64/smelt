@@ -194,10 +194,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         body.push_expr(Expr {
-            kind: ExprKind::UnknownCast {
-                value: generator,
-                target: list_ty,
-            },
+            kind: ExprKind::GeneratorCollect { generator },
             ty: list_ty,
             span,
         })

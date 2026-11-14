@@ -183,12 +183,26 @@ macro_rules! op_group_transcribed {
                 /// Protocol method used for this resumption.
                 kind: [$crate::GeneratorResumeKind],
             }
+                // The generator's body may throw, and a `try` around the
+                // `.next()` that resumed it must see the throw.
+                fallible(true)
+                call(format!("@generator_{kind:?}"))
                 => (
                     value.map_or_else(
                         || format!("{kind:?} {generator}"),
                         |value| format!("{kind:?} {generator} with {value}"),
                     )
                 );
+            /// Drain a synchronous generator into a fresh list (`[...gen]`,
+            /// `Array.from(gen)`). A throw from its body reaches the enclosing
+            /// `try`, as it does for `.next()`.
+            GeneratorCollect {
+                /// Generator handle to drain.
+                generator: one,
+            }
+                fallible(true)
+                call("@generator_collect".to_owned())
+                => (format!("generator_collect {generator}"));
             /// Test whether a generator resume result represents completion.
             GeneratorDone {
                 /// Resume result to inspect.
@@ -202,10 +216,14 @@ macro_rules! op_group_transcribed {
             }
                 => (format!("value {result}"));
             /// Resume a delegated generator, forwarding each suspension to the caller.
+            /// A throw from a delegate generator reaches the `try` around the
+            /// `yield*`.
             GeneratorDelegate {
                 /// Generator whose suspension points are forwarded.
                 generator: one,
             }
+                fallible(true)
+                call("@generator_delegate".to_owned())
                 => (format!("yield* {generator}"));
             /// Read the JavaScript `this` receiver installed by the active call.
             ///

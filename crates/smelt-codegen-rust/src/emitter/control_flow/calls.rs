@@ -41,7 +41,9 @@ impl FunctionEmitter<'_> {
                 self.mark_local_declared(dest);
                 return Ok(());
             }
-            let call_text = self.rendered_call(callee, args)?.into_expression();
+            let call_text = self
+                .rendered_call(callee, args, Some(local.ty))?
+                .into_expression();
             out.push_str(&format!(
                 "    let _ = {call_text};\n",
                 call_text = call_text.delimited()
@@ -170,7 +172,7 @@ impl FunctionEmitter<'_> {
         let hoist_dest = joined_tail.is_some_and(|tail| {
             !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest)
         });
-        let rendered = self.rendered_call(callee, args)?;
+        let rendered = self.rendered_call(callee, args, Some(local.ty))?;
         if !rendered.propagates() {
             let call_text = rendered.into_call();
             let name = self.local_name(dest)?;
@@ -294,8 +296,9 @@ impl FunctionEmitter<'_> {
             }
             return Ok(());
         }
+        let suspends = rendered.suspends();
         let raw_call = rendered.into_call();
-        let source_ty = self.call_source_ty(callee)?;
+        let source_ty = self.call_source_ty(callee, Some(local.ty))?;
         // Seam 3 (`emitter::seam_assertions`): `__smelt_value` below is the
         // value the EMITTED call produced, and it is coerced from the DECLARED
         // return type. The remaining site that still asks the declared question
@@ -316,9 +319,17 @@ impl FunctionEmitter<'_> {
             out.push_str(&self.throwing_dest_predeclaration(dest, dest_type_text.as_deref())?);
             self.mark_local_declared(dest);
         }
-        out.push_str(&format!(
-            "    match {{ smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})); smelt_panic_catch_leave(); smelt_caught }} {{\n", raw_call = raw_call.delimited()
-        ));
+        if suspends {
+            // The call awaits, so it runs in place: its `Result` is the error
+            // channel, and the panic arm below is never taken.
+            out.push_str(&format!(
+                "    match {{ let smelt_caught: ::std::result::Result<_, Box<dyn ::std::any::Any + Send>> = Ok({raw_call}); smelt_caught }} {{\n", raw_call = raw_call.delimited()
+            ));
+        } else {
+            out.push_str(&format!(
+                "    match {{ smelt_panic_catch_enter(); let smelt_caught = ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})); smelt_panic_catch_leave(); smelt_caught }} {{\n", raw_call = raw_call.delimited()
+            ));
+        }
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
         let value_text = self.rendered_at_type(
             &RustExpr::path("__smelt_value"),

@@ -15,6 +15,10 @@ pub(super) struct RenderedCall {
     call: RustExpr,
     /// Whether the call yields a `Result` this body propagates with `?`.
     propagates: bool,
+    /// Whether the call text suspends (holds an `.await`): a `try` must then
+    /// match on its `Result` in place instead of running it in a
+    /// `catch_unwind` closure, which cannot await.
+    suspends: bool,
 }
 
 impl From<RustExpr> for RenderedCall {
@@ -30,6 +34,7 @@ impl RenderedCall {
         Self {
             call: call.into(),
             propagates: false,
+            suspends: false,
         }
     }
 
@@ -38,6 +43,7 @@ impl RenderedCall {
         Self {
             call: call.into(),
             propagates: true,
+            suspends: false,
         }
     }
 
@@ -46,6 +52,7 @@ impl RenderedCall {
         Self {
             call: call.into(),
             propagates,
+            suspends: false,
         }
     }
 
@@ -56,6 +63,20 @@ impl RenderedCall {
         } else {
             self.call
         }
+    }
+
+    /// A `Result`-valued call whose text suspends (see [`Self::suspends`]).
+    pub(super) fn propagating_suspending(call: impl Into<RustExpr>) -> Self {
+        Self {
+            call: call.into(),
+            propagates: true,
+            suspends: true,
+        }
+    }
+
+    /// Whether the call text holds an `.await`, so it cannot run in a closure.
+    pub(super) const fn suspends(&self) -> bool {
+        self.suspends
     }
 
     /// Whether the call propagates the callee's error.
@@ -74,6 +95,7 @@ impl RenderedCall {
         Self {
             call: RustExpr::chain(rewrite(&self.call)),
             propagates: self.propagates,
+            suspends: self.suspends,
         }
     }
 }
@@ -90,6 +112,7 @@ impl FunctionEmitter<'_> {
         &self,
         callee: &Callee,
         args: &[Operand],
+        dest_ty: Option<TypeId>,
     ) -> Result<RenderedCall, EmitError> {
         match callee {
             Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
@@ -115,7 +138,7 @@ impl FunctionEmitter<'_> {
                 )
             }
             Callee::Op(op, Some(ty)) => Ok(self.rvalue_expr_for_dest(op, *ty)?.into()),
-            Callee::Op(op, None) => Ok(self.fallible_op_call(op)?.text),
+            Callee::Op(op, None) => Ok(self.fallible_op_call(op, dest_ty)?.text),
             Callee::BaseInit(func) => self.base_initializer_call(*func, args),
             Callee::Static(func) => self.static_call(*func, args),
             Callee::Indirect(indirect_callee) => self.indirect_call(indirect_callee, args),
@@ -322,7 +345,9 @@ impl FunctionEmitter<'_> {
         // rendering and compare.
         #[cfg(debug_assertions)]
         let monomorphization_before_arguments = self.sampled_call_monomorphization(callee, args);
-        let mut call_text = self.rendered_call(callee, args)?.into_expression();
+        let mut call_text = self
+            .rendered_call(callee, args, Some(dest_ty))?
+            .into_expression();
         #[cfg(debug_assertions)]
         self.debug_assert_call_monomorphization_stable(
             &self.sampled_callee_name(callee),
@@ -399,7 +424,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or(function.return_ty)
                 }
             }
-            _ => self.call_source_ty(callee)?,
+            _ => self.call_source_ty(callee, Some(dest_ty))?,
         };
         Ok(source_ty)
     }
@@ -422,7 +447,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(call_text);
         }
-        let rendered = self.rendered_call(callee, args)?;
+        let rendered = self.rendered_call(callee, args, Some(dest_ty))?;
         // A closure body that is itself fallible returns
         // `Result<_, Box<dyn std::error::Error>>`, so a throwing call inside it
         // keeps its `?` and the error stays recoverable for whoever invokes the
@@ -566,7 +591,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns the static return type of a call expression.
-    pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
+    pub(super) fn call_source_ty(
+        &self,
+        callee: &Callee,
+        dest_ty: Option<TypeId>,
+    ) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Builtin(
                 BuiltinFn::ConsoleLog { .. }
@@ -574,7 +603,7 @@ impl FunctionEmitter<'_> {
                 | BuiltinFn::ConsoleErrorWrite,
             ) => self.none_ty,
             Callee::Op(_, Some(ty)) => return Ok(*ty),
-            Callee::Op(op, None) => return Ok(self.fallible_op_call(op)?.source_ty),
+            Callee::Op(op, None) => return Ok(self.fallible_op_call(op, dest_ty)?.source_ty),
             Callee::Static(func) | Callee::BaseInit(func) => {
                 let function = self
                     .mir
