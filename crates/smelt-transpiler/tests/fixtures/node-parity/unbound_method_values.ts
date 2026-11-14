@@ -78,3 +78,33 @@ attempt("moved receiver", () => [movedReceiver(), movedTemporary()]);
 const methodOf = (value: any): any => value.map;
 attempt("returned method", () => methodOf(a)((x: number) => x));
 attempt("returned method call", () => methodOf(a).call(b, (x: number) => x + 1));
+
+// A callable object forwarding its own receiver (`debounced.apply(this, ..)`
+// in es-toolkit's `throttle`) keeps the method call's receiver.
+interface Forwarder {
+  (...args: unknown[]): void;
+  cancel: () => void;
+}
+function makeForwarder(target: (this: any) => void): Forwarder {
+  let pendingThis: any = undefined;
+  const forwarder = function (this: any, ..._args: unknown[]) {
+    pendingThis = this;
+    target.call(pendingThis);
+  };
+  forwarder.cancel = () => {
+    pendingThis = undefined;
+  };
+  return forwarder;
+}
+function forwarding(target: (this: any) => void): (this: any, ...args: unknown[]) => void {
+  const inner = makeForwarder(target);
+  return function (this: any, ...args: unknown[]) {
+    inner.apply(this, args);
+  };
+}
+let seen: unknown;
+const host = { name: "host", run: forwarding(function (this: any) { seen = this?.name; }) };
+attempt("forwarded receiver", () => {
+  host.run();
+  return seen;
+});

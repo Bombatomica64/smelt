@@ -24,3 +24,4 @@ typed identity [ true, true ]
 moved receiver [ [ 1, 2, 2 ], [ 3, 4, 1 ] ]
 returned method TypeError Array.prototype.map called on null or undefined
 returned method call [ 5, 6 ]
+forwarded receiver host

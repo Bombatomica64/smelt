@@ -223,6 +223,19 @@ impl FunctionEmitter<'_> {
                 "smelt_push_this({}.clone())",
                 self.receiver_snapshot_name(slot)?
             ),
+            // Only an ERASED callee can be one of the runtime's unbound
+            // prototype methods, which is what a plain call's `undefined`
+            // receiver exists for. A callee with a concrete static type (a
+            // callable struct such as es-toolkit's `DebouncedFunction<F>`,
+            // which `bind_this_receiver` cannot bind) keeps the channel as the
+            // caller left it, as every call did before this rule.
+            ErasedCallReceiver::Plain
+                if !self
+                    .operand_ty(callee)
+                    .is_ok_and(|ty| self.has_dynamic_shape(ty)) =>
+            {
+                return Ok(call_text);
+            }
             ErasedCallReceiver::Plain => "smelt_push_no_this()".to_owned(),
             ErasedCallReceiver::Unresolved => return Ok(call_text),
         };
