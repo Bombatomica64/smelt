@@ -69,6 +69,28 @@ pub(crate) fn emit_program_types(mir: &Mir, context: &EmitContext) -> Result<Str
     Ok(writer.finish())
 }
 
+/// Whether `ty` holds a type parameter inside a generated nominal type: a class
+/// or interface argument, or a union (a generated generic enum).
+///
+/// `inside_nominal` is whether the walk is already under such a type. Such a
+/// field's `Clone`/`Default`/`Debug`/`PartialEq` need the full generated bound
+/// set on the parameter, which a derive does not supply.
+fn nests_type_param_in_nominal(mir: &Mir, ty: smelt_hir::TypeId, inside_nominal: bool) -> bool {
+    match mir.types.get(ty) {
+        Some(smelt_hir::Type::TypeParam { .. }) => inside_nominal,
+        Some(smelt_hir::Type::Class { args, .. }) => {
+            args.iter().any(|arg| nests_type_param_in_nominal(mir, *arg, true))
+        }
+        Some(smelt_hir::Type::Union(items)) => {
+            items.iter().any(|item| nests_type_param_in_nominal(mir, *item, true))
+        }
+        Some(other) => other
+            .children()
+            .any(|child| nests_type_param_in_nominal(mir, child, inside_nominal)),
+        None => false,
+    }
+}
+
 /// Emit one interface's storage: a reference record when its fields are written
 /// after construction, otherwise a by-value struct with its derives and erasure
 /// impls.
@@ -129,23 +151,6 @@ fn emit_interface_type(
     } else {
         ""
     };
-    if has_function_field {
-        writer.line("#[derive(Clone)]");
-        writer.line("#[allow(dead_code)]");
-    } else if needs_serde_json
-        && interface_is_json_serializable(mir, interface)
-        && !fields
-            .iter()
-            .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
-    {
-        writer.line(format!(
-            "#[derive(Clone, Debug, Default{interface_partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
-        ));
-    } else {
-        writer.line(format!(
-            "#[derive(Clone, Debug, Default{interface_partial_eq_derive})]"
-        ));
-    }
     // Only the parameters the emitted Rust declares: a position
     // `generic_elision` dropped is spelled nowhere, so it must not appear in
     // the `PhantomData` filler or in any hand-written impl's generic list
@@ -165,6 +170,40 @@ fn emit_interface_type(
             })
             .collect::<Result<Vec<_>, _>>()?,
     );
+    // A generic record whose field nests one of its type parameters inside a
+    // generated nominal type (`setter: ValueSetter<Value>`, a generic union
+    // enum) cannot use the derives: each derive bounds `Value` by its own
+    // trait alone, while `ValueSetter<Value>: Clone` needs the full generated
+    // bound set. The rule and the hand-written impls are the generic value
+    // class's (see `emit_class_type`, H29). A record whose parameters only sit
+    // bare or in containers (`{ value: V; rest: string }`) derives as before.
+    let needs_bounded_impls = !has_function_field
+        && !interface_param_idents.is_empty()
+        && !fields
+            .iter()
+            .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
+        && fields
+            .iter()
+            .any(|field| nests_type_param_in_nominal(mir, field.ty, false));
+    if has_function_field {
+        writer.line("#[derive(Clone)]");
+        writer.line("#[allow(dead_code)]");
+    } else if needs_bounded_impls {
+        writer.line("#[allow(dead_code)]");
+    } else if needs_serde_json
+        && interface_is_json_serializable(mir, interface)
+        && !fields
+            .iter()
+            .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
+    {
+        writer.line(format!(
+            "#[derive(Clone, Debug, Default{interface_partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
+        ));
+    } else {
+        writer.line(format!(
+            "#[derive(Clone, Debug, Default{interface_partial_eq_derive})]"
+        ));
+    }
     let phantom_args = interface_param_idents.join(", ");
     let scoped_type_params = interface
         .type_params
@@ -208,6 +247,57 @@ fn emit_interface_type(
             &scoped_type_params,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &impl_generics, &type_params);
+    }
+    if needs_bounded_impls {
+        let default_generics =
+            derive_generics_text(&interface_param_idents, classes::GENERATED_TYPE_PARAM_BOUNDS);
+        emit_default_impl_for_storage_type(
+            writer,
+            mir,
+            context,
+            Some(interface.name),
+            &name,
+            &default_generics,
+            &type_params,
+            &fields,
+            &phantom_args,
+            &scoped_type_params,
+        )?;
+        emit_debug_impl_for_storage_type(writer, &name, &type_params, &type_params);
+        let field_names = fields
+            .iter()
+            .map(|field| context.names().field_text(mir, field.name))
+            .collect::<Vec<_>>();
+        let field_types = fields
+            .iter()
+            .map(|field| {
+                FunctionEmitter::rust_type_with_scoped_type_params(
+                    mir,
+                    context,
+                    field.ty,
+                    &TypeSubstitution::lexical(&scoped_type_params),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        emit_clone_impl_for_value_class(
+            writer,
+            &name,
+            &type_params,
+            &type_params,
+            &field_names,
+            &field_types,
+            true,
+        );
+        if interface_supports_partial_eq {
+            emit_partial_eq_impl_for_value_class(
+                writer,
+                &name,
+                &type_params,
+                &type_params,
+                &field_names,
+                &field_types,
+            );
+        }
     }
     if needs_unknown {
         emit_record_into_smelt_unknown_impl(

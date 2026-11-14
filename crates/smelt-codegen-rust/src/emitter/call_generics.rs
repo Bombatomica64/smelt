@@ -482,10 +482,19 @@ impl FunctionEmitter<'_> {
                             Some(crate::generic_bindings::TypeParamBinding::Concrete(_))
                         )
                 })
-                && let Some(adapter) =
-                    self.function_shape_adapter(arg, target_ty, false, Some(&bindings))?
             {
-                return Ok(adapter);
+                if let Some(adapter) =
+                    self.function_shape_adapter(arg, target_ty, false, Some(&bindings))?
+                {
+                    return Ok(adapter);
+                }
+                // Under this site's bindings the callback already has the
+                // parameter's shape (`this.set` handed to `new ValueSetter<
+                // Value>(..)` inside `Parser<Value>`: both `Value`s are the
+                // caller's), so it passes as it is. Falling through instead
+                // re-coerced it WITHOUT the bindings, and that adapter
+                // declared the callee's `Value` erased (E0631).
+                return self.value_at_type(arg, self.operand_ty(arg)?);
             }
             if let Some(substituted) = substituted_type_id(self.mir, target_ty, &bindings)
                 && substituted != target_ty
