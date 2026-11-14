@@ -8,6 +8,8 @@ They give each value the most precise type the source supports: concrete struct/
 a real dynamic boundary. So: types correct all the way down to runtime, as few `SmeltUnknown`s as possible.
 They would also refuse to merge a rule that only fires for one library's spelling.
 
+Visual map of the architecture (where each concern lives): `docs/architecture/index.html`.
+
 ## Build commands (corgi required)
 Use [corgi](https://corgi.build/) (`cargo install corgi-build`, one shared cache in `~/.local/share/corgi`)
 instead of `cargo` for every build, check, clippy and run, from the workspace root. Tight loop (`--lib` skips inline tests):
