@@ -1268,6 +1268,13 @@ fn erased_record_of_functions() -> TestResult {
     verify_node_parity("erased_record_of_functions")
 }
 
+/// `new (date.constructor)(value)` builds a date from a time value, another
+/// date or an ISO string, as `new Date(value)` does (date-fns' `constructFrom`).
+#[test]
+fn construct_like_date() -> TestResult {
+    verify_node_parity("construct_like_date")
+}
+
 /// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
