@@ -393,6 +393,13 @@ fn imported_type_predicate() -> TestResult {
     verify_node_parity_with("imported_type_predicate", &["predicates.ts"])
 }
 
+/// `JSON.stringify` of interfaces from a module imported only for its types,
+/// which lowers after the module that serializes them.
+#[test]
+fn json_type_only_interface() -> TestResult {
+    verify_node_parity_with("json_type_only_interface", &["types.ts"])
+}
+
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {
