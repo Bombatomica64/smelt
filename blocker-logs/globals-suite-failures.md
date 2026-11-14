@@ -1,11 +1,11 @@
 # Vitest-globals suites: failure families after Agent N's globals change
 
 Agent N made test files that use Vitest/Jest globals without importing them into
-real test modules (`blocker-logs/hono-phase3-round1.md`). That turned previously
+real test modules (`hono-phase3-round1.md`, in git history). That turned previously
 silent radash suites into real ones and exposed the families below. Every count
 here is from a clean clone, a freshly built full-feature `smelt`, and
-`smelt rust-test-report --full` (`blocker-logs/radash-globals-failures.md`,
-`blocker-logs/remeda-globals-failures.md`).
+`smelt rust-test-report --full` (`radash-globals-failures.md`, in git history;
+`remeda-globals-failures.md` (in git history)).
 
 | Corpus | Before (base `ba6641e8`) | After (this branch) |
 | --- | --- | --- |

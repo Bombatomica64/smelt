@@ -1273,6 +1273,7 @@ fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
     assert_eq!(
         rust_items(&source, &["fn f"]),
         r"fn f(name: SmeltUnknown) -> SmeltUnknown {
+smelt_reset_this();
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
 return { let smelt_index_base = _smelt_tmp_1.clone(); match name.clone() { SmeltUnknown::String(smelt_name) if smelt_name.to_string().parse::<usize>().map_or(true, |smelt_position| smelt_position.to_string() != smelt_name.to_string()) => smelt_get_unknown_field(&smelt_index_base, &smelt_name), _ => match smelt_index_base {
 SmeltUnknown::String(smelt_value) => {
@@ -1737,7 +1738,7 @@ return { let smelt_source_value = (({ let smelt_receiver = self.clone(); let sme
 /// only travels where the enclosing function returns `Result`: a reader that is
 /// itself fallible propagates with `?`, and one that is not takes the panic
 /// path, the floor every non-fallible callback seam uses
-/// (`blocker-logs/hono-fallible-ops.md`). The program stops at the throw rather
+/// (`hono-fallible-ops.md`, in git history). The program stops at the throw rather
 /// than continuing with a fabricated value.
 #[test]
 fn a_throwing_getter_read_is_fallible_in_both_enclosures() {

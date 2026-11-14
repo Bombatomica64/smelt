@@ -10705,7 +10705,7 @@ export const now = (): number => Date.now();
 /// which is why a report of radash's `class Person { friends: Person[] = [];
 /// self?: Person }` emitting a field-less struct could not be checked against a
 /// test. (That report did not reproduce — see
-/// `blocker-logs/radash-self-referential-class.md` — and this fixture exists so
+/// `radash-self-referential-class.md` (in git history) — and this fixture exists so
 /// the next such claim is answered by a run rather than by an argument.)
 #[test]
 fn self_referential_class_keeps_fields_and_constructor_arity() -> Result<(), String> {

@@ -37,7 +37,7 @@ impl LoweringCtx<'_> {
                 // shares the store for a handle type and deep-copies for a
                 // value type, so the write would be correct for one and
                 // silently lost for the other. See
-                // `blocker-logs/hono-h6-place-global.md`.
+                // `hono-h6-place-global.md` (in git history).
                 if let Some(base) = self.mutable_global_receiver(*receiver) {
                     if !self.global_writes_in_place(*receiver)? {
                         let (copy, writebacks) =

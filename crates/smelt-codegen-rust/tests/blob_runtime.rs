@@ -23,7 +23,7 @@
 //!    `new Blob([value], { type: value.type })` over an `unknown` — has to keep
 //!    working on the erased form, and `type` has to read back off it. (`size`
 //!    is not asserted through a cast: see
-//!    `blocker-logs/standards-erased-cast-size-collision.md`.)
+//!    `standards-erased-cast-size-collision.md` (in git history).)
 //!
 //! Each case is a TypeScript Vitest test; lowering emits a `#[test]`, and this
 //! tier emits the crate and runs `cargo test` on it, so a green run means the
@@ -237,7 +237,7 @@ test("an erased blob is still a Blob and still reports its type", () => {
   // `size` is deliberately NOT read here: an interface literal carrying a
   // `size` field lowers to the same Dict a `Map` does, so `.size` on the cast
   // value is claimed by the map-size path. That collision is recorded in
-  // `blocker-logs/standards-erased-cast-size-collision.md` and is unrelated to
+  // `standards-erased-cast-size-collision.md` (in git history) and is unrelated to
   // how a blob erases — the record does carry `size`.
   const record = erased as { type: string };
   expect(record.type).toBe("text/plain");

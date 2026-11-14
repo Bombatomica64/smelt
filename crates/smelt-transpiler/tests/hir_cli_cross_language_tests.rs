@@ -419,7 +419,7 @@ fn build_runs_named_local_callback_passed_by_value() -> TestResult {
     // worth recording: referencing a module-level arrow as a value lifts it to a
     // named function whose Rust name embeds the SOURCE PATH it was compiled
     // from, so the generated Rust is not stable across build directories and
-    // cannot be a golden. See `blocker-logs/hono-h55-path-mangled-lifted-name.md`.
+    // cannot be a golden. See `hono-h55-path-mangled-lifted-name.md` (in git history).
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -1427,10 +1427,10 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "189_rust_reserved_keyword_identifiers",
     "190_type_parameter_scope_ends_with_its_class",
     "191_checker_typed_array_literals_and_generic_calls",
-    "192_array_constrained_type_parameters",
-    "193_structural_record_names_keep_source_keys",
-    "194_closure_return_from_the_checker",
-    "195_record_value_at_a_record_parameter",
+    "193_array_constrained_type_parameters",
+    "194_structural_record_names_keep_source_keys",
+    "195_closure_return_from_the_checker",
+    "196_record_value_at_a_record_parameter",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

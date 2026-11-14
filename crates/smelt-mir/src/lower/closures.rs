@@ -186,6 +186,7 @@ impl LoweringCtx<'_> {
             can_throw: function.can_throw,
             is_generator: function.is_generator,
             function_item_key,
+            this_binding: closure.this_binding,
             language: function.language,
         });
         self.closures.extend(nested_closures);

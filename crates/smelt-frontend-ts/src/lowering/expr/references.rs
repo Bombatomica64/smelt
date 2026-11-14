@@ -802,7 +802,7 @@ impl ModuleBuilder<'_> {
                 // terminator); reached through a callback value it still
                 // aborts. Closing that needs `may_throw` inference through
                 // callback parameter types — see
-                // `blocker-logs/hono-fallible-ops.md` §8.
+                // `hono-fallible-ops.md` (in git history) §8.
                 self.builtin_unary_closure_expression(
                     string_ty,
                     string_ty,
@@ -934,6 +934,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1045,6 +1046,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1695,6 +1697,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,
@@ -1846,6 +1849,9 @@ impl ModuleBuilder<'_> {
                 // keyed by item alone, and a capped-arity wrapper must not alias
                 // the full-arity wrapper emitted for ordinary value positions.
                 function_item: if truncated { None } else { Some(item) },
+                // A function item's value wrapper forwards its call's receiver
+                // to the item: it is not a JavaScript function of its own.
+                this_binding: smelt_hir::ClosureThis::Forwarded,
                 span,
             }),
             ty: closure_ty,
@@ -1897,7 +1903,7 @@ impl ModuleBuilder<'_> {
         // an empty erased record cast to the class — silently discarded the
         // value the module's initializer produced, and emitted the cast at the
         // record type rather than at `SmeltUnknown`, so the generated crate did
-        // not even compile (`blocker-logs/standards-module-const-host-value.md`).
+        // not even compile (`standards-module-const-host-value.md`, in git history).
         //
         // Such a binding lifts to a module-global slot in
         // `ModuleBuilder::collect_class_value_globals`, and the read resolves
@@ -2136,6 +2142,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty,
@@ -2452,6 +2459,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span,
             }),
             ty: closure_ty,

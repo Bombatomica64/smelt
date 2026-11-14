@@ -41,7 +41,7 @@ const createResponseInstance = (
 // literal was built as a record of erased values and only then converted. The
 // hint now reaches it (`local_callable_call` in
 // `lowering/stdlib/call_dispatch.rs`), which is what the note in
-// `blocker-logs/standards-ambient-init-dictionaries.md` asked for, so the
+// `standards-ambient-init-dictionaries.md` (in git history) asked for, so the
 // literal is spelled where a hand-written port would spell it.
 const withInit = createResponseInstance("hi", {
   status: 201,

@@ -268,6 +268,7 @@ mod accessor_field_tests;
 mod bigint_tests;
 mod blocker_site_tests;
 mod carrier_trial_tests;
+mod class_prototype_methods_tests;
 mod closure_binding_tests;
 mod closure_capture_frame_tests;
 mod console_inspect_tests;

@@ -1,7 +1,7 @@
 # Hono campaign: transpile the framework and its tests
 
 Owner: Hono implementer (Opus). Architecture: Fable. Date: 2026-09-06.
-Runs in parallel with `blocker-logs/standards-tier-plan.md` (the "standards stream").
+Runs in parallel with `standards-tier-plan.md` (in git history) (the "standards stream").
 
 ---
 
@@ -100,12 +100,12 @@ does not move and why the count alone is the wrong measure of this phase.
 | --- | --- | --- |
 | H13 | `dynamic computed method names are not lowered yet` — `request.ts:385`, `get [GET_MATCH_RESULT]()`, a computed class GETTER keyed by an imported `unique symbol` const. Minimal repro: `const KEY: unique symbol = Symbol(); class C { get [KEY](): number { return 1 } }`. | open, mine. This is the request.ts blocker; it is NOT `req[cacheKey]()`, which never produced a blocker and is now fixed. |
 | H14 | `type table does not contain literal operand type Unknown` (`emitter/types.rs:823`, reached from the index/field fallback `_ => self.type_id(Type::Unknown)`). The fallback asks for a type the crate may not have interned, because a crate with no erased value has no `Unknown` entry. | open, mine, not currently reachable from Hono. Not "small": the obvious fix — always interning `Unknown` — would flip `needs_unknown_type` for every crate and emit the whole erased prelude unconditionally. The fix has to degrade at the fallback site instead, and needs a reproduction to pin which degraded answer is right. |
-| H15 | Generated-union generic member: `enum SmeltUnionN<T>` declaring an unused `T` and substituting `ResponseInit<SmeltUnknown>` where MIR has `ResponseInit<Float>` (round 7 item 3). | **blocked on the repro note.** `blocker-logs/generated-union-generic-member.md` does not exist in the repository (see below). The described symptom does not reproduce on a plain generic interface in a union: `number \| Init<number> \| Holder` emits `enum SmeltUnion3 { M0(f64), M1(Init<f64>), M2(Holder) }` — instantiated, no unused parameter. |
+| H15 | Generated-union generic member: `enum SmeltUnionN<T>` declaring an unused `T` and substituting `ResponseInit<SmeltUnknown>` where MIR has `ResponseInit<Float>` (round 7 item 3). | **blocked on the repro note.** `generated-union-generic-member.md` (in git history) does not exist in the repository (see below). The described symptom does not reproduce on a plain generic interface in a union: `number \| Init<number> \| Holder` emits `enum SmeltUnion3 { M0(f64), M1(Init<f64>), M2(Holder) }` — instantiated, no unused parameter. |
 
 ### The three repro notes never arrived
 
-`blocker-logs/interface-literal-camel-case.md`, `blocker-logs/find-callback-repro.md`
-and `blocker-logs/generated-union-generic-member.md` are not in the repository.
+`interface-literal-camel-case.md` (in git history), `find-callback-repro.md` (in git history)
+and `generated-union-generic-member.md` (in git history) are not in the repository.
 `.gitignore` ignores `blocker-logs/*.md` by default and allowlists each readable
 note by name, so these three were never committed and reached neither merge.
 They are allowlisted now.
@@ -165,7 +165,7 @@ erasure on both, which means a ratchet re-snapshot rather than a green diff, and
 the risk is a generated-Rust type error where a now-concrete operand meets a
 `SmeltUnknown`-typed consumer. That is a round with its own corpus measurement,
 not a rider on a callback-selection fix. Full note:
-`blocker-logs/hono-h49-builtin-callback-operand.md`.
+`hono-h49-builtin-callback-operand.md` (in git history).
 
 ### D1. Callback `may_throw` inference (`hono-fallible-ops.md` §9.4, §10.5)
 
@@ -288,10 +288,10 @@ this stream until `Request`/`Response` land.
 
 | item | status |
 | --- | --- |
-| 1. H6 via `Place::Global` | **landed.** One new `Place` variant naming the cell as the assignment root, so a write through a module-level mutable global mutates inside the cell with no copy. The compiler enumerated 17 sites in `smelt-mir` and 15 in `smelt-codegen-rust`; each got a decision, not a `_` arm. 7 runtime fixtures including the `RefCell` double-borrow shape. `blocker-logs/hono-h6-place-global.md`. |
+| 1. H6 via `Place::Global` | **landed.** One new `Place` variant naming the cell as the assignment root, so a write through a module-level mutable global mutates inside the cell with no copy. The compiler enumerated 17 sites in `smelt-mir` and 15 in `smelt-codegen-rust`; each got a decision, not a `_` arm. 7 runtime fixtures including the `RefCell` double-borrow shape. `hono-h6-place-global.md` (in git history). |
 | 2. fallible decoders | **not started.** Design still stands in `hono-fallible-ops.md`. |
 | 3. masked `hono-base.ts` blockers | **landed**, and it was two, not one: a stub default for a `never`/union/`Set`/tuple return type (with the fallthrough now naming the type), and `let x;` inside an inlined callback defaulting to `undefined` as JavaScript and MIR's own `HirStmt::Let` lowering already say. `hono-base.ts` is clean. |
-| 4. two pre-existing bugs | **(b) reproduced exactly, not fixed; (a) does not reproduce as described.** `blocker-logs/hono-round3-item4-findings.md` carries the source I ran and the emitted Rust for both. (a) needs the original repro before anything is changed. |
+| 4. two pre-existing bugs | **(b) reproduced exactly, not fixed; (a) does not reproduce as described.** `hono-round3-item4-findings.md` (in git history) carries the source I ran and the emitted Rust for both. (a) needs the original repro before anything is changed. |
 | 5. re-probe per merge | done above. |
 
 ### Method note carried from the round-2 correction
@@ -317,7 +317,7 @@ modules from the crate (286 -> 258), which is the point of item 1.
 | item | status |
 | --- | --- |
 | 1. `exclude` prunes the closure | **landed.** The dependency collector filters every resolved edge, records the specifier when a module is wholly excluded, and the frontend reports `` `hc` is imported from `../../client`, which the manifest excludes `` at the first *value* use. Type-only imports and `export type` re-exports stay free. 2 integration tests + 2 collector unit tests. This alone took 18 -> 8 occurrences. |
-| 2. absent globals throw | **half landed.** A call to (or read of) a global the profile declares absent lowers to a thrown `ReferenceError`, catchable by the enclosing `try`. `NON_DOM_ABSENT_GLOBALS` gains the three `EventTarget` names. The fallible-rvalue rewire (`decodeURI`, `decodeURIComponent`, `atob`) is **designed, not landed** — `blocker-logs/hono-fallible-ops.md`. |
+| 2. absent globals throw | **half landed.** A call to (or read of) a global the profile declares absent lowers to a thrown `ReferenceError`, catchable by the enclosing `try`. `NON_DOM_ABSENT_GLOBALS` gains the three `EventTarget` names. The fallible-rvalue rewire (`decodeURI`, `decodeURIComponent`, `atob`) is **designed, not landed** — `hono-fallible-ops.md` (in git history). |
 | 3. H6 write-through | **not landed.** Probing the backend first changed the design; see `hono-h6-module-mutable-globals.md` §8. The blocker stays specific, so there is still no silent lost write. |
 | 4. ratchet classifier | left alone as instructed; es-toolkit stays byte-identical. |
 | 5. streams/websocket excludes | **landed**, each with its reason, now that item 1 makes closure pruning real. Recorded as future standards work in `hono-fetch-demand.md`. |

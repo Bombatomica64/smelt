@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8424,
+      "concrete": 8427,
       "generic": 150,
       "erased": 56
     },
@@ -870,7 +870,7 @@
     },
     "examples/typescript/end-to-end/152_callable_interface_fields/input.ts": {
       "values": {
-        "concrete": 80,
+        "concrete": 83,
         "generic": 0,
         "erased": 0
       },
@@ -1548,7 +1548,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/192_array_constrained_type_parameters/input.ts": {
+    "examples/typescript/end-to-end/193_array_constrained_type_parameters/input.ts": {
       "values": {
         "concrete": 49,
         "generic": 8,
@@ -1565,7 +1565,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/193_structural_record_names_keep_source_keys/input.ts": {
+    "examples/typescript/end-to-end/194_structural_record_names_keep_source_keys/input.ts": {
       "values": {
         "concrete": 16,
         "generic": 0,
@@ -1582,7 +1582,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/194_closure_return_from_the_checker/input.ts": {
+    "examples/typescript/end-to-end/195_closure_return_from_the_checker/input.ts": {
       "values": {
         "concrete": 46,
         "generic": 3,
@@ -1599,7 +1599,7 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/195_record_value_at_a_record_parameter/input.ts": {
+    "examples/typescript/end-to-end/196_record_value_at_a_record_parameter/input.ts": {
       "values": {
         "concrete": 24,
         "generic": 0,
