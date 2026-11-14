@@ -4265,7 +4265,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 }
 
 #[allow(dead_code)]
-struct Shape(::std::rc::Rc<::std::cell::RefCell<ShapeInner>>);
+struct Shape(::std::rc::Rc<dyn ShapeSmeltCell>);
 #[allow(dead_code)]
 struct ShapeInner {
     name: ::std::rc::Rc<dyn Fn() -> JsString>,
@@ -4284,6 +4284,10 @@ impl ::std::fmt::Debug for ShapeInner {
         formatter.debug_struct("ShapeInner").finish_non_exhaustive()
     }
 }
+/// Any instance of `Shape` or of a class extending it, viewed as a `Shape`.
+#[allow(dead_code, non_snake_case)]
+trait ShapeSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, ShapeInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ShapeInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ShapeInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
+impl ShapeSmeltCell for ::std::cell::RefCell<ShapeInner> { fn borrow(&self) -> ::std::cell::Ref<'_, ShapeInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &ShapeInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ShapeInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut ShapeInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ShapeInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &ShapeInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Shape" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Shape(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Shape {
     fn clone(&self) -> Self {
         Shape(::std::rc::Rc::clone(&self.0))
@@ -4291,7 +4295,7 @@ impl Clone for Shape {
 }
 impl PartialEq for Shape {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Shape {
@@ -4305,7 +4309,10 @@ impl ::std::fmt::Debug for Shape {
     }
 }
 impl IntoSmeltUnknown for Shape {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+}
+impl Shape {
+    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
         if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
@@ -4313,8 +4320,6 @@ impl IntoSmeltUnknown for Shape {
         smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("name".to_owned(), SmeltUnknown::Null),
-        ("sides".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4327,23 +4332,23 @@ impl SmeltFromUnknown for Shape {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Shape", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Square>() { return Shape(smelt_subclass_origin.0.clone().smelt_as_Shape()); }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Tile>() { return Shape(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         result
     }
 }
 
 #[allow(dead_code)]
-struct Square(::std::rc::Rc<::std::cell::RefCell<SquareInner>>);
+struct Square(::std::rc::Rc<dyn SquareSmeltCell>);
 #[allow(dead_code)]
 struct SquareInner {
-    name: ::std::rc::Rc<dyn Fn() -> JsString>,
-    sides: ::std::rc::Rc<dyn Fn() -> f64>,
+    __smelt_base: ShapeInner,
 }
 impl Default for SquareInner {
     fn default() -> Self {
         Self {
-            name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback },
-            sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback },
+            __smelt_base: ::std::default::Default::default(),
         }
     }
 }
@@ -4352,6 +4357,13 @@ impl ::std::fmt::Debug for SquareInner {
         formatter.debug_struct("SquareInner").finish_non_exhaustive()
     }
 }
+impl ::std::ops::Deref for SquareInner { type Target = ShapeInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for SquareInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+/// Any instance of `Square` or of a class extending it, viewed as a `Square`.
+#[allow(dead_code, non_snake_case)]
+trait SquareSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, SquareInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SquareInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, SquareInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; fn smelt_as_Shape(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ShapeSmeltCell>; }
+impl SquareSmeltCell for ::std::cell::RefCell<SquareInner> { fn borrow(&self) -> ::std::cell::Ref<'_, SquareInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &SquareInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SquareInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut SquareInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, SquareInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &SquareInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Square" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Square(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Shape(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ShapeSmeltCell> { self } }
+impl ShapeSmeltCell for ::std::cell::RefCell<SquareInner> { fn borrow(&self) -> ::std::cell::Ref<'_, ShapeInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &ShapeInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ShapeInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut ShapeInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ShapeInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &ShapeInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Square" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Square(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Square {
     fn clone(&self) -> Self {
         Square(::std::rc::Rc::clone(&self.0))
@@ -4359,7 +4371,7 @@ impl Clone for Square {
 }
 impl PartialEq for Square {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Square {
@@ -4373,7 +4385,10 @@ impl ::std::fmt::Debug for Square {
     }
 }
 impl IntoSmeltUnknown for Square {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+}
+impl Square {
+    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
         if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
@@ -4381,8 +4396,6 @@ impl IntoSmeltUnknown for Square {
         smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("name".to_owned(), SmeltUnknown::Null),
-        ("sides".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4395,6 +4408,7 @@ impl SmeltFromUnknown for Square {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Square", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Tile>() { return Square(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         result
     }
@@ -4404,14 +4418,12 @@ impl SmeltFromUnknown for Square {
 struct Tile(::std::rc::Rc<::std::cell::RefCell<TileInner>>);
 #[allow(dead_code)]
 struct TileInner {
-    name: ::std::rc::Rc<dyn Fn() -> JsString>,
-    sides: ::std::rc::Rc<dyn Fn() -> f64>,
+    __smelt_base: SquareInner,
 }
 impl Default for TileInner {
     fn default() -> Self {
         Self {
-            name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback },
-            sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback },
+            __smelt_base: ::std::default::Default::default(),
         }
     }
 }
@@ -4420,6 +4432,10 @@ impl ::std::fmt::Debug for TileInner {
         formatter.debug_struct("TileInner").finish_non_exhaustive()
     }
 }
+impl ::std::ops::Deref for TileInner { type Target = SquareInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for TileInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+impl SquareSmeltCell for ::std::cell::RefCell<TileInner> { fn borrow(&self) -> ::std::cell::Ref<'_, SquareInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &SquareInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SquareInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut SquareInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, SquareInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &SquareInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Tile" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Tile(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Shape(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ShapeSmeltCell> { self } }
+impl ShapeSmeltCell for ::std::cell::RefCell<TileInner> { fn borrow(&self) -> ::std::cell::Ref<'_, ShapeInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &ShapeInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ShapeInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut ShapeInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ShapeInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &ShapeInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Tile" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Tile(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Tile {
     fn clone(&self) -> Self {
         Tile(::std::rc::Rc::clone(&self.0))
@@ -4427,7 +4443,7 @@ impl Clone for Tile {
 }
 impl PartialEq for Tile {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Tile {
@@ -4449,8 +4465,6 @@ impl IntoSmeltUnknown for Tile {
         smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("name".to_owned(), SmeltUnknown::Null),
-        ("sides".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4469,7 +4483,7 @@ impl SmeltFromUnknown for Tile {
 }
 
 #[allow(dead_code)]
-struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
+struct Counter(::std::rc::Rc<dyn CounterSmeltCell>);
 #[allow(dead_code)]
 struct CounterInner {
     items: SmeltList<f64>,
@@ -4488,6 +4502,10 @@ impl ::std::fmt::Debug for CounterInner {
         formatter.debug_struct("CounterInner").finish_non_exhaustive()
     }
 }
+/// Any instance of `Counter` or of a class extending it, viewed as a `Counter`.
+#[allow(dead_code, non_snake_case)]
+trait CounterSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
+impl CounterSmeltCell for ::std::cell::RefCell<CounterInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CounterInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Counter" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Counter(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Counter {
     fn clone(&self) -> Self {
         Counter(::std::rc::Rc::clone(&self.0))
@@ -4495,7 +4513,7 @@ impl Clone for Counter {
 }
 impl PartialEq for Counter {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Counter {
@@ -4509,7 +4527,10 @@ impl ::std::fmt::Debug for Counter {
     }
 }
 impl IntoSmeltUnknown for Counter {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+}
+impl Counter {
+    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
         if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
@@ -4518,7 +4539,6 @@ impl IntoSmeltUnknown for Counter {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect())),
-        ("accept".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4531,6 +4551,7 @@ impl SmeltFromUnknown for Counter {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Counter", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Plain>() { return Counter(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "items") { result.0.borrow_mut().items = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number[]", "Counter", "items"); }
         result
@@ -4541,14 +4562,12 @@ impl SmeltFromUnknown for Counter {
 struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>);
 #[allow(dead_code)]
 struct PlainInner {
-    items: SmeltList<f64>,
-    accept: ::std::rc::Rc<dyn Fn(f64) -> bool>,
+    __smelt_base: CounterInner,
 }
 impl Default for PlainInner {
     fn default() -> Self {
         Self {
-            items: SmeltList::new(Vec::<f64>::new()),
-            accept: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback },
+            __smelt_base: ::std::default::Default::default(),
         }
     }
 }
@@ -4557,6 +4576,9 @@ impl ::std::fmt::Debug for PlainInner {
         formatter.debug_struct("PlainInner").finish_non_exhaustive()
     }
 }
+impl ::std::ops::Deref for PlainInner { type Target = CounterInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for PlainInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+impl CounterSmeltCell for ::std::cell::RefCell<PlainInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CounterInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Plain" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Plain(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Plain {
     fn clone(&self) -> Self {
         Plain(::std::rc::Rc::clone(&self.0))
@@ -4564,7 +4586,7 @@ impl Clone for Plain {
 }
 impl PartialEq for Plain {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Plain {
@@ -4587,7 +4609,6 @@ impl IntoSmeltUnknown for Plain {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect())),
-        ("accept".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4607,7 +4628,7 @@ impl SmeltFromUnknown for Plain {
 }
 
 #[allow(dead_code)]
-struct Parser<T>(::std::rc::Rc<::std::cell::RefCell<ParserInner<T>>>);
+struct Parser<T>(::std::rc::Rc<dyn ParserSmeltCell<T>>);
 #[allow(dead_code)]
 struct ParserInner<T> {
     validate: ::std::rc::Rc<dyn Fn(&T) -> bool>,
@@ -4630,6 +4651,10 @@ impl<T> ::std::fmt::Debug for ParserInner<T> {
         formatter.debug_struct("ParserInner").finish_non_exhaustive()
     }
 }
+/// Any instance of `Parser` or of a class extending it, viewed as a `Parser`.
+#[allow(dead_code, non_snake_case)]
+trait ParserSmeltCell<T> { fn borrow(&self) -> ::std::cell::Ref<'_, ParserInner<T>>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ParserInner<T>>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ParserInner<T>>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ParserSmeltCell<T> for ::std::cell::RefCell<ParserInner<T>> { fn borrow(&self) -> ::std::cell::Ref<'_, ParserInner<T>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &ParserInner<T> = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ParserInner<T>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut ParserInner<T> = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ParserInner<T>>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &ParserInner<T> = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Parser" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Parser::<T>(self).__smelt_own_into_smelt_unknown() } }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Clone for Parser<T> {
     fn clone(&self) -> Self {
         Parser(::std::rc::Rc::clone(&self.0))
@@ -4637,7 +4662,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Clone f
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> PartialEq for Parser<T> {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Parser<T> {
@@ -4651,7 +4676,10 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::
     }
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Parser<T> {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+}
+impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<T> {
+    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
         if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
@@ -4659,9 +4687,6 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSme
         smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("validate".to_owned(), SmeltUnknown::Null),
-        ("parse".to_owned(), SmeltUnknown::Null),
-        ("fallback".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4680,19 +4705,15 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 }
 
 #[allow(dead_code)]
-struct YearParser(::std::rc::Rc<::std::cell::RefCell<YearParserInner>>);
+struct YearParser(::std::rc::Rc<dyn YearParserSmeltCell>);
 #[allow(dead_code)]
 struct YearParserInner {
-    validate: ::std::rc::Rc<dyn Fn(f64) -> bool>,
-    parse: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>>,
-    fallback: ::std::rc::Rc<dyn Fn() -> f64>,
+    __smelt_base: ParserInner<f64>,
 }
 impl Default for YearParserInner {
     fn default() -> Self {
         Self {
-            validate: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback },
-            parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { Default::default() }); smelt_default_callback },
-            fallback: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback },
+            __smelt_base: ::std::default::Default::default(),
         }
     }
 }
@@ -4701,6 +4722,13 @@ impl ::std::fmt::Debug for YearParserInner {
         formatter.debug_struct("YearParserInner").finish_non_exhaustive()
     }
 }
+impl ::std::ops::Deref for YearParserInner { type Target = ParserInner<f64>; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for YearParserInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+/// Any instance of `YearParser` or of a class extending it, viewed as a `YearParser`.
+#[allow(dead_code, non_snake_case)]
+trait YearParserSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, YearParserInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, YearParserInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, YearParserInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; fn smelt_as_Parser(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ParserSmeltCell<f64>>; }
+impl YearParserSmeltCell for ::std::cell::RefCell<YearParserInner> { fn borrow(&self) -> ::std::cell::Ref<'_, YearParserInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &YearParserInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, YearParserInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut YearParserInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, YearParserInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &YearParserInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "YearParser" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { YearParser(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Parser(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ParserSmeltCell<f64>> { self } }
+impl ParserSmeltCell<f64> for ::std::cell::RefCell<YearParserInner> { fn borrow(&self) -> ::std::cell::Ref<'_, ParserInner<f64>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &ParserInner<f64> = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ParserInner<f64>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut ParserInner<f64> = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ParserInner<f64>>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &ParserInner<f64> = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "YearParser" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { YearParser(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for YearParser {
     fn clone(&self) -> Self {
         YearParser(::std::rc::Rc::clone(&self.0))
@@ -4708,7 +4736,7 @@ impl Clone for YearParser {
 }
 impl PartialEq for YearParser {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for YearParser {
@@ -4722,7 +4750,10 @@ impl ::std::fmt::Debug for YearParser {
     }
 }
 impl IntoSmeltUnknown for YearParser {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+}
+impl YearParser {
+    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
         if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
@@ -4730,9 +4761,6 @@ impl IntoSmeltUnknown for YearParser {
         smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("validate".to_owned(), SmeltUnknown::Null),
-        ("parse".to_owned(), SmeltUnknown::Null),
-        ("fallback".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4745,6 +4773,7 @@ impl SmeltFromUnknown for YearParser {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("YearParser", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<StrictYear>() { return YearParser(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         result
     }
@@ -4754,16 +4783,12 @@ impl SmeltFromUnknown for YearParser {
 struct StrictYear(::std::rc::Rc<::std::cell::RefCell<StrictYearInner>>);
 #[allow(dead_code)]
 struct StrictYearInner {
-    validate: ::std::rc::Rc<dyn Fn(f64) -> bool>,
-    parse: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>>,
-    fallback: ::std::rc::Rc<dyn Fn() -> f64>,
+    __smelt_base: YearParserInner,
 }
 impl Default for StrictYearInner {
     fn default() -> Self {
         Self {
-            validate: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback },
-            parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { Default::default() }); smelt_default_callback },
-            fallback: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback },
+            __smelt_base: ::std::default::Default::default(),
         }
     }
 }
@@ -4772,6 +4797,10 @@ impl ::std::fmt::Debug for StrictYearInner {
         formatter.debug_struct("StrictYearInner").finish_non_exhaustive()
     }
 }
+impl ::std::ops::Deref for StrictYearInner { type Target = YearParserInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for StrictYearInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+impl YearParserSmeltCell for ::std::cell::RefCell<StrictYearInner> { fn borrow(&self) -> ::std::cell::Ref<'_, YearParserInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &YearParserInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, YearParserInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut YearParserInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, YearParserInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &YearParserInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "StrictYear" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { StrictYear(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Parser(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ParserSmeltCell<f64>> { self } }
+impl ParserSmeltCell<f64> for ::std::cell::RefCell<StrictYearInner> { fn borrow(&self) -> ::std::cell::Ref<'_, ParserInner<f64>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &ParserInner<f64> = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, ParserInner<f64>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut ParserInner<f64> = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, ParserInner<f64>>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &ParserInner<f64> = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "StrictYear" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { StrictYear(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for StrictYear {
     fn clone(&self) -> Self {
         StrictYear(::std::rc::Rc::clone(&self.0))
@@ -4779,7 +4808,7 @@ impl Clone for StrictYear {
 }
 impl PartialEq for StrictYear {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for StrictYear {
@@ -4801,9 +4830,6 @@ impl IntoSmeltUnknown for StrictYear {
         smelt_begin_reference_view(__smelt_id, &__smelt_view);
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
-        ("validate".to_owned(), SmeltUnknown::Null),
-        ("parse".to_owned(), SmeltUnknown::Null),
-        ("fallback".to_owned(), SmeltUnknown::Null),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4890,7 +4916,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_27: f64 = _smelt_tmp_26.run(JsString::from("1999"))?;
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_23), smelt_console_number(_smelt_tmp_25), smelt_console_number(_smelt_tmp_27)); };
     let _smelt_tmp_29: StrictYear = StrictYear::new();
-    parser = { let smelt_struct_value = _smelt_tmp_29.clone(); Parser(::std::rc::Rc::new(::std::cell::RefCell::new(ParserInner { validate: { let smelt_slot_callback = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; let smelt_slot_adapted: ::std::rc::Rc<dyn Fn(&f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: &f64| (smelt_slot_callback)(smelt_arg0.clone())); smelt_slot_adapted }, parse: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }, fallback: { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.fallback() }); smelt_virtual_method }, _smelt_phantom: ::std::marker::PhantomData }))) };
+    parser = Parser::<f64>(_smelt_tmp_29.0.clone());
     let _smelt_tmp_30: f64 = parser.run(JsString::from("2001"))?;
     let _smelt_tmp_31: f64 = parser.run(JsString::from("1950"))?;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_30), smelt_console_number(_smelt_tmp_31)); };
@@ -4946,9 +4972,21 @@ impl Shape {
     return _smelt_tmp_6;
     }
     fn name(&self) -> JsString {
+    {
+        let smelt_any = self.0.clone().smelt_any();
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<SquareInner>>() { Ok(smelt_cell) => return Square(smelt_cell).name(), Err(smelt_other) => smelt_other };
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<TileInner>>() { Ok(smelt_cell) => return Tile(smelt_cell).name(), Err(smelt_other) => smelt_other };
+        let _ = smelt_any;
+    }
     return JsString::from("shape");
     }
     fn sides(&self) -> f64 {
+    {
+        let smelt_any = self.0.clone().smelt_any();
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<SquareInner>>() { Ok(smelt_cell) => return Square(smelt_cell).sides(), Err(smelt_other) => smelt_other };
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<TileInner>>() { Ok(smelt_cell) => return Tile(smelt_cell).sides(), Err(smelt_other) => smelt_other };
+        let _ = smelt_any;
+    }
     return 0.0;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -4960,11 +4998,13 @@ impl Shape {
         smelt_proto_entries.push(("__smelt_method:sides".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.sides(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Shape::sides")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.name() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)()).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("sides".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.sides() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Shape".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl Square {
     fn new() -> Self {
-    let mut this: Self = { let smelt_instance = Square(::std::rc::Rc::new(::std::cell::RefCell::new(SquareInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
+    let mut this: Self = { let smelt_instance = Square(::std::rc::Rc::new(::std::cell::RefCell::new(SquareInner { __smelt_base: ShapeInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_Shape(this);
     this = _smelt_tmp_1;
     return this;
@@ -5001,11 +5041,13 @@ impl Square {
         smelt_proto_entries.push(("__smelt_method:sides".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.sides(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Square::sides")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.name() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)()).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("sides".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.sides() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Square".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl Tile {
     fn new() -> Self {
-    let mut this: Self = { let smelt_instance = Tile(::std::rc::Rc::new(::std::cell::RefCell::new(TileInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
+    let mut this: Self = { let smelt_instance = Tile(::std::rc::Rc::new(::std::cell::RefCell::new(TileInner { __smelt_base: SquareInner { __smelt_base: ShapeInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } } } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_Square(this);
     this = _smelt_tmp_1;
     return this;
@@ -5048,6 +5090,8 @@ impl Tile {
         smelt_proto_entries.push(("__smelt_method:sides".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.sides(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Square::sides")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("name".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.name() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::String(((smelt_function_value)()).into()))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("sides".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.sides() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tile".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl Counter {
@@ -5072,11 +5116,13 @@ impl Counter {
         smelt_proto_entries.push(("__smelt_method:accept".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.accept(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Bool(smelt_result)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::accept")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("items".to_owned(), SmeltList::clone(&smelt_object_value.0.borrow().items.clone()).into_live_smelt_unknown())); smelt_object_entries.push(("accept".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.accept(smelt_arg0.clone()) }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Counter".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl Plain {
     fn new() -> Self {
-    let mut this: Self = { let smelt_instance = Plain(::std::rc::Rc::new(::std::cell::RefCell::new(PlainInner { items: SmeltList::new(Vec::<f64>::new()), accept: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().accept = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.accept(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance };
+    let mut this: Self = { let smelt_instance = Plain(::std::rc::Rc::new(::std::cell::RefCell::new(PlainInner { __smelt_base: CounterInner { items: SmeltList::new(Vec::<f64>::new()), accept: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback } } }))); smelt_instance.0.borrow_mut().accept = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.accept(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
     this = _smelt_tmp_1;
     return this;
@@ -5108,6 +5154,8 @@ impl Plain {
         smelt_proto_entries.push(("__smelt_method:accept".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.accept(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Bool(smelt_result)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Counter::accept")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("items".to_owned(), SmeltList::clone(&smelt_object_value.0.borrow().items.clone()).into_live_smelt_unknown())); smelt_object_entries.push(("accept".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.accept(smelt_arg0.clone()) }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Plain".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<T> {
@@ -5119,6 +5167,12 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<
     return Ok(_smelt_tmp_5);
     }
     fn validate(&self, value: T) -> bool {
+    {
+        let smelt_any = self.0.clone().smelt_any();
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<YearParserInner>>() { Ok(smelt_cell) => return YearParser(smelt_cell).validate(match (IntoSmeltUnknown::into_smelt_unknown(value.clone())).clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }), Err(smelt_other) => smelt_other };
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<StrictYearInner>>() { Ok(smelt_cell) => return StrictYear(smelt_cell).validate(match (IntoSmeltUnknown::into_smelt_unknown(value.clone())).clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }), Err(smelt_other) => smelt_other };
+        let _ = smelt_any;
+    }
     return true;
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
@@ -5129,11 +5183,13 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<
         smelt_proto_entries.push(("__smelt_method:validate".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.validate(SmeltFromUnknown::smelt_from_unknown(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Undefined))); Ok(SmeltUnknown::Bool(smelt_result)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Parser::validate")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; smelt_own.__smelt_project_into_smelt_unknown() }
 }
 
 impl YearParser {
     fn new() -> Self {
-    let mut this: Self = { let smelt_instance = YearParser(::std::rc::Rc::new(::std::cell::RefCell::new(YearParserInner { validate: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback }, parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { Default::default() }); smelt_default_callback }, fallback: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().validate = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().fallback = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.fallback() }); smelt_virtual_method }; smelt_instance };
+    let mut this: Self = { let smelt_instance = YearParser(::std::rc::Rc::new(::std::cell::RefCell::new(YearParserInner { __smelt_base: ParserInner { _smelt_phantom: ::std::marker::PhantomData, validate: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback }, parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { Default::default() }); smelt_default_callback }, fallback: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } } }))); smelt_instance.0.borrow_mut().validate = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().fallback = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.fallback() }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_Parser(this);
     this = _smelt_tmp_1;
     return this;
@@ -5150,6 +5206,11 @@ impl YearParser {
     return Ok(_smelt_tmp_5);
     }
     fn validate(&self, value: f64) -> bool {
+    {
+        let smelt_any = self.0.clone().smelt_any();
+        let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<StrictYearInner>>() { Ok(smelt_cell) => return StrictYear(smelt_cell).validate(value), Err(smelt_other) => smelt_other };
+        let _ = smelt_any;
+    }
     let _smelt_tmp_2: bool = value > 1900.0;
     return _smelt_tmp_2;
     }
@@ -5171,11 +5232,13 @@ impl YearParser {
         smelt_proto_entries.push(("__smelt_method:fallback".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.fallback(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("YearParser::fallback")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("validate".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("parse".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("value".to_owned(), SmeltUnknown::Number(smelt_object_value.value as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("fallback".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.fallback() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("YearParser".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl StrictYear {
     fn new() -> Self {
-    let mut this: Self = { let smelt_instance = StrictYear(::std::rc::Rc::new(::std::cell::RefCell::new(StrictYearInner { validate: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback }, parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { Default::default() }); smelt_default_callback }, fallback: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().validate = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().fallback = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.fallback() }); smelt_virtual_method }; smelt_instance };
+    let mut this: Self = { let smelt_instance = StrictYear(::std::rc::Rc::new(::std::cell::RefCell::new(StrictYearInner { __smelt_base: YearParserInner { __smelt_base: ParserInner { _smelt_phantom: ::std::marker::PhantomData, validate: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { false }); smelt_default_callback }, parse: { let smelt_default_callback: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { Default::default() }); smelt_default_callback }, fallback: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } } } }))); smelt_instance.0.borrow_mut().validate = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().parse = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }; smelt_instance.0.borrow_mut().fallback = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.fallback() }); smelt_virtual_method }; smelt_instance };
     let _smelt_tmp_1: Self = Self::__smelt_init_YearParser(this);
     this = _smelt_tmp_1;
     return this;
@@ -5219,6 +5282,8 @@ impl StrictYear {
         smelt_proto_entries.push(("__smelt_method:fallback".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.fallback(); Ok(SmeltUnknown::Number(smelt_result as f64)) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("YearParser::fallback")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); smelt_object_entries.push(("validate".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(f64) -> bool> = ::std::rc::Rc::new(move |smelt_arg0: f64| -> bool { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.validate(smelt_arg0.clone()) }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Bool((smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN })))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("parse".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn(JsString) -> Parsed<f64>> = ::std::rc::Rc::new(move |smelt_arg0: JsString| -> Parsed<f64> { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.parse(smelt_arg0.clone()) }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({ let smelt_object_value = (smelt_function_value)(match smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }); let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("value".to_owned(), SmeltUnknown::Number(smelt_object_value.value as f64))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) })); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 1.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("fallback".to_owned(), { let smelt_function_value = { let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = smelt_virtual_receiver.clone(); smelt_method_receiver.fallback() }); smelt_virtual_method }; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_function_value)() as f64))); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, 0.0); SmeltUnknown::Function(smelt_erased_function) } })); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("StrictYear".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl Lists {

@@ -107,9 +107,11 @@ fn program_base<'mir>(mir: &'mir Mir, class: &MirClass) -> Option<&'mir MirClass
 /// A hierarchy is left flattened, with its previous copying upcasts, only
 /// when one of its classes redeclares an inherited field at a different
 /// type (`class B extends A { declare x: Narrow }`): one JavaScript property
-/// cannot live in nested storage at two Rust types. Every class of that
-/// hierarchy stays as it was, so the storage of one hierarchy never mixes
-/// the two layouts.
+/// cannot live in nested storage at two Rust types; or fixes a base type
+/// parameter a callable slot takes bare ([`fixes_slot_parameter`]), whose
+/// Rust ABI the nested record would change. Every class of that hierarchy
+/// stays as it was, so the storage of one hierarchy never mixes the two
+/// layouts.
 pub(crate) fn polymorphic_classes(mir: &Mir, references: &HashSet<Symbol>) -> HashSet<Symbol> {
     let eligible = |class: &MirClass| {
         is_instance_class(class)
@@ -128,7 +130,9 @@ pub(crate) fn polymorphic_classes(mir: &Mir, references: &HashSet<Symbol>) -> Ha
             if !seen.insert(base.name) || !eligible(base) {
                 break;
             }
-            if redeclares_at_new_type(mir, current, base) {
+            if redeclares_at_new_type(mir, current, base)
+                || fixes_slot_parameter(mir, current, base)
+            {
                 conflicted_roots.insert(hierarchy_root(mir, class.name));
             }
             polymorphic.insert(base.name);
@@ -180,6 +184,41 @@ fn redeclares_at_new_type(mir: &Mir, derived: &MirClass, base: &MirClass) -> boo
     effective_class_fields(mir, derived)
         .iter()
         .any(|field| inherited.get(&field.name).is_some_and(|ty| *ty != field.ty))
+}
+
+/// Whether `derived` passes a non-parameter type for a type parameter of
+/// `base` that one of `base`'s callable fields takes as a bare parameter
+/// (`validate: (value: T) => boolean` with `class Year extends
+/// Parser<number>`).
+///
+/// A callable slot's Rust ABI follows its declaration (a bare type parameter
+/// is taken by reference, `Fn(&T)`), and a nested base record is that
+/// declaration instantiated (`Fn(&f64)`), while every value and call the
+/// subclass builds for the slot is spelled at its substituted type, by value
+/// (`Fn(f64)`). Such a hierarchy keeps its flattened layout, where the slot is
+/// stored at the substituted spelling.
+fn fixes_slot_parameter(mir: &Mir, derived: &MirClass, base: &MirClass) -> bool {
+    let fixed: HashSet<Symbol> = base
+        .type_params
+        .iter()
+        .zip(&derived.base_args)
+        .filter(|(_, arg)| !matches!(mir.types.get(**arg), Some(smelt_hir::Type::TypeParam { .. })))
+        .map(|(param, _)| param.name)
+        .collect();
+    if fixed.is_empty() {
+        return false;
+    }
+    effective_class_fields(mir, base).iter().any(|field| {
+        let Some(smelt_hir::Type::Function(function)) = mir.types.get(field.ty) else {
+            return false;
+        };
+        function.params.iter().any(|param| {
+            matches!(
+                mir.types.get(*param),
+                Some(smelt_hir::Type::TypeParam { name }) if fixed.contains(name)
+            )
+        })
+    })
 }
 
 /// The base whose inner record `class`'s inner record nests, when its base is

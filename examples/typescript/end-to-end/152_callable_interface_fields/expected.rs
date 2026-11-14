@@ -4122,7 +4122,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 /// A reference-class handle seen through its shared cell (see `SmeltWeakReceiver`).
 trait SmeltReferenceHandle: Clone + 'static {
-    type Cell;
+    type Cell: ?Sized;
     fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell>;
     fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self;
 }
@@ -4420,7 +4420,7 @@ impl Clone for Context {
 }
 impl PartialEq for Context {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Context {
