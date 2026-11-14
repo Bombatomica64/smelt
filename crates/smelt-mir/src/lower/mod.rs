@@ -925,6 +925,10 @@ fn run_finalization_passes(mir: &mut Mir, facts: &LoweringFacts) -> Result<(), L
     // Requires: every body lowered. Establishes: each generic record
     // instantiation the program uses is in the table, so its declaration and
     // record helpers are emitted.
+    // Requires: every body lowered. Establishes: no value is typed as a
+    // member-less abstract class; it is typed as the union of the concrete
+    // classes it can be (so the record pass below sees the final types).
+    passes::abstract_class_unions::abstract_classes_as_unions(mir);
     passes::generic_records::intern_generic_record_instantiations(mir);
     // Requires: closures constructed. Establishes: `escapes` on every closure
     // (invariants 1-2 in `closures`), which throwing widening reads.

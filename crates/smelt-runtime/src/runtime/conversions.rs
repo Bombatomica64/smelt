@@ -291,3 +291,44 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
 }
 
 // @smelt:item-end
+
+// @smelt:item impl_SmeltUnknown_for_wide_tuples when wide_tuple & unknown
+//~ Tuples of three to twelve elements erase and un-erase by the same rule as
+//~ the pair: a JS array in position order, missing slots filled from
+//~ `Undefined`. A record field typed `[string, string, string]` (ts-pattern's
+//~ `path`) is decoded through `SmeltFromUnknown`, which stopped at arity two
+//~ (E0277). Both directions are generated together so the round trip stays
+//~ symmetric, as the arity-two comment above requires.
+//~ Each element is bound under its own `smelt_*` name: a `let` binding may
+//~ not shadow a tuple struct, and the program may declare one named like a
+//~ type parameter (`class A` in es-toolkit, E0530).
+macro_rules! smelt_unknown_tuple {
+    ($($name:ident $value:ident),+) => {
+        impl<$($name: IntoSmeltUnknown),+> IntoSmeltUnknown for ($($name,)+) {
+            fn into_smelt_unknown(self) -> SmeltUnknown {
+                let ($($value,)+) = self;
+                SmeltUnknown::Array(vec![$($value.into_smelt_unknown()),+].into())
+            }
+        }
+        impl<$($name: SmeltFromUnknown),+> SmeltFromUnknown for ($($name,)+) {
+            fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+                let mut items = match value { SmeltUnknown::Array(values) => values.into_vec().into_iter(), _ => Vec::new().into_iter() };
+                ($($name::smelt_from_unknown(items.next().unwrap_or(SmeltUnknown::Undefined)),)+)
+            }
+        }
+    };
+}
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i, J smelt_j);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i, J smelt_j, K smelt_k);
+smelt_unknown_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f, G smelt_g, H smelt_h, I smelt_i, J smelt_j, K smelt_k, L smelt_l);
+
+//~ Its own item, so only a program with such a tuple AND the erased carrier
+//~ emits it: a wholly typed program has neither trait to implement.
+// @smelt:item-end

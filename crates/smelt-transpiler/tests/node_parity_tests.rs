@@ -891,6 +891,13 @@ fn generic_record_result_alias() -> TestResult {
     Ok(())
 }
 
+/// An integer-valued expression fills a union's `number` arm, and
+/// `String.prototype.match` with an absent pattern matches the empty pattern.
+#[test]
+fn number_union_and_optional_pattern() -> TestResult {
+    verify_node_parity("number_union_and_optional_pattern")
+}
+
 /// A narrowing proved inside one class member (a method, a constructor) does
 /// not leak into a sibling member's same-named local, so that member's own
 /// null test survives instead of folding to `true` and unwrapping `None`.
@@ -904,6 +911,48 @@ fn member_narrowing_scope() -> TestResult {
 #[test]
 fn generic_string_and_shared_date() -> TestResult {
     verify_node_parity("generic_string_and_shared_date")
+}
+
+/// ts-pattern's library shapes: a 3-tuple record field recovered from an
+/// erased value, a generic union with a generic class arm, a closure nested in
+/// a closure over a multiply-assigned local, and `new` of a later-declared
+/// class whose parameter only a `never` argument instantiates.
+#[test]
+fn ts_pattern_lib_shapes() -> TestResult {
+    verify_node_parity("ts_pattern_lib_shapes")
+}
+
+/// ts-pattern's test-suite shapes: erased values typed by the checker at their
+/// bindings, `new Set(..)` built at its parameter's type, a record keyed by a
+/// block-local symbol, a member-less abstract class as its subclasses' union,
+/// and classes that hold their own class.
+#[test]
+fn ts_pattern_test_shapes() -> TestResult {
+    verify_node_parity("ts_pattern_test_shapes")?;
+    // Type preservation for the symbol-keyed record: it is a property-key
+    // record of property-key records of strings, as the literal is, not an
+    // erased record (`SmeltRecord<JsString, SmeltUnknown>`).
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("ts_pattern_test_shapes.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"ts-pattern-shapes\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    ensure(
+        source.contains("closure_arg_0: SmeltPropKeyRecord<SmeltPropKeyRecord<JsString>>"),
+        "the symbol-keyed record lost its value types",
+    )
 }
 
 /// A class value carries its static methods, so a computed-key call finds
@@ -1169,9 +1218,49 @@ fn emission_rules_behaviour() -> TestResult {
 }
 
 /// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
+/// A method whose callback parameter is optional (a default, or `?`) is
+/// callable through an erased instance: an absent argument takes the
+/// default, a given callback is called.
+#[test]
+fn erased_optional_callback_method() -> TestResult {
+    verify_node_parity("erased_optional_callback_method")
+}
+
+/// `Object.assign` onto a value of a type parameter writes into that object
+/// and returns it, keeping its own symbol-keyed method and gaining the
+/// sources' members.
+#[test]
+fn object_assign_erased_target() -> TestResult {
+    verify_node_parity("object_assign_erased_target")
+}
+
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
+}
+
+/// `const view = erased as T` keeps the erased value: a type guard that asserts
+/// and then probes a symbol-keyed member answers for arrays, strings, numbers,
+/// `null`, booleans and plain objects; a truthiness test and a bracket read
+/// probe the value; a dot read and a read of the view as a value use a `T`.
+#[test]
+fn assertion_view_probes() -> TestResult {
+    verify_node_parity("assertion_view_probes")
+}
+
+/// A `value is Object` guard leaves an erased value erased, as tsc does, so
+/// `Array.isArray` still answers for it, while a union still narrows; in a
+/// condition, the right operand of `&&` is tested for truthiness.
+#[test]
+fn object_guard_and_condition() -> TestResult {
+    verify_node_parity("object_guard_and_condition")
+}
+
+/// `Object.assign` copies own enumerable symbol-keyed properties too: a
+/// symbol flag, and `Symbol.iterator`, which makes the target iterable.
+#[test]
+fn assign_symbol_keys() -> TestResult {
+    verify_node_parity("assign_symbol_keys")
 }
 
 /// `new Set(xs)` and `new Map(xs)` with an absent optional iterable build an
@@ -1186,4 +1275,29 @@ fn absent_iterable_constructors() -> TestResult {
 #[test]
 fn number_format_methods() -> TestResult {
     verify_node_parity("number_format_methods")
+}
+
+/// A reducer that can throw folds plain accumulator values, and its throw
+/// reaches the enclosing `catch`, with and without an initial value.
+#[test]
+fn throwing_reduce_callback() -> TestResult {
+    verify_node_parity("throwing_reduce_callback")
+}
+
+/// An abstract generic parser hierarchy (date-fns' `parse` shape): inherited
+/// and overridden members reach the base's `run` through their slots, a
+/// mutating setter slot takes its state `&mut`, and a callback the base hands
+/// to a generic class at its own `Value` passes without an erased adapter.
+#[test]
+fn abstract_parser_slots() -> TestResult {
+    verify_node_parity("abstract_parser_slots")
+}
+
+/// A prototype method read off a number, string or array takes its receiver
+/// from the call: detached it throws Node's `TypeError`, while member calls,
+/// `.call`, `.apply` and `.bind` supply the receiver; typed and erased
+/// receivers read the same unbound function.
+#[test]
+fn unbound_method_values() -> TestResult {
+    verify_node_parity("unbound_method_values")
 }

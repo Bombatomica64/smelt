@@ -691,9 +691,13 @@ jobs:
   # progress: the generated test target does not build yet, and the exact count
   # of its rustc errors is pinned in blocker-logs/hono-ci-baseline.json. At zero
   # the tests run, and their results get pinned there.
-  # A build-only check: ts-pattern is not pinned to a test count, so nothing else
-  # would notice lowering refusing it. Its generated crate does not compile yet,
-  # so the gate stops at `smelt build`; about 100 s of lowering at 2.5 GB.
+  # Regression gate: transpile ts-pattern (library and its `*.test.ts` suites)
+  # at the ref pinned in .github/compat/libraries.json, then compile and run the
+  # generated tests. The crate compiles with zero errors; the run pins the exact
+  # pass/fail line, like radash's. Most failures are two runtime families: a
+  # symbol-keyed matcher read through an erased value comes back `undefined`,
+  # and an erased value cast `as Matcher` panics on a non-matcher. The pin rises
+  # as they are fixed and fails on any other change of the line.
 
   ts-pattern-build:
     needs: build
@@ -713,6 +717,11 @@ jobs:
       - name: Get smelt from the build job
         uses: ./.github/actions/smelt-artifact
 
+      - name: sccache for the generated crate's dependencies
+        uses: ./.github/actions/sccache
+        with:
+          lane: libs
+
       - name: Check out ts-pattern
         uses: ./.github/actions/checkout-library
         with:
@@ -725,10 +734,25 @@ jobs:
       - name: Transpile ts-pattern (a refused corpus fails here)
         run: target/debug/smelt --manifest-path target/compat-repos/ts-pattern/Smelt.toml build --allow-type-errors
 
-  # A build-only check, as for ts-pattern: date-fns is not pinned to a test count,
-  # so nothing else would notice lowering refusing it (a `while` over a call once
-  # stopped it, unseen). Its generated crate does not compile yet, so the gate
-  # stops at `smelt build`.
+      - name: Compile and run generated ts-pattern tests (regression gate)
+        run: |
+          RUSTFLAGS=-Awarnings cargo test \
+            --manifest-path target/compat-repos/ts-pattern/dist-smelt/Cargo.toml \
+            --no-fail-fast 2>&1 | tee ts-pattern-tests.log || true
+          # A compile error prints no `test result` line, so it fails the pin too.
+          grep -F "test result: FAILED. 382 passed; 56 failed;" ts-pattern-tests.log
+
+      - name: Save sccache
+        if: ${{ always() }}
+        uses: ./.github/actions/sccache-save
+
+  # Regression gate, as for ts-pattern: transpile date-fns' core package and its
+  # `test.ts` specs, compile, and pin the exact pass/fail line. 194 of the 253
+  # specs import `TZDate`/`UTCDate` from the sibling `@date-fns/tz`/`@date-fns/utc`
+  # packages (JavaScript behind hand-written `.d.ts`), so the disposable clone
+  # drops them; .github/compat/date-fns/Smelt.toml excludes the two others that
+  # test what is not modeled. A build-only gate once let a merge take the crate
+  # from 0 to 110 rustc errors unseen.
   date-fns-build:
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}
@@ -747,13 +771,36 @@ jobs:
       - name: Get smelt from the build job
         uses: ./.github/actions/smelt-artifact
 
+      - name: sccache for the generated crate's dependencies
+        uses: ./.github/actions/sccache
+        with:
+          lane: libs
+
       - name: Check out date-fns
         uses: ./.github/actions/checkout-library
         with:
           name: date-fns
 
+      - name: Drop the specs that need @date-fns/tz or @date-fns/utc
+        run: |
+          specs="$(grep -rlE '@date-fns/(tz|utc)' target/compat-repos/date-fns/pkgs/core/src --include=test.ts)"
+          test "$(echo "$specs" | wc -l)" -eq 194
+          echo "$specs" | xargs rm
+
       - name: Transpile date-fns (a refused corpus fails here)
         run: target/debug/smelt --manifest-path target/compat-repos/date-fns/Smelt.toml build
+
+      - name: Compile and run generated date-fns tests (regression gate)
+        run: |
+          RUSTFLAGS=-Awarnings cargo test \
+            --manifest-path target/compat-repos/date-fns/dist-smelt/Cargo.toml \
+            --no-fail-fast 2>&1 | tee date-fns-tests.log || true
+          # A compile error prints no `test result` line, so it fails the pin too.
+          grep -F "test result: FAILED. 273 passed; 57 failed;" date-fns-tests.log
+
+      - name: Save sccache
+        if: ${{ always() }}
+        uses: ./.github/actions/sccache-save
 
   hono:
     # Full mode only; see the banner above `remeda-regression`.

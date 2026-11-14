@@ -15,14 +15,15 @@
 //
 // What the module emits:
 //
-// * `smelt_array_prototype_member` / `smelt_string_prototype_member` /
-//   `smelt_number_prototype_member` — the
-//   member READ: a method name from the shared tables in
-//   [`smelt_stdlib::erased_prototype_methods`] becomes a callable bound to the
-//   receiver, anything else is `None` (so the caller falls back to
-//   `undefined`). The bound callable captures the receiver handle, and an
-//   erased array's handle shares its storage, so `push`/`sort`/`splice`
-//   mutate the caller's array exactly as JavaScript does.
+// * `smelt_unbound_prototype_method` -- the member READ: a method name from
+//   the shared tables in [`smelt_stdlib::erased_prototype_methods`] (or the
+//   number formatting methods) becomes that method's one UNBOUND function,
+//   anything else is `None` (so the caller falls back to `undefined`). The
+//   function takes its receiver from the call through the `this` channel, as
+//   JavaScript does, so a detached `const m = arr.map; m(f)` throws while
+//   `arr.map(f)`, `m.call(arr, f)` and `m.bind(arr)` work; an erased array's
+//   handle shares its storage, so `push`/`sort`/`splice` mutate the
+//   receiver exactly as JavaScript does.
 // * `smelt_array_prototype_apply` / `smelt_string_prototype_apply` — the
 //   member CALL, one arm per method, with JavaScript's argument rules:
 //   callbacks receive `(element, index, array)` (`reduce` receives the
@@ -34,14 +35,11 @@
 //   thrower the erased call ABI also uses for a non-callable callee
 //   (`smelt_throw_not_callable`).
 //
-// Two deliberate simplifications, both documented at their arms: an ARRAY
-// or STRING method read does not register a canonical function identity or
-// `length` (every `arr.map(f)` performs a read, and a registry insert per
-// CALL is a cost on the hottest erased path; the entry itself would be
-// swept with the bound closure, see `callable_registry.rs`), and string
-// positions count Unicode scalar values, the same unit every other erased
-// string operation in the prelude (`length`, indexing) already uses. A
-// NUMBER method read does register its `length`: those reads are rare.
+// Two deliberate simplifications, both documented at their arms: an Array
+// method called on an array-LIKE receiver works on a copy (a mutating method
+// does not write back to the object), and string positions count Unicode
+// scalar values, the same unit every other erased string operation in the
+// prelude (`length`, indexing) already uses.
 
 // Write a block of generated Rust source one line at a time.
 //
@@ -140,54 +138,127 @@ fn smelt_erased_invoke(function: &SmeltDynCallable, args: Vec<SmeltUnknown>) -> 
 const SMELT_ERASED_ARRAY_METHODS: [&str; 32] = ["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "findLast", "findLastIndex", "includes", "indexOf", "lastIndexOf", "join", "slice", "concat", "at", "flat", "flatMap", "push", "pop", "shift", "unshift", "splice", "reverse", "sort", "fill", "keys", "values", "entries", "toString"];
 /// `String.prototype` methods an erased string answers (see `smelt_string_prototype_apply`).
 const SMELT_ERASED_STRING_METHODS: [&str; 21] = ["at", "charAt", "charCodeAt", "codePointAt", "concat", "endsWith", "includes", "indexOf", "lastIndexOf", "padEnd", "padStart", "repeat", "slice", "startsWith", "substring", "toLowerCase", "toUpperCase", "trim", "trimEnd", "trimStart", "toString"];
+/// `Number.prototype` methods an erased number answers (see `smelt_prototype_method_apply`).
+const SMELT_ERASED_NUMBER_METHODS: [&str; 5] = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"];
 
-/// Read `Array.prototype[field]` off an erased array, bound to that array.
-//~
-//~ `None` when `field` is not a modeled array method, so the caller answers
-//~ `undefined`. The receiver handle shares the array's storage, so a mutating
-//~ method called through the bound value mutates the caller's array. No
-//~ canonical identity or `length` is registered: every `arr.map(f)` is a read,
-//~ and registering would grow the identity registries once per call.
-fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?;
-    let receiver = receiver.clone();
-    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_array_prototype_apply(&receiver, name, args)))))
+/// The builtin prototype an erased method read resolves on.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum SmeltPrototypeFamily { Array, String, Number }
+
+impl SmeltPrototypeFamily {
+    /// The constructor name JavaScript spells the family's `TypeError`s with.
+    const fn name(self) -> &'static str { match self { Self::Array => "Array", Self::String => "String", Self::Number => "Number" } }
 }
 
-/// Read `String.prototype[field]` off an erased string, bound to that string.
+//~ `Function.prototype.length` of the modeled prototype methods, as Node
+//~ reports them: one declared parameter unless listed here.
+/// The `length` of `family.prototype[name]`.
+fn smelt_prototype_method_length(family: SmeltPrototypeFamily, name: &str) -> f64 {
+    match (family, name) {
+        (_, "slice" | "splice" | "substring") => 2.0,
+        (SmeltPrototypeFamily::Number, "valueOf") => 0.0,
+        (SmeltPrototypeFamily::Number, _) => 1.0,
+        (_, "flat" | "pop" | "shift" | "reverse" | "keys" | "values" | "entries" | "toString" | "toLowerCase" | "toUpperCase" | "trim" | "trimEnd" | "trimStart") => 0.0,
+        _ => 1.0,
+    }
+}
+
+/// `family.prototype[field]` as the UNBOUND function JavaScript's member read
+/// answers; `None` when `field` is not a modeled method of the family.
 //~
-//~ `None` when `field` is not a modeled string method (see the array twin).
-fn smelt_string_prototype_member(receiver: &JsString, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?;
-    let receiver = receiver.clone();
-    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_string_prototype_apply(&receiver, name, args)))))
+//~ A prototype method takes its receiver from the CALL, not from the read:
+//~ `arr.map(f)` calls `Array.prototype.map` with `this = arr`, while
+//~ `const m = arr.map; m(f)` calls the same function with `this =
+//~ undefined` and throws. So the read answers one function per method --
+//~ cached, so `a.map === b.map` holds and its `length` is registered once --
+//~ and the function reads `this` from the receiver channel when called. The
+//~ emitter installs that receiver at every erased call: the base object of a
+//~ member call, `undefined` for a plain call (`erased_call_receiver`), and
+//~ `.call`/`.apply`/`.bind` install their explicit receiver as they always
+//~ have (`smelt_function_method`, `smelt_bind_this`).
+//~
+//~ A program with no receiver channel (no `this` read, and no erased read
+//~ that could produce one of these methods -- see `Need::ThisChannel`) cannot
+//~ observe the difference, and carries no channel: there the read binds
+//~ `receiver`, which is what a member call would have supplied.
+fn smelt_unbound_prototype_method(family: SmeltPrototypeFamily, receiver: &SmeltUnknown, field: &str) -> Option<SmeltUnknown> {
+    let name: &'static str = match family {
+        SmeltPrototypeFamily::Array => SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?,
+        SmeltPrototypeFamily::String => SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?,
+        SmeltPrototypeFamily::Number => SMELT_ERASED_NUMBER_METHODS.into_iter().find(|name| *name == field)?,
+    };
+// @smelt:if !this_channel
+//=     let receiver = receiver.clone();
+//=     return Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| smelt_prototype_method_apply(family, name, receiver.clone(), args))));
+// @smelt:end
+// @smelt:if this_channel
+    let _ = receiver;
+    thread_local! {
+        static SMELT_UNBOUND_METHODS: ::std::cell::RefCell<::std::collections::HashMap<(SmeltPrototypeFamily, &'static str), SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    }
+    if let Some(method) = SMELT_UNBOUND_METHODS.with(|methods| methods.borrow().get(&(family, name)).cloned()) { return Some(method); }
+    let method: SmeltDynCallable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+        let receiver = smelt_this();
+        //~ The method's own callbacks are plain calls: they see `undefined`,
+        //~ not the receiver this call was given.
+        let _smelt_this_guard = smelt_push_this(SmeltUnknown::Undefined);
+        smelt_prototype_method_apply(family, name, receiver, args)
+    });
+    smelt_register_function_length(&method, smelt_prototype_method_length(family, name));
+    let method = SmeltUnknown::Function(method);
+    SMELT_UNBOUND_METHODS.with(|methods| methods.borrow_mut().insert((family, name), method.clone()));
+    Some(method)
+// @smelt:end
+}
+
+/// A JavaScript `TypeError` value from a prototype method called on the wrong receiver.
+fn smelt_prototype_type_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
+
+/// Run `family.prototype[name]` with `receiver` as its `this`.
+//~
+//~ The receiver rules are the spec's: an `Array` or `String` method throws
+//~ for a `null`/`undefined` receiver ("called on null or undefined"), a
+//~ `String` method coerces any other receiver with `ToString`, an `Array`
+//~ method reads any other receiver as an array-like (a string's characters,
+//~ an object's `length` and indices) -- a COPY, so a mutating method called
+//~ on an array-like object does not write back -- and a `Number` method
+//~ accepts only a number.
+fn smelt_prototype_method_apply(family: SmeltPrototypeFamily, name: &'static str, receiver: SmeltUnknown, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    let nullish = || smelt_prototype_type_error(format!("{}.prototype.{name} called on null or undefined", family.name()));
+    //~ A `Number` method also accepts a `Number` wrapper object, by its value.
+    let receiver = if family == SmeltPrototypeFamily::Number { smelt_unbox_primitive(receiver) } else { receiver };
+    match (family, receiver) {
+        (SmeltPrototypeFamily::Number, SmeltUnknown::Number(value)) => {
+            if name == "valueOf" { return Ok(SmeltUnknown::Number(value)); }
+            let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
+            smelt_number_format_checked(name, value, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
+        }
+        (SmeltPrototypeFamily::Number, _) => Err(smelt_prototype_type_error(format!("Number.prototype.{name} requires that 'this' be a Number"))),
+        (_, SmeltUnknown::Null | SmeltUnknown::Undefined) => Err(nullish()),
+        (SmeltPrototypeFamily::String, SmeltUnknown::String(text)) => Ok(smelt_string_prototype_apply(&text, name, args)),
+        (SmeltPrototypeFamily::String, other) => Ok(smelt_string_prototype_apply(&smelt_erased_to_js_string(&other), name, args)),
+        (SmeltPrototypeFamily::Array, SmeltUnknown::Array(values)) => Ok(smelt_array_prototype_apply(&values, name, args)),
+        (SmeltPrototypeFamily::Array, other) => {
+            let items: Vec<SmeltUnknown> = match &other {
+                SmeltUnknown::String(text) => (0..text.len()).filter_map(|index| text.char_at(index).map(SmeltUnknown::String)).collect(),
+                SmeltUnknown::Object(_) => {
+                    let length = smelt_erased_integer(&smelt_get_unknown_field(&other, "length")).max(0.0);
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let length = length.min(f64::from(u32::MAX)) as usize;
+                    (0..length).map(|index| smelt_get_unknown_field(&other, &index.to_string())).collect()
+                }
+                _ => Vec::new(),
+            };
+            Ok(smelt_array_prototype_apply(&SmeltArray::from(items), name, args))
+        }
+    }
 }
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &JsString, field: &str) -> SmeltUnknown {
     if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(text.len())); }
     if let Ok(index) = field.parse::<usize>() { return text.char_at(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::String); }
-    smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
-}
-
-/// Read `Number.prototype[field]` off an erased number, bound to that number.
-//~
-//~ `None` when `field` is not a modeled number method (see the array twin).
-//~ The formatting methods run the same checked formatter the typed
-//~ `Rvalue::NumericFormat` call does (`number_format.rs`), so
-//~ `(x as any).toFixed(2)` and `x.toFixed(2)` round alike, and a bad
-//~ argument is the same catchable `RangeError`.
-fn smelt_number_prototype_member(receiver: f64, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"].into_iter().find(|name| *name == field)?;
-    let method: SmeltDynCallable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
-        if name == "valueOf" { return Ok(SmeltUnknown::Number(receiver)); }
-        let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
-        smelt_number_format_checked(name, receiver, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
-    });
-    //~ `Function.prototype.length`: every one of these takes one optional
-    //~ argument except `valueOf`.
-    smelt_register_function_length(&method, if name == "valueOf" { 0.0 } else { 1.0 });
-    Some(SmeltUnknown::Function(method))
+    smelt_unbound_prototype_method(SmeltPrototypeFamily::String, &SmeltUnknown::String(text.clone()), field).unwrap_or(SmeltUnknown::Undefined)
 }
 
 /// Flatten `items` into `out`, descending `depth` levels of nested arrays (`Array.prototype.flat`).

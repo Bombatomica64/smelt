@@ -469,7 +469,13 @@ impl ModuleBuilder<'_> {
         // callable; a later property write onto it is then a documented punt.
         self.scope.mark_callable_local_escaped(local);
         let base_ty = Self::local_ty(body, local);
-        let ty = self.narrowed_type(name).unwrap_or(base_ty);
+        // An assertion view (`const p = erased as T`) stands for `T` wherever
+        // it is read as a value; the reads that only probe it take the erased
+        // value instead (see `lowering::assertion_views`).
+        let ty = self
+            .narrowed_type(name)
+            .or_else(|| self.scope.assertion_view(local, name))
+            .unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {
             kind: ExprKind::Local(local),
             ty,

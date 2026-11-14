@@ -937,6 +937,19 @@ impl ModuleBuilder<'_> {
         if !Self::is_ts_stdlib_class_name(host.name(), smelt_stdlib::StdlibClass::Set) {
             return Ok(None);
         }
+        // With no Set-shaped hint, the set TypeScript resolved for this `new`
+        // decides the element type (`new Set(['a', 2])` is a `Set<string |
+        // number>`), never the first element alone.
+        let type_hint = match type_hint {
+            Some(hint) if matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) => Some(hint),
+            other => self
+                .checker_call_type(new_expr.span.start, new_expr.span.end)
+                .filter(|checked| {
+                    matches!(self.ctx.krate.types.get(*checked), Some(Type::Set(item))
+                        if !matches!(self.ctx.krate.types.get(*item), Some(Type::Unknown | Type::Never)))
+                })
+                .or(other),
+        };
         let (items, ty) = match Self::constructor_iterable_arguments(new_expr) {
             [] => {
                 // Prefer an explicit `new Set<T>()` argument, then the element
@@ -980,8 +993,11 @@ impl ModuleBuilder<'_> {
                     // `T[]` in `[...new Set(xs)]`) describes the outer
                     // expression, not this constructor: fall back to the
                     // inferred set type instead of rejecting.
+                    // The converted list keeps its element type, so a hint
+                    // naming another element type (the checker's widened
+                    // `Set<string | number>`) cannot type this conversion.
                     let ty = if let Some(hint) = type_hint
-                        && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                        && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(hinted)) if hinted == item_ty)
                     {
                         hint
                     } else {
@@ -1115,8 +1131,9 @@ impl ModuleBuilder<'_> {
                 };
                 // Same hint rule as the literal forms: only a Set-shaped hint
                 // overrides the inferred element type.
+                // The converted list keeps its element type (see above).
                 let ty = if let Some(hint) = type_hint
-                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_)))
+                    && matches!(self.ctx.krate.types.get(hint), Some(Type::Set(hinted)) if *hinted == item_ty)
                 {
                     hint
                 } else {

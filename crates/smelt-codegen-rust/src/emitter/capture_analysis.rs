@@ -294,6 +294,19 @@ impl FunctionEmitter<'_> {
                     return self.place_expr(place);
                 }
                 let place_ty = self.place_ty(place)?;
+                // A reference-class value is a shared handle: a `&mut` to a
+                // CLONE of the handle reaches the same cell, so the callee's
+                // field writes land in the caller's object, while rebinding the
+                // parameter stays local, as in JavaScript. Borrowing the
+                // caller's binding itself needed it declared `mut` (E0596 on a
+                // by-value parameter forwarded into a mutable slot).
+                if place_ty == target && self.is_reference_class_type(place_ty) {
+                    let handle = self.place_expr(place)?.cloned_value();
+                    return Ok(RustExpr::loose(format!(
+                        "&mut {handle}",
+                        handle = handle.tight()
+                    )));
+                }
                 if place_ty == target {
                     if self.argument_renders_alike_across_call(
                         place_ty,
@@ -649,14 +662,42 @@ impl FunctionEmitter<'_> {
     /// share a captured binding with sibling closures. If any escaping closure
     /// writes the source binding, all escaping closures that capture it must
     /// use shared storage so read-only siblings observe the updated value.
+    ///
+    /// Only closures CREATED in the function being emitted are asked: a
+    /// capture's `source_local` is a local of the creating function, and
+    /// `LocalId`s are per function. Scanning every closure of the program let a
+    /// closure elsewhere that mutates its own local `1` decide that this
+    /// function's local `1` needs a shared cell, so a closure nested in another
+    /// closure cloned a `smelt_capture_x` its enclosing body never bound
+    /// (ts-pattern's `select`, E0425).
     fn escaping_closure_capture_is_mutated(&self, source_local: LocalId) -> bool {
-        self.mir.closures.iter().any(|candidate| {
-            candidate.escapes
-                && candidate.captures.iter().any(|candidate_capture| {
-                    candidate_capture.source_local == source_local
-                        && self.closure_capture_body_writes(candidate, candidate_capture)
-                })
-        })
+        let created_here = self
+            .function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter_map(|statement| match statement {
+                Statement::Assign {
+                    value: Rvalue::Closure { id, .. },
+                    ..
+                } => Some(*id),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        created_here
+            .iter()
+            .filter_map(|id| {
+                self.mir
+                    .closures
+                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+            })
+            .any(|candidate| {
+                candidate.escapes
+                    && candidate.captures.iter().any(|candidate_capture| {
+                        candidate_capture.source_local == source_local
+                            && self.closure_capture_body_writes(candidate, candidate_capture)
+                    })
+            })
     }
 
     /// Returns whether a closure body assigns to or mutates a captured local.

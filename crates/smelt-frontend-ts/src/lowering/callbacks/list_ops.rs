@@ -422,8 +422,12 @@ impl ModuleBuilder<'_> {
     /// is not in the function's scope).
     fn binding_static_type(&self, name: &str, body: &Body) -> Option<smelt_hir::TypeId> {
         if let Some(local) = self.scope.lookup(name) {
+            // An assertion view reads as its asserted type wherever it is used
+            // as a value (see `lowering::assertion_views`), so that is the type
+            // a receiver rooted in it has.
             return Some(
                 self.narrowed_type(name)
+                    .or_else(|| self.scope.assertion_view(local, name))
                     .unwrap_or_else(|| Self::local_ty(body, local)),
             );
         }

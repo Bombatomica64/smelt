@@ -293,6 +293,11 @@ impl ModuleBuilder<'_> {
                 if let Some(expr) = self.short_circuited_static_guard(logical, body) {
                     return Ok(expr);
                 }
+                // `view && guard` over an assertion view tests the erased value
+                // (see `lowering::assertion_views`).
+                if let Some(expr) = self.assertion_view_guard(logical, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.same_value_zero_logical(logical, body)? {
                     return Ok(expr);
                 }
@@ -408,7 +413,17 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let operand = self.expression(&unary.argument, body)?;
+                // `!view` probes an assertion view's erased value (see
+                // `lowering::assertion_views`).
+                let view = if matches!(op, UnaryOp::Not) {
+                    self.assertion_view_read(&unary.argument, body)
+                } else {
+                    None
+                };
+                let operand = match view {
+                    Some(view) => view,
+                    None => self.expression(&unary.argument, body)?,
+                };
                 let operand = if matches!(op, UnaryOp::Not) {
                     let span = self.expression_span(&unary.argument);
                     self.optional_known_date_presence_condition(operand, span, body)

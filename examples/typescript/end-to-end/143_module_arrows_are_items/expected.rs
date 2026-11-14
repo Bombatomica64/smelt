@@ -2302,7 +2302,7 @@ impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
 fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().map(SmeltUnknown::String).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get("next") else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!("unknown iterator did not return an iterable") } }
 
-/// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.
+/// Bind `Function.prototype.apply`/`call`/`bind` on an erased receiver, or read the field of an object receiver.
 fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
     match receiver {
         SmeltUnknown::Function(function) => {
@@ -2322,8 +2322,16 @@ fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
 
 /// Unwrap a boxed primitive wrapper (or a Date) to the primitive it holds.
 fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { if map.contains_key("__smelt_number") || map.contains_key("__smelt_boolean") || map.contains_key("__smelt_string") || map.contains_key("__smelt_symbol") { return map.get("value").unwrap_or(SmeltUnknown::Undefined); } if let Some(millis @ SmeltUnknown::Number(_)) = map.get("__smelt_date") { return millis; } SmeltUnknown::Object(map) }, other => other } }
-/// Bind `Object.prototype.valueOf` on an erased receiver.
-fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = &receiver { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(map, "valueOf") { return own; } } let unboxed = smelt_unbox_primitive(receiver); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))) }
+/// Read `valueOf` off an erased receiver: its own override or the prototype's unbound method.
+fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown {
+    match receiver {
+        SmeltUnknown::Object(map) => { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(&map, "valueOf") { return own; } }
+        number @ SmeltUnknown::Number(_) => { if let Some(method) = smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, &number, "valueOf") { return method; } }
+        other => { let unboxed = smelt_unbox_primitive(other); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))); }
+        _ => {}
+    }
+    SmeltUnknown::Undefined
+}
 /// Box a primitive the way `Object(value)` does; objects and strings pass through.
 fn smelt_box_value(value: SmeltUnknown) -> SmeltUnknown { let (marker, boxed) = match value { SmeltUnknown::Number(_) => ("__smelt_number", value), SmeltUnknown::Bool(_) => ("__smelt_boolean", value), SmeltUnknown::Symbol(_) => ("__smelt_symbol", value), SmeltUnknown::Null | SmeltUnknown::Undefined => return SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())), other => return other }; let fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), ("value".to_owned(), boxed)]); SmeltUnknown::Object(SmeltObject::new(fields)) }
 
@@ -2722,38 +2730,80 @@ fn smelt_erased_invoke(function: &SmeltDynCallable, args: Vec<SmeltUnknown>) -> 
 const SMELT_ERASED_ARRAY_METHODS: [&str; 32] = ["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "findLast", "findLastIndex", "includes", "indexOf", "lastIndexOf", "join", "slice", "concat", "at", "flat", "flatMap", "push", "pop", "shift", "unshift", "splice", "reverse", "sort", "fill", "keys", "values", "entries", "toString"];
 /// `String.prototype` methods an erased string answers (see `smelt_string_prototype_apply`).
 const SMELT_ERASED_STRING_METHODS: [&str; 21] = ["at", "charAt", "charCodeAt", "codePointAt", "concat", "endsWith", "includes", "indexOf", "lastIndexOf", "padEnd", "padStart", "repeat", "slice", "startsWith", "substring", "toLowerCase", "toUpperCase", "trim", "trimEnd", "trimStart", "toString"];
+/// `Number.prototype` methods an erased number answers (see `smelt_prototype_method_apply`).
+const SMELT_ERASED_NUMBER_METHODS: [&str; 5] = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"];
 
-/// Read `Array.prototype[field]` off an erased array, bound to that array.
-fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?;
-    let receiver = receiver.clone();
-    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_array_prototype_apply(&receiver, name, args)))))
+/// The builtin prototype an erased method read resolves on.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum SmeltPrototypeFamily { Array, String, Number }
+
+impl SmeltPrototypeFamily {
+    /// The constructor name JavaScript spells the family's `TypeError`s with.
+    const fn name(self) -> &'static str { match self { Self::Array => "Array", Self::String => "String", Self::Number => "Number" } }
 }
 
-/// Read `String.prototype[field]` off an erased string, bound to that string.
-fn smelt_string_prototype_member(receiver: &JsString, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?;
+/// The `length` of `family.prototype[name]`.
+fn smelt_prototype_method_length(family: SmeltPrototypeFamily, name: &str) -> f64 {
+    match (family, name) {
+        (_, "slice" | "splice" | "substring") => 2.0,
+        (SmeltPrototypeFamily::Number, "valueOf") => 0.0,
+        (SmeltPrototypeFamily::Number, _) => 1.0,
+        (_, "flat" | "pop" | "shift" | "reverse" | "keys" | "values" | "entries" | "toString" | "toLowerCase" | "toUpperCase" | "trim" | "trimEnd" | "trimStart") => 0.0,
+        _ => 1.0,
+    }
+}
+
+/// `family.prototype[field]` as the UNBOUND function JavaScript's member read
+/// answers; `None` when `field` is not a modeled method of the family.
+fn smelt_unbound_prototype_method(family: SmeltPrototypeFamily, receiver: &SmeltUnknown, field: &str) -> Option<SmeltUnknown> {
+    let name: &'static str = match family {
+        SmeltPrototypeFamily::Array => SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?,
+        SmeltPrototypeFamily::String => SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?,
+        SmeltPrototypeFamily::Number => SMELT_ERASED_NUMBER_METHODS.into_iter().find(|name| *name == field)?,
+    };
     let receiver = receiver.clone();
-    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_string_prototype_apply(&receiver, name, args)))))
+    return Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| smelt_prototype_method_apply(family, name, receiver.clone(), args))));
+}
+
+/// A JavaScript `TypeError` value from a prototype method called on the wrong receiver.
+fn smelt_prototype_type_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
+
+/// Run `family.prototype[name]` with `receiver` as its `this`.
+fn smelt_prototype_method_apply(family: SmeltPrototypeFamily, name: &'static str, receiver: SmeltUnknown, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    let nullish = || smelt_prototype_type_error(format!("{}.prototype.{name} called on null or undefined", family.name()));
+    let receiver = if family == SmeltPrototypeFamily::Number { smelt_unbox_primitive(receiver) } else { receiver };
+    match (family, receiver) {
+        (SmeltPrototypeFamily::Number, SmeltUnknown::Number(value)) => {
+            if name == "valueOf" { return Ok(SmeltUnknown::Number(value)); }
+            let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
+            smelt_number_format_checked(name, value, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
+        }
+        (SmeltPrototypeFamily::Number, _) => Err(smelt_prototype_type_error(format!("Number.prototype.{name} requires that 'this' be a Number"))),
+        (_, SmeltUnknown::Null | SmeltUnknown::Undefined) => Err(nullish()),
+        (SmeltPrototypeFamily::String, SmeltUnknown::String(text)) => Ok(smelt_string_prototype_apply(&text, name, args)),
+        (SmeltPrototypeFamily::String, other) => Ok(smelt_string_prototype_apply(&smelt_erased_to_js_string(&other), name, args)),
+        (SmeltPrototypeFamily::Array, SmeltUnknown::Array(values)) => Ok(smelt_array_prototype_apply(&values, name, args)),
+        (SmeltPrototypeFamily::Array, other) => {
+            let items: Vec<SmeltUnknown> = match &other {
+                SmeltUnknown::String(text) => (0..text.len()).filter_map(|index| text.char_at(index).map(SmeltUnknown::String)).collect(),
+                SmeltUnknown::Object(_) => {
+                    let length = smelt_erased_integer(&smelt_get_unknown_field(&other, "length")).max(0.0);
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let length = length.min(f64::from(u32::MAX)) as usize;
+                    (0..length).map(|index| smelt_get_unknown_field(&other, &index.to_string())).collect()
+                }
+                _ => Vec::new(),
+            };
+            Ok(smelt_array_prototype_apply(&SmeltArray::from(items), name, args))
+        }
+    }
 }
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &JsString, field: &str) -> SmeltUnknown {
     if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(text.len())); }
     if let Ok(index) = field.parse::<usize>() { return text.char_at(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::String); }
-    smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
-}
-
-/// Read `Number.prototype[field]` off an erased number, bound to that number.
-fn smelt_number_prototype_member(receiver: f64, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"].into_iter().find(|name| *name == field)?;
-    let method: SmeltDynCallable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
-        if name == "valueOf" { return Ok(SmeltUnknown::Number(receiver)); }
-        let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
-        smelt_number_format_checked(name, receiver, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
-    });
-    smelt_register_function_length(&method, if name == "valueOf" { 0.0 } else { 1.0 });
-    Some(SmeltUnknown::Function(method))
+    smelt_unbound_prototype_method(SmeltPrototypeFamily::String, &SmeltUnknown::String(text.clone()), field).unwrap_or(SmeltUnknown::Undefined)
 }
 
 /// Flatten `items` into `out`, descending `depth` levels of nested arrays (`Array.prototype.flat`).
@@ -2962,7 +3012,7 @@ fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::
 fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "length" { return SmeltUnknown::Number(values.len() as f64); }
     if let Ok(index) = field.parse::<usize>() { return values.get(index).unwrap_or(SmeltUnknown::Undefined); }
-    values.named_property(field).or_else(|| smelt_array_prototype_member(values, field)).unwrap_or(SmeltUnknown::Undefined)
+    values.named_property(field).or_else(|| smelt_unbound_prototype_method(SmeltPrototypeFamily::Array, &SmeltUnknown::Array(values.clone()), field)).unwrap_or(SmeltUnknown::Undefined)
 }
 
 /// Read a property off any erased value (JS `value.field`).
@@ -2980,8 +3030,8 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
-        SmeltUnknown::Number(value) => smelt_number_prototype_member(*value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
-        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Number(_) => smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
+        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined if matches!(field, "call" | "apply" | "bind") => smelt_function_method(value.clone(), field), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),
         _ => SmeltUnknown::Undefined,
     }
@@ -4562,152 +4612,159 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let mut next: f64;
     let mut eq: f64;
     let mut _smelt_tmp_12: bool;
-    let mut _smelt_tmp_13: bool;
-    let _smelt_tmp_14: JsString;
-    let _smelt_tmp_15: f64;
+    let _smelt_tmp_13: bool;
+    let mut _smelt_tmp_14: bool;
+    let _smelt_tmp_15: JsString;
     let _smelt_tmp_16: f64;
-    let _smelt_tmp_17: bool;
-    let _smelt_tmp_18: f64;
+    let _smelt_tmp_17: f64;
+    let _smelt_tmp_18: bool;
     let _smelt_tmp_19: f64;
-    let _smelt_tmp_20: bool;
-    let mut _smelt_tmp_22: f64;
-    let mut _smelt_tmp_23: bool;
-    let mut _smelt_tmp_24: f64;
-    let mut _smelt_tmp_27: bool;
+    let _smelt_tmp_20: f64;
+    let _smelt_tmp_21: bool;
+    let mut _smelt_tmp_23: f64;
+    let mut _smelt_tmp_24: bool;
+    let mut _smelt_tmp_25: f64;
     let mut _smelt_tmp_28: bool;
-    let mut _smelt_tmp_29: f64;
-    let mut _smelt_tmp_30: bool;
-    let mut _smelt_tmp_31: f64;
-    let mut _smelt_tmp_32: JsString;
-    let mut _smelt_tmp_33: f64;
-    let mut _smelt_tmp_34: bool;
-    let mut _smelt_tmp_35: JsString;
-    let mut _smelt_tmp_36: bool;
-    let mut _smelt_tmp_37: JsString;
-    let mut _smelt_tmp_38: f64;
+    let mut _smelt_tmp_29: bool;
+    let mut _smelt_tmp_30: f64;
+    let mut _smelt_tmp_31: bool;
+    let mut _smelt_tmp_32: f64;
+    let mut _smelt_tmp_33: JsString;
+    let mut _smelt_tmp_34: f64;
+    let mut _smelt_tmp_35: bool;
+    let mut _smelt_tmp_36: JsString;
+    let mut _smelt_tmp_37: bool;
+    let mut _smelt_tmp_38: JsString;
     let mut _smelt_tmp_39: f64;
-    let mut _smelt_tmp_40: bool;
-    let mut _smelt_tmp_41: Option<f64>;
-    let mut _smelt_tmp_42: JsString;
+    let mut _smelt_tmp_40: f64;
+    let mut _smelt_tmp_41: bool;
+    let mut _smelt_tmp_42: Option<f64>;
     let mut _smelt_tmp_43: JsString;
     let mut _smelt_tmp_44: JsString;
+    let mut _smelt_tmp_45: JsString;
     let _smelt_tmp_8: f64 = url.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     let _smelt_tmp_9: f64 = -1.0;
     let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
-    let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().map_or(false, |smelt_value| !(smelt_value).is_empty()) } else { false };
-    let mut _smelt_tmp_13: bool = false;
-    if _smelt_tmp_12 {
-    _smelt_tmp_14 = key.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_15 = _smelt_tmp_14.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_16 = -1.0;
-    _smelt_tmp_17 = _smelt_tmp_15 == _smelt_tmp_16;
-    _smelt_tmp_13 = _smelt_tmp_17;
+    let mut _smelt_tmp_12: bool = false;
+    if _smelt_tmp_11 {
+    _smelt_tmp_13 = key.clone().clone().is_some_and(|value| !value.is_empty());
+    _smelt_tmp_12 = _smelt_tmp_13;
     } else {
-    _smelt_tmp_13 = false;
+    _smelt_tmp_12 = false;
     }
-    if _smelt_tmp_13 {
-    _smelt_tmp_18 = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_19 = -1.0;
-    _smelt_tmp_20 = _smelt_tmp_18 == _smelt_tmp_19;
-    if _smelt_tmp_20 {
+    let mut _smelt_tmp_14: bool = false;
+    if _smelt_tmp_12 {
+    _smelt_tmp_15 = key.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_16 = _smelt_tmp_15.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
+    _smelt_tmp_17 = -1.0;
+    _smelt_tmp_18 = _smelt_tmp_16 == _smelt_tmp_17;
+    _smelt_tmp_14 = _smelt_tmp_18;
+    } else {
+    _smelt_tmp_14 = false;
+    }
+    if _smelt_tmp_14 {
+    _smelt_tmp_19 = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
+    _smelt_tmp_20 = -1.0;
+    _smelt_tmp_21 = _smelt_tmp_19 == _smelt_tmp_20;
+    if _smelt_tmp_21 {
     return None::<JsString>;
     }
     }
     index = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     out = JsString::new();
     loop {
-    _smelt_tmp_22 = -1.0;
-    _smelt_tmp_23 = index != _smelt_tmp_22;
-    if !(_smelt_tmp_23) { break; }
-    _smelt_tmp_24 = index + 1.0;
-    next = url.index_of(&JsString::from("&"), (_smelt_tmp_24 as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
+    _smelt_tmp_23 = -1.0;
+    _smelt_tmp_24 = index != _smelt_tmp_23;
+    if !(_smelt_tmp_24) { break; }
+    _smelt_tmp_25 = index + 1.0;
+    next = url.index_of(&JsString::from("&"), (_smelt_tmp_25 as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
     eq = url.index_of(&JsString::from("="), (index as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_27 = eq > next;
-    if _smelt_tmp_27 {
-    _smelt_tmp_29 = -1.0;
-    _smelt_tmp_30 = next != _smelt_tmp_29;
-    _smelt_tmp_28 = _smelt_tmp_30;
+    _smelt_tmp_28 = eq > next;
     if _smelt_tmp_28 {
-    _smelt_tmp_31 = -1.0;
-    eq = _smelt_tmp_31;
+    _smelt_tmp_30 = -1.0;
+    _smelt_tmp_31 = next != _smelt_tmp_30;
+    _smelt_tmp_29 = _smelt_tmp_31;
+    if _smelt_tmp_29 {
+    _smelt_tmp_32 = -1.0;
+    eq = _smelt_tmp_32;
     } else {
     }
     if encoded {
-    _smelt_tmp_32 = out + &JsString::from("%");
-    out = _smelt_tmp_32;
+    _smelt_tmp_33 = out + &JsString::from("%");
+    out = _smelt_tmp_33;
     } else {
     }
-    _smelt_tmp_33 = -1.0;
-    _smelt_tmp_34 = eq == _smelt_tmp_33;
-    if _smelt_tmp_34 {
+    _smelt_tmp_34 = -1.0;
+    _smelt_tmp_35 = eq == _smelt_tmp_34;
+    if _smelt_tmp_35 {
     if encoded {
-    _smelt_tmp_35 = out + &JsString::from("?");
-    out = _smelt_tmp_35;
+    _smelt_tmp_36 = out + &JsString::from("?");
+    out = _smelt_tmp_36;
     } else {
     }
     } else {
     }
-    _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
-    if _smelt_tmp_36 {
-    _smelt_tmp_37 = out + &JsString::from("m");
-    out = _smelt_tmp_37;
+    _smelt_tmp_37 = multiple.clone().clone().unwrap_or(false);
+    if _smelt_tmp_37 {
+    _smelt_tmp_38 = out + &JsString::from("m");
+    out = _smelt_tmp_38;
     } else {
     }
-    _smelt_tmp_38 = index + 1.0;
-    _smelt_tmp_39 = -1.0;
-    _smelt_tmp_40 = next == _smelt_tmp_39;
-    if _smelt_tmp_40 {
-    _smelt_tmp_41 = None::<f64>;
+    _smelt_tmp_39 = index + 1.0;
+    _smelt_tmp_40 = -1.0;
+    _smelt_tmp_41 = next == _smelt_tmp_40;
+    if _smelt_tmp_41 {
+    _smelt_tmp_42 = None::<f64>;
     } else {
-    _smelt_tmp_41 = Some(next);
+    _smelt_tmp_42 = Some(next);
     }
-    _smelt_tmp_42 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_41.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_43 = _smelt_tmp_42 + &JsString::from(";");
-    _smelt_tmp_44 = out + &_smelt_tmp_43;
-    out = _smelt_tmp_44;
+    _smelt_tmp_43 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_42.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
+    _smelt_tmp_44 = _smelt_tmp_43 + &JsString::from(";");
+    _smelt_tmp_45 = out + &_smelt_tmp_44;
+    out = _smelt_tmp_45;
     index = next;
     continue;
     } else {
-    _smelt_tmp_28 = false;
-    if _smelt_tmp_28 {
-    _smelt_tmp_31 = -1.0;
-    eq = _smelt_tmp_31;
+    _smelt_tmp_29 = false;
+    if _smelt_tmp_29 {
+    _smelt_tmp_32 = -1.0;
+    eq = _smelt_tmp_32;
     } else {
     }
     if encoded {
-    _smelt_tmp_32 = out + &JsString::from("%");
-    out = _smelt_tmp_32;
+    _smelt_tmp_33 = out + &JsString::from("%");
+    out = _smelt_tmp_33;
     } else {
     }
-    _smelt_tmp_33 = -1.0;
-    _smelt_tmp_34 = eq == _smelt_tmp_33;
-    if _smelt_tmp_34 {
+    _smelt_tmp_34 = -1.0;
+    _smelt_tmp_35 = eq == _smelt_tmp_34;
+    if _smelt_tmp_35 {
     if encoded {
-    _smelt_tmp_35 = out + &JsString::from("?");
-    out = _smelt_tmp_35;
+    _smelt_tmp_36 = out + &JsString::from("?");
+    out = _smelt_tmp_36;
     } else {
     }
     } else {
     }
-    _smelt_tmp_36 = multiple.clone().clone().unwrap_or(false);
-    if _smelt_tmp_36 {
-    _smelt_tmp_37 = out + &JsString::from("m");
-    out = _smelt_tmp_37;
+    _smelt_tmp_37 = multiple.clone().clone().unwrap_or(false);
+    if _smelt_tmp_37 {
+    _smelt_tmp_38 = out + &JsString::from("m");
+    out = _smelt_tmp_38;
     } else {
     }
-    _smelt_tmp_38 = index + 1.0;
-    _smelt_tmp_39 = -1.0;
-    _smelt_tmp_40 = next == _smelt_tmp_39;
-    if _smelt_tmp_40 {
-    _smelt_tmp_41 = None::<f64>;
+    _smelt_tmp_39 = index + 1.0;
+    _smelt_tmp_40 = -1.0;
+    _smelt_tmp_41 = next == _smelt_tmp_40;
+    if _smelt_tmp_41 {
+    _smelt_tmp_42 = None::<f64>;
     } else {
-    _smelt_tmp_41 = Some(next);
+    _smelt_tmp_42 = Some(next);
     }
-    _smelt_tmp_42 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_41.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_38 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_43 = _smelt_tmp_42 + &JsString::from(";");
-    _smelt_tmp_44 = out + &_smelt_tmp_43;
-    out = _smelt_tmp_44;
+    _smelt_tmp_43 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_42.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
+    _smelt_tmp_44 = _smelt_tmp_43 + &JsString::from(";");
+    _smelt_tmp_45 = out + &_smelt_tmp_44;
+    out = _smelt_tmp_45;
     index = next;
     continue;
     }

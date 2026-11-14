@@ -262,11 +262,28 @@ impl ModuleBuilder<'_> {
             self.pop_type_parameter_scope();
             return result;
         }
-        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let mut key_ty = self.ctx.krate.types.intern(Type::String);
         let mut member_tys = Vec::new();
         for member in &literal.members {
             if let TSSignature::TSIndexSignature(index) = member {
                 member_tys.push(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
+            }
+            // A member under a runtime key (`[k]: V` with a block-local
+            // `const k = Symbol()`) has no field name, but its value is still
+            // one of the record's values, and its key may be a symbol: the
+            // record is keyed by property key, as the literal that builds it.
+            if let TSSignature::TSPropertySignature(property) = member
+                && property.computed
+                && !self.is_resolvable_property_key(&property.key)
+                && let Some(annotation) = &property.type_annotation
+            {
+                let value_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+                member_tys.push(if property.optional {
+                    self.ctx.krate.types.intern(Type::Optional(value_ty))
+                } else {
+                    value_ty
+                });
+                key_ty = self.ctx.krate.types.intern(Type::PropKey);
             }
         }
         let fields = self.type_literal_fields(literal)?;

@@ -953,8 +953,22 @@ impl FunctionEmitter<'_> {
         // Coerce the callback result to the accumulator type so a reconcilable
         // (but not identical) return type still produces the next `acc` value.
         let call_expr = self.callback_invocation_expr(function_ty, &call_args.join(", "));
+        // A fallible (`may_throw`) reducer returns `Result<_, Box<dyn Error>>`,
+        // but the fold threads its inner value as the next accumulator: unwrap
+        // it through the panic channel, as the other list callbacks do, so a
+        // throw still reaches the enclosing `catch` (a locale whose
+        // `formatDistance` throws, in date-fns' specs). Before, the `Result`
+        // was handed back as the accumulator (E0308).
+        let callback_result = if function_ty.may_throw {
+            RustExpr::atom(format!(
+                "({call_expr}).unwrap_or_else(|smelt_error: {ERROR_BOX}| smelt_panic_throw(smelt_error))",
+                call_expr = call_expr.delimited()
+            ))
+        } else {
+            call_expr
+        };
         let callback_result_text = self.rendered_at_type(
-            &call_expr,
+            &callback_result,
             callback_return_ty,
             dest_ty,
             &self.render_scope(),

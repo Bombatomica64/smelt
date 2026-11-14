@@ -1,0 +1,27 @@
+number TypeError Number.prototype.toFixed requires that 'this' be a Number
+string TypeError String.prototype.slice called on null or undefined
+array TypeError Array.prototype.map called on null or undefined
+valueOf TypeError Number.prototype.valueOf requires that 'this' be a Number
+call 3.14
+string call el
+array call [ 2, 3, 4 ]
+apply 1-2-3
+bind 3.142
+bind args llo
+direct [ '3.14', 'ello', [ 3, 6, 9 ] ]
+closure [ 2, 3 ]
+identity [ true, false, true ]
+length [ 1, 2, 0, 2, 0, 1 ]
+array-like [ 'A', 'B', 'C' ]
+string coerced 23
+number wrong this TypeError Number.prototype.toFixed requires that 'this' be a Number
+nested TypeError String.prototype.slice called on null or undefined
+typed number TypeError Number.prototype.toFixed requires that 'this' be a Number
+typed string TypeError String.prototype.slice called on null or undefined
+typed array TypeError Array.prototype.map called on null or undefined
+typed call [ '3', 'ped', [ 70, 80 ] ]
+typed identity [ true, true ]
+moved receiver [ [ 1, 2, 2 ], [ 3, 4, 1 ] ]
+returned method TypeError Array.prototype.map called on null or undefined
+returned method call [ 5, 6 ]
+forwarded receiver host

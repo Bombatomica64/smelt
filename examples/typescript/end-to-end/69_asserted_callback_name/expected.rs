@@ -2235,7 +2235,7 @@ impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
 fn smelt_unknown_iterator_items(source: SmeltUnknown) -> Vec<SmeltUnknown> { match source { SmeltUnknown::Null | SmeltUnknown::Undefined => Vec::new(), SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.code_point_strings().into_iter().map(SmeltUnknown::String).collect::<Vec<_>>(), SmeltUnknown::Object(object) => { let Some(SmeltUnknown::Function(next)) = object.get("next") else { panic!("unknown iterator did not return an iterable") }; let mut items = Vec::new(); loop { let step = next(vec![]).unwrap_or(SmeltUnknown::Undefined); let SmeltUnknown::Object(step) = step else { break }; if matches!(step.get("done"), Some(SmeltUnknown::Bool(true))) { break; } items.push(step.get("value").unwrap_or(SmeltUnknown::Undefined)); } items } _ => panic!("unknown iterator did not return an iterable") } }
 
-/// Bind `Function.prototype.apply`/`call` on an erased receiver, or read the field of an object receiver.
+/// Bind `Function.prototype.apply`/`call`/`bind` on an erased receiver, or read the field of an object receiver.
 fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
     match receiver {
         SmeltUnknown::Function(function) => {
@@ -2255,8 +2255,16 @@ fn smelt_function_method(receiver: SmeltUnknown, method: &str) -> SmeltUnknown {
 
 /// Unwrap a boxed primitive wrapper (or a Date) to the primitive it holds.
 fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) => { if map.contains_key("__smelt_number") || map.contains_key("__smelt_boolean") || map.contains_key("__smelt_string") || map.contains_key("__smelt_symbol") { return map.get("value").unwrap_or(SmeltUnknown::Undefined); } if let Some(millis @ SmeltUnknown::Number(_)) = map.get("__smelt_date") { return millis; } SmeltUnknown::Object(map) }, other => other } }
-/// Bind `Object.prototype.valueOf` on an erased receiver.
-fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = &receiver { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(map, "valueOf") { return own; } } let unboxed = smelt_unbox_primitive(receiver); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))) }
+/// Read `valueOf` off an erased receiver: its own override or the prototype's unbound method.
+fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown {
+    match receiver {
+        SmeltUnknown::Object(map) => { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(&map, "valueOf") { return own; } }
+        number @ SmeltUnknown::Number(_) => { if let Some(method) = smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, &number, "valueOf") { return method; } }
+        other => { let unboxed = smelt_unbox_primitive(other); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))); }
+        _ => {}
+    }
+    SmeltUnknown::Undefined
+}
 /// Box a primitive the way `Object(value)` does; objects and strings pass through.
 fn smelt_box_value(value: SmeltUnknown) -> SmeltUnknown { let (marker, boxed) = match value { SmeltUnknown::Number(_) => ("__smelt_number", value), SmeltUnknown::Bool(_) => ("__smelt_boolean", value), SmeltUnknown::Symbol(_) => ("__smelt_symbol", value), SmeltUnknown::Null | SmeltUnknown::Undefined => return SmeltUnknown::Object(SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new())), other => return other }; let fields = Vec::from([(marker.to_owned(), SmeltUnknown::Bool(true)), ("value".to_owned(), boxed)]); SmeltUnknown::Object(SmeltObject::new(fields)) }
 
@@ -2655,38 +2663,80 @@ fn smelt_erased_invoke(function: &SmeltDynCallable, args: Vec<SmeltUnknown>) -> 
 const SMELT_ERASED_ARRAY_METHODS: [&str; 32] = ["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "findLast", "findLastIndex", "includes", "indexOf", "lastIndexOf", "join", "slice", "concat", "at", "flat", "flatMap", "push", "pop", "shift", "unshift", "splice", "reverse", "sort", "fill", "keys", "values", "entries", "toString"];
 /// `String.prototype` methods an erased string answers (see `smelt_string_prototype_apply`).
 const SMELT_ERASED_STRING_METHODS: [&str; 21] = ["at", "charAt", "charCodeAt", "codePointAt", "concat", "endsWith", "includes", "indexOf", "lastIndexOf", "padEnd", "padStart", "repeat", "slice", "startsWith", "substring", "toLowerCase", "toUpperCase", "trim", "trimEnd", "trimStart", "toString"];
+/// `Number.prototype` methods an erased number answers (see `smelt_prototype_method_apply`).
+const SMELT_ERASED_NUMBER_METHODS: [&str; 5] = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"];
 
-/// Read `Array.prototype[field]` off an erased array, bound to that array.
-fn smelt_array_prototype_member(receiver: &SmeltArray, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?;
-    let receiver = receiver.clone();
-    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_array_prototype_apply(&receiver, name, args)))))
+/// The builtin prototype an erased method read resolves on.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum SmeltPrototypeFamily { Array, String, Number }
+
+impl SmeltPrototypeFamily {
+    /// The constructor name JavaScript spells the family's `TypeError`s with.
+    const fn name(self) -> &'static str { match self { Self::Array => "Array", Self::String => "String", Self::Number => "Number" } }
 }
 
-/// Read `String.prototype[field]` off an erased string, bound to that string.
-fn smelt_string_prototype_member(receiver: &JsString, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?;
+/// The `length` of `family.prototype[name]`.
+fn smelt_prototype_method_length(family: SmeltPrototypeFamily, name: &str) -> f64 {
+    match (family, name) {
+        (_, "slice" | "splice" | "substring") => 2.0,
+        (SmeltPrototypeFamily::Number, "valueOf") => 0.0,
+        (SmeltPrototypeFamily::Number, _) => 1.0,
+        (_, "flat" | "pop" | "shift" | "reverse" | "keys" | "values" | "entries" | "toString" | "toLowerCase" | "toUpperCase" | "trim" | "trimEnd" | "trimStart") => 0.0,
+        _ => 1.0,
+    }
+}
+
+/// `family.prototype[field]` as the UNBOUND function JavaScript's member read
+/// answers; `None` when `field` is not a modeled method of the family.
+fn smelt_unbound_prototype_method(family: SmeltPrototypeFamily, receiver: &SmeltUnknown, field: &str) -> Option<SmeltUnknown> {
+    let name: &'static str = match family {
+        SmeltPrototypeFamily::Array => SMELT_ERASED_ARRAY_METHODS.into_iter().find(|name| *name == field)?,
+        SmeltPrototypeFamily::String => SMELT_ERASED_STRING_METHODS.into_iter().find(|name| *name == field)?,
+        SmeltPrototypeFamily::Number => SMELT_ERASED_NUMBER_METHODS.into_iter().find(|name| *name == field)?,
+    };
     let receiver = receiver.clone();
-    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_string_prototype_apply(&receiver, name, args)))))
+    return Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| smelt_prototype_method_apply(family, name, receiver.clone(), args))));
+}
+
+/// A JavaScript `TypeError` value from a prototype method called on the wrong receiver.
+fn smelt_prototype_type_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
+
+/// Run `family.prototype[name]` with `receiver` as its `this`.
+fn smelt_prototype_method_apply(family: SmeltPrototypeFamily, name: &'static str, receiver: SmeltUnknown, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    let nullish = || smelt_prototype_type_error(format!("{}.prototype.{name} called on null or undefined", family.name()));
+    let receiver = if family == SmeltPrototypeFamily::Number { smelt_unbox_primitive(receiver) } else { receiver };
+    match (family, receiver) {
+        (SmeltPrototypeFamily::Number, SmeltUnknown::Number(value)) => {
+            if name == "valueOf" { return Ok(SmeltUnknown::Number(value)); }
+            let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
+            smelt_number_format_checked(name, value, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
+        }
+        (SmeltPrototypeFamily::Number, _) => Err(smelt_prototype_type_error(format!("Number.prototype.{name} requires that 'this' be a Number"))),
+        (_, SmeltUnknown::Null | SmeltUnknown::Undefined) => Err(nullish()),
+        (SmeltPrototypeFamily::String, SmeltUnknown::String(text)) => Ok(smelt_string_prototype_apply(&text, name, args)),
+        (SmeltPrototypeFamily::String, other) => Ok(smelt_string_prototype_apply(&smelt_erased_to_js_string(&other), name, args)),
+        (SmeltPrototypeFamily::Array, SmeltUnknown::Array(values)) => Ok(smelt_array_prototype_apply(&values, name, args)),
+        (SmeltPrototypeFamily::Array, other) => {
+            let items: Vec<SmeltUnknown> = match &other {
+                SmeltUnknown::String(text) => (0..text.len()).filter_map(|index| text.char_at(index).map(SmeltUnknown::String)).collect(),
+                SmeltUnknown::Object(_) => {
+                    let length = smelt_erased_integer(&smelt_get_unknown_field(&other, "length")).max(0.0);
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let length = length.min(f64::from(u32::MAX)) as usize;
+                    (0..length).map(|index| smelt_get_unknown_field(&other, &index.to_string())).collect()
+                }
+                _ => Vec::new(),
+            };
+            Ok(smelt_array_prototype_apply(&SmeltArray::from(items), name, args))
+        }
+    }
 }
 
 /// Read a property off an erased string: `length`, a character index, or a `String.prototype` method.
 fn smelt_get_string_field(text: &JsString, field: &str) -> SmeltUnknown {
     if field == "length" { return SmeltUnknown::Number(smelt_units_to_number(text.len())); }
     if let Ok(index) = field.parse::<usize>() { return text.char_at(index).map_or(SmeltUnknown::Undefined, SmeltUnknown::String); }
-    smelt_string_prototype_member(text, field).unwrap_or(SmeltUnknown::Undefined)
-}
-
-/// Read `Number.prototype[field]` off an erased number, bound to that number.
-fn smelt_number_prototype_member(receiver: f64, field: &str) -> Option<SmeltUnknown> {
-    let name: &'static str = ["toFixed", "toPrecision", "toExponential", "toString", "valueOf"].into_iter().find(|name| *name == field)?;
-    let method: SmeltDynCallable = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
-        if name == "valueOf" { return Ok(SmeltUnknown::Number(receiver)); }
-        let argument = args.first().filter(|argument| !matches!(argument, SmeltUnknown::Undefined)).map(smelt_unknown_to_number);
-        smelt_number_format_checked(name, receiver, argument).map(|text| SmeltUnknown::String(text.into())).map_err(smelt_number_range_error)
-    });
-    smelt_register_function_length(&method, if name == "valueOf" { 0.0 } else { 1.0 });
-    Some(SmeltUnknown::Function(method))
+    smelt_unbound_prototype_method(SmeltPrototypeFamily::String, &SmeltUnknown::String(text.clone()), field).unwrap_or(SmeltUnknown::Undefined)
 }
 
 /// Flatten `items` into `out`, descending `depth` levels of nested arrays (`Array.prototype.flat`).
@@ -2895,7 +2945,7 @@ fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::
 fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "length" { return SmeltUnknown::Number(values.len() as f64); }
     if let Ok(index) = field.parse::<usize>() { return values.get(index).unwrap_or(SmeltUnknown::Undefined); }
-    values.named_property(field).or_else(|| smelt_array_prototype_member(values, field)).unwrap_or(SmeltUnknown::Undefined)
+    values.named_property(field).or_else(|| smelt_unbound_prototype_method(SmeltPrototypeFamily::Array, &SmeltUnknown::Array(values.clone()), field)).unwrap_or(SmeltUnknown::Undefined)
 }
 
 /// Read a property off any erased value (JS `value.field`).
@@ -2913,8 +2963,8 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         SmeltUnknown::Array(values) => smelt_get_array_field(values, field),
         SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined),
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
-        SmeltUnknown::Number(value) => smelt_number_prototype_member(*value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
-        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        SmeltUnknown::Number(_) => smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
+        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined if matches!(field, "call" | "apply" | "bind") => smelt_function_method(value.clone(), field), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         SmeltUnknown::Promise(promise) => smelt_promise_member(promise, field),
         _ => SmeltUnknown::Undefined,
     }

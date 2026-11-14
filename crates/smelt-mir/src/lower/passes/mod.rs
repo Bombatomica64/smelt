@@ -9,6 +9,7 @@
 //! [`throwing`], whose `can_throw` results the closure widening consumes, as well
 //! as the [`generic_records`] pass.
 
+pub(super) mod abstract_class_unions;
 pub(super) mod generic_records;
 pub(super) mod inherited_types;
 pub(super) mod throwing;

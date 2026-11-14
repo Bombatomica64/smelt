@@ -355,7 +355,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
 fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "length" { return SmeltUnknown::Number(values.len() as f64); }
     if let Ok(index) = field.parse::<usize>() { return values.get(index).unwrap_or(SmeltUnknown::Undefined); }
-    values.named_property(field).or_else(|| smelt_array_prototype_member(values, field)).unwrap_or(SmeltUnknown::Undefined)
+    values.named_property(field).or_else(|| smelt_unbound_prototype_method(SmeltPrototypeFamily::Array, &SmeltUnknown::Array(values.clone()), field)).unwrap_or(SmeltUnknown::Undefined)
 }
 
 //~ One erased property read for every receiver shape, so `v.k` and `v[k]`
@@ -413,11 +413,13 @@ fn smelt_get_unknown_field(value: &SmeltUnknown, field: &(impl SmeltHostText + ?
         SmeltUnknown::String(text) if !text.starts_with("__smelt_proto:") => smelt_get_string_field(text, field),
         //~ An erased NUMBER answers `Number.prototype`'s methods, then
         //~ `Object.prototype`'s, as the function arm below does.
-        SmeltUnknown::Number(value) => smelt_number_prototype_member(*value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
+        SmeltUnknown::Number(_) => smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, value, field).or_else(|| smelt_object_prototype_member(field)).unwrap_or(SmeltUnknown::Undefined),
         //~ Every function inherits `constructor` from `Function.prototype`:
         //~ `value.constructor && value.call && value.apply` is how libraries
         //~ recognise one.
-        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
+        //~ `call`/`apply`/`bind` read as VALUES (`f.bind(x)` lowers to a read
+        //~ and a call) are `Function.prototype`'s, bound to this function.
+        SmeltUnknown::Function(function) => match smelt_function_value_property(function, field) { SmeltUnknown::Undefined if field == "constructor" => smelt_builtin_namespace("Function"), SmeltUnknown::Undefined if matches!(field, "call" | "apply" | "bind") => smelt_function_method(value.clone(), field), SmeltUnknown::Undefined => smelt_object_prototype_member(field).unwrap_or(SmeltUnknown::Undefined), value => value },
         //~ A PROMISE reached dynamically still has its continuation members: the
         //~ typed `p.catch(f)` lowers to an `AsyncOp`, and this is the same
         //~ operation for a promise the static types lost (see

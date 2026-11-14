@@ -1,9 +1,9 @@
 sync
 fired
 fired2
-tick 1
 from a closure
-tick 2
 from a record
+tick 1
+tick 2
 direct a
 direct b

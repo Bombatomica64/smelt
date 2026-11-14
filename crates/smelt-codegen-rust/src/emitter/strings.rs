@@ -923,6 +923,25 @@ impl FunctionEmitter<'_> {
                 "SmeltRegExp::new({text}, String::new())",
                 text = text.delimited()
             ))),
+            // An absent pattern (`s.match(patterns[width])` with an optional
+            // lookup) is `new RegExp(undefined)` in JavaScript: the empty
+            // pattern, which matches at index 0. A present one converts as its
+            // own type does.
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name).unwrap_or(false))
+                    || matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
+            {
+                let present =
+                    if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) {
+                        "SmeltRegExp::new(smelt_pattern, String::new())"
+                    } else {
+                        "smelt_pattern"
+                    };
+                Ok(RustExpr::atom(format!(
+                    "match {text} {{ Some(smelt_pattern) => {present}, None => SmeltRegExp::new(String::new(), String::new()) }}",
+                    text = text.delimited()
+                )))
+            }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let scrutinee = self.erase_concrete_union_expr(&text, self.operand_ty(operand)?)?;
                 // The prelude `SmeltFromUnknown` impl is the single inverse of

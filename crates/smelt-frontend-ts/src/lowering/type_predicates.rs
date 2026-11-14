@@ -24,6 +24,7 @@
 //! a generated union is read through the existing narrowing cast, which the
 //! emitter lowers to a `match` that unwraps the member — never an erasure.
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::support::source_spelling;
 use oxc::ast::ast::{
@@ -300,7 +301,39 @@ impl ModuleBuilder<'_> {
         let Argument::Identifier(identifier) = call.arguments.get(narrowing.param_index)? else {
             return None;
         };
+        // A guard proving the global `Object` type (`value is Object`) does not
+        // narrow an erased value, as in tsc (`narrowTypeByTypePredicate` keeps
+        // `any` for the global `Object` and `Function` types). Every
+        // non-primitive is an `Object`, an array included, so the narrowed
+        // value is still any object at all, which the erased value already
+        // represents. Narrowed to the `Object` class it lost what it is:
+        // `Array.isArray(value)` folded to `false` (ts-pattern's `isObject`
+        // guard, ahead of its array and record pattern matching).
+        if self.type_is_global_object(narrowing.target)
+            && let Some(local) = self.scope.lookup(identifier.name.as_str())
+            && body.local_at(local).is_some()
+            && matches!(
+                self.ctx.krate.types.get(
+                    self.narrowed_type(identifier.name.as_str())
+                        .unwrap_or_else(|| Self::local_ty(body, local))
+                ),
+                Some(Type::Unknown)
+            )
+        {
+            return None;
+        }
         Some((identifier.name.to_string(), narrowing.target))
+    }
+
+    /// Whether `ty` is the global `Object` type: the class `Object` with no
+    /// declaration of that name in this lowering unit.
+    fn type_is_global_object(&self, ty: TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Class { name, args }) if args.is_empty()
+                && self.ctx.krate.symbols.get(*name) == Some("Object")
+                && !self.symbol_names_concrete_nominal_type(*name)
+        )
     }
 
     /// Recognize a call to a user-defined `value is T` predicate.
