@@ -136,8 +136,17 @@ fn adapter_item_closing(line: &str) -> Option<&'static str> {
     {
         return Some("}");
     }
-    line.starts_with("    fn from_smelt_unknown(")
-        .then_some("    }")
+    // The erasure of a class of a polymorphic hierarchy
+    // (`codegen::class_polymorphism`): a polymorphic handle's
+    // `IntoSmeltUnknown` dispatches to the concrete instance, whose erasure
+    // body therefore lives in an inherent method beside the class's own
+    // methods (`__smelt_own_into_smelt_unknown`, and the generated field
+    // projection `__smelt_project_into_smelt_unknown` it may fall back to).
+    // Each is an `IntoSmeltUnknown` body moved, not program code.
+    (line.starts_with("    fn from_smelt_unknown(")
+        || line.starts_with("    fn __smelt_own_into_smelt_unknown(")
+        || line.starts_with("    fn __smelt_project_into_smelt_unknown("))
+    .then_some("    }")
 }
 
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.

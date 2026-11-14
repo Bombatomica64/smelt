@@ -623,13 +623,13 @@ fn emit_reference_class_into_smelt_unknown_impl(
     // A polymorphic handle may hold an instance of a subclass, which erases as
     // that subclass (its own fields, its own class marker): the trait impl
     // dispatches to the concrete cell, and this class's own projection becomes
-    // the inherent method its own cell's `smelt_erase` calls
+    // the inherent method its own cell's `into_smelt_unknown_as_concrete` calls
     // (`crate::class_polymorphism`).
     let (impl_header, fn_header) = if polymorphic {
         writer.block(
             format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
             |impl_writer| {
-                impl_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }");
+                impl_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).into_smelt_unknown_as_concrete() }");
             },
         );
         (

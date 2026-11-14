@@ -419,7 +419,7 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 out.push_str(&methods);
             }
             // A class of a polymorphic hierarchy erases itself through one
-            // inherent method its cell's `smelt_erase` calls
+            // inherent method its cell's `into_smelt_unknown_as_concrete` calls
             // (`crate::class_polymorphism`).
             if needs_unknown
                 && (context.is_polymorphic_class(class.name)

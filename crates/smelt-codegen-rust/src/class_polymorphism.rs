@@ -30,7 +30,7 @@
 //!     fn borrow_mut(&self) -> RefMut<'_, BaseInner>;
 //!     fn smelt_any(self: Rc<Self>) -> Rc<dyn Any>;   // checked downcasts
 //!     fn smelt_class_name(&self) -> &'static str;     // `instanceof`
-//!     fn smelt_erase(self: Rc<Self>) -> SmeltUnknown; // erasure (when the crate erases)
+//!     fn into_smelt_unknown_as_concrete(self: Rc<Self>) -> SmeltUnknown; // erasure (when the crate erases)
 //! }
 //! impl BaseSmeltCell for RefCell<BaseInner> { .. }
 //! impl BaseSmeltCell for RefCell<SubInner> { .. }  // borrows `&inner.__smelt_base`
@@ -459,7 +459,7 @@ pub(crate) fn cell_trait_declaration(
         "fn smelt_class_name(&self) -> &'static str;".to_owned(),
     ];
     if needs_unknown {
-        methods.push("fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown;".to_owned());
+        methods.push("fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown;".to_owned());
     }
     let scoped: HashSet<Symbol> = class.type_params.iter().map(|param| param.name).collect();
     for upper in polymorphic_ancestors(mir, context.polymorphic_classes(), class.name) {
@@ -515,7 +515,7 @@ pub(crate) fn cell_impl_text(
     ];
     if let Some(erase) = erase {
         methods.push(format!(
-            "fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown {{ {erase} }}"
+            "fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown {{ {erase} }}"
         ));
     }
     for (method, object) in upcasts {

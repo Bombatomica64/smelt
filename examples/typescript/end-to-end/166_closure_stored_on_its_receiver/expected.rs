@@ -4154,8 +4154,8 @@ impl ::std::fmt::Debug for CtxInner {
 }
 /// Any instance of `Ctx` or of a class extending it, viewed as a `Ctx`.
 #[allow(dead_code, non_snake_case)]
-trait CtxSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, CtxInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CtxInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CtxInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
-impl CtxSmeltCell for ::std::cell::RefCell<CtxInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CtxInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CtxInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CtxInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CtxInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Ctx" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Ctx(self).__smelt_own_into_smelt_unknown() } }
+trait CtxSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, CtxInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CtxInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CtxInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
+impl CtxSmeltCell for ::std::cell::RefCell<CtxInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CtxInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CtxInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CtxInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CtxInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Ctx" } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Ctx(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Ctx {
     fn clone(&self) -> Self {
         Ctx(::std::rc::Rc::clone(&self.0))
@@ -4177,7 +4177,7 @@ impl ::std::fmt::Debug for Ctx {
     }
 }
 impl IntoSmeltUnknown for Ctx {
-    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).into_smelt_unknown_as_concrete() }
 }
 impl Ctx {
     fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
@@ -4233,7 +4233,7 @@ impl ::std::fmt::Debug for SubInner {
 }
 impl ::std::ops::Deref for SubInner { type Target = CtxInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
 impl ::std::ops::DerefMut for SubInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
-impl CtxSmeltCell for ::std::cell::RefCell<SubInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CtxInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CtxInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CtxInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CtxInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Sub" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Sub(self).__smelt_own_into_smelt_unknown() } }
+impl CtxSmeltCell for ::std::cell::RefCell<SubInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CtxInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CtxInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CtxInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CtxInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CtxInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Sub" } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Sub(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Sub {
     fn clone(&self) -> Self {
         Sub(::std::rc::Rc::clone(&self.0))
