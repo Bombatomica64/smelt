@@ -436,8 +436,7 @@ fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
                     matches!(
                         statement,
                         smelt_mir::Statement::Assign {
-                            value:
-                                smelt_mir::Rvalue::ConstructLike { .. }
+                            value: smelt_mir::Rvalue::ConstructLike { .. }
                                 | smelt_mir::Rvalue::PrototypeSentinel { .. },
                             ..
                         }
