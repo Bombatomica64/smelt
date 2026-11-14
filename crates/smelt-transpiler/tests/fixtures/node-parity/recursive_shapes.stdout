@@ -1,0 +1,12 @@
+{ tag: 'p', q: { n: 1, p: { tag: 'inner' } } }
+inner {"tag":"p","q":{"n":1,"p":{"tag":"inner"}}}
+g 1
+1 b true
+2 1 true
+9
+3 z
+2 true
+2 a
+42
+{"kind":"add","l":{"kind":"num","n":2},"r":{"kind":"add","l":{"kind":"num","n":3},"r":{"kind":"num","n":4}}}
+{"value":"x","next":{"value":"y","next":{"value":"z"}}}

@@ -139,7 +139,11 @@ fn emit_interface_type(
         writer.line("#[derive(Clone)]");
         writer.line("#[allow(dead_code)]");
     } else if needs_serde_json
-        && interface_is_json_serializable(mir, interface)
+        && interface_is_json_serializable(
+            mir,
+            &|shape| context.is_reference_class(shape),
+            interface,
+        )
         && !fields
             .iter()
             .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
@@ -324,7 +328,9 @@ fn emit_class_type(
         writer.line("#[allow(dead_code)]");
     } else if is_generic {
         writer.line("#[allow(dead_code)]");
-    } else if needs_serde_json && class_is_json_serializable(mir, class) {
+    } else if needs_serde_json
+        && class_is_json_serializable(mir, &|shape| context.is_reference_class(shape), class)
+    {
         writer.line(format!(
             "#[derive(Clone, Debug, Default{partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
         ));

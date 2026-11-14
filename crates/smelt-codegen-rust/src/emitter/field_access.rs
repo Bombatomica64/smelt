@@ -64,31 +64,79 @@ impl FunctionEmitter<'_> {
         {
             return self.match_field_ty(kind, field);
         }
-        let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
+        let Some(Type::Class { name, args }) = self.mir.types.get(receiver_ty) else {
             return self.type_id(Type::Unknown);
         };
-        if let Some(class) = crate::classes::find_class(self.mir, *name) {
-            return Ok(crate::classes::effective_class_fields(self.mir, class)
-                .into_iter()
-                .find(|class_field| class_field.name == field)
-                .map_or_else(
-                    || self.type_id(Type::Unknown),
-                    |class_field| Ok(class_field.ty),
-                )?);
-        }
-        if let Some(interface) = self
+        // The declared field type is written in the shape's own parameters
+        // (`next?: Cell<T>`); a read off `Cell<string>` has that type with
+        // `T := string`. Returning the declared `T` made the read look erased
+        // and coerced a concrete `JsString` from `SmeltUnknown`.
+        let (params, declared) = if let Some(class) = crate::classes::find_class(self.mir, *name) {
+            (
+                class
+                    .type_params
+                    .iter()
+                    .map(|param| param.name)
+                    .collect::<Vec<_>>(),
+                crate::classes::effective_class_fields(self.mir, class)
+                    .into_iter()
+                    .find(|class_field| class_field.name == field)
+                    .map(|class_field| class_field.ty),
+            )
+        } else if let Some(interface) = self
             .mir
             .interfaces
             .iter()
             .find(|interface| interface.name == *name)
         {
-            return Ok(interface
-                .fields
-                .iter()
-                .find(|item| item.name == field)
-                .map_or_else(|| self.type_id(Type::Unknown), |item| Ok(item.ty))?);
+            (
+                interface
+                    .type_params
+                    .iter()
+                    .map(|param| param.name)
+                    .collect(),
+                interface
+                    .fields
+                    .iter()
+                    .find(|item| item.name == field)
+                    .map(|item| item.ty),
+            )
+        } else {
+            return self.type_id(Type::Unknown);
+        };
+        let Some(declared_ty) = declared else {
+            return self.type_id(Type::Unknown);
+        };
+        if params.is_empty() || params.len() != args.len() {
+            return Ok(declared_ty);
         }
-        self.type_id(Type::Unknown)
+        let substitutions: HashMap<Symbol, TypeId> =
+            params.into_iter().zip(args.iter().copied()).collect();
+        Ok(self.substitute_type_params_late(declared_ty, &substitutions))
+    }
+
+    /// `ty` with each type parameter in `substitutions` replaced, interning
+    /// any new composite late (the emitter's interner is otherwise frozen).
+    pub(super) fn substitute_type_params_late(
+        &self,
+        ty: TypeId,
+        substitutions: &HashMap<Symbol, TypeId>,
+    ) -> TypeId {
+        let Some(kind) = self.mir.types.get(ty) else {
+            return ty;
+        };
+        if let Type::TypeParam { name } = kind {
+            return substitutions.get(name).copied().unwrap_or(ty);
+        }
+        let Some(rewritten) = kind
+            .try_map_children(|child| Some(self.substitute_type_params_late(child, substitutions)))
+        else {
+            return ty;
+        };
+        if rewritten == *kind {
+            return ty;
+        }
+        self.mir.types.intern_late(rewritten)
     }
 
     /// The modeled host data property `field` names on a `receiver_ty`

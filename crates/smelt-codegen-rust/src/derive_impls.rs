@@ -443,41 +443,59 @@ pub(crate) fn type_supports_partial_eq(
 }
 
 /// Return whether all stored fields in a class are JSON-compatible.
-pub(crate) fn class_is_json_serializable(mir: &Mir, class: &smelt_mir::MirClass) -> bool {
+///
+/// `is_reference` names the shapes emitted as reference handles, which carry
+/// no serde impl: a value struct holding one cannot derive serde either.
+pub(crate) fn class_is_json_serializable(
+    mir: &Mir,
+    is_reference: &dyn Fn(smelt_hir::Symbol) -> bool,
+    class: &smelt_mir::MirClass,
+) -> bool {
     let mut seen = Vec::new();
     effective_class_fields(mir, class)
         .iter()
-        .all(|field| type_is_json_serializable(mir, field.ty, &mut seen))
+        .all(|field| type_is_json_serializable(mir, is_reference, field.ty, &mut seen))
 }
 
 /// Return whether all stored fields in an interface are JSON-compatible.
+///
+/// `is_reference` is as for [`class_is_json_serializable`].
 pub(crate) fn interface_is_json_serializable(
     mir: &Mir,
+    is_reference: &dyn Fn(smelt_hir::Symbol) -> bool,
     interface: &smelt_mir::MirInterface,
 ) -> bool {
     let mut seen = vec![interface.name];
     effective_interface_fields(mir, interface)
         .iter()
-        .all(|field| type_is_json_serializable(mir, field.ty, &mut seen))
+        .all(|field| type_is_json_serializable(mir, is_reference, field.ty, &mut seen))
 }
 
 /// Return whether generated serde can represent a type as natural JSON.
-fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Symbol>) -> bool {
+fn type_is_json_serializable(
+    mir: &Mir,
+    is_reference: &dyn Fn(smelt_hir::Symbol) -> bool,
+    ty: TypeId,
+    seen: &mut Vec<smelt_hir::Symbol>,
+) -> bool {
     match mir.types.get(ty) {
         Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown) => {
             true
         }
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-            type_is_json_serializable(mir, *item, seen)
+            type_is_json_serializable(mir, is_reference, *item, seen)
         }
         Some(Type::Tuple(items)) => items
             .iter()
-            .all(|item| type_is_json_serializable(mir, *item, seen)),
+            .all(|item| type_is_json_serializable(mir, is_reference, *item, seen)),
         Some(Type::Dict(key, value)) => {
             matches!(mir.types.get(*key), Some(Type::String | Type::PyStr))
-                && type_is_json_serializable(mir, *value, seen)
+                && type_is_json_serializable(mir, is_reference, *value, seen)
         }
         Some(Type::Class { name, .. }) => {
+            if is_reference(*name) {
+                return false;
+            }
             if seen.contains(name) {
                 return true;
             }
@@ -489,7 +507,7 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
                 class.statics_of.is_none()
                     && effective_class_fields(mir, class)
                         .iter()
-                        .all(|field| type_is_json_serializable(mir, field.ty, seen))
+                        .all(|field| type_is_json_serializable(mir, is_reference, field.ty, seen))
             } else if let Some(interface) = mir
                 .interfaces
                 .iter()
@@ -497,7 +515,7 @@ fn type_is_json_serializable(mir: &Mir, ty: TypeId, seen: &mut Vec<smelt_hir::Sy
             {
                 effective_interface_fields(mir, interface)
                     .iter()
-                    .all(|field| type_is_json_serializable(mir, field.ty, seen))
+                    .all(|field| type_is_json_serializable(mir, is_reference, field.ty, seen))
             } else {
                 false
             };

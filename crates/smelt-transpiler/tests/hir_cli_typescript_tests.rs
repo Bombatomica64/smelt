@@ -1559,6 +1559,7 @@ entries = [
   "src/start/index.ts",
   "src/locale/types.ts",
   "src/types.ts",
+  "src/main.ts",
 ]
 
 [output]
@@ -1638,6 +1639,17 @@ export function read(options?: StartOptions): number {
 }
 "#,
     )?;
+    // `Locale` and `LocaleOptions` contain each other by value through
+    // optional fields (`Locale.options -> LocaleOptions.locale -> Locale`),
+    // which a by-value struct cannot hold (E0072); the program must still
+    // build and read the nested option the way Node does.
+    let main_source = r#"import { read } from "./start/index.ts";
+
+console.log(read({ weekStartsOn: 1 }));
+console.log(read({ locale: { options: { weekStartsOn: 1 } } }));
+console.log(read({ weekStartsOn: 0, locale: { options: { locale: { options: { weekStartsOn: 1 } } } } }));
+"#;
+    fs::write(project_path.join("src/main.ts"), main_source)?;
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
@@ -1650,7 +1662,41 @@ export function read(options?: StartOptions): number {
         format!("read signature: {signature}"),
     )?;
 
-    Ok(())
+    // Every call is answered by the passed options; a call that falls through
+    // to `getDefaultOptions()` (the erased `DefaultOptions` intersection, read
+    // across this import cycle) prints `NaN` instead of `0`, a separate open
+    // defect that this layout is not about.
+    let expected = "1\n1\n0\n";
+    let sources = [
+        "types.ts",
+        "locale/types.ts",
+        "_lib/defaultOptions/index.ts",
+        "start/index.ts",
+        "main.ts",
+    ]
+    .into_iter()
+    .map(|file| {
+        Ok((
+            file,
+            fs::read_to_string(project_path.join("src").join(file))?,
+        ))
+    })
+    .collect::<TestResult<Vec<_>>>()?;
+    let borrowed: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(file, text)| (*file, text.as_str()))
+        .collect();
+    ensure_node_agrees(
+        &borrowed,
+        "main.ts",
+        expected,
+        "build_resolves_cyclic_type_import_inherited_option_fields",
+    )?;
+    let stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure(
+        stdout == expected,
+        format!("generated program output:\n{stdout}--- expected\n{expected}"),
+    )
 }
 
 #[test]
