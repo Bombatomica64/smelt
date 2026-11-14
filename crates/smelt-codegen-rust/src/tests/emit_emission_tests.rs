@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// The record's name is a hash of its field names. Corrected expectation:
+/// - old requirement: the hash was taken over the snake-cased Rust field names
+///   (`max_wait`), giving `SmeltRecord9a3342c2e62c0051`;
+/// - new requirement: it is taken over the names as the source spells them
+///   (`maxWait`), so `{ userId }` and `{ user_id }` no longer share one struct
+///   (`lowering/decls/anonymous_record.rs`); the name is now
+///   `SmeltRecord9a3342c2e62c0051`;
+/// - evidence: only the opaque name differs; the emitted body, which is what
+///   this test is about, is byte-identical.
 #[test]
 fn typed_option_bag_parameter_defaults_do_not_require_missing_fields() {
     let source = source_for(
@@ -24,7 +33,7 @@ export function pick(
 
     assert_eq!(
         rust_items(&source, &["fn pick"]),
-        r"fn pick(__param0: SmeltRecord99210bdaad6292f3) -> SmeltUnknown {
+        r"fn pick(__param0: SmeltRecord9a3342c2e62c0051) -> SmeltUnknown {
 let leading: bool = __param0.leading.clone().unwrap_or(false);
 let trailing: bool = __param0.trailing.clone().unwrap_or(true);
 let max_wait: Option<f64> = __param0.max_wait.clone();
