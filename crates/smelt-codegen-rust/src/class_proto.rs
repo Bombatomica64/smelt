@@ -50,7 +50,7 @@
 )]
 
 use crate::rust::RustExpr;
-use smelt_hir::{Type, TypeId};
+use smelt_hir::{FunctionType, Type, TypeId};
 use smelt_mir::{FuncId, HirOrigin, LocalId, Mir, MirClass, MirFunction};
 
 use crate::emitter::{EmitContext, method_mutates_this};
@@ -199,17 +199,36 @@ fn param_crosses_erased_call(
             if type_supports_from_unknown(mir, context, *item)
                 || matches!(mir.types.get(*item), Some(Type::Function(_))));
     }
-    match mir.types.get(ty) {
-        Some(Type::Function(callback)) => {
+    match callback_parameter(mir, ty) {
+        Some(callback) => {
             !callback.is_async
                 && callback
                     .params
                     .iter()
                     .all(|param| type_supports_from_unknown(mir, context, *param))
-                && (matches!(mir.types.get(callback.return_ty), Some(Type::None))
-                    || type_supports_from_unknown(mir, context, callback.return_ty))
+                // A `void` callback answers nothing to convert, and a `never`
+                // one (it always throws) answers nothing at all: its
+                // rendering is the erased carrier itself.
+                && (matches!(
+                    mir.types.get(callback.return_ty),
+                    Some(Type::None | Type::Never)
+                ) || type_supports_from_unknown(mir, context, callback.return_ty))
         }
-        _ => type_supports_from_unknown(mir, context, ty),
+        None => type_supports_from_unknown(mir, context, ty),
+    }
+}
+
+/// The callback a parameter of type `ty` takes: a function, or an optional one
+/// (`handler = fallback`, `handler?: ..`), whose absent argument (`undefined`)
+/// rebuilds as `None`. `None` for a parameter that takes data.
+fn callback_parameter(mir: &Mir, ty: TypeId) -> Option<&FunctionType> {
+    match mir.types.get(ty)? {
+        Type::Function(callback) => Some(callback),
+        Type::Optional(inner) => match mir.types.get(*inner)? {
+            Type::Function(callback) => Some(callback),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -299,7 +318,7 @@ fn erased_callable_adapter(
         let local = local_decl(function, *param)
             .ok_or_else(|| EmitError::new("class method parameter has no local declaration"))?;
         let is_rest = function.rest == Some(position);
-        if is_rest || matches!(mir.types.get(local.ty), Some(Type::Function(_))) {
+        if is_rest || callback_parameter(mir, local.ty).is_some() {
             let erased = if is_rest {
                 // The remaining arguments, as the array JavaScript binds.
                 format!(
