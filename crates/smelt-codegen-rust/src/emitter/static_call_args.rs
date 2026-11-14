@@ -107,6 +107,13 @@ pub(super) enum StaticArgumentKind<'arg> {
         /// `Vec<SmeltUnknown>` where it declared `Vec<f64>` (`E0308`). Falls
         /// back to the declared type at a site that did not monomorphize.
         substituted_target_ty: TypeId,
+        /// Whether `substituted_target_ty` is the CALLER-side instantiation
+        /// (this call site's bindings applied) rather than the callee's
+        /// declared type. Type-parameter symbols belong to their declaring
+        /// function, so a lifted caller forwarding its own `T` binds the
+        /// callee's `T` to the caller's: the substituted target spells the
+        /// caller's `T` and is compared in the caller's scope, not the callee's.
+        caller_side: bool,
     },
     /// 5. A composite VALUE parameter that mentions one of the callee's own
     ///    generics (`arr: T[]` -> `SmeltList<T>`), instantiated at this call
@@ -231,8 +238,12 @@ impl FunctionEmitter<'_> {
         if param.is_some_and(|target_param| {
             self.parameter_needs_mutable_reference_in(function, target_param)
         }) {
+            let substituted = callee_bindings.and_then(|bindings| {
+                crate::generic_bindings::substituted_type_id(self.mir, target_ty, bindings)
+            });
             return Ok(StaticArgumentKind::MutableReference {
-                substituted_target_ty: self.substituted_param_ty(target_ty, callee_bindings),
+                substituted_target_ty: substituted.unwrap_or(target_ty),
+                caller_side: substituted.is_some(),
             });
         }
         let source_ty = self.operand_ty(arg)?;
@@ -324,14 +335,25 @@ impl FunctionEmitter<'_> {
             }
             StaticArgumentKind::MutableReference {
                 substituted_target_ty,
+                caller_side,
             } => {
+                // A caller-side target names the caller's type parameters
+                // (`heapify`'s `T[]` with its `T` bound to the lifted caller's
+                // `T`). Rendered under the callee's emission scope those are
+                // not spellable and erase, which reported a spurious
+                // `SmeltList<T>` vs `SmeltList<SmeltUnknown>` mismatch and
+                // demoted every lifted caller that forwards a mutable list to a
+                // lifted callee.
+                let caller_scope;
+                let scope = if caller_side {
+                    caller_scope = self.current_function_type_params();
+                    &caller_scope
+                } else {
+                    free_function_type_params
+                };
                 rendered_args.push(
-                    self.mutable_reference_argument_expr(
-                        arg,
-                        substituted_target_ty,
-                        Some(free_function_type_params),
-                    )?
-                    .into_string(),
+                    self.mutable_reference_argument_expr(arg, substituted_target_ty, Some(scope))?
+                        .into_string(),
                 );
             }
             StaticArgumentKind::MonomorphizingPassthrough { source_ty } => {
