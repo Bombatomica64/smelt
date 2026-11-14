@@ -33,9 +33,7 @@ interned types
   t1 = fn() -> String
   t2 = fn(String, fn() -> String) -> String
   t3 = Float
-  t4 = Unknown
-  t5 = fn(Float) -> Unknown
-  t6 = fn(Float) -> Float
-  t7 = fn(Float) -> fn(Float) -> Float
-  t8 = None
-  t9 = fn(Float) -> String
+  t4 = fn(Float) -> Float
+  t5 = fn(Float) -> fn(Float) -> Float
+  t6 = None
+  t7 = fn(Float) -> String

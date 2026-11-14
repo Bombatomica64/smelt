@@ -1,0 +1,140 @@
+fn map_all (FuncId(0)) -> List<R>
+  locals
+    %0 param items: List<T>
+    %1 param fn: fn(T) -> R
+    %2 temp: List<R>
+  bb0:
+    %2 = list_map copy %0, copy %1
+    return move %2
+
+async fn main_ (FuncId(1)) -> None
+  locals
+    %0 user doubled: async fn(Dict<String, Float>, String) -> Future<Dict<String, Float>>
+    %1 user is_even: async fn(Float) -> Future<Bool>
+    %2 user scored: fn(String) -> Dict<String, Float>
+    %3 user result: Dict<String, Float>
+    %4 user tallies: List<Dict<String, Float>>
+    %5 temp: async fn(Dict<String, Float>, String) -> Future<Dict<String, Float>>
+    %6 temp: Dict<String, Float>
+    %7 temp: Future<Dict<String, Float>>
+    %8 temp: Dict<String, Float>
+    %9 temp: Future<Dict<String, Float>>
+    %10 temp: Dict<String, Float>
+    %11 temp: String
+    %12 temp: Float
+    %13 temp: None
+    %14 temp: async fn(Float) -> Future<Bool>
+    %15 temp: Future<Bool>
+    %16 temp: Bool
+    %17 temp: Future<Bool>
+    %18 temp: Bool
+    %19 temp: None
+    %20 temp: fn(String) -> Dict<String, Float>
+    %21 temp: List<String>
+    %22 temp: List<Dict<String, Float>>
+    %23 temp: Float
+    %24 temp: Dict<String, Float>
+    %25 temp: String
+    %26 temp: None
+  bb0:
+    %5 = closure ClosureId(0) []
+    %0 = move %5
+    %6 = {}
+    %7 = closure_call copy %0(move %6, "a")
+    %8 = await move %7
+    %9 = closure_call move %0(move %8, "bb")
+    %3 = await move %9
+    %11 = json_stringify copy %3
+    %12 = copy %3["bb"] + 1.0
+    %13 = call @console_log(move %11, move %12) -> bb1
+  bb1:
+    %14 = closure ClosureId(1) []
+    %1 = move %14
+    %15 = closure_call copy %1(4.0)
+    %16 = await move %15
+    %17 = closure_call move %1(5.0)
+    %18 = await move %17
+    %19 = call @console_log(move %16, move %18) -> bb2
+  bb2:
+    %20 = closure ClosureId(2) []
+    %2 = move %20
+    %21 = ["aab", "c"]
+    %22 = call fn0(move %21, move %2) -> bb3
+  bb3:
+    %4 = move %22
+    %23 = len copy %4
+    %24 = copy %4[0.0]
+    %25 = json_stringify copy %4[1.0]
+    %26 = call @console_log(move %23, copy %24["a"], move %25) -> bb4
+  bb4:
+    return none
+
+async fn main (FuncId(2)) -> None throws
+  locals
+    %0 temp: Future<None>
+    %1 temp: None
+    %2 temp: Future<None>
+    %3 temp: None
+  bb0:
+    %0 = call fn1() -> bb1
+  bb1:
+    %1 = async_spawn_local(move %0)
+    %2 = async_exit_drain()
+    %3 = await move %2
+    return none
+
+closure ClosureId(0) -> Future<Dict<String, Float>>
+  locals
+    %0 param accumulator: Dict<String, Float>
+    %1 param key: String
+    %2 temp: Float
+    %3 temp: Float
+  bb0:
+    %2 = len copy %1
+    %3 = copy %2 * 2.0
+    %0[copy %1] = copy %3
+    return copy %0
+
+closure ClosureId(1) -> Future<Bool>
+  locals
+    %0 param n: Float
+    %1 temp: Float
+    %2 temp: Bool
+  bb0:
+    %1 = copy %0 % 2.0
+    %2 = copy %1 == 0.0
+    return copy %2
+
+closure ClosureId(2) -> Dict<String, Float>
+  locals
+    %0 param word: String
+    %1 user counts: Dict<String, Float>
+    %2 user letter: String
+    %3 temp: Dict<String, Float>
+    %4 temp: usize
+    %5 temp: usize
+    %6 temp: Bool
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Float
+  bb0:
+    %1 = {}
+    %4 = 0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %4 < copy %5
+    switch copy %6 ? bb2 : bb4
+  bb2:
+    %9 = primitive_cast_float copy %4
+    %2 = copy %0[move %9]
+    %7 = copy %1[copy %2] ?? 0.0
+    %8 = copy %7 + 1.0
+    %1[copy %2] = copy %8
+    goto bb3
+  bb3:
+    %4 = copy %4 + 1
+    goto bb1
+  bb4:
+    return copy %1
+
