@@ -1217,7 +1217,6 @@ fn emission_rules_behaviour() -> TestResult {
     verify_node_parity("emission_rules_behaviour")
 }
 
-/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 /// A method whose callback parameter is optional (a default, or `?`) is
 /// callable through an erased instance: an absent argument takes the
 /// default, a given callback is called.
@@ -1255,6 +1254,14 @@ fn erased_error_own_keys() -> TestResult {
     verify_node_parity("erased_error_own_keys")
 }
 
+/// `new Map([..])`/`new Set([..])` passed to an `unknown` or generic parameter
+/// are built from their entries, and a generic `size` read counts them.
+#[test]
+fn new_map_into_erased_slot() -> TestResult {
+    verify_node_parity("new_map_into_erased_slot")
+}
+
+/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
