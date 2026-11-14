@@ -442,6 +442,16 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let haystack = self.expression(&member.object, body)?;
+        if let Some(expr) = self.erased_pattern_call(
+            smelt_hir::ErasedPatternMethod::Search,
+            haystack,
+            &member.object,
+            pattern_argument,
+            call.span,
+            body,
+        )? {
+            return Ok(Some(expr));
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String) {
             return Ok(None);
         }

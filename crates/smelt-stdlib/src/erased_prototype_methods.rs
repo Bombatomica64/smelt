@@ -60,10 +60,12 @@ pub const ERASED_ARRAY_PROTOTYPE_METHODS: &[&str] = &[
 
 /// Every `String.prototype` method an erased string answers.
 ///
-/// The pattern-taking methods (`split`, `replace`, `match`, `search`) are
-/// absent on purpose: their argument may be a `RegExp`, which the erased
-/// runtime has no matcher for, so they keep their static string lowering
-/// rather than a runtime arm that would silently stringify the pattern.
+/// The pattern-taking methods are absent: their argument may be a `RegExp`,
+/// whose matcher is only linked into a program that demands it. `match` and
+/// `search` on an erased receiver have their own op instead
+/// (`ExprKind::ErasedPatternCall`), which demands the regex runtime and
+/// dispatches on the receiver's run-time value; `split` and `replace` keep
+/// their static string lowering.
 pub const ERASED_STRING_PROTOTYPE_METHODS: &[&str] = &[
     "at",
     "charAt",

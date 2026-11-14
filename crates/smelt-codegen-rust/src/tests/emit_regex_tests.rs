@@ -67,9 +67,15 @@ return _smelt_tmp_4;
 }"#);
 }
 
-/// `match` on an erased receiver converts the haystack from its runtime tag.
+/// `match` on an erased receiver is resolved by the receiver's run-time value
+/// (`smelt_erased_pattern_call`), and can throw, so the function is fallible.
+///
+/// Old requirement: the receiver was converted to a string and searched, so an
+/// object defining its own `match` was searched as `"[object Object]"`, and
+/// one without it answered instead of throwing `TypeError: value.match is not
+/// a function`. The `erased_pattern_methods` Node-parity fixture runs both.
 #[test]
-fn emits_regex_find_with_erased_haystack_string_coercion() {
+fn emits_erased_receiver_match_as_runtime_dispatch() {
     let source = source_for(
         r"
 function matchUnknown(value: unknown): string[] | undefined {
@@ -78,11 +84,15 @@ function matchUnknown(value: unknown): string[] | undefined {
 ",
     );
 
-    assert_eq!(rust_fn(&source, "match_unknown"), r#"fn match_unknown(value: SmeltUnknown) -> Option<SmeltList<JsString>> {
-let _smelt_tmp_1: SmeltRegExp = SmeltRegExp::new(JsString::from("a+"), JsString::new());
-let _smelt_tmp_2: Option<SmeltMatch> = _smelt_tmp_1.match_string(&match value.clone() { SmeltUnknown::String(smelt_text) => smelt_text, smelt_value => JsString::from(match smelt_value {   SmeltUnknown::Object(smelt_value) if smelt_host_buffer_is_view(&SmeltUnknown::Object(smelt_value.clone())) => smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value)).unwrap_or_default().into_iter().map(|smelt_element| match smelt_element { SmeltUnknown::Number(smelt_element) => smelt_element.to_string(), _ => String::new() }).collect::<Vec<_>>().join(","), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Undefined => "undefined".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key("__smelt_regexp") => smelt_regexp_literal(&smelt_value), SmeltUnknown::Object(value) if value.contains_key("__smelt_error") => { let smelt_error_name = match value.get("name") { Some(SmeltUnknown::String(name)) => name.to_string(), _ => match value.get("__smelt_error") { Some(SmeltUnknown::String(class)) => class.to_string(), _ => "Error".to_owned() } }; let smelt_error_message = match value.get("message") { Some(SmeltUnknown::String(message)) => message.to_string(), _ => String::new() }; if smelt_error_message.is_empty() { smelt_error_name } else if smelt_error_name.is_empty() { smelt_error_message } else { format!("{smelt_error_name}: {smelt_error_message}") } }, SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) });
-return _smelt_tmp_2.map(|smelt_value| SmeltList::new((smelt_value).to_array_view().into_iter().map(|smelt_group| smelt_group.unwrap_or_default()).collect::<Vec<_>>()));
-}"#);
+    let function = rust_fn(&source, "match_unknown");
+    assert!(
+        function.starts_with("fn match_unknown(value: SmeltUnknown) -> Result<Option<SmeltList<JsString>>, Box<dyn std::error::Error>> {"),
+        "{function}"
+    );
+    assert!(
+        function.contains(r#"smelt_erased_pattern_call(&value.clone(), "match", _smelt_tmp_1.clone().into_smelt_unknown(), "value.match")?"#),
+        "{function}"
+    );
 }
 
 /// A regex held in a local keeps its flags through `match`.

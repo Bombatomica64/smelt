@@ -183,6 +183,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "parse_number" => Need::ParseNumber,
         "js_string" => Need::JsString,
         "py_repr" => Need::PyRepr,
+        "erased_pattern_call" => Need::ErasedPatternCall,
         "shared_captures" => Need::SharedCaptures,
         "uri_encode" => Need::UriEncode,
         "uri_decode" => Need::UriDecode,

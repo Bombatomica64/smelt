@@ -1871,7 +1871,13 @@ fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
     Some(class.to_owned())
 }
 /// The class name a marker-bearing record's `.constructor` read resolves to.
-fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> { [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_url", "URL"), ("__smelt_crypto_key", "CryptoKey"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_databasesync", "DatabaseSync"), ("__smelt_statementsync", "StatementSync"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class) }
+fn smelt_marker_constructor_class(map: &SmeltObject) -> Option<&'static str> {
+    if let Some(SmeltUnknown::String(name)) = map.get("__smelt_error") {
+        let name = name.to_string_lossy();
+        if let Some(class) = ["TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError"].into_iter().find(|class| *class == name) { return Some(class); }
+    }
+    [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_error", "Error"), ("__smelt_abortcontroller", "AbortController"), ("__smelt_abortsignal", "AbortSignal"), ("__smelt_arraybuffer", "ArrayBuffer"), ("__smelt_sharedarraybuffer", "SharedArrayBuffer"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array"), ("__smelt_buffer", "Buffer"), ("__smelt_dataview", "DataView"), ("__smelt_weakmap", "WeakMap"), ("__smelt_weakset", "WeakSet"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_headers", "Headers"), ("__smelt_urlsearchparams", "URLSearchParams"), ("__smelt_url", "URL"), ("__smelt_crypto_key", "CryptoKey"), ("__smelt_request", "Request"), ("__smelt_response", "Response"), ("__smelt_textencoder", "TextEncoder"), ("__smelt_textdecoder", "TextDecoder"), ("__smelt_eventemitter", "EventEmitter"), ("__smelt_httpserver", "Server"), ("__smelt_incomingmessage", "IncomingMessage"), ("__smelt_serverresponse", "ServerResponse"), ("__smelt_formdata", "FormData"), ("__smelt_databasesync", "DatabaseSync"), ("__smelt_statementsync", "StatementSync"), ("__smelt_readablestream", "ReadableStream"), ("__smelt_domexception", "DOMException"), ("__smelt_intl_collator", "Intl.Collator"), ("__smelt_intl_displaynames", "Intl.DisplayNames"), ("__smelt_intl_durationformat", "Intl.DurationFormat"), ("__smelt_intl_listformat", "Intl.ListFormat"), ("__smelt_intl_locale", "Intl.Locale"), ("__smelt_intl_numberformat", "Intl.NumberFormat"), ("__smelt_intl_pluralrules", "Intl.PluralRules"), ("__smelt_intl_segmenter", "Intl.Segmenter"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_string", "String"), ("__smelt_symbol", "Symbol")].into_iter().find(|(marker, _)| map.contains_key(marker)).map(|(_, class)| class)
+}
 /// Build a modeled host instance of `kind` from constructor arguments.
 fn smelt_reflected_construct(kind: &'static str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     match kind {
@@ -1967,7 +1973,10 @@ thread_local! {
     static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
-/// Read one named property of the array with this identity.
+/// Every named property of the array whose identity is `id`, in write order.
+fn smelt_array_named_properties(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).map(|entry| entry.props.clone()).unwrap_or_default()) }
+
+/// Read one named property of the array whose identity is `id`.
 fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).and_then(|entry| entry.props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }
 
 /// Write one named property of `array`, owned by its buffer (pinned through a detached copy).
@@ -3994,7 +4003,8 @@ impl IntoSmeltUnknown for SmeltMatch {
         let elements = self.groups.iter().map(|value| value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String)).collect::<Vec<_>>();
         let groups = self.named.iter().map(|(name, value)| (name.clone(), value.clone().map_or(SmeltUnknown::Undefined, SmeltUnknown::String))).collect::<Vec<_>>();
         let array = SmeltArray::with_id(self.id, elements);
-        smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", SmeltUnknown::Object(SmeltObject::new(groups)))], true);
+        let groups = if self.named.is_empty() { SmeltUnknown::Undefined } else { SmeltUnknown::Object(SmeltObject::new(groups)) };
+        smelt_array_store_named_properties(&array, [("index", SmeltUnknown::Number(self.match_index as f64)), ("input", SmeltUnknown::String(self.input)), ("groups", groups)], true);
         SmeltUnknown::Array(array)
     }
 }
@@ -5042,7 +5052,8 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
         let values = self.borrow();
-        let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+        let named = smelt_array_named_properties(self.id()); let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();
+        let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
         smelt_inspect_array(ctx, depth, &entries)
     }
 }
@@ -5072,6 +5083,20 @@ impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> 
     }
 }
 
+/// One `key: value` entry of an array's own named properties.
+struct SmeltInspectKeyed<'a> {
+    /// The property name.
+    key: &'a str,
+    /// The property value.
+    value: &'a SmeltUnknown,
+}
+
+impl SmeltInspect for SmeltInspectKeyed<'_> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        format!("{}: {}", smelt_inspect_key(self.key), self.value.smelt_inspect(ctx, depth))
+    }
+}
+
 impl SmeltInspect for SmeltUnknown {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
         match self {
@@ -5080,9 +5105,11 @@ impl SmeltInspect for SmeltUnknown {
             Self::Bool(value) => value.to_string(),
             Self::Number(value) => smelt_console_number(*value),
             Self::String(value) => smelt_inspect_string(ctx, value),
-            Self::Array(values) => {
-                let values = values.values.borrow();
-                let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+            Self::Array(array) => {
+                let named = smelt_array_named_properties(array.id);
+                let values = array.values.borrow();
+                let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();
+                let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
                 smelt_inspect_array(ctx, depth, &entries)
             }
             Self::Object(object) => {
@@ -5113,6 +5140,13 @@ impl SmeltInspect for SmeltUnknown {
             Self::String(value) => value.to_string(),
             _ => self.smelt_inspect(&mut SmeltInspectContext::default(), 0),
         }
+    }
+}
+/// A regex match prints as Node prints the match array: its elements, then
+/// `index`, `input` and `groups`, which its erasure carries.
+impl SmeltInspect for SmeltMatch {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
+        self.clone().into_smelt_unknown().smelt_inspect(ctx, depth)
     }
 }
 

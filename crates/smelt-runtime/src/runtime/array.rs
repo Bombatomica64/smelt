@@ -148,7 +148,10 @@ thread_local! {
     static SMELT_ARRAY_PROPS: ::std::cell::RefCell<SmeltArrayPropsTable> = ::std::cell::RefCell::new(SmeltArrayPropsTable { entries: SmeltAddressMap::default(), sweep_at: SMELT_ADDRESS_TABLE_MIN_SWEEP });
 }
 
-/// Read one named property of the array with this identity.
+/// Every named property of the array whose identity is `id`, in write order.
+fn smelt_array_named_properties(id: usize) -> Vec<(String, SmeltUnknown)> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).map(|entry| entry.props.clone()).unwrap_or_default()) }
+
+/// Read one named property of the array whose identity is `id`.
 fn smelt_array_named_property(id: usize, key: &str) -> Option<SmeltUnknown> { SMELT_ARRAY_PROPS.with(|props| props.borrow().entries.get(&id).and_then(|entry| entry.props.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone()))) }
 
 /// Write one named property of `array`, owned by its buffer (pinned through a detached copy).

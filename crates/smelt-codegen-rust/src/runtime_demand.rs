@@ -91,6 +91,8 @@ declare_needs! {
     JsString,
     /// Python's `repr`, for a container `print` shows.
     PyRepr,
+    /// `smelt_erased_pattern_call`: `.match`/`.search` on an erased receiver.
+    ErasedPatternCall,
     /// Mutable closure captures shared through the capture registry.
     SharedCaptures,
     /// `encodeURI` and friends.
@@ -288,6 +290,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
+    (Need::ErasedPatternCall, &[Need::Unknown, Need::DepRegress]),
     (Need::PyException, &[Need::PyRepr]),
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),

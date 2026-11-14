@@ -91,6 +91,15 @@ fn console_inspect_shapes() -> TestResult {
     verify_node_parity("console_inspect_shapes")
 }
 
+/// `.match`/`.search` on an `any` receiver are resolved by its run-time value:
+/// a string answers `String.prototype`, an object its own member, and a value
+/// without one throws a catchable `TypeError`; a match array prints with its
+/// `index`, `input` and `groups`.
+#[test]
+fn erased_pattern_methods() -> TestResult {
+    verify_node_parity("erased_pattern_methods")
+}
+
 /// String methods on concrete and erased receivers, and strings in boolean position.
 #[test]
 fn string_method_semantics() -> TestResult {

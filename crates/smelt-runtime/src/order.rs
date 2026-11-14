@@ -184,6 +184,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("impl_Default_for_SmeltRegExp"),
     Entry::Item("SmeltMatch"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltMatch"),
+    Entry::Item("smelt_erased_pattern_call"),
     Entry::Item("SmeltHeaders"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltHeaders"),
     Entry::Item("SmeltUrlSearchParams"),
@@ -244,4 +245,5 @@ pub const CONSOLE_INSPECT: &[Entry] = &[
     Entry::Item("impl_SmeltInspect_for_SmeltPrimSet"),
     Entry::Item("impl_SmeltInspect_for_BigInt"),
     Entry::Item("impl_SmeltInspect_for_SmeltRecord"),
+    Entry::Item("impl_SmeltInspect_for_SmeltMatch"),
 ];

@@ -81,7 +81,7 @@ pub use expr::{
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, GeneratorResumeKind,
     ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, ErasedPatternMethod,
     RegexReplaceArg, SetBinaryOp,
     HeadersOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
     EventEmitterOp,

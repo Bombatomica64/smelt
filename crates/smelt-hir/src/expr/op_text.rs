@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use super::{AbortSignalOp, AsyncOp, BlobOp, BoolFoldOp, CryptoOp, DictProjectionOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UriTranscodeOp, UrlField, UrlSearchParamsOp};
+use super::{AbortSignalOp, AsyncOp, BlobOp, BoolFoldOp, CryptoOp, DictProjectionOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, PropertyLookup, RegexMatchOp, ErasedPatternMethod, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UriTranscodeOp, UrlField, UrlSearchParamsOp};
 
 impl NumericRoundOp {
     /// The operation's `dump` spelling.
@@ -318,6 +318,23 @@ impl StringPredicateOp {
 }
 
 impl fmt::Display for StringPredicateOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.text())
+    }
+}
+
+impl ErasedPatternMethod {
+    /// The method's JavaScript name, which is also its `dump` spelling.
+    #[must_use]
+    pub const fn text(self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::Search => "search",
+        }
+    }
+}
+
+impl fmt::Display for ErasedPatternMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.text())
     }

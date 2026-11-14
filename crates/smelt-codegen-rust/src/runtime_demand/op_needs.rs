@@ -72,6 +72,9 @@ impl RuntimeDemand {
             Rvalue::RegexFind { .. } => {
                 self.add(Need::DepRegress);
             }
+            Rvalue::ErasedPatternCall { .. } => {
+                self.add(Need::ErasedPatternCall);
+            }
             Rvalue::RegexExec { .. } => {
                 self.add(Need::DepRegress);
             }

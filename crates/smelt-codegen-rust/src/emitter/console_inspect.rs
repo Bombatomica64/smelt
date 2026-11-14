@@ -165,6 +165,11 @@ impl FunctionEmitter<'_> {
                         .iter()
                         .all(|item| self.inspectable_in(*item, records, visiting))
             }
+            // A regex match inspects through its erasure (the runtime's
+            // `impl SmeltInspect for SmeltMatch`), as Node prints a match array.
+            Some(Type::Class { name, .. }) if self.match_class_kind(*name).ok().flatten().is_some() => {
+                needs_unknown && self.context.demand().has(Need::DepRegress)
+            }
             Some(Type::Class { name, args }) => {
                 args.is_empty()
                     && records.get(name).is_some_and(|record| {

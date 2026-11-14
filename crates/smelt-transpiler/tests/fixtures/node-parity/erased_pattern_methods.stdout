@@ -1,0 +1,11 @@
+[ '1', '22' ] 2 3
+custom x 7
+[ '9', index: 1, input: 'q9', groups: undefined ]
+object
+2024 0 05
+null 2
+TypeError n.match is not a function
+Cannot read properties of undefined (reading 'search')
+1
+[ 'a', index: 0, input: 'abc1', groups: undefined ] [ '9', index: 1, input: 'q9', groups: undefined ]
+[ 'x', extra: 1 ]
