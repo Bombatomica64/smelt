@@ -63,7 +63,10 @@ export const run = (): number => new Counter().add(3);
     ensure_signature(&ctx, "new", "new() -> Counter")?;
     ensure_signature(&ctx, "run", "run() -> Float")?;
     ensure!(crate_has_method(&ctx, "#bump"), "no call of method `#bump`");
-    ensure!(crate_has_new(&ctx, "Counter"), "no construction of `Counter`");
+    ensure!(
+        crate_has_new(&ctx, "Counter"),
+        "no construction of `Counter`"
+    );
     Ok(())
 }
 
@@ -101,11 +104,21 @@ export const run = (): number => new Node().compare(new Node());
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "#deeper", "#deeper(this: Node) -> Float")?;
     ensure_signature(&ctx, "compare", "compare(this: Node, other: Node) -> Float")?;
-    ensure_signature(&ctx, "#at_least", "#at_least(this: Node, value: Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "#at_least",
+        "#at_least(this: Node, value: Float) -> Float",
+    )?;
     ensure_signature(&ctx, "new", "new() -> Node")?;
     ensure_signature(&ctx, "run", "run() -> Float")?;
-    ensure!(crate_has_method(&ctx, "#deeper"), "no call of method `#deeper`");
-    ensure!(crate_has_method(&ctx, "#at_least"), "no call of method `#at_least`");
+    ensure!(
+        crate_has_method(&ctx, "#deeper"),
+        "no call of method `#deeper`"
+    );
+    ensure!(
+        crate_has_method(&ctx, "#at_least"),
+        "no call of method `#at_least`"
+    );
     ensure!(crate_has_field(&ctx, "#depth"), "no read of field `#depth`");
     Ok(())
 }
@@ -125,7 +138,11 @@ function run(handler: Handler, value: number): number {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "run", "run(handler: fn(Float) -> Float, value: Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "run",
+        "run(handler: fn(Float) -> Float, value: Float) -> Float",
+    )?;
     ensure_exprs!(&ctx, ClosureCall);
     Ok(())
 }
@@ -146,7 +163,11 @@ export function invariant(condition: unknown, message: string): asserts conditio
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "invariant", "invariant(condition: Unknown, message: String) -> None")?;
+    ensure_signature(
+        &ctx,
+        "invariant",
+        "invariant(condition: Unknown, message: String) -> None",
+    )?;
     ensure_exprs!(&ctx, DictLit, PrimitiveCast);
     Ok(())
 }
@@ -164,7 +185,10 @@ export interface RecursiveArray<T> extends Array<T | RecursiveArray<T>> {}
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure!(crate_has_item(&ctx, "RecursiveArray"), "no item named `RecursiveArray`");
+    ensure!(
+        crate_has_item(&ctx, "RecursiveArray"),
+        "no item named `RecursiveArray`"
+    );
     Ok(())
 }
 
@@ -197,11 +221,7 @@ export function useContainer(): number {
 
     // The lowered class retains exactly one declared type parameter.
     let container = ctx.krate.items.iter().find_map(|item| match item {
-        Item::Class(class)
-            if ctx.krate.symbols.get(class.name) == Some("Container") =>
-        {
-            Some(class)
-        }
+        Item::Class(class) if ctx.krate.symbols.get(class.name) == Some("Container") => Some(class),
         _ => None,
     });
     let container = container.ok_or_else(|| "Container class not lowered".to_owned())?;
@@ -585,8 +605,7 @@ export interface Seq {
     ensure!(
         seq.methods
             .iter()
-            .any(|method| ctx.krate.symbols.get(method.name)
-                == Some("__smelt_symbol_iterator")),
+            .any(|method| ctx.krate.symbols.get(method.name) == Some("__smelt_symbol_iterator")),
         "expected a `__smelt_symbol_iterator` method, got {:?}",
         seq.methods
     );
@@ -700,10 +719,7 @@ export function area(radius: number): number {
 
     // The static constant is materialized with its concrete literal value.
     ensure_eq!(class.static_fields.len(), 1);
-    let static_field = class
-        .static_fields
-        .first()
-        .ok_or("missing static field")?;
+    let static_field = class.static_fields.first().ok_or("missing static field")?;
     ensure!(matches!(
         static_field.value,
         Some(Literal::Float(value)) if (value - 7.0).abs() < f64::EPSILON
@@ -779,10 +795,17 @@ export function readDynamic(derived: Derived): string {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "read_dynamic", "read_dynamic(derived: Derived) -> String")?;
+    ensure_signature(
+        &ctx,
+        "read_dynamic",
+        "read_dynamic(derived: Derived) -> String",
+    )?;
     ensure_signature(&ctx, "new", "new() -> Bag")?;
     ensure_exprs!(&ctx, BaseConstructorInit);
-    ensure!(crate_has_field(&ctx, "dynamic"), "no read of field `dynamic`");
+    ensure!(
+        crate_has_field(&ctx, "dynamic"),
+        "no read of field `dynamic`"
+    );
     Ok(())
 }
 
@@ -848,8 +871,10 @@ export interface Seq {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     let seq = interface_named(&ctx, module, "Seq")?;
     ensure!(
-        seq.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
-            == Some("__smelt_symbol_async_iterator")),
+        seq.methods
+            .iter()
+            .any(|method| ctx.krate.symbols.get(method.name)
+                == Some("__smelt_symbol_async_iterator")),
         "expected a `__smelt_symbol_async_iterator` method, got {:?}",
         seq.methods
     );
@@ -877,8 +902,13 @@ export interface Matcher {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     let matcher = interface_named(&ctx, module, "Matcher")?;
     ensure!(
-        matcher.methods.iter().any(|method| ctx.krate.symbols.get(method.name)
-            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/matcher").as_str())),
+        matcher
+            .methods
+            .iter()
+            .any(|method| ctx.krate.symbols.get(method.name)
+                == Some(
+                    smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/matcher").as_str()
+                )),
         "expected the folded `Symbol.for(\"@ts-pattern/matcher\")` method, got {:?}",
         matcher.methods
     );
@@ -903,8 +933,13 @@ export interface Branded {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     let branded = interface_named(&ctx, module, "Branded")?;
     ensure!(
-        branded.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        branded
+            .fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name)
+                == Some(
+                    smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str()
+                )),
         "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         branded.fields
     );
@@ -941,8 +976,13 @@ export interface Override {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     let override_iface = interface_named(&ctx, module, "Override")?;
     ensure!(
-        override_iface.fields.iter().any(|field| ctx.krate.symbols.get(field.name)
-            == Some(smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str())),
+        override_iface
+            .fields
+            .iter()
+            .any(|field| ctx.krate.symbols.get(field.name)
+                == Some(
+                    smelt_stdlib::symbol_keys::registry_symbol_key("@ts-pattern/override").as_str()
+                )),
         "expected the folded `Symbol.for(\"@ts-pattern/override\")` field, got {:?}",
         override_iface.fields
     );
@@ -1118,7 +1158,10 @@ export function build(): number {
     ensure_signature(&ctx, "build", "build() -> Float")?;
     ensure_signature(&ctx, "new", "new(v: Float) -> Node")?;
     ensure!(crate_has_method(&ctx, "self"), "no call of method `self`");
-    ensure!(crate_has_method(&ctx, "rebuild"), "no call of method `rebuild`");
+    ensure!(
+        crate_has_method(&ctx, "rebuild"),
+        "no call of method `rebuild`"
+    );
     ensure!(crate_has_new(&ctx, "Node"), "no construction of `Node`");
     Ok(())
 }
@@ -1358,7 +1401,11 @@ export function run(box: ResultBox): number {
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "run", "run(box: ResultBox) -> Float")?;
-    ensure_signature(&ctx, "match", "match(this: ResultBox, ok: fn(Float) -> Float, err: fn(String) -> Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "match",
+        "match(this: ResultBox, ok: fn(Float) -> Float, err: fn(String) -> Float) -> Float",
+    )?;
     ensure_signature(&ctx, "new", "new() -> ResultBox")?;
     ensure_no_exprs!(&ctx, RegexFind);
     ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
@@ -1392,7 +1439,11 @@ export function run(box: OkBox | ErrBox): number {
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "run", "run(box: OkBox | ErrBox) -> Float")?;
-    ensure_signature(&ctx, "match", "match(this: OkBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "match",
+        "match(this: OkBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float",
+    )?;
     ensure_signature(&ctx, "new", "new() -> OkBox")?;
     ensure_no_exprs!(&ctx, RegexFind);
     ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
@@ -1450,12 +1501,19 @@ export function run(holder: Holder): number {
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     ensure_signature(&ctx, "make_result", "make_result() -> ResultBox")?;
     ensure_signature(&ctx, "run", "run(holder: Holder) -> Float")?;
-    ensure_signature(&ctx, "match", "match(this: ResultBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float")?;
+    ensure_signature(
+        &ctx,
+        "match",
+        "match(this: ResultBox, ok: fn(Float) -> Float, _err: fn(String) -> Float) -> Float",
+    )?;
     ensure_signature(&ctx, "new", "new() -> ResultBox")?;
     ensure_signature(&ctx, "get_result", "get_result(this: Holder) -> ResultBox")?;
     ensure_no_exprs!(&ctx, RegexFind);
     ensure!(crate_has_method(&ctx, "match"), "no call of method `match`");
-    ensure!(crate_has_method(&ctx, "get_result"), "no call of method `get_result`");
+    ensure!(
+        crate_has_method(&ctx, "get_result"),
+        "no call of method `get_result`"
+    );
     Ok(())
 }
 
@@ -1747,20 +1805,10 @@ export class Holder {
   }
 }
 ");
-    predeclare_type_declarations_with_path(
-        declaring,
-        FileId(0),
-        "/src/slot.ts",
-        &mut ctx,
-    )
-    .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
-    predeclare_type_declarations_with_path(
-        consuming,
-        FileId(1),
-        "/src/holder.ts",
-        &mut ctx,
-    )
-    .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
+    predeclare_type_declarations_with_path(declaring, FileId(0), "/src/slot.ts", &mut ctx)
+        .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
+    predeclare_type_declarations_with_path(consuming, FileId(1), "/src/holder.ts", &mut ctx)
+        .map_err(|errors| format!("predeclaration failed: {errors:?}"))?;
     lower_path_ok(consuming, "/src/holder.ts", &mut ctx)?;
     let args = class_field_type_args(&ctx, "Holder")?;
     ensure_eq!(args.len(), 3);
@@ -1851,7 +1899,10 @@ export function copy(flag: boolean, rec: Record<string, string>): number {
             })
         })
     });
-    ensure!(merges_the_parameter, "the spread must merge `rec` itself, not an empty record");
+    ensure!(
+        merges_the_parameter,
+        "the spread must merge `rec` itself, not an empty record"
+    );
     Ok(())
 }
 
@@ -1869,14 +1920,21 @@ globalThis.File = class File extends Blob {
 "),
         &mut ctx,
     )?;
-    lower_ok(ts!("export function pick(x: File): File { return x; }"), &mut ctx)?;
+    lower_ok(
+        ts!("export function pick(x: File): File { return x; }"),
+        &mut ctx,
+    )?;
     let pick = ctx
         .krate
         .items
         .iter()
         .find_map(|item| match item {
             Item::Function(function)
-                if ctx.krate.symbols.get(function.name).is_some_and(|name| name.ends_with("pick")) =>
+                if ctx
+                    .krate
+                    .symbols
+                    .get(function.name)
+                    .is_some_and(|name| name.ends_with("pick")) =>
             {
                 Some(function)
             }

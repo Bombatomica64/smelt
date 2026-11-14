@@ -2,12 +2,12 @@
 //! error subclasses, lowered to the error record with its message, `cause` and
 //! `errors` parts.
 
-use crate::lowering::erasure::NotNewErasure;
+use super::super::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Span, Type};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Push one slot of the fixed `Error` instance layout onto a record.
@@ -70,7 +70,11 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Error record");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let message = message.unwrap_or_else(|| {
             body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("Error".to_owned())),
@@ -135,7 +139,11 @@ impl ModuleBuilder<'_> {
         let parts = self.error_constructor_parts(new_expr, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Error record");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         // Which error class was spelled. Falls back to `Error` for a callee shape
         // that is not a bare identifier, which is the base class anyway.
@@ -204,7 +212,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "DOMException");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let message = match new_expr.arguments.first() {
             Some(message_arg) => {

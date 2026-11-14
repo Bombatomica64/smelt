@@ -416,8 +416,7 @@ impl Flow {
 
     /// Bind `name` on every path through this point.
     fn bind(&mut self, name: &str, target: Target) {
-        self.names
-            .insert(name.to_owned(), BTreeSet::from([target]));
+        self.names.insert(name.to_owned(), BTreeSet::from([target]));
     }
 
     /// Record a `from module import *`, which may bind any name.

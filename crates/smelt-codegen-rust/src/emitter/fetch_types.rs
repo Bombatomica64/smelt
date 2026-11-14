@@ -7,8 +7,8 @@
 //! `headers.get("content-type")`, typed `Option<String>`, with no tagged value
 //! and no runtime member lookup in between.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emit `new Headers(init?)`.
@@ -46,7 +46,10 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(init_ty) {
             // Another `Headers`: copy its pairs into a fresh list.
             Some(Type::Class { .. }) if self.is_headers_class_type(init_ty)? => {
-                Ok(RustExpr::atom(format!("SmeltHeaders::from_pairs({init_text}.entries_sorted())", init_text = init_text.tight())))
+                Ok(RustExpr::atom(format!(
+                    "SmeltHeaders::from_pairs({init_text}.entries_sorted())",
+                    init_text = init_text.tight()
+                )))
             }
             // `Record<string, string>`: each own entry is one header.
             Some(&Type::Dict(key, value))
@@ -54,7 +57,8 @@ impl FunctionEmitter<'_> {
                     && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr)) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())", init_text = init_text.tight()
+                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
                 )))
             }
             // `Record<string, string | undefined>`: each own entry is one
@@ -70,13 +74,17 @@ impl FunctionEmitter<'_> {
                         if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone().map_or_else(|| \"undefined\".to_owned(), |smelt_value| smelt_value.to_string()))).collect::<Vec<_>>())", init_text = init_text.tight()
+                    "SmeltHeaders::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone().map_or_else(|| \"undefined\".to_owned(), |smelt_value| smelt_value.to_string()))).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
                 )))
             }
             // `[string, string][]`: pairs in order.
-            Some(&Type::List(item)) if self.is_string_pair_type(item) => Ok(RustExpr::atom(format!(
-                "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())", init_text = init_text.tight()
-            ))),
+            Some(&Type::List(item)) if self.is_string_pair_type(item) => {
+                Ok(RustExpr::atom(format!(
+                    "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
+                )))
+            }
             // `string[][]`: the same initializer written without a tuple
             // annotation, which is what TypeScript infers for a bare
             // `[["a", "b"]]` literal. A row shorter than two entries has no
@@ -87,7 +95,8 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())", init_text = init_text.tight()
+                    "SmeltHeaders::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
                 )))
             }
             // A union initializer. `HeadersInit` IS a union in the spec
@@ -111,12 +120,21 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, member)| {
-                        let converted =
-                            self.headers_conversion_expr(&RustExpr::path("smelt_headers_init"), *member)?;
-                        Ok(format!("{union}::M{index}(smelt_headers_init) => {converted}", converted = converted.delimited()))
+                        let converted = self.headers_conversion_expr(
+                            &RustExpr::path("smelt_headers_init"),
+                            *member,
+                        )?;
+                        Ok(format!(
+                            "{union}::M{index}(smelt_headers_init) => {converted}",
+                            converted = converted.delimited()
+                        ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?;
-                Ok(RustExpr::atom(format!("match {init_text} {{ {} }}", arms.join(", "), init_text = init_text.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "match {init_text} {{ {} }}",
+                    arms.join(", "),
+                    init_text = init_text.delimited()
+                )))
             }
             // An initializer that may be absent. WHATWG's constructor takes
             // `HeadersInit?`, and `new Headers(undefined)` is the empty header
@@ -125,9 +143,12 @@ impl FunctionEmitter<'_> {
             // shape a `headers?:` init key arrives in when the source narrowed
             // it by truthiness without Smelt proving the narrowing.
             Some(&Type::Optional(inner)) => {
-                let converted = self.headers_conversion_expr(&RustExpr::path("smelt_headers_init"), inner)?;
+                let converted =
+                    self.headers_conversion_expr(&RustExpr::path("smelt_headers_init"), inner)?;
                 Ok(RustExpr::atom(format!(
-                    "match {init_text} {{ Some(smelt_headers_init) => {converted}, None => SmeltHeaders::new() }}", init_text = init_text.delimited(), converted = converted.delimited()
+                    "match {init_text} {{ Some(smelt_headers_init) => {converted}, None => SmeltHeaders::new() }}",
+                    init_text = init_text.delimited(),
+                    converted = converted.delimited()
                 )))
             }
             // The function this stopped in is attached by the emission entry
@@ -136,7 +157,8 @@ impl FunctionEmitter<'_> {
             // text.
             _ => Err(EmitError::new(format!(
                 "`new Headers(init)` initializer type is not modeled: {} (initializer `{init_text}`)",
-                self.rendered_type(init_ty)?, init_text = init_text.delimited(),
+                self.rendered_type(init_ty)?,
+                init_text = init_text.delimited(),
             ))),
         }
     }
@@ -186,7 +208,8 @@ impl FunctionEmitter<'_> {
             let arg = args.get(index).ok_or_else(|| {
                 EmitError::new(format!("`Headers` operation {op:?} is missing an argument"))
             })?;
-            self.value_at_type(arg, string_ty).map(RustExpr::into_string)
+            self.value_at_type(arg, string_ty)
+                .map(RustExpr::into_string)
         };
         let text = match op {
             smelt_hir::HeadersOp::Get => receiver.postfix(format!(".get(&{})", name(0)?)),
@@ -221,12 +244,22 @@ impl FunctionEmitter<'_> {
             | smelt_hir::HeadersOp::Values
             | smelt_hir::HeadersOp::GetSetCookie => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(
+                    &RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())),
+                    list_ty,
+                    dest_ty,
+                    &self.render_scope(),
+                )
             }
             smelt_hir::HeadersOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(
+                    &RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())),
+                    list_ty,
+                    dest_ty,
+                    &self.render_scope(),
+                )
             }
         }
     }
@@ -246,27 +279,38 @@ impl FunctionEmitter<'_> {
         let init_ty = self.operand_ty(init)?;
         let init_text = self.operand_expr(init)?;
         match self.mir.types.get(init_ty) {
-            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltUrlSearchParams::from_query(&{init_text})", init_text = init_text.tight()))),
-            Some(Type::Class { .. }) if self.is_url_search_params_class_type(init_ty)? => Ok(
-                RustExpr::atom(format!("SmeltUrlSearchParams::from_pairs({init_text}.entries_in_order())", init_text = init_text.tight())),
-            ),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
+                "SmeltUrlSearchParams::from_query(&{init_text})",
+                init_text = init_text.tight()
+            ))),
+            Some(Type::Class { .. }) if self.is_url_search_params_class_type(init_ty)? => {
+                Ok(RustExpr::atom(format!(
+                    "SmeltUrlSearchParams::from_pairs({init_text}.entries_in_order())",
+                    init_text = init_text.tight()
+                )))
+            }
             Some(&Type::Dict(key, value))
                 if matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
                     && matches!(self.mir.types.get(value), Some(Type::String | Type::PyStr)) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltUrlSearchParams::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())", init_text = init_text.tight()
+                    "SmeltUrlSearchParams::from_pairs({init_text}.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
                 )))
             }
-            Some(&Type::List(item)) if self.is_string_pair_type(item) => Ok(RustExpr::atom(format!(
-                "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())", init_text = init_text.tight()
-            ))),
+            Some(&Type::List(item)) if self.is_string_pair_type(item) => {
+                Ok(RustExpr::atom(format!(
+                    "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
+                )))
+            }
             Some(&Type::List(item))
                 if matches!(self.mir.types.get(item), Some(&Type::List(inner))
                     if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
-                    "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())", init_text = init_text.tight()
+                    "SmeltUrlSearchParams::from_pairs({init_text}.to_vec().into_iter().filter_map(|smelt_pair| {{ let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }}).collect::<Vec<_>>())",
+                    init_text = init_text.tight()
                 )))
             }
             _ => Err(EmitError::new(format!(
@@ -292,7 +336,8 @@ impl FunctionEmitter<'_> {
                     "`URLSearchParams` operation {op:?} is missing an argument"
                 ))
             })?;
-            self.value_at_type(arg, string_ty).map(RustExpr::into_string)
+            self.value_at_type(arg, string_ty)
+                .map(RustExpr::into_string)
         };
         let text = match op {
             smelt_hir::UrlSearchParamsOp::Get => receiver.postfix(format!(".get(&{})", name(0)?)),
@@ -331,12 +376,22 @@ impl FunctionEmitter<'_> {
             | smelt_hir::UrlSearchParamsOp::Keys
             | smelt_hir::UrlSearchParamsOp::Values => {
                 let list_ty = self.type_id(Type::List(string_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(
+                    &RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())),
+                    list_ty,
+                    dest_ty,
+                    &self.render_scope(),
+                )
             }
             smelt_hir::UrlSearchParamsOp::Entries => {
                 let pair_ty = self.type_id(Type::Tuple(Vec::from([string_ty, string_ty])))?;
                 let list_ty = self.type_id(Type::List(pair_ty))?;
-                self.rendered_at_type(&RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())), list_ty, dest_ty, &self.render_scope())
+                self.rendered_at_type(
+                    &RustExpr::atom(format!("SmeltList::new({text})", text = text.delimited())),
+                    list_ty,
+                    dest_ty,
+                    &self.render_scope(),
+                )
             }
         }
     }
@@ -423,12 +478,18 @@ impl FunctionEmitter<'_> {
                 &source.postfix(".url()"),
                 &format!("JsString::from({source}.method())", source = source.tight()),
                 &format!("{source}.headers()", source = source.tight()),
-                &format!("SmeltBody::take_from_source(&{source}.body())", source = source.tight()),
+                &format!(
+                    "SmeltBody::take_from_source(&{source}.body())",
+                    source = source.tight()
+                ),
                 &format!("{source}.init()", source = source.tight()),
                 init_members,
                 source_init_resets_referrer,
             )?
-        } else if matches!(self.mir.types.get(input_ty), Some(Type::String | Type::PyStr)) {
+        } else if matches!(
+            self.mir.types.get(input_ty),
+            Some(Type::String | Type::PyStr)
+        ) {
             self.request_from_parts_expr(
                 method,
                 headers,
@@ -477,8 +538,11 @@ impl FunctionEmitter<'_> {
                 init_is_non_empty,
             )?;
             let erased = self.erase(input)?;
-            let coerced =
-                self.js_string_coercion_match_expr(&RustExpr::path("smelt_input"), self.absent_spelling(), false)?;
+            let coerced = self.js_string_coercion_match_expr(
+                &RustExpr::path("smelt_input"),
+                self.absent_spelling(),
+                false,
+            )?;
             RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "match {erased} {{ \
                  SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"{SMELT_REQUEST}\") => {{ \
@@ -495,7 +559,8 @@ impl FunctionEmitter<'_> {
         };
         Ok(RustExpr::atom(format!(
             "{{ let smelt_request = {request_text}; smelt_request_follow_signal(smelt_request.id(), {}); smelt_request }}",
-            self.erase(signal)?.delimited(), request_text = request_text.delimited()
+            self.erase(signal)?.delimited(),
+            request_text = request_text.delimited()
         )))
     }
 
@@ -527,7 +592,12 @@ impl FunctionEmitter<'_> {
         let body_expr = self.init_body_expr(body, &RustExpr::opaque(body_default), true)?;
         let init_expr = self.request_init_expr(init_default, init_members, init_is_non_empty)?;
         Ok(RustExpr::atom(format!(
-            "SmeltRequest::from_parts_with_init(&{url_text}, ({method_expr}).to_string(), {headers_expr}, {body_expr}, {init_expr})", url_text = url_text.tight(), method_expr = method_expr.delimited(), headers_expr = headers_expr.delimited(), body_expr = body_expr.delimited(), init_expr = init_expr.delimited()
+            "SmeltRequest::from_parts_with_init(&{url_text}, ({method_expr}).to_string(), {headers_expr}, {body_expr}, {init_expr})",
+            url_text = url_text.tight(),
+            method_expr = method_expr.delimited(),
+            headers_expr = headers_expr.delimited(),
+            body_expr = body_expr.delimited(),
+            init_expr = init_expr.delimited()
         )))
     }
 
@@ -617,7 +687,10 @@ impl FunctionEmitter<'_> {
     /// The other seven are stored exactly as spelled.
     fn stored_member_value(member: smelt_hir::RequestInitMember, value: &RustExpr) -> RustExpr {
         if matches!(member, smelt_hir::RequestInitMember::Referrer) {
-            return RustExpr::atom(format!("SmeltRequestInit::serialize_referrer(&{value})", value = value.tight()));
+            return RustExpr::atom(format!(
+                "SmeltRequestInit::serialize_referrer(&{value})",
+                value = value.tight()
+            ));
         }
         // The init's text members are host `String`s.
         if !member.is_boolean() {
@@ -702,16 +775,20 @@ impl FunctionEmitter<'_> {
         let phrase_expr = self.init_scalar_expr(status_text, &RustExpr::atom(self.text_empty()))?;
         // A `Response` has no source to inherit from, so both absent keys mean
         // the spec's own empty value.
-        let headers_expr = self.init_headers_expr(headers, &RustExpr::atom("SmeltHeaders::new()"))?;
+        let headers_expr =
+            self.init_headers_expr(headers, &RustExpr::atom("SmeltHeaders::new()"))?;
         // A `Response`'s first argument is a `BodyInit`, not an init key:
         // a `Request` there is an ordinary body extraction, so it does NOT
         // take the sharing path.
         let body_expr = self.init_body_expr(body, &RustExpr::atom("SmeltBody::empty()"), false)?;
         Ok(RustExpr::atom(format!(
-            "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})", status_text_expr = status_text_expr.delimited(), phrase_expr = phrase_expr.delimited(), headers_expr = headers_expr.delimited(), body_expr = body_expr.delimited()
+            "SmeltResponse::from_parts({status_text_expr}, {phrase_expr}, {headers_expr}, {body_expr})",
+            status_text_expr = status_text_expr.delimited(),
+            phrase_expr = phrase_expr.delimited(),
+            headers_expr = headers_expr.delimited(),
+            body_expr = body_expr.delimited()
         )))
     }
-
 
     /// Convert a value of type `ty`, named by `body_text`, into a `SmeltBody`.
     ///
@@ -727,7 +804,10 @@ impl FunctionEmitter<'_> {
         // readable until the copy was consumed, where Node reports
         // `source.bodyUsed` true as soon as the copy exists.
         if self.is_request_class_type(body_ty)? {
-            return Ok(RustExpr::atom(format!("SmeltBody::take_from_source(&{body_text}.body())", body_text = body_text.tight())));
+            return Ok(RustExpr::atom(format!(
+                "SmeltBody::take_from_source(&{body_text}.body())",
+                body_text = body_text.tight()
+            )));
         }
         // A body HANDLE at the body position is passed straight through: it
         // already IS a `SmeltBody`, and sharing it is what the spec says
@@ -742,7 +822,8 @@ impl FunctionEmitter<'_> {
         // MIME type, as the spec's "extract a body" step does.
         if self.is_blob_class_type(body_ty)? {
             return Ok(RustExpr::atom(format!(
-                "SmeltBody::from_blob({body_text}.to_bytes(), {body_text}.blob_type())", body_text = body_text.tight()
+                "SmeltBody::from_blob({body_text}.to_bytes(), {body_text}.blob_type())",
+                body_text = body_text.tight()
             )));
         }
         // A `BufferSource` at the body position contributes its BYTES. A VIEW
@@ -751,15 +832,21 @@ impl FunctionEmitter<'_> {
         // `to_bytes()` answers for each half of the family. Neither carries a
         // content type: the spec's "extract a body" step leaves it unset for a
         // buffer source, unlike a blob or a form.
-        if self.is_typed_array_view_class_type(body_ty)? || self.is_array_buffer_class_type(body_ty)? {
-            return Ok(RustExpr::atom(format!("SmeltBody::from_bytes({body_text}.to_bytes())", body_text = body_text.tight())));
+        if self.is_typed_array_view_class_type(body_ty)?
+            || self.is_array_buffer_class_type(body_ty)?
+        {
+            return Ok(RustExpr::atom(format!(
+                "SmeltBody::from_bytes({body_text}.to_bytes())",
+                body_text = body_text.tight()
+            )));
         }
         // A `URLSearchParams` body is its QUERY STRING, with the content type
         // the spec fixes for it. Same shape as the blob arm: the value knows
         // both its bytes and its type.
         if self.is_url_search_params_class_type(body_ty)? {
             return Ok(RustExpr::atom(format!(
-                "SmeltBody::from_blob({body_text}.to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned())", body_text = body_text.tight()
+                "SmeltBody::from_blob({body_text}.to_text().into_bytes(), \"application/x-www-form-urlencoded;charset=UTF-8\".to_owned())",
+                body_text = body_text.tight()
             )));
         }
         // A `FormData` body is `multipart/form-data`, whose boundary is part of
@@ -769,7 +856,8 @@ impl FunctionEmitter<'_> {
         // through the parser that already existed.
         if self.is_form_data_class_type(body_ty)? {
             return Ok(RustExpr::atom(format!(
-                "{{ let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob({body_text}.to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={{smelt_boundary}}\")) }}", body_text = body_text.tight()
+                "{{ let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob({body_text}.to_multipart(&smelt_boundary), format!(\"multipart/form-data; boundary={{smelt_boundary}}\")) }}",
+                body_text = body_text.tight()
             )));
         }
         // A value whose static type is a GENERATED union is dispatched through
@@ -786,21 +874,34 @@ impl FunctionEmitter<'_> {
             let mut arms = Vec::with_capacity(members.len());
             for (index, member) in members.iter().copied().enumerate() {
                 let arm = self.body_conversion_expr(&RustExpr::path("smelt_body_arm"), member)?;
-                arms.push(format!("{union}::M{index}(smelt_body_arm) => {arm}", arm = arm.delimited()));
+                arms.push(format!(
+                    "{union}::M{index}(smelt_body_arm) => {arm}",
+                    arm = arm.delimited()
+                ));
             }
-            return Ok(RustExpr::atom(format!("match {body_text} {{ {} }}", arms.join(", "), body_text = body_text.delimited())));
+            return Ok(RustExpr::atom(format!(
+                "match {body_text} {{ {} }}",
+                arms.join(", "),
+                body_text = body_text.delimited()
+            )));
         }
         match self.mir.types.get(body_ty) {
-            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!("SmeltBody::from_text(&{body_text})", body_text = body_text.tight()))),
+            Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
+                "SmeltBody::from_text(&{body_text})",
+                body_text = body_text.tight()
+            ))),
             Some(Type::None) => Ok(RustExpr::atom("SmeltBody::empty()")),
             // An OPTIONAL body. WHATWG's constructor takes `BodyInit?` and an
             // absent body IS the empty body — the same answer the no-argument
             // spelling gives — so this is a modeled case rather than a blocker.
             // It is the shape `body?: BodyInit | null` arrives in.
             Some(&Type::Optional(inner)) => {
-                let present = self.body_conversion_expr(&RustExpr::path("smelt_body_init"), inner)?;
+                let present =
+                    self.body_conversion_expr(&RustExpr::path("smelt_body_init"), inner)?;
                 Ok(RustExpr::atom(format!(
-                    "match {body_text} {{ Some(smelt_body_init) => {present}, None => SmeltBody::empty() }}", body_text = body_text.delimited(), present = present.delimited()
+                    "match {body_text} {{ Some(smelt_body_init) => {present}, None => SmeltBody::empty() }}",
+                    body_text = body_text.delimited(),
+                    present = present.delimited()
                 )))
             }
             // An ERASED body. `BodyInit` is a union whose unmodeled arms are
@@ -869,9 +970,7 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
     ) -> Result<RustExpr, EmitError> {
         if !args.is_empty() {
-            return Err(EmitError::new(
-                "no modeled Response member takes arguments",
-            ));
+            return Err(EmitError::new("no modeled Response member takes arguments"));
         }
         let receiver = self.operand_expr(response)?;
         self.response_op_on_expr(op, &receiver)
@@ -970,8 +1069,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return Ok(false);
         };
-        Ok(self.stdlib_class_of_symbol(*name)?
-            == Some(smelt_stdlib::StdlibClass::UrlSearchParams))
+        Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::UrlSearchParams))
     }
 
     /// Emit an `EventEmitter` member operation on a concrete receiver.
@@ -997,7 +1095,8 @@ impl FunctionEmitter<'_> {
             let arg = args.get(index).ok_or_else(|| {
                 EmitError::new(format!("`EventEmitter` operation {op:?} needs a listener"))
             })?;
-            self.erased_emitter_argument_expr(arg).map(RustExpr::into_string)
+            self.erased_emitter_argument_expr(arg)
+                .map(RustExpr::into_string)
         };
         Ok(match op {
             smelt_hir::EventEmitterOp::On | smelt_hir::EventEmitterOp::Once => {
@@ -1061,8 +1160,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return Ok(false);
         };
-        Ok(self.stdlib_class_of_symbol(*name)?
-            == Some(smelt_stdlib::StdlibClass::ReadableStream))
+        Ok(self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::ReadableStream))
     }
 
     /// Return whether a type names the generated `SmeltHeaders` runtime type.
@@ -1111,7 +1209,10 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Optional(_))
         ) {
-            return Ok(text.postfix(format!(".unwrap_or_else(|| {default_text})", default_text = default_text.delimited())));
+            return Ok(text.postfix(format!(
+                ".unwrap_or_else(|| {default_text})",
+                default_text = default_text.delimited()
+            )));
         }
         Ok(text)
     }
@@ -1137,10 +1238,13 @@ impl FunctionEmitter<'_> {
         };
         let ty = self.operand_ty(operand)?;
         if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
-            let present = self.headers_conversion_expr(&RustExpr::path("smelt_init_headers"), inner)?;
+            let present =
+                self.headers_conversion_expr(&RustExpr::path("smelt_init_headers"), inner)?;
             return Ok(RustExpr::atom(format!(
                 "match {} {{ Some(smelt_init_headers) => {present}, None => {default_text} }}",
-                self.operand_expr(operand)?.delimited(), present = present.delimited(), default_text = default_text.delimited()
+                self.operand_expr(operand)?.delimited(),
+                present = present.delimited(),
+                default_text = default_text.delimited()
             )));
         }
         self.headers_new_expr(Some(operand))
@@ -1171,7 +1275,10 @@ impl FunctionEmitter<'_> {
         };
         let convert = |body_text: &RustExpr, body_ty: TypeId| -> Result<RustExpr, EmitError> {
             if shares_a_request_body && self.is_request_class_type(body_ty)? {
-                return Ok(RustExpr::postfix_on(body_text, format!("{}.body()", body_text.parenthesized_if_needed())));
+                return Ok(RustExpr::postfix_on(
+                    body_text,
+                    format!("{}.body()", body_text.parenthesized_if_needed()),
+                ));
             }
             self.body_conversion_expr(body_text, body_ty)
         };
@@ -1180,11 +1287,11 @@ impl FunctionEmitter<'_> {
             let present = convert(&RustExpr::path("smelt_init_body"), inner)?;
             return Ok(RustExpr::atom(format!(
                 "match {} {{ Some(smelt_init_body) => {present}, None => {default_text} }}",
-                self.operand_expr(operand)?.delimited(), present = present.delimited(), default_text = default_text.delimited()
+                self.operand_expr(operand)?.delimited(),
+                present = present.delimited(),
+                default_text = default_text.delimited()
             )));
         }
         convert(&self.operand_expr(operand)?, ty)
     }
-
-
 }

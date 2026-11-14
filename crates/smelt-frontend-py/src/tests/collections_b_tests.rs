@@ -12,8 +12,15 @@ item: int = values.pop()
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
     ensure(
-        code.exprs()
-            .any(|expr| matches!(expr.kind, ExprKind::ListPop { raises_when_empty: true, .. })),
+        code.exprs().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::ListPop {
+                    raises_when_empty: true,
+                    ..
+                }
+            )
+        }),
         "expected list pop lowering",
     )
 }
@@ -242,7 +249,8 @@ float_keyword_result: None = floats.sort(key=None)
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
-    let sorts = code.exprs()
+    let sorts = code
+        .exprs()
         .filter(|expr| {
             matches!(
                 expr.kind,
@@ -267,7 +275,8 @@ fallback: int = mapping.pop("b", 0)
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
-    let pops = code.exprs()
+    let pops = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::DictPop { .. }))
         .count();
     ensure_eq(&pops, &2, "dict pop count")
@@ -284,7 +293,8 @@ fallback: int = mapping.get("b", 0)
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
-    let gets = code.exprs()
+    let gets = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::DictGet { .. }))
         .count();
     ensure_eq(&gets, &2, "dict get count")

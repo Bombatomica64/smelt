@@ -66,7 +66,10 @@ impl ModuleBuilder<'_> {
         if !plain_properties || fields.len() != literal.members.len() {
             return None;
         }
-        if fields.iter().any(|field| self.type_mentions_type_param(field.ty)) {
+        if fields
+            .iter()
+            .any(|field| self.type_mentions_type_param(field.ty))
+        {
             return None;
         }
         // An interface field of an optional property stores `Optional<T>`, as
@@ -81,7 +84,10 @@ impl ModuleBuilder<'_> {
                 } else {
                     field.ty
                 };
-                Field { ty, ..field.clone() }
+                Field {
+                    ty,
+                    ..field.clone()
+                }
             })
             .collect::<Vec<_>>();
         let decode_facts = literal
@@ -110,8 +116,13 @@ impl ModuleBuilder<'_> {
                 decode_facts,
                 ..Default::default()
             };
-            let item =
-                self.register_callable_object_interface(name, &name_text, Vec::new(), members, span);
+            let item = self.register_callable_object_interface(
+                name,
+                &name_text,
+                Vec::new(),
+                members,
+                span,
+            );
             self.items.insert(name_text, item);
         }
         Some(self.ctx.krate.types.intern(Type::Class {

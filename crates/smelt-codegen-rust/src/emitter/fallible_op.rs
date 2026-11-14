@@ -35,7 +35,9 @@ impl FunctionEmitter<'_> {
             (PythonDivisionOp::FloorDiv, Some(Type::Float)) => Ok("smelt_py_floor_div_float"),
             (PythonDivisionOp::Mod, Some(Type::Float)) => Ok("smelt_py_mod_float"),
             (PythonDivisionOp::TrueDiv, Some(Type::Float)) => Ok("smelt_py_true_div"),
-            _ => Err(EmitError::new("a Python division needs two ints or two floats")),
+            _ => Err(EmitError::new(
+                "a Python division needs two ints or two floats",
+            )),
         }
     }
 
@@ -51,10 +53,16 @@ impl FunctionEmitter<'_> {
         };
         let key_text = self.dict_key_reference_expr(key, *key_ty)?;
         let dict_text = self.operand_borrow_expr(dict)?;
-        let cloned = if self.map_op_uses_smelt_record(dict_ty, *key_ty) { "" } else { ".cloned()" };
+        let cloned = if self.map_op_uses_smelt_record(dict_ty, *key_ty) {
+            ""
+        } else {
+            ".cloned()"
+        };
         Ok((
             RenderedCall::propagating(RustExpr::atom(format!(
-                "{dict_text}.get({key_text}){cloned}.ok_or_else(|| smelt_py_key_error({key_text}))", dict_text = dict_text.tight(), key_text = key_text.delimited()
+                "{dict_text}.get({key_text}){cloned}.ok_or_else(|| smelt_py_key_error({key_text}))",
+                dict_text = dict_text.tight(),
+                key_text = key_text.delimited()
             ))),
             *value_ty,
         ))
@@ -63,9 +71,8 @@ impl FunctionEmitter<'_> {
     /// The mutable place a dict-mutating fallible op works on.
     fn dict_receiver_text(&self, dict: &Operand) -> Result<RustExpr, EmitError> {
         match dict {
-            Operand::Copy(smelt_mir::Place::Local(local)) | Operand::Move(smelt_mir::Place::Local(local)) => {
-                self.local_mut_value(*local)
-            }
+            Operand::Copy(smelt_mir::Place::Local(local))
+            | Operand::Move(smelt_mir::Place::Local(local)) => self.local_mut_value(*local),
             _ => Err(EmitError::new("a dict pop needs a local receiver")),
         }
     }
@@ -78,7 +85,9 @@ impl FunctionEmitter<'_> {
         key: &Operand,
     ) -> Result<(RenderedCall, TypeId), EmitError> {
         let dict_ty = self.operand_ty(dict)?;
-        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+        let Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) =
+            self.mir.types.get(dict_ty)
+        else {
             return Err(EmitError::new("dict pop receiver must be a dict"));
         };
         let dict_text = self.dict_receiver_text(dict)?;
@@ -86,7 +95,9 @@ impl FunctionEmitter<'_> {
         let remove = self.dict_remove_method(dict_ty, *key_ty);
         Ok((
             RenderedCall::propagating(RustExpr::atom(format!(
-                "{{ let smelt_key = {key_text}; {dict_text}.{remove}(&smelt_key).ok_or_else(|| smelt_py_key_error(&smelt_key)) }}", key_text = key_text.delimited(), dict_text = dict_text.tight()
+                "{{ let smelt_key = {key_text}; {dict_text}.{remove}(&smelt_key).ok_or_else(|| smelt_py_key_error(&smelt_key)) }}",
+                key_text = key_text.delimited(),
+                dict_text = dict_text.tight()
             ))),
             *value_ty,
         ))
@@ -94,16 +105,24 @@ impl FunctionEmitter<'_> {
 
     /// Renders Python's `d.popitem()`: the last-inserted `(key, value)` pair,
     /// or a raised `KeyError` on an empty dict.
-    fn python_dict_popitem_call(&self, dict: &Operand) -> Result<(RenderedCall, TypeId), EmitError> {
+    fn python_dict_popitem_call(
+        &self,
+        dict: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
             return Err(EmitError::new("dict popitem receiver must be a dict"));
         };
-        let pop = if self.dict_uses_smelt_record(*key_ty) { "pop_last" } else { "pop" };
+        let pop = if self.dict_uses_smelt_record(*key_ty) {
+            "pop_last"
+        } else {
+            "pop"
+        };
         let dict_text = self.dict_receiver_text(dict)?;
         Ok((
             RenderedCall::propagating(RustExpr::atom(format!(
-                "{dict_text}.{pop}().ok_or_else(|| smelt_py_key_error(&\"popitem(): dictionary is empty\".to_owned()))", dict_text = dict_text.tight()
+                "{dict_text}.{pop}().ok_or_else(|| smelt_py_key_error(&\"popitem(): dictionary is empty\".to_owned()))",
+                dict_text = dict_text.tight()
             ))),
             self.type_id(Type::Tuple(vec![*key_ty, *value_ty]))?,
         ))
@@ -119,7 +138,8 @@ impl FunctionEmitter<'_> {
         let list_text = self.operand_borrow_expr(list)?;
         Ok((
             RenderedCall::propagating(RustExpr::atom(format!(
-                "{list_text}.borrow_mut().pop().ok_or_else(|| smelt_py_index_error(\"pop from empty list\"))", list_text = list_text.tight()
+                "{list_text}.borrow_mut().pop().ok_or_else(|| smelt_py_index_error(\"pop from empty list\"))",
+                list_text = list_text.tight()
             ))),
             *item_ty,
         ))
@@ -140,17 +160,23 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(sequence_ty) {
             Some(Type::List(item_ty)) => Ok((
                 RenderedCall::propagating(RustExpr::atom(format!(
-                    "{{ let smelt_index: i64 = {index_text}; let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); let smelt_len = smelt_items.len() as i64; {position}.and_then(|smelt_at| smelt_items.get(smelt_at).cloned()).ok_or_else(|| smelt_py_index_error(\"list index out of range\")) }}", index_text = index_text.delimited(), sequence_text = sequence_text.tight()
+                    "{{ let smelt_index: i64 = {index_text}; let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); let smelt_len = smelt_items.len() as i64; {position}.and_then(|smelt_at| smelt_items.get(smelt_at).cloned()).ok_or_else(|| smelt_py_index_error(\"list index out of range\")) }}",
+                    index_text = index_text.delimited(),
+                    sequence_text = sequence_text.tight()
                 ))),
                 *item_ty,
             )),
             Some(Type::PyStr) => Ok((
                 RenderedCall::propagating(RustExpr::atom(format!(
-                    "{{ let smelt_index: i64 = {index_text}; let smelt_text = &{sequence_text}; let smelt_len = smelt_text.chars().count() as i64; {position}.and_then(|smelt_at| smelt_text.chars().nth(smelt_at)).map(String::from).ok_or_else(|| smelt_py_index_error(\"string index out of range\")) }}", index_text = index_text.delimited(), sequence_text = sequence_text.tight()
+                    "{{ let smelt_index: i64 = {index_text}; let smelt_text = &{sequence_text}; let smelt_len = smelt_text.chars().count() as i64; {position}.and_then(|smelt_at| smelt_text.chars().nth(smelt_at)).map(String::from).ok_or_else(|| smelt_py_index_error(\"string index out of range\")) }}",
+                    index_text = index_text.delimited(),
+                    sequence_text = sequence_text.tight()
                 ))),
                 sequence_ty,
             )),
-            _ => Err(EmitError::new("a Python sequence read needs a list or a string")),
+            _ => Err(EmitError::new(
+                "a Python sequence read needs a list or a string",
+            )),
         }
     }
 
@@ -195,7 +221,10 @@ impl FunctionEmitter<'_> {
         let sequence_ty = self.operand_ty(sequence)?;
         let bound = |operand: Option<&Operand>| -> Result<String, EmitError> {
             Ok(match operand {
-                Some(operand) => format!("Some({} as i64)", self.operand_expr(operand)?.as_cast_operand()),
+                Some(operand) => format!(
+                    "Some({} as i64)",
+                    self.operand_expr(operand)?.as_cast_operand()
+                ),
                 None => "None".to_owned(),
             })
         };
@@ -204,12 +233,20 @@ impl FunctionEmitter<'_> {
         let sequence_text = self.operand_borrow_expr(sequence)?;
         let text = match self.mir.types.get(sequence_ty) {
             Some(Type::List(_)) => format!(
-                "{{ let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); smelt_py_slice_positions(smelt_items.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| SmeltList::from(smelt_at.into_iter().filter_map(|smelt_index| smelt_items.get(smelt_index).cloned()).collect::<Vec<_>>())) }}", sequence_text = sequence_text.tight(), step_text = step_text.as_cast_operand()
+                "{{ let smelt_list = &{sequence_text}; let smelt_items = smelt_list.borrow(); smelt_py_slice_positions(smelt_items.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| SmeltList::from(smelt_at.into_iter().filter_map(|smelt_index| smelt_items.get(smelt_index).cloned()).collect::<Vec<_>>())) }}",
+                sequence_text = sequence_text.tight(),
+                step_text = step_text.as_cast_operand()
             ),
             Some(Type::PyStr) => format!(
-                "{{ let smelt_chars = {sequence_text}.chars().collect::<Vec<char>>(); smelt_py_slice_positions(smelt_chars.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| smelt_at.into_iter().filter_map(|smelt_index| smelt_chars.get(smelt_index)).collect::<String>()) }}", sequence_text = sequence_text.tight(), step_text = step_text.as_cast_operand()
+                "{{ let smelt_chars = {sequence_text}.chars().collect::<Vec<char>>(); smelt_py_slice_positions(smelt_chars.len(), {start_text}, {end_text}, {step_text} as i64).map(|smelt_at| smelt_at.into_iter().filter_map(|smelt_index| smelt_chars.get(smelt_index)).collect::<String>()) }}",
+                sequence_text = sequence_text.tight(),
+                step_text = step_text.as_cast_operand()
             ),
-            _ => return Err(EmitError::new("a Python step slice needs a list or a string")),
+            _ => {
+                return Err(EmitError::new(
+                    "a Python step slice needs a list or a string",
+                ));
+            }
         };
         Ok((RenderedCall::propagating(RustExpr::atom(text)), sequence_ty))
     }
@@ -222,7 +259,11 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
     ) -> Result<RustExpr, EmitError> {
         let divide = self.python_division_fn(op, self.operand_ty(lhs)?)?;
-        Ok(RustExpr::atom(divide).postfix(format!("({}, {})", self.operand_expr(lhs)?.delimited(), self.operand_expr(rhs)?.delimited())))
+        Ok(RustExpr::atom(divide).postfix(format!(
+            "({}, {})",
+            self.operand_expr(lhs)?.delimited(),
+            self.operand_expr(rhs)?.delimited()
+        )))
     }
 
     /// Renders the call of a fallible operation and states what it answers.
@@ -238,13 +279,17 @@ impl FunctionEmitter<'_> {
                 let rhs = self.operand_expr(rhs)?;
                 (
                     RenderedCall::propagating(RustExpr::atom(format!(
-                        "smelt_py_checked_division({lhs}, {rhs}, {divide})", lhs = lhs.delimited(), rhs = rhs.delimited()
+                        "smelt_py_checked_division({lhs}, {rhs}, {divide})",
+                        lhs = lhs.delimited(),
+                        rhs = rhs.delimited()
                     ))),
                     source_ty,
                 )
             }
             Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
-            Rvalue::BindingCheck { binding, unbound } => self.binding_check_call(binding, *unbound)?,
+            Rvalue::BindingCheck { binding, unbound } => {
+                self.binding_check_call(binding, *unbound)?
+            }
             Rvalue::PythonListRead { list, index } => {
                 let list_ty = self.operand_ty(list)?;
                 let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
@@ -254,16 +299,29 @@ impl FunctionEmitter<'_> {
                 let index_text = self.operand_expr(index)?;
                 (
                     RenderedCall::propagating(RustExpr::atom(format!(
-                        "smelt_py_list_read(&{list_text}, {index_text})", list_text = list_text.tight(), index_text = index_text.delimited()
+                        "smelt_py_list_read(&{list_text}, {index_text})",
+                        list_text = list_text.tight(),
+                        index_text = index_text.delimited()
                     ))),
                     *item_ty,
                 )
             }
-            Rvalue::DictPop { dict, key, default: None } => self.python_dict_pop_call(dict, key)?,
+            Rvalue::DictPop {
+                dict,
+                key,
+                default: None,
+            } => self.python_dict_pop_call(dict, key)?,
             Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
             Rvalue::ListPop { list, .. } => self.python_list_pop_call(list)?,
-            Rvalue::ErasedPatternCall { method, receiver, pattern, callee } => (
-                RenderedCall::propagating(self.erased_pattern_call_text(*method, receiver, pattern, callee)?),
+            Rvalue::ErasedPatternCall {
+                method,
+                receiver,
+                pattern,
+                callee,
+            } => (
+                RenderedCall::propagating(
+                    self.erased_pattern_call_text(*method, receiver, pattern, callee)?,
+                ),
                 self.type_id(Type::Unknown)?,
             ),
             Rvalue::ListIndex { list, item } => (
@@ -274,11 +332,18 @@ impl FunctionEmitter<'_> {
                 RenderedCall::propagating(self.list_remove_expr(list, item)?),
                 self.type_id(Type::None)?,
             ),
-            Rvalue::PythonSequenceRead { sequence, index } => self.python_sequence_read_call(sequence, index)?,
-            Rvalue::PythonStepSlice { sequence, start, end, step } => {
-                self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?
+            Rvalue::PythonSequenceRead { sequence, index } => {
+                self.python_sequence_read_call(sequence, index)?
             }
-            Rvalue::PythonListExtrema { op: extremum, list } => self.python_list_extrema_call(*extremum, list)?,
+            Rvalue::PythonStepSlice {
+                sequence,
+                start,
+                end,
+                step,
+            } => self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?,
+            Rvalue::PythonListExtrema { op: extremum, list } => {
+                self.python_list_extrema_call(*extremum, list)?
+            }
             Rvalue::Base64Transcode { op, .. } => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a base64 transcoder takes one string argument")
@@ -289,7 +354,10 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "base64 input")?;
                 (
-                    RenderedCall::propagating(RustExpr::atom(adapter).postfix(format!("(&{value_text})", value_text = value_text.tight()))),
+                    RenderedCall::propagating(
+                        RustExpr::atom(adapter)
+                            .postfix(format!("(&{value_text})", value_text = value_text.tight())),
+                    ),
                     self.type_id(Type::String)?,
                 )
             }
@@ -315,12 +383,11 @@ impl FunctionEmitter<'_> {
                 self.host_module_call(*op, &args)?,
                 self.host_module_call_source_ty(*op)?,
             ),
-            Rvalue::UrlNew { .. } => {
-                (self.url_new_call(&args)?, self.url_call_source_ty(true)?)
-            }
-            Rvalue::UrlOp { .. } => {
-                (self.url_set_href_call(&args)?, self.url_call_source_ty(false)?)
-            }
+            Rvalue::UrlNew { .. } => (self.url_new_call(&args)?, self.url_call_source_ty(true)?),
+            Rvalue::UrlOp { .. } => (
+                self.url_set_href_call(&args)?,
+                self.url_call_source_ty(false)?,
+            ),
             Rvalue::RegExpCompile { .. } => {
                 let pattern = args.first().map_or_else(
                     || Ok(RustExpr::atom("String::new()")),
@@ -336,7 +403,9 @@ impl FunctionEmitter<'_> {
                 (
                     RenderedCall::propagating(RustExpr::atom(format!(
                         "{}({pattern}, {flags})",
-                        crate::thrown::REGEXP_COMPILE_FN, pattern = pattern.delimited(), flags = flags.delimited()
+                        crate::thrown::REGEXP_COMPILE_FN,
+                        pattern = pattern.delimited(),
+                        flags = flags.delimited()
                     ))),
                     source_ty,
                 )
@@ -353,11 +422,18 @@ impl FunctionEmitter<'_> {
                 };
                 let value_text = self.string_like_operand_expr(value, "URI transcoder input")?;
                 (
-                    RenderedCall::propagating(RustExpr::atom(adapter).postfix(format!("(&{value_text})", value_text = value_text.tight()))),
+                    RenderedCall::propagating(
+                        RustExpr::atom(adapter)
+                            .postfix(format!("(&{value_text})", value_text = value_text.tight())),
+                    ),
                     self.type_id(Type::String)?,
                 )
             }
-            Rvalue::FastCheckRun { arbitraries, predicate, parameters } => (
+            Rvalue::FastCheckRun {
+                arbitraries,
+                predicate,
+                parameters,
+            } => (
                 RenderedCall::propagating(self.fast_check_run_expr(
                     arbitraries,
                     predicate,
@@ -375,7 +451,9 @@ impl FunctionEmitter<'_> {
         // decode, a digest) builds it as a UTF-8 `String`; a JavaScript string
         // result is that text as a `JsString`. `From`'s identity impl keeps an
         // op that already answers `JsString` unchanged.
-        let answered = if self.mir.types.get(source_ty) == Some(&Type::String) && !matches!(op, Rvalue::JsonParse { .. }) {
+        let answered = if self.mir.types.get(source_ty) == Some(&Type::String)
+            && !matches!(op, Rvalue::JsonParse { .. })
+        {
             if text.propagates() {
                 text.map_call(|call| format!("{call}.map(JsString::from)", call = call.tight()))
             } else {
@@ -384,7 +462,10 @@ impl FunctionEmitter<'_> {
         } else {
             text
         };
-        Ok(FallibleOpCall { text: answered, source_ty })
+        Ok(FallibleOpCall {
+            text: answered,
+            source_ty,
+        })
     }
 
     /// Renders `JSON.parse`. A source-declared, decodable target is a typed
@@ -400,7 +481,10 @@ impl FunctionEmitter<'_> {
         let text = args
             .first()
             .ok_or_else(|| EmitError::new("JSON parse takes one string argument"))?;
-        if !matches!(self.mir.types.get(self.operand_ty(text)?), Some(Type::String | Type::PyStr)) {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(text)?),
+            Some(Type::String | Type::PyStr)
+        ) {
             return Err(EmitError::new("JSON parse input must be a string"));
         }
         if let Some(decoded) = self.json_decode_target(target) {
@@ -411,7 +495,14 @@ impl FunctionEmitter<'_> {
             );
             return Ok((RenderedCall::propagating(RustExpr::atom(call)), decoded));
         }
-        let call = format!("{}(&{})", crate::thrown::JSON_PARSE_FN, self.operand_expr(text)?.tight());
-        Ok((RenderedCall::propagating(RustExpr::atom(call)), self.type_id(Type::Unknown)?))
+        let call = format!(
+            "{}(&{})",
+            crate::thrown::JSON_PARSE_FN,
+            self.operand_expr(text)?.tight()
+        );
+        Ok((
+            RenderedCall::propagating(RustExpr::atom(call)),
+            self.type_id(Type::Unknown)?,
+        ))
     }
 }

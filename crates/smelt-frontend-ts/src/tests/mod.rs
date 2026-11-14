@@ -158,7 +158,9 @@ fn ensure_signature(ctx: &HirCtx, name: &str, expected: &str) -> Result<(), Stri
     if actual == expected {
         Ok(())
     } else {
-        Err(format!("signature of `{name}`:\n  actual: {actual}\nexpected: {expected}"))
+        Err(format!(
+            "signature of `{name}`:\n  actual: {actual}\nexpected: {expected}"
+        ))
     }
 }
 
@@ -239,31 +241,36 @@ fn symbol_is(ctx: &HirCtx, symbol: smelt_hir::Symbol, name: &str) -> bool {
 
 /// Whether any body reads a field named `name`.
 fn crate_has_field(ctx: &HirCtx, name: &str) -> bool {
-    crate_has_expr(ctx, |kind| {
-        matches!(kind, ExprKind::Field { field, .. } if symbol_is(ctx, *field, name))
-    })
+    crate_has_expr(
+        ctx,
+        |kind| matches!(kind, ExprKind::Field { field, .. } if symbol_is(ctx, *field, name)),
+    )
 }
 
 /// Whether any body calls a method named `name` on a class receiver.
 fn crate_has_method(ctx: &HirCtx, name: &str) -> bool {
-    crate_has_expr(ctx, |kind| {
-        matches!(kind, ExprKind::Method { method, .. } if symbol_is(ctx, *method, name))
-    })
+    crate_has_expr(
+        ctx,
+        |kind| matches!(kind, ExprKind::Method { method, .. } if symbol_is(ctx, *method, name)),
+    )
 }
 
 /// Whether any body constructs the class named `name`.
 fn crate_has_new(ctx: &HirCtx, name: &str) -> bool {
-    crate_has_expr(ctx, |kind| {
-        matches!(kind, ExprKind::New { class, .. } if symbol_is(ctx, *class, name))
-    })
+    crate_has_expr(
+        ctx,
+        |kind| matches!(kind, ExprKind::New { class, .. } if symbol_is(ctx, *class, name)),
+    )
 }
 
 /// Whether any body declares a local named `name`.
 fn crate_has_local(ctx: &HirCtx, name: &str) -> bool {
     ctx.krate.bodies.iter().any(|body| {
-        body.locals
-            .iter()
-            .any(|local| local.name.is_some_and(|symbol| symbol_is(ctx, symbol, name)))
+        body.locals.iter().any(|local| {
+            local
+                .name
+                .is_some_and(|symbol| symbol_is(ctx, symbol, name))
+        })
     })
 }
 
@@ -317,45 +324,44 @@ fn assert_category(
     Ok(())
 }
 
-mod category_tests;
-mod host_resolution_guard_tests;
-mod int32_tests;
-mod bigint_tests;
-mod lower_framework_imports_tests;
-mod determinism_tests;
-mod source_facts_tests;
-mod lower_vitest_dates_tests;
-mod lower_builtin_calls_tests;
-mod constructor_function_tests;
-mod lower_calls_packing_tests;
-mod lower_maps_generators_tests;
-mod lower_classes_async_tests;
-mod specialization_tests;
-mod lower_global_object_tests;
-mod estk6_coverage_tests;
-mod estk_transpile_gate_tests;
-mod class_module_tests;
-mod enum_switch_tests;
+mod abstract_class_value_tests;
+mod anonymous_record_tests;
 mod array_literal_expr_tests;
+mod asserted_callback_name_tests;
+mod bigint_tests;
+mod callee_type_param_tests;
+mod category_tests;
+mod class_module_tests;
+mod closed_prototype_tests;
+mod closure_argument_hint_tests;
+mod constructor_function_tests;
+mod determinism_tests;
 mod drifted_helper_tests;
+mod enum_switch_tests;
+mod erasure_tests;
+mod estk6_coverage_tests;
 mod estk_mir_gate_tests;
-mod module_globals_tests;
+mod estk_transpile_gate_tests;
 mod fetch_types_tests;
+mod fn_ctx_tests;
+mod global_namespace_tests;
 mod host_module_tests;
 mod host_override_tests;
-mod global_namespace_tests;
-mod unresolved_type_import_tests;
-mod closure_argument_hint_tests;
-mod asserted_callback_name_tests;
-mod callee_type_param_tests;
-mod type_predicate_narrowing_tests;
+mod host_resolution_guard_tests;
+mod int32_tests;
+mod lower_builtin_calls_tests;
+mod lower_calls_packing_tests;
+mod lower_classes_async_tests;
+mod lower_framework_imports_tests;
+mod lower_global_object_tests;
+mod lower_maps_generators_tests;
+mod lower_vitest_dates_tests;
 mod module_arrow_item_tests;
-mod this_receiver_tests;
+mod module_globals_tests;
 mod promise_resolution_tests;
-mod erasure_tests;
-mod fn_ctx_tests;
-mod anonymous_record_tests;
 mod receiver_reuse_tests;
-mod abstract_class_value_tests;
-mod closed_prototype_tests;
-
+mod source_facts_tests;
+mod specialization_tests;
+mod this_receiver_tests;
+mod type_predicate_narrowing_tests;
+mod unresolved_type_import_tests;

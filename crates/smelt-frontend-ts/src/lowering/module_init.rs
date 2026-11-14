@@ -7,32 +7,32 @@
 //! arrows and object consts. This file keeps the statement loop and the
 //! module-exit async drain.
 
-mod phases;
-mod construction;
-pub(in crate::lowering) mod test_tier;
-mod imports;
-mod module_exports;
-mod reexports;
-mod type_declarations;
-mod predeclare_members;
-mod predeclare_functions;
-mod globals;
-mod mutable_globals;
 mod binding_usage;
 mod const_collections;
 mod const_items;
+mod construction;
 mod forward_arrows;
+mod globals;
+mod imports;
+mod module_exports;
+mod mutable_globals;
 mod object_consts;
+mod phases;
+mod predeclare_functions;
+mod predeclare_members;
+mod reexports;
+pub(in crate::lowering) mod test_tier;
+mod type_declarations;
 
-use crate::SmeltError;
-use oxc::ast::ast::{Declaration, Program, Statement};
-use oxc::span::GetSpan;
-use forward_arrows::ForwardArrowQueue;
-use phases::ModuleFacts;
-use smelt_hir::{Body, Expr, ExprKind, Item, Language, Module, ModuleId, SourceFile, Span, Type};
 use super::ModuleBuilder;
 use super::state::fn_ctx::FnCtx;
 use super::support::is_implemented_overload_signature;
+use crate::SmeltError;
+use forward_arrows::ForwardArrowQueue;
+use oxc::ast::ast::{Declaration, Program, Statement};
+use oxc::span::GetSpan;
+use phases::ModuleFacts;
+use smelt_hir::{Body, Expr, ExprKind, Item, Language, Module, ModuleId, SourceFile, Span, Type};
 
 impl ModuleBuilder<'_> {
     /// Lower a TypeScript program to HIR module.
@@ -120,11 +120,7 @@ impl ModuleBuilder<'_> {
             forward_arrow_consts,
             &signatures,
         );
-        self.drain_forward_arrow_queue(
-            &mut arrow_queue,
-            &mut module,
-            &mut errors,
-        );
+        self.drain_forward_arrow_queue(&mut arrow_queue, &mut module, &mut errors);
         // The previous top-level statement, examined once it is lowered
         // (`note_lowered_function`): the loop body leaves through `continue`s.
         let mut previous: Option<&Statement<'_>> = None;
@@ -136,7 +132,9 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             previous = Some(statement);
-            self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
+            self.anchor_top_level_statement(
+                self.span(statement.span().start, statement.span().end),
+            );
             // A queued arrow still waiting on a class is lowered no later than
             // its own source position, where every class above it is lowered.
             if let Some(start) = Self::variable_statement_start(statement) {
@@ -182,11 +180,7 @@ impl ModuleBuilder<'_> {
                 if let Some(id) = &class.id {
                     arrow_queue.mark_class_lowered(id.name.as_str());
                 }
-                self.drain_forward_arrow_queue(
-                    &mut arrow_queue,
-                    &mut module,
-                    &mut errors,
-                );
+                self.drain_forward_arrow_queue(&mut arrow_queue, &mut module, &mut errors);
                 continue;
             }
             if let Statement::TSInterfaceDeclaration(interface) = statement {
@@ -341,11 +335,7 @@ impl ModuleBuilder<'_> {
                     if let Some(id) = &class.id {
                         arrow_queue.mark_class_lowered(id.name.as_str());
                     }
-                    self.drain_forward_arrow_queue(
-                        &mut arrow_queue,
-                        &mut module,
-                        &mut errors,
-                    );
+                    self.drain_forward_arrow_queue(&mut arrow_queue, &mut module, &mut errors);
                 } else if let Declaration::TSInterfaceDeclaration(interface) = decl {
                     match self.interface_declaration(interface) {
                         Ok(item) => module.items.push(item),
@@ -382,11 +372,15 @@ impl ModuleBuilder<'_> {
         }
 
         for statement in &program.body {
-            self.anchor_top_level_statement(self.span(statement.span().start, statement.span().end));
+            self.anchor_top_level_statement(
+                self.span(statement.span().start, statement.span().end),
+            );
             // A class definition evaluates its static initializers here, in
             // source order, though the class item was lowered above.
             if let Some(class) = module_class_declaration(statement)
-                && let Some(item) = self.class_item_lowered_at(self.span(class.span.start, class.span.end)).map(|(item, _)| item)
+                && let Some(item) = self
+                    .class_item_lowered_at(self.span(class.span.start, class.span.end))
+                    .map(|(item, _)| item)
             {
                 let root = body.root;
                 self.touch_class_static_initializers(item, &mut body, root);
@@ -568,19 +562,26 @@ impl ModuleBuilder<'_> {
     /// how a call names its callee); closures are not, because defining one
     /// schedules nothing. `visited` stops recursion.
     fn body_reaches_event_loop(&self, body: &Body, visited: &mut Vec<smelt_hir::BodyId>) -> bool {
-        let reaches_through_callee = |builder: &Self, seen: &mut Vec<smelt_hir::BodyId>, id: smelt_hir::BodyId| {
-            if seen.contains(&id) {
-                return false;
-            }
-            seen.push(id);
-            let Some(callee_body) = usize::try_from(id.0).ok().and_then(|index| builder.ctx.krate.bodies.get(index)) else {
-                return false;
+        let reaches_through_callee =
+            |builder: &Self, seen: &mut Vec<smelt_hir::BodyId>, id: smelt_hir::BodyId| {
+                if seen.contains(&id) {
+                    return false;
+                }
+                seen.push(id);
+                let Some(callee_body) = usize::try_from(id.0)
+                    .ok()
+                    .and_then(|index| builder.ctx.krate.bodies.get(index))
+                else {
+                    return false;
+                };
+                builder.body_reaches_event_loop(callee_body, seen)
             };
-            builder.body_reaches_event_loop(callee_body, seen)
-        };
         for expr in &body.exprs {
             let nested = match &expr.kind {
-                ExprKind::Item(item) => match usize::try_from(item.0).ok().and_then(|index| self.ctx.krate.items.get(index)) {
+                ExprKind::Item(item) => match usize::try_from(item.0)
+                    .ok()
+                    .and_then(|index| self.ctx.krate.items.get(index))
+                {
                     Some(Item::Function(function)) => function.body,
                     _ => None,
                 },
@@ -624,7 +625,9 @@ impl ModuleBuilder<'_> {
 
 /// The class a module-level statement declares: `class C {}`, `export class
 /// C {}` or `export default class C {}`.
-fn module_class_declaration<'s, 'a>(statement: &'s Statement<'a>) -> Option<&'s oxc::ast::ast::Class<'a>> {
+fn module_class_declaration<'s, 'a>(
+    statement: &'s Statement<'a>,
+) -> Option<&'s oxc::ast::ast::Class<'a>> {
     match statement {
         Statement::ClassDeclaration(class) => Some(class),
         Statement::ExportDeclaration(export) => match &export.declaration {

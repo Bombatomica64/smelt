@@ -59,7 +59,9 @@ impl SourceLang {
 /// Return whether a token of a diagnostic names a `.ts`/`.py` source file.
 pub(crate) fn names_source_file(token: &str) -> bool {
     matches!(
-        Path::new(token).extension().and_then(|extension| extension.to_str()),
+        Path::new(token)
+            .extension()
+            .and_then(|extension| extension.to_str()),
         Some("ts" | "py")
     )
 }
@@ -136,7 +138,10 @@ fn collect_source_files(
 
 /// Returns whether `dir` is the manifest's output directory.
 fn is_output_dir(dir: &Path, output_dir: Option<&Path>) -> bool {
-    output_dir.is_some_and(|output| dir.canonicalize().is_ok_and(|canonical| canonical == output))
+    output_dir.is_some_and(|output| {
+        dir.canonicalize()
+            .is_ok_and(|canonical| canonical == output)
+    })
 }
 
 /// Returns whether `path` is a `.ts`/`.py` source file the probe should lower.
@@ -156,7 +161,11 @@ fn is_probe_source_file(path: &Path) -> bool {
 /// directory (for example `src/object/clone.spec.ts`), using the same narrow
 /// glob syntax as [`path_matches_glob`]. Paths outside `manifest_dir` and paths
 /// with no exclude patterns are always retained.
-pub(crate) fn retain_included_paths(paths: &mut Vec<PathBuf>, excludes: &[String], manifest_dir: &Path) {
+pub(crate) fn retain_included_paths(
+    paths: &mut Vec<PathBuf>,
+    excludes: &[String],
+    manifest_dir: &Path,
+) {
     if excludes.is_empty() {
         return;
     }
@@ -494,20 +503,31 @@ mod tests {
     #[test]
     fn discovery_keeps_directories_that_only_look_like_output() {
         let files = ["distance/haversine.ts", "dist/generated.ts", "main.ts"];
-        assert_eq!(discovered("./dist", &files), ["distance/haversine.ts", "main.ts"]);
+        assert_eq!(
+            discovered("./dist", &files),
+            ["distance/haversine.ts", "main.ts"]
+        );
     }
 
     /// The skipped directory is the configured target, whatever it is called.
     #[test]
     fn discovery_skips_the_configured_output_target() {
         let files = ["build/rust/generated.ts", "dist/kept.ts", "main.ts"];
-        assert_eq!(discovered("build/rust", &files), ["dist/kept.ts", "main.ts"]);
+        assert_eq!(
+            discovered("build/rust", &files),
+            ["dist/kept.ts", "main.ts"]
+        );
     }
 
     /// Vendored directories and declaration files stay out regardless.
     #[test]
     fn discovery_skips_vendored_directories_and_declarations() {
-        let files = ["node_modules/p/i.ts", "__pycache__/m.py", "types.d.ts", "m.py"];
+        let files = [
+            "node_modules/p/i.ts",
+            "__pycache__/m.py",
+            "types.d.ts",
+            "m.py",
+        ];
         assert_eq!(discovered("./dist", &files), ["m.py"]);
     }
 

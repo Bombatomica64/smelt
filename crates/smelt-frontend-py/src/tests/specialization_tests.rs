@@ -152,13 +152,22 @@ fn definition_time_output_replays_only_for_materialized_statements() -> TestResu
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
     let replayed = |text: &str| {
-        code.exprs().any(|expr| {
-            matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == text)
-        })
+        code.exprs().any(
+            |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == text),
+        )
     };
-    ensure(replayed("decorating\n"), "a materialized decorator's output must replay")?;
-    ensure(!replayed("from the call\n"), "a lowered statement's output must not replay")?;
-    ensure(!replayed("another module\n"), "another module's output must not replay here")
+    ensure(
+        replayed("decorating\n"),
+        "a materialized decorator's output must replay",
+    )?;
+    ensure(
+        !replayed("from the call\n"),
+        "a lowered statement's output must not replay",
+    )?;
+    ensure(
+        !replayed("another module\n"),
+        "another module's output must not replay here",
+    )
 }
 
 #[test]

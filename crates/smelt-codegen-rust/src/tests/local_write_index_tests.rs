@@ -79,5 +79,8 @@ fn repeat_reachable_matches_per_block_reference() {
         }
     }
     // The fixture must actually exercise cycles, or the comparison is vacuous.
-    assert!(repeating_functions > 0_usize, "no function had a repeating region");
+    assert!(
+        repeating_functions > 0_usize,
+        "no function had a repeating region"
+    );
 }

@@ -156,7 +156,10 @@ impl Terminator {
                         visit(*ty);
                     }
                 }
-                Callee::Static(_) | Callee::Indirect(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
+                Callee::Static(_)
+                | Callee::Indirect(_)
+                | Callee::Builtin(_)
+                | Callee::BaseInit(_) => {}
             },
             Self::Goto(_)
             | Self::Await { .. }
@@ -177,7 +180,10 @@ impl Terminator {
                         *ty = map(*ty);
                     }
                 }
-                Callee::Static(_) | Callee::Indirect(_) | Callee::Builtin(_) | Callee::BaseInit(_) => {}
+                Callee::Static(_)
+                | Callee::Indirect(_)
+                | Callee::Builtin(_)
+                | Callee::BaseInit(_) => {}
             },
             Self::Goto(_)
             | Self::Await { .. }
@@ -414,7 +420,10 @@ impl Mir {
     ///
     /// The tables are taken out of `self` for the walk so `map` may intern
     /// through `types`; they are put back before this returns.
-    pub fn map_types(&mut self, mut map_in: impl FnMut(&mut smelt_hir::TypeInterner, TypeId) -> TypeId) {
+    pub fn map_types(
+        &mut self,
+        mut map_in: impl FnMut(&mut smelt_hir::TypeInterner, TypeId) -> TypeId,
+    ) {
         let mut functions = std::mem::take(&mut self.functions);
         let mut closures = std::mem::take(&mut self.closures);
         let mut classes = std::mem::take(&mut self.classes);

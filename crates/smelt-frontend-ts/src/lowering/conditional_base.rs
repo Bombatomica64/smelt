@@ -62,9 +62,10 @@ impl ModuleBuilder<'_> {
         let Some(Expression::ConditionalExpression(conditional)) = &declarator.init else {
             return Ok(false);
         };
-        let (Some(when_true), Some(when_false)) =
-            (identifier_name(&conditional.consequent), identifier_name(&conditional.alternate))
-        else {
+        let (Some(when_true), Some(when_false)) = (
+            identifier_name(&conditional.consequent),
+            identifier_name(&conditional.alternate),
+        ) else {
             return Ok(false);
         };
         if !self.classes.contains(when_true) || !self.classes.contains(when_false) {
@@ -75,16 +76,35 @@ impl ModuleBuilder<'_> {
         let cond_value = self.expression(&conditional.test, body)?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let symbol = self.intern_synthesized_name(&format!("smelt_{name}_arm"));
-        let cond = body.push_local(LocalDecl { name: Some(symbol), ty: bool_ty, mutable: false, span });
+        let cond = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty: bool_ty,
+            mutable: false,
+            span,
+        });
         let pat = body.push_pattern(Pattern::Binding(cond));
-        body.push_stmt_to_block(block, Stmt::Let { pat, ty: bool_ty, value: Some(cond_value) });
-        let selected = self.select_on(cond, span, body, [when_true, when_false], |this, class, body| {
-            this.identifier_expression(class, span.start, span.end, body)
-        })?;
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat,
+                ty: bool_ty,
+                value: Some(cond_value),
+            },
+        );
+        let selected = self.select_on(
+            cond,
+            span,
+            body,
+            [when_true, when_false],
+            |this, class, body| this.identifier_expression(class, span.start, span.end, body),
+        )?;
         self.binding_declaration(&declarator.id, Some(selected), None, false, body, block)?;
         self.conditional_bases.insert(
             name.to_owned(),
-            ConditionalBase { cond, arms: [when_true.to_owned(), when_false.to_owned()] },
+            ConditionalBase {
+                cond,
+                arms: [when_true.to_owned(), when_false.to_owned()],
+            },
         );
         Ok(true)
     }
@@ -99,7 +119,9 @@ impl ModuleBuilder<'_> {
             return Ok(false);
         };
         let heritage = &heritage.expression;
-        let Some(base) = identifier_name(heritage).and_then(|name| self.conditional_bases.get(name)).cloned()
+        let Some(base) = identifier_name(heritage)
+            .and_then(|name| self.conditional_bases.get(name))
+            .cloned()
         else {
             return Ok(false);
         };
@@ -110,7 +132,8 @@ impl ModuleBuilder<'_> {
         let specialised = base.arms.clone().map(|arm| format!("{name}Over{arm}"));
         for (arm, specialised_name) in base.arms.iter().zip(&specialised) {
             self.classes.push_alias(base_name.clone(), arm.clone());
-            self.classes.push_alias(name.clone(), specialised_name.clone());
+            self.classes
+                .push_alias(name.clone(), specialised_name.clone());
             self.forced_class_name = Some(specialised_name.clone());
             let lowered = self.class_declaration(class);
             self.forced_class_name = None;
@@ -118,7 +141,13 @@ impl ModuleBuilder<'_> {
             self.classes.pop_alias();
             lowered?;
         }
-        self.conditional_classes.insert(name, ConditionalClass { cond: base.cond, arms: specialised });
+        self.conditional_classes.insert(
+            name,
+            ConditionalClass {
+                cond: base.cond,
+                arms: specialised,
+            },
+        );
         Ok(true)
     }
 
@@ -169,10 +198,25 @@ impl ModuleBuilder<'_> {
         let ty = if then_ty == else_ty {
             then_ty
         } else {
-            self.ctx.krate.types.intern(Type::Union(vec![then_ty, else_ty]))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_ty, else_ty]))
         };
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let cond = body.push_expr(Expr { kind: ExprKind::Local(cond), ty: bool_ty, span });
-        Ok(body.push_expr(Expr { kind: ExprKind::Conditional { cond, then_expr, else_expr }, ty, span }))
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::Local(cond),
+            ty: bool_ty,
+            span,
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
+            ty,
+            span,
+        }))
     }
 }

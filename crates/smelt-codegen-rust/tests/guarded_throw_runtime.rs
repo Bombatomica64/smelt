@@ -41,7 +41,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
 /// radash's `guard`, verbatim, plus the async producer the tests drive it with.
 ///
 /// Kept as one string so every fixture below exercises the same source shape
@@ -89,8 +88,6 @@ async function fetchUser(id: string): Promise<string> {
   return user ?? "default-user";
 }
 "#;
-
-
 
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {

@@ -137,8 +137,7 @@ impl FunctionEmitter<'_> {
                                 access.read
                             ));
                             rendered_args.push(format!("&mut {temp}"));
-                            writebacks
-                                .push_str(&format!("{} = {temp}; ", access.assign_target));
+                            writebacks.push_str(&format!("{} = {temp}; ", access.assign_target));
                         }
                         monomorphized_arg = Some((target_ty, place_ty));
                     }
@@ -212,7 +211,10 @@ impl FunctionEmitter<'_> {
                 // emits, so the callback reaching here has a declared type with
                 // nothing to substitute, and the caller's own lexical scope is
                 // the right (and unchanged) environment to render it in.
-                rendered_args.push(self.borrowed_function_argument_expr(arg, target_ty, None)?.into_string());
+                rendered_args.push(
+                    self.borrowed_function_argument_expr(arg, target_ty, None)?
+                        .into_string(),
+                );
             } else if matches!(self.mir.types.get(target_ty), Some(Type::TypeParam { .. }))
                 && self.type_mentions_any(target_ty, &callee_generics)
             {
@@ -221,13 +223,16 @@ impl FunctionEmitter<'_> {
                 // is rendered at that list's element type (an `unknown[]` list
                 // binds `T` to the erased value). With no such list, the
                 // argument's own type binds it.
-                let list_binding = args.iter().zip(target_tys.iter()).find_map(|(other, other_target)| {
-                    let item = self.list_element_ty(*other_target).ok()?;
-                    (item == target_ty)
-                        .then(|| self.operand_ty(other).ok())
-                        .flatten()
-                        .and_then(|ty| self.list_element_ty(ty).ok())
-                });
+                let list_binding =
+                    args.iter()
+                        .zip(target_tys.iter())
+                        .find_map(|(other, other_target)| {
+                            let item = self.list_element_ty(*other_target).ok()?;
+                            (item == target_ty)
+                                .then(|| self.operand_ty(other).ok())
+                                .flatten()
+                                .and_then(|ty| self.list_element_ty(ty).ok())
+                        });
                 let bound_ty = match list_binding {
                     Some(item) => item,
                     None => self.operand_ty(arg)?,
@@ -255,9 +260,13 @@ impl FunctionEmitter<'_> {
             // (which renders as `SmeltUnknown` and would emit a bogus extraction
             // against concrete elements). A non-list destination — a discarded
             // (void) call — has nothing to convert to.
-            Some((param_ty, arg_ty)) if return_ty == param_ty && dest_is_list => {
-                self.rendered_at_type(&RustExpr::path("smelt_mut_call_result"), arg_ty, dest_ty, &self.render_scope())?
-            }
+            Some((param_ty, arg_ty)) if return_ty == param_ty && dest_is_list => self
+                .rendered_at_type(
+                    &RustExpr::path("smelt_mut_call_result"),
+                    arg_ty,
+                    dest_ty,
+                    &self.render_scope(),
+                )?,
             // Any other return position that mentions the callee's generics is
             // likewise monomorphized here, and the destination local already
             // carries the substituted type from the frontend (the same reasoning
@@ -268,7 +277,12 @@ impl FunctionEmitter<'_> {
             }
             // A fully concrete return position from a generic callee needs the
             // ordinary destination coercion.
-            Some(_) => self.rendered_at_type(&RustExpr::path("smelt_mut_call_result"), return_ty, dest_ty, &self.render_scope())?,
+            Some(_) => self.rendered_at_type(
+                &RustExpr::path("smelt_mut_call_result"),
+                return_ty,
+                dest_ty,
+                &self.render_scope(),
+            )?,
             None => self.mut_list_adapter_return_expr(
                 &RustExpr::path("smelt_mut_call_result"),
                 return_ty,
@@ -277,7 +291,8 @@ impl FunctionEmitter<'_> {
             )?,
         };
         Ok(Some(RustExpr::atom(format!(
-            "{{ {prelude}let smelt_mut_call_result = {rust_function_name}({arg_values}); {writebacks}{result_expr} }}", result_expr = result_expr.delimited()
+            "{{ {prelude}let smelt_mut_call_result = {rust_function_name}({arg_values}); {writebacks}{result_expr} }}",
+            result_expr = result_expr.delimited()
         ))))
     }
 
@@ -367,11 +382,8 @@ impl FunctionEmitter<'_> {
         // erases it. The callee renders its element with generics only when it
         // emits real Rust generics, which is what `callee_generics` encodes.
         let caller_scope = self.current_function_type_params();
-        let arg_element = self.rust_type(
-            *arg_item,
-            false,
-            &TypeSubstitution::lexical(&caller_scope),
-        )?;
+        let arg_element =
+            self.rust_type(*arg_item, false, &TypeSubstitution::lexical(&caller_scope))?;
         let param_element = self.rust_type(
             *target_item,
             false,
@@ -458,9 +470,7 @@ impl FunctionEmitter<'_> {
     /// `*array = ..` does not compile on a non-reference at all.
     fn mut_list_place_access(&self, place: &Place) -> Result<MutListPlaceAccess, EmitError> {
         let Place::Local(local) = place else {
-            return Err(EmitError::new(
-                "mutable-list adapter place must be a local",
-            ));
+            return Err(EmitError::new("mutable-list adapter place must be a local"));
         };
         let text = self.place_expr(place)?;
         match self.mut_list_place_storage(*local)? {

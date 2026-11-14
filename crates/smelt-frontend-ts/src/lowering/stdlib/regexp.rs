@@ -1,14 +1,15 @@
 //! Regular expressions: literals, `new RegExp`, `test`/`exec`, and the string methods
 //! that take a pattern (`match`, `replace`).
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{ErasedPatternMethod, 
-    Body, Expr, ExprKind, FunctionType, Literal, RegexMatchOp, Span, StringReplaceOp, Type,
+use smelt_hir::{
+    Body, ErasedPatternMethod, Expr, ExprKind, FunctionType, Literal, RegexMatchOp, Span,
+    StringReplaceOp, Type,
 };
 use smelt_stdlib::RuleId;
 
@@ -18,12 +19,16 @@ fn regexp_construction<'e, 'a>(
     expression: &'e Expression<'a>,
 ) -> Option<(&'e Expression<'a>, &'e [Argument<'a>], oxc::span::Span)> {
     match expression {
-        Expression::NewExpression(new_expr) => {
-            Some((&new_expr.callee, new_expr.arguments.as_slice(), new_expr.span))
-        }
-        Expression::CallExpression(call_expr) => {
-            Some((&call_expr.callee, call_expr.arguments.as_slice(), call_expr.span))
-        }
+        Expression::NewExpression(new_expr) => Some((
+            &new_expr.callee,
+            new_expr.arguments.as_slice(),
+            new_expr.span,
+        )),
+        Expression::CallExpression(call_expr) => Some((
+            &call_expr.callee,
+            call_expr.arguments.as_slice(),
+            call_expr.span,
+        )),
         _ => None,
     }
 }
@@ -32,7 +37,8 @@ impl ModuleBuilder<'_> {
     /// Whether a callee is the bare global `RegExp`, not a binding that
     /// shadows it.
     fn callee_is_regexp(&self, callee: &Expression<'_>) -> bool {
-        self.host_global(callee).is_some_and(|host| host.is("RegExp"))
+        self.host_global(callee)
+            .is_some_and(|host| host.is("RegExp"))
     }
 
     /// Resolve which ECMA-262 replacer arguments a `.replace(re, fn)` callback
@@ -154,9 +160,9 @@ impl ModuleBuilder<'_> {
         match body.expr_at(expr).map(|held| &held.kind) {
             Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
             // A regex literal's `RegExp` value: its source is the first argument.
-            Some(ExprKind::New { args, .. }) => {
-                args.first().and_then(|source| Self::string_literal_expr_text(body, *source))
-            }
+            Some(ExprKind::New { args, .. }) => args
+                .first()
+                .and_then(|source| Self::string_literal_expr_text(body, *source)),
             _ => None,
         }
     }
@@ -333,9 +339,7 @@ impl ModuleBuilder<'_> {
             Expression::RegExpLiteral(literal) => {
                 let flags = literal.regex.flags.to_string();
                 self.require_replacement_flags(&flags, literal.span)?;
-                let op = flags
-                    .contains('g')
-                    .then_some(StringReplaceOp::All);
+                let op = flags.contains('g').then_some(StringReplaceOp::All);
                 Ok(Some((self.regexp_literal_expression(literal, body)?, op)))
             }
             Expression::Identifier(identifier) => {
@@ -347,7 +351,10 @@ impl ModuleBuilder<'_> {
                 self.require_replacement_flags(&flags, identifier.span)?;
                 let op = flags.contains('g').then_some(StringReplaceOp::All);
                 let span = self.span(identifier.span.start, identifier.span.end);
-                Ok(Some((self.regexp_value_expression(pattern, flags, span, body), op)))
+                Ok(Some((
+                    self.regexp_value_expression(pattern, flags, span, body),
+                    op,
+                )))
             }
             _ => Ok(None),
         }
@@ -519,23 +526,22 @@ impl ModuleBuilder<'_> {
     fn could_be_regexp_test_receiver(&mut self, expression: &Expression<'_>, body: &Body) -> bool {
         let syntactic = match expression {
             Expression::NewExpression(_) | Expression::CallExpression(_) => {
-                regexp_construction(expression).is_some_and(|(callee, _, _)| self.callee_is_regexp(callee))
+                regexp_construction(expression)
+                    .is_some_and(|(callee, _, _)| self.callee_is_regexp(callee))
             }
             Expression::RegExpLiteral(_) => true,
             Expression::Identifier(identifier) => self
                 .scope
                 .lookup(identifier.name.as_str())
-                .and_then(|local| {
-                    body.local_at(local)
-                        .map(|decl| decl.ty)
-                })
+                .and_then(|local| body.local_at(local).map(|decl| decl.ty))
                 .or_else(|| self.module_globals.get(identifier.name.as_str()).copied())
                 .is_some_and(|ty| self.regexp_receiver_type(ty)),
             Expression::StaticMemberExpression(member) => {
                 let Expression::Identifier(object) = &member.object else {
                     return false;
                 };
-                self.consts.object(object.name.as_str())
+                self.consts
+                    .object(object.name.as_str())
                     .and_then(|object_const| {
                         object_const
                             .entries
@@ -576,7 +582,8 @@ impl ModuleBuilder<'_> {
     /// value), so both are consulted — the receiver gate and the post-lowering
     /// check of [`Self::regexp_test_call`] must agree on this.
     fn is_regexp_class_type(&self, ty: smelt_hir::TypeId) -> bool {
-        self.stdlib_class_of_type(self.type_param_constraint_or_self(ty)) == Some(smelt_stdlib::StdlibClass::RegExp)
+        self.stdlib_class_of_type(self.type_param_constraint_or_self(ty))
+            == Some(smelt_stdlib::StdlibClass::RegExp)
     }
 
     /// Lower TypeScript `pattern.exec(text)` to an optional match array.
@@ -635,7 +642,8 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let receiver_ty = self.type_param_constraint_or_self(Self::expr_ty(body, receiver));
         if self.ctx.krate.types.get(receiver_ty) != Some(&Type::Unknown)
-            || self.checker_types_as_string(receiver_source.span().start, receiver_source.span().end)
+            || self
+                .checker_types_as_string(receiver_source.span().start, receiver_source.span().end)
         {
             return Ok(None);
         }
@@ -649,7 +657,12 @@ impl ModuleBuilder<'_> {
             method.text()
         );
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ErasedPatternCall { method, receiver, pattern, callee },
+            kind: ExprKind::ErasedPatternCall {
+                method,
+                receiver,
+                pattern,
+                callee,
+            },
             ty,
             span: self.span(span.start, span.end),
         })))
@@ -779,11 +792,16 @@ impl ModuleBuilder<'_> {
     /// `String.prototype.match` into a flagless `new RegExp(x)`. Any other
     /// operand (a parameter, a local, a field) carries its flags in the VALUE,
     /// so the answer is `None` rather than a guess.
-    pub(in crate::lowering) fn static_regexp_flags(&self, pattern: smelt_hir::ExprId, body: &Body) -> Option<String> {
+    pub(in crate::lowering) fn static_regexp_flags(
+        &self,
+        pattern: smelt_hir::ExprId,
+        body: &Body,
+    ) -> Option<String> {
         let expr = body.expr_at(pattern)?;
         match &expr.kind {
             ExprKind::New { class, args }
-                if self.stdlib_class_of_symbol(*class) == Some(smelt_stdlib::StdlibClass::RegExp) =>
+                if self.stdlib_class_of_symbol(*class)
+                    == Some(smelt_stdlib::StdlibClass::RegExp) =>
             {
                 match args.as_slice() {
                     [_] => Some(String::new()),
@@ -890,7 +908,8 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        self.regexp_construction_expression(&call.arguments, call.span, body).map(Some)
+        self.regexp_construction_expression(&call.arguments, call.span, body)
+            .map(Some)
     }
 
     /// The shared lowering of both `RegExp` construction spellings, from the
@@ -995,7 +1014,9 @@ impl ModuleBuilder<'_> {
             return self.regexp_pattern_operand(pattern, body);
         }
         match expression {
-            Expression::RegExpLiteral(literal) => Ok(Some(self.regexp_literal_expression(literal, body)?)),
+            Expression::RegExpLiteral(literal) => {
+                Ok(Some(self.regexp_literal_expression(literal, body)?))
+            }
             Expression::Identifier(_)
             | Expression::StaticMemberExpression(_)
             | Expression::ComputedMemberExpression(_) => {
@@ -1056,7 +1077,12 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a contextual argument type should preserve a `RegExp` literal object.
     pub(in crate::lowering) fn type_accepts_regexp_literal(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::Class { name, .. }) => self
                 .ctx
                 .krate
@@ -1096,8 +1122,16 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let pattern = body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(pattern)), ty: string_ty, span });
-        let flags = body.push_expr(Expr { kind: ExprKind::Literal(Literal::String(flags)), ty: string_ty, span });
+        let pattern = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(pattern)),
+            ty: string_ty,
+            span,
+        });
+        let flags = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(flags)),
+            ty: string_ty,
+            span,
+        });
         body.push_expr(Expr {
             kind: ExprKind::New {
                 class: self.intern_type_name("RegExp"),
@@ -1115,9 +1149,11 @@ fn expression_spelling(expression: &Expression<'_>) -> Option<String> {
     match expression {
         Expression::Identifier(identifier) => Some(identifier.name.to_string()),
         Expression::ThisExpression(_) => Some("this".to_owned()),
-        Expression::StaticMemberExpression(member) => {
-            Some(format!("{}.{}", expression_spelling(&member.object)?, member.property.name))
-        }
+        Expression::StaticMemberExpression(member) => Some(format!(
+            "{}.{}",
+            expression_spelling(&member.object)?,
+            member.property.name
+        )),
         Expression::ParenthesizedExpression(inner) => expression_spelling(&inner.expression),
         Expression::TSAsExpression(inner) => expression_spelling(&inner.expression),
         _ => None,

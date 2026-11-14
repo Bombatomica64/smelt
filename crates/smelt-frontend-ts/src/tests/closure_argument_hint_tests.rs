@@ -13,10 +13,7 @@
 use super::*;
 
 /// The HIR type of the first expression whose kind matches `pred`.
-fn first_expr_ty(
-    ctx: &HirCtx,
-    pred: impl Fn(&ExprKind) -> bool + Copy,
-) -> Result<Type, String> {
+fn first_expr_ty(ctx: &HirCtx, pred: impl Fn(&ExprKind) -> bool + Copy) -> Result<Type, String> {
     ctx.krate
         .bodies
         .iter()
@@ -27,8 +24,8 @@ fn first_expr_ty(
 }
 
 #[test]
-fn an_object_literal_against_a_const_bound_arrow_takes_the_parameter_struct()
--> Result<(), String> {
+fn an_object_literal_against_a_const_bound_arrow_takes_the_parameter_struct() -> Result<(), String>
+{
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(r"

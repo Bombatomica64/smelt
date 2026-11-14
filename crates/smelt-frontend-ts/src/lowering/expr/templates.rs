@@ -1,11 +1,11 @@
 //! Template literals and tagged templates, including `String.raw`.
 
+use super::super::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::js_text::template_element_literal;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, Type};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Lower a template literal as string concatenation.
@@ -32,7 +32,8 @@ impl ModuleBuilder<'_> {
             let part = self.expression(interp, body)?;
             // An interpolation is a string conversion; an absent `null` reads
             // as `"null"` (`lowering::null_absent`).
-            let part = self.null_absent_string_operand(part, interp.span().start, interp.span().end, body);
+            let part =
+                self.null_absent_string_operand(part, interp.span().start, interp.span().end, body);
             acc = body.push_expr(Expr {
                 kind: ExprKind::BinOp {
                     op: BinOp::Add,
@@ -142,7 +143,8 @@ impl ModuleBuilder<'_> {
             let part = self.expression(interp, body)?;
             // An interpolation is a string conversion; an absent `null` reads
             // as `"null"` (`lowering::null_absent`).
-            let part = self.null_absent_string_operand(part, interp.span().start, interp.span().end, body);
+            let part =
+                self.null_absent_string_operand(part, interp.span().start, interp.span().end, body);
             acc = body.push_expr(Expr {
                 kind: ExprKind::BinOp {
                     op: BinOp::Add,

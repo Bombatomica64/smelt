@@ -72,7 +72,14 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let type_params = self.callee_own_type_params(item);
-        self.instantiated_call_return(&type_params, &function.params, args, function.return_ty, call, body)
+        self.instantiated_call_return(
+            &type_params,
+            &function.params,
+            args,
+            function.return_ty,
+            call,
+            body,
+        )
     }
 
     /// The result type of one call of a generic callee: `return_ty` with the
@@ -111,7 +118,9 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &Body,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        if type_params.is_empty() || !self.overload_constraint_contains_unresolved_type_param(return_ty) {
+        if type_params.is_empty()
+            || !self.overload_constraint_contains_unresolved_type_param(return_ty)
+        {
             return Ok(return_ty);
         }
         let resolved = self.checker_call_type(call.span.start, call.span.end);
@@ -122,11 +131,17 @@ impl ModuleBuilder<'_> {
         if resolved.is_none() {
             self.widen_call_bindings(type_params, params, args, body, &mut substitutions);
         }
-        let mut explicit_bindings: Vec<_> =
-            self.explicit_call_type_bindings(type_params, call).unwrap_or_default().into_iter().collect();
+        let mut explicit_bindings: Vec<_> = self
+            .explicit_call_type_bindings(type_params, call)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         explicit_bindings.sort_unstable_by_key(|(name, _)| name.0);
         for (name, explicit) in explicit_bindings {
-            if substitutions.get(&name).is_some_and(|bound| self.type_accepts_all_of(explicit, *bound)) {
+            if substitutions
+                .get(&name)
+                .is_some_and(|bound| self.type_accepts_all_of(explicit, *bound))
+            {
                 substitutions.insert(name, explicit);
             }
         }
@@ -135,9 +150,14 @@ impl ModuleBuilder<'_> {
         // it, so the definition yields it erased, and a generator's yield type
         // has no conversion at the call: the result keeps what the definition
         // returns.
-        if matches!(self.ctx.krate.types.get(return_ty), Some(Type::Generator { .. })) {
+        if matches!(
+            self.ctx.krate.types.get(return_ty),
+            Some(Type::Generator { .. })
+        ) {
             substitutions.retain(|name, _| {
-                params.iter().any(|param| self.mentions_outside_a_union(*param, *name))
+                params
+                    .iter()
+                    .any(|param| self.mentions_outside_a_union(*param, *name))
             });
         }
         self.complete_callee_type_substitution(type_params, &mut substitutions);
@@ -151,11 +171,17 @@ impl ModuleBuilder<'_> {
     }
 
     /// Whether `ty` mentions any of `params` anywhere.
-    pub(in crate::lowering) fn mentions_type_params(&self, ty: smelt_hir::TypeId, params: &[TypeParamDef]) -> bool {
+    pub(in crate::lowering) fn mentions_type_params(
+        &self,
+        ty: smelt_hir::TypeId,
+        params: &[TypeParamDef],
+    ) -> bool {
         match self.ctx.krate.types.get(ty) {
             None => false,
             Some(Type::TypeParam { name }) => params.iter().any(|param| param.name == *name),
-            Some(other) => other.children().any(|child| self.mentions_type_params(child, params)),
+            Some(other) => other
+                .children()
+                .any(|child| self.mentions_type_params(child, params)),
         }
     }
 
@@ -164,7 +190,9 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Union(_)) | None => false,
             Some(Type::TypeParam { name: found, .. }) => *found == name,
-            Some(other) => other.children().any(|child| self.mentions_outside_a_union(child, name)),
+            Some(other) => other
+                .children()
+                .any(|child| self.mentions_outside_a_union(child, name)),
         }
     }
 
@@ -186,8 +214,12 @@ impl ModuleBuilder<'_> {
             .map(|argument| self.ts_type_to_hir(argument))
             .collect::<Result<Vec<_>, _>>()
             .ok()?;
-        self.type_argument_substitution(type_params, &explicit, self.span(call.span.start, call.span.end))
-            .ok()
+        self.type_argument_substitution(
+            type_params,
+            &explicit,
+            self.span(call.span.start, call.span.end),
+        )
+        .ok()
     }
 
     /// Bind a callee's own type parameters from one call's lowered arguments,
@@ -212,11 +244,15 @@ impl ModuleBuilder<'_> {
         let mut substitutions = HashMap::new();
         let mut inference_inputs = params.iter().zip(args).collect::<Vec<_>>();
         inference_inputs.sort_by_key(|(param, _)| {
-            !matches!(self.ctx.krate.types.get(**param), Some(Type::TypeParam { .. }))
+            !matches!(
+                self.ctx.krate.types.get(**param),
+                Some(Type::TypeParam { .. })
+            )
         });
         for (param, arg) in inference_inputs {
             let arg_ty = Self::expr_ty(body, *arg);
-            let _ = self.infer_callee_type_bindings(type_params, *param, arg_ty, &mut substitutions);
+            let _ =
+                self.infer_callee_type_bindings(type_params, *param, arg_ty, &mut substitutions);
         }
         substitutions
     }
@@ -232,7 +268,12 @@ impl ModuleBuilder<'_> {
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) {
         for (param, arg) in params.iter().zip(args) {
-            self.widen_call_binding(type_params, *param, Self::expr_ty(body, *arg), substitutions);
+            self.widen_call_binding(
+                type_params,
+                *param,
+                Self::expr_ty(body, *arg),
+                substitutions,
+            );
         }
     }
 
@@ -279,7 +320,12 @@ impl ModuleBuilder<'_> {
                 }
             }
             (Type::Function(declared), Type::Function(given)) => {
-                self.widen_call_binding(type_params, declared.return_ty, given.return_ty, substitutions);
+                self.widen_call_binding(
+                    type_params,
+                    declared.return_ty,
+                    given.return_ty,
+                    substitutions,
+                );
             }
             (Type::List(declared), Type::List(given))
             | (Type::Set(declared), Type::Set(given))
@@ -313,7 +359,10 @@ impl ModuleBuilder<'_> {
         if function.is_async || function.may_throw || function.rest != Some(0) {
             return false;
         }
-        if matches!(self.ctx.krate.types.get(function.return_ty), Some(Type::Future(_))) {
+        if matches!(
+            self.ctx.krate.types.get(function.return_ty),
+            Some(Type::Future(_))
+        ) {
             return false;
         }
         let [param] = function.params.as_slice() else {
@@ -452,9 +501,13 @@ impl ModuleBuilder<'_> {
         actual: smelt_hir::TypeId,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
-        let (bare_params, structural): (Vec<_>, Vec<_>) = expected_items
-            .into_iter()
-            .partition(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::TypeParam { .. })));
+        let (bare_params, structural): (Vec<_>, Vec<_>) =
+            expected_items.into_iter().partition(|item| {
+                matches!(
+                    self.ctx.krate.types.get(*item),
+                    Some(Type::TypeParam { .. })
+                )
+            });
         for item in structural.into_iter().chain(bare_params) {
             let mut branch_substitutions = substitutions.clone();
             if self.infer_overload_type(item, actual, &mut branch_substitutions) {
@@ -534,10 +587,18 @@ impl ModuleBuilder<'_> {
                 self.future_payload_type(actual_return_ty),
             ) {
                 (Some(expected_inner), None) => {
-                    return self.infer_overload_type(expected_inner, actual_return_ty, substitutions);
+                    return self.infer_overload_type(
+                        expected_inner,
+                        actual_return_ty,
+                        substitutions,
+                    );
                 }
                 (None, Some(actual_inner)) => {
-                    return self.infer_overload_type(expected.return_ty, actual_inner, substitutions);
+                    return self.infer_overload_type(
+                        expected.return_ty,
+                        actual_inner,
+                        substitutions,
+                    );
                 }
                 _ => {}
             }

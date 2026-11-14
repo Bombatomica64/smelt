@@ -458,26 +458,40 @@ mod tests {
 
     /// Parse a command line, panicking with clap's message on failure.
     fn parse(argv: &[&str]) -> Command {
-        Args::try_parse_from(argv).map(|args| args.command).expect("parses")
+        Args::try_parse_from(argv)
+            .map(|args| args.command)
+            .expect("parses")
     }
 
     #[test]
     fn hir_flags_map_to_one_mode() {
         // `None` when the command is not `build` at all.
         let mode = |argv: &[&str]| {
-            if let Command::Build { hir, .. } = parse(argv) { Some(hir.mode()) } else { None }
+            if let Command::Build { hir, .. } = parse(argv) {
+                Some(hir.mode())
+            } else {
+                None
+            }
         };
         assert_eq!(mode(&["smelt", "build"]), Some(None));
-        assert_eq!(mode(&["smelt", "build", "--hir"]), Some(Some(HirMode::Compact)));
-        assert_eq!(mode(&["smelt", "build", "--hir-debug"]), Some(Some(HirMode::Debug)));
+        assert_eq!(
+            mode(&["smelt", "build", "--hir"]),
+            Some(Some(HirMode::Compact))
+        );
+        assert_eq!(
+            mode(&["smelt", "build", "--hir-debug"]),
+            Some(Some(HirMode::Debug))
+        );
         assert!(Args::try_parse_from(["smelt", "build", "--hir", "--hir-debug"]).is_err());
     }
 
     #[test]
     fn formats_keep_their_spellings() {
-        for (spelling, expected) in
-            [("md", ReportFormat::Markdown), ("markdown", ReportFormat::Markdown), ("json", ReportFormat::Json)]
-        {
+        for (spelling, expected) in [
+            ("md", ReportFormat::Markdown),
+            ("markdown", ReportFormat::Markdown),
+            ("json", ReportFormat::Json),
+        ] {
             assert!(matches!(
                 parse(&["smelt", "probe", "--format", spelling]),
                 Command::Probe { report, .. } if report.format == expected
@@ -486,11 +500,17 @@ mod tests {
         assert!(Args::try_parse_from(["smelt", "probe", "--format", "yaml"]).is_err());
         assert!(matches!(
             parse(&["smelt", "check", "--message-format", "json"]),
-            Command::Check { message_format: MessageFormat::Json, .. }
+            Command::Check {
+                message_format: MessageFormat::Json,
+                ..
+            }
         ));
         assert!(matches!(
             parse(&["smelt", "check"]),
-            Command::Check { message_format: MessageFormat::Human, .. }
+            Command::Check {
+                message_format: MessageFormat::Human,
+                ..
+            }
         ));
     }
 
@@ -517,12 +537,19 @@ mod tests {
     /// update with nowhere to write would do nothing, so clap refuses both.
     #[test]
     fn gate_flags_require_a_baseline() {
-        for report in [["smelt", "smelt-unknown-report", "src"], ["smelt", "typedness-report", "src"]] {
+        for report in [
+            ["smelt", "smelt-unknown-report", "src"],
+            ["smelt", "typedness-report", "src"],
+        ] {
             for flag in ["--fail-on-regression", "--update-baseline"] {
                 let mut argv = report.to_vec();
                 argv.push(flag);
                 let error = Args::try_parse_from(&argv).expect_err("no baseline");
-                assert_eq!(error.kind(), clap::error::ErrorKind::MissingRequiredArgument, "{argv:?}");
+                assert_eq!(
+                    error.kind(),
+                    clap::error::ErrorKind::MissingRequiredArgument,
+                    "{argv:?}"
+                );
                 argv.extend(["--baseline", "base.json"]);
                 assert!(Args::try_parse_from(&argv).is_ok(), "{argv:?}");
             }
@@ -531,8 +558,14 @@ mod tests {
 
     #[test]
     fn rust_test_report_needs_a_run() {
-        assert!(Args::try_parse_from(["smelt", "rust-test-report", "--cargo-manifest", "C"]).is_err());
-        for run in [&["--full"][..], &["--focus", "f"], &["--guard", "g", "--full"]] {
+        assert!(
+            Args::try_parse_from(["smelt", "rust-test-report", "--cargo-manifest", "C"]).is_err()
+        );
+        for run in [
+            &["--full"][..],
+            &["--focus", "f"],
+            &["--guard", "g", "--full"],
+        ] {
             let mut argv = vec!["smelt", "rust-test-report", "--cargo-manifest", "C"];
             argv.extend_from_slice(run);
             assert!(Args::try_parse_from(argv).is_ok(), "{run:?}");

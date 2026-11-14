@@ -34,7 +34,11 @@ pub struct PackageMetadata {
 impl Default for PackageMetadata {
     /// Version 0.1.0, edition 2024, no description.
     fn default() -> Self {
-        Self { version: "0.1.0".to_owned(), edition: RustEdition::default(), description: None }
+        Self {
+            version: "0.1.0".to_owned(),
+            edition: RustEdition::default(),
+            description: None,
+        }
     }
 }
 

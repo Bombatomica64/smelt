@@ -3,26 +3,29 @@
 //! Parses arguments, loads configuration and routes each subcommand to the
 //! frontend, codegen and report pipelines.
 
-use std::{io, io::Write as _, path::{Path, PathBuf}};
+use std::{
+    io,
+    io::Write as _,
+    path::{Path, PathBuf},
+};
 
 use clap::Parser as _;
 
+use crate::clean;
+use crate::lowering::ManifestLowering;
+use crate::scaffold;
+#[cfg(feature = "ts7")]
+use crate::ts7_parity_report;
+use crate::type_gate::TypeErrorPolicy;
 use crate::{
     CliResult,
     cli_parser::{Args, Command, GateArgs, HirMode, MessageFormat, ReportArgs},
     config::Config,
-    config_parser, diagnostics, erasure, list_escape_report,
-    pipeline, probe,
+    config_parser, diagnostics, erasure, list_escape_report, pipeline, probe,
     report::{self, ReportFormat, write_report},
     source_files::SourceLang,
     test_report, typedness_report, unknown_report,
 };
-#[cfg(feature = "ts7")]
-use crate::ts7_parity_report;
-use crate::lowering::ManifestLowering;
-use crate::type_gate::TypeErrorPolicy;
-use crate::scaffold;
-use crate::clean;
 
 /// CLI entry point: one dispatch over every subcommand.
 ///
@@ -31,14 +34,20 @@ use crate::clean;
 /// Returns the failure of whichever subcommand ran.
 pub fn run() -> CliResult<()> {
     let args = Args::parse();
-    let manifest_path = PathBuf::from(args.manifest_path.unwrap_or_else(|| "Smelt.toml".to_owned()));
+    let manifest_path = PathBuf::from(
+        args.manifest_path
+            .unwrap_or_else(|| "Smelt.toml".to_owned()),
+    );
     match args.command {
         Command::DumpSchema => {
             let schema = schemars::schema_for!(Config);
             let mut stdout = io::stdout().lock();
             writeln!(stdout, "{}", serde_json::to_string_pretty(&schema)?)?;
         }
-        Command::RustDiagnostics { cargo_manifest, output } => {
+        Command::RustDiagnostics {
+            cargo_manifest,
+            output,
+        } => {
             let report = diagnostics::rust_diagnostics_markdown(&PathBuf::from(cargo_manifest))?;
             write_report(output.as_deref(), &report)?;
         }
@@ -80,7 +89,13 @@ pub fn run() -> CliResult<()> {
             };
             write_report(output.as_deref(), &rendered)?;
         }
-        Command::ListEscapeReport { manifest, define, report: ReportArgs { format, output }, function, top } => {
+        Command::ListEscapeReport {
+            manifest,
+            define,
+            report: ReportArgs { format, output },
+            function,
+            top,
+        } => {
             let report = list_escape_report::list_escape_report(
                 &list_escape_report::ListEscapeReportOptions {
                     manifest: &PathBuf::from(manifest),
@@ -95,7 +110,14 @@ pub fn run() -> CliResult<()> {
         Command::TypednessReport {
             paths,
             define,
-            gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
+            gate:
+                GateArgs {
+                    format,
+                    baseline,
+                    fail_on_regression,
+                    update_baseline,
+                    output,
+                },
             retire_program,
         } => {
             let input_paths = paths.iter().map(PathBuf::from).collect::<Vec<_>>();
@@ -110,16 +132,30 @@ pub fn run() -> CliResult<()> {
                 })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Ts7ParityReport { inputs, define, report: ReportArgs { format, output } } => {
+        Command::Ts7ParityReport {
+            inputs,
+            define,
+            report: ReportArgs { format, output },
+        } => {
             run_ts7_parity_report(&inputs, &define.values, format, output.as_deref())?;
         }
         Command::SmeltUnknownReport {
             roots,
-            gate: GateArgs { format, baseline, fail_on_regression, update_baseline, output },
+            gate:
+                GateArgs {
+                    format,
+                    baseline,
+                    fail_on_regression,
+                    update_baseline,
+                    output,
+                },
             erasure: erasure_sidecars,
         } => {
             let root_paths = roots.iter().map(PathBuf::from).collect::<Vec<_>>();
-            let sidecar_paths = erasure_sidecars.iter().map(PathBuf::from).collect::<Vec<_>>();
+            let sidecar_paths = erasure_sidecars
+                .iter()
+                .map(PathBuf::from)
+                .collect::<Vec<_>>();
             let outcome = unknown_report::unknown_report(&unknown_report::UnknownReportOptions {
                 roots: &root_paths,
                 format,
@@ -129,11 +165,20 @@ pub fn run() -> CliResult<()> {
             })?;
             report::finish_gated(&outcome, output.as_deref(), fail_on_regression)?;
         }
-        Command::Check { message_format, define, erasure, deny_type_errors } => {
+        Command::Check {
+            message_format,
+            define,
+            erasure,
+            deny_type_errors,
+        } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
-            let type_errors = if deny_type_errors { TypeErrorPolicy::Deny } else { TypeErrorPolicy::Allow };
+            let type_errors = if deny_type_errors {
+                TypeErrorPolicy::Deny
+            } else {
+                TypeErrorPolicy::Allow
+            };
             match message_format {
                 MessageFormat::Human => {
                     pipeline::check_manifest(&config, &manifest_path, &settings, type_errors)?;
@@ -141,7 +186,8 @@ pub fn run() -> CliResult<()> {
                 MessageFormat::Json => {
                     // The report goes to stdout whole, type errors included, and
                     // the gate's verdict decides the exit status after it.
-                    let checked = ManifestLowering::for_manifest(&config, &manifest_path)?.check()?;
+                    let checked =
+                        ManifestLowering::for_manifest(&config, &manifest_path)?.check()?;
                     let verdict = checked.verdict(type_errors);
                     let diagnostics = checked.into_measured().diagnostics(Some(&settings))?;
                     let mut stdout = io::stdout().lock();
@@ -150,7 +196,12 @@ pub fn run() -> CliResult<()> {
                 }
             }
         }
-        Command::Build { hir, define, erasure, allow_type_errors } => {
+        Command::Build {
+            hir,
+            define,
+            erasure,
+            allow_type_errors,
+        } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let type_errors = TypeErrorPolicy::resolve(config.type_errors(), allow_type_errors);
@@ -162,24 +213,46 @@ pub fn run() -> CliResult<()> {
                 pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
             } else {
                 let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
-                pipeline::build_rust_crate_with_erasure(&config, &manifest_path, &settings, type_errors)?;
+                pipeline::build_rust_crate_with_erasure(
+                    &config,
+                    &manifest_path,
+                    &settings,
+                    type_errors,
+                )?;
             }
         }
         Command::New { name, python } => {
-            let language =
-                if python { scaffold::EntryLanguage::Python } else { scaffold::EntryLanguage::TypeScript };
+            let language = if python {
+                scaffold::EntryLanguage::Python
+            } else {
+                scaffold::EntryLanguage::TypeScript
+            };
             let root = scaffold::new_project(Path::new("."), &name, language)?;
-            writeln!(io::stdout().lock(), "Created `{}`. Run `smelt build` there.", root.display())?;
+            writeln!(
+                io::stdout().lock(),
+                "Created `{}`. Run `smelt build` there.",
+                root.display()
+            )?;
         }
         // The dumps show what lowering makes of a file, type errors or not;
         // they emit no program.
         Command::DumpHir { file, debug } => {
-            let lowered = ManifestLowering::for_file(&file)?.check()?.into_measured().lower()?;
-            let mode = if debug { HirMode::Debug } else { HirMode::Compact };
+            let lowered = ManifestLowering::for_file(&file)?
+                .check()?
+                .into_measured()
+                .lower()?;
+            let mode = if debug {
+                HirMode::Debug
+            } else {
+                HirMode::Compact
+            };
             pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
         }
         Command::DumpMir { file } => {
-            let lowered = ManifestLowering::for_file(&file)?.check()?.into_measured().lower()?;
+            let lowered = ManifestLowering::for_file(&file)?
+                .check()?
+                .into_measured()
+                .lower()?;
             pipeline::print_mir(&lowered.krate)?;
         }
         Command::DumpAst { file } => match SourceLang::from_path(&file)? {
@@ -190,7 +263,12 @@ pub fn run() -> CliResult<()> {
                     .into());
             }
         },
-        Command::Probe { run_tests, define, allow_type_errors, report: ReportArgs { format, output } } => {
+        Command::Probe {
+            run_tests,
+            define,
+            allow_type_errors,
+            report: ReportArgs { format, output },
+        } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
             let report = probe::probe_report(&probe::ProbeOptions {
@@ -205,7 +283,9 @@ pub fn run() -> CliResult<()> {
         Command::Clean { force } => {
             let config = load_config(&manifest_path)?;
             let message = match clean::clean(&config, &manifest_path, force, confirm_removal)? {
-                clean::Cleaned::Nothing(target) => format!("Nothing to clean: `{}` does not exist.", target.display()),
+                clean::Cleaned::Nothing(target) => {
+                    format!("Nothing to clean: `{}` does not exist.", target.display())
+                }
                 clean::Cleaned::Removed(target) => format!("Removed `{}`.", target.display()),
             };
             writeln!(io::stdout().lock(), "{message}")?;
@@ -225,7 +305,11 @@ fn confirm_removal(foreign: &[PathBuf]) -> io::Result<bool> {
         writeln!(stderr, "  {}", path.display())?;
     }
     if foreign.len() > 10 {
-        writeln!(stderr, "  ... and {} more", foreign.len().saturating_sub(10))?;
+        writeln!(
+            stderr,
+            "  ... and {} more",
+            foreign.len().saturating_sub(10)
+        )?;
     }
     if !io::stdin().is_terminal() {
         writeln!(stderr, "Not a terminal: pass --force to remove them.")?;
@@ -268,5 +352,8 @@ fn run_ts7_parity_report(
     _format: ReportFormat,
     _output: Option<&str>,
 ) -> CliResult<()> {
-    Err("`smelt ts7-parity-report` needs the `ts7` feature (the embedded TypeScript 7 checker)".into())
+    Err(
+        "`smelt ts7-parity-report` needs the `ts7` feature (the embedded TypeScript 7 checker)"
+            .into(),
+    )
 }

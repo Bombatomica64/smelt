@@ -4,7 +4,11 @@ use super::*;
 
 /// Whether any body of the crate holds an expression satisfying `predicate`.
 fn any_expr(ctx: &HirCtx, predicate: impl Fn(&ExprKind) -> bool) -> bool {
-    ctx.krate.bodies.iter().flat_map(|body| &body.exprs).any(|expr| predicate(&expr.kind))
+    ctx.krate
+        .bodies
+        .iter()
+        .flat_map(|body| &body.exprs)
+        .any(|expr| predicate(&expr.kind))
 }
 
 /// `class URLParser` does not declare `URL`, so `new URL(..)` stays the host
@@ -20,7 +24,10 @@ export const parser = new URLParser();
 "#),
         &mut ctx,
     )?;
-    ensure!(any_expr(&ctx, |kind| matches!(kind, ExprKind::UrlNew { .. })));
+    ensure!(any_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::UrlNew { .. }
+    )));
     Ok(())
 }
 
@@ -35,7 +42,10 @@ export const page = new URL("https://example.com/");
 "#),
         &mut ctx,
     )?;
-    ensure!(any_expr(&ctx, |kind| matches!(kind, ExprKind::UrlNew { .. })));
+    ensure!(any_expr(&ctx, |kind| matches!(
+        kind,
+        ExprKind::UrlNew { .. }
+    )));
     Ok(())
 }
 
@@ -48,13 +58,16 @@ export function bytes(view: ArrayBufferView): number { return view.byteLength; }
 ";
     let mut with_longer = HirCtx::new();
     lower_ok(source, &mut with_longer)?;
-    let shadowed = (0..).map_while(|index| with_longer.krate.types.get(smelt_hir::TypeId(index))).any(
-        |ty| {
+    let shadowed = (0..)
+        .map_while(|index| with_longer.krate.types.get(smelt_hir::TypeId(index)))
+        .any(|ty| {
             matches!(ty, Type::Class { name, .. }
                 if with_longer.krate.symbols.get(*name) == Some("ArrayBufferView"))
-        },
+        });
+    ensure!(
+        !shadowed,
+        "`ArrayBufferView` must keep its ambient lowering"
     );
-    ensure!(!shadowed, "`ArrayBufferView` must keep its ambient lowering");
     Ok(())
 }
 

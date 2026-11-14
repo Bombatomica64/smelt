@@ -30,7 +30,10 @@ impl FunctionEmitter<'_> {
         // an `Unknown`-typed call result already binds at its natural type and
         // its erase simply reads the binding (no re-inline).
         if !matches!(self.local_decl(local)?.kind, LocalKind::Temp)
-            || !matches!(self.mir.types.get(self.local_decl(local)?.ty), Some(Type::Function(_)))
+            || !matches!(
+                self.mir.types.get(self.local_decl(local)?.ty),
+                Some(Type::Function(_))
+            )
         {
             return Ok(false);
         }
@@ -121,21 +124,14 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<TypeId>, EmitError> {
         match value {
             Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
-                if items
-                    .iter()
-                    .filter(|item| item.reads_local(local))
-                    .count()
-                    != 1
-                {
+                if items.iter().filter(|item| item.reads_local(local)).count() != 1 {
                     return Ok(None);
                 }
                 let dest_ty = self.local_decl(dest)?.ty;
                 let item_ty = match self.mir.types.get(dest_ty) {
                     Some(Type::List(item) | Type::Set(item)) => Some(*item),
                     Some(Type::Tuple(item_tys)) => {
-                        let position = items
-                            .iter()
-                            .position(|item| item.reads_local(local));
+                        let position = items.iter().position(|item| item.reads_local(local));
                         position.and_then(|index| item_tys.get(index).copied())
                     }
                     _ => None,
@@ -198,7 +194,10 @@ impl FunctionEmitter<'_> {
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
         self.function.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| statement.reads_local(local))
+            block
+                .statements
+                .iter()
+                .any(|statement| statement.reads_local(local))
                 || block
                     .terminator
                     .as_ref()
@@ -315,7 +314,9 @@ fn inlined_callback_operands(value: &Rvalue) -> Vec<&Operand> {
         Rvalue::ListReduce { callback, .. }
         | Rvalue::ListFromLengthMap { callback, .. }
         | Rvalue::RegexReplaceCallback { callback, .. } => vec![callback],
-        Rvalue::ListSort { comparator, key, .. } => comparator.iter().chain(key).collect(),
+        Rvalue::ListSort {
+            comparator, key, ..
+        } => comparator.iter().chain(key).collect(),
         Rvalue::ListSorted { key, .. } => key.iter().collect(),
         Rvalue::FormDataOp {
             op: smelt_hir::FormDataOp::ForEach,

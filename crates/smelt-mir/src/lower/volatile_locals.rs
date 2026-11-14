@@ -53,7 +53,8 @@ pub(super) struct VolatileLocals {
 impl VolatileLocals {
     /// Computes the volatile locals of every body of `krate`.
     pub(super) fn of(krate: &smelt_hir::Crate) -> Self {
-        let bodies: HashMap<BodyId, &Body> = krate.bodies.iter().map(|body| (body.id, body)).collect();
+        let bodies: HashMap<BodyId, &Body> =
+            krate.bodies.iter().map(|body| (body.id, body)).collect();
         let written = closure_written_captures(&krate.bodies, &bodies);
         let mut by_body: HashMap<BodyId, HashSet<LocalId>> = HashMap::new();
         for body in &krate.bodies {
@@ -64,7 +65,11 @@ impl VolatileLocals {
                     closure
                         .captures
                         .iter()
-                        .filter(|capture| capture.body_local.is_some_and(|local| writes.is_some_and(|set| set.contains(&local))))
+                        .filter(|capture| {
+                            capture
+                                .body_local
+                                .is_some_and(|local| writes.is_some_and(|set| set.contains(&local)))
+                        })
                         .map(|capture| capture.source_local),
                 );
             }
@@ -72,19 +77,29 @@ impl VolatileLocals {
         }
         spread_into_captures(&krate.bodies, &mut by_body);
         let assigned_fields = assigned_fields(krate);
-        let early_reads =
-            krate.bodies.iter().map(|body| (body.id, early_reads(body, krate, &assigned_fields))).collect();
-        Self { by_body, early_reads }
+        let early_reads = krate
+            .bodies
+            .iter()
+            .map(|body| (body.id, early_reads(body, krate, &assigned_fields)))
+            .collect();
+        Self {
+            by_body,
+            early_reads,
+        }
     }
 
     /// Whether `local` of `body` is volatile.
     pub(super) fn contains(&self, body: BodyId, local: LocalId) -> bool {
-        self.by_body.get(&body).is_some_and(|locals| locals.contains(&local))
+        self.by_body
+            .get(&body)
+            .is_some_and(|locals| locals.contains(&local))
     }
 
     /// Whether `expr` of `body` is a read a later sibling can invalidate.
     pub(super) fn is_early_read(&self, body: BodyId, expr: ExprId) -> bool {
-        self.early_reads.get(&body).is_some_and(|reads| reads.contains(&expr))
+        self.early_reads
+            .get(&body)
+            .is_some_and(|reads| reads.contains(&expr))
     }
 }
 
@@ -101,7 +116,9 @@ fn children(kind: &ExprKind) -> Vec<ExprId> {
 
 /// The expression at `id` of `body`.
 fn expr_kind(body: &Body, id: ExprId) -> Option<&ExprKind> {
-    body.exprs.get(usize::try_from(id.0).ok()?).map(|expr| &expr.kind)
+    body.exprs
+        .get(usize::try_from(id.0).ok()?)
+        .map(|expr| &expr.kind)
 }
 
 /// Whether `kind` itself runs source code, suspends, or stores in place.
@@ -143,7 +160,12 @@ const fn runs_code_or_stores(kind: &ExprKind) -> bool {
 
 /// Whether evaluating `id` can run source code or store, given what `memo` knows:
 /// it does so itself, a child does, or it is handed a function it can call.
-fn can_run_code(body: &Body, types: &TypeInterner, id: ExprId, memo: &mut HashMap<ExprId, bool>) -> bool {
+fn can_run_code(
+    body: &Body,
+    types: &TypeInterner,
+    id: ExprId,
+    memo: &mut HashMap<ExprId, bool>,
+) -> bool {
     if let Some(known) = memo.get(&id) {
         return *known;
     }
@@ -159,9 +181,13 @@ fn can_run_code(body: &Body, types: &TypeInterner, id: ExprId, memo: &mut HashMa
     let kids = children(kind);
     let answer = runs_code_or_stores(kind)
         || read_may_run_accessor(body, types, kind)
-        || (!matches!(kind, ExprKind::ListLit(_) | ExprKind::DictLit(_) | ExprKind::TupleLit(_))
-            && kids.iter().any(takes_function))
-        || kids.into_iter().any(|child| can_run_code(body, types, child, memo));
+        || (!matches!(
+            kind,
+            ExprKind::ListLit(_) | ExprKind::DictLit(_) | ExprKind::TupleLit(_)
+        ) && kids.iter().any(takes_function))
+        || kids
+            .into_iter()
+            .any(|child| can_run_code(body, types, child, memo));
     memo.insert(id, answer);
     answer
 }
@@ -175,12 +201,16 @@ fn read_may_run_accessor(body: &Body, types: &TypeInterner, kind: &ExprKind) -> 
     let (ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. }) = kind else {
         return false;
     };
-    let Some(receiver_expr) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)) else {
+    let Some(receiver_expr) = usize::try_from(receiver.0)
+        .ok()
+        .and_then(|index| body.exprs.get(index))
+    else {
         return false;
     };
     match types.get(receiver_expr.ty) {
         Some(Type::Dict(key, value)) => {
-            matches!(types.get(*key), Some(Type::String | Type::PyStr)) && matches!(types.get(*value), Some(Type::Unknown))
+            matches!(types.get(*key), Some(Type::String | Type::PyStr))
+                && matches!(types.get(*value), Some(Type::Unknown))
         }
         _ => false,
     }
@@ -197,7 +227,9 @@ fn reads_global(body: &Body, id: ExprId, memo: &mut HashMap<ExprId, bool>) -> bo
     }
     let answer = expr_kind(body, id).is_some_and(|kind| {
         matches!(kind, ExprKind::GlobalGet { .. })
-            || children(kind).into_iter().any(|child| reads_global(body, child, memo))
+            || children(kind)
+                .into_iter()
+                .any(|child| reads_global(body, child, memo))
     });
     memo.insert(id, answer);
     answer
@@ -228,7 +260,10 @@ impl FieldWrites {
 
     /// Records a write of unknown field into a receiver of type `receiver`.
     fn any_field(&mut self, types: &TypeInterner, receiver: smelt_hir::TypeId) {
-        if matches!(types.get(receiver), Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))) {
+        if matches!(
+            types.get(receiver),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
             self.any_field_of_anything = true;
         } else {
             self.any_field_of.insert(receiver);
@@ -239,17 +274,26 @@ impl FieldWrites {
 /// Every field a statement or `Object.assign` of the crate can write.
 fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
     let mut writes = FieldWrites::default();
-    let ty_of = |body: &Body, id: ExprId| usize::try_from(id.0).ok().and_then(|index| body.exprs.get(index)).map(|expr| expr.ty);
+    let ty_of = |body: &Body, id: ExprId| {
+        usize::try_from(id.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map(|expr| expr.ty)
+    };
     for body in &krate.bodies {
         for stmt in &body.stmts {
-            let Stmt::Assign { target, .. } = stmt else { continue };
+            let Stmt::Assign { target, .. } = stmt else {
+                continue;
+            };
             match expr_kind(body, *target) {
                 Some(ExprKind::Field { field, .. }) => {
                     if let Some(name) = krate.symbols.get(*field) {
                         writes.names.insert(name.to_owned());
                     }
                 }
-                Some(ExprKind::Index { receiver, index }) if receiver_has_fields(body, &krate.types, *receiver) => {
+                Some(ExprKind::Index { receiver, index })
+                    if receiver_has_fields(body, &krate.types, *receiver) =>
+                {
                     match expr_kind(body, *index) {
                         Some(ExprKind::Literal(smelt_hir::Literal::String(name))) => {
                             writes.names.insert(name.clone());
@@ -297,7 +341,9 @@ fn state_updated_types(
     let mut updated = HashSet::new();
     if let Some(kind) = expr_kind(body, id) {
         if let Some(receiver) = kind.state_updated_receiver()
-            && let Some(receiver_expr) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index))
+            && let Some(receiver_expr) = usize::try_from(receiver.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index))
         {
             updated.insert(receiver_expr.ty);
         }
@@ -310,7 +356,11 @@ fn state_updated_types(
 }
 
 /// The field and element reads of `body` followed by a sibling that can run code.
-fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWrites) -> HashSet<ExprId> {
+fn early_reads(
+    body: &Body,
+    krate: &smelt_hir::Crate,
+    assigned_fields: &FieldWrites,
+) -> HashSet<ExprId> {
     let types = &krate.types;
     // One memo per question, each keyed by expression within this body and
     // holding a property of that expression's subtree alone (it runs code, it
@@ -332,14 +382,18 @@ fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWri
             // (a global read is taken at its own point, so a lazy read placed
             // after it would run the getter too late).
             if (later_runs_code || later_reads_global)
-                && expr_kind(body, child).is_some_and(|kind| read_may_run_accessor(body, types, kind))
+                && expr_kind(body, child)
+                    .is_some_and(|kind| read_may_run_accessor(body, types, kind))
             {
                 reads.insert(child);
             }
             later_reads_global |= reads_global(body, child, &mut global_memo);
             let is_lazy_read = match expr_kind(body, child) {
                 Some(ExprKind::Field { receiver, field }) => {
-                    let receiver_ty = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index)).map(|receiver_expr| receiver_expr.ty);
+                    let receiver_ty = usize::try_from(receiver.0)
+                        .ok()
+                        .and_then(|index| body.exprs.get(index))
+                        .map(|receiver_expr| receiver_expr.ty);
                     krate.symbols.get(*field).is_some_and(|name| {
                         receiver_ty.is_some_and(|ty| assigned_fields.may_write(types, ty, name))
                     })
@@ -358,7 +412,9 @@ fn early_reads(body: &Body, krate: &smelt_hir::Crate, assigned_fields: &FieldWri
             }
             // A field read of a value whose state a later op changes.
             if let Some(ExprKind::Field { receiver, .. }) = expr_kind(body, child)
-                && let Some(receiver_expr) = usize::try_from(receiver.0).ok().and_then(|index| body.exprs.get(index))
+                && let Some(receiver_expr) = usize::try_from(receiver.0)
+                    .ok()
+                    .and_then(|index| body.exprs.get(index))
                 && later_updates_state.contains(&receiver_expr.ty)
             {
                 reads.insert(child);
@@ -392,7 +448,10 @@ fn assigned_local(body: &Body, stmt: &Stmt) -> Option<LocalId> {
 
 /// Every local `body` assigns as a whole, anywhere.
 fn assigned_locals(body: &Body) -> HashSet<LocalId> {
-    body.stmts.iter().filter_map(|stmt| assigned_local(body, stmt)).collect()
+    body.stmts
+        .iter()
+        .filter_map(|stmt| assigned_local(body, stmt))
+        .collect()
 }
 
 /// The locals assigned by a block that is an operand of another expression.
@@ -400,7 +459,11 @@ fn assigned_locals(body: &Body) -> HashSet<LocalId> {
 /// A block with no parent expression is a whole statement, `x = 1;`, with no
 /// sibling to be read around.
 fn written_in_expression(body: &Body) -> HashSet<LocalId> {
-    let operands: HashSet<ExprId> = body.exprs.iter().flat_map(|expr| children(&expr.kind)).collect();
+    let operands: HashSet<ExprId> = body
+        .exprs
+        .iter()
+        .flat_map(|expr| children(&expr.kind))
+        .collect();
     operands
         .into_iter()
         .filter_map(|id| match expr_kind(body, id)? {
@@ -420,19 +483,28 @@ fn closure_written_captures(
     all: &[Body],
     bodies: &HashMap<BodyId, &Body>,
 ) -> HashMap<BodyId, HashSet<LocalId>> {
-    let mut written: HashMap<BodyId, HashSet<LocalId>> =
-        all.iter().map(|body| (body.id, assigned_locals(body))).collect();
+    let mut written: HashMap<BodyId, HashSet<LocalId>> = all
+        .iter()
+        .map(|body| (body.id, assigned_locals(body)))
+        .collect();
     loop {
         let mut changed = false;
         for body in all {
             for closure in closures_of(body) {
-                let Some(inner) = bodies.get(&closure.body).and_then(|inner| written.get(&inner.id)) else {
+                let Some(inner) = bodies
+                    .get(&closure.body)
+                    .and_then(|inner| written.get(&inner.id))
+                else {
                     continue;
                 };
                 let reached: Vec<LocalId> = closure
                     .captures
                     .iter()
-                    .filter(|capture| capture.body_local.is_some_and(|local| inner.contains(&local)))
+                    .filter(|capture| {
+                        capture
+                            .body_local
+                            .is_some_and(|local| inner.contains(&local))
+                    })
                     .map(|capture| capture.source_local)
                     .collect();
                 if let Some(outer) = written.get_mut(&body.id) {
@@ -458,7 +530,11 @@ fn spread_into_captures(all: &[Body], by_body: &mut HashMap<BodyId, HashSet<Loca
                 let reached: Vec<LocalId> = closure
                     .captures
                     .iter()
-                    .filter(|capture| by_body.get(&body.id).is_some_and(|set| set.contains(&capture.source_local)))
+                    .filter(|capture| {
+                        by_body
+                            .get(&body.id)
+                            .is_some_and(|set| set.contains(&capture.source_local))
+                    })
                     .filter_map(|capture| capture.body_local)
                     .collect();
                 let inner = by_body.entry(closure.body).or_default();

@@ -135,7 +135,10 @@ mod tests {
     /// `Symbol.iterator` keeps the established key spelling.
     #[test]
     fn iterator_keeps_established_spelling() {
-        assert_eq!(storage_key("iterator").as_deref(), Some("__smelt_symbol_iterator"));
+        assert_eq!(
+            storage_key("iterator").as_deref(),
+            Some("__smelt_symbol_iterator")
+        );
     }
 
     /// Multi-word names snake-case into the shared prefix scheme.

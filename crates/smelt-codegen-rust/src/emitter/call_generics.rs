@@ -17,7 +17,9 @@ impl FunctionEmitter<'_> {
     /// parameters `T` directly. Callers use this to detect arguments whose
     /// target parameter is one of those class-level type parameters.
     pub(super) fn callee_class_type_params(&self, function: &MirFunction) -> HashSet<Symbol> {
-        self.callee_class_type_param_names(function).into_iter().collect()
+        self.callee_class_type_param_names(function)
+            .into_iter()
+            .collect()
     }
 
     /// The render scope for a value coerced to one of `function`'s **declared**
@@ -54,7 +56,10 @@ impl FunctionEmitter<'_> {
     /// reference `T` directly. Callers use this to detect arguments whose target
     /// parameter is one of the callee's own type parameters, which must be
     /// passed through concretely so Rust monomorphizes the call.
-    pub(super) fn callee_free_function_type_params(&self, function: &MirFunction) -> HashSet<Symbol> {
+    pub(super) fn callee_free_function_type_params(
+        &self,
+        function: &MirFunction,
+    ) -> HashSet<Symbol> {
         // Only functions the crate decided to emit as real generics participate
         // in argument pass-through. Using the crate-wide decision (rather than
         // the signature-only predicate) keeps the call site in agreement with
@@ -142,7 +147,10 @@ impl FunctionEmitter<'_> {
             | (Some(Type::Future(target_item)), Some(Type::Future(source_item))) => {
                 self.generic_param_instantiated_by(*source_item, *target_item, params)
             }
-            (Some(Type::Dict(target_key, target_value)), Some(Type::Dict(source_key, source_value))) => {
+            (
+                Some(Type::Dict(target_key, target_value)),
+                Some(Type::Dict(source_key, source_value)),
+            ) => {
                 self.generic_param_instantiated_by(*source_key, *target_key, params)
                     && self.generic_param_instantiated_by(*source_value, *target_value, params)
             }
@@ -389,7 +397,9 @@ impl FunctionEmitter<'_> {
             // `unknown`, and the adapter would convert that value to the pinned
             // type instead of carrying it.
             let adapted_callback = callback_return_fits(self.mir, *target_ty, actual_ty, &bindings)
-                && type_params_pinned_by_values(self.mir, &declared, &actual, *target_ty, &bindings);
+                && type_params_pinned_by_values(
+                    self.mir, &declared, &actual, *target_ty, &bindings,
+                );
             if self.type_mentions_any(*target_ty, &own_params)
                 && !adapted_callback
                 && !substitution_matches(self.mir, *target_ty, actual_ty, &bindings)
@@ -557,7 +567,8 @@ impl FunctionEmitter<'_> {
             return Ok(Some(self.operand_ty(receiver)?));
         }
         let ordered = self.callee_class_type_param_names(function);
-        let Some(receiver_ty) = self.declaring_class_instantiation(function, self.operand_ty(receiver)?)
+        let Some(receiver_ty) =
+            self.declaring_class_instantiation(function, self.operand_ty(receiver)?)
         else {
             return Ok(None);
         };
@@ -585,7 +596,10 @@ impl FunctionEmitter<'_> {
         function: &MirFunction,
         receiver_ty: TypeId,
     ) -> Option<TypeId> {
-        let HirOrigin::ClassMethod { class: declaring, .. } = function.origin else {
+        let HirOrigin::ClassMethod {
+            class: declaring, ..
+        } = function.origin
+        else {
             return Some(receiver_ty);
         };
         let Some(Type::Class { name, args }) = self.mir.types.get(receiver_ty) else {
@@ -732,7 +746,9 @@ fn type_params_pinned_by_values(
     crate::generic_bindings::collect_type_param_occurrences(mir, callback_ty, &mut mentioned);
     mentioned.iter().all(|name| {
         declared.iter().zip(actual).any(|(declared_ty, supplied)| {
-            let Some(actual_ty) = supplied else { return false };
+            let Some(actual_ty) = supplied else {
+                return false;
+            };
             !matches!(mir.types.get(*declared_ty), Some(Type::Function(_)))
                 && type_param_occurs(mir, *declared_ty, *name)
                 && substitution_matches(mir, *declared_ty, *actual_ty, bindings)

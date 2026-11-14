@@ -53,9 +53,15 @@ fn map_pairs<K, E>(
 
 /// Expands to one op field with each child [`ExprId`] passed through `$f`.
 macro_rules! map_op_field {
-    ($f:ident, one, $field:ident) => { $f($field)? };
-    ($f:ident, opt, $field:ident) => { map_opt($field, $f)? };
-    ($f:ident, many, $field:ident) => { map_vec($field, $f)? };
+    ($f:ident, one, $field:ident) => {
+        $f($field)?
+    };
+    ($f:ident, opt, $field:ident) => {
+        map_opt($field, $f)?
+    };
+    ($f:ident, many, $field:ident) => {
+        map_vec($field, $f)?
+    };
     ($f:ident, splice, $field:ident) => {
         $field
             .into_iter()
@@ -67,11 +73,21 @@ macro_rules! map_op_field {
             })
             .collect::<Result<Vec<_>, _>>()?
     };
-    ($f:ident, symbol_pairs, $field:ident) => { map_pairs($field, $f)? };
-    ($f:ident, { $key:ty }, $field:ident) => { map_pairs($field, $f)? };
-    ($f:ident, [$data:ty], $field:ident) => { $field };
-    ($f:ident, (sym $label:literal), $field:ident) => { $field };
-    ($f:ident, (ty), $field:ident) => { $field };
+    ($f:ident, symbol_pairs, $field:ident) => {
+        map_pairs($field, $f)?
+    };
+    ($f:ident, { $key:ty }, $field:ident) => {
+        map_pairs($field, $f)?
+    };
+    ($f:ident, [$data:ty], $field:ident) => {
+        $field
+    };
+    ($f:ident, (sym $label:literal), $field:ident) => {
+        $field
+    };
+    ($f:ident, (ty), $field:ident) => {
+        $field
+    };
 }
 
 /// Generates [`ExprKind::try_map_child_exprs`]: the arms of the forms only HIR

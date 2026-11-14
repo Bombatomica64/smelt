@@ -113,7 +113,9 @@ impl SpecializationArtifactStore {
             return false;
         };
         let mut components = relative.components();
-        let (Some(language), Some(file), None) = (components.next(), components.next(), components.next()) else {
+        let (Some(language), Some(file), None) =
+            (components.next(), components.next(), components.next())
+        else {
             return false;
         };
         let known_language = [HostLanguage::Python, HostLanguage::TypeScript]
@@ -320,7 +322,8 @@ mod tests {
     }
 
     fn key() -> Result<SpecializationCacheKey, serde_json::Error> {
-        let project = crate::ProjectRoot::new(Path::new("/project")).map_err(serde::de::Error::custom)?;
+        let project =
+            crate::ProjectRoot::new(Path::new("/project")).map_err(serde::de::Error::custom)?;
         SpecializationCacheKey::compute(&crate::CacheKeyInput::new(
             HostLanguage::Python,
             "test-runtime".to_owned(),

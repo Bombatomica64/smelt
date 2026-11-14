@@ -277,7 +277,11 @@ fn every_body_reports_each_list_local_exactly_once() {
          }\n",
     );
     for body in analyze_list_escapes(&mir) {
-        let mut seen = body.locals.iter().map(|fact| fact.local).collect::<Vec<_>>();
+        let mut seen = body
+            .locals
+            .iter()
+            .map(|fact| fact.local)
+            .collect::<Vec<_>>();
         let before = seen.len();
         seen.sort_unstable_by_key(|local| local.0);
         seen.dedup();
@@ -299,7 +303,9 @@ fn summary_of(source: &str, function: &str) -> SummaryFacts {
     for (index, candidate) in mir.functions.iter().enumerate() {
         if mir.symbols.get(candidate.name) == Some(function) {
             return summaries
-                .resolved(crate::FuncId(u32::try_from(index).expect("function index fits u32")))
+                .resolved(crate::FuncId(
+                    u32::try_from(index).expect("function index fits u32"),
+                ))
                 .unwrap_or_else(|| panic!("`{function}` has no usable summary"))
                 .clone();
         }
@@ -446,8 +452,14 @@ fn mutual_recursion_terminates_and_confines_a_read_only_argument() {
                   \x20 const numbers: number[] = [1, 2, 3];\n\
                   \x20 return even(numbers, 4);\n\
                   }\n";
-    assert_eq!(summary_of(source, "even").param_escapes().first(), Some(&false));
-    assert_eq!(summary_of(source, "odd").param_escapes().first(), Some(&false));
+    assert_eq!(
+        summary_of(source, "even").param_escapes().first(),
+        Some(&false)
+    );
+    assert_eq!(
+        summary_of(source, "odd").param_escapes().first(),
+        Some(&false)
+    );
     let (class, _) = class_of(source, "run", "numbers");
     assert_eq!(class, ListLocalClass::LocalImmutable);
 }
@@ -469,7 +481,10 @@ fn mutual_recursion_propagates_a_real_escape_through_the_cycle() {
                   \x20 const numbers: number[] = [1, 2, 3];\n\
                   \x20 return even(numbers, 4).length;\n\
                   }\n";
-    assert_eq!(summary_of(source, "odd").param_escapes().first(), Some(&true));
+    assert_eq!(
+        summary_of(source, "odd").param_escapes().first(),
+        Some(&true)
+    );
     assert_eq!(
         summary_of(source, "even").param_escapes().first(),
         Some(&true),

@@ -1,13 +1,13 @@
 //! Class methods and statics: method signatures, abstract method signatures,
 //! static fields and static functions, and the lowered method items.
 
-use crate::SmeltError;
-use crate::lowering::{ModuleBuilder, RestParam};
 use super::classes::ClassFieldInit;
+use crate::SmeltError;
 use crate::lowering::js_text::js_str_literal;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::support::visibility;
+use crate::lowering::{ModuleBuilder, RestParam};
 use oxc::ast::ast::{BindingPattern, ClassElement, Expression, MethodDefinitionKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -245,7 +245,8 @@ impl ModuleBuilder<'_> {
             let ctx = self.nested_fn_ctx(BodyKind::Method, false, None);
             let lowered = self.with_nested_body(ctx, ScopeGroups::BINDINGS, |this, _| {
                 let mut scratch = Body::new(None, span);
-                this.expression(value, &mut scratch).map(|expr| Self::expr_ty(&scratch, expr))
+                this.expression(value, &mut scratch)
+                    .map(|expr| Self::expr_ty(&scratch, expr))
             });
             self.static_initializer_class = saved;
             lowered?
@@ -333,7 +334,11 @@ impl ModuleBuilder<'_> {
             .static_fields
             .iter()
             .find(|static_field| static_field.name == field)
-            .and_then(|static_field| static_field.storage.map(|item| (item, static_field.ty, static_field.span)))
+            .and_then(|static_field| {
+                static_field
+                    .storage
+                    .map(|item| (item, static_field.ty, static_field.span))
+            })
         else {
             return Ok(());
         };
@@ -366,7 +371,13 @@ impl ModuleBuilder<'_> {
             }
             error
         })?;
-        self.install_global_initializer(storage, &format!("{class_text}_{field_text}"), init_body, ty, span);
+        self.install_global_initializer(
+            storage,
+            &format!("{class_text}_{field_text}"),
+            init_body,
+            ty,
+            span,
+        );
         Ok(())
     }
 
@@ -405,7 +416,11 @@ impl ModuleBuilder<'_> {
         // Typed UNIT: a unit-typed `GlobalGet` is a bare touch of the cell.
         let unit = self.ctx.krate.types.intern(Type::None);
         for (item, span) in touched {
-            let read = body.push_expr(Expr { kind: ExprKind::GlobalGet { item }, ty: unit, span });
+            let read = body.push_expr(Expr {
+                kind: ExprKind::GlobalGet { item },
+                ty: unit,
+                span,
+            });
             body.push_stmt_to_block(block, smelt_hir::Stmt::Expr(read));
         }
     }
@@ -470,7 +485,12 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
-        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            ClassFieldInit<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         self.class_function_impl(
             class_text,
@@ -498,7 +518,12 @@ impl ModuleBuilder<'_> {
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
         is_static: bool,
-        field_initializers: &[(smelt_hir::Symbol, ClassFieldInit<'_>, smelt_hir::TypeId, Span)],
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            ClassFieldInit<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
             return Err(SmeltError::unsupported(
@@ -525,7 +550,9 @@ impl ModuleBuilder<'_> {
                 self.ctx
                     .krate
                     .symbols
-                    .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("{prefix}{source_name}")))
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new(format!(
+                        "{prefix}{source_name}"
+                    )))
             })
         };
         let (method_type_params, return_ty, lowered) = self.with_method_type_parameter_scope(
@@ -568,7 +595,8 @@ impl ModuleBuilder<'_> {
                 }
 
                 let saved_class = this.current_class.replace(class_text.to_owned());
-                let ctx = this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
+                let ctx =
+                    this.nested_fn_ctx(BodyKind::Method, method.value.r#async, Some(return_ty));
                 let scope = ScopeGroups::BINDINGS;
                 let lowered = this.with_nested_body(ctx, scope, |this, _| {
                     let mut body = Body::new(
@@ -603,10 +631,23 @@ impl ModuleBuilder<'_> {
                     // its constructor takes the frame first
                     // (`decls::evaluation_statics`).
                     if !is_static {
-                        let names_class = this.lowering_evaluation_statics.as_ref().and_then(|evaluation| evaluation.binding.as_deref())
-                            .is_some_and(|binding| Self::function_body_names(function_body, binding));
+                        let names_class = this
+                            .lowering_evaluation_statics
+                            .as_ref()
+                            .and_then(|evaluation| evaluation.binding.as_deref())
+                            .is_some_and(|binding| {
+                                Self::function_body_names(function_body, binding)
+                            });
                         let span = this.span(method.span.start, method.span.start);
-                        if let Some(param) = this.bind_evaluation_frame(class_name, class_ty, this_local, is_constructor, names_class, span, &mut body) {
+                        if let Some(param) = this.bind_evaluation_frame(
+                            class_name,
+                            class_ty,
+                            this_local,
+                            is_constructor,
+                            names_class,
+                            span,
+                            &mut body,
+                        ) {
                             params.push(param);
                         }
                     }
@@ -642,13 +683,14 @@ impl ModuleBuilder<'_> {
                             .is_some()
                             .then_some(param.initializer.as_ref())
                             .flatten()
-                            .filter(|initializer| !this.initializer_is_type_zero_default(initializer));
+                            .filter(|initializer| {
+                                !this.initializer_is_type_zero_default(initializer)
+                            });
                         let abi_ty = if default_initializer.is_some()
                             && !matches!(
                                 this.ctx.krate.types.get(declared_ty),
                                 Some(Type::Optional(_))
-                            )
-                        {
+                            ) {
                             this.ctx.krate.types.intern(Type::Optional(declared_ty))
                         } else {
                             declared_ty
@@ -663,8 +705,14 @@ impl ModuleBuilder<'_> {
                         if let Some(source_name) = source_name {
                             this.scope.bind(source_name.clone(), local);
                             if let Some(initializer) = default_initializer {
-                                defaulted_params
-                                    .push((local, abi_ty, &**initializer, param_name, source_name, span));
+                                defaulted_params.push((
+                                    local,
+                                    abi_ty,
+                                    &**initializer,
+                                    param_name,
+                                    source_name,
+                                    span,
+                                ));
                             }
                         } else {
                             destructured_params.push((&param.pattern, local, abi_ty));
@@ -700,7 +748,8 @@ impl ModuleBuilder<'_> {
                     // in `function_declaration_named`.
                     let rest = match method.value.params.rest.as_ref() {
                         Some(rest) => {
-                            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument
+                            else {
                                 return Err(SmeltError::unsupported(
                                     this.span(rest.span.start, rest.span.end),
                                     "destructured rest parameters need rest binding lowering",
@@ -741,30 +790,30 @@ impl ModuleBuilder<'_> {
                                 }
                                 None
                             } else {
-                            let (ty, item_ty) = match this.rest_param_array_type(declared) {
-                                Ok(pair) => pair,
-                                Err(error) => {
-                                    return Err(error);
-                                }
-                            };
-                            let param_name = this.intern_source_name(binding.name.as_str());
-                            let span = this.span(binding.span.start, binding.span.end);
-                            let local = body.push_local(LocalDecl {
-                                name: Some(param_name),
-                                ty,
-                                mutable: false,
-                                span,
-                            });
-                            body.params.push(local);
-                            this.scope.bind(binding.name.to_string(), local);
-                            let index = params.len();
-                            params.push(Param {
-                                name: param_name,
-                                local,
-                                ty,
-                                span,
-                            });
-                            Some(RestParam { index, item_ty })
+                                let (ty, item_ty) = match this.rest_param_array_type(declared) {
+                                    Ok(pair) => pair,
+                                    Err(error) => {
+                                        return Err(error);
+                                    }
+                                };
+                                let param_name = this.intern_source_name(binding.name.as_str());
+                                let span = this.span(binding.span.start, binding.span.end);
+                                let local = body.push_local(LocalDecl {
+                                    name: Some(param_name),
+                                    ty,
+                                    mutable: false,
+                                    span,
+                                });
+                                body.params.push(local);
+                                this.scope.bind(binding.name.to_string(), local);
+                                let index = params.len();
+                                params.push(Param {
+                                    name: param_name,
+                                    local,
+                                    ty,
+                                    span,
+                                });
+                                Some(RestParam { index, item_ty })
                             }
                         }
                         None => None,
@@ -797,9 +846,14 @@ impl ModuleBuilder<'_> {
                             ty,
                             span: this.span(method.span.start, method.span.end),
                         });
-                        if let Err(error) =
-                            this.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
-                        {
+                        if let Err(error) = this.binding_declaration(
+                            pattern,
+                            Some(value),
+                            Some(ty),
+                            false,
+                            &mut body,
+                            root,
+                        ) {
                             errors.push(error);
                         }
                     }
@@ -811,8 +865,8 @@ impl ModuleBuilder<'_> {
                     let resolved_parameter_properties = parameter_property_initializers
                         .into_iter()
                         .filter_map(|(field, source_name, ty, span)| {
-                            let local =
-                                source_name.and_then(|source_name| this.scope.lookup(&source_name))?;
+                            let local = source_name
+                                .and_then(|source_name| this.scope.lookup(&source_name))?;
                             Some((field, local, ty, span))
                         })
                         .collect::<Vec<_>>();
@@ -824,32 +878,30 @@ impl ModuleBuilder<'_> {
                             &mut body,
                         );
                     }
-                    if let Err(error) =
-                        this.predeclare_forward_referenced_locals(&function_body.statements, &mut body)
+                    if let Err(error) = this
+                        .predeclare_forward_referenced_locals(&function_body.statements, &mut body)
                     {
                         errors.push(error);
                     }
-                    if let Err(error) =
-                        this.predeclare_local_function_declarations(&function_body.statements, &mut body)
-                    {
+                    if let Err(error) = this.predeclare_local_function_declarations(
+                        &function_body.statements,
+                        &mut body,
+                    ) {
                         errors.push(error);
                     }
-                    let generator_yields = method
-                        .value
-                        .generator
-                        .then(|| this.initialize_generator_yield_accumulator(&method.value, &mut body));
+                    let generator_yields = method.value.generator.then(|| {
+                        this.initialize_generator_yield_accumulator(&method.value, &mut body)
+                    });
                     this.fn_ctx.generator = generator_yields;
-                    for statement in crate::lowering::hoisting::hoisted_statements(&function_body.statements) {
+                    for statement in
+                        crate::lowering::hoisting::hoisted_statements(&function_body.statements)
+                    {
                         // `super(...)` has no callee to defer to once inheritance is flattened
                         // into the derived struct, so it lowers to the base's initialization
                         // applied to `this` instead of running as an ordinary call.
                         if Self::is_super_call_statement(statement) {
                             if let Err(error) = this.lower_super_call_statement(
-                                statement,
-                                this_local,
-                                class_ty,
-                                class_text,
-                                &mut body,
+                                statement, this_local, class_ty, class_text, &mut body,
                             ) {
                                 errors.push(error);
                             }
@@ -922,7 +974,9 @@ impl ModuleBuilder<'_> {
             },
         }));
         if !method_type_params.is_empty() {
-            self.ctx.erased_item_type_params.insert(item, method_type_params);
+            self.ctx
+                .erased_item_type_params
+                .insert(item, method_type_params);
         }
         Ok(item)
     }

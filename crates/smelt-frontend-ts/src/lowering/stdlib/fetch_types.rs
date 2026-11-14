@@ -24,11 +24,11 @@
 //! receiver's lowered type being the modeled `Headers` class, which is exactly
 //! how the `Map`/`Set` collection dispatch works.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::support::source_spelling;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::static_name_text;
+use crate::lowering::support::source_spelling;
 use oxc::ast::ast::Expression;
 use oxc::span::GetSpan;
 use smelt_hir::{
@@ -339,9 +339,7 @@ impl ModuleBuilder<'_> {
             Op::Get => self.ctx.krate.types.intern(Type::Optional(string_ty)),
             Op::Has => self.ctx.krate.types.intern(Type::Bool),
             Op::ToText => string_ty,
-            Op::Set | Op::Append | Op::Delete | Op::Sort => {
-                self.ctx.krate.types.intern(Type::None)
-            }
+            Op::Set | Op::Append | Op::Delete | Op::Sort => self.ctx.krate.types.intern(Type::None),
             Op::GetAll | Op::Keys | Op::Values => {
                 self.ctx.krate.types.intern(Type::List(string_ty))
             }
@@ -440,8 +438,7 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return None;
         };
-        let class_name = source_spelling(&self.ctx.krate, *name)?
-            .to_owned();
+        let class_name = source_spelling(&self.ctx.krate, *name)?.to_owned();
         if self.source_shadows_global(&class_name) {
             return None;
         }
@@ -523,10 +520,7 @@ impl ModuleBuilder<'_> {
         match op {
             HeadersOp::Get | HeadersOp::Has | HeadersOp::Delete => 1,
             HeadersOp::Set | HeadersOp::Append => 2,
-            HeadersOp::Keys
-            | HeadersOp::Values
-            | HeadersOp::Entries
-            | HeadersOp::GetSetCookie => 0,
+            HeadersOp::Keys | HeadersOp::Values | HeadersOp::Entries | HeadersOp::GetSetCookie => 0,
         }
     }
 
@@ -535,7 +529,10 @@ impl ModuleBuilder<'_> {
     /// These are the spec's own types, not approximations: `get` is
     /// `string | null` (an `Optional(String)`, so the caller narrows a real
     /// `Option`), the mutations are `void`, and the projections are lists.
-    pub(in crate::lowering) fn headers_op_result_type(&mut self, op: HeadersOp) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn headers_op_result_type(
+        &mut self,
+        op: HeadersOp,
+    ) -> smelt_hir::TypeId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         match op {
             HeadersOp::Get => self.ctx.krate.types.intern(Type::Optional(string_ty)),
@@ -581,7 +578,13 @@ impl ModuleBuilder<'_> {
         };
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, &init_key_names(RESPONSE_INIT_KEYS), "Response", &mut fields, body)?;
+            self.lower_fetch_init(
+                init_argument,
+                &init_key_names(RESPONSE_INIT_KEYS),
+                "Response",
+                &mut fields,
+                body,
+            )?;
         }
         let (status, status_text, headers) = (
             fields.take("status"),
@@ -794,7 +797,10 @@ impl ModuleBuilder<'_> {
     /// `status` is `number`, `ok`/`bodyUsed` are `boolean`, `statusText` is
     /// `string`, `headers` is a `Headers`, `clone()` is a `Response`, and
     /// `text()` is a `Promise<string>` — a future, because it is `async`.
-    pub(in crate::lowering) fn response_op_result_type(&mut self, op: ResponseOp) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn response_op_result_type(
+        &mut self,
+        op: ResponseOp,
+    ) -> smelt_hir::TypeId {
         match op {
             ResponseOp::Status => self.ctx.krate.types.intern(Type::Float),
             ResponseOp::Ok | ResponseOp::BodyUsed => self.ctx.krate.types.intern(Type::Bool),
@@ -862,7 +868,13 @@ impl ModuleBuilder<'_> {
         let input = self.url_href_of(input, input_span, body).unwrap_or(input);
         let mut fields = InitFields::default();
         if let Some(init_argument) = new_expr.arguments.get(1) {
-            self.lower_fetch_init(init_argument, &init_key_names(REQUEST_INIT_KEYS), "Request", &mut fields, body)?;
+            self.lower_fetch_init(
+                init_argument,
+                &init_key_names(REQUEST_INIT_KEYS),
+                "Request",
+                &mut fields,
+                body,
+            )?;
         }
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
@@ -900,7 +912,13 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(init_argument.span().start, init_argument.span().end);
         let mut fields = InitFields::default();
-        self.lower_fetch_init(init_argument, &init_key_names(REQUEST_INIT_KEYS), "fetch", &mut fields, body)?;
+        self.lower_fetch_init(
+            init_argument,
+            &init_key_names(REQUEST_INIT_KEYS),
+            "fetch",
+            &mut fields,
+            body,
+        )?;
         let (method, headers, body_expr, signal) = (
             fields.take("method"),
             fields.take("headers"),

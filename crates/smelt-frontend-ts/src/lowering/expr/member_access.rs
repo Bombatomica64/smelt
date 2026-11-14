@@ -1,10 +1,10 @@
 //! Member access: namespace member calls, static and computed member reads, and the
 //! well-known `Symbol`, `Number`, `Object` and `process` static surfaces.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, ChainElement, Expression};
 use oxc::span::GetSpan;
@@ -24,10 +24,12 @@ impl ModuleBuilder<'_> {
         if let Some(rest_index) = rest
             && index >= rest_index
         {
-            return params.get(rest_index).map(|ty| match self.ctx.krate.types.get(*ty) {
-                Some(Type::List(item_ty)) => *item_ty,
-                _ => *ty,
-            });
+            return params
+                .get(rest_index)
+                .map(|ty| match self.ctx.krate.types.get(*ty) {
+                    Some(Type::List(item_ty)) => *item_ty,
+                    _ => *ty,
+                });
         }
         params.get(index).copied()
     }
@@ -50,7 +52,11 @@ impl ModuleBuilder<'_> {
             .get(namespace)
             .and_then(|members| members.get(member_name))
             .copied()
-            .or_else(|| self.items.get(&format!("{namespace}.{member_name}")).copied())
+            .or_else(|| {
+                self.items
+                    .get(&format!("{namespace}.{member_name}"))
+                    .copied()
+            })
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
             if self.imports.is_namespace(namespace) {
@@ -109,8 +115,11 @@ impl ModuleBuilder<'_> {
                             self.argument_with_hint(arg, body, hint)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    let spread_positions =
-                        call.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+                    let spread_positions = call
+                        .arguments
+                        .iter()
+                        .map(Argument::is_spread)
+                        .collect::<Vec<_>>();
                     let call_span = self.span(call.span.start, call.span.end);
                     let args = self.pack_value_call_arguments(
                         &function,
@@ -217,9 +226,8 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let namespace = object.name.as_str();
-        (self.imports.is_namespace(namespace)
-            || self.object_namespaces.contains_key(namespace))
-        .then_some((namespace, member.property.name.as_str()))
+        (self.imports.is_namespace(namespace) || self.object_namespaces.contains_key(namespace))
+            .then_some((namespace, member.property.name.as_str()))
     }
 
     /// Compute the HIR expression type used when an item appears as an expression.
@@ -420,15 +428,17 @@ impl ModuleBuilder<'_> {
         is_assignment_target: bool,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(member.span.start, member.span.end);
-        if let Some(selected) = self.conditional_class_select(Some(&member.object), span, body, |this, body| {
-            this.static_member_with_absent_fallback(
-                member,
-                body,
-                absent_list_field_is_undefined,
-                reject_unmodeled_function_field,
-                is_assignment_target,
-            )
-        })? {
+        if let Some(selected) =
+            self.conditional_class_select(Some(&member.object), span, body, |this, body| {
+                this.static_member_with_absent_fallback(
+                    member,
+                    body,
+                    absent_list_field_is_undefined,
+                    reject_unmodeled_function_field,
+                    is_assignment_target,
+                )
+            })?
+        {
             return Ok(selected);
         }
         if let Some(expr) = self.global_alias_member_read(member, body)? {
@@ -437,8 +447,12 @@ impl ModuleBuilder<'_> {
         // A host-module data export read through its module (`path.sep`).
         if !is_assignment_target
             && let Some(resolved) = self.host_module_member_export_path(member)
-            && let Some(expr) =
-                self.host_module_value_expression(resolved, member.span.start, member.span.end, body)
+            && let Some(expr) = self.host_module_value_expression(
+                resolved,
+                member.span.start,
+                member.span.end,
+                body,
+            )
         {
             return Ok(expr);
         }
@@ -596,9 +610,17 @@ impl ModuleBuilder<'_> {
                 // A plain `xs.length` is the source asserting presence and
                 // keeps its number.
                 if member.optional
-                    && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)))
+                    && matches!(
+                        self.ctx.krate.types.get(receiver_ty),
+                        Some(Type::Optional(_))
+                    )
                 {
-                    return Ok(self.wrap_optional_receiver_method(receiver, len, member.span, body));
+                    return Ok(self.wrap_optional_receiver_method(
+                        receiver,
+                        len,
+                        member.span,
+                        body,
+                    ));
                 }
                 return Ok(len);
             }
@@ -703,11 +725,8 @@ impl ModuleBuilder<'_> {
                         Some(Type::List(_))
                     )
                 {
-                    let ty = self.erase_at(
-                        ErasureReason::ByName,
-                        span,
-                        member.property.name.as_str(),
-                    );
+                    let ty =
+                        self.erase_at(ErasureReason::ByName, span, member.property.name.as_str());
                     let erased = body.push_expr(Expr {
                         kind: ExprKind::UnknownCast {
                             value: receiver,
@@ -757,7 +776,11 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        let Some(Type::GeneratorResult { yield_ty, return_ty }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+        let Some(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) = self.ctx.krate.types.get(receiver_ty).cloned()
+        else {
             return None;
         };
         let (kind, ty) = match member {
@@ -771,7 +794,10 @@ impl ModuleBuilder<'_> {
                 } else if self.ctx.krate.types.get(return_ty) == Some(&Type::None) {
                     self.ctx.krate.types.intern(Type::Optional(yield_ty))
                 } else {
-                    self.ctx.krate.types.intern(Type::Union(vec![yield_ty, return_ty]))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![yield_ty, return_ty]))
                 };
                 (ExprKind::GeneratorValue { result: receiver }, value_ty)
             }
@@ -913,10 +939,9 @@ impl ModuleBuilder<'_> {
         if !self.names_host(object.name.as_str(), "Symbol") {
             return None;
         }
-        let spelling =
-            crate::lowering::ty::computed_key_symbols::well_known_symbol_value_spelling(
-                member.property.name.as_str(),
-            )?;
+        let spelling = crate::lowering::ty::computed_key_symbols::well_known_symbol_value_spelling(
+            member.property.name.as_str(),
+        )?;
         // The same `symbol` type the `Symbol()` / `Symbol.for()` calls have.
         let ty = self.ctx.krate.types.intern(Type::Symbol);
         Some(body.push_expr(Expr {
@@ -943,15 +968,16 @@ impl ModuleBuilder<'_> {
         if !self.names_host(object.name.as_str(), "Object") {
             return None;
         }
-        let (arity, return_ty) = match member.property.name.as_str() {
-            name @ ("keys" | "values" | "entries" | "fromEntries" | "getPrototypeOf"
-            | "create") => (1, self.erase_with(ErasureReason::UntypedBuiltin, name)),
-            name @ ("assign" | "setPrototypeOf") => {
-                (2, self.erase_with(ErasureReason::UntypedBuiltin, name))
-            }
-            "is" | "hasOwn" => (2, self.ctx.krate.types.intern(Type::Bool)),
-            _ => return None,
-        };
+        let (arity, return_ty) =
+            match member.property.name.as_str() {
+                name @ ("keys" | "values" | "entries" | "fromEntries" | "getPrototypeOf"
+                | "create") => (1, self.erase_with(ErasureReason::UntypedBuiltin, name)),
+                name @ ("assign" | "setPrototypeOf") => {
+                    (2, self.erase_with(ErasureReason::UntypedBuiltin, name))
+                }
+                "is" | "hasOwn" => (2, self.ctx.krate.types.intern(Type::Bool)),
+                _ => return None,
+            };
         Some(self.object_static_closure(member, arity, return_ty, outer_body))
     }
 
@@ -1212,7 +1238,11 @@ impl ModuleBuilder<'_> {
         // `['1'].every(Number.isSafeInteger)` answer `true`, the same defect the
         // direct-call path avoids.
         let number_ty = if matches!(op, NumericPredicateOp::IsSafeInteger) {
-            self.erase_at(ErasureReason::RuntimeNarrowing, span, "Number.isSafeInteger")
+            self.erase_at(
+                ErasureReason::RuntimeNarrowing,
+                span,
+                "Number.isSafeInteger",
+            )
         } else {
             self.ctx.krate.types.intern(Type::Float)
         };
@@ -1316,7 +1346,9 @@ impl ModuleBuilder<'_> {
                 smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, string_ty);
             // Environment names are case-sensitive: only `TZ` is the zone.
             let kind = if self.is_process_env_field(member, "TZ") {
-                ExprKind::Literal(Literal::String(smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned()))
+                ExprKind::Literal(Literal::String(
+                    smelt_stdlib::NODE_PROFILE_TIMEZONE.to_owned(),
+                ))
             } else {
                 ExprKind::ProcessEnvRead {
                     name: member.property.name.as_str().to_owned(),
@@ -1465,7 +1497,11 @@ impl ModuleBuilder<'_> {
             let value_ty = self.index_type(access_receiver_ty)?;
             let ty = self.optional_chain_result_type(value_ty);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::OptionalIndex { receiver, index, from_end: false },
+                kind: ExprKind::OptionalIndex {
+                    receiver,
+                    index,
+                    from_end: false,
+                },
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
@@ -1613,10 +1649,15 @@ impl ModuleBuilder<'_> {
         // value; the `unknown` was only there to get past the checker (Hono's
         // `matchedRoutes` behind a `@ts-expect-error`). Any other assertion
         // keeps the erased read.
-        let receiver = self.asserted_class_value(receiver, body).unwrap_or(receiver);
+        let receiver = self
+            .asserted_class_value(receiver, body)
+            .unwrap_or(receiver);
         let receiver_ty = Self::expr_ty(body, receiver);
         if !matches!(
-            self.ctx.krate.types.get(self.optional_receiver_inner_type(receiver_ty)),
+            self.ctx
+                .krate
+                .types
+                .get(self.optional_receiver_inner_type(receiver_ty)),
             Some(Type::Class { .. })
         ) {
             return Ok(None);
@@ -1660,9 +1701,14 @@ impl ModuleBuilder<'_> {
 
     /// The class-typed value under a type assertion to an erased type, or
     /// `None` when `expr` is not such an assertion.
-    fn asserted_class_value(&self, expr: smelt_hir::ExprId, body: &Body) -> Option<smelt_hir::ExprId> {
+    fn asserted_class_value(
+        &self,
+        expr: smelt_hir::ExprId,
+        body: &Body,
+    ) -> Option<smelt_hir::ExprId> {
         let node = body.expr_at(expr)?;
-        let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind else {
+        let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind
+        else {
             return None;
         };
         if !matches!(self.ctx.krate.types.get(node.ty), Some(Type::Unknown)) {

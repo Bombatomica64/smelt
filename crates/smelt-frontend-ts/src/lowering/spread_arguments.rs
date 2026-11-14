@@ -118,7 +118,9 @@ impl ModuleBuilder<'_> {
             .unwrap_or_default();
         let covered = covered_params.len();
         if covered == 0
-            || covered_params.iter().any(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::Unknown)))
+            || covered_params
+                .iter()
+                .any(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::Unknown)))
         {
             return Ok(arguments);
         }
@@ -138,7 +140,11 @@ impl ModuleBuilder<'_> {
         let operand_local = self.capture_bind_value(operand, operand_ty, spread_name, span, body);
         let index_ty = self.ctx.krate.types.intern(Type::Int);
         for offset in 0..covered {
-            let receiver = body.push_expr(Expr { kind: ExprKind::Local(operand_local), ty: operand_ty, span });
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(operand_local),
+                ty: operand_ty,
+                span,
+            });
             let index = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Int(i64::try_from(offset).unwrap_or(i64::MAX))),
                 ty: index_ty,
@@ -170,10 +176,14 @@ impl ModuleBuilder<'_> {
         let Some(node) = body.exprs.get(expr.0 as usize) else {
             return expr;
         };
-        let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind else {
+        let (ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. }) = node.kind
+        else {
             return expr;
         };
-        if matches!(types.get(Self::expr_ty(body, value)), Some(Type::List(_) | Type::Tuple(_))) {
+        if matches!(
+            types.get(Self::expr_ty(body, value)),
+            Some(Type::List(_) | Type::Tuple(_))
+        ) {
             value
         } else {
             expr
@@ -395,7 +405,10 @@ impl ModuleBuilder<'_> {
                 // the rest takes the rest's element type, and `predicate` of
                 // `f(...args)` is not an element of `(n, predicate, ...rest: number[])`.
                 let written = self.expression(&spread.argument, body)?;
-                let spread_list = if matches!(self.ctx.krate.types.get(Self::expr_ty(body, written)), Some(Type::List(_))) {
+                let spread_list = if matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, written)),
+                    Some(Type::List(_))
+                ) {
                     written
                 } else {
                     self.rest_spread_list_value(written, rest_ty, spread.span, body)
@@ -474,8 +487,12 @@ impl ModuleBuilder<'_> {
                         body,
                         self.span(spread.span.start, spread.span.end),
                     );
-                    let spread_list =
-                        self.rest_spread_list_expression(&spread.argument, rest_ty, spread.span, body)?;
+                    let spread_list = self.rest_spread_list_expression(
+                        &spread.argument,
+                        rest_ty,
+                        spread.span,
+                        body,
+                    )?;
                     rest_list = Some(rest_list.map_or(spread_list, |left| {
                         body.push_expr(Expr {
                             kind: ExprKind::ListConcat {
@@ -697,15 +714,14 @@ impl ModuleBuilder<'_> {
             }));
         }
         packed.ok_or_else(|| {
-            SmeltError::unsupported(
-                span,
-                "spread call requires at least one argument",
-            )
+            SmeltError::unsupported(span, "spread call requires at least one argument")
         })
     }
 
     /// Return whether a call uses JavaScript spread arguments.
-    pub(in crate::lowering) fn call_has_spread_arguments(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+    pub(in crate::lowering) fn call_has_spread_arguments(
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> bool {
         call.arguments
             .iter()
             .any(|argument| matches!(argument, Argument::SpreadElement(_)))

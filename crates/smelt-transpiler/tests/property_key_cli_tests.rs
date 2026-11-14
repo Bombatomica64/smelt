@@ -36,7 +36,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use common::{TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in};
+use common::{
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in,
+};
 
 /// Writes a one-entry TypeScript project at `root` around `source`.
 fn write_project(root: &Path, source: &str) -> TestResult {
@@ -60,7 +62,11 @@ fn ensure_prints_like_node(source: &str, expected: &str, name: &str) -> TestResu
     write_project(root, source)?;
     smelt_in(root, &["build"])?;
     let output = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
-    ensure_eq(&output, &expected.to_owned(), format!("the {name} program's output"))
+    ensure_eq(
+        &output,
+        &expected.to_owned(),
+        format!("the {name} program's output"),
+    )
 }
 
 /// Property-key records: one entry per property key, Node's key order, and
@@ -129,7 +135,11 @@ n f zero 0,1,1.5 true true
 /// symbol key is not the string of its description.
 #[test]
 fn property_key_records_convert_every_key() -> TestResult {
-    ensure_prints_like_node(PROPERTY_KEYS_TS, PROPERTY_KEYS_OUTPUT, "property-key records")
+    ensure_prints_like_node(
+        PROPERTY_KEYS_TS,
+        PROPERTY_KEYS_OUTPUT,
+        "property-key records",
+    )
 }
 
 /// es-toolkit's `invert` (verbatim) and the generic `groupBy` shape.
@@ -192,7 +202,11 @@ a b 0 2
 /// `groupBy` round-trips number, string and symbol group keys.
 #[test]
 fn invert_and_group_by_follow_node() -> TestResult {
-    ensure_prints_like_node(INVERT_GROUP_BY_TS, INVERT_GROUP_BY_OUTPUT, "invert and groupBy")
+    ensure_prints_like_node(
+        INVERT_GROUP_BY_TS,
+        INVERT_GROUP_BY_OUTPUT,
+        "invert and groupBy",
+    )
 }
 
 /// Symbol values and the `null`/`undefined` distinction.
@@ -431,7 +445,11 @@ const OBJECT_IDENTITY_OUTPUT: &str = concat!(
 ///   one pulled back out of an `unknown` keeps the arity it was erased with.
 #[test]
 fn records_stay_objects_and_callables_keep_their_arity() -> TestResult {
-    ensure_prints_like_node(OBJECT_IDENTITY_TS, OBJECT_IDENTITY_OUTPUT, "object identity")
+    ensure_prints_like_node(
+        OBJECT_IDENTITY_TS,
+        OBJECT_IDENTITY_OUTPUT,
+        "object identity",
+    )
 }
 
 /// es-toolkit's `intersectionBy`, `intersectionWith` and `result` shapes: an
@@ -499,7 +517,8 @@ console.log(isCase([(x: number) => x, () => 1]), isCase([(x: number, y: number) 
 "#;
 
 /// What Node prints for [`ERASED_FUNCTIONS_TS`].
-const ERASED_FUNCTIONS_OUTPUT: &str = "[11,21,51]\ntrue false\n4 7\n123\n2 -1\ncaught boom 2\ntrue false false\n";
+const ERASED_FUNCTIONS_OUTPUT: &str =
+    "[11,21,51]\ntrue false\n4 7\n123\n2 -1\ncaught boom 2\ntrue false false\n";
 
 /// A value `typeof` proves a function, still erased:
 ///
@@ -513,7 +532,11 @@ const ERASED_FUNCTIONS_OUTPUT: &str = "[11,21,51]\ntrue false\n4 7\n123\n2 -1\nc
 ///   destructured out of an erased array (an `unknown | undefined` local).
 #[test]
 fn erased_functions_are_called_like_javascript() -> TestResult {
-    ensure_prints_like_node(ERASED_FUNCTIONS_TS, ERASED_FUNCTIONS_OUTPUT, "erased functions")
+    ensure_prints_like_node(
+        ERASED_FUNCTIONS_TS,
+        ERASED_FUNCTIONS_OUTPUT,
+        "erased functions",
+    )
 }
 
 /// Building through `--manifest-path <symlink>/Smelt.toml` emits the crate the
@@ -530,29 +553,53 @@ fn a_symlinked_project_builds_like_its_real_directory() -> TestResult {
     write_project(&real, SYMLINK_MAIN_TS)?;
     fs::write(real.join("src").join("lib.ts"), SYMLINK_LIB_TS)?;
     fs::write(real.join("src").join("lib.spec.ts"), SYMLINK_SPEC_TS)?;
-    let manifest = fs::read_to_string(real.join("Smelt.toml"))?
-        .replace("roots = [\"src\"]", "roots = [\"src\"]\ntest-globs = [\"*.spec.ts\"]");
+    let manifest = fs::read_to_string(real.join("Smelt.toml"))?.replace(
+        "roots = [\"src\"]",
+        "roots = [\"src\"]\ntest-globs = [\"*.spec.ts\"]",
+    );
     fs::write(real.join("Smelt.toml"), manifest)?;
     let link = temp.path().join("linked_project");
     std::os::unix::fs::symlink(&real, &link)?;
     let outside = temp.path();
 
-    smelt_in(outside, &["--manifest-path", "real_project/Smelt.toml", "build"])?;
+    smelt_in(
+        outside,
+        &["--manifest-path", "real_project/Smelt.toml", "build"],
+    )?;
     let through_real = tree(&real.join("dist"))?;
     fs::remove_dir_all(real.join("dist"))?;
-    smelt_in(outside, &["--manifest-path", "linked_project/Smelt.toml", "build"])?;
+    smelt_in(
+        outside,
+        &["--manifest-path", "linked_project/Smelt.toml", "build"],
+    )?;
     let through_link = tree(&real.join("dist"))?;
 
-    ensure(!through_real.is_empty(), "the real-directory build wrote no files")?;
-    for ((real_path, real_bytes), (link_path, link_bytes)) in through_real.iter().zip(&through_link) {
+    ensure(
+        !through_real.is_empty(),
+        "the real-directory build wrote no files",
+    )?;
+    for ((real_path, real_bytes), (link_path, link_bytes)) in through_real.iter().zip(&through_link)
+    {
         ensure_eq(link_path, real_path, "the symlinked build's file list")?;
-        let link_text = String::from_utf8_lossy(link_bytes).replace("linked_project/", "real_project/");
+        let link_text =
+            String::from_utf8_lossy(link_bytes).replace("linked_project/", "real_project/");
         ensure(
             *real_bytes == link_text.into_bytes(),
-            format!("{} differs between the real and the symlinked build", real_path.display()),
+            format!(
+                "{} differs between the real and the symlinked build",
+                real_path.display()
+            ),
         )?;
     }
-    ensure_eq(&through_link.len(), &through_real.len(), "the number of files each build wrote")?;
+    ensure_eq(
+        &through_link.len(),
+        &through_real.len(),
+        "the number of files each build wrote",
+    )?;
     let output = cargo_run_manifest(&real.join("dist/Cargo.toml"))?;
-    ensure_eq(&output, &"2,4,6 a!,b!\n".to_owned(), "the symlinked build's output")
+    ensure_eq(
+        &output,
+        &"2,4,6 a!,b!\n".to_owned(),
+        "the symlinked build's output",
+    )
 }

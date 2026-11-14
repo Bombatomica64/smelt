@@ -123,14 +123,24 @@ fn reaches_other_language(
     modules: &[ModuleInput],
     languages: &BTreeMap<&str, HostLanguage>,
 ) -> bool {
-    let by_path = modules.iter().map(|other| (other.path.as_str(), other)).collect::<BTreeMap<_, _>>();
-    let mut pending = module.dependencies.iter().map(String::as_str).collect::<Vec<_>>();
+    let by_path = modules
+        .iter()
+        .map(|other| (other.path.as_str(), other))
+        .collect::<BTreeMap<_, _>>();
+    let mut pending = module
+        .dependencies
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     let mut seen = BTreeSet::new();
     while let Some(path) = pending.pop() {
         if !seen.insert(path) {
             continue;
         }
-        if languages.get(path).is_some_and(|language| *language != module.language) {
+        if languages
+            .get(path)
+            .is_some_and(|language| *language != module.language)
+        {
             return true;
         }
         if let Some(dependency) = by_path.get(path) {
@@ -344,12 +354,25 @@ mod tests {
     #[test]
     fn modules_reaching_the_other_language_are_not_factory_candidates() {
         let modules = vec![
-            module("seq.ts", HostLanguage::TypeScript, "@sealed class A {}\nexport function first<T>(xs: T[]): T { return xs[0]; }", &[]),
-            module("main.py", HostLanguage::Python, "from seq import first\nx = first([1])\n", &["seq.ts"]),
+            module(
+                "seq.ts",
+                HostLanguage::TypeScript,
+                "@sealed class A {}\nexport function first<T>(xs: T[]): T { return xs[0]; }",
+                &[],
+            ),
+            module(
+                "main.py",
+                HostLanguage::Python,
+                "from seq import first\nx = first([1])\n",
+                &["seq.ts"],
+            ),
             module("plain.py", HostLanguage::Python, "y = compute()\n", &[]),
         ];
         let detected = detect_specialization_modules(&modules);
-        let paths = detected.iter().map(|detection| detection.path.as_str()).collect::<Vec<_>>();
+        let paths = detected
+            .iter()
+            .map(|detection| detection.path.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(paths, ["plain.py", "seq.ts"], "{detected:?}");
     }
 
@@ -434,13 +457,20 @@ mod tests {
             "async def main() -> None:\n    results = await gather(work(2), work(3))\n",
             &[],
         )]);
-        assert!(indented.is_empty(), "a body-local binding must not start the host");
+        assert!(
+            indented.is_empty(),
+            "a body-local binding must not start the host"
+        );
         let top_level = detect_specialization_modules(&[module(
             "main.py",
             HostLanguage::Python,
             "handler = make_handler(config)\n",
             &[],
         )]);
-        assert_eq!(top_level.len(), 1, "a module-level factory binding is still a candidate");
+        assert_eq!(
+            top_level.len(),
+            1,
+            "a module-level factory binding is still a candidate"
+        );
     }
 }

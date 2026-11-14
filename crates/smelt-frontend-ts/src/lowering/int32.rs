@@ -46,8 +46,8 @@ use std::collections::{HashMap, HashSet};
 
 use oxc::ast::ast::{TSType, TSTypeName, TSTypeReference};
 use smelt_hir::{
-    BinOp, Body, BodyId, Expr, ExprId, ExprKind, IntWidth, Item, ItemId, Literal, LocalId,
-    Pattern, PrimitiveCastOp, Span, Stmt, StringSearchOp, Symbol, Type, TypeId, UnaryOp,
+    BinOp, Body, BodyId, Expr, ExprId, ExprKind, IntWidth, Item, ItemId, Literal, LocalId, Pattern,
+    PrimitiveCastOp, Span, Stmt, StringSearchOp, Symbol, Type, TypeId, UnaryOp,
 };
 use smelt_stdlib::DiagnosticCategory;
 
@@ -60,7 +60,8 @@ pub(super) const BUN_MODULE: &str = "bun";
 /// What a type checker needs to know of `"bun"` for the surface this module
 /// models: its `int32` type, which is a `number` to TypeScript (Bun declares it
 /// that way; the 32-bit proof is Smelt's, not the checker's).
-pub(super) const BUN_DECLARATION: &str = "declare module \"bun\" {\n  export type int32 = number;\n}\n";
+pub(super) const BUN_DECLARATION: &str =
+    "declare module \"bun\" {\n  export type int32 = number;\n}\n";
 /// The export name of the type.
 pub(super) const INT32_EXPORT: &str = "int32";
 /// Smallest int32.
@@ -295,7 +296,10 @@ impl Int32Prover<'_> {
             } => {
                 let (then_range, else_range) =
                     (self.interval(*then_expr)?, self.interval(*else_expr)?);
-                Ok((then_range.0.min(else_range.0), then_range.1.max(else_range.1)))
+                Ok((
+                    then_range.0.min(else_range.0),
+                    then_range.1.max(else_range.1),
+                ))
             }
             ExprKind::Len { operand } => match self.types.get(self.expr(*operand).ty) {
                 Some(Type::String) => Ok((0, MAX_STRING_LENGTH)),
@@ -315,7 +319,12 @@ impl Int32Prover<'_> {
     }
 
     /// The interval of a binary operation.
-    fn binary_interval(&self, op: BinOp, lhs: ExprId, rhs: ExprId) -> Result<(i128, i128), Unproven> {
+    fn binary_interval(
+        &self,
+        op: BinOp,
+        lhs: ExprId,
+        rhs: ExprId,
+    ) -> Result<(i128, i128), Unproven> {
         match op {
             BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::IMul => Ok((INT32_MIN, INT32_MAX)),
             BinOp::BitAnd => {
@@ -342,7 +351,9 @@ impl Int32Prover<'_> {
                 let top = self
                     .constant(rhs)
                     .and_then(whole_number)
-                    .map_or(MAX_ARRAY_LENGTH, |shift| MAX_ARRAY_LENGTH >> shift.rem_euclid(32));
+                    .map_or(MAX_ARRAY_LENGTH, |shift| {
+                        MAX_ARRAY_LENGTH >> shift.rem_euclid(32)
+                    });
                 Ok((0, top))
             }
             BinOp::Add => {
@@ -359,8 +370,8 @@ impl Int32Prover<'_> {
                 };
                 // `0 * -n` is `-0`: a product is only an int32 when no factor
                 // can be zero while the other can be negative.
-                let zero_with_negative = (contains_zero(left) && right.0 < 0)
-                    || (contains_zero(right) && left.0 < 0);
+                let zero_with_negative =
+                    (contains_zero(left) && right.0 < 0) || (contains_zero(right) && left.0 < 0);
                 if zero_with_negative {
                     return Err(Unproven::Product);
                 }
@@ -452,7 +463,10 @@ impl ModuleBuilder<'_> {
     /// be imported from `"bun"` as its `int32` export (under any alias), or be
     /// `int32` read through a namespace import of `"bun"`. A module's own
     /// `type int32 = number` is not imported, so it stays a `number`.
-    pub(in crate::lowering) fn is_bun_int32_reference(&self, reference: &TSTypeReference<'_>) -> bool {
+    pub(in crate::lowering) fn is_bun_int32_reference(
+        &self,
+        reference: &TSTypeReference<'_>,
+    ) -> bool {
         if reference.type_arguments.is_some() {
             return false;
         }
@@ -479,7 +493,9 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn is_bun_int32_annotation(&self, ty: &TSType<'_>) -> bool {
         match ty {
             TSType::TSTypeReference(reference) => self.is_bun_int32_reference(reference),
-            TSType::TSParenthesizedType(inner) => self.is_bun_int32_annotation(&inner.type_annotation),
+            TSType::TSParenthesizedType(inner) => {
+                self.is_bun_int32_annotation(&inner.type_annotation)
+            }
             _ => false,
         }
     }
@@ -490,7 +506,11 @@ impl ModuleBuilder<'_> {
     /// position (an aliased `type I = int32` used as a field's type). Only the
     /// shapes that can hold a type are rebuilt; everything else is returned as
     /// is.
-    pub(in crate::lowering) fn int32_only_as_whole_type(&mut self, ty: TypeId, keep_top: bool) -> TypeId {
+    pub(in crate::lowering) fn int32_only_as_whole_type(
+        &mut self,
+        ty: TypeId,
+        keep_top: bool,
+    ) -> TypeId {
         let int32 = Type::FixedInt(IntWidth::I32);
         if !self.ctx.krate.types.all().contains(&int32) {
             return ty;
@@ -506,14 +526,16 @@ impl ModuleBuilder<'_> {
         let Some(shape) = self.ctx.krate.types.get(ty).cloned() else {
             return ty;
         };
-        let nested = |builder: &mut Self, inner: TypeId| builder.strip_nested_int32(inner, false, depth + 1);
+        let nested =
+            |builder: &mut Self, inner: TypeId| builder.strip_nested_int32(inner, false, depth + 1);
         let rebuilt = match shape {
             Type::FixedInt(IntWidth::I32) if keep_top => return ty,
             Type::FixedInt(IntWidth::I32) => Type::Float,
             // Every other layer keeps its shape with each child rewritten,
             // through the one child visitor, so no variant is skipped.
             other => {
-                let Some(rewritten) = other.try_map_children(|child| Some(nested(self, child))) else {
+                let Some(rewritten) = other.try_map_children(|child| Some(nested(self, child)))
+                else {
                     return ty;
                 };
                 rewritten
@@ -528,7 +550,11 @@ impl ModuleBuilder<'_> {
     /// (a variable, field, parameter or call result) becomes an exact `ToFloat`
     /// conversion of it, so every consumer sees an ordinary `number`. Anything
     /// else is returned unchanged.
-    pub(in crate::lowering) fn int32_read_as_number(&mut self, expr: ExprId, body: &mut Body) -> ExprId {
+    pub(in crate::lowering) fn int32_read_as_number(
+        &mut self,
+        expr: ExprId,
+        body: &mut Body,
+    ) -> ExprId {
         let ty = body.exprs[expr.0 as usize].ty;
         let Some(optional) = int32_slot(&self.ctx.krate.types, ty) else {
             return expr;
@@ -687,7 +713,9 @@ impl ModuleBuilder<'_> {
             for expr in &body.exprs {
                 match &expr.kind {
                     ExprKind::Closure(closure) => {
-                        results.entry(closure.body).or_insert((closure.return_ty, None));
+                        results
+                            .entry(closure.body)
+                            .or_insert((closure.return_ty, None));
                     }
                     ExprKind::Lambda {
                         body: lambda,
@@ -773,10 +801,17 @@ impl ModuleBuilder<'_> {
                         && int32_slot(&self.ctx.krate.types, decl.ty).is_some()
                     {
                         let ty = decl.ty;
-                        let name = decl.name.map_or_else(|| "it".to_owned(), |name| self.source_symbol(name));
+                        let name = decl
+                            .name
+                            .map_or_else(|| "it".to_owned(), |name| self.source_symbol(name));
                         let refined = self.refinements(body, guards, statement, depth);
-                        let converted =
-                            self.int32_store(body, value, ty, &Int32Place::Variable(name), &refined)?;
+                        let converted = self.int32_store(
+                            body,
+                            value,
+                            ty,
+                            &Int32Place::Variable(name),
+                            &refined,
+                        )?;
                         if let Stmt::Let { value, .. } = &mut body.stmts[statement.0 as usize] {
                             *value = Some(converted);
                         }
@@ -784,7 +819,8 @@ impl ModuleBuilder<'_> {
                 }
                 Stmt::Assign { target, value } => {
                     let target = Self::int32_unwrapped_target(body, target);
-                    if let Stmt::Assign { target: slot, .. } = &mut body.stmts[statement.0 as usize] {
+                    if let Stmt::Assign { target: slot, .. } = &mut body.stmts[statement.0 as usize]
+                    {
                         *slot = target;
                     }
                     let target_ty = body.exprs[target.0 as usize].ty;
@@ -792,7 +828,8 @@ impl ModuleBuilder<'_> {
                     if int32_slot(&self.ctx.krate.types, target_ty).is_some() {
                         let place = self.int32_target_place(body, target);
                         let refined = self.refinements(body, guards, statement, depth);
-                        let converted = self.int32_store(body, value, target_ty, &place, &refined)?;
+                        let converted =
+                            self.int32_store(body, value, target_ty, &place, &refined)?;
                         if let Stmt::Assign { value, .. } = &mut body.stmts[statement.0 as usize] {
                             *value = converted;
                         }
@@ -865,7 +902,9 @@ impl ModuleBuilder<'_> {
                     self.walk_int32_block(body, inner, guards, result, depth + 1)?;
                     guards.pop();
                     let target = Self::int32_unwrapped_target(body, update_target);
-                    if let Stmt::WhileUpdate { update_target, .. } = &mut body.stmts[statement.0 as usize] {
+                    if let Stmt::WhileUpdate { update_target, .. } =
+                        &mut body.stmts[statement.0 as usize]
+                    {
                         *update_target = target;
                     }
                     let target_ty = body.exprs[target.0 as usize].ty;
@@ -880,8 +919,11 @@ impl ModuleBuilder<'_> {
                         {
                             self.refine_from(body, cond, true, &mut refined);
                         }
-                        let converted = self.int32_store(body, update_value, target_ty, &place, &refined)?;
-                        if let Stmt::WhileUpdate { update_value, .. } = &mut body.stmts[statement.0 as usize] {
+                        let converted =
+                            self.int32_store(body, update_value, target_ty, &place, &refined)?;
+                        if let Stmt::WhileUpdate { update_value, .. } =
+                            &mut body.stmts[statement.0 as usize]
+                        {
                             *update_value = converted;
                         }
                     }
@@ -912,12 +954,16 @@ impl ModuleBuilder<'_> {
                     self.walk_int32_block(body, update, guards, result, depth + 1)?;
                     guards.pop();
                 }
-                Stmt::For { pat, body: inner, .. } => {
+                Stmt::For {
+                    pat, body: inner, ..
+                } => {
                     if let Pattern::Binding(local) = body.patterns[pat.0 as usize]
                         && let Some(decl) = body.locals.get(local.0 as usize)
                         && int32_slot(&self.ctx.krate.types, decl.ty).is_some()
                     {
-                        let name = decl.name.map_or_else(|| "it".to_owned(), |name| self.source_symbol(name));
+                        let name = decl
+                            .name
+                            .map_or_else(|| "it".to_owned(), |name| self.source_symbol(name));
                         return Err(int32_error(
                             UNPROVEN_CODE,
                             decl.span,
@@ -1025,13 +1071,17 @@ impl ModuleBuilder<'_> {
         };
         let none = HashMap::new();
         for (key, entry) in entries {
-            let ExprKind::Literal(Literal::String(key_text)) = &body.exprs[key.0 as usize].kind else {
+            let ExprKind::Literal(Literal::String(key_text)) = &body.exprs[key.0 as usize].kind
+            else {
                 continue;
             };
             if !int32_fields.iter().any(|(field, _)| field == key_text) {
                 continue;
             }
-            if matches!(self.ctx.krate.types.get(body.exprs[entry.0 as usize].ty), Some(Type::None)) {
+            if matches!(
+                self.ctx.krate.types.get(body.exprs[entry.0 as usize].ty),
+                Some(Type::None)
+            ) {
                 continue;
             }
             let place = Int32Place::Property {
@@ -1227,7 +1277,9 @@ impl ModuleBuilder<'_> {
                         pending.push(*then_block);
                         pending.extend(*else_block);
                     }
-                    Stmt::While { body: inner, .. } | Stmt::For { body: inner, .. } => pending.push(*inner),
+                    Stmt::While { body: inner, .. } | Stmt::For { body: inner, .. } => {
+                        pending.push(*inner);
+                    }
                     Stmt::WhileUpdateBlock {
                         body: inner,
                         update,
@@ -1256,10 +1308,10 @@ impl ModuleBuilder<'_> {
                     | Stmt::Throw(_)
                     | Stmt::Break
                     | Stmt::Continue
-                | Stmt::LabelStart { .. }
-                | Stmt::LabelEnd(_)
-                | Stmt::BreakLabel(_)
-                | Stmt::ContinueLabel(_) => {}
+                    | Stmt::LabelStart { .. }
+                    | Stmt::LabelEnd(_)
+                    | Stmt::BreakLabel(_)
+                    | Stmt::ContinueLabel(_) => {}
                 }
             }
         }
@@ -1316,7 +1368,8 @@ impl ModuleBuilder<'_> {
                 op: PrimitiveCastOp::ToFloat,
                 operand,
             } if optional_value
-                && int32_slot(&self.ctx.krate.types, body.exprs[operand.0 as usize].ty) == Some(true) =>
+                && int32_slot(&self.ctx.krate.types, body.exprs[operand.0 as usize].ty)
+                    == Some(true) =>
             {
                 true
             }
@@ -1412,7 +1465,10 @@ impl ModuleBuilder<'_> {
         let text = &quoted[1..quoted.len() - 1];
         // `x++`, `x--`, `x += e`: the value's span is the whole update.
         for (operator, sign) in [("++", "+"), ("--", "-")] {
-            if let Some(target) = text.strip_suffix(operator).or_else(|| text.strip_prefix(operator)) {
+            if let Some(target) = text
+                .strip_suffix(operator)
+                .or_else(|| text.strip_prefix(operator))
+            {
                 let target = target.trim();
                 return format!("Write '{target} = ({target} {sign} 1) | 0'.");
             }
@@ -1433,7 +1489,9 @@ impl ModuleBuilder<'_> {
             } => {
                 let side = |id: &ExprId| {
                     let span = body.exprs[id.0 as usize].span;
-                    self.source.get(span.start as usize..span.end as usize).map(str::to_owned)
+                    self.source
+                        .get(span.start as usize..span.end as usize)
+                        .map(str::to_owned)
                 };
                 match (side(lhs), side(rhs)) {
                     (Some(lhs), Some(rhs)) => format!("Write 'Math.imul({lhs}, {rhs})'."),
@@ -1457,21 +1515,37 @@ impl ModuleBuilder<'_> {
             match kind {
                 ExprKind::Call { callee, args } => {
                     let callee_ty = body.exprs[callee.0 as usize].ty;
-                    let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
+                    let Some(Type::Function(function)) =
+                        self.ctx.krate.types.get(callee_ty).cloned()
+                    else {
                         continue;
                     };
                     let name = match body.exprs[callee.0 as usize].kind {
-                        ExprKind::Item(item) => self.item_function(item).map(|f| self.source_symbol(f.name)),
+                        ExprKind::Item(item) => {
+                            self.item_function(item).map(|f| self.source_symbol(f.name))
+                        }
                         _ => None,
                     };
                     let names = match body.exprs[callee.0 as usize].kind {
                         ExprKind::Item(item) => self
                             .item_function(item)
-                            .map(|f| f.params.iter().map(|p| self.source_symbol(p.name)).collect::<Vec<_>>())
+                            .map(|f| {
+                                f.params
+                                    .iter()
+                                    .map(|p| self.source_symbol(p.name))
+                                    .collect::<Vec<_>>()
+                            })
                             .unwrap_or_default(),
                         _ => Vec::new(),
                     };
-                    let converted = self.convert_int32_arguments(body, &args, &function.params, &names, name.as_deref(), &none)?;
+                    let converted = self.convert_int32_arguments(
+                        body,
+                        &args,
+                        &function.params,
+                        &names,
+                        name.as_deref(),
+                        &none,
+                    )?;
                     if let ExprKind::Call { args, .. } = &mut body.exprs[index].kind {
                         *args = converted;
                     }
@@ -1482,31 +1556,54 @@ impl ModuleBuilder<'_> {
                     args,
                 } => {
                     let receiver_ty = body.exprs[receiver.0 as usize].ty;
-                    let Some((params, names, name)) = self.method_parameters(receiver_ty, method) else {
+                    let Some((params, names, name)) = self.method_parameters(receiver_ty, method)
+                    else {
                         continue;
                     };
-                    let converted = self.convert_int32_arguments(body, &args, &params, &names, Some(name.as_str()), &none)?;
+                    let converted = self.convert_int32_arguments(
+                        body,
+                        &args,
+                        &params,
+                        &names,
+                        Some(name.as_str()),
+                        &none,
+                    )?;
                     if let ExprKind::Method { args, .. } = &mut body.exprs[index].kind {
                         *args = converted;
                     }
                 }
                 ExprKind::New { class, args } => {
-                    let Some(constructor) = self.class_item(class).and_then(|class| class.constructor) else {
+                    let Some(constructor) =
+                        self.class_item(class).and_then(|class| class.constructor)
+                    else {
                         continue;
                     };
                     let Some(function) = self.item_function(constructor) else {
                         continue;
                     };
-                    let params: Vec<TypeId> = function.params.iter().map(|param| param.ty).collect();
-                    let names: Vec<String> = function.params.iter().map(|param| self.source_symbol(param.name)).collect();
+                    let params: Vec<TypeId> =
+                        function.params.iter().map(|param| param.ty).collect();
+                    let names: Vec<String> = function
+                        .params
+                        .iter()
+                        .map(|param| self.source_symbol(param.name))
+                        .collect();
                     let name = Some(self.source_symbol(class));
-                    let converted = self.convert_int32_arguments(body, &args, &params, &names, name.as_deref(), &none)?;
+                    let converted = self.convert_int32_arguments(
+                        body,
+                        &args,
+                        &params,
+                        &names,
+                        name.as_deref(),
+                        &none,
+                    )?;
                     if let ExprKind::New { args, .. } = &mut body.exprs[index].kind {
                         *args = converted;
                     }
                 }
                 ExprKind::DictLit(entries) => {
-                    let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty).cloned() else {
+                    let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty).cloned()
+                    else {
                         continue;
                     };
                     let fields = self.record_fields(name);
@@ -1516,10 +1613,14 @@ impl ModuleBuilder<'_> {
                     let container = self.source_symbol(name);
                     let mut converted = entries.clone();
                     for (key, value) in &mut converted {
-                        let ExprKind::Literal(Literal::String(key_text)) = &body.exprs[key.0 as usize].kind else {
+                        let ExprKind::Literal(Literal::String(key_text)) =
+                            &body.exprs[key.0 as usize].kind
+                        else {
                             continue;
                         };
-                        let Some((_, field_ty)) = fields.iter().find(|(field, _)| field == key_text) else {
+                        let Some((_, field_ty)) =
+                            fields.iter().find(|(field, _)| field == key_text)
+                        else {
                             continue;
                         };
                         if int32_slot(&self.ctx.krate.types, *field_ty).is_some() {
@@ -1594,11 +1695,21 @@ impl ModuleBuilder<'_> {
             for item in &self.ctx.krate.items {
                 match item {
                     Item::Class(class) if class.name == name => {
-                        fields.extend(class.fields.iter().map(|field| (self.source_symbol(field.name), field.ty)));
+                        fields.extend(
+                            class
+                                .fields
+                                .iter()
+                                .map(|field| (self.source_symbol(field.name), field.ty)),
+                        );
                         pending.extend(class.base);
                     }
                     Item::Interface(interface) if interface.name == name => {
-                        fields.extend(interface.fields.iter().map(|field| (self.source_symbol(field.name), field.ty)));
+                        fields.extend(
+                            interface
+                                .fields
+                                .iter()
+                                .map(|field| (self.source_symbol(field.name), field.ty)),
+                        );
                         pending.extend(interface.extends.iter().map(|parent| parent.parent));
                     }
                     _ => {}
@@ -1609,7 +1720,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Parameter types, names and the method's display name of `method` on a receiver of type `receiver`.
-    fn method_parameters(&self, receiver: TypeId, method: Symbol) -> Option<(Vec<TypeId>, Vec<String>, String)> {
+    fn method_parameters(
+        &self,
+        receiver: TypeId,
+        method: Symbol,
+    ) -> Option<(Vec<TypeId>, Vec<String>, String)> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver) else {
             return None;
         };
@@ -1628,7 +1743,11 @@ impl ModuleBuilder<'_> {
                             {
                                 return Some((
                                     function.params.iter().map(|param| param.ty).collect(),
-                                    function.params.iter().map(|param| self.source_symbol(param.name)).collect(),
+                                    function
+                                        .params
+                                        .iter()
+                                        .map(|param| self.source_symbol(param.name))
+                                        .collect(),
                                     self.source_symbol(method),
                                 ));
                             }
@@ -1636,10 +1755,18 @@ impl ModuleBuilder<'_> {
                         pending.extend(class.base);
                     }
                     Item::Interface(interface) if interface.name == name => {
-                        if let Some(signature) = interface.methods.iter().find(|signature| signature.name == method) {
+                        if let Some(signature) = interface
+                            .methods
+                            .iter()
+                            .find(|signature| signature.name == method)
+                        {
                             return Some((
                                 signature.params.iter().map(|param| param.ty).collect(),
-                                signature.params.iter().map(|param| self.source_symbol(param.name)).collect(),
+                                signature
+                                    .params
+                                    .iter()
+                                    .map(|param| self.source_symbol(param.name))
+                                    .collect(),
                                 self.source_symbol(method),
                             ));
                         }
@@ -1668,30 +1795,41 @@ impl ModuleBuilder<'_> {
             })
             .collect();
         for (index, expr) in body.exprs.iter().enumerate() {
-            let (params, function, used_at): (Vec<(String, TypeId)>, Option<String>, Span) = match &expr.kind {
-                ExprKind::Item(item) if !callees.contains(&ExprId(u32::try_from(index).unwrap_or(u32::MAX))) => {
-                    let Some(function) = self.item_function(*item) else {
-                        continue;
-                    };
-                    (
-                        function.params.iter().map(|param| (self.source_symbol(param.name), param.ty)).collect(),
-                        Some(self.source_symbol(function.name)),
-                        expr.span,
-                    )
-                }
-                ExprKind::Closure(closure) => {
-                    let function = closure
-                        .function_item
-                        .and_then(|item| self.item_function(item))
-                        .map(|function| self.source_symbol(function.name));
-                    (
-                        closure.params.iter().map(|param| (self.source_symbol(param.name), param.ty)).collect(),
-                        function,
-                        expr.span,
-                    )
-                }
-                _ => continue,
-            };
+            let (params, function, used_at): (Vec<(String, TypeId)>, Option<String>, Span) =
+                match &expr.kind {
+                    ExprKind::Item(item)
+                        if !callees.contains(&ExprId(u32::try_from(index).unwrap_or(u32::MAX))) =>
+                    {
+                        let Some(function) = self.item_function(*item) else {
+                            continue;
+                        };
+                        (
+                            function
+                                .params
+                                .iter()
+                                .map(|param| (self.source_symbol(param.name), param.ty))
+                                .collect(),
+                            Some(self.source_symbol(function.name)),
+                            expr.span,
+                        )
+                    }
+                    ExprKind::Closure(closure) => {
+                        let function = closure
+                            .function_item
+                            .and_then(|item| self.item_function(item))
+                            .map(|function| self.source_symbol(function.name));
+                        (
+                            closure
+                                .params
+                                .iter()
+                                .map(|param| (self.source_symbol(param.name), param.ty))
+                                .collect(),
+                            function,
+                            expr.span,
+                        )
+                    }
+                    _ => continue,
+                };
             if let Some((name, _)) = params
                 .iter()
                 .find(|(_, ty)| int32_slot(&self.ctx.krate.types, *ty).is_some())
@@ -1733,7 +1871,8 @@ impl ModuleBuilder<'_> {
                 let other_fields = self.record_fields(other);
                 for field in &class.fields {
                     let name = self.source_symbol(field.name);
-                    let Some((_, other_ty)) = other_fields.iter().find(|(other, _)| *other == name) else {
+                    let Some((_, other_ty)) = other_fields.iter().find(|(other, _)| *other == name)
+                    else {
                         continue;
                     };
                     let mine = int32_slot(&self.ctx.krate.types, field.ty).is_some();

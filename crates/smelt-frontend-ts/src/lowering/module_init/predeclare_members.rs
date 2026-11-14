@@ -1,9 +1,9 @@
 //! Class and interface member predeclaration: method fields of module classes
 //! and call signatures of callable interfaces, declared before bodies read them.
 
+use super::super::ModuleBuilder;
 use oxc::ast::ast::{Declaration, Program, Statement};
 use smelt_hir::{Field, FunctionType, Type, Visibility};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Predeclare instance-method member types for classes in a manifest-wide type pass.
@@ -84,7 +84,10 @@ impl ModuleBuilder<'_> {
     /// Only interfaces with no `extends` clause are recorded here, because
     /// inherited call signatures need the parents lowered; the interface's own
     /// lowering replaces the entry with the complete set either way.
-    pub(in crate::lowering) fn predeclare_interface_call_signatures(&mut self, program: &Program<'_>) {
+    pub(in crate::lowering) fn predeclare_interface_call_signatures(
+        &mut self,
+        program: &Program<'_>,
+    ) {
         for statement in &program.body {
             let interface = match statement {
                 Statement::TSInterfaceDeclaration(interface) => interface,
@@ -128,7 +131,10 @@ impl ModuleBuilder<'_> {
                 .collect::<Result<Vec<_>, _>>();
             self.pop_type_parameter_scope();
             if let Ok(lowered) = lowered {
-                self.ctx.interface_call_signatures.write().insert(name, lowered);
+                self.ctx
+                    .interface_call_signatures
+                    .write()
+                    .insert(name, lowered);
             }
         }
     }
@@ -199,7 +205,8 @@ impl ModuleBuilder<'_> {
                 }
                 _ => continue,
             };
-            if matches!(key, PropertyKey::PrivateIdentifier(_)) || !self.is_resolvable_property_key(key)
+            if matches!(key, PropertyKey::PrivateIdentifier(_))
+                || !self.is_resolvable_property_key(key)
             {
                 continue;
             }

@@ -22,13 +22,16 @@ export function pick(
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn pick"]), r"fn pick(__param0: SmeltRecord99210bdaad6292f3) -> SmeltUnknown {
+    assert_eq!(
+        rust_items(&source, &["fn pick"]),
+        r"fn pick(__param0: SmeltRecord99210bdaad6292f3) -> SmeltUnknown {
 let leading: bool = __param0.leading.clone().unwrap_or(false);
 let trailing: bool = __param0.trailing.clone().unwrap_or(true);
 let max_wait: Option<f64> = __param0.max_wait.clone();
 let _smelt_tmp_6: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Bool(leading), SmeltUnknown::Bool(trailing), max_wait.clone().map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Number(smelt_value as f64))].into());
 return _smelt_tmp_6;
-}");
+}"
+    );
 }
 
 #[test]
@@ -43,12 +46,15 @@ const result = formatDate("ok");
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["fn main"]), r#"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r#"fn main() {
 let result: JsString;
 let _smelt_tmp_1: JsString = format(JsString::from("ok"));
 result = _smelt_tmp_1;
 return;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -92,13 +98,16 @@ initialized = 6;
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn main"]), r"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r"fn main() {
 let mut annotated: Option<f64> = None::<f64>;
 annotated = Some(5.0);
 let mut initialized: f64 = 1.0;
 initialized = 6.0;
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -132,7 +141,9 @@ const direct: Sizer = (() => {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn main"]), r"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r"fn main() {
 let __smelt_logical_value_2: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
 let direct: ::std::rc::Rc<dyn Fn(JsString) -> f64>;
 let _smelt_tmp_8: ::std::rc::Rc<dyn Fn() -> ::std::rc::Rc<dyn Fn(JsString) -> f64>>;
@@ -189,7 +200,8 @@ _smelt_tmp_1.clone()
 _smelt_tmp_11 = ((_smelt_tmp_10)()).clone();
 direct = _smelt_tmp_11.clone();
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -207,13 +219,16 @@ export function run(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn run"]), r"fn run() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r"fn run() -> f64 {
 let _smelt_tmp_1 = ::std::rc::Rc::new(|| {
 3.0
 });
 let value: f64 = (_smelt_tmp_1)();
 return value;
-}");
+}"
+    );
 }
 
 #[test]
@@ -236,10 +251,13 @@ function read(options: LocaleOptions): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct LocaleOptions"]), r"struct LocaleOptions {
+    assert_eq!(
+        rust_items(&source, &["struct LocaleOptions"]),
+        r"struct LocaleOptions {
 week_starts_on: Option<f64>,
 first_week_contains_date: Option<f64>,
-}");
+}"
+    );
 }
 
 #[test]
@@ -255,9 +273,12 @@ function enabled(options?: Options): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Options"]), r"struct Options {
+    assert_eq!(
+        rust_items(&source, &["struct Options"]),
+        r"struct Options {
 flag: Option<bool>,
-}");
+}"
+    );
     assert!(!source.contains("serde::Serialize"), "{source}");
 }
 
@@ -274,7 +295,9 @@ const record = {} as Record<string, never>;
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn main"]), r"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r"fn main() {
 let result: bool;
 let tuple: SmeltUnknown;
 let record: SmeltRecord<JsString, SmeltUnknown>;
@@ -284,7 +307,8 @@ result = _smelt_tmp_4;
 tuple = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)].into());
 record = SmeltRecord::from([]);
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -306,7 +330,9 @@ function countPresent(values: string[]): Record<string, number> {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn count_present"]), r#"fn count_present(values: SmeltList<JsString>) -> SmeltRecord<JsString, f64> {
+    assert_eq!(
+        rust_items(&source, &["fn count_present"]),
+        r#"fn count_present(values: SmeltList<JsString>) -> SmeltRecord<JsString, f64> {
 let mut value: JsString;
 let mut count: Option<f64>;
 let mut _smelt_tmp_6: usize;
@@ -340,7 +366,8 @@ continue;
 }
 _smelt_tmp_14 = out.into_iter().map(|(smelt_key, smelt_value)| (smelt_key.clone(), smelt_value)).collect::<SmeltRecord<JsString, f64>>();
 return _smelt_tmp_14;
-}"#);
+}"#
+    );
 }
 
 /// A module binding with an initializer, read from a function, reads the
@@ -364,7 +391,8 @@ export function getDefaultOptions(): DefaultOptions {
     );
 
     assert!(
-        source.contains("static SMELT_GLOBAL_DEFAULT_OPTIONS_0: ::std::cell::RefCell<SmeltUnknown>"),
+        source
+            .contains("static SMELT_GLOBAL_DEFAULT_OPTIONS_0: ::std::cell::RefCell<SmeltUnknown>"),
         "{source}"
     );
     assert!(
@@ -386,10 +414,13 @@ function isZero(amount: number): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn is_zero"]), r"fn is_zero(amount: f64) -> bool {
+    assert_eq!(
+        rust_items(&source, &["fn is_zero"]),
+        r"fn is_zero(amount: f64) -> bool {
 let _smelt_tmp_1: bool = !({ let smelt_number = amount; smelt_number != 0.0 && !smelt_number.is_nan() });
 return _smelt_tmp_1;
-}");
+}"
+    );
 }
 
 #[test]
@@ -402,10 +433,13 @@ function truthy(): boolean {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn truthy"]), r"fn truthy() -> bool {
+    assert_eq!(
+        rust_items(&source, &["fn truthy"]),
+        r"fn truthy() -> bool {
 let _smelt_tmp_0: bool = { let smelt_number = f64::NAN; smelt_number != 0.0 && !smelt_number.is_nan() };
 return _smelt_tmp_0;
-}");
+}"
+    );
 }
 
 #[test]
@@ -431,8 +465,14 @@ function addBusinessDays<DateType>(date: DateType, options?: AddBusinessDaysOpti
     );
 
     assert!(source.contains("IsWeekendOptions {"), "{source}");
-    assert!(source.contains("in_: smelt_struct_value.in_.clone()"), "{source}");
-    assert!(!source.contains("map_or(SmeltUnknown::Null, |value| value)"), "{source}");
+    assert!(
+        source.contains("in_: smelt_struct_value.in_.clone()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("map_or(SmeltUnknown::Null, |value| value)"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -450,11 +490,14 @@ export function sortKeysLike(keys: string[], compare?: (a: string, b: string) =>
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn sort_keys_like"]), r"fn sort_keys_like(keys: SmeltList<JsString>, compare: Option<::std::rc::Rc<dyn Fn(JsString, JsString) -> f64>>) -> SmeltList<JsString> {
+    assert_eq!(
+        rust_items(&source, &["fn sort_keys_like"]),
+        r"fn sort_keys_like(keys: SmeltList<JsString>, compare: Option<::std::rc::Rc<dyn Fn(JsString, JsString) -> f64>>) -> SmeltList<JsString> {
 let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(keys.borrow().iter().skip(0usize).take(keys.len().saturating_sub(0usize)).cloned().collect::<Vec<_>>());
 let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into({ match compare.clone() { Some(smelt_comparator) => { _smelt_tmp_2.borrow_mut().sort_by(|smelt_left, smelt_right| { let smelt_ordering = (smelt_comparator)(smelt_left.clone(), smelt_right.clone()); if smelt_ordering < 0.0 { std::cmp::Ordering::Less } else if smelt_ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); } None => { _smelt_tmp_2.borrow_mut().sort_by(|left, right| left.cmp(right)); } }; _smelt_tmp_2.clone() });
 return _smelt_tmp_3;
-}");
+}"
+    );
 }
 
 #[test]
@@ -468,12 +511,15 @@ export function collate(a: string, b: string): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn collate"]), r"fn collate(a: JsString, b: JsString) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn collate"]),
+        r"fn collate(a: JsString, b: JsString) -> f64 {
 let _smelt_tmp_2: JsString = a.clone();
 let _smelt_tmp_3: JsString = b.clone();
 let _smelt_tmp_4: f64 = smelt_locale_compare(&a.clone(), &b.clone());
 return _smelt_tmp_4;
-}");
+}"
+    );
 }
 
 #[test]
@@ -547,7 +593,17 @@ const firstValue = first.value;
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["fn sequence", "fn delegated", "sig __smelt_symbol_iterator", "fn delegated_iterable"]), r#"fn sequence() -> SmeltGenerator<f64, JsString, SmeltUnknown> {
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "fn sequence",
+                "fn delegated",
+                "sig __smelt_symbol_iterator",
+                "fn delegated_iterable"
+            ]
+        ),
+        r#"fn sequence() -> SmeltGenerator<f64, JsString, SmeltUnknown> {
 let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
 let smelt_generator_producer_input = smelt_generator_input.clone();
 let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
@@ -587,7 +643,8 @@ return _smelt_tmp_2;
 } });
 let mut smelt_generator = smelt_generator;
 SmeltGenerator::new(move |smelt_value| { *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(smelt_value) => SmeltGeneratorResult::Yielded(smelt_value), genawaiter::GeneratorState::Complete(smelt_value) => SmeltGeneratorResult::Complete(smelt_value) } })
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -606,7 +663,9 @@ function stopWhenSorted(items: number[]): void {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn stop_when_sorted"]), r"fn stop_when_sorted(items: SmeltList<f64>) -> () {
+    assert_eq!(
+        rust_items(&source, &["fn stop_when_sorted"]),
+        r"fn stop_when_sorted(items: SmeltList<f64>) -> () {
 let mut _smelt_tmp_2: usize;
 let mut _smelt_tmp_3: bool;
 let mut _smelt_tmp_4: bool;
@@ -626,7 +685,8 @@ continue;
 }
 }
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -645,7 +705,9 @@ function choose(flag: boolean): unknown[] {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["fn choose"]), r#"fn choose(flag: bool) -> SmeltList<SmeltUnknown> {
+    assert_eq!(
+        rust_items(&source, &["fn choose"]),
+        r#"fn choose(flag: bool) -> SmeltList<SmeltUnknown> {
 let _smelt_tmp_2: SmeltList<SmeltUnknown>;
 let _smelt_tmp_3: SmeltList<SmeltUnknown>;
 let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::new(Vec::<SmeltUnknown>::new()));
@@ -657,7 +719,8 @@ _smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items
 values = Into::<SmeltList<_>>::into(_smelt_tmp_3);
 }
 return values;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -676,7 +739,9 @@ function choose(flag: boolean): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn choose"]), r"fn choose(flag: bool) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn choose"]),
+        r"fn choose(flag: bool) -> f64 {
 let mut result: f64 = 0.0;
 if flag {
 result = 1.0;
@@ -684,7 +749,8 @@ result = 1.0;
 result = 2.0;
 }
 return result;
-}");
+}"
+    );
 }
 
 #[test]
@@ -703,11 +769,14 @@ export function run(options?: Options): void {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn run"]), r"fn run(options: Option<Options>) -> () {
+    assert_eq!(
+        rust_items(&source, &["fn run"]),
+        r"fn run(options: Option<Options>) -> () {
 let _smelt_tmp_1: Option<::std::rc::Rc<dyn Fn(&SmeltUnknown) -> SmeltUnknown>> = options.clone().as_ref().and_then(|_smelt_value| _smelt_value.in_.clone());
 let _ = consume(_smelt_tmp_1.map(|smelt_value| { let smelt_callback = smelt_value.clone(); let smelt_adapted: ::std::rc::Rc<dyn Fn(SmeltDate) -> SmeltUnknown> = ::std::rc::Rc::new(move |smelt_arg0: SmeltDate| (smelt_callback)(&(smelt_arg0.clone().into_smelt_unknown()))); smelt_adapted }));
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -721,7 +790,10 @@ def read(value: Optional[Optional[int]]) -> Optional[int]:
 ",
     );
 
-    assert_eq!(rust_items(&source, &["sig read"]), r"fn read(value: Option<i64>) -> Option<i64>");
+    assert_eq!(
+        rust_items(&source, &["sig read"]),
+        r"fn read(value: Option<i64>) -> Option<i64>"
+    );
 }
 
 #[test]
@@ -729,24 +801,36 @@ fn instanceof_boxed_primitive_wrapper_emits_marker_check() {
     // `value instanceof Boolean` over a source `any` value checks the wrapper's
     // marker on `SmeltUnknown::Object`; a primitive is not an `Object`, so the
     // check is `false`. The answers are observed in `emission_rules_behaviour`.
-    let source = source_for("export function f(value: any): boolean { return value instanceof Boolean; }");
-    assert_eq!(rust_items(&source, &["fn f"]), r#"fn f(value: SmeltUnknown) -> bool {
+    let source =
+        source_for("export function f(value: any): boolean { return value instanceof Boolean; }");
+    assert_eq!(
+        rust_items(&source, &["fn f"]),
+        r#"fn f(value: SmeltUnknown) -> bool {
 let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key("__smelt_boolean"));
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
 fn instanceof_buffer_and_is_buffer_emit_marker_check() {
     // Both spellings emit the shared `__smelt_buffer` marker check over the source
     // `any` value.
-    let instance = source_for("export function f(value: any): boolean { return value instanceof Buffer; }");
-    let is_buffer = source_for("export function f(value: any): boolean { return Buffer.isBuffer(value); }");
-    assert_eq!(rust_items(&instance, &["fn f"]), rust_items(&is_buffer, &["fn f"]));
-    assert_eq!(rust_items(&instance, &["fn f"]), r#"fn f(value: SmeltUnknown) -> bool {
+    let instance =
+        source_for("export function f(value: any): boolean { return value instanceof Buffer; }");
+    let is_buffer =
+        source_for("export function f(value: any): boolean { return Buffer.isBuffer(value); }");
+    assert_eq!(
+        rust_items(&instance, &["fn f"]),
+        rust_items(&is_buffer, &["fn f"])
+    );
+    assert_eq!(
+        rust_items(&instance, &["fn f"]),
+        r#"fn f(value: SmeltUnknown) -> bool {
 let _smelt_tmp_1: bool = matches!(value.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key("__smelt_buffer"));
 return _smelt_tmp_1;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -763,7 +847,9 @@ const r = takesOne(g);
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn main"]), r"fn main() {
+    assert_eq!(
+        rust_items(&source, &["fn main"]),
+        r"fn main() {
 let r: bool;
 let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: &SmeltUnknown| {
 closure_arg_0.clone()
@@ -772,7 +858,8 @@ let g = _smelt_tmp_2.clone();
 let _smelt_tmp_3: bool = takes_one(SmeltUnknown::Function({ let smelt_source_fn = g.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = if let Some(SmeltUnknown::Function(smelt_narrowed_fn)) = smelt_lookup_callable_object(&smelt_source_fn) { smelt_narrowed_fn } else { ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_callback)(&(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null))))) }; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, 1.0); smelt_erased_fn }));
 r = _smelt_tmp_3;
 return;
-}");
+}"
+    );
 }
 
 #[test]
@@ -796,7 +883,10 @@ def update(model: Model) -> int:
     model.value = 7
     return model.value
 ";
-    assert!(py_frontend::to_hir(source, FileId(0), &mut ctx).is_ok(), "HIR");
+    assert!(
+        py_frontend::to_hir(source, FileId(0), &mut ctx).is_ok(),
+        "HIR"
+    );
     let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
     let class_name = mir
         .classes
@@ -808,7 +898,12 @@ def update(model: Model) -> int:
         .classes
         .iter()
         .find(|class| class.name == class_name)
-        .and_then(|class| class.fields.iter().find(|field| mir.symbols.get(field.name) == Some("value")))
+        .and_then(|class| {
+            class
+                .fields
+                .iter()
+                .find(|field| mir.symbols.get(field.name) == Some("value"))
+        })
         .map(|field| (field.name, field.ty))
         .expect("value field");
     let method = |expected: &str| {
@@ -826,7 +921,11 @@ def update(model: Model) -> int:
     };
     let getter = method("__smelt_get_value");
     let setter = method("__smelt_set_value");
-    let class = mir.classes.iter_mut().find(|class| class.name == class_name).expect("mutable Model class");
+    let class = mir
+        .classes
+        .iter_mut()
+        .find(|class| class.name == class_name)
+        .expect("mutable Model class");
     class.descriptors.push(smelt_mir::MirDescriptor {
         name: value_field.0,
         read_ty: value_field.1,
@@ -843,10 +942,13 @@ def update(model: Model) -> int:
     // The accessors are SOURCE methods here (the fixture spells what the
     // specialization would mint), so their names are moved out of the
     // emitter's reserved `__smelt` namespace; the dispatch is unchanged.
-    assert_eq!(rust_items(&emitted, &["fn update"]), r"fn update(mut model: Model) -> i64 {
+    assert_eq!(
+        rust_items(&emitted, &["fn update"]),
+        r"fn update(mut model: Model) -> i64 {
 model.src_smelt_set_value(7);
 return model.src_smelt_get_value();
-}");
+}"
+    );
 
     mir.classes
         .iter_mut()
@@ -857,10 +959,13 @@ return model.src_smelt_get_value();
     let shadowing = emit_source(&mir).expect("non-data descriptor Rust source");
     // A non-data descriptor is shadowed by instance storage, written through the
     // shared cell of this reference class.
-    assert_eq!(rust_items(&shadowing, &["fn update"]), r"fn update(mut model: Model) -> i64 {
+    assert_eq!(
+        rust_items(&shadowing, &["fn update"]),
+        r"fn update(mut model: Model) -> i64 {
 model.0.borrow_mut().value = 7;
 return model.0.borrow().value.clone();
-}");
+}"
+    );
 }
 
 #[test]
@@ -909,9 +1014,12 @@ export function ceiling(): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn ceiling"]), r"fn ceiling() -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn ceiling"]),
+        r"fn ceiling() -> f64 {
 return 9007199254740991.0;
-}");
+}"
+    );
 }
 
 #[test]
@@ -962,7 +1070,9 @@ function describe(shape: Circle | Square): number {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["enum SmeltUnion", "fn describe"]), r#"pub enum SmeltUnion2 {
+    assert_eq!(
+        rust_items(&source, &["enum SmeltUnion", "fn describe"]),
+        r#"pub enum SmeltUnion2 {
 M0(Circle),
 M1(Square),
 }
@@ -987,7 +1097,8 @@ return _smelt_tmp_5.radius;
 } else {
 return 0.0;
 }
-}"#);
+}"#
+    );
 }
 
 /// A TypeScript `static` class constant lowers to a materialized
@@ -1009,7 +1120,17 @@ export function label(): string {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["fn __smelt_static_limit", "fn __smelt_static_name", "fn limit", "fn label"]), r#"fn __smelt_static_limit() -> f64 {
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "fn __smelt_static_limit",
+                "fn __smelt_static_name",
+                "fn limit",
+                "fn label"
+            ]
+        ),
+        r#"fn __smelt_static_limit() -> f64 {
 42.0
 }
 
@@ -1023,7 +1144,8 @@ return 42.0;
 
 fn label() -> JsString {
 return JsString::from("smelt");
-}"#);
+}"#
+    );
 }
 
 /// `reduceRight` renders the same typed `fold` as `reduce`, over the
@@ -1042,7 +1164,9 @@ export function lastMinusRest(values: number[]): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn order", "fn last_minus_rest"]), r#"fn order(values: SmeltList<JsString>) -> JsString {
+    assert_eq!(
+        rust_items(&source, &["fn order", "fn last_minus_rest"]),
+        r#"fn order(values: SmeltList<JsString>) -> JsString {
 let _smelt_tmp_2: JsString = values.borrow().iter().enumerate().rev().fold(JsString::new(), |smelt_acc, (smelt_index, smelt_item)| { let smelt_item = (*smelt_item).clone(); let smelt_index = smelt_index as f64; let smelt_array = &values; { let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: JsString, closure_arg_2: i64, _arg0: &SmeltList<JsString>| {
 let _smelt_tmp_3: JsString = closure_arg_0.clone() + &closure_arg_1.clone();
 let _smelt_tmp_4: JsString = _smelt_tmp_3.clone() + &JsString::from(smelt_number_to_string(closure_arg_2 as f64));
@@ -1057,7 +1181,8 @@ let _smelt_tmp_2: f64 = closure_arg_0 - closure_arg_1;
 _smelt_tmp_2
 }); (smelt_callback)(smelt_acc, smelt_item, ((smelt_index as f64).trunc() as i64), smelt_array) } }) };
 return _smelt_tmp_2;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -1074,13 +1199,16 @@ export function firstGroup(input: string): string | undefined {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn first_group"]), r#"fn first_group(input: JsString) -> Option<JsString> {
+    assert_eq!(
+        rust_items(&source, &["fn first_group"]),
+        r#"fn first_group(input: JsString) -> Option<JsString> {
 let _smelt_tmp_2: SmeltRegExp = SmeltRegExp::new(JsString::from("(?<result>\\w+)"), JsString::new());
 let m: Option<SmeltMatch> = _smelt_tmp_2.exec(&input.clone());
 let _smelt_tmp_4: Option<SmeltMatch> = m.as_ref().map(|_smelt_value| _smelt_value.clone());
 let _smelt_tmp_5: Option<JsString> = _smelt_tmp_4.as_ref().and_then(|_smelt_value| _smelt_value.named_group_owned("result"));
 return _smelt_tmp_5;
-}"#);
+}"#
+    );
 }
 
 #[test]
@@ -1104,7 +1232,9 @@ export function joinTruthy(parts: (string | undefined)[]): string {
 "#,
     );
 
-    assert_eq!(rust_items(&source, &["fn join_truthy"]), r#"fn join_truthy(parts: SmeltList<Option<JsString>>) -> JsString {
+    assert_eq!(
+        rust_items(&source, &["fn join_truthy"]),
+        r#"fn join_truthy(parts: SmeltList<Option<JsString>>) -> JsString {
 let mut part: Option<JsString>;
 let mut _smelt_tmp_4: usize;
 let mut _smelt_tmp_5: bool;
@@ -1131,7 +1261,8 @@ continue;
 }
 }
 return out;
-}"#);
+}"#
+    );
 }
 
 /// A fixed-arity user callback (`(item, item2, item3) => ...`) supplied where
@@ -1181,7 +1312,9 @@ export function lastVal(items: number[]): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn last_val"]), r"fn last_val(items: SmeltList<f64>) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn last_val"]),
+        r"fn last_val(items: SmeltList<f64>) -> f64 {
 let mut x: f64;
 let mut _smelt_tmp_4: usize;
 let mut _smelt_tmp_5: bool;
@@ -1196,7 +1329,8 @@ found = x;
 _smelt_tmp_3 = _smelt_tmp_3 + 1;
 }
 return found;
-}");
+}"
+    );
 }
 
 /// A parameter property with a default stores the applied default, not the
@@ -1215,7 +1349,9 @@ const sized = new Sized();
 ",
     );
 
-    assert_eq!(rust_items(&source, &["struct Sized_", "impl Sized_ {"]), r"struct Sized_ {
+    assert_eq!(
+        rust_items(&source, &["struct Sized_", "impl Sized_ {"]),
+        r"struct Sized_ {
 size: f64,
 }
 
@@ -1226,7 +1362,8 @@ let size_1: f64 = size.clone().unwrap_or(10.0);
 this.size = size_1;
 return this;
 }
-}");
+}"
+    );
 }
 
 #[test]
@@ -1248,7 +1385,9 @@ export function clearSlot(handle: unknown): number {
 ",
     );
 
-    assert_eq!(rust_items(&source, &["fn clear_slot"]), r"fn clear_slot(handle: SmeltUnknown) -> f64 {
+    assert_eq!(
+        rust_items(&source, &["fn clear_slot"]),
+        r"fn clear_slot(handle: SmeltUnknown) -> f64 {
 let mut slot: Option<SmeltUnknown> = Some(SmeltUnknown::Null);
 slot = Some(handle.clone());
 slot = Some(SmeltUnknown::Null);
@@ -1258,7 +1397,8 @@ return 1.0;
 } else {
 return 0.0;
 }
-}");
+}"
+    );
 }
 
 #[test]
@@ -1322,8 +1462,7 @@ fn a_data_view_accessor_is_a_fallible_call_with_the_specs_to_index() {
 
     // A write takes its value between the offset and the byte-order flag, and
     // is fallible on the same channel.
-    let write =
-        source_for("export function f(view: DataView) { view.setFloat64(0, 1.5, true); }");
+    let write = source_for("export function f(view: DataView) { view.setFloat64(0, 1.5, true); }");
     assert!(
         write.contains("smelt_data_view_set_throwing(")
             && write.contains(", SmeltTypedArrayKind::Float64, (0.0) as f64, 1.5, true)?"),
@@ -1333,7 +1472,8 @@ fn a_data_view_accessor_is_a_fallible_call_with_the_specs_to_index() {
     // Pay-for-use: the adapters are gated on an accessor CALL, which the
     // rvalue-based dependency scan cannot see, so a byte-family program with no
     // accessor must carry neither of them.
-    let no_accessor = source_for("export function f() { return new DataView(new ArrayBuffer(8)); }");
+    let no_accessor =
+        source_for("export function f() { return new DataView(new ArrayBuffer(8)); }");
     assert!(
         !no_accessor.contains("smelt_data_view_get_throwing")
             && !no_accessor.contains("smelt_data_view_set_throwing"),
@@ -1454,7 +1594,10 @@ export function run(): void {
     let run_body = program
         .split_once("fn run()")
         .map(|(_, rest)| rest)
-        .and_then(|rest| rest.split_once("\nfn ").map_or(Some(rest), |(body, _)| Some(body)))
+        .and_then(|rest| {
+            rest.split_once("\nfn ")
+                .map_or(Some(rest), |(body, _)| Some(body))
+        })
         .unwrap_or_default();
     assert!(
         run_body.contains("invariant("),
@@ -1727,7 +1870,8 @@ last_value: int = values[-1]
     );
 
     assert!(
-        source.contains("smelt_py_list_read(&") && source.contains("if index < 0 { index.saturating_add("),
+        source.contains("smelt_py_list_read(&")
+            && source.contains("if index < 0 { index.saturating_add("),
         "a Python element read must still count a negative index from the end:\n{source}"
     );
 }
@@ -1747,7 +1891,8 @@ export function put(arr: number[], index: number, value: number): void {
     );
 
     assert!(
-        source.contains("usize::try_from(smelt_normalized).expect(\"negative index out of bounds\")"),
+        source
+            .contains("usize::try_from(smelt_normalized).expect(\"negative index out of bounds\")"),
         "a write to a negative normalized index must still fail loudly:\n{source}"
     );
 }
@@ -1939,7 +2084,9 @@ const seen = reporter(1, 2, 3);
     ));
 
     assert!(
-        source.contains("smelt_callback.call(vec![smelt_arg0.clone(), smelt_arg1.clone(), smelt_arg2.clone()])"),
+        source.contains(
+            "smelt_callback.call(vec![smelt_arg0.clone(), smelt_arg1.clone(), smelt_arg2.clone()])"
+        ),
         "all three arguments must reach the erased callable:\n{source}"
     );
 }
@@ -2072,10 +2219,7 @@ export function countBy<T, K extends PropertyKey>(
         !body.contains(".insert("),
         "the write-back probe is gone: {body}"
     );
-    assert!(
-        !body.contains(".get(&"),
-        "the read probe is gone: {body}"
-    );
+    assert!(!body.contains(".get(&"), "the read probe is gone: {body}");
 }
 
 /// A write through a receiver that is still optional-typed is an lvalue (H23).
@@ -2157,7 +2301,8 @@ export function reset(key: string): number {
 
     // What the block hands back is erased, not the bare record.
     assert!(
-        tail.trim_start().starts_with("{ let smelt_record = smelt_global_value.clone();"),
+        tail.trim_start()
+            .starts_with("{ let smelt_record = smelt_global_value.clone();"),
         "a global assignment consumed as `unknown` must erase its result: {tail:.200}"
     );
     assert!(

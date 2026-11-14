@@ -67,7 +67,10 @@ impl Assigned {
     /// The facts on entry: exactly `defs` are assigned.
     fn entry(defs: impl IntoIterator<Item = LocalId>) -> Self {
         let must: HashSet<LocalId> = defs.into_iter().collect();
-        Self { may: must.clone(), must }
+        Self {
+            may: must.clone(),
+            must,
+        }
     }
 
     /// How a read of `local` at this point relates to its assignments.
@@ -189,7 +192,11 @@ impl DefiniteAssignment {
     }
 
     /// [`Self::walk`] over a body's blocks.
-    pub fn walk_blocks<'a>(&self, blocks: &'a [BasicBlock], mut visit: impl FnMut(Point<'a>, &Assigned)) {
+    pub fn walk_blocks<'a>(
+        &self,
+        blocks: &'a [BasicBlock],
+        mut visit: impl FnMut(Point<'a>, &Assigned),
+    ) {
         for block in blocks {
             let Some(Some(state)) = self.entry.get(block.id.index()).cloned() else {
                 continue;
@@ -214,7 +221,10 @@ type EdgeSink<'v> = dyn FnMut(BlockId, Assigned) + 'v;
 /// enclosing `finally` region (entry and continuation), each with the local
 /// it assigns.
 pub(crate) fn yield_edges(statement: &Statement) -> Vec<YieldEdge> {
-    let Rvalue::GeneratorYield { unwind, cleanup, .. } = statement.value() else {
+    let Rvalue::GeneratorYield {
+        unwind, cleanup, ..
+    } = statement.value()
+    else {
         return Vec::new();
     };
     let mut edges = Vec::new();
@@ -237,7 +247,14 @@ fn step_block<'a>(
     edge: &mut EdgeSink<'_>,
 ) {
     for (index, statement) in block.statements.iter().enumerate() {
-        visit(Point::Statement { block: block.id, index, statement }, &state);
+        visit(
+            Point::Statement {
+                block: block.id,
+                index,
+                statement,
+            },
+            &state,
+        );
         let mut after_reads = state.clone();
         non_capture_reads(statement, |local| after_reads.insert(local));
         for (target, defines) in yield_edges(statement) {
@@ -255,15 +272,31 @@ fn step_block<'a>(
     let Some(terminator) = &block.terminator else {
         return;
     };
-    visit(Point::Terminator { block: block.id, terminator }, &state);
+    visit(
+        Point::Terminator {
+            block: block.id,
+            terminator,
+        },
+        &state,
+    );
     let mut after_reads = state.clone();
     terminator.read_locals(|local| after_reads.insert(local));
     match terminator {
         // The unwind edge leaves before the call completes: its reads may be
         // the very thing that raised (a checked binding read), so only the
         // normal edge counts them.
-        Terminator::Call { dest, target, unwind, .. }
-        | Terminator::Await { dest, target, unwind, .. } => {
+        Terminator::Call {
+            dest,
+            target,
+            unwind,
+            ..
+        }
+        | Terminator::Await {
+            dest,
+            target,
+            unwind,
+            ..
+        } => {
             if let Some(handler) = unwind {
                 let mut incoming = state.clone();
                 if let Some(local) = handler.exception_local {
@@ -370,7 +403,9 @@ impl CaptureInit {
                     Some(crate::SiteLookup::Many) => true,
                     Some(crate::SiteLookup::Unconstructed) | None => false,
                 };
-                facts.initialized.insert(id, vec![!constructed_later; body.captures.len()]);
+                facts
+                    .initialized
+                    .insert(id, vec![!constructed_later; body.captures.len()]);
             }
             let analysis = DefiniteAssignment::of(body, facts.entry_defs(body));
             facts.record_sites(body, &analysis);
@@ -395,9 +430,16 @@ impl CaptureInit {
     pub fn entry_defs(&self, body: MirBody<'_>) -> Vec<LocalId> {
         let mut defs = body.params.to_vec();
         if let crate::BodyOwner::Closure(id) = body.owner {
-            defs.extend(body.captures.iter().enumerate().filter_map(|(index, capture)| {
-                capture.target_local.filter(|_| self.is_initialized(id, index))
-            }));
+            defs.extend(
+                body.captures
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, capture)| {
+                        capture
+                            .target_local
+                            .filter(|_| self.is_initialized(id, index))
+                    }),
+            );
         }
         defs
     }
@@ -410,7 +452,10 @@ impl CaptureInit {
             let Point::Statement { statement, .. } = point else {
                 return;
             };
-            let (Statement::Assign { dest, value: Rvalue::Closure { id, captures } }
+            let (Statement::Assign {
+                dest,
+                value: Rvalue::Closure { id, captures },
+            }
             | Statement::AssignPlace {
                 place: Place::Local(dest),
                 value: Rvalue::Closure { id, captures },
@@ -423,7 +468,12 @@ impl CaptureInit {
                 .iter()
                 .map(|source| source.is_some_and(|local| state.must.contains(&local)))
                 .collect();
-            pending.push(PendingSite { id: *id, value: *dest, sources, assigned });
+            pending.push(PendingSite {
+                id: *id,
+                value: *dest,
+                sources,
+                assigned,
+            });
         });
         for site in &mut pending {
             for (index, assigned) in site.assigned.iter_mut().enumerate() {
@@ -495,9 +545,14 @@ fn value_unobserved_until_assigned(
         }
         match point {
             Point::Statement { statement, .. } => {
-                if let Statement::Assign { dest, value: Rvalue::Use(operand) } = statement
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(operand),
+                } = statement
                     && (*dest == source || aliases.contains(dest))
-                    && operand.local().is_some_and(|local| aliases.contains(&local))
+                    && operand
+                        .local()
+                        .is_some_and(|local| aliases.contains(&local))
                 {
                     return;
                 }
@@ -509,7 +564,9 @@ fn value_unobserved_until_assigned(
         }
     });
     !observed_unassigned
-        && aliases.iter().all(|alias| analysis_reads_only_reachable(body, analysis, *alias))
+        && aliases
+            .iter()
+            .all(|alias| analysis_reads_only_reachable(body, analysis, *alias))
 }
 
 /// `value` and every local a chain of plain copies (`x = copy value`) from it
@@ -520,9 +577,14 @@ fn copies_of(body: MirBody<'_>, value: LocalId, source: LocalId) -> HashSet<Loca
     loop {
         let before = aliases.len();
         for statement in body.blocks.iter().flat_map(|block| &block.statements) {
-            if let Statement::Assign { dest, value: Rvalue::Use(operand) } = statement
+            if let Statement::Assign {
+                dest,
+                value: Rvalue::Use(operand),
+            } = statement
                 && *dest != source
-                && operand.local().is_some_and(|local| aliases.contains(&local))
+                && operand
+                    .local()
+                    .is_some_and(|local| aliases.contains(&local))
             {
                 aliases.insert(*dest);
             }
@@ -536,14 +598,20 @@ fn copies_of(body: MirBody<'_>, value: LocalId, source: LocalId) -> HashSet<Loca
 /// Whether every read of `value` is in a block the analysis reached: a read in
 /// a block it did not reach was not checked by the walk, so the proof only
 /// holds when there is none.
-fn analysis_reads_only_reachable(body: MirBody<'_>, analysis: &DefiniteAssignment, value: LocalId) -> bool {
+fn analysis_reads_only_reachable(
+    body: MirBody<'_>,
+    analysis: &DefiniteAssignment,
+    value: LocalId,
+) -> bool {
     body.blocks.iter().all(|block| {
         analysis.is_reachable(block.id)
-            || (!block.statements.iter().any(|statement| statement.reads_local(value))
+            || (!block
+                .statements
+                .iter()
+                .any(|statement| statement.reads_local(value))
                 && !block
                     .terminator
                     .as_ref()
                     .is_some_and(|terminator| terminator.reads_local(value)))
     })
 }
-

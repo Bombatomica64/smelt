@@ -11,8 +11,8 @@ use std::collections::HashSet;
 use smelt_mir::{Mir, MirFunction};
 
 use crate::classes::{
-    class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
-    NominalStorage, effective_class_fields, effective_class_methods,
+    NominalStorage, class_impl_generics_text, class_name_text, class_type_args_text,
+    class_type_params_text, effective_class_fields, effective_class_methods,
     materialized_static_value, type_holds_function,
 };
 use crate::derive_impls::{
@@ -132,11 +132,19 @@ pub(crate) fn emit_reference_record_storage(
     // and the erasure keeps the instance alive through those fields' values.
     let weak_fields: HashSet<smelt_hir::Symbol> = fields
         .iter()
-        .filter(|field| context.weak_receivers().is_weak_field(*declared_name, field.name))
+        .filter(|field| {
+            context
+                .weak_receivers()
+                .is_weak_field(*declared_name, field.name)
+        })
         .map(|field| field.name)
         .collect();
     if !weak_fields.is_empty() {
-        writer.line(emitter::weak_receiver::handle_impl_text(name, impl_generics, type_args));
+        writer.line(emitter::weak_receiver::handle_impl_text(
+            name,
+            impl_generics,
+            type_args,
+        ));
         let checked = fields
             .iter()
             .filter(|field| weak_fields.contains(&field.name))
@@ -147,7 +155,12 @@ pub(crate) fn emit_reference_record_storage(
                 )
             })
             .collect::<Vec<_>>();
-        writer.line(emitter::weak_receiver::drop_impl_text(name, type_params, type_args, &checked));
+        writer.line(emitter::weak_receiver::drop_impl_text(
+            name,
+            type_params,
+            type_args,
+            &checked,
+        ));
         writer.blank_line();
     }
     let scoped_type_params = type_param_names.iter().copied().collect::<HashSet<_>>();
@@ -201,7 +214,14 @@ pub(crate) fn emit_reference_record_storage(
         writer.block(
             format!("struct {inner_name}{type_params}"),
             |block_writer| {
-                emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
+                emit_reference_inner_fields(
+                    block_writer,
+                    mir,
+                    context,
+                    fields,
+                    &scoped_type_params,
+                    &phantom_args,
+                );
             },
         );
         // Per-trait bounds. `Debug` names the struct and stops, so it needs no
@@ -223,10 +243,7 @@ pub(crate) fn emit_reference_record_storage(
             (impl_generics.clone(), impl_generics.clone())
         } else {
             (
-                derive_generics_text(
-                    &record_param_idents,
-                    classes::GENERATED_TYPE_PARAM_BOUNDS,
-                ),
+                derive_generics_text(&record_param_idents, classes::GENERATED_TYPE_PARAM_BOUNDS),
                 type_params.clone(),
             )
         };
@@ -249,7 +266,14 @@ pub(crate) fn emit_reference_record_storage(
         writer.block(
             format!("struct {inner_name}{type_params}"),
             |block_writer| {
-                emit_reference_inner_fields(block_writer, mir, context, fields, &scoped_type_params, &phantom_args);
+                emit_reference_inner_fields(
+                    block_writer,
+                    mir,
+                    context,
+                    fields,
+                    &scoped_type_params,
+                    &phantom_args,
+                );
             },
         );
     }
@@ -326,7 +350,12 @@ pub(crate) fn emit_reference_record_storage(
                     .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                     // A mutable static's accessor reads its live storage.
                     let value = field.global.map_or_else(
-                        || materialized_static_value(field.value.as_ref(), mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr)),
+                        || {
+                            materialized_static_value(
+                                field.value.as_ref(),
+                                mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
+                            )
+                        },
                         |global| RustExpr::chain(crate::globals::global_read_text(mir, global)),
                     );
                     impl_writer.block(

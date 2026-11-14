@@ -160,7 +160,11 @@ mod tests {
             } else {
                 RuleId::TsMathNumeric
             };
-            assert_eq!(typescript_call_rule(Some("Math"), name), Some(expected), "Math.{name}");
+            assert_eq!(
+                typescript_call_rule(Some("Math"), name),
+                Some(expected),
+                "Math.{name}"
+            );
         }
     }
 
@@ -179,7 +183,11 @@ mod tests {
             ("MIN_SAFE_INTEGER", 0xc33f_ffff_ffff_ffff),
             ("EPSILON", 0x3cb0_0000_0000_0000),
         ] {
-            assert_eq!(number_constant(name).map(f64::to_bits), Some(bits), "Number.{name}");
+            assert_eq!(
+                number_constant(name).map(f64::to_bits),
+                Some(bits),
+                "Number.{name}"
+            );
         }
         for (name, bits) in [
             ("PI", 0x4009_21fb_5444_2d18_u64),
@@ -191,7 +199,11 @@ mod tests {
             ("SQRT2", 0x3ff6_a09e_667f_3bcd),
             ("SQRT1_2", 0x3fe6_a09e_667f_3bcd),
         ] {
-            assert_eq!(math_constant(name).map(f64::to_bits), Some(bits), "Math.{name}");
+            assert_eq!(
+                math_constant(name).map(f64::to_bits),
+                Some(bits),
+                "Math.{name}"
+            );
         }
     }
 }

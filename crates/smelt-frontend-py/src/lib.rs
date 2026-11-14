@@ -437,8 +437,7 @@ pub fn to_hir_with_options(
         .unwrap_or("smelt_module");
     let resolved_types = ty_resolve::ResolvedTypes::resolve(source, stem);
     let analysis = lowering::ModuleAnalysis::new(resolved_types, &module_ast);
-    let mut builder =
-        ModuleBuilder::new(file_id, path.to_owned(), ctx, specialization, analysis);
+    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx, specialization, analysis);
     builder.is_entry = options.is_entry;
     builder.module(&module_ast)
 }

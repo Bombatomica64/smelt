@@ -151,7 +151,12 @@ impl EmitRole {
     /// Whether an own item's type parameters were erased by the crate-wide
     /// generic decision.
     pub(crate) const fn own_generics_erased(&self) -> bool {
-        matches!(self, Self::Own { generics: OwnGenerics::Erased })
+        matches!(
+            self,
+            Self::Own {
+                generics: OwnGenerics::Erased
+            }
+        )
     }
 
     /// The class whose `impl` receives an inherited copy.

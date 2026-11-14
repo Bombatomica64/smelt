@@ -9,9 +9,8 @@ use smelt_hir::op_table::{opt, regex_replace_args_text, tail};
 use smelt_hir::{Type, TypeId};
 
 use crate::{
-    BuiltinFn, Callee, Constant, GlobalProjection, LocalId, LocalKind, Mir, Operand, Place,
-    Rvalue, Statement,
-    Terminator,
+    BuiltinFn, Callee, Constant, GlobalProjection, LocalId, LocalKind, Mir, Operand, Place, Rvalue,
+    Statement, Terminator,
 };
 
 /// Append formatted text to the output buffer.
@@ -90,7 +89,10 @@ pub fn format_compact(mir: &Mir) -> String {
         for block in &function.blocks {
             push_fmt(&mut out, format_args!("  bb{}:\n", block.id.0));
             for statement in &block.statements {
-                push_fmt(&mut out, format_args!("    {}\n", statement_text(statement)));
+                push_fmt(
+                    &mut out,
+                    format_args!("    {}\n", statement_text(statement)),
+                );
             }
             let terminator = block
                 .terminator
@@ -128,7 +130,10 @@ pub fn format_compact(mir: &Mir) -> String {
         for block in &closure.blocks {
             push_fmt(&mut out, format_args!("  bb{}:\n", block.id.0));
             for statement in &block.statements {
-                push_fmt(&mut out, format_args!("    {}\n", statement_text(statement)));
+                push_fmt(
+                    &mut out,
+                    format_args!("    {}\n", statement_text(statement)),
+                );
             }
             let terminator = block
                 .terminator
@@ -196,15 +201,25 @@ fn statement_text(statement: &Statement) -> String {
 /// Rebinds one op field to its text; see the display grammar in
 /// `smelt_hir::op_table`.
 macro_rules! render_op_field {
-    (one, $field:ident) => { operand_text($field) };
-    (opt, $field:ident) => { $field.as_ref().map(operand_text) };
-    (many, $field:ident) => { $field.iter().map(operand_text).collect::<Vec<_>>() };
+    (one, $field:ident) => {
+        operand_text($field)
+    };
+    (opt, $field:ident) => {
+        $field.as_ref().map(operand_text)
+    };
+    (many, $field:ident) => {
+        $field.iter().map(operand_text).collect::<Vec<_>>()
+    };
     (splice, $field:ident) => {
         $field
             .iter()
             .map(|item| {
                 let value = operand_text(&item.value);
-                if item.spread { format!("...{value}") } else { value }
+                if item.spread {
+                    format!("...{value}")
+                } else {
+                    value
+                }
             })
             .collect::<Vec<_>>()
     };
@@ -220,9 +235,15 @@ macro_rules! render_op_field {
             .map(|(key, value)| (key, operand_text(value)))
             .collect::<Vec<_>>()
     };
-    ([$data:ty], $field:ident) => { $field };
-    ((sym $label:literal), $field:ident) => { format!("{}{}", $label, $field.0) };
-    ((ty), $field:ident) => { format!("t{}", $field.0) };
+    ([$data:ty], $field:ident) => {
+        $field
+    };
+    ((sym $label:literal), $field:ident) => {
+        format!("{}{}", $label, $field.0)
+    };
+    ((ty), $field:ident) => {
+        format!("t{}", $field.0)
+    };
 }
 
 /// Generates [`rvalue_text`]: the arms of the forms only MIR has, then one
@@ -527,7 +548,9 @@ fn place_text(place: &Place) -> String {
     match place {
         Place::Local(local) => local_ref(*local),
         Place::Field { base, field } => format!("{}.field{}", local_ref(*base), field.0),
-        Place::Index { base, index, .. } => format!("{}[{}]", local_ref(*base), operand_text(index)),
+        Place::Index { base, index, .. } => {
+            format!("{}[{}]", local_ref(*base), operand_text(index))
+        }
         Place::Global { base, projection } => match projection {
             GlobalProjection::Field(field) => format!("global{base}.field{}", field.0),
             GlobalProjection::Index { index, .. } => {

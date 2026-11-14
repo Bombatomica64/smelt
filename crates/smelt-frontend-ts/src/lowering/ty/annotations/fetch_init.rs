@@ -68,14 +68,12 @@ impl ModuleBuilder<'_> {
         class: smelt_hir::Symbol,
         field: smelt_hir::Symbol,
     ) -> Option<smelt_hir::TypeId> {
-        let class_name = source_spelling(&self.ctx.krate, class)?
-            .to_owned();
+        let class_name = source_spelling(&self.ctx.krate, class)?.to_owned();
         // Source names are normalized to snake_case in the symbol table, with
         // the original spelling kept in `names`, so both are accepted: a key
         // written `statusText` interns as `status_text`, and which one arrives
         // here depends on the table the caller's symbol came from.
-        let field_name = source_spelling(&self.ctx.krate, field)?
-            .to_owned();
+        let field_name = source_spelling(&self.ctx.krate, field)?.to_owned();
         // A site may qualify the ambient interface to escape a local one of the
         // same name (`globalThis.ResponseInit` where the module declares its
         // own `ResponseInit`). The qualified reference keeps its full path as a
@@ -105,8 +103,8 @@ impl ModuleBuilder<'_> {
             // table the request itself stores them in, so the init surface and
             // the getter surface cannot disagree about which keys exist.
             ("RequestInit", field_name) => {
-                let member = smelt_hir::RequestInitMember::from_property_name(field_name)
-                    .or_else(|| {
+                let member =
+                    smelt_hir::RequestInitMember::from_property_name(field_name).or_else(|| {
                         smelt_hir::RequestInitMember::ALL
                             .into_iter()
                             .find(|member| member.field_name() == field_name)
@@ -153,7 +151,10 @@ impl ModuleBuilder<'_> {
     /// one as `globalThis.ResponseInit` precisely to escape it. The answer comes
     /// from the module's facts, because a declaration later in the file must win
     /// over a reference earlier in it.
-    pub(super) fn ambient_init_interface_type(&mut self, name_text: &str) -> Option<smelt_hir::TypeId> {
+    pub(super) fn ambient_init_interface_type(
+        &mut self,
+        name_text: &str,
+    ) -> Option<smelt_hir::TypeId> {
         let bare = name_text.strip_prefix("globalThis.").unwrap_or(name_text);
         let keys = smelt_stdlib::fetch_init_keys(bare)?;
         // A source declaration of the BARE name wins for the bare spelling —
@@ -205,15 +206,17 @@ impl ModuleBuilder<'_> {
             methods: Vec::new(),
             decode_facts: Vec::new(),
         });
-        self.interfaces.register_lowered(crate::lowering::state::interface_registry::LoweredInterface {
-            name,
-            name_text: name_text.to_owned(),
-            item,
-            extends: Vec::new(),
-            call_signatures: Vec::new(),
-            construct_signatures: Vec::new(),
-            index_value_ty: None,
-        });
+        self.interfaces.register_lowered(
+            crate::lowering::state::interface_registry::LoweredInterface {
+                name,
+                name_text: name_text.to_owned(),
+                item,
+                extends: Vec::new(),
+                call_signatures: Vec::new(),
+                construct_signatures: Vec::new(),
+                index_value_ty: None,
+            },
+        );
         Some(ty)
     }
 

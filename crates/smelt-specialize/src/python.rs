@@ -14,7 +14,10 @@ use crate::{
 };
 
 /// Embedded, versioned `CPython` specialization guest.
-#[expect(clippy::redundant_pub_crate, reason = "the cache key hashes the guest; plain pub trips unreachable_pub")]
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "the cache key hashes the guest; plain pub trips unreachable_pub"
+)]
 pub(crate) const PYTHON_GUEST: &str = include_str!("../guest/python.py");
 
 /// Monotonic suffix for process-local scratch directories.
@@ -366,7 +369,10 @@ mod tests {
     #[test]
     fn guest_materializes_wrappers_descriptors_and_cycles() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return missing_prerequisite("guest_materializes_wrappers_descriptors_and_cycles", "python3 interpreter");
+            return missing_prerequisite(
+                "guest_materializes_wrappers_descriptors_and_cycles",
+                "python3 interpreter",
+            );
         };
         let manifest = run_fixture_guest(&python)?;
         assert_fixture_manifest(&manifest)
@@ -375,7 +381,10 @@ mod tests {
     #[test]
     fn guest_rejects_runtime_dynamic_attribute_objects() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return missing_prerequisite("guest_rejects_runtime_dynamic_attribute_objects", "python3 interpreter");
+            return missing_prerequisite(
+                "guest_rejects_runtime_dynamic_attribute_objects",
+                "python3 interpreter",
+            );
         };
         let stderr = run_rejected_fixture_guest(
             &python,
@@ -395,7 +404,10 @@ mod tests {
     #[test]
     fn guest_preserves_import_cycles_reexports_and_singleton_identity() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return missing_prerequisite("guest_preserves_import_cycles_reexports_and_singleton_identity", "python3 interpreter");
+            return missing_prerequisite(
+                "guest_preserves_import_cycles_reexports_and_singleton_identity",
+                "python3 interpreter",
+            );
         };
         let manifest = run_module_graph_guest(&python)?;
         let module_a = manifest
@@ -464,13 +476,17 @@ mod tests {
         fs::create_dir(&project).map_err(|error| error.to_string())?;
         fs::create_dir(&installed).map_err(|error| error.to_string())?;
         for (name, text) in extra {
-            fs::write(installed.join(format!("{name}.py")), text).map_err(|error| error.to_string())?;
+            fs::write(installed.join(format!("{name}.py")), text)
+                .map_err(|error| error.to_string())?;
         }
         let module_path = project.join("fixture.py");
         fs::write(&module_path, source).map_err(|error| error.to_string())?;
         let policy = fixture_policy(&project, scratch.path());
         let hashes = fixture_hashes();
-        let modules = vec![PythonModule { name: "fixture".to_owned(), path: module_path }];
+        let modules = vec![PythonModule {
+            name: "fixture".to_owned(),
+            path: module_path,
+        }];
         let import_paths = vec![installed];
         let input = PythonGuestInput {
             smelt_version: "test",
@@ -482,8 +498,11 @@ mod tests {
             sandbox_policy: &policy,
         };
         let request_path = scratch.path().join("request.json");
-        write_if_changed(&request_path, &serde_json::to_vec(&input).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?;
+        write_if_changed(
+            &request_path,
+            &serde_json::to_vec(&input).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
         std::process::Command::new(python)
             .args(["-I", "-S", "-c"])
             .arg(PYTHON_GUEST)
@@ -495,7 +514,10 @@ mod tests {
     /// The binding names of the one module in a guest's manifest output.
     fn binding_names(output: &std::process::Output) -> Result<Vec<String>, String> {
         if !output.status.success() {
-            return Err(format!("guest failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "guest failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
         let manifest = decode_manifest(&output.stdout).map_err(|error| error.to_string())?;
         Ok(manifest
@@ -512,7 +534,10 @@ mod tests {
     #[test]
     fn guest_imports_logging_guarded_subclasses_and_import_paths() -> Result<(), String> {
         let Some(python) = discovered_python() else {
-            return missing_prerequisite("guest_imports_logging_guarded_subclasses_and_import_paths", "python3 interpreter");
+            return missing_prerequisite(
+                "guest_imports_logging_guarded_subclasses_and_import_paths",
+                "python3 interpreter",
+            );
         };
         let source = "import logging\nimport socket\nclass _Connection(socket.socket):\n    pass\nfrom logging import root\nfrom extlib import LIMIT\nvalue: int = LIMIT\n";
         let output = run_source_guest(&python, source, &[("extlib", "LIMIT = 7\n")])?;
@@ -520,7 +545,9 @@ mod tests {
         if names.iter().any(|name| name == "value") && !names.iter().any(|name| name == "root") {
             return Ok(());
         }
-        Err(format!("expected `value` and no imported `root`, got {names:?}"))
+        Err(format!(
+            "expected `value` and no imported `root`, got {names:?}"
+        ))
     }
 
     /// Opening a socket at definition time stays rejected after the guard
@@ -537,7 +564,9 @@ mod tests {
             let output = run_source_guest(&python, source, &[])?;
             let stderr = String::from_utf8_lossy(&output.stderr);
             if output.status.success() || !stderr.contains("'network'") {
-                return Err(format!("a socket was opened at definition time:\n{source}\n{stderr}"));
+                return Err(format!(
+                    "a socket was opened at definition time:\n{source}\n{stderr}"
+                ));
             }
         }
         Ok(())
@@ -559,12 +588,19 @@ mod tests {
             python_executable: std::env::current_exe().map_err(|error| error.to_string())?,
             project_root: project,
             import_paths: vec![scratch.path().to_path_buf()],
-            modules: vec![PythonModule { name: "fixture".to_owned(), path: module_path }],
+            modules: vec![PythonModule {
+                name: "fixture".to_owned(),
+                path: module_path,
+            }],
             hashes: fixture_hashes(),
             sandbox_policy: policy,
         };
         match validate_python_request(&request) {
-            Err(PythonSpecializationError::InvalidRequest(message)) if message.contains("import path") => Ok(()),
+            Err(PythonSpecializationError::InvalidRequest(message))
+                if message.contains("import path") =>
+            {
+                Ok(())
+            }
             other => Err(format!("an unreadable import path was accepted: {other:?}")),
         }
     }
@@ -585,7 +621,9 @@ mod tests {
         if !daemon.is_ok_and(|output| output.status.success()) {
             return missing_prerequisite(TEST, "a reachable docker daemon");
         }
-        let pulled = std::process::Command::new(&docker).args(["pull", "-q", OCI_TEST_IMAGE]).output();
+        let pulled = std::process::Command::new(&docker)
+            .args(["pull", "-q", OCI_TEST_IMAGE])
+            .output();
         if !pulled.is_ok_and(|output| output.status.success()) {
             return missing_prerequisite(TEST, "the pinned test image (docker pull)");
         }
@@ -606,7 +644,10 @@ mod tests {
             python_executable: python,
             project_root: project,
             import_paths: Vec::new(),
-            modules: vec![PythonModule { name: "fixture".to_owned(), path: module_path }],
+            modules: vec![PythonModule {
+                name: "fixture".to_owned(),
+                path: module_path,
+            }],
             hashes: fixture_hashes(),
             sandbox_policy: policy,
         };
@@ -622,7 +663,10 @@ mod tests {
         if manifest.sandbox_policy.backend == "oci-container" && names == ["value"] {
             return Ok(());
         }
-        Err(format!("backend {}, definitions {names:?}", manifest.sandbox_policy.backend))
+        Err(format!(
+            "backend {}, definitions {names:?}",
+            manifest.sandbox_policy.backend
+        ))
     }
 
     /// Ubuntu 24.04, pinned: a merged-`/usr` image the host's interpreter is
@@ -695,10 +739,7 @@ mod tests {
     /// Searches `PATH` before the distro paths so a runner-installed
     /// interpreter is found rather than skipped.
     fn discovered_python() -> Option<PathBuf> {
-        crate::prereq::locate_executable(
-            "python3",
-            &["/usr/bin/python3", "/usr/local/bin/python3"],
-        )
+        crate::prereq::locate_executable("python3", &["/usr/bin/python3", "/usr/local/bin/python3"])
     }
 
     /// Returns the hard-sandbox backend when it can actually enforce a policy.

@@ -83,14 +83,16 @@ pub(crate) fn list_escape_report(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut config = crate::config_parser::parse_path(options.manifest)?;
     config.extend_defines(options.defines.iter().cloned());
-    let krate = lowering::ManifestLowering::for_manifest(&config, options.manifest)?.check()?.into_measured().lower()?.krate;
+    let krate = lowering::ManifestLowering::for_manifest(&config, options.manifest)?
+        .check()?
+        .into_measured()
+        .lower()?
+        .krate;
     let mir = pipeline::lower_to_optimized_mir(&krate)?;
     let bodies = smelt_mir::analyze_list_escapes(&mir);
 
     Ok(match options.format {
-        ReportFormat::Markdown => {
-            render_markdown(config.project_name(), &bodies, options)
-        }
+        ReportFormat::Markdown => render_markdown(config.project_name(), &bodies, options),
         ReportFormat::Json => render_json(config.project_name(), &bodies)?,
     })
 }
@@ -101,10 +103,7 @@ fn tally(bodies: &[BodyListEscape], keep: impl Fn(BodyKey) -> bool) -> ClassCoun
 }
 
 /// Sum the class counts of every body matching a whole-body predicate.
-fn tally_bodies(
-    bodies: &[BodyListEscape],
-    keep: impl Fn(&BodyListEscape) -> bool,
-) -> ClassCounts {
+fn tally_bodies(bodies: &[BodyListEscape], keep: impl Fn(&BodyListEscape) -> bool) -> ClassCounts {
     let mut counts = ClassCounts::default();
     for body in bodies.iter().filter(|body| keep(body)) {
         for fact in &body.locals {
@@ -121,10 +120,7 @@ fn tally_bodies(
 /// local in a buffer group shares a class, so collapsing to one row per
 /// `(body, group)` gives the number of `Rc<RefCell<Vec<T>>>` allocations the
 /// program actually performs.
-fn tally_buffers(
-    bodies: &[BodyListEscape],
-    keep: impl Fn(&BodyListEscape) -> bool,
-) -> ClassCounts {
+fn tally_buffers(bodies: &[BodyListEscape], keep: impl Fn(&BodyListEscape) -> bool) -> ClassCounts {
     let mut counts = ClassCounts::default();
     for body in bodies.iter().filter(|body| keep(body)) {
         let mut seen = BTreeSet::new();
@@ -152,7 +148,10 @@ fn render_markdown(
     let buffers = tally_buffers(bodies, |_| true);
     let product_buffers = tally_buffers(bodies, |body| !body.is_test);
 
-    push_fmt(&mut out, format_args!("# List escape report — `{project}`\n\n"));
+    push_fmt(
+        &mut out,
+        format_args!("# List escape report — `{project}`\n\n"),
+    );
     push_fmt(
         &mut out,
         format_args!(
@@ -166,16 +165,17 @@ fn render_markdown(
     push_fmt(&mut out, format_args!("## Population\n\n"));
     push_fmt(
         &mut out,
-        format_args!(
-            "| class | all bodies | functions | closures |\n|---|---:|---:|---:|\n"
-        ),
+        format_args!("| class | all bodies | functions | closures |\n|---|---:|---:|---:|\n"),
     );
     for (label, pick) in [
         (
             "escaping",
             (all.escaping, functions.escaping, closures.escaping),
         ),
-        ("aliased", (all.aliased, functions.aliased, closures.aliased)),
+        (
+            "aliased",
+            (all.aliased, functions.aliased, closures.aliased),
+        ),
         (
             "local-mutated",
             (
@@ -235,9 +235,7 @@ fn render_markdown(
     );
     push_fmt(
         &mut out,
-        format_args!(
-            "| class | all buffers | non-test buffers |\n|---|---:|---:|\n"
-        ),
+        format_args!("| class | all buffers | non-test buffers |\n|---|---:|---:|\n"),
     );
     for (label, everywhere, non_test) in [
         ("escaping", buffers.escaping, product_buffers.escaping),
@@ -278,9 +276,7 @@ fn render_markdown(
     push_fmt(&mut out, format_args!("## Product code vs test code\n\n"));
     push_fmt(
         &mut out,
-        format_args!(
-            "| class | non-test bodies | `#[test]` bodies |\n|---|---:|---:|\n"
-        ),
+        format_args!("| class | non-test bodies | `#[test]` bodies |\n|---|---:|---:|\n"),
     );
     for (label, non_test, test) in [
         ("escaping", product.escaping, tests.escaping),
@@ -330,14 +326,16 @@ fn render_reasons_and_top_bodies(
     options: &ListEscapeReportOptions<'_>,
 ) {
     push_fmt(out, format_args!("## Why the escaping lists escape\n\n"));
-    push_fmt(out, format_args!("| reason | kind | count |\n|---|---|---:|\n"));
+    push_fmt(
+        out,
+        format_args!("| reason | kind | count |\n|---|---|---:|\n"),
+    );
     let mut reasons: BTreeMap<&'static str, (bool, usize)> = BTreeMap::new();
     for body in bodies {
         for reason in body.locals.iter().filter_map(|fact| fact.reason) {
-            let entry = reasons.entry(reason.label()).or_insert((
-                reason.is_genuine(),
-                0,
-            ));
+            let entry = reasons
+                .entry(reason.label())
+                .or_insert((reason.is_genuine(), 0));
             entry.1 += 1;
         }
     }
@@ -367,7 +365,10 @@ fn render_reasons_and_top_bodies(
         ),
     );
 
-    push_fmt(out, format_args!("## Top non-test bodies by confined list locals\n\n"));
+    push_fmt(
+        out,
+        format_args!("## Top non-test bodies by confined list locals\n\n"),
+    );
     push_fmt(
         out,
         format_args!(
@@ -414,14 +415,15 @@ fn render_reasons_and_top_bodies(
             if matches.is_empty() {
                 push_fmt(
                     out,
-                    format_args!(
-                        "_no body with that name, or it has no list locals._\n\n"
-                    ),
+                    format_args!("_no body with that name, or it has no list locals._\n\n"),
                 );
                 continue;
             }
             for body in matches {
-                push_fmt(out, format_args!("| local | name | class | reason | mutated |\n"));
+                push_fmt(
+                    out,
+                    format_args!("| local | name | class | reason | mutated |\n"),
+                );
                 push_fmt(out, format_args!("|---|---|---|---|---|\n"));
                 for fact in &body.locals {
                     push_fmt(

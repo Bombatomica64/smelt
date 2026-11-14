@@ -10,14 +10,14 @@ mod host_constructors;
 
 pub(in crate::lowering) use host_constructors::HostConstructor;
 
-use std::collections::HashMap;
+use super::ModuleBuilder;
 use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
 use smelt_hir::{
     Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, LocalDecl, Param, Stmt,
     Type,
 };
-use super::ModuleBuilder;
+use std::collections::HashMap;
 
 impl ModuleBuilder<'_> {
     /// `new value.constructor(args)` on an erased value, spelled through casts and
@@ -39,7 +39,9 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = callee else {
             return Ok(None);
         };
-        if member.property.name != "constructor" || new_expr.arguments.iter().any(Argument::is_spread) {
+        if member.property.name != "constructor"
+            || new_expr.arguments.iter().any(Argument::is_spread)
+        {
             return Ok(None);
         }
         self.speculate(body, |this, body| {
@@ -79,9 +81,11 @@ impl ModuleBuilder<'_> {
             Some(Type::Optional(inner)) => *inner,
             _ => hint,
         });
-        if let Some(selected) = self.conditional_class_select(Some(&new_expr.callee), span, body, |this, body| {
-            this.new_expression_with_hint(new_expr, body, type_hint)
-        })? {
+        if let Some(selected) =
+            self.conditional_class_select(Some(&new_expr.callee), span, body, |this, body| {
+                this.new_expression_with_hint(new_expr, body, type_hint)
+            })?
+        {
             return Ok(selected);
         }
         if let Some(expr) = self.construct_like_expression(new_expr, body)? {
@@ -104,7 +108,9 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.map_constructor_expression(host, new_expr, body, type_hint)? {
                 return Ok(expr);
             }
-            if let Some(expr) = self.promise_constructor_expression(host, new_expr, body, type_hint)? {
+            if let Some(expr) =
+                self.promise_constructor_expression(host, new_expr, body, type_hint)?
+            {
                 return Ok(expr);
             }
         }
@@ -124,7 +130,8 @@ impl ModuleBuilder<'_> {
                 // type — the constructed value keeps its concrete shape instead
                 // of erasing to `unknown`. This mirrors the
                 // identifier value-callee path in `new_through_value_expression`.
-                if let Some(expr) = self.new_through_member_constructor_slot(new_expr, member, body)?
+                if let Some(expr) =
+                    self.new_through_member_constructor_slot(new_expr, member, body)?
                 {
                     return Ok(expr);
                 }
@@ -272,7 +279,8 @@ impl ModuleBuilder<'_> {
         // constructor and user-class paths so a same-named override class
         // (`class File extends Blob`) does not shadow the dynamic dispatch.
         if let Some(written) = self.written_host_global(callee.name.as_str())
-            && let Some(native) = self.native_host_constructor_expression(written, new_expr, body)?
+            && let Some(native) =
+                self.native_host_constructor_expression(written, new_expr, body)?
         {
             return self.wrap_host_global_new(callee.name.as_str(), new_expr, native, body);
         }
@@ -392,18 +400,28 @@ impl ModuleBuilder<'_> {
                 && !self.imports.is_value(callee.name.as_str())
                 && !self.classes.is_known(callee.name.as_str())
                 && !self.source_contains_class(callee.name.as_str())
-                && !self.source_facts.binds_class_expression(callee.name.as_str())
+                && !self
+                    .source_facts
+                    .binds_class_expression(callee.name.as_str())
             {
-                let callee_expr =
-                    self.identifier_expression(callee.name.as_str(), callee.span.start, callee.span.end, body)?;
-                let unknown_ty = self.erase_with(ErasureReason::ByName, "new on dynamic constructor value");
+                let callee_expr = self.identifier_expression(
+                    callee.name.as_str(),
+                    callee.span.start,
+                    callee.span.end,
+                    body,
+                )?;
+                let unknown_ty =
+                    self.erase_with(ErasureReason::ByName, "new on dynamic constructor value");
                 let args = new_expr
                     .arguments
                     .iter()
                     .map(|arg| self.argument(arg, body))
                     .collect::<Result<Vec<_>, _>>()?;
                 return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Construct { callee: callee_expr, args },
+                    kind: ExprKind::Construct {
+                        callee: callee_expr,
+                        args,
+                    },
                     ty: unknown_ty,
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
@@ -480,7 +498,9 @@ impl ModuleBuilder<'_> {
             .arguments
             .iter()
             .enumerate()
-            .map(|(index, arg)| self.argument_with_hint(arg, body, hints.get(index).copied().flatten()))
+            .map(|(index, arg)| {
+                self.argument_with_hint(arg, body, hints.get(index).copied().flatten())
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let explicit_type_args = new_expr
             .type_arguments
@@ -521,7 +541,10 @@ impl ModuleBuilder<'_> {
             // parameter.
             let mut inferred = HashMap::new();
             if let Some(hint) = type_hint
-                && let Some(Type::Class { name, args: hint_args }) = self.ctx.krate.types.get(hint).cloned()
+                && let Some(Type::Class {
+                    name,
+                    args: hint_args,
+                }) = self.ctx.krate.types.get(hint).cloned()
                 && name == class_name
                 && hint_args.len() == class.type_params.len()
             {
@@ -532,9 +555,13 @@ impl ModuleBuilder<'_> {
             let constructor_params = class
                 .constructor
                 .and_then(|constructor| match self.item_ref(constructor) {
-                    Item::Function(function) => {
-                        Some(function.params.iter().map(|param| param.ty).collect::<Vec<_>>())
-                    }
+                    Item::Function(function) => Some(
+                        function
+                            .params
+                            .iter()
+                            .map(|param| param.ty)
+                            .collect::<Vec<_>>(),
+                    ),
                     _ => None,
                 })
                 .unwrap_or_default();
@@ -549,16 +576,23 @@ impl ModuleBuilder<'_> {
             }
             let resolved = self.checker_call_type(new_expr.span.start, new_expr.span.end);
             match resolved.and_then(|ty| self.ctx.krate.types.get(ty).cloned()) {
-                Some(Type::Class { name, args: resolved_args })
-                    if name == class_name && resolved_args.len() == class.type_params.len() =>
-                {
+                Some(Type::Class {
+                    name,
+                    args: resolved_args,
+                }) if name == class_name && resolved_args.len() == class.type_params.len() => {
                     for (param, resolved_arg) in class.type_params.iter().zip(resolved_args) {
                         if let Some(bound) = inferred.get_mut(&param.name) {
                             *bound = self.widened_call_type(Some(resolved_arg), *bound);
                         }
                     }
                 }
-                _ => self.widen_call_bindings(&class.type_params, &constructor_params, &args, body, &mut inferred),
+                _ => self.widen_call_bindings(
+                    &class.type_params,
+                    &constructor_params,
+                    &args,
+                    body,
+                    &mut inferred,
+                ),
             }
             // Rust binds the class parameter from a bare `T` argument, so one
             // that widened to `unknown` takes the argument erased: `new Pair(0, h)`
@@ -570,20 +604,30 @@ impl ModuleBuilder<'_> {
                 let Some(&bound) = inferred.get(name) else {
                     continue;
                 };
-                if self.ctx.krate.types.get(bound) == Some(&Type::Unknown) && Self::expr_ty(body, *arg) != bound {
-                    *arg = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: *arg }, ty: bound, span });
+                if self.ctx.krate.types.get(bound) == Some(&Type::Unknown)
+                    && Self::expr_ty(body, *arg) != bound
+                {
+                    *arg = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: *arg },
+                        ty: bound,
+                        span,
+                    });
                 }
             }
             class
                 .type_params
                 .iter()
                 .map(|param| {
-                    inferred.get(&param.name).copied().or(param.default).unwrap_or_else(|| {
-                        self.ctx
-                            .krate
-                            .types
-                            .intern(Type::TypeParam { name: param.name })
-                    })
+                    inferred
+                        .get(&param.name)
+                        .copied()
+                        .or(param.default)
+                        .unwrap_or_else(|| {
+                            self.ctx
+                                .krate
+                                .types
+                                .intern(Type::TypeParam { name: param.name })
+                        })
                 })
                 .collect()
         };
@@ -629,15 +673,31 @@ impl ModuleBuilder<'_> {
             })
             .transpose()?
             .unwrap_or_default();
-        let type_params = self.ctx.class_type_params.get(&declared).cloned().unwrap_or_default();
+        let type_params = self
+            .ctx
+            .class_type_params
+            .get(&declared)
+            .cloned()
+            .unwrap_or_default();
         let Some(params) = self.ctx.class_constructor_params.get(&declared).cloned() else {
-            return Ok((Vec::new(), if type_params.len() == explicit.len() { explicit } else { Vec::new() }));
+            return Ok((
+                Vec::new(),
+                if type_params.len() == explicit.len() {
+                    explicit
+                } else {
+                    Vec::new()
+                },
+            ));
         };
         let substitutions: HashMap<smelt_hir::Symbol, smelt_hir::TypeId> = type_params
             .iter()
             .enumerate()
             .filter_map(|(index, param)| {
-                explicit.get(index).copied().or(param.default).map(|ty| (param.name, ty))
+                explicit
+                    .get(index)
+                    .copied()
+                    .or(param.default)
+                    .map(|ty| (param.name, ty))
             })
             .collect();
         let all_replaced = type_params
@@ -725,7 +785,8 @@ impl ModuleBuilder<'_> {
                 callee.span.end,
                 body,
             )?;
-            let unknown_ty = self.erase_with(ErasureReason::ByName, "new on dynamic constructor value");
+            let unknown_ty =
+                self.erase_with(ErasureReason::ByName, "new on dynamic constructor value");
             let args = new_expr
                 .arguments
                 .iter()
@@ -755,8 +816,11 @@ impl ModuleBuilder<'_> {
             .take(function.rest.map_or(function.params.len(), |_| usize::MAX))
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        let spread_positions =
-            new_expr.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+        let spread_positions = new_expr
+            .arguments
+            .iter()
+            .map(Argument::is_spread)
+            .collect::<Vec<_>>();
         let call_span = self.span(new_expr.span.start, new_expr.span.end);
         let kind = if self.construct_through_value_is_dynamic(function.return_ty) {
             ExprKind::Construct {
@@ -826,8 +890,11 @@ impl ModuleBuilder<'_> {
             .take(function.rest.map_or(function.params.len(), |_| usize::MAX))
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        let spread_positions =
-            new_expr.arguments.iter().map(Argument::is_spread).collect::<Vec<_>>();
+        let spread_positions = new_expr
+            .arguments
+            .iter()
+            .map(Argument::is_spread)
+            .collect::<Vec<_>>();
         let call_span = self.span(new_expr.span.start, new_expr.span.end);
         let args =
             self.pack_value_call_arguments(&function, args, &spread_positions, call_span, body);
@@ -852,10 +919,13 @@ impl ModuleBuilder<'_> {
     /// lowered class's own (possibly scope-qualified) name, or the interned
     /// spelling for a class not lowered yet.
     fn resolved_class_symbol(&mut self, name: &str) -> smelt_hir::Symbol {
-        let lowered = self.classes.item(name).and_then(|item| match self.item_ref(item) {
-            Item::Class(class) => Some(class.name),
-            _ => None,
-        });
+        let lowered = self
+            .classes
+            .item(name)
+            .and_then(|item| match self.item_ref(item) {
+                Item::Class(class) => Some(class.name),
+                _ => None,
+            });
         lowered.unwrap_or_else(|| self.intern_type_name(name))
     }
 
@@ -871,21 +941,28 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let lowered = self.classes.item(name).and_then(|item| match self.item_ref(item) {
-            Item::Class(class) => Some(class.clone()),
-            _ => None,
-        });
-        let class = lowered.as_ref().map_or_else(|| self.intern_type_name(name), |class| class.name);
+        let lowered = self
+            .classes
+            .item(name)
+            .and_then(|item| match self.item_ref(item) {
+                Item::Class(class) => Some(class.clone()),
+                _ => None,
+            });
+        let class = lowered
+            .as_ref()
+            .map_or_else(|| self.intern_type_name(name), |class| class.name);
         let params = lowered.as_ref().map(|lowered| {
-            lowered.constructor.map_or_else(Vec::new, |item| match self.item_ref(item) {
-                Item::Function(function) => function
-                    .params
-                    .iter()
-                    .filter(|param| self.ctx.krate.symbols.get(param.name) != Some("this"))
-                    .map(|param| param.ty)
-                    .collect(),
-                _ => Vec::new(),
-            })
+            lowered
+                .constructor
+                .map_or_else(Vec::new, |item| match self.item_ref(item) {
+                    Item::Function(function) => function
+                        .params
+                        .iter()
+                        .filter(|param| self.ctx.krate.symbols.get(param.name) != Some("this"))
+                        .map(|param| param.ty)
+                        .collect(),
+                    _ => Vec::new(),
+                })
         });
         let constructor = match params {
             Some(_) if self.class_is_abstract(name) => None,
@@ -1000,7 +1077,12 @@ impl ModuleBuilder<'_> {
             // Reuse the erased-Error record model. `new Error(message)` keeps
             // only the message argument, so pass the first closure parameter
             // through the shared error-object builder.
-            self.error_object_from_message(arg_exprs.first().copied(), name, span, &mut closure_body)
+            self.error_object_from_message(
+                arg_exprs.first().copied(),
+                name,
+                span,
+                &mut closure_body,
+            )
         } else {
             let class_ty = self.ctx.krate.types.intern(Type::Class {
                 name: class_symbol,

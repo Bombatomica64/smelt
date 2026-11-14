@@ -263,7 +263,10 @@ impl ModuleBuilder<'_> {
         let Some(receiver) = self.dispatched_receiver(&member.object, body)? else {
             return Ok(None);
         };
-        if !self.is_modeled_class(Self::expr_ty(body, receiver), smelt_stdlib::StdlibClass::NodeHash) {
+        if !self.is_modeled_class(
+            Self::expr_ty(body, receiver),
+            smelt_stdlib::StdlibClass::NodeHash,
+        ) {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
@@ -311,7 +314,11 @@ impl ModuleBuilder<'_> {
                     ty: bytes_ty,
                     span,
                 });
-                Ok(Some(self.buffer_record_from_args(Vec::from([bytes]), span, body)))
+                Ok(Some(self.buffer_record_from_args(
+                    Vec::from([bytes]),
+                    span,
+                    body,
+                )))
             }
             [encoding] => {
                 let encoding = self.host_string_argument(encoding, span, body)?;

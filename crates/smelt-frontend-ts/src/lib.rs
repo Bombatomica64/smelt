@@ -61,15 +61,15 @@ mod untyped_imports;
 pub use untyped_imports::untyped_callback_parameter_spans;
 
 pub use context::{
-    ExportTable, HirCtx, ModuleKey, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
-    OverloadSignature, QualifiedExport,
+    ExportTable, HirCtx, ModuleKey, ObjectConst, ObjectConstEntry, ObjectConstEntryValue,
+    ObjectConstValue, OverloadSignature, QualifiedExport,
 };
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
 pub use lowering::{
-    ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam, SourceTrust, ambient_test_globals, modeled_module_declarations,
-    predeclare_type_declarations_with_path, predeclare_unique_symbol_consts_with_path,
-    scan_declared_type_names, scan_written_host_globals,
+    ConstCollection, ConstLiteral, FrontendOptions, InterfaceHeritageRef, RestParam, SourceTrust,
+    ambient_test_globals, modeled_module_declarations, predeclare_type_declarations_with_path,
+    predeclare_unique_symbol_consts_with_path, scan_declared_type_names, scan_written_host_globals,
     to_hir, to_hir_with_options, to_hir_with_path,
 };
 

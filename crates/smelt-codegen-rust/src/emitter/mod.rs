@@ -8,23 +8,22 @@
     reason = "the private emitter module exposes helpers to its parent codegen module"
 )]
 
-use crate::rust::RustExpr;
 use crate::classes::{NominalStorage, type_holds_function};
 use crate::generic_bindings::CalleeTypeParamBindings;
 use crate::runtime_demand::{Need, RuntimeDemand};
-use smelt_stdlib::runtime_symbols::markers::*;
+use crate::rust::RustExpr;
 use crate::thrown::ERROR_BOX;
 use crate::type_substitution::{Resolved, TypeSubstitution};
-use render_scope::RenderScope;
 use crate::{EmitError, compact_index, id_index};
 use literals::operand_mutation_root;
+use render_scope::RenderScope;
 use smelt_hir::{FileId, PropertyLookup, Span, Symbol, Type, TypeId};
 use smelt_mir::{
-    AbsentSpelling, BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl,
-    LocalId, LocalKind, Mir,
-    MirClass, MirClosure, MirDescriptor, MirField, MirFunction, MirListSpliceItem, NegativeIndex,
-    Operand, Place, Read, Rvalue, Statement, Terminator,
+    AbsentSpelling, BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId,
+    LocalKind, Mir, MirClass, MirClosure, MirDescriptor, MirField, MirFunction, MirListSpliceItem,
+    NegativeIndex, Operand, Place, Read, Rvalue, Statement, Terminator,
 };
+use smelt_stdlib::runtime_symbols::markers::*;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -99,63 +98,61 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
-mod proto_argument;
-mod render_state;
 mod aggregate_literal;
-mod binding_storage;
-mod backend_erasure;
-pub(crate) mod bound_dispatch;
-mod bigint;
-pub(crate) mod typedness;
-mod binary_ops;
 mod async_op;
+mod backend_erasure;
+mod bigint;
+mod binary_ops;
+mod binding_storage;
+pub(crate) mod bound_dispatch;
 mod call;
 mod call_generics;
 mod callable_object;
 mod callback_handle;
 mod callback_signature;
-mod class_keyed_write;
 mod capture_analysis;
 mod cfg_queries;
+mod class_keyed_write;
 mod closure_call;
 mod closures;
 mod coercion;
+mod proto_argument;
+mod render_state;
+pub(crate) mod typedness;
 pub(crate) use coercion::record as record_coercion;
-mod control_flow;
+mod blob;
 mod console_inspect;
 mod construct;
+mod control_flow;
 mod control_flow_match;
 mod core;
 mod date_clock;
 mod default_value;
 mod dict_entry_update;
 pub(crate) mod emit_role;
-mod flow_state;
-mod local_binding;
-mod helper_reservation;
-mod blob;
-mod fetch_types;
-mod field_access;
 /// Emission of the operations that can throw.
 mod fallible_op;
-mod url;
+mod fetch_types;
+mod field_access;
 mod fixed_int;
+mod flow_state;
 mod function_item;
+mod helper_reservation;
+mod local_binding;
+mod url;
 pub(crate) use function_item::static_method_rust_name;
-mod generator;
-mod generic_trial;
 mod abort_signal;
 mod crypto;
-mod host_module;
 mod form_data;
-mod text_codec;
-mod typed_array;
-mod host_member_read;
+mod generator;
+mod generic_trial;
 mod host_interop;
+mod host_member_read;
+mod host_module;
+mod http_server;
 mod inherited_render;
 mod instance_of;
 mod json_decode;
-mod http_server;
 mod list;
 mod list_mutation;
 mod list_ordering;
@@ -171,8 +168,9 @@ mod operand;
 mod optional_access;
 mod place;
 mod place_type;
-mod primitive_cast;
 mod post_dominance;
+mod primitive_cast;
+mod py_exception;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod render_scope;
@@ -182,38 +180,39 @@ mod rvalue;
 /// release build, so neither do its assertions or their call sites.
 #[cfg(debug_assertions)]
 mod seam_assertions;
-mod static_call_args;
-mod statics_frame;
 mod set;
 mod sqlite;
+mod static_call_args;
+mod statics_frame;
 mod string_units;
 mod strings;
 mod strings_io;
+mod text_codec;
 mod throw;
 mod throwing_join;
 mod truthiness;
-mod py_exception;
 mod tuple;
 mod type_facts;
+mod typed_array;
 pub(crate) use type_facts::{dict_key_uses_smelt_record, dict_renders_as_index_map};
 mod typeof_str_locals;
 mod types;
 mod union;
-mod vitest_mock;
-mod virtual_slots;
 /// Property writes through an erased view of a reference-class instance.
 pub(crate) mod view_write_through;
+mod virtual_slots;
+mod vitest_mock;
 pub(crate) mod weak_receiver;
 
+pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
+pub(crate) use capture_analysis::parameter_is_mutable_reference;
+pub(crate) use console_inspect::emit_console_inspect_support;
+pub(crate) use json_decode::emit_json_decoders;
 pub(crate) use literals::method_mutates_this;
 use literals::{assigned_locals, constant_expr};
 use rendered_value::RenderedValue;
 use types::MutablePrefix;
 pub(crate) use union::emit_union_definitions;
-pub(crate) use json_decode::emit_json_decoders;
-pub(crate) use console_inspect::emit_console_inspect_support;
-pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
-pub(crate) use capture_analysis::parameter_is_mutable_reference;
 
 /// Process-wide runtime state an emitted native test resets before its body,
 /// so mock state one test installs does not leak into the next.
@@ -461,7 +460,10 @@ impl EmitContext {
     /// Capture everything a body render writes into this shared context, so a
     /// TRIAL render can be rolled back (see [`ContextCheckpoint`]).
     pub(crate) fn checkpoint(&self) -> ContextCheckpoint<'_> {
-        ContextCheckpoint { context: self, saved: self.minted.clone() }
+        ContextCheckpoint {
+            context: self,
+            saved: self.minted.clone(),
+        }
     }
 
     /// Records that the output touched the erased runtime carrier.
@@ -478,7 +480,8 @@ impl EmitContext {
     /// surrounding body: a thrown payload, or a mutable-list adapter that erases
     /// and un-erases at the call it wraps. It closes when the guard drops.
     pub(crate) fn carrier_boundary(&self) -> CarrierBoundary<'_> {
-        self.carrier_boundaries.set(self.carrier_boundaries.get().saturating_add(1));
+        self.carrier_boundaries
+            .set(self.carrier_boundaries.get().saturating_add(1));
         CarrierBoundary { context: self }
     }
 
@@ -571,7 +574,10 @@ impl EmitContext {
     /// predicate: a callee's answer changes how its callers render), so the loop
     /// is capped and falls back to the first round's answer if it oscillates. In
     /// practice both compat corpora settle in two rounds.
-    pub(crate) fn populate_generic_functions(&self, mir: &Mir) -> Result<GenericsDecided, EmitError> {
+    pub(crate) fn populate_generic_functions(
+        &self,
+        mir: &Mir,
+    ) -> Result<GenericsDecided, EmitError> {
         /// Bound on the demotion rounds; each round holds out at least one more
         /// function, so the bound is never reached by a finite crate in
         /// practice and only caps a pathological one.
@@ -664,7 +670,12 @@ impl EmitContext {
             if first_round.is_none() {
                 first_round = Some(next.clone());
             }
-            changed = self.generic_functions.borrow().symmetric_difference(&next).copied().collect();
+            changed = self
+                .generic_functions
+                .borrow()
+                .symmetric_difference(&next)
+                .copied()
+                .collect();
             if changed.is_empty() {
                 return Ok(next);
             }
@@ -693,23 +704,29 @@ impl EmitContext {
                 .iter()
                 .copied()
                 .filter(|id| {
-                    let Some(function) = usize::try_from(id.0).ok().and_then(|index| mir.functions.get(index)) else {
+                    let Some(function) = usize::try_from(id.0)
+                        .ok()
+                        .and_then(|index| mir.functions.get(index))
+                    else {
                         return false;
                     };
                     crate::generic_lifting::bound_forwarding_callers(mir, function)
                         .into_iter()
                         .any(|(caller_id, caller_param)| {
                             !generic.contains(&caller_id)
-                                || usize::try_from(caller_id.0).ok().and_then(|index| mir.functions.get(index)).is_none_or(|caller| {
-                                    !crate::generic_lifting::liftable_type_params(
-                                        mir,
-                                        caller,
-                                        &self.owned_callback_params,
-                                        &self.bound_traits,
-                                        &self.erased_arguments,
-                                    )
-                                    .contains(&caller_param)
-                                })
+                                || usize::try_from(caller_id.0)
+                                    .ok()
+                                    .and_then(|index| mir.functions.get(index))
+                                    .is_none_or(|caller| {
+                                        !crate::generic_lifting::liftable_type_params(
+                                            mir,
+                                            caller,
+                                            &self.owned_callback_params,
+                                            &self.bound_traits,
+                                            &self.erased_arguments,
+                                        )
+                                        .contains(&caller_param)
+                                    })
                         })
                 })
                 .collect();
@@ -834,11 +851,7 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
 /// ownership requirements propagates ownership back to the caller's parameter so
 /// it is emitted as an owned `Rc<dyn Fn>` in the first place. A bare `Type::Function`
 /// sink is handled separately through the `owned` set (it may still be borrowed).
-fn callee_param_is_owned_callback_sink(
-    mir: &Mir,
-    callee: &MirFunction,
-    param: LocalId,
-) -> bool {
+fn callee_param_is_owned_callback_sink(mir: &Mir, callee: &MirFunction, param: LocalId) -> bool {
     let Ok(index) = id_index(param.0, "local index does not fit usize") else {
         return false;
     };
@@ -1095,7 +1108,10 @@ fn callback_param_escapes_locally(
                     .ok()
                     .and_then(|index| mir.closures.get(index))
                     .is_some_and(|closure| {
-                        closure.captures.iter().any(|capture| capture.source_local == local)
+                        closure
+                            .captures
+                            .iter()
+                            .any(|capture| capture.source_local == local)
                     })
         })
     });
@@ -1103,7 +1119,11 @@ fn callback_param_escapes_locally(
     // objects hold `'static` handles, for the callback and for a closure over it.
     let stored_through_place = function.blocks.iter().any(|block| {
         block.statements.iter().any(|statement| {
-            let Statement::AssignPlace { place, value: Rvalue::Use(stored) } = statement else {
+            let Statement::AssignPlace {
+                place,
+                value: Rvalue::Use(stored),
+            } = statement
+            else {
                 return false;
             };
             !matches!(place, Place::Local(_))
@@ -1145,12 +1165,20 @@ fn callback_param_escapes_locally(
 /// terminator carries when the operation runs inside a `try`.
 fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
     function.blocks.iter().flat_map(|block| {
-        let assigned = block.statements.iter().filter_map(|statement| match statement {
-            Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => Some(value),
-            Statement::DictEntryUpdate { .. } => None,
-        });
+        let assigned = block
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
+                    Some(value)
+                }
+                Statement::DictEntryUpdate { .. } => None,
+            });
         let carried = match &block.terminator {
-            Some(Terminator::Call { callee: Callee::Op(value, _), .. }) => Some(value.as_ref()),
+            Some(Terminator::Call {
+                callee: Callee::Op(value, _),
+                ..
+            }) => Some(value.as_ref()),
             _ => None,
         };
         assigned.chain(carried)
@@ -1237,7 +1265,8 @@ fn statement_erases_callback_param(
         } => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
                 && (callable.local() == Some(local)
-                    || callable.local()
+                    || callable
+                        .local()
                         .and_then(|callable_local| {
                             closure_source_for_local(
                                 function,
@@ -1264,8 +1293,7 @@ fn statement_erases_callback_param(
                         .any(|spread_value| spread_value.local() == Some(local)))
         }
         Rvalue::Use(operand) => {
-            dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
-                && operand.local() == Some(local)
+            dest_ty.is_some_and(|ty| type_erases_values(mir, ty)) && operand.local() == Some(local)
         }
         _ => false,
     }
@@ -1349,7 +1377,8 @@ fn operand_refs_callback_param_or_capturing_closure(
     if operand.local() == Some(local) {
         return true;
     }
-    operand.local()
+    operand
+        .local()
         .and_then(|operand_local| closure_source_for_local(function, operand_local, closure_defs))
         .and_then(|closure_id| {
             mir.closures

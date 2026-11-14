@@ -18,8 +18,8 @@ use ty_module_resolver::{Db as ModuleResolverDb, SearchPathSettings};
 use ty_python_core::ProgramFile;
 use ty_python_core::platform::PythonPlatform;
 use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
-use ty_python_semantic::lint::{LintRegistry, RuleSelection};
 use ty_python_semantic::dependency::DependencyMetadata;
+use ty_python_semantic::lint::{LintRegistry, RuleSelection};
 use ty_python_semantic::{AnalysisSettings, Db as SemanticDb, default_lint_registry};
 use ty_site_packages::PythonVersionWithSource;
 

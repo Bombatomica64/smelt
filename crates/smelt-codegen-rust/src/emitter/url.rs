@@ -8,8 +8,8 @@
 //! * the fallible calls `Rvalue::UrlNew` and the `href` setter, whose trailing
 //!   `?` is what marks them throwing to the call-terminator emitter.
 
-use crate::rust::RustExpr;
 use crate::emitter::call::RenderedCall;
+use crate::rust::RustExpr;
 use smelt_hir::{Type, TypeId, UrlField, UrlOp};
 use smelt_mir::Operand;
 
@@ -70,7 +70,9 @@ impl FunctionEmitter<'_> {
                 let text = RustExpr::atom(format!(
                     "{{ let smelt_url_value: {} = {value_text}; {receiver}.set_{}(&smelt_url_value); smelt_url_value }}",
                     self.text_type_name(),
-                    Self::url_getter(field), value_text = value_text.delimited(), receiver = receiver.tight()
+                    Self::url_getter(field),
+                    value_text = value_text.delimited(),
+                    receiver = receiver.tight()
                 ));
                 self.rendered_at_type(&text, string_ty, dest_ty, &scope)
             }
@@ -103,17 +105,30 @@ impl FunctionEmitter<'_> {
             ),
             None => "None".to_owned(),
         };
-        Ok(RenderedCall::propagating(RustExpr::atom(URL_NEW_FN).postfix(format!("(&{input_text}, {base_text})", input_text = input_text.tight()))))
+        Ok(RenderedCall::propagating(
+            RustExpr::atom(URL_NEW_FN).postfix(format!(
+                "(&{input_text}, {base_text})",
+                input_text = input_text.tight()
+            )),
+        ))
     }
 
     /// Render the fallible `url.href = text` call.
     pub(super) fn url_set_href_call(&self, args: &[Operand]) -> Result<RenderedCall, EmitError> {
         let [url, value] = args else {
-            return Err(EmitError::new("`URL.href` assignment takes a URL and a value"));
+            return Err(EmitError::new(
+                "`URL.href` assignment takes a URL and a value",
+            ));
         };
         let url_text = self.operand_borrow_expr(url)?;
         let value_text = self.string_like_operand_expr(value, "URL href")?;
-        Ok(RenderedCall::propagating(RustExpr::atom(URL_SET_HREF_FN).postfix(format!("(&{url_text}, {value_text})", url_text = url_text.tight(), value_text = value_text.delimited()))))
+        Ok(RenderedCall::propagating(
+            RustExpr::atom(URL_SET_HREF_FN).postfix(format!(
+                "(&{url_text}, {value_text})",
+                url_text = url_text.tight(),
+                value_text = value_text.delimited()
+            )),
+        ))
     }
 
     /// The type a fallible `URL` call answers: the `URL` class for the

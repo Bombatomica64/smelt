@@ -96,16 +96,19 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|&extra| Self::expr_ty(body, extra))
             .collect::<Vec<_>>();
-        if extra_tys
-            .iter()
-            .any(|&ty| self.type_contains_unknown(ty))
-        {
+        if extra_tys.iter().any(|&ty| self.type_contains_unknown(ty)) {
             return None;
         }
 
         // Bind the callback and each extra to fresh outer-body locals so the
         // wrapper can capture them by value from stable capture sources.
-        let callback_local = self.bind_timer_capture_local(callback, callback_ty, "smelt_timer_callback", span, body);
+        let callback_local = self.bind_timer_capture_local(
+            callback,
+            callback_ty,
+            "smelt_timer_callback",
+            span,
+            body,
+        );
         let extra_locals = extras
             .iter()
             .zip(&extra_tys)
@@ -127,7 +130,11 @@ impl ModuleBuilder<'_> {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let mut closure_body = Body::new(None, span);
 
-        let callback_symbol = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new("smelt_timer_callback"));
+        let callback_symbol = self
+            .ctx
+            .krate
+            .symbols
+            .intern_synthesized(&smelt_hir::SynthesizedName::new("smelt_timer_callback"));
         let callback_body_local = closure_body.push_local(LocalDecl {
             name: Some(callback_symbol),
             ty: callback_ty,
@@ -144,11 +151,13 @@ impl ModuleBuilder<'_> {
 
         let mut arg_exprs = Vec::with_capacity(extra_locals.len());
         for (index, (&source_local, &ty)) in extra_locals.iter().zip(&extra_tys).enumerate() {
-            let symbol = self
-                .ctx
-                .krate
-                .symbols
-                .intern_synthesized(&smelt_hir::SynthesizedName::new(format!("smelt_timer_arg_{index}")));
+            let symbol =
+                self.ctx
+                    .krate
+                    .symbols
+                    .intern_synthesized(&smelt_hir::SynthesizedName::new(format!(
+                        "smelt_timer_arg_{index}"
+                    )));
             let body_local = closure_body.push_local(LocalDecl {
                 name: Some(symbol),
                 ty,
@@ -231,7 +240,11 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::LocalId {
         // Every caller passes a name this wrapper mints (`smelt_timer_callback`,
         // `smelt_timer_arg_<i>`).
-        let symbol = self.ctx.krate.symbols.intern_synthesized(&smelt_hir::SynthesizedName::new(name));
+        let symbol = self
+            .ctx
+            .krate
+            .symbols
+            .intern_synthesized(&smelt_hir::SynthesizedName::new(name));
         let local = body.push_local(LocalDecl {
             name: Some(symbol),
             ty,

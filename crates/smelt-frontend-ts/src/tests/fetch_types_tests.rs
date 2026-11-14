@@ -67,9 +67,11 @@ const cookies = headers.getSetCookie();
         &mut ctx,
     )?;
     let op_ty = |op: smelt_hir::HeadersOp| {
-        last_expr_ty(&ctx, module_id, move |kind| {
-            matches!(kind, ExprKind::HeadersOp { op: found, .. } if *found == op)
-        })
+        last_expr_ty(
+            &ctx,
+            module_id,
+            move |kind| matches!(kind, ExprKind::HeadersOp { op: found, .. } if *found == op),
+        )
     };
     let get_ty = op_ty(smelt_hir::HeadersOp::Get)?;
     ensure!(
@@ -125,9 +127,11 @@ headers.delete("accept");
         smelt_hir::HeadersOp::Append,
         smelt_hir::HeadersOp::Delete,
     ] {
-        let ty = last_expr_ty(&ctx, module_id, |kind| {
-            matches!(kind, ExprKind::HeadersOp { op: found, .. } if *found == op)
-        })?;
+        let ty = last_expr_ty(
+            &ctx,
+            module_id,
+            |kind| matches!(kind, ExprKind::HeadersOp { op: found, .. } if *found == op),
+        )?;
         ensure!(
             matches!(ctx.krate.types.get(ty), Some(Type::None)),
             "`Headers` mutation {op:?} is void, got {}",
@@ -153,7 +157,13 @@ export function contentType(headers: Headers): string | null {
     let _module = module(&ctx, module_id)?;
     let get_typed = ctx.krate.bodies.iter().any(|body| {
         body.exprs.iter().any(|expr| {
-            matches!(expr.kind, ExprKind::HeadersOp { op: smelt_hir::HeadersOp::Get, .. })
+            matches!(
+                expr.kind,
+                ExprKind::HeadersOp {
+                    op: smelt_hir::HeadersOp::Get,
+                    ..
+                }
+            )
         })
     });
     ensure!(
@@ -189,10 +199,10 @@ const value = headers.get("accept");
     let lowered_module = module(&ctx, module_id)?;
     let body = module_body(&ctx, lowered_module)?;
     ensure!(
-        !body
-            .exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::HeadersNew { .. } | ExprKind::HeadersOp { .. })),
+        !body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::HeadersNew { .. } | ExprKind::HeadersOp { .. }
+        )),
         "a user class named `Headers` must not lower to the modeled fetch type",
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -278,9 +288,11 @@ const count = params.size;
         &mut ctx,
     )?;
     let op_ty = |op: smelt_hir::UrlSearchParamsOp| {
-        last_expr_ty(&ctx, module_id, move |kind| {
-            matches!(kind, ExprKind::UrlSearchParamsOp { op: found, .. } if *found == op)
-        })
+        last_expr_ty(
+            &ctx,
+            module_id,
+            move |kind| matches!(kind, ExprKind::UrlSearchParamsOp { op: found, .. } if *found == op),
+        )
     };
     let get_ty = op_ty(smelt_hir::UrlSearchParamsOp::Get)?;
     ensure!(
@@ -502,18 +514,17 @@ async function read(): Promise<void> {
         (smelt_hir::ResponseOp::StatusText, "Some(String)"),
         (smelt_hir::ResponseOp::BodyUsed, "Some(Bool)"),
     ] {
-        let ty = any_body_expr_ty(&ctx, |kind| {
-            matches!(kind, ExprKind::ResponseOp { op: found, .. } if *found == op)
-        })?;
+        let ty = any_body_expr_ty(
+            &ctx,
+            |kind| matches!(kind, ExprKind::ResponseOp { op: found, .. } if *found == op),
+        )?;
         ensure_eq!(type_text(&ctx, ty), expected.to_owned());
     }
-    for op in [
-        smelt_hir::ResponseOp::Headers,
-        smelt_hir::ResponseOp::Clone,
-    ] {
-        let ty = any_body_expr_ty(&ctx, |kind| {
-            matches!(kind, ExprKind::ResponseOp { op: found, .. } if *found == op)
-        })?;
+    for op in [smelt_hir::ResponseOp::Headers, smelt_hir::ResponseOp::Clone] {
+        let ty = any_body_expr_ty(
+            &ctx,
+            |kind| matches!(kind, ExprKind::ResponseOp { op: found, .. } if *found == op),
+        )?;
         ensure!(
             matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
             "`Response` member {op:?} must be class-typed, got {}",
@@ -737,15 +748,17 @@ async function read(): Promise<void> {
         (smelt_hir::RequestOp::Method, "Some(String)"),
         (smelt_hir::RequestOp::BodyUsed, "Some(Bool)"),
     ] {
-        let ty = any_body_expr_ty(&ctx, |kind| {
-            matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op)
-        })?;
+        let ty = any_body_expr_ty(
+            &ctx,
+            |kind| matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op),
+        )?;
         ensure_eq!(type_text(&ctx, ty), expected.to_owned());
     }
     for op in [smelt_hir::RequestOp::Headers, smelt_hir::RequestOp::Clone] {
-        let ty = any_body_expr_ty(&ctx, |kind| {
-            matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op)
-        })?;
+        let ty = any_body_expr_ty(
+            &ctx,
+            |kind| matches!(kind, ExprKind::RequestOp { op: found, .. } if *found == op),
+        )?;
         ensure!(
             matches!(ctx.krate.types.get(ty), Some(Type::Class { .. })),
             "`Request` member {op:?} must be class-typed, got {}",
@@ -1517,7 +1530,11 @@ const port = server.address();
         .iter()
         .map(|field| {
             (
-                ctx.krate.symbols.get(field.name).unwrap_or_default().to_owned(),
+                ctx.krate
+                    .symbols
+                    .get(field.name)
+                    .unwrap_or_default()
+                    .to_owned(),
                 type_text(&ctx, field.ty),
                 field.optional,
             )
@@ -1800,7 +1817,11 @@ export function signalOf(init: Init): AbortSignal | undefined {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "signal_of", "signal_of(init: Init) -> Optional<AbortSignal>")?;
+    ensure_signature(
+        &ctx,
+        "signal_of",
+        "signal_of(init: Init) -> Optional<AbortSignal>",
+    )?;
     ensure!(crate_has_field(&ctx, "signal"), "no read of field `signal`");
     Ok(())
 }

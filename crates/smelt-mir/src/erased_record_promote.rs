@@ -20,8 +20,10 @@ use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{Type, TypeId};
 
-use crate::{BodyOwner, Callee, FuncId, LocalId, Mir, MirBody, Operand, Place, Rvalue, SiteLookup,
-    Statement, Terminator};
+use crate::{
+    BodyOwner, Callee, FuncId, LocalId, Mir, MirBody, Operand, Place, Rvalue, SiteLookup,
+    Statement, Terminator,
+};
 
 /// One local of one body: the unit promotion decides on.
 ///
@@ -115,7 +117,10 @@ pub fn promote_erased_mutated_records(mir: &mut Mir) {
     let mut retyped: HashMap<Node, TypeId> = HashMap::new();
     for node in ordered {
         let (owner, local) = node;
-        let Some(old_ty) = mir.body(owner).and_then(|body| body.local_decl(local)).map(|decl| decl.ty)
+        let Some(old_ty) = mir
+            .body(owner)
+            .and_then(|body| body.local_decl(local))
+            .map(|decl| decl.ty)
         else {
             continue;
         };
@@ -196,10 +201,14 @@ fn sync_promoted_capture_types(mir: &mut Mir, retyped: &HashMap<Node, TypeId>) {
                 SiteLookup::One(site) => Some(site.owner),
                 SiteLookup::Unconstructed | SiteLookup::Many => None,
             };
-            closure.captures.iter().enumerate().filter_map(move |(position, capture)| {
-                let ty = retyped.get(&(owner?, capture.source_local))?;
-                Some((closure_index, position, *ty))
-            })
+            closure
+                .captures
+                .iter()
+                .enumerate()
+                .filter_map(move |(position, capture)| {
+                    let ty = retyped.get(&(owner?, capture.source_local))?;
+                    Some((closure_index, position, *ty))
+                })
         })
         .collect();
     for (closure_index, position, ty) in updates {

@@ -57,7 +57,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Returns whether a predeclared local should keep a concrete default.
-    pub(super) fn predeclared_local_needs_default(&self, local: LocalId) -> Result<bool, EmitError> {
+    pub(super) fn predeclared_local_needs_default(
+        &self,
+        local: LocalId,
+    ) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
             || self.lexical_rust_type(decl.ty, false)?.holds_callable();
@@ -73,7 +76,10 @@ impl FunctionEmitter<'_> {
 }
 
 /// Compute locals that need function-scope bindings before Rust block emission.
-pub(super) fn predeclared_locals_for_function(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
+pub(super) fn predeclared_locals_for_function(
+    mir: &Mir,
+    function: &MirFunction,
+) -> HashSet<LocalId> {
     let mut seen = function.params.iter().copied().collect::<HashSet<_>>();
     // A binding that can be read before its first assignment is declared up
     // front, unassigned (see `binding_storage`), wherever it is first assigned.

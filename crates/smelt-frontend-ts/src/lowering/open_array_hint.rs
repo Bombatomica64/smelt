@@ -45,7 +45,12 @@ impl ModuleBuilder<'_> {
     /// The type an array literal with elements `items` takes under the
     /// list or tuple `hint`, with type-parameter positions filled from the
     /// elements (see the module docs). Any other hint is returned unchanged.
-    pub(in crate::lowering) fn fill_open_array_hint(&mut self, hint: TypeId, items: &[ExprId], body: &Body) -> TypeId {
+    pub(in crate::lowering) fn fill_open_array_hint(
+        &mut self,
+        hint: TypeId,
+        items: &[ExprId],
+        body: &Body,
+    ) -> TypeId {
         if items.is_empty() {
             return hint;
         }
@@ -71,14 +76,20 @@ impl ModuleBuilder<'_> {
                     .zip(items)
                     .map(|(&slot, &item)| {
                         let item_ty = Self::expr_ty(body, item);
-                        if self.overload_constraint_contains_unresolved_type_param(slot) && self.fills_open_slot(item_ty) {
+                        if self.overload_constraint_contains_unresolved_type_param(slot)
+                            && self.fills_open_slot(item_ty)
+                        {
                             item_ty
                         } else {
                             slot
                         }
                     })
                     .collect::<Vec<_>>();
-                if filled == slots { hint } else { self.ctx.krate.types.intern(Type::Tuple(filled)) }
+                if filled == slots {
+                    hint
+                } else {
+                    self.ctx.krate.types.intern(Type::Tuple(filled))
+                }
             }
             _ => hint,
         }
@@ -108,14 +119,18 @@ impl ModuleBuilder<'_> {
         let next = depth.saturating_add(1);
         match self.ctx.krate.types.get(ty) {
             Some(Type::Function(_)) | None => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-                self.mentions_function(*item, next)
-            }
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.mentions_function(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.mentions_function(*key, next) || self.mentions_function(*value, next)
             }
-            Some(Type::Tuple(items) | Type::Union(items)) => items.iter().any(|item| self.mentions_function(*item, next)),
-            Some(Type::Class { args, .. }) => args.iter().any(|arg| self.mentions_function(*arg, next)),
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                items.iter().any(|item| self.mentions_function(*item, next))
+            }
+            Some(Type::Class { args, .. }) => {
+                args.iter().any(|arg| self.mentions_function(*arg, next))
+            }
             Some(_) => false,
         }
     }
@@ -128,16 +143,23 @@ impl ModuleBuilder<'_> {
         let next = depth.saturating_add(1);
         match self.ctx.krate.types.get(ty) {
             None | Some(Type::Unknown | Type::TypeParam { .. }) => false,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-                self.type_is_closed(*item, next)
-            }
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.type_is_closed(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_is_closed(*key, next) && self.type_is_closed(*value, next)
             }
-            Some(Type::Tuple(items) | Type::Union(items)) => items.iter().all(|item| self.type_is_closed(*item, next)),
-            Some(Type::Class { args, .. }) => args.iter().all(|arg| self.type_is_closed(*arg, next)),
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                items.iter().all(|item| self.type_is_closed(*item, next))
+            }
+            Some(Type::Class { args, .. }) => {
+                args.iter().all(|arg| self.type_is_closed(*arg, next))
+            }
             Some(Type::Function(function)) => {
-                function.params.iter().all(|param| self.type_is_closed(*param, next))
+                function
+                    .params
+                    .iter()
+                    .all(|param| self.type_is_closed(*param, next))
                     && self.type_is_closed(function.return_ty, next)
             }
             Some(_) => true,
@@ -184,16 +206,23 @@ impl ModuleBuilder<'_> {
         let next = depth.saturating_add(1);
         match self.ctx.krate.types.get(ty) {
             None | Some(Type::Unknown) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
-                self.mentions_unknown(*item, next)
-            }
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.mentions_unknown(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.mentions_unknown(*key, next) || self.mentions_unknown(*value, next)
             }
-            Some(Type::Tuple(items) | Type::Union(items)) => items.iter().any(|item| self.mentions_unknown(*item, next)),
-            Some(Type::Class { args, .. }) => args.iter().any(|arg| self.mentions_unknown(*arg, next)),
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                items.iter().any(|item| self.mentions_unknown(*item, next))
+            }
+            Some(Type::Class { args, .. }) => {
+                args.iter().any(|arg| self.mentions_unknown(*arg, next))
+            }
             Some(Type::Function(function)) => {
-                function.params.iter().any(|param| self.mentions_unknown(*param, next))
+                function
+                    .params
+                    .iter()
+                    .any(|param| self.mentions_unknown(*param, next))
                     || self.mentions_unknown(function.return_ty, next)
             }
             Some(_) => false,

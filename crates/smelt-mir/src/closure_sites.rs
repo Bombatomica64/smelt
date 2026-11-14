@@ -54,9 +54,10 @@ impl Mir {
                         continue;
                     };
                     *slot = match slot {
-                        SiteLookup::Unconstructed => {
-                            SiteLookup::One(ClosureSite { owner: body.owner, captures })
-                        }
+                        SiteLookup::Unconstructed => SiteLookup::One(ClosureSite {
+                            owner: body.owner,
+                            captures,
+                        }),
                         SiteLookup::One(_) | SiteLookup::Many => SiteLookup::Many,
                     };
                 }

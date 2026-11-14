@@ -7,16 +7,16 @@
 //! somewhere activate this machinery; every other name keeps today's byte
 //! -identical folding and native construction (pay-for-use).
 
-use crate::lowering::resolve::HostGlobal;
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
-use crate::lowering::js_text::js_str_text;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::js_text::js_str_text;
+use crate::lowering::resolve::HostGlobal;
 use oxc::ast::ast::{AssignmentTarget, Expression};
 use oxc::syntax::operator::AssignmentOperator;
 use smelt_hir::{
-    Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, LocalDecl, Param, Span, Stmt, Type,
-    UnaryOp, UnknownKind,
+    Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Item, LocalDecl, Param, Span,
+    Stmt, Type, UnaryOp, UnknownKind,
 };
 use std::borrow::Cow;
 
@@ -214,9 +214,13 @@ impl ModuleBuilder<'_> {
             let param_tys = lowered
                 .constructor
                 .and_then(|ctor| match self.item_ref(ctor) {
-                    Item::Function(function) => {
-                        Some(function.params.iter().map(|param| param.ty).collect::<Vec<_>>())
-                    }
+                    Item::Function(function) => Some(
+                        function
+                            .params
+                            .iter()
+                            .map(|param| param.ty)
+                            .collect::<Vec<_>>(),
+                    ),
                     _ => None,
                 })
                 .unwrap_or_default();
@@ -300,10 +304,14 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let name = host.name();
-        let Some(kind) = self.host_constructor_of(host).and_then(|kind| kind.overridable(name)) else {
+        let Some(kind) = self
+            .host_constructor_of(host)
+            .and_then(|kind| kind.overridable(name))
+        else {
             return Ok(None);
         };
-        self.construct_host(kind, name, new_expr, body, None).map(Some)
+        self.construct_host(kind, name, new_expr, body, None)
+            .map(Some)
     }
 
     /// Wrap a native host construction expression in a slot-checked `new X(...)`

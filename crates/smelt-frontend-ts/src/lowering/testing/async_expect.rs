@@ -1,14 +1,14 @@
 //! Asynchronous expectations: `expect(..).resolves` and `expect(..).rejects`, whose
 //! actual value only exists after an `await` or a caught rejection.
 
+use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
+use crate::lowering::testing::LoweredActual;
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     Body, ErasureReason, Expr, ExprKind, Literal, LocalDecl, Pattern, Stmt, Type, UnaryOp,
 };
-use crate::SmeltError;
-use crate::lowering::ModuleBuilder;
-use crate::lowering::testing::LoweredActual;
 
 impl ModuleBuilder<'_> {
     /// Lower async Vitest matcher chains as `Promise<void>` test-side effects.
@@ -122,7 +122,11 @@ impl ModuleBuilder<'_> {
     ///
     /// The assertion itself lowers to statements, so the chain's *expression*
     /// value only has to satisfy the enclosing `await`.
-    fn vitest_async_void_expr(&mut self, span: smelt_hir::Span, body: &mut Body) -> smelt_hir::ExprId {
+    fn vitest_async_void_expr(
+        &mut self,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
         body.push_expr(Expr {

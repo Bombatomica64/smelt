@@ -66,7 +66,11 @@ console.log(new Counter().count());
     )?;
     let add = arrow_item(&ctx, "add")?;
     // Some method body calls the lifted item itself.
-    let called = ctx.krate.bodies.iter().any(|body| body_calls_item(body, add));
+    let called = ctx
+        .krate
+        .bodies
+        .iter()
+        .any(|body| body_calls_item(body, add));
     ensure!(called, "the class method must call the lifted `add` item");
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -144,7 +148,11 @@ console.log(emptyOutcome<number>().done, pair('a', 1));
     )?;
     for (name, expected) in [("empty_outcome", vec!["T"]), ("pair", vec!["K", "V"])] {
         let item = arrow_item(&ctx, name)?;
-        let Some(Item::Function(function)) = ctx.krate.items.get(usize::try_from(item.0).unwrap_or(usize::MAX)) else {
+        let Some(Item::Function(function)) = ctx
+            .krate
+            .items
+            .get(usize::try_from(item.0).unwrap_or(usize::MAX))
+        else {
             return Err(format!("`{name}` is not a function item"));
         };
         let declared = function

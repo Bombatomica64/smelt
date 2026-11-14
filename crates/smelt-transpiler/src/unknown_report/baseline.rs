@@ -1,7 +1,6 @@
 //! The committed baseline: detecting a regression against it and writing an
 //! updated snapshot, which can never take a rise in avoidable erasure.
 
-
 use super::{Category, ScanResult, TOP_OFFENDER_LIMIT, UnknownReport};
 use crate::report::push_fmt;
 
@@ -51,7 +50,9 @@ pub(super) fn updated_baseline<'report>(
     baseline: Option<&'report UnknownReport>,
 ) -> &'report UnknownReport {
     let avoidable = |report: &UnknownReport| report.category_total(Category::AvoidableErasure);
-    baseline.filter(|prior| avoidable(scanned) > avoidable(prior)).unwrap_or(scanned)
+    baseline
+        .filter(|prior| avoidable(scanned) > avoidable(prior))
+        .unwrap_or(scanned)
 }
 
 /// The largest share of the baseline's files a scan may lose, in percent. A
@@ -62,7 +63,10 @@ const MAX_SCAN_DROP_PERCENT: usize = 10;
 /// Why the scan cannot judge anything: it saw no file at all, or lost more than
 /// [`MAX_SCAN_DROP_PERCENT`] of the files `baseline` scanned. Such a scan also
 /// reports a lower erasure total, so without this check it passes the gate.
-pub(super) fn coverage_loss(scanned: &UnknownReport, baseline: Option<&UnknownReport>) -> Option<String> {
+pub(super) fn coverage_loss(
+    scanned: &UnknownReport,
+    baseline: Option<&UnknownReport>,
+) -> Option<String> {
     if scanned.files_scanned == 0 {
         return Some("the scan found no generated Rust file, so it judged nothing".to_owned());
     }

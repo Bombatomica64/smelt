@@ -57,7 +57,10 @@ const values = [1, 2].map((n) => risky(n));
 console.log(values);
 "#,
     );
-    assert!(source.contains("risky(") && source.contains('?'), "{source}");
+    assert!(
+        source.contains("risky(") && source.contains('?'),
+        "{source}"
+    );
 }
 
 #[test]

@@ -41,9 +41,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -232,7 +229,6 @@ test("a class instance's methods are not own keys either", () => {
 "#;
     run_fixture(source, "smelt_own_keys_property_key_record");
 }
-
 
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]

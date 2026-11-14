@@ -135,7 +135,10 @@ export function describeArrow(request: Req | RawReq): string {
 }
 const isReq = (r: Req | RawReq): r is Req => r.kind === "req";
 "#))?;
-    ensure_eq!(narrowing_cast_targets(&ctx, "describe_arrow")?, ["Req", "RawReq"]);
+    ensure_eq!(
+        narrowing_cast_targets(&ctx, "describe_arrow")?,
+        ["Req", "RawReq"]
+    );
     Ok(())
 }
 
@@ -152,7 +155,10 @@ export function describeLocal(request: Req | RawReq): string {
   return "req " + request.url;
 }
 "#))?;
-    ensure_eq!(narrowing_cast_targets(&ctx, "describe_local")?, ["RawReq", "Req"]);
+    ensure_eq!(
+        narrowing_cast_targets(&ctx, "describe_local")?,
+        ["RawReq", "Req"]
+    );
     Ok(())
 }
 
@@ -189,8 +195,14 @@ export function viaStatic(request: Req | RawReq): string {
 }
 "#))?;
     ensure_eq!(narrowing_cast_targets(&ctx, "label")?, ["RawReq", "Req"]);
-    ensure_eq!(narrowing_cast_targets(&ctx, "via_instance")?, ["RawReq", "Req"]);
-    ensure_eq!(narrowing_cast_targets(&ctx, "via_static")?, ["Req", "RawReq"]);
+    ensure_eq!(
+        narrowing_cast_targets(&ctx, "via_instance")?,
+        ["RawReq", "Req"]
+    );
+    ensure_eq!(
+        narrowing_cast_targets(&ctx, "via_static")?,
+        ["Req", "RawReq"]
+    );
     Ok(())
 }
 

@@ -197,7 +197,8 @@ float_total: float = sum(floats)
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
-    let sums = code.exprs()
+    let sums = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::ListSum { .. }))
         .count();
     ensure_eq(&sums, &2, "list sum count")
@@ -244,7 +245,8 @@ missing: bool = "xyz" not in word
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
 
-    let contains_count = code.exprs()
+    let contains_count = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
         .count();
     ensure_eq(&contains_count, &2, "string contains count")?;
@@ -307,16 +309,18 @@ def run() -> None:
     // module level they are module globals it reads).
 
     ensure(
-        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::ListSorted {
-                    key: Some(key),
-                    reverse: true,
-                    ..
-                } if closure_cfg_has_capture(&ctx, body, *key)
-            )
-        })),
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::ListSorted {
+                        key: Some(key),
+                        reverse: true,
+                        ..
+                    } if closure_cfg_has_capture(&ctx, body, *key)
+                )
+            })
+        }),
         "expected sorted key+reverse lowering",
     )?;
     Ok(())
@@ -336,17 +340,19 @@ def run() -> None:
     // module level they are module globals it reads).
 
     ensure(
-        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::ListSort {
-                    comparator: None,
-                    key: Some(key),
-                    reverse: true,
-                    ..
-                } if closure_cfg_has_capture(&ctx, body, *key)
-            )
-        })),
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::ListSort {
+                        comparator: None,
+                        key: Some(key),
+                        reverse: true,
+                        ..
+                    } if closure_cfg_has_capture(&ctx, body, *key)
+                )
+            })
+        }),
         "expected list.sort key+reverse lowering",
     )?;
     Ok(())
@@ -382,29 +388,33 @@ def run() -> None:
     // module level they are module globals it reads).
 
     ensure(
-        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::ListCallback {
-                    op: smelt_hir::ListCallbackOp::Map,
-                    callback,
-                    ..
-                } if closure_cfg_has_capture(&ctx, body, *callback)
-            )
-        })),
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::ListCallback {
+                        op: smelt_hir::ListCallbackOp::Map,
+                        callback,
+                        ..
+                    } if closure_cfg_has_capture(&ctx, body, *callback)
+                )
+            })
+        }),
         "expected map lambda callback lowering",
     )?;
     ensure(
-        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::ListCallback {
-                    op: smelt_hir::ListCallbackOp::Filter,
-                    callback,
-                    ..
-                } if closure_cfg_has_capture(&ctx, body, *callback)
-            )
-        })),
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::ListCallback {
+                        op: smelt_hir::ListCallbackOp::Filter,
+                        callback,
+                        ..
+                    } if closure_cfg_has_capture(&ctx, body, *callback)
+                )
+            })
+        }),
         "expected filter lambda callback lowering",
     )?;
     Ok(())
@@ -426,23 +436,29 @@ def run() -> None:
     // module level they are module globals it reads).
 
     ensure(
-        ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::ListCallback {
-                    op: smelt_hir::ListCallbackOp::Map,
-                    callback,
-                    ..
-                } if local_bound_to_capturing_closure(&ctx, body, *callback)
-            )
-        })),
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::ListCallback {
+                        op: smelt_hir::ListCallbackOp::Map,
+                        callback,
+                        ..
+                    } if local_bound_to_capturing_closure(&ctx, body, *callback)
+                )
+            })
+        }),
         "expected local map lambda callback lowering",
     )?;
     Ok(())
 }
 
 /// Whether `callback` reads a local whose `let` binds a capturing closure.
-fn local_bound_to_capturing_closure(ctx: &HirCtx, body: &Body, callback: smelt_hir::ExprId) -> bool {
+fn local_bound_to_capturing_closure(
+    ctx: &HirCtx,
+    body: &Body,
+    callback: smelt_hir::ExprId,
+) -> bool {
     let Some(ExprKind::Local(local)) = usize::try_from(callback.0)
         .ok()
         .and_then(|index| body.exprs.get(index))
@@ -554,8 +570,7 @@ for value in range(3):
         "expected range lowering",
     )?;
     ensure(
-        code.stmts()
-            .any(|stmt| matches!(stmt, Stmt::For { .. })),
+        code.stmts().any(|stmt| matches!(stmt, Stmt::For { .. })),
         "expected for range lowering",
     )
 }
@@ -628,7 +643,8 @@ missing: bool = 4 not in values
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
 
-    let contains_count = code.exprs()
+    let contains_count = code
+        .exprs()
         .filter(|expr| matches!(expr.kind, ExprKind::ListContains { .. }))
         .count();
     ensure_eq(&contains_count, &2, "list contains count")?;
@@ -653,7 +669,8 @@ missing: bool = 4 not in values
         "expected set literal lowering",
     )?;
     ensure_eq(
-        &code.exprs()
+        &code
+            .exprs()
             .filter(|expr| matches!(expr.kind, ExprKind::SetContains { .. }))
             .count(),
         &2,

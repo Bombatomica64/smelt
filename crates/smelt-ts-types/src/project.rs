@@ -164,7 +164,10 @@ impl CheckProgram {
     /// A program of `sources` with nothing else.
     #[must_use]
     pub fn of_sources(sources: Vec<SourceInput>) -> Self {
-        Self { sources, ..Self::default() }
+        Self {
+            sources,
+            ..Self::default()
+        }
     }
 
     /// This program with `declarations` read alongside its sources.
@@ -176,7 +179,10 @@ impl CheckProgram {
 
     /// This program with bare specifiers resolving through `module_paths`.
     #[must_use]
-    pub fn with_module_paths(mut self, module_paths: std::collections::BTreeMap<String, String>) -> Self {
+    pub fn with_module_paths(
+        mut self,
+        module_paths: std::collections::BTreeMap<String, String>,
+    ) -> Self {
         self.module_paths = module_paths;
         self
     }
@@ -184,7 +190,10 @@ impl CheckProgram {
 
 /// The program path of a file located at `location`, as [`SourceInput`] places it.
 fn program_path_of(location: &str) -> String {
-    format!("{ROOT}/{}", normalize_segments(&location.replace('\\', "/")))
+    format!(
+        "{ROOT}/{}",
+        normalize_segments(&location.replace('\\', "/"))
+    )
 }
 
 /// One source file to analyse.
@@ -205,7 +214,11 @@ impl SourceInput {
     /// Creates an input from a relative path and its source text.
     #[must_use]
     pub fn new(path: impl Into<String>, text: impl Into<String>) -> Self {
-        Self { path: path.into(), text: text.into(), location: None }
+        Self {
+            path: path.into(),
+            text: text.into(),
+            location: None,
+        }
     }
 
     /// Places the file at `location` in the program while keeping `path` as its key.
@@ -221,7 +234,13 @@ impl SourceInput {
     /// are re-rooted under [`ROOT`] with their full path, so relative imports
     /// between inputs resolve exactly as they do on disk.
     pub(crate) fn root_relative_path(&self) -> String {
-        normalize_segments(&self.location.as_ref().unwrap_or(&self.path).replace('\\', "/"))
+        normalize_segments(
+            &self
+                .location
+                .as_ref()
+                .unwrap_or(&self.path)
+                .replace('\\', "/"),
+        )
     }
 
     /// Absolute path of this file inside the virtual program.
@@ -280,15 +299,26 @@ impl ParseConfigHost for ConfigHost {
 /// treats every file as a module (an import-free file is not a global script
 /// whose declarations collide).
 fn tsconfig_json(program: &CheckProgram) -> String {
-    let mut files = format!("\"{}\"", TEST_FRAMEWORK_DECLARATIONS.trim_start_matches("/smelt/"));
+    let mut files = format!(
+        "\"{}\"",
+        TEST_FRAMEWORK_DECLARATIONS.trim_start_matches("/smelt/")
+    );
     for input in program.sources.iter().chain(&program.declarations) {
-        let _ = write!(files, ",\"{}\"", input.root_relative_path().replace('"', "\\\""));
+        let _ = write!(
+            files,
+            ",\"{}\"",
+            input.root_relative_path().replace('"', "\\\"")
+        );
     }
     let paths = program
         .module_paths
         .iter()
         .map(|(specifier, location)| {
-            format!("{}: [{}]", json_string(specifier), json_string(&program_path_of(location)))
+            format!(
+                "{}: [{}]",
+                json_string(specifier),
+                json_string(&program_path_of(location))
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");
@@ -344,7 +374,10 @@ pub(crate) fn build_program(program: &CheckProgram) -> Result<&'static Program, 
         .chain(&program.declarations)
         .map(|input| (input.program_path(), input.text.clone()))
         .collect();
-    files.push((TEST_FRAMEWORK_DECLARATIONS.to_owned(), TEST_FRAMEWORK_TEXT.to_owned()));
+    files.push((
+        TEST_FRAMEWORK_DECLARATIONS.to_owned(),
+        TEST_FRAMEWORK_TEXT.to_owned(),
+    ));
     files.extend(
         crate::node_types::NODE_TYPE_FILES
             .iter()
@@ -353,15 +386,25 @@ pub(crate) fn build_program(program: &CheckProgram) -> Result<&'static Program, 
     files.push((config_path.clone(), tsconfig_json(program)));
     let memory: Arc<dyn FS> = Arc::new(vfstest::from_map(files, true));
     let fs: Arc<dyn FS> = Arc::new(bundled::wrap_fs(crate::layered_fs::LayeredFs::new(memory)));
-    let config_host: &'static ConfigHost =
-        Box::leak(Box::new(ConfigHost { fs: Arc::clone(&fs) }));
-    let (config, diagnostics) =
-        tsoptions::get_parsed_command_line_of_config_file(&config_path, None, None, config_host, None);
+    let config_host: &'static ConfigHost = Box::leak(Box::new(ConfigHost {
+        fs: Arc::clone(&fs),
+    }));
+    let (config, diagnostics) = tsoptions::get_parsed_command_line_of_config_file(
+        &config_path,
+        None,
+        None,
+        config_host,
+        None,
+    );
     let Some(parsed) = config.filter(|_| diagnostics.is_empty()) else {
-        let messages: Vec<&str> = diagnostics.iter().map(|diagnostic| diagnostic.message_text()).collect();
+        let messages: Vec<&str> = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message_text())
+            .collect();
         return Err(TsTypesError::Config(messages.join("; ")));
     };
-    let host: Arc<dyn CompilerHost> = new_compiler_host(ROOT, fs, &bundled::lib_path(), None, None, None);
+    let host: Arc<dyn CompilerHost> =
+        new_compiler_host(ROOT, fs, &bundled::lib_path(), None, None, None);
     let mut options = ProgramOptions::new(P::new(parsed), host);
     options.single_threaded = Tristate::True;
     Ok(new_program(options))

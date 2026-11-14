@@ -35,7 +35,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if self.host_module_export_path(&new_expr.callee)
-            != Some((smelt_stdlib::HostModuleId::Sqlite, "DatabaseSync".to_owned()))
+            != Some((
+                smelt_stdlib::HostModuleId::Sqlite,
+                "DatabaseSync".to_owned(),
+            ))
         {
             return Ok(None);
         }
@@ -47,7 +50,10 @@ impl ModuleBuilder<'_> {
             ));
         };
         let path = self.argument(argument, body)?;
-        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, path)), Some(Type::String)) {
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, path)),
+            Some(Type::String)
+        ) {
             return Err(SmeltError::unsupported(
                 span,
                 "`new DatabaseSync` is modeled for a string path only",
@@ -82,7 +88,8 @@ impl ModuleBuilder<'_> {
         if database_rule.is_none() && statement_rule.is_none() {
             return Ok(None);
         }
-        if self.source_shadows_global("DatabaseSync") || self.source_shadows_global("StatementSync") {
+        if self.source_shadows_global("DatabaseSync") || self.source_shadows_global("StatementSync")
+        {
             return Ok(None);
         }
         // `exec`, `get`, `all` and `run` are also `RegExp`'s and `Map`'s
@@ -100,7 +107,9 @@ impl ModuleBuilder<'_> {
             (Some(smelt_stdlib::StdlibClass::SqliteDatabase), "prepare") => {
                 (SqliteOp::Prepare, Some(1))
             }
-            (Some(smelt_stdlib::StdlibClass::SqliteDatabase), "close") => (SqliteOp::Close, Some(0)),
+            (Some(smelt_stdlib::StdlibClass::SqliteDatabase), "close") => {
+                (SqliteOp::Close, Some(0))
+            }
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "all") => (SqliteOp::All, None),
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "get") => (SqliteOp::Get, None),
             (Some(smelt_stdlib::StdlibClass::SqliteStatement), "run") => (SqliteOp::Run, None),
@@ -136,11 +145,7 @@ impl ModuleBuilder<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         let ty = self.sqlite_op_result_type(op);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::SqliteOp {
-                op,
-                receiver,
-                args,
-            },
+            kind: ExprKind::SqliteOp { op, receiver, args },
             ty,
             span,
         })))

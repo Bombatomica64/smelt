@@ -115,7 +115,10 @@ fn live_callable_field_getter_is_a_boundary() {
         "the getter erases one live field on demand for an erased read"
     );
     assert_eq!(
-        classify_line("    fn get_label(&self, key: &str) -> SmeltUnknown {", false),
+        classify_line(
+            "    fn get_label(&self, key: &str) -> SmeltUnknown {",
+            false
+        ),
         Category::AvoidableErasure,
         "an ordinary erased return must stay avoidable"
     );
@@ -193,7 +196,8 @@ fn host_brand_instanceof_guard_is_a_boundary() {
         Category::AvoidableErasure,
         "an erased parameter named `value` must stay avoidable"
     );
-    let field = "    let tag: SmeltUnknown = fields.contains_key(\"__smelt_class\").into_smelt_unknown();";
+    let field =
+        "    let tag: SmeltUnknown = fields.contains_key(\"__smelt_class\").into_smelt_unknown();";
     assert_ne!(
         classify_line(field, false),
         Category::AvoidableErasure,
@@ -260,7 +264,8 @@ fn json_serializer_argument_is_a_boundary() {
         Category::AvoidableErasure,
         "ordinary erased storage must stay avoidable"
     );
-    let parse = "    let parsed: SmeltUnknown = serde_json::from_str(text).unwrap_or(SmeltUnknown::Null);";
+    let parse =
+        "    let parsed: SmeltUnknown = serde_json::from_str(text).unwrap_or(SmeltUnknown::Null);";
     assert_eq!(
         classify_line(parse, false),
         Category::AvoidableErasure,
@@ -289,7 +294,10 @@ fn erased_class_prototype_slot_is_a_boundary() {
         );
     }
     assert_eq!(
-        classify_line("    let entries: Vec<(String, SmeltUnknown)> = Vec::new();", false),
+        classify_line(
+            "    let entries: Vec<(String, SmeltUnknown)> = Vec::new();",
+            false
+        ),
         Category::AvoidableErasure,
         "an ordinary erased entry list is not the prototype slot"
     );
@@ -353,7 +361,10 @@ fn this_receiver_channel_is_a_boundary() {
     // Storing an ordinary program value as `SmeltUnknown` is still
     // avoidable erasure -- the marker must not widen past the channel.
     assert_eq!(
-        classify_line("    let total: SmeltUnknown = SmeltUnknown::Number(1.0);", false),
+        classify_line(
+            "    let total: SmeltUnknown = SmeltUnknown::Number(1.0);",
+            false
+        ),
         Category::AvoidableErasure,
         "an ordinary erased local is not the `this` channel"
     );
@@ -476,7 +487,10 @@ fn sqlite_row_read_is_a_boundary() {
     // columns from one statement). A parameter erased by hand is NOT
     // covered: parameters bind at their own types.
     let erased_parameter = "    let changes = statement.run(&[&SmeltUnknown::Number(id as f64)])?;";
-    assert_eq!(classify_line(erased_parameter, false), Category::AvoidableErasure);
+    assert_eq!(
+        classify_line(erased_parameter, false),
+        Category::AvoidableErasure
+    );
 }
 
 /// An optional erased value read at the erased carrier is an adapter between
@@ -551,7 +565,11 @@ fn pending_thrown_value_is_a_boundary() {
         "    smelt_pending_thrown = SmeltUnknown::Undefined;",
         "    let mut smelt_pending_thrown_1: SmeltUnknown;",
     ] {
-        assert_eq!(classify_line(line, false), Category::LegitimateBoundary, "{line}");
+        assert_eq!(
+            classify_line(line, false),
+            Category::LegitimateBoundary,
+            "{line}"
+        );
     }
     assert_eq!(
         classify_line("    let _smelt_tmp_4: SmeltUnknown;", false),
@@ -595,13 +613,19 @@ fn global_object_members_are_run_time_facts() {
     let helper = "fn smelt_global_object() -> SmeltUnknown { thread_local! { static SMELT_GLOBAL_OBJECT: SmeltObject = SmeltObject::new(Vec::new()); } SmeltUnknown::Object(SMELT_GLOBAL_OBJECT.with(Clone::clone)) }";
     assert_eq!(classify_line(helper, false), Category::RuntimePrelude);
     let erased_local = "    let mut _smelt_tmp_4: SmeltUnknown;";
-    assert_eq!(classify_line(erased_local, false), Category::AvoidableErasure);
+    assert_eq!(
+        classify_line(erased_local, false),
+        Category::AvoidableErasure
+    );
 }
 
 /// Counting is non-overlapping and handles repeats on one line.
 #[test]
 fn counts_occurrences_per_line() {
-    assert_eq!(count_occurrences("SmeltUnknown SmeltUnknown", "SmeltUnknown"), 2);
+    assert_eq!(
+        count_occurrences("SmeltUnknown SmeltUnknown", "SmeltUnknown"),
+        2
+    );
     assert_eq!(count_occurrences("nothing here", "SmeltUnknown"), 0);
     assert_eq!(count_occurrences("aaa", "aa"), 1);
 }
@@ -710,7 +734,10 @@ fn classifies_avoidable_erasure() {
 #[test]
 fn classifies_update_snapshot_at_erased_target_as_boundary() {
     assert_eq!(
-        classify_line("    let __smelt_update_tmp: SmeltUnknown = _smelt_tmp_2.clone();", false),
+        classify_line(
+            "    let __smelt_update_tmp: SmeltUnknown = _smelt_tmp_2.clone();",
+            false
+        ),
         Category::LegitimateBoundary
     );
     assert_eq!(
@@ -756,7 +783,10 @@ fn adapter_lines(text: &str) -> Vec<bool> {
 #[test]
 fn adapter_bodies_are_boundary_and_end_at_their_brace() {
     let text = "impl IntoSmeltUnknown for Route {\n    fn into_smelt_unknown(self) -> SmeltUnknown {\n        SmeltUnknown::Object(object)\n    }\n}\nfn program() -> SmeltUnknown {\n}\n";
-    assert_eq!(adapter_lines(text), [true, true, true, true, true, false, false]);
+    assert_eq!(
+        adapter_lines(text),
+        [true, true, true, true, true, false, false]
+    );
 }
 
 /// Program methods beside `from_smelt_unknown` in one `impl` stay judged,
@@ -788,10 +818,8 @@ fn decoders_are_adapters_and_one_liners_close_themselves() {
 /// A full scan groups by shape, tallies categories, and stays deterministic.
 #[test]
 fn scan_groups_and_categorizes() {
-    let dir = std::env::temp_dir().join(format!(
-        "smelt-unknown-report-test-{}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("smelt-unknown-report-test-{}", std::process::id()));
     drop(std::fs::remove_dir_all(&dir));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("gen.rs");
@@ -877,7 +905,8 @@ fn a_module_file_measures_its_minted_program_items() {
     let dir = std::env::temp_dir().join(format!("smelt-unknown-module-{}", std::process::id()));
     drop(std::fs::remove_dir_all(&dir));
     assert!(std::fs::create_dir_all(&dir).is_ok(), "temp dir");
-    let init = "fn smelt_global_init__table__0() -> SmeltUnknown {\n    SmeltUnknown::Number(1.0)\n}\n";
+    let init =
+        "fn smelt_global_init__table__0() -> SmeltUnknown {\n    SmeltUnknown::Number(1.0)\n}\n";
     let module = dir.join("source_main.rs");
     let written = std::fs::write(
         &module,
@@ -887,15 +916,35 @@ fn a_module_file_measures_its_minted_program_items() {
         ),
     );
     assert!(written.is_ok(), "module file written");
-    let report = scan_files(std::slice::from_ref(&module)).ok().map(|scan| scan.report);
-    let total = |category| report.as_ref().map(|scanned| scanned.category_total(category));
-    assert_eq!(total(Category::RuntimePrelude), Some(0), "a module file holds no prelude");
-    assert_eq!(total(Category::AvoidableErasure), Some(2), "the initializer is program code");
+    let report = scan_files(std::slice::from_ref(&module))
+        .ok()
+        .map(|scan| scan.report);
+    let total = |category| {
+        report
+            .as_ref()
+            .map(|scanned| scanned.category_total(category))
+    };
+    assert_eq!(
+        total(Category::RuntimePrelude),
+        Some(0),
+        "a module file holds no prelude"
+    );
+    assert_eq!(
+        total(Category::AvoidableErasure),
+        Some(2),
+        "the initializer is program code"
+    );
 
     let legacy = dir.join("legacy.rs");
     assert!(std::fs::write(&legacy, init).is_ok(), "legacy file written");
-    let legacy_prelude = scan_files(&[legacy]).ok().map(|scan| scan.report.category_total(Category::RuntimePrelude));
-    assert_eq!(legacy_prelude, Some(2), "no header: the name heuristic decides");
+    let legacy_prelude = scan_files(&[legacy])
+        .ok()
+        .map(|scan| scan.report.category_total(Category::RuntimePrelude));
+    assert_eq!(
+        legacy_prelude,
+        Some(2),
+        "no header: the name heuristic decides"
+    );
     drop(std::fs::remove_dir_all(&dir));
 }
 
@@ -906,10 +955,7 @@ fn markdown_flags_avoidable_regression() {
         version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: 2,
-        category_totals: BTreeMap::from([(
-            Category::AvoidableErasure.as_str().to_owned(),
-            2usize,
-        )]),
+        category_totals: BTreeMap::from([(Category::AvoidableErasure.as_str().to_owned(), 2usize)]),
         shapes: Vec::new(),
         erasure: None,
     };
@@ -917,10 +963,7 @@ fn markdown_flags_avoidable_regression() {
         version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: 5,
-        category_totals: BTreeMap::from([(
-            Category::AvoidableErasure.as_str().to_owned(),
-            5usize,
-        )]),
+        category_totals: BTreeMap::from([(Category::AvoidableErasure.as_str().to_owned(), 5usize)]),
         shapes: Vec::new(),
         erasure: None,
     };
@@ -937,10 +980,7 @@ fn markdown_reports_no_regression_when_flat() {
         version: SchemaVersion::CURRENT,
         files_scanned: 1,
         total: 4,
-        category_totals: BTreeMap::from([(
-            Category::AvoidableErasure.as_str().to_owned(),
-            4usize,
-        )]),
+        category_totals: BTreeMap::from([(Category::AvoidableErasure.as_str().to_owned(), 4usize)]),
         shapes: Vec::new(),
         erasure: None,
     };
@@ -1006,7 +1046,10 @@ fn coverage_loss_flags_a_large_drop_in_files_scanned() {
     assert_eq!(coverage_loss(&scan.report, Some(&baseline)), None);
     scan.report.files_scanned = 89;
     let message = coverage_loss(&scan.report, Some(&baseline)).expect("a large drop cannot judge");
-    assert!(message.contains("89") && message.contains("100"), "{message}");
+    assert!(
+        message.contains("89") && message.contains("100"),
+        "{message}"
+    );
     assert!(detect_regression(&scan, &baseline).is_none());
     scan.report.files_scanned = 150;
     assert_eq!(coverage_loss(&scan.report, Some(&baseline)), None);
@@ -1046,9 +1089,17 @@ fn detect_regression_ignores_flat_and_decrease() {
 #[test]
 fn detect_regression_requires_baseline() {
     use clap::Parser as _;
-    let gate = ["smelt", "smelt-unknown-report", "src", "--fail-on-regression"];
+    let gate = [
+        "smelt",
+        "smelt-unknown-report",
+        "src",
+        "--fail-on-regression",
+    ];
     let error = crate::cli_parser::Args::try_parse_from(gate).expect_err("no baseline");
-    assert_eq!(error.kind(), clap::error::ErrorKind::MissingRequiredArgument);
+    assert_eq!(
+        error.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
     assert!(error.to_string().contains("--baseline"), "{error}");
 }
 
@@ -1056,7 +1107,11 @@ fn detect_regression_requires_baseline() {
 fn scanned_tree(avoidable: usize) -> tempfile::TempDir {
     let tree = tempfile::tempdir().expect("temp dir");
     let fields = "    value: SmeltUnknown,\n".repeat(avoidable);
-    std::fs::write(tree.path().join("a.rs"), format!("struct S {{\n{fields}}}\n")).expect("source");
+    std::fs::write(
+        tree.path().join("a.rs"),
+        format!("struct S {{\n{fields}}}\n"),
+    )
+    .expect("source");
     tree
 }
 
@@ -1085,7 +1140,11 @@ fn update_baseline_refuses_a_regression() {
     let dir = tempfile::tempdir().expect("temp dir");
     let baseline = dir.path().join("baseline.json");
     update(scanned_tree(1).path(), &baseline);
-    assert_eq!(avoidable_in(&baseline), 1, "a first update creates the baseline");
+    assert_eq!(
+        avoidable_in(&baseline),
+        1,
+        "a first update creates the baseline"
+    );
     let before = std::fs::read(&baseline).expect("baseline");
 
     let outcome = update(scanned_tree(3).path(), &baseline);

@@ -113,7 +113,13 @@ export function run(flag: boolean, r1: Record<string, number>, r2: Record<string
     );
 
     // `1 | "a"` and the two records: generated unions built at the ternary.
-    assert!(source.matches("= if flag { SmeltUnion").count() >= 2, "{source}");
+    assert!(
+        source.matches("= if flag { SmeltUnion").count() >= 2,
+        "{source}"
+    );
     // `Doc | "text"`: the string arm is a union variant, not an erased value.
-    assert!(source.contains("::M0(JsString::from(\"text\"));"), "{source}");
+    assert!(
+        source.contains("::M0(JsString::from(\"text\"));"),
+        "{source}"
+    );
 }

@@ -20,22 +20,21 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CaptureMode, Class, ClassKind,
-    ClassProtocol,
-    ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
-    Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
-    LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp,
-    PropertyLookup, PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
-    TypeParamDef, UnaryOp, Visibility,
+    AsyncOp, BinOp, Body, CaptureMode, Class, ClassKind, ClassProtocol, ClosureCapture, ConstItem,
+    DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId, Function, FunctionOwner,
+    FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal, LocalDecl, MatchArm,
+    MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp, PropertyLookup,
+    PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt,
+    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Symbol, Type, TypeId, TypeParamDef, UnaryOp, Visibility,
 };
 use smelt_stdlib::RuleId;
 
 use crate::helpers::{
-    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name, is_stub_body,
-    expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, range_to_span,
-    stmt_kind_name, two_type_args,
+    collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name,
+    expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, is_stub_body,
+    range_to_span, stmt_kind_name, two_type_args,
 };
 use crate::name_resolution::{EvalScope, ModuleBindings, StdlibMatch, StdlibName};
 use crate::{HirCtx, SmeltError, test_support};
@@ -88,7 +87,10 @@ pub(crate) struct ModuleAnalysis {
 
 impl ModuleAnalysis {
     /// Analyse `module`, whose `ty` resolution is `resolved_types`.
-    pub(crate) fn new(resolved_types: crate::ty_resolve::ResolvedTypes, module: &ModModule) -> Self {
+    pub(crate) fn new(
+        resolved_types: crate::ty_resolve::ResolvedTypes,
+        module: &ModModule,
+    ) -> Self {
         Self {
             resolved_types,
             bindings: ModuleBindings::collect(&module.body),

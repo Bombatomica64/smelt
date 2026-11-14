@@ -2,8 +2,8 @@
 //! into a closure value. An inline literal lowers through its closure body; a
 //! name or a callable value is wrapped in a forwarding closure.
 
-use crate::lowering::erasure::NotNewErasure;
 use super::forwarding::ForwardingCallback;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{
     Argument, Body, ClosureCallback, ExprKind, Expression, Item, ModuleBuilder, SmeltError, Type,
 };
@@ -32,14 +32,8 @@ impl ModuleBuilder<'_> {
     ) -> Result<ClosureCallback, SmeltError> {
         if let Some(local) = self.scope.lookup(name) {
             let local_ty = Self::local_ty(body, local);
-            if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned()
-            {
-                let expr = self.identifier_expression(
-                    name,
-                    span_start,
-                    span_end,
-                    body,
-                )?;
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
+                let expr = self.identifier_expression(name, span_start, span_end, body)?;
                 return Ok(ClosureCallback {
                     expr,
                     return_ty: function.return_ty,
@@ -80,16 +74,11 @@ impl ModuleBuilder<'_> {
         // on the receiver's element type. Lowering it as a typed identity
         // closure keeps the mapped list's concrete element type instead of
         // erasing it.
-        if name == "Object"
-            && !self.builtin_call_identifier_is_shadowed("Object")
-        {
+        if name == "Object" && !self.builtin_call_identifier_is_shadowed("Object") {
             let span = self.span(span_start, span_end);
-            let param_ty = expected_param_tys
-                .first()
-                .copied()
-                .unwrap_or_else(|| {
-                    self.erase_with(ErasureReason::MissingAnnotation, "callback parameter")
-                });
+            let param_ty = expected_param_tys.first().copied().unwrap_or_else(|| {
+                self.erase_with(ErasureReason::MissingAnnotation, "callback parameter")
+            });
             let expr = self.builtin_unary_closure_expression(
                 param_ty,
                 param_ty,
@@ -122,12 +111,9 @@ impl ModuleBuilder<'_> {
         // ordinary value position so the array method runs the builtin's
         // real behavior instead of a placeholder.
         if let Some(host) = self.host_global_named(name)
-            && let Some(expr) = self.builtin_function_value_expression(
-            host,
-            span_start,
-            span_end,
-            body,
-        ) {
+            && let Some(expr) =
+                self.builtin_function_value_expression(host, span_start, span_end, body)
+        {
             let return_ty = self.closure_value_return_ty(expr, body);
             return Ok(ClosureCallback { expr, return_ty });
         }
@@ -141,7 +127,12 @@ impl ModuleBuilder<'_> {
             self.reject_unresolved_callback_import(name, span_start, span_end)?;
             let callback = self.opaque_member_callback(expected_param_tys);
             let return_ty = callback.ty;
-            let expr = self.forwarding_closure(callback, expected_param_tys, self.span(span_start, span_end), body)?;
+            let expr = self.forwarding_closure(
+                callback,
+                expected_param_tys,
+                self.span(span_start, span_end),
+                body,
+            )?;
             return Ok(ClosureCallback { expr, return_ty });
         }
         if !self.scope.is_bound(name) {
@@ -155,12 +146,20 @@ impl ModuleBuilder<'_> {
         // includes a function), call it through a wrapper closure that captures
         // the local and forwards the receiver's element arguments, the same way
         // a direct `fn(...)` call would lower.
-        let local = self.scope.lookup(name).expect("local checked present above");
+        let local = self
+            .scope
+            .lookup(name)
+            .expect("local checked present above");
         let local_ty = Self::local_ty(body, local);
         if self.callback_local_value_is_callable_surface(local_ty) {
             let callback = self.opaque_local_callback(local, local_ty, expected_param_tys);
             let return_ty = callback.ty;
-            let expr = self.forwarding_closure(callback, expected_param_tys, self.span(span_start, span_end), body)?;
+            let expr = self.forwarding_closure(
+                callback,
+                expected_param_tys,
+                self.span(span_start, span_end),
+                body,
+            )?;
             return Ok(ClosureCallback { expr, return_ty });
         }
         Err(SmeltError::unsupported(
@@ -249,13 +248,9 @@ impl ModuleBuilder<'_> {
         }
         // not a new erasure: `unknown` is the "no return hint" sentinel
         let no_return_hint = self.unknown_type(NotNewErasure::NoHint);
-        if let Some(callback) = self.inline_callback(
-            argument,
-            expected_param_tys,
-            no_return_hint,
-            context,
-            body,
-        )? {
+        if let Some(callback) =
+            self.inline_callback(argument, expected_param_tys, no_return_hint, context, body)?
+        {
             return Ok(callback);
         }
         // A callback factory whose callee is only *declared* here has no
@@ -275,9 +270,7 @@ impl ModuleBuilder<'_> {
         };
         if let Some(direct_expr) = direct {
             let direct_ty = Self::expr_ty(body, direct_expr);
-            if let Some(Type::Function(function)) =
-                self.ctx.krate.types.get(direct_ty).cloned()
-            {
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(direct_ty).cloned() {
                 return Ok(ClosureCallback {
                     expr: direct_expr,
                     return_ty: function.return_ty,
@@ -292,21 +285,24 @@ impl ModuleBuilder<'_> {
             ) {
                 let span = self.span(argument.span().start, argument.span().end);
                 let return_ty = callback.ty;
-                let expr =
-                    self.forwarding_closure(callback, expected_param_tys, span, body)?;
+                let expr = self.forwarding_closure(callback, expected_param_tys, span, body)?;
                 return Ok(ClosureCallback { expr, return_ty });
             }
         } else {
             let span = self.span(argument.span().start, argument.span().end);
             let callback = self.opaque_member_callback(expected_param_tys);
             let return_ty = callback.ty;
-            let expr =
-                self.forwarding_closure(callback, expected_param_tys, span, body)?;
+            let expr = self.forwarding_closure(callback, expected_param_tys, span, body)?;
             return Ok(ClosureCallback { expr, return_ty });
         }
         let callback = self.forwarding_callback(argument, expected_param_tys, body)?;
         let return_ty = callback.ty;
-        let expr = self.forwarding_closure(callback, expected_param_tys, self.span(argument.span().start, argument.span().end), body)?;
+        let expr = self.forwarding_closure(
+            callback,
+            expected_param_tys,
+            self.span(argument.span().start, argument.span().end),
+            body,
+        )?;
         Ok(ClosureCallback { expr, return_ty })
     }
 
@@ -354,13 +350,20 @@ impl ModuleBuilder<'_> {
         if let Some(callback) =
             self.inline_callback(argument, expected_param_tys, bool_ty, context, body)?
         {
-            return Ok(ClosureCallback { expr: callback.expr, return_ty: bool_ty });
+            return Ok(ClosureCallback {
+                expr: callback.expr,
+                return_ty: bool_ty,
+            });
         }
         match self.forwarding_callback(argument, expected_param_tys, body) {
             Ok(callback) => {
                 let span = self.span(argument.span().start, argument.span().end);
-                let expr = self.forwarding_predicate_closure(callback, expected_param_tys, span, body)?;
-                Ok(ClosureCallback { expr, return_ty: bool_ty })
+                let expr =
+                    self.forwarding_predicate_closure(callback, expected_param_tys, span, body)?;
+                Ok(ClosureCallback {
+                    expr,
+                    return_ty: bool_ty,
+                })
             }
             Err(error) => {
                 drop(error);
@@ -391,7 +394,12 @@ impl ModuleBuilder<'_> {
                             )
                         })
                         .unwrap_or_else(|| self.opaque_member_callback(expected_param_tys));
-                    let expr = self.forwarding_predicate_closure(callback, expected_param_tys, span, body)?;
+                    let expr = self.forwarding_predicate_closure(
+                        callback,
+                        expected_param_tys,
+                        span,
+                        body,
+                    )?;
                     return Ok(ClosureCallback {
                         expr,
                         return_ty: bool_ty,
@@ -470,7 +478,12 @@ impl ModuleBuilder<'_> {
                 Expression::TSSatisfiesExpression(inner) => expression = &inner.expression,
                 Expression::TSNonNullExpression(inner) => expression = &inner.expression,
                 Expression::ArrowFunctionExpression(arrow) => {
-                    break self.arrow_closure_body_expr(arrow, expected_param_tys, return_hint, body)?;
+                    break self.arrow_closure_body_expr(
+                        arrow,
+                        expected_param_tys,
+                        return_hint,
+                        body,
+                    )?;
                 }
                 Expression::FunctionExpression(function) => {
                     break self.function_closure_body_expr(
@@ -496,7 +509,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collapse tuple item types into the element type used by array callbacks.
-    pub(in crate::lowering) fn tuple_items_element_type(&mut self, items: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn tuple_items_element_type(
+        &mut self,
+        items: &[smelt_hir::TypeId],
+    ) -> smelt_hir::TypeId {
         match items {
             [] => self.erase_with(ErasureReason::MissingAnnotation, "empty tuple element"),
             [single] => *single,

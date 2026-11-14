@@ -14,12 +14,21 @@ use super::{EmitError, FunctionEmitter};
 impl FunctionEmitter<'_> {
     /// `SmeltPyRepr::py_str(&value)` or `py_repr`: Python's `str` or `repr`
     /// of a value whose type the runtime's `SmeltPyRepr` writes.
-    pub(super) fn py_text_expr(&self, value: &Operand, method: &str) -> Result<RustExpr, EmitError> {
+    pub(super) fn py_text_expr(
+        &self,
+        value: &Operand,
+        method: &str,
+    ) -> Result<RustExpr, EmitError> {
         if !self.type_has_py_repr(self.operand_ty(value)?) {
-            return Err(EmitError::new("Python str()/repr() of a value with no Python text"));
+            return Err(EmitError::new(
+                "Python str()/repr() of a value with no Python text",
+            ));
         }
         let text = self.operand_borrow_expr(value)?;
-        Ok(RustExpr::atom(format!("SmeltPyRepr::{method}(&{text})", text = text.tight())))
+        Ok(RustExpr::atom(format!(
+            "SmeltPyRepr::{method}(&{text})",
+            text = text.tight()
+        )))
     }
 
     /// `json.dumps(value)`: the runtime's `SmeltPyJson` encoding of the value
@@ -34,7 +43,10 @@ impl FunctionEmitter<'_> {
             )));
         }
         let text = self.operand_borrow_expr(value)?;
-        Ok(RustExpr::atom(format!("smelt_py_json_dumps(&{text})", text = text.tight())))
+        Ok(RustExpr::atom(format!(
+            "smelt_py_json_dumps(&{text})",
+            text = text.tight()
+        )))
     }
 
     /// Whether a value of type `ty` has a `SmeltPyJson` impl: Python's
@@ -42,10 +54,14 @@ impl FunctionEmitter<'_> {
     /// with `str`, `int`, `float` or `bool` keys.
     fn type_has_py_json(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::Bool | Type::PyStr | Type::String | Type::None) => true,
+            Some(
+                Type::Int | Type::Float | Type::Bool | Type::PyStr | Type::String | Type::None,
+            ) => true,
             Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_json(*inner),
             Some(Type::Tuple(items)) => {
-                !items.is_empty() && items.len() <= 6 && items.iter().all(|item| self.type_has_py_json(*item))
+                !items.is_empty()
+                    && items.len() <= 6
+                    && items.iter().all(|item| self.type_has_py_json(*item))
             }
             Some(Type::Dict(key, value)) => {
                 !self.dict_uses_js_key_map(*key)
@@ -96,7 +112,12 @@ impl FunctionEmitter<'_> {
         let chain = self.py_class_names_literal(classes)?;
         let arg_texts = args
             .iter()
-            .map(|arg| Ok(format!("SmeltPyException::arg(&{})", self.operand_expr(arg)?.tight())))
+            .map(|arg| {
+                Ok(format!(
+                    "SmeltPyException::arg(&{})",
+                    self.operand_expr(arg)?.tight()
+                ))
+            })
             .collect::<Result<Vec<_>, EmitError>>()?;
         Ok(RustExpr::atom(format!(
             "SmeltPyException::new({chain}, vec![{}])",

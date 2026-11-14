@@ -47,7 +47,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
 /// A cancellable delay shared by the abort fixtures.
 ///
 /// This is the shape every `AbortSignal`-aware library helper has: the signal
@@ -79,8 +78,6 @@ async function settle(promise: Promise<string>): Promise<string> {
   }
 }
 "#;
-
-
 
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {

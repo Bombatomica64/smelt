@@ -110,8 +110,8 @@ pub(crate) mod type_substitution;
 mod typed_array_prelude;
 
 pub use contract::{
-    MODULE_SOURCE_HEADER, OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, PRELUDE_END_MARKER, RECORD_ADAPTER_HELPER_PREFIX,
-    RECORD_CONVERSION_HELPER_PREFIX,
+    MODULE_SOURCE_HEADER, OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, PRELUDE_END_MARKER,
+    RECORD_ADAPTER_HELPER_PREFIX, RECORD_CONVERSION_HELPER_PREFIX,
 };
 pub use crate_builder::{emit_source, emit_source_with_allocator};
 pub use crate_writer::{emit_crate, emit_crate_with_modules, emit_crate_with_modules_reporting};
@@ -123,7 +123,9 @@ pub use emitter::typedness::{KindCounts, Typedness, TypednessCounts, TypednessMe
 pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
 pub use error::EmitError;
 pub(crate) use error::{compact_index, id_index};
-pub use options::{CrateKind, EmitOptions, GeneratedAllocator, PackageMetadata, ReleaseProfile, RustEdition};
+pub use options::{
+    CrateKind, EmitOptions, GeneratedAllocator, PackageMetadata, ReleaseProfile, RustEdition,
+};
 
 /// Measure how much of optimized MIR reaches Rust typed.
 ///

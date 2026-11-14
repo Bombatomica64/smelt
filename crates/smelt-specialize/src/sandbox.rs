@@ -514,12 +514,18 @@ impl SandboxBackend for OciSandboxBackend {
     fn availability(&self) -> BackendAvailability {
         if !self.runtime.is_file() {
             return BackendAvailability::Unavailable {
-                reason: format!("configured OCI runtime '{}' does not exist", self.runtime.display()),
+                reason: format!(
+                    "configured OCI runtime '{}' does not exist",
+                    self.runtime.display()
+                ),
             };
         }
         if !self.image.contains("@sha256:") {
             return BackendAvailability::Unavailable {
-                reason: format!("OCI image '{}' is not pinned by an @sha256: digest", self.image),
+                reason: format!(
+                    "OCI image '{}' is not pinned by an @sha256: digest",
+                    self.image
+                ),
             };
         }
         // The guest runs with `--pull=never`, so its wall-time limit measures
@@ -618,7 +624,11 @@ fn container_roots(roots: &[String]) -> Vec<PathBuf> {
         .collect::<BTreeSet<_>>();
     canonical
         .iter()
-        .filter(|root| !canonical.iter().any(|outer| outer != *root && root.starts_with(outer)))
+        .filter(|root| {
+            !canonical
+                .iter()
+                .any(|outer| outer != *root && root.starts_with(outer))
+        })
         .cloned()
         .collect()
 }
@@ -629,7 +639,9 @@ fn owner_of(path: &Path) -> Option<String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
-        fs::metadata(path).ok().map(|metadata| format!("{}:{}", metadata.uid(), metadata.gid()))
+        fs::metadata(path)
+            .ok()
+            .map(|metadata| format!("{}:{}", metadata.uid(), metadata.gid()))
     }
     #[cfg(not(unix))]
     {
@@ -1094,33 +1106,45 @@ mod tests {
         let runtime = fake_runtime(&directory, "present", 0)?;
         let absent_image = fake_runtime(&directory, "absent", 1)?;
         let pinned = OciSandboxBackend::new(runtime.clone(), "busybox@sha256:00".to_owned());
-        let unavailable = || -> Box<dyn SandboxBackend> { Box::new(LinuxBubblewrapBackend::from_paths(None, None)) };
+        let unavailable = || -> Box<dyn SandboxBackend> {
+            Box::new(LinuxBubblewrapBackend::from_paths(None, None))
+        };
         let available = || -> Box<dyn SandboxBackend> {
-            Box::new(LinuxBubblewrapBackend::from_paths(Some(runtime.clone()), Some(runtime.clone())))
+            Box::new(LinuxBubblewrapBackend::from_paths(
+                Some(runtime.clone()),
+                Some(runtime.clone()),
+            ))
+        };
+        let fallback_name = |fallback_runtime: PathBuf, image: &str| {
+            select_backend(
+                unavailable(),
+                Some(OciSandboxBackend::new(fallback_runtime, image.to_owned())),
+            )
+            .name()
         };
         let cases = [
-            (select_backend(unavailable(), Some(pinned.clone())).name(), "oci-container"),
-            (select_backend(available(), Some(pinned)).name(), "linux-bubblewrap"),
-            (select_backend(unavailable(), None).name(), "linux-bubblewrap"),
             (
-                select_backend(
-                    unavailable(),
-                    Some(OciSandboxBackend::new(runtime.clone(), "busybox:latest".to_owned())),
-                )
-                .name(),
+                select_backend(unavailable(), Some(pinned.clone())).name(),
+                "oci-container",
+            ),
+            (
+                select_backend(available(), Some(pinned)).name(),
                 "linux-bubblewrap",
             ),
             (
-                select_backend(
-                    unavailable(),
-                    Some(OciSandboxBackend::new(PathBuf::from("/nonexistent/docker"), "b@sha256:00".to_owned())),
-                )
-                .name(),
+                select_backend(unavailable(), None).name(),
                 "linux-bubblewrap",
             ),
             (
-                select_backend(unavailable(), Some(OciSandboxBackend::new(absent_image, "b@sha256:00".to_owned())))
-                    .name(),
+                fallback_name(runtime.clone(), "busybox:latest"),
+                "linux-bubblewrap",
+            ),
+            (
+                fallback_name(PathBuf::from("/nonexistent/docker"), "b@sha256:00"),
+                "linux-bubblewrap",
+            ),
+            (
+                fallback_name(absent_image, "b@sha256:00"),
                 "linux-bubblewrap",
             ),
         ];
@@ -1130,7 +1154,9 @@ mod tests {
             }
         }
         if select_backend(unavailable(), None).availability() == BackendAvailability::Available {
-            return Err("with no fallback the unavailable native backend must stay unavailable".to_owned());
+            return Err(
+                "with no fallback the unavailable native backend must stay unavailable".to_owned(),
+            );
         }
         fs::remove_dir_all(&directory).map_err(|error| error.to_string())
     }
@@ -1146,11 +1172,13 @@ mod tests {
     /// so `image inspect` answers present (0) or absent (non-zero).
     fn fake_runtime(directory: &Path, name: &str, status: u8) -> Result<PathBuf, String> {
         let path = directory.join(name);
-        fs::write(&path, format!("#!/bin/sh\nexit {status}\n")).map_err(|error| error.to_string())?;
+        fs::write(&path, format!("#!/bin/sh\nexit {status}\n"))
+            .map_err(|error| error.to_string())?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).map_err(|error| error.to_string())?;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+                .map_err(|error| error.to_string())?;
         }
         Ok(path)
     }
@@ -1176,14 +1204,30 @@ mod tests {
     #[test]
     fn oci_plan_denies_network_and_runs_as_the_scratch_owner() -> Result<(), String> {
         let scratch = std::env::temp_dir();
-        let backend = OciSandboxBackend::new(PathBuf::from("/usr/bin/docker"), "busybox@sha256:00".to_owned());
+        let backend = OciSandboxBackend::new(
+            PathBuf::from("/usr/bin/docker"),
+            "busybox@sha256:00".to_owned(),
+        );
         let prepared = backend
             .prepare(&request(&scratch), &policy(&scratch))
             .map_err(|error| error.to_string())?;
-        let rendered = prepared.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
-        for control in ["never", "none", "--read-only", "ALL", "no-new-privileges", "--user"] {
+        let rendered = prepared
+            .args
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        for control in [
+            "never",
+            "none",
+            "--read-only",
+            "ALL",
+            "no-new-privileges",
+            "--user",
+        ] {
             if !rendered.iter().any(|arg| arg == control) {
-                return Err(format!("container command omitted `{control}`: {rendered:?}"));
+                return Err(format!(
+                    "container command omitted `{control}`: {rendered:?}"
+                ));
             }
         }
         Ok(())

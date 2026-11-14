@@ -172,14 +172,21 @@ impl SymbolInterner {
     /// Returns the `Symbol` of the compiler-minted `name` rendered as
     /// `rendered` (a lowering that case-folds the names it mints the way it
     /// folds source names).
-    pub fn intern_synthesized_rendered(&mut self, name: &SynthesizedName, rendered: &str) -> Symbol {
+    pub fn intern_synthesized_rendered(
+        &mut self,
+        name: &SynthesizedName,
+        rendered: &str,
+    ) -> Symbol {
         self.intern_with_origin(SymbolOrigin::Synthesized, name.as_str(), rendered)
     }
 
     /// Who wrote `symbol`'s name.
     #[must_use]
     pub fn origin(&self, symbol: Symbol) -> SymbolOrigin {
-        self.origins.get(symbol.0 as usize).copied().unwrap_or_default()
+        self.origins
+            .get(symbol.0 as usize)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Interns `key`/`rendered` with `origin`, which is part of the identity.
@@ -187,7 +194,10 @@ impl SymbolInterner {
         if self.index.len() != self.symbols.len() {
             self.rebuild_index();
         }
-        if let Some(symbol) = self.index.get(&(origin, key.to_owned(), rendered.to_owned())) {
+        if let Some(symbol) = self
+            .index
+            .get(&(origin, key.to_owned(), rendered.to_owned()))
+        {
             debug_assert!(
                 self.slot_matches(symbol.0 as usize, key, rendered),
                 "the symbol index must agree with the slot it names"
@@ -195,13 +205,18 @@ impl SymbolInterner {
             return *symbol;
         }
         let id = Symbol(id_index(self.symbols.len()));
-        self.index.insert((origin, key.to_owned(), rendered.to_owned()), id);
-        self.origins.resize(self.symbols.len(), SymbolOrigin::Source);
+        self.index
+            .insert((origin, key.to_owned(), rendered.to_owned()), id);
+        self.origins
+            .resize(self.symbols.len(), SymbolOrigin::Source);
         self.origins.push(origin);
         self.symbols.push(rendered.to_owned());
         self.sources.resize(self.symbols.len() - 1, String::new());
-        self.sources
-            .push(if key == rendered { String::new() } else { key.to_owned() });
+        self.sources.push(if key == rendered {
+            String::new()
+        } else {
+            key.to_owned()
+        });
         id
     }
 
@@ -213,7 +228,11 @@ impl SymbolInterner {
         let mut index = std::collections::HashMap::with_capacity(self.symbols.len());
         for (idx, rendered) in self.symbols.iter().enumerate() {
             let stored = self.sources.get(idx).map_or("", String::as_str);
-            let key = if stored.is_empty() { rendered.as_str() } else { stored };
+            let key = if stored.is_empty() {
+                rendered.as_str()
+            } else {
+                stored
+            };
             let origin = self.origins.get(idx).copied().unwrap_or_default();
             index
                 .entry((origin, key.to_owned(), rendered.clone()))
@@ -293,7 +312,10 @@ mod tests {
         assert_ne!(source, minted);
         assert_eq!(interner.origin(source), SymbolOrigin::Source);
         assert_eq!(interner.origin(minted), SymbolOrigin::Synthesized);
-        assert_eq!(interner.intern_synthesized(&SynthesizedName::new("smelt_x")), minted);
+        assert_eq!(
+            interner.intern_synthesized(&SynthesizedName::new("smelt_x")),
+            minted
+        );
         assert_eq!(interner.get(minted), Some("smelt_x"));
     }
 

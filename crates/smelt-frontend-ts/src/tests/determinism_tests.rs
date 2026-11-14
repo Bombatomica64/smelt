@@ -21,7 +21,10 @@ fn lowered_crate(source: &str) -> Result<String, String> {
     let types = (0..)
         .map_while(|index| krate.types.get(smelt_hir::TypeId(index)))
         .collect::<Vec<_>>();
-    Ok(format!("{:?} {:?} {:?} {types:?}", krate.modules, krate.items, krate.bodies))
+    Ok(format!(
+        "{:?} {:?} {:?} {types:?}",
+        krate.modules, krate.items, krate.bodies
+    ))
 }
 
 /// Assert `REPEATS` lowerings of `source` render byte-identically.
@@ -58,7 +61,12 @@ export const table: Record<string, Formatter> = {
         .exported("table")
         .ok_or_else(|| "expected table namespace metadata".to_owned())?;
     let keys = namespace.keys().map(String::as_str).collect::<Vec<_>>();
-    ensure_eq!(keys, ["zulu", "yankee", "alpha", "papa", "Papa", "bravo", "mike", "kilo"]);
+    ensure_eq!(
+        keys,
+        [
+            "zulu", "yankee", "alpha", "papa", "Papa", "bravo", "mike", "kilo"
+        ]
+    );
     Ok(())
 }
 

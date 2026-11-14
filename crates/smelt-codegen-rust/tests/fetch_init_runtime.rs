@@ -49,14 +49,14 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("smelt-fetch-init-runtime-{}-{seq}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "smelt-fetch-init-runtime-{}-{seq}",
+        std::process::id()
+    ))
 }
 
 /// Emit `source` as a crate and run its generated Vitest tests.

@@ -14,18 +14,20 @@ mod types;
 /// `dump` spellings of the operation selectors.
 mod op_text;
 
-pub use call::{
-    CaptureMode, ClosureCapture, ClosureExpr,
-};
+pub use call::{CaptureMode, ClosureCapture, ClosureExpr};
 pub use control_flow::AsyncOp;
 pub use core::Expr;
 pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup};
 pub use literals::{Literal, UnknownKind};
 pub use ops::{
-    BigIntOp, BoolFoldOp, DatePart, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
-    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp,
-    AbortSignalOp, Base64Op, PythonDivisionOp, CryptoOp, HashOp, HostModuleOp, PathOp, SqliteOp, EventEmitterOp, FormDataOp, HeadersOp, HttpServerOp, IncomingMessageOp, ServerResponseOp, RegexMatchOp, ErasedPatternMethod, RegexReplaceArg, RequestInitMember, RequestOp, ResponseOp, SetBinaryOp, SetProjectionOp, UrlSearchParamsOp, TextDecoderOp, TextEncoderOp, ByteArrayOp, BlobOp, SetRelationOp, SetRemoveOp, StringAffixOp,
-    StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringSliceKind, StringTrimSide, UnboundRead, UriTranscodeOp, UrlField, UrlOp,
+    AbortSignalOp, Base64Op, BigIntOp, BlobOp, BoolFoldOp, ByteArrayOp, CryptoOp, DatePart,
+    DictProjectionOp, ErasedPatternMethod, EventEmitterOp, FormDataOp, HashOp, HeadersOp,
+    HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
+    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PathOp,
+    PrimitiveCastOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg, RequestInitMember, RequestOp,
+    ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
+    SqliteOp, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp,
+    StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp,
+    UnboundRead, UriTranscodeOp, UrlField, UrlOp, UrlSearchParamsOp,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

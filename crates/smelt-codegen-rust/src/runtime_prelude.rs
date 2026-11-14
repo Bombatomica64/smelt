@@ -49,8 +49,9 @@ pub(crate) fn emit_entries(
     for entry in entries {
         match entry {
             Entry::Item(name) if item_enabled(name, &flags) => {
-                let lines = render_item(name, &flags)
-                    .map_err(|error| EmitError::new(format!("the runtime order names `{name}`: {error}")))?;
+                let lines = render_item(name, &flags).map_err(|error| {
+                    EmitError::new(format!("the runtime order names `{name}`: {error}"))
+                })?;
                 for line in lines {
                     match line {
                         RenderedLine::Text(text) => writer.line(text),
@@ -107,7 +108,9 @@ fn emit_slot(writer: &mut CodeWriter, slot: &str, mir: &Mir) -> Result<(), EmitE
             }
             Ok(())
         }
-        _ => Err(EmitError::new(format!("the runtime names an unknown slot `{slot}`"))),
+        _ => Err(EmitError::new(format!(
+            "the runtime names an unknown slot `{slot}`"
+        ))),
     }
 }
 
@@ -141,7 +144,11 @@ pub(crate) fn flag(context: &EmitContext, name: &str) -> Option<bool> {
 
 /// Answers a flag named by a runtime marker from a closed `demand` and the
 /// program's other `facts`, or `None` for a name nothing answers.
-pub(crate) fn flag_for(demand: &crate::runtime_demand::RuntimeDemand, facts: ProgramFacts, name: &str) -> Option<bool> {
+pub(crate) fn flag_for(
+    demand: &crate::runtime_demand::RuntimeDemand,
+    facts: ProgramFacts,
+    name: &str,
+) -> Option<bool> {
     match name {
         // A generated object keeps its origin slot for two different reasons.
         "reference_origins" => Some(facts.reference_classes || demand.has(Need::HostOrigins)),
@@ -153,7 +160,11 @@ pub(crate) fn flag_for(demand: &crate::runtime_demand::RuntimeDemand, facts: Pro
                 || demand.has(Need::CryptoKey),
         ),
         // `[[Construct]]` and the `instanceof` walk share one callable lookup.
-        "callable_of" => Some(demand.has(Need::Construct) || demand.has(Need::InstanceOfValue) || demand.has(Need::VitestMock)),
+        "callable_of" => Some(
+            demand.has(Need::Construct)
+                || demand.has(Need::InstanceOfValue)
+                || demand.has(Need::VitestMock),
+        ),
         "write_through" => Some(facts.erased_view_write_through && facts.reference_classes),
         "reads_this" => Some(facts.reads_this),
         // A Python program's dicts keep insertion order; JavaScript's own-key
@@ -289,7 +300,11 @@ pub(crate) fn emit_runtime_prelude(
     }
     emit_entries(&mut writer, smelt_runtime::order::ORDER, mir, context)?;
     if !context.weak_receivers().is_empty() {
-        emitter::weak_receiver::emit_prelude(&mut writer, needs_unknown, context.demand().has(Need::ErasedFunction));
+        emitter::weak_receiver::emit_prelude(
+            &mut writer,
+            needs_unknown,
+            context.demand().has(Need::ErasedFunction),
+        );
     }
     Ok((writer.finish(), needs_unknown))
 }

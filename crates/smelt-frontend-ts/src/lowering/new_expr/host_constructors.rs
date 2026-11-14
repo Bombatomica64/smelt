@@ -3,16 +3,16 @@
 //! `Function`, `Proxy`, `AbortController`, marker-only classes), dispatched from
 //! `host_constructor_expression`.
 
+use super::super::ModuleBuilder;
 use crate::SmeltError;
-use crate::lowering::resolve::HostGlobal;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::resolve::HostGlobal;
 use oxc::ast::ast::{Argument, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
-use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{
     Body, ClosureExpr, ErasureReason, Expr, ExprKind, FunctionType, Literal, Span, Stmt, Type,
 };
-use super::super::ModuleBuilder;
 
 /// The constructed value of a `new Proxy`, naming the runtime operation (`smelt_construct_like`).
 const PROXY_CONSTRUCT_SENTINEL: &str = smelt_stdlib::runtime_symbols::markers::SMELT_NEW_PROXY;
@@ -103,7 +103,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "marker builtin");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let marker_key = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String(marker.to_owned())),
@@ -551,7 +555,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "boxed primitive");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
         let value = if let Some(argument) = new_expr.arguments.first() {
             self.argument(argument, body)?
@@ -710,7 +718,10 @@ impl ModuleBuilder<'_> {
             // property with a value no static shape of the target describes.
             let ty = self.erase_with(ErasureReason::ByName, "proxy with traps");
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::ConstructLike { value: sentinel, args },
+                kind: ExprKind::ConstructLike {
+                    value: sentinel,
+                    args,
+                },
                 ty,
                 span,
             }));
@@ -737,7 +748,8 @@ impl ModuleBuilder<'_> {
             new_expr.arguments.get(1).and_then(Argument::as_expression),
             Some(Expression::ObjectExpression(handler)) if handler.properties.is_empty()
         );
-        let Some(Type::Dict(_, value_ty)) = hint.and_then(|hint| self.ctx.krate.types.get(hint)) else {
+        let Some(Type::Dict(_, value_ty)) = hint.and_then(|hint| self.ctx.krate.types.get(hint))
+        else {
             return Ok(());
         };
         if trapless
@@ -798,7 +810,10 @@ impl ModuleBuilder<'_> {
             Expression::FunctionExpression(function) => (
                 function.params.items.len(),
                 function.params.items.first(),
-                function.body.as_ref().and_then(|body| Self::body_returned_identifier(&body.statements)),
+                function
+                    .body
+                    .as_ref()
+                    .and_then(|body| Self::body_returned_identifier(&body.statements)),
             ),
             _ => return None,
         };
@@ -889,7 +904,11 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let unknown_ty = self.erase_with(ErasureReason::UntypedBuiltin, "AbortController");
-        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let dict_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
         let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
         let span = self.span(new_expr.span.start, new_expr.span.end);
 
@@ -976,7 +995,10 @@ impl ModuleBuilder<'_> {
     /// The host constructor `name` denotes in this module: [`HostConstructor::of`],
     /// except that a typed-array family name the program declares itself is
     /// the byte-backed host, or nothing.
-    pub(in crate::lowering) fn host_constructor_of(&self, host: HostGlobal<'_>) -> Option<HostConstructor> {
+    pub(in crate::lowering) fn host_constructor_of(
+        &self,
+        host: HostGlobal<'_>,
+    ) -> Option<HostConstructor> {
         let name = host.name();
         match HostConstructor::of(name)? {
             HostConstructor::TypedArrayFamily if self.classes.contains(name) => {
@@ -1006,7 +1028,8 @@ impl ModuleBuilder<'_> {
         let Some(kind) = self.host_constructor_of(host) else {
             return Ok(None);
         };
-        self.construct_host(kind, name, new_expr, body, type_hint).map(Some)
+        self.construct_host(kind, name, new_expr, body, type_hint)
+            .map(Some)
     }
 
     /// Construct one [`HostConstructor`].
@@ -1022,7 +1045,9 @@ impl ModuleBuilder<'_> {
             HostConstructor::Date => self.new_date_expression(new_expr, body),
             HostConstructor::RegExp => self.regexp_constructor_expression(new_expr, body),
             HostConstructor::Array => self.array_constructor_expression(new_expr, body),
-            HostConstructor::Object => self.object_constructor_expression(new_expr, body, type_hint),
+            HostConstructor::Object => {
+                self.object_constructor_expression(new_expr, body, type_hint)
+            }
             HostConstructor::BoxedString => self.boxed_primitive_constructor_expression(
                 new_expr,
                 body,
@@ -1044,25 +1069,39 @@ impl ModuleBuilder<'_> {
             HostConstructor::TypedArrayFamily => {
                 self.typed_array_constructor_expression(new_expr, name, body)
             }
-            HostConstructor::ByteBuffer => self.byte_buffer_constructor_expression(new_expr, name, body),
+            HostConstructor::ByteBuffer => {
+                self.byte_buffer_constructor_expression(new_expr, name, body)
+            }
             HostConstructor::Buffer => self.buffer_constructor_expression(new_expr, body),
             HostConstructor::Blob => self.blob_constructor_expression(new_expr, body),
             HostConstructor::File => self.file_constructor_expression(new_expr, body),
             HostConstructor::Proxy => self.proxy_constructor_expression(new_expr, body),
             HostConstructor::Function => self.function_constructor_expression(new_expr, body),
-            HostConstructor::AbortController => self.abort_controller_constructor_expression(new_expr, body),
-            HostConstructor::TextEncoder => self.text_encoder_constructor_expression(new_expr, body),
-            HostConstructor::TextDecoder => self.text_decoder_constructor_expression(new_expr, body),
+            HostConstructor::AbortController => {
+                self.abort_controller_constructor_expression(new_expr, body)
+            }
+            HostConstructor::TextEncoder => {
+                self.text_encoder_constructor_expression(new_expr, body)
+            }
+            HostConstructor::TextDecoder => {
+                self.text_decoder_constructor_expression(new_expr, body)
+            }
             HostConstructor::Headers => self.headers_constructor_expression(new_expr, body),
-            HostConstructor::UrlSearchParams => self.url_search_params_constructor_expression(new_expr, body),
+            HostConstructor::UrlSearchParams => {
+                self.url_search_params_constructor_expression(new_expr, body)
+            }
             HostConstructor::FormData => self.form_data_constructor_expression(new_expr, body),
             HostConstructor::Response => self.response_constructor_expression(new_expr, body),
             HostConstructor::Request => self.request_constructor_expression(new_expr, body),
-            HostConstructor::EventEmitter => self.event_emitter_constructor_expression(new_expr, body),
+            HostConstructor::EventEmitter => {
+                self.event_emitter_constructor_expression(new_expr, body)
+            }
             HostConstructor::MarkerOnly(marker) => {
                 self.marker_only_builtin_constructor_expression(new_expr, body, marker)
             }
-            HostConstructor::DomException => self.domexception_object_constructor_expression(new_expr, body),
+            HostConstructor::DomException => {
+                self.domexception_object_constructor_expression(new_expr, body)
+            }
             HostConstructor::Error => self.error_object_constructor_expression(new_expr, body),
             HostConstructor::Url => self.url_constructor_expression(new_expr, body),
         }
@@ -1224,11 +1263,30 @@ mod tests {
     #[test]
     fn overridable_hosts_are_the_known_defined_constructors() {
         for name in [
-            "Blob", "File", "Buffer", "Request", "WeakMap", "WeakSet", "ArrayBuffer",
-            "SharedArrayBuffer", "DataView", "Uint8Array", "BigInt64Array", "URL", "Date", "Map",
-            "Set", "Error", "TypeError", "Headers", "Response", "NotAHost",
+            "Blob",
+            "File",
+            "Buffer",
+            "Request",
+            "WeakMap",
+            "WeakSet",
+            "ArrayBuffer",
+            "SharedArrayBuffer",
+            "DataView",
+            "Uint8Array",
+            "BigInt64Array",
+            "URL",
+            "Date",
+            "Map",
+            "Set",
+            "Error",
+            "TypeError",
+            "Headers",
+            "Response",
+            "NotAHost",
         ] {
-            let table = HostConstructor::of(name).and_then(|kind| kind.overridable(name)).is_some();
+            let table = HostConstructor::of(name)
+                .and_then(|kind| kind.overridable(name))
+                .is_some();
             let registry = matches!(name, "Blob" | "File")
                 || ModuleBuilder::marker_only_builtin_marker(name).is_some()
                 || smelt_stdlib::byte_buffer_role(name).is_some();
@@ -1241,6 +1299,9 @@ mod tests {
     fn request_is_a_marker_only_behind_an_override() {
         let request = HostConstructor::of("Request").expect("a host");
         assert_eq!(request, HostConstructor::Request);
-        assert!(matches!(request.overridable("Request"), Some(HostConstructor::MarkerOnly(_))));
+        assert!(matches!(
+            request.overridable("Request"),
+            Some(HostConstructor::MarkerOnly(_))
+        ));
     }
 }

@@ -44,9 +44,6 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-
-
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -306,5 +303,8 @@ fn a_write_through_a_projected_value_receiver_lands_in_the_original() {
     // copies `this.branches[b]` (itself rooted in a copy of `this.branches`),
     // so the inner level has to commit before the outer one or the outer store
     // writes back a stale value.
-    run_fixture(PROJECTED_VALUE_RECEIVER_SOURCE, "smelt_projected_value_receiver_write");
+    run_fixture(
+        PROJECTED_VALUE_RECEIVER_SOURCE,
+        "smelt_projected_value_receiver_write",
+    );
 }

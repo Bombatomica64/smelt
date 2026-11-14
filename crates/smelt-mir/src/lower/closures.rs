@@ -56,8 +56,8 @@ use std::convert::TryFrom;
 use smelt_hir::Type;
 
 use crate::{
-    BasicBlock, ClosureId, LocalDecl, LocalId, Mir, MirClosure, MirClosureCapture,
-    Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, ClosureId, LocalDecl, LocalId, Mir, MirClosure, MirClosureCapture, Operand, Place,
+    Rvalue, Statement, Terminator,
 };
 
 use super::context::{LoweringCtx, LoweringShared};
@@ -154,7 +154,9 @@ impl LoweringCtx<'_> {
             closure.span,
         )?;
         // A closure sees the type parameters of the body it is written in.
-        closure_ctx.type_param_bounds.clone_from(&self.type_param_bounds);
+        closure_ctx
+            .type_param_bounds
+            .clone_from(&self.type_param_bounds);
         let super::LoweredFunction {
             function,
             closures: nested_closures,
@@ -536,7 +538,8 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                 continue;
             }
             function_ty.may_throw = true;
-            function_ty.return_ty = widened_throwing_return(&mir.types, function_ty.return_ty, return_ty);
+            function_ty.return_ty =
+                widened_throwing_return(&mir.types, function_ty.return_ty, return_ty);
             let widened = mir.types.intern(Type::Function(function_ty));
             if let Some(local_decl_mut) = local_index(local).and_then(|index| {
                 mir.functions
@@ -628,7 +631,8 @@ pub(super) fn widen_throwing_closure_types(mir: &mut Mir) {
                 continue;
             }
             function_ty.may_throw = true;
-            function_ty.return_ty = widened_throwing_return(&mir.types, function_ty.return_ty, return_ty);
+            function_ty.return_ty =
+                widened_throwing_return(&mir.types, function_ty.return_ty, return_ty);
             let widened = mir.types.intern(Type::Function(function_ty));
             if let Some(local_decl_mut) = local_index(local).and_then(|index| {
                 mir.closures

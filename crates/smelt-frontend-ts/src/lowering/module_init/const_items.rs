@@ -1,11 +1,11 @@
 //! Top-level `const` declarations lowered as const items, and the initializer
 //! shapes that reference another module binding.
 
+use super::super::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::peel::{Wrappers, peel};
 use oxc::ast::ast::{BindingPattern, Expression};
 use smelt_hir::{Body, ConstItem, Expr, ExprKind, Item};
-use super::super::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Lower exported const declarations into importable HIR items by initializer shape.
@@ -71,8 +71,15 @@ impl ModuleBuilder<'_> {
                     if let Some(collection) =
                         self.const_unknown_value_collection_from_object(object)
                     {
-                        self.consts.set_object_value_collection(binding.name.as_str().to_owned(), collection.clone());
-                        self.publish_export(|ctx| &mut ctx.object_value_collections, binding.name.as_str().to_owned(), collection);
+                        self.consts.set_object_value_collection(
+                            binding.name.as_str().to_owned(),
+                            collection.clone(),
+                        );
+                        self.publish_export(
+                            |ctx| &mut ctx.object_value_collections,
+                            binding.name.as_str().to_owned(),
+                            collection,
+                        );
                     }
                     self.dynamic_object_const_declaration(binding.name.as_str(), object, type_hint)?
                 };
@@ -92,8 +99,7 @@ impl ModuleBuilder<'_> {
                 // function expression to a module name. It is semantically the
                 // same as `function stub() { ... }`, so lower it through the
                 // shared named-function path rather than the literal folder.
-                let item =
-                    self.function_declaration_named(function, binding.name.as_str())?;
+                let item = self.function_declaration_named(function, binding.name.as_str())?;
                 items.push(item);
                 continue;
             }
@@ -239,8 +245,13 @@ impl ModuleBuilder<'_> {
         self.publish_export_alias(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
         if let Some(collection) = self.const_collection_from_initializer(init, ty) {
-            self.consts.set_collection(name_text.to_owned(), collection.clone());
-            self.publish_export(|ctx| &mut ctx.const_collections, name_text.to_owned(), collection);
+            self.consts
+                .set_collection(name_text.to_owned(), collection.clone());
+            self.publish_export(
+                |ctx| &mut ctx.const_collections,
+                name_text.to_owned(),
+                collection,
+            );
         }
         Ok(item)
     }
@@ -258,7 +269,10 @@ impl ModuleBuilder<'_> {
     /// resolve to a builtin/global alias (`Number`, `Math`, `globalThis`, ...) are
     /// deliberately excluded so numeric-constant folding and the well-known-member
     /// path keep owning those shapes.
-    pub(in crate::lowering) fn is_resolvable_module_reference(&self, init: &Expression<'_>) -> bool {
+    pub(in crate::lowering) fn is_resolvable_module_reference(
+        &self,
+        init: &Expression<'_>,
+    ) -> bool {
         let Some(root) = Self::module_reference_root_name(init) else {
             return false;
         };
@@ -274,7 +288,9 @@ impl ModuleBuilder<'_> {
     /// Returns `None` for anything that is not just a name, so a caller can ask
     /// "is this initializer an alias to some other binding?" without
     /// re-implementing the unwrapping each time.
-    pub(in crate::lowering) fn bare_identifier_initializer<'a>(init: &'a Expression<'a>) -> Option<&'a str> {
+    pub(in crate::lowering) fn bare_identifier_initializer<'a>(
+        init: &'a Expression<'a>,
+    ) -> Option<&'a str> {
         match init {
             Expression::Identifier(identifier) => Some(identifier.name.as_str()),
             Expression::ParenthesizedExpression(parenthesized) => {
@@ -320,7 +336,9 @@ impl ModuleBuilder<'_> {
     /// Return the root identifier name of an identifier or static-member
     /// initializer, unwrapping `as` / `satisfies` / non-null / parenthesized
     /// expressions. Returns `None` for any other initializer shape.
-    pub(in crate::lowering) fn module_reference_root_name<'a>(init: &'a Expression<'a>) -> Option<&'a str> {
+    pub(in crate::lowering) fn module_reference_root_name<'a>(
+        init: &'a Expression<'a>,
+    ) -> Option<&'a str> {
         match init {
             Expression::Identifier(identifier) => Some(identifier.name.as_str()),
             Expression::StaticMemberExpression(member) => {

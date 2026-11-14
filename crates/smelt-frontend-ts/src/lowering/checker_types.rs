@@ -55,7 +55,8 @@ use super::ModuleBuilder;
 const MAX_DEPTH: usize = 12;
 
 /// TypeScript's apparent-type root interfaces; see [`Respeller::named`].
-const APPARENT_TYPE_ROOTS: [&str; 4] = ["Object", "Function", "CallableFunction", "NewableFunction"];
+const APPARENT_TYPE_ROOTS: [&str; 4] =
+    ["Object", "Function", "CallableFunction", "NewableFunction"];
 
 /// Virtual root the checker bridge places program files under (`smelt-ts-types`).
 const PROGRAM_ROOT: &str = "/smelt/";
@@ -64,7 +65,11 @@ impl ModuleBuilder<'_> {
     /// The checker-evaluated type of the annotation at `start..end`, lowered
     /// through Smelt's annotation path; `None` when the checker has no
     /// faithful answer (see the module docs).
-    pub(in crate::lowering) fn checker_annotation_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+    pub(in crate::lowering) fn checker_annotation_type(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
         let facts = self.ts_facts?;
         let id = facts.type_node_id_at(&self.path, start, end)?;
         self.respell_and_lower(facts, id, start, end)
@@ -79,7 +84,11 @@ impl ModuleBuilder<'_> {
     /// type takes the class's declared default type arguments, which is what
     /// a bare `(c: Context) => ..` annotation lowers to. Everything else goes
     /// through the same in-scope re-spelling as annotations.
-    pub(in crate::lowering) fn checker_binding_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+    pub(in crate::lowering) fn checker_binding_type(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
         let facts = self.ts_facts?;
         let id = facts.type_id_at(&self.path, start, end)?;
         if let Some(TsTypeKind::Named { symbol, .. }) = facts.types.get(id).map(|ty| &ty.kind)
@@ -99,7 +108,11 @@ impl ModuleBuilder<'_> {
     /// the checker the empty literal has no element evidence and erases. See
     /// `TsTypeFacts::evolved_array_type_id_at` for which type is taken. The
     /// re-spelling declines like an annotation does, keeping the erasure.
-    pub(in crate::lowering) fn checker_evolved_array_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+    pub(in crate::lowering) fn checker_evolved_array_type(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
         let facts = self.ts_facts?;
         let id = facts.evolved_array_type_id_at(&self.path, start, end)?;
         self.respell_and_lower(facts, id, start, end)
@@ -112,10 +125,17 @@ impl ModuleBuilder<'_> {
     /// dynamic boundary and is answered as such. `any` makes no such claim (an
     /// unresolved import answers `any` too), so it is `None`, like a type that
     /// cannot be spelled here.
-    pub(in crate::lowering) fn checker_call_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+    pub(in crate::lowering) fn checker_call_type(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
         let facts = self.ts_facts?;
         let id = facts.type_id_at(&self.path, start, end)?;
-        if matches!(facts.types.get(id).map(|ty| &ty.kind), Some(TsTypeKind::Unknown)) {
+        if matches!(
+            facts.types.get(id).map(|ty| &ty.kind),
+            Some(TsTypeKind::Unknown)
+        ) {
             return Some(self.erase(ErasureReason::SourceUnknown));
         }
         self.respell_and_lower(facts, id, start, end)
@@ -129,8 +149,14 @@ impl ModuleBuilder<'_> {
     /// returns. `fork([], f)` is `never[]` to the checker, and `reduceAsync`
     /// with an unbound `U` hands back `undefined` where an overload promises
     /// `number`.
-    pub(in crate::lowering) fn widened_call_type(&self, resolved: Option<TypeId>, inferred: TypeId) -> TypeId {
-        resolved.filter(|resolved| self.type_accepts_all_of(*resolved, inferred)).unwrap_or(inferred)
+    pub(in crate::lowering) fn widened_call_type(
+        &self,
+        resolved: Option<TypeId>,
+        inferred: TypeId,
+    ) -> TypeId {
+        resolved
+            .filter(|resolved| self.type_accepts_all_of(*resolved, inferred))
+            .unwrap_or(inferred)
     }
 
     /// Whether every value of `narrow` is a value of `wide`, position by position.
@@ -138,32 +164,59 @@ impl ModuleBuilder<'_> {
         if wide == narrow {
             return true;
         }
-        let (Some(wide_ty), Some(narrow_ty)) = (self.ctx.krate.types.get(wide), self.ctx.krate.types.get(narrow)) else {
+        let (Some(wide_ty), Some(narrow_ty)) = (
+            self.ctx.krate.types.get(wide),
+            self.ctx.krate.types.get(narrow),
+        ) else {
             return false;
         };
         match (wide_ty, narrow_ty) {
             (_, Type::Unknown) => false,
             (Type::Unknown, _) => true,
             (Type::Optional(_), Type::None) => true,
-            (Type::Optional(wide_item), Type::Optional(narrow_item)) => self.type_accepts_all_of(*wide_item, *narrow_item),
+            (Type::Optional(wide_item), Type::Optional(narrow_item)) => {
+                self.type_accepts_all_of(*wide_item, *narrow_item)
+            }
             (Type::Optional(wide_item), _) => self.type_accepts_all_of(*wide_item, narrow),
-            (_, Type::Union(members)) => members.iter().all(|member| self.type_accepts_all_of(wide, *member)),
-            (Type::Union(members), _) => members.iter().any(|member| self.type_accepts_all_of(*member, narrow)),
+            (_, Type::Union(members)) => members
+                .iter()
+                .all(|member| self.type_accepts_all_of(wide, *member)),
+            (Type::Union(members), _) => members
+                .iter()
+                .any(|member| self.type_accepts_all_of(*member, narrow)),
             (Type::List(wide_item), Type::List(narrow_item))
             | (Type::Set(wide_item), Type::Set(narrow_item))
-            | (Type::Future(wide_item), Type::Future(narrow_item)) => self.type_accepts_all_of(*wide_item, *narrow_item),
+            | (Type::Future(wide_item), Type::Future(narrow_item)) => {
+                self.type_accepts_all_of(*wide_item, *narrow_item)
+            }
             (Type::Dict(wide_key, wide_value), Type::Dict(narrow_key, narrow_value))
             | (Type::JsMap(wide_key, wide_value), Type::JsMap(narrow_key, narrow_value)) => {
-                self.type_accepts_all_of(*wide_key, *narrow_key) && self.type_accepts_all_of(*wide_value, *narrow_value)
+                self.type_accepts_all_of(*wide_key, *narrow_key)
+                    && self.type_accepts_all_of(*wide_value, *narrow_value)
             }
             (Type::Tuple(wide_items), Type::Tuple(narrow_items)) => {
                 wide_items.len() == narrow_items.len()
-                    && wide_items.iter().zip(narrow_items).all(|(wide, narrow)| self.type_accepts_all_of(*wide, *narrow))
+                    && wide_items
+                        .iter()
+                        .zip(narrow_items)
+                        .all(|(wide, narrow)| self.type_accepts_all_of(*wide, *narrow))
             }
-            (Type::Class { name: wide_name, args: wide_args }, Type::Class { name: narrow_name, args: narrow_args }) => {
+            (
+                Type::Class {
+                    name: wide_name,
+                    args: wide_args,
+                },
+                Type::Class {
+                    name: narrow_name,
+                    args: narrow_args,
+                },
+            ) => {
                 wide_name == narrow_name
                     && wide_args.len() == narrow_args.len()
-                    && wide_args.iter().zip(narrow_args).all(|(wide, narrow)| self.type_accepts_all_of(*wide, *narrow))
+                    && wide_args
+                        .iter()
+                        .zip(narrow_args)
+                        .all(|(wide, narrow)| self.type_accepts_all_of(*wide, *narrow))
             }
             _ => false,
         }
@@ -171,7 +224,13 @@ impl ModuleBuilder<'_> {
 
     /// Re-spells checker type `id` in this scope and lowers it; `None` for a
     /// type that is dynamic or unevaluated at the top or cannot be spelled.
-    fn respell_and_lower(&mut self, facts: &TsTypeFacts, id: TsTypeId, start: u32, end: u32) -> Option<TypeId> {
+    fn respell_and_lower(
+        &mut self,
+        facts: &TsTypeFacts,
+        id: TsTypeId,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
         let top = facts.types.get(id)?;
         if matches!(
             top.kind,
@@ -185,7 +244,12 @@ impl ModuleBuilder<'_> {
         ) {
             return None;
         }
-        let text = Respeller { builder: self, facts, annotation: (start, end) }.respell(id, 0)?;
+        let text = Respeller {
+            builder: self,
+            facts,
+            annotation: (start, end),
+        }
+        .respell(id, 0)?;
         self.lower_respelled_annotation(&text, start, end)
     }
 
@@ -201,18 +265,34 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let target = program_relative(&declaration.file);
-        let module = self.ctx.krate.modules.iter().find(|module| module_program_relative(&module.source.path) == target)?;
+        let module = self
+            .ctx
+            .krate
+            .modules
+            .iter()
+            .find(|module| module_program_relative(&module.source.path) == target)?;
         let (name, type_params) = module.items.iter().find_map(|item| {
             let found = self.ctx.krate.items.get(usize::try_from(item.0).ok()?)?;
             let (name, type_params) = match found {
                 Item::Class(class) => (class.name, &class.type_params),
                 Item::Interface(interface) => (interface.name, &interface.type_params),
-                Item::Function(_) | Item::TypeAlias(_) | Item::Const(_) | Item::MutableGlobal(_) => return None,
+                Item::Function(_)
+                | Item::TypeAlias(_)
+                | Item::Const(_)
+                | Item::MutableGlobal(_) => return None,
             };
-            let original = self.ctx.krate.names.get(name).or_else(|| self.ctx.krate.symbols.source(name));
+            let original = self
+                .ctx
+                .krate
+                .names
+                .get(name)
+                .or_else(|| self.ctx.krate.symbols.source(name));
             (original == Some(symbol.name.as_str())).then(|| (name, type_params.clone()))
         })?;
-        let args = type_params.iter().map(|param| param.default).collect::<Option<Vec<_>>>()?;
+        let args = type_params
+            .iter()
+            .map(|param| param.default)
+            .collect::<Option<Vec<_>>>()?;
         Some(self.ctx.krate.types.intern(Type::Class { name, args }))
     }
 
@@ -253,7 +333,8 @@ impl ModuleBuilder<'_> {
             return false;
         };
         if is_lib_file(&declaration.file) {
-            return !self.types.module_declares_type_name(name) && self.imports.import_source(name).is_none();
+            return !self.types.module_declares_type_name(name)
+                && self.imports.import_source(name).is_none();
         }
         if same_file(&declaration.file, &self.path) {
             return self.types.module_declares_type_name(name) || self.source_declares_type(name);
@@ -261,7 +342,9 @@ impl ModuleBuilder<'_> {
         let Some(specifier) = self.imports.import_source(name) else {
             return false;
         };
-        self.imports.imported_name(name).is_none_or(|imported| imported == name)
+        self.imports
+            .imported_name(name)
+            .is_none_or(|imported| imported == name)
             && specifier_resolves_to(&self.path, specifier, &declaration.file)
     }
 }
@@ -289,13 +372,16 @@ impl Respeller<'_, '_> {
         // and a bare reference then falls back to a nominal class). The alias
         // is spelled only when the structure cannot be, such as an alias-backed
         // object shape.
-        keyword(&ty.kind).map(str::to_owned).or_else(|| self.structure(&ty.kind, next)).or_else(|| {
-            let alias = ty.alias.as_ref()?;
-            if !self.builder.type_name_visible(&alias.symbol) || self.declares(&alias.symbol) {
-                return None;
-            }
-            self.named(&alias.symbol.name, &alias.type_arguments, next)
-        })
+        keyword(&ty.kind)
+            .map(str::to_owned)
+            .or_else(|| self.structure(&ty.kind, next))
+            .or_else(|| {
+                let alias = ty.alias.as_ref()?;
+                if !self.builder.type_name_visible(&alias.symbol) || self.declares(&alias.symbol) {
+                    return None;
+                }
+                self.named(&alias.symbol.name, &alias.type_arguments, next)
+            })
     }
 
     /// Whether `symbol`'s declaration encloses the annotation being re-spelled.
@@ -306,7 +392,9 @@ impl Respeller<'_, '_> {
     fn declares(&self, symbol: &TsSymbolRef) -> bool {
         let (start, end) = self.annotation;
         symbol.declaration.as_ref().is_some_and(|declaration| {
-            same_file(&declaration.file, &self.builder.path) && declaration.start <= start && end <= declaration.end
+            same_file(&declaration.file, &self.builder.path)
+                && declaration.start <= start
+                && end <= declaration.end
         })
     }
 
@@ -317,18 +405,32 @@ impl Respeller<'_, '_> {
             TsTypeKind::NumberLiteral(value) => number_literal(*value),
             TsTypeKind::BooleanLiteral(value) => Some(value.to_string()),
             TsTypeKind::BigIntLiteral(value) => Some(format!("{value}n")),
-            TsTypeKind::EnumMember { enum_symbol, .. } | TsTypeKind::Union { enum_symbol: Some(enum_symbol), .. } => {
-                self.builder.type_name_visible(enum_symbol).then(|| enum_symbol.name.clone())
-            }
-            TsTypeKind::Union { members, enum_symbol: None } => self.joined(members, " | ", depth),
+            TsTypeKind::EnumMember { enum_symbol, .. }
+            | TsTypeKind::Union {
+                enum_symbol: Some(enum_symbol),
+                ..
+            } => self
+                .builder
+                .type_name_visible(enum_symbol)
+                .then(|| enum_symbol.name.clone()),
+            TsTypeKind::Union {
+                members,
+                enum_symbol: None,
+            } => self.joined(members, " | ", depth),
             TsTypeKind::Intersection(members) => self.joined(members, " & ", depth),
             TsTypeKind::TypeParameter { name, is_this, .. } => self.type_parameter(name, *is_this),
             TsTypeKind::Array { element, readonly } => {
                 let element = self.respell(*element, depth)?;
-                Some(format!("{}({element})[]", if *readonly { "readonly " } else { "" }))
+                Some(format!(
+                    "{}({element})[]",
+                    if *readonly { "readonly " } else { "" }
+                ))
             }
             TsTypeKind::Tuple { elements, readonly } => self.tuple(elements, *readonly, depth),
-            TsTypeKind::Named { symbol, type_arguments } => {
+            TsTypeKind::Named {
+                symbol,
+                type_arguments,
+            } => {
                 if is_node_timer_handle(symbol) {
                     return Some("number".to_owned());
                 }
@@ -380,7 +482,10 @@ impl Respeller<'_, '_> {
         if arguments.is_empty() {
             return Some(name.to_owned());
         }
-        let parts = arguments.iter().map(|&argument| self.respell(argument, depth)).collect::<Option<Vec<_>>>()?;
+        let parts = arguments
+            .iter()
+            .map(|&argument| self.respell(argument, depth))
+            .collect::<Option<Vec<_>>>()?;
         Some(format!("{name}<{}>", parts.join(", ")))
     }
 
@@ -411,7 +516,11 @@ impl Respeller<'_, '_> {
                 })
             })
             .collect::<Option<Vec<_>>>()?;
-        Some(format!("{}[{}]", if readonly { "readonly " } else { "" }, parts.join(", ")))
+        Some(format!(
+            "{}[{}]",
+            if readonly { "readonly " } else { "" },
+            parts.join(", ")
+        ))
     }
 
     /// A structural type that is exactly one call signature, as a function type.
@@ -482,14 +591,20 @@ const fn keyword(kind: &TsTypeKind) -> Option<&'static str> {
 /// Whether `name` is a plain identifier (checker-internal names like `__type` are not spelled).
 fn is_identifier(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|first| first.is_alphabetic() || first == '_' || first == '$')
+    chars
+        .next()
+        .is_some_and(|first| first.is_alphabetic() || first == '_' || first == '$')
         && chars.all(|rest| rest.is_alphanumeric() || rest == '_' || rest == '$')
         && !name.starts_with("__")
 }
 
 /// Node's timer handle interfaces, by their qualified names in `@types/node`
 /// (declared inside `declare global { namespace NodeJS { .. } }`).
-const NODE_TIMER_HANDLES: [&str; 3] = ["global.NodeJS.Timeout", "global.NodeJS.Timer", "global.NodeJS.Immediate"];
+const NODE_TIMER_HANDLES: [&str; 3] = [
+    "global.NodeJS.Timeout",
+    "global.NodeJS.Timer",
+    "global.NodeJS.Immediate",
+];
 
 /// Whether `symbol` is one of Node's timer handles (`NodeJS.Timeout`, the
 /// type `setTimeout` returns under `@types/node`), declared in the vendored
@@ -511,13 +626,20 @@ fn is_node_timer_handle(symbol: &TsSymbolRef) -> bool {
 
 /// Whether `file` is one of the TypeScript lib declaration files.
 fn is_lib_file(file: &str) -> bool {
-    file.rsplit('/').next().is_some_and(|base| base.starts_with("lib.") && base.ends_with(".d.ts"))
+    file.rsplit('/')
+        .next()
+        .is_some_and(|base| base.starts_with("lib.") && base.ends_with(".d.ts"))
         && !file.starts_with(PROGRAM_ROOT)
 }
 
 /// `path` as the checker bridge places it: relative to its program root.
 fn program_relative(path: &str) -> String {
-    normalize(&path.strip_prefix(PROGRAM_ROOT).unwrap_or(path).replace('\\', "/"))
+    normalize(
+        &path
+            .strip_prefix(PROGRAM_ROOT)
+            .unwrap_or(path)
+            .replace('\\', "/"),
+    )
 }
 
 /// `module_path` as the bridge places it: canonical (the transpiler locates
@@ -527,7 +649,10 @@ fn program_relative(path: &str) -> String {
 fn module_program_relative(module_path: &str) -> String {
     let located = std::fs::canonicalize(module_path)
         .or_else(|_| std::path::absolute(module_path))
-        .map_or_else(|_| module_path.to_owned(), |path| path.display().to_string());
+        .map_or_else(
+            |_| module_path.to_owned(),
+            |path| path.display().to_string(),
+        );
     program_relative(&located)
 }
 
@@ -542,7 +667,9 @@ fn specifier_resolves_to(module_path: &str, specifier: &str, file: &str) -> bool
         return false;
     }
     let module = module_program_relative(module_path);
-    let directory = module.rsplit_once('/').map_or("", |(directory, _)| directory);
+    let directory = module
+        .rsplit_once('/')
+        .map_or("", |(directory, _)| directory);
     let joined = normalize(&format!("{directory}/{specifier}"));
     let target = program_relative(file);
     let base = joined.strip_suffix(".js").unwrap_or(&joined);
@@ -594,5 +721,11 @@ fn string_literal(text: &str) -> String {
 
 /// A number literal type spelling `value`; non-finite numbers have none.
 fn number_literal(value: f64) -> Option<String> {
-    value.is_finite().then(|| if value < 0.0_f64 { format!("({value})") } else { value.to_string() })
+    value.is_finite().then(|| {
+        if value < 0.0_f64 {
+            format!("({value})")
+        } else {
+            value.to_string()
+        }
+    })
 }

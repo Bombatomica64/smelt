@@ -75,7 +75,12 @@ impl FunctionEmitter<'_> {
         for arm in [target, catch_block] {
             if arm != join
                 && exits.iter().any(|exit| {
-                    self.block_reaches_target_avoiding(arm, *exit, &[join], &mut BlockIdSet::default())
+                    self.block_reaches_target_avoiding(
+                        arm,
+                        *exit,
+                        &[join],
+                        &mut BlockIdSet::default(),
+                    )
                 })
             {
                 return None;
@@ -119,9 +124,17 @@ impl FunctionEmitter<'_> {
     /// The declaration of a throwing terminator's destination ahead of its
     /// `match`, when the shared tail after the `match` reads it (see
     /// [`Self::join_tail_reads_local`]). The `Ok` arm then assigns it.
-    pub(super) fn throwing_dest_predeclaration(&self, dest: LocalId, declared_type: Option<&str>) -> Result<String, EmitError> {
+    pub(super) fn throwing_dest_predeclaration(
+        &self,
+        dest: LocalId,
+        declared_type: Option<&str>,
+    ) -> Result<String, EmitError> {
         let name = self.local_name(dest)?;
-        let mutability = if self.local_binding_needs_mut(dest) { "mut " } else { "" };
+        let mutability = if self.local_binding_needs_mut(dest) {
+            "mut "
+        } else {
+            ""
+        };
         Ok(match declared_type {
             Some(type_text) => format!("    let {mutability}{name}: {type_text};\n"),
             None => format!("    let {mutability}{name};\n"),

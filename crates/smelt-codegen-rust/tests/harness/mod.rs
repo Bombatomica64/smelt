@@ -1,8 +1,14 @@
 //! Shared by the generated-runtime integration tests: emit a TypeScript program
 //! as a crate and run its generated tests.
 
-#![allow(dead_code, reason = "each integration test binary uses a subset of these helpers")]
-#![allow(clippy::redundant_pub_crate, reason = "pub(crate) is correct for a module shared across test binaries; plain pub trips unreachable_pub")]
+#![allow(
+    dead_code,
+    reason = "each integration test binary uses a subset of these helpers"
+)]
+#![allow(
+    clippy::redundant_pub_crate,
+    reason = "pub(crate) is correct for a module shared across test binaries; plain pub trips unreachable_pub"
+)]
 
 use std::{
     io,
@@ -88,7 +94,11 @@ fn output_within(command: &mut Command, limit: Duration) -> Option<Output> {
     };
     let stdout = stdout_reader.join().unwrap_or_default();
     let stderr = stderr_reader.join().unwrap_or_default();
-    exit.map(|status| Output { status, stdout, stderr })
+    exit.map(|status| Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 /// Run the crate's generated tests; a failing or uncompilable generated test
@@ -98,7 +108,10 @@ fn output_within(command: &mut Command, limit: Duration) -> Option<Output> {
 /// The tests are compiled first, unbounded (compile time depends on the
 /// machine), so the bound covers only the run.
 pub(crate) fn run_generated_tests(crate_dir: &Path, target_dir: &Path) {
-    let build = cargo_test(crate_dir, target_dir).arg("--no-run").output().expect("spawn cargo test --no-run");
+    let build = cargo_test(crate_dir, target_dir)
+        .arg("--no-run")
+        .output()
+        .expect("spawn cargo test --no-run");
     assert!(
         build.status.success(),
         "generated test failed to compile:\nstderr:\n{}",

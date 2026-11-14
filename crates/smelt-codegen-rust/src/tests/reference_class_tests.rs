@@ -92,7 +92,10 @@ function run(): number {
 }
 ",
     );
-    assert!(names.is_empty(), "value class must not be lifted: {names:?}");
+    assert!(
+        names.is_empty(),
+        "value class must not be lifted: {names:?}"
+    );
 }
 
 #[test]
@@ -247,7 +250,10 @@ function run(): number { const c = new Counter(); c.increment(); return c.value;
 ",
     );
     // The getter is a computed `&self` method; the read dispatches to it.
-    assert!(source.contains("fn __smelt_get_value(&self) -> f64"), "{source}");
+    assert!(
+        source.contains("fn __smelt_get_value(&self) -> f64"),
+        "{source}"
+    );
     assert!(source.contains(".__smelt_get_value()"), "{source}");
     // The getter is NOT a stored inner field.
     assert!(
@@ -513,13 +519,21 @@ function run(): boolean {
 }
 ",
     );
-    assert!(source.contains("origin: Option<Box<dyn ::std::any::Any>>"), "{source}");
-    assert!(source.contains(".smelt_with_origin("), "{source}");
     assert!(
-        source.contains("match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None =>"),
+        source.contains("origin: Option<Box<dyn ::std::any::Any>>"),
         "{source}"
     );
-    assert!(source.contains("::std::rc::Rc::as_ptr(&(back).0) as *const () as usize"), "{source}");
+    assert!(source.contains(".smelt_with_origin("), "{source}");
+    assert!(
+        source.contains(
+            "match smelt_record_map.smelt_origin() { Some(smelt_origin) => smelt_origin, None =>"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains("::std::rc::Rc::as_ptr(&(back).0) as *const () as usize"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -534,5 +548,8 @@ function erase(p: Point): unknown { return p; }
 ",
     );
     assert!(!source.contains("smelt_with_origin"), "{source}");
-    assert!(!source.contains("origin: Option<Box<dyn ::std::any::Any>>"), "{source}");
+    assert!(
+        !source.contains("origin: Option<Box<dyn ::std::any::Any>>"),
+        "{source}"
+    );
 }

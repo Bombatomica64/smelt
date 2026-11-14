@@ -1,8 +1,8 @@
 //! Logical and nullish operators in value position: `&&`, `||`, `??` and the types
 //! their fallbacks join to.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     BinOp, Body, Expr, ExprKind, Expression, Literal, LocalDecl, LogicalOperator, ModuleBuilder,
@@ -399,15 +399,13 @@ impl ModuleBuilder<'_> {
         if logical.operator != LogicalOperator::Or {
             return Ok(None);
         }
-        if let Expression::LogicalExpression(left_logical) =
-            peel(&logical.left, Wrappers::Parens)
+        if let Expression::LogicalExpression(left_logical) = peel(&logical.left, Wrappers::Parens)
             && let Some(value) =
                 self.logical_and_value_fallback_expression(logical, left_logical, body)?
         {
             return Ok(Some(value));
         }
-        if let Expression::LogicalExpression(left_logical) =
-            peel(&logical.left, Wrappers::Parens)
+        if let Expression::LogicalExpression(left_logical) = peel(&logical.left, Wrappers::Parens)
             && let Some(value) = self.logical_and_numeric_value_expression(left_logical, body)?
         {
             let value_ty = Self::expr_ty(body, value);
@@ -842,7 +840,10 @@ impl ModuleBuilder<'_> {
         // `insert`). Such a union takes the general value-preserving path.
         if let Some(Type::Union(items)) = self.ctx.krate.types.get(value_ty)
             && items.iter().any(|item| {
-                !matches!(self.ctx.krate.types.get(*item), Some(Type::String | Type::None))
+                !matches!(
+                    self.ctx.krate.types.get(*item),
+                    Some(Type::String | Type::None)
+                )
             })
         {
             return Ok(None);
@@ -947,16 +948,16 @@ impl ModuleBuilder<'_> {
             }
             _ => Some(ty),
         };
-        let mut fallback = match self.match_or_array_fallback_expression(logical, body, optional, ty)? {
-            MatchArrayFallback::Selected(expr) => return Ok(expr),
-            MatchArrayFallback::NotArray(fallback) => fallback,
-            MatchArrayFallback::NotMatch => {
-                self.expression_with_hint(&logical.right, body, right_hint)?
-            }
-        };
+        let mut fallback =
+            match self.match_or_array_fallback_expression(logical, body, optional, ty)? {
+                MatchArrayFallback::Selected(expr) => return Ok(expr),
+                MatchArrayFallback::NotArray(fallback) => fallback,
+                MatchArrayFallback::NotMatch => {
+                    self.expression_with_hint(&logical.right, body, right_hint)?
+                }
+            };
         let fallback_ty = Self::expr_ty(body, fallback);
-        let ty = if fallback_ty == ty || self.numeric_type_compatible(ty, fallback_ty)
-        {
+        let ty = if fallback_ty == ty || self.numeric_type_compatible(ty, fallback_ty) {
             ty
         } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown) {
             // This is a genuine dynamic boundary: the successful left operand
@@ -1120,9 +1121,7 @@ impl ModuleBuilder<'_> {
     fn is_nullable_value_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(_) | Type::None | Type::Unknown) => true,
-            Some(Type::Union(items)) => items
-                .iter()
-                .any(|item| self.is_nullable_value_type(*item)),
+            Some(Type::Union(items)) => items.iter().any(|item| self.is_nullable_value_type(*item)),
             _ => false,
         }
     }

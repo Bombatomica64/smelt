@@ -13,5 +13,3 @@ pub(super) mod generic_records;
 pub(super) mod inherited_types;
 pub(super) mod throwing;
 pub(super) mod unbound_bindings;
-
-

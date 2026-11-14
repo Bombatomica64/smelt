@@ -118,9 +118,12 @@ impl Verdict {
         match build {
             Ok(Ok(())) => Self::Transpiled { tests: None },
             Ok(Err(error)) => Self::Aborted {
-                at: first_abort_file(&error.to_string()).map_or(AbortSite::Unknown, AbortSite::File),
+                at: first_abort_file(&error.to_string())
+                    .map_or(AbortSite::Unknown, AbortSite::File),
             },
-            Err(_panic) => Self::Aborted { at: AbortSite::FrontendPanic },
+            Err(_panic) => Self::Aborted {
+                at: AbortSite::FrontendPanic,
+            },
         }
     }
 }
@@ -142,12 +145,16 @@ impl Serialize for Verdict {
             tests: Option<&'verdict TestOutcome>,
         }
         let wire = match self {
-            Self::Transpiled { tests } => {
-                Wire { transpiled: true, abort_file: None, tests: tests.as_ref() }
-            }
-            Self::Aborted { at } => {
-                Wire { transpiled: false, abort_file: at.json_value(), tests: None }
-            }
+            Self::Transpiled { tests } => Wire {
+                transpiled: true,
+                abort_file: None,
+                tests: tests.as_ref(),
+            },
+            Self::Aborted { at } => Wire {
+                transpiled: false,
+                abort_file: at.json_value(),
+                tests: None,
+            },
         };
         wire.serialize(serializer)
     }
@@ -308,24 +315,32 @@ fn scan_files(
 
     // The blocker scan reports lowering blockers, not type errors: the
     // whole-crate build above already applied the type gate.
-    let mut diagnostics =
-        lowering::ManifestLowering::for_manifest(config, manifest_path)?.check()?.into_measured().diagnostics(None)?;
+    let mut diagnostics = lowering::ManifestLowering::for_manifest(config, manifest_path)?
+        .check()?
+        .into_measured()
+        .diagnostics(None)?;
     diagnostics.sort_by(|left, right| left.file.cmp(&right.file));
     for diagnostic in diagnostics {
-            let path = diagnostic.file.clone();
-            blocked_files.insert(path.clone());
-            let key = (
-                diagnostic.category,
-                diagnostic.code.to_owned(),
-                normalize_message(&diagnostic.message),
-            );
-            bump(&mut occurrences, key.clone(), 1);
-            bump(&mut category_counts, diagnostic.category.as_str().to_owned(), 1);
-            examples.entry(key.clone()).or_insert_with(|| BlockerExample {
+        let path = diagnostic.file.clone();
+        blocked_files.insert(path.clone());
+        let key = (
+            diagnostic.category,
+            diagnostic.code.to_owned(),
+            normalize_message(&diagnostic.message),
+        );
+        bump(&mut occurrences, key.clone(), 1);
+        bump(
+            &mut category_counts,
+            diagnostic.category.as_str().to_owned(),
+            1,
+        );
+        examples
+            .entry(key.clone())
+            .or_insert_with(|| BlockerExample {
                 file: path.clone(),
                 message: diagnostic.message,
             });
-            seen_by_file.entry(path).or_default().insert(key);
+        seen_by_file.entry(path).or_default().insert(key);
     }
     for keys in seen_by_file.into_values() {
         for key in keys {
@@ -344,9 +359,7 @@ fn scan_files(
 
 /// Run the generated test suite and extract pass/fail counts.
 fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome> {
-    let cargo_manifest = manifest_dir
-        .join(config.output_target())
-        .join("Cargo.toml");
+    let cargo_manifest = manifest_dir.join(config.output_target()).join("Cargo.toml");
     let report = test_report::rust_test_report(&test_report::RustTestReportOptions {
         cargo_manifest: &cargo_manifest,
         focus: &[],
@@ -356,12 +369,18 @@ fn measure_tests(config: &Config, manifest_dir: &Path) -> CliResult<TestOutcome>
         include_diagnostics: false,
         suppress_warnings: true,
     })?;
-    test_outcome(report.full.and_then(|suite| suite.run.counts), &cargo_manifest)
+    test_outcome(
+        report.full.and_then(|suite| suite.run.counts),
+        &cargo_manifest,
+    )
 }
 
 /// The counts of a generated test run; a run without them means the suite never
 /// ran, which must not read as zero failures.
-fn test_outcome(counts: Option<test_report::TestCounts>, cargo_manifest: &Path) -> CliResult<TestOutcome> {
+fn test_outcome(
+    counts: Option<test_report::TestCounts>,
+    cargo_manifest: &Path,
+) -> CliResult<TestOutcome> {
     let counts = counts.ok_or_else(|| {
         format!(
             "the generated test suite of `{}` reported no `N passed; M failed` summary, \
@@ -369,7 +388,10 @@ fn test_outcome(counts: Option<test_report::TestCounts>, cargo_manifest: &Path) 
             cargo_manifest.display()
         )
     })?;
-    Ok(TestOutcome { passed: counts.passed, failed: counts.failed })
+    Ok(TestOutcome {
+        passed: counts.passed,
+        failed: counts.failed,
+    })
 }
 
 /// Pull the first `path.ts`/`path.py` out of a build error message.
@@ -485,11 +507,17 @@ fn skip_bracketed(chars: &mut std::iter::Peekable<std::str::Chars<'_>>, open: ch
 /// Render the probe result as Markdown.
 fn render_markdown(result: &ProbeResult) -> String {
     let mut out = String::new();
-    push_fmt(&mut out, format_args!("# Probe report: {}\n", result.project));
+    push_fmt(
+        &mut out,
+        format_args!("# Probe report: {}\n", result.project),
+    );
     out.push('\n');
     match &result.verdict {
         Verdict::Transpiled { tests } => {
-            push_fmt(&mut out, format_args!("- Transpile: **yes** — Rust crate emitted\n"));
+            push_fmt(
+                &mut out,
+                format_args!("- Transpile: **yes** — Rust crate emitted\n"),
+            );
             match tests {
                 Some(outcome) => {
                     push_fmt(
@@ -503,9 +531,7 @@ fn render_markdown(result: &ProbeResult) -> String {
                 None => {
                     push_fmt(
                         &mut out,
-                        format_args!(
-                            "- Generated `cargo test`: not run (pass `--run-tests`)\n"
-                        ),
+                        format_args!("- Generated `cargo test`: not run (pass `--run-tests`)\n"),
                     );
                 }
             }
@@ -545,11 +571,12 @@ fn render_markdown(result: &ProbeResult) -> String {
         out.push('\n');
         push_fmt(
             &mut out,
-            format_args!(
-                "| Occurrences | Files | Category | Blocker class | Example |\n"
-            ),
+            format_args!("| Occurrences | Files | Category | Blocker class | Example |\n"),
         );
-        push_fmt(&mut out, format_args!("| ---: | ---: | --- | --- | --- |\n"));
+        push_fmt(
+            &mut out,
+            format_args!("| ---: | ---: | --- | --- | --- |\n"),
+        );
         for blocker in &result.blockers {
             push_fmt(
                 &mut out,
@@ -595,12 +622,13 @@ fn render_blocker_details(out: &mut String, blockers: &[BlockerGroup]) {
     out.push('\n');
     for blocker in detailed {
         if let Some(detail) = &blocker.detail {
-            push_fmt(out, format_args!("- **{}**\n", escape_inline(&blocker.shape)));
             push_fmt(
                 out,
-                format_args!(
-                    "  - Example: `{}`\n", escape_inline(&blocker.example_file)
-                ),
+                format_args!("- **{}**\n", escape_inline(&blocker.shape)),
+            );
+            push_fmt(
+                out,
+                format_args!("  - Example: `{}`\n", escape_inline(&blocker.example_file)),
             );
             push_fmt(out, format_args!("  - Message:\n"));
             push_fmt(out, format_args!("    ```text\n"));
@@ -631,7 +659,10 @@ mod tests {
     /// Quoted identifiers collapse to a shared shape.
     #[test]
     fn normalize_collapses_quoted_specifics() {
-        assert_eq!(normalize_message("unresolved class `Array`"), "unresolved class `X`");
+        assert_eq!(
+            normalize_message("unresolved class `Array`"),
+            "unresolved class `X`"
+        );
         assert_eq!(
             normalize_message("function 'take' must return"),
             "function 'X' must return"
@@ -670,7 +701,10 @@ mod tests {
     /// while a group whose only content is a nested bracket still elides.
     #[test]
     fn normalize_elision_tracks_bracket_content() {
-        assert_eq!(normalize_message("rest: None, items: Vec()"), "rest: None, items: Vec()");
+        assert_eq!(
+            normalize_message("rest: None, items: Vec()"),
+            "rest: None, items: Vec()"
+        );
         // The inner `[]` counts as content for the outer parentheses.
         assert_eq!(normalize_message("items: Vec([])"), "items: Vec(…)");
     }
@@ -694,7 +728,8 @@ mod tests {
                 files: 1,
                 example_file: "src/a.ts".to_owned(),
                 detail: Some(
-                    "kind is not lowered yet: FunctionExpression(Function { huge: true })".to_owned(),
+                    "kind is not lowered yet: FunctionExpression(Function { huge: true })"
+                        .to_owned(),
                 ),
             },
             BlockerGroup {
@@ -725,7 +760,13 @@ mod tests {
     #[test]
     fn parses_test_counts() {
         let line = "test result: FAILED. 1768 passed; 21 failed; 0 ignored";
-        assert_eq!(test_report::parse_test_counts(line), Some(test_report::TestCounts { passed: 1768, failed: 21 }));
+        assert_eq!(
+            test_report::parse_test_counts(line),
+            Some(test_report::TestCounts {
+                passed: 1768,
+                failed: 21
+            })
+        );
     }
 
     /// A suite that never reported a summary is an error, not zero failures.
@@ -734,7 +775,10 @@ mod tests {
         let manifest = Path::new("dist/Cargo.toml");
         let error = test_outcome(None, manifest).expect_err("no summary");
         assert!(error.to_string().contains("dist/Cargo.toml"), "{error}");
-        let counts = test_report::TestCounts { passed: 3, failed: 1 };
+        let counts = test_report::TestCounts {
+            passed: 3,
+            failed: 1,
+        };
         let outcome = test_outcome(Some(counts), manifest).expect("summary");
         assert_eq!((outcome.passed, outcome.failed), (3, 1));
     }
@@ -757,21 +801,35 @@ mod tests {
     /// The verdict keeps the flat pre-enum JSON spelling consumers read.
     #[test]
     fn verdict_json_keeps_the_flat_shape() {
-        assert_eq!(verdict_json(&Verdict::Transpiled { tests: None }), r#"{"transpiled":true}"#);
         assert_eq!(
-            verdict_json(&Verdict::Transpiled { tests: Some(TestOutcome { passed: 3, failed: 1 }) }),
+            verdict_json(&Verdict::Transpiled { tests: None }),
+            r#"{"transpiled":true}"#
+        );
+        assert_eq!(
+            verdict_json(&Verdict::Transpiled {
+                tests: Some(TestOutcome {
+                    passed: 3,
+                    failed: 1
+                })
+            }),
             r#"{"transpiled":true,"tests":{"passed":3,"failed":1}}"#
         );
         assert_eq!(
-            verdict_json(&Verdict::Aborted { at: AbortSite::File("src/a.ts".to_owned()) }),
+            verdict_json(&Verdict::Aborted {
+                at: AbortSite::File("src/a.ts".to_owned())
+            }),
             r#"{"transpiled":false,"abort_file":"src/a.ts"}"#
         );
         assert_eq!(
-            verdict_json(&Verdict::Aborted { at: AbortSite::FrontendPanic }),
+            verdict_json(&Verdict::Aborted {
+                at: AbortSite::FrontendPanic
+            }),
             r#"{"transpiled":false,"abort_file":"(frontend panic)"}"#
         );
         assert_eq!(
-            verdict_json(&Verdict::Aborted { at: AbortSite::Unknown }),
+            verdict_json(&Verdict::Aborted {
+                at: AbortSite::Unknown
+            }),
             r#"{"transpiled":false}"#
         );
     }
@@ -783,7 +841,9 @@ mod tests {
         let unnamed: CliResult<()> = Err("linker exploded".into());
         assert!(matches!(
             Verdict::of_build(Ok(unnamed)),
-            Verdict::Aborted { at: AbortSite::Unknown }
+            Verdict::Aborted {
+                at: AbortSite::Unknown
+            }
         ));
         let named: CliResult<()> = Err("src/lib/a.ts:\nboom".into());
         assert!(matches!(
@@ -792,8 +852,13 @@ mod tests {
         ));
         assert!(matches!(
             Verdict::of_build(Err(Box::new("panic"))),
-            Verdict::Aborted { at: AbortSite::FrontendPanic }
+            Verdict::Aborted {
+                at: AbortSite::FrontendPanic
+            }
         ));
-        assert!(matches!(Verdict::of_build(Ok(Ok(()))), Verdict::Transpiled { tests: None }));
+        assert!(matches!(
+            Verdict::of_build(Ok(Ok(()))),
+            Verdict::Transpiled { tests: None }
+        ));
     }
 }

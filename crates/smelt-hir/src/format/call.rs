@@ -12,17 +12,28 @@ use super::{
 /// Rebinds one op field to its text; see the display grammar in
 /// [`crate::op_table`].
 macro_rules! render_op_field {
-    ($krate:ident, one, $field:ident) => { expr_ref(*$field) };
-    ($krate:ident, opt, $field:ident) => { $field.map(expr_ref) };
+    ($krate:ident, one, $field:ident) => {
+        expr_ref(*$field)
+    };
+    ($krate:ident, opt, $field:ident) => {
+        $field.map(expr_ref)
+    };
     ($krate:ident, many, $field:ident) => {
-        $field.iter().map(|child| expr_ref(*child)).collect::<Vec<_>>()
+        $field
+            .iter()
+            .map(|child| expr_ref(*child))
+            .collect::<Vec<_>>()
     };
     ($krate:ident, splice, $field:ident) => {
         $field
             .iter()
             .map(|item| {
                 let value = expr_ref(item.value);
-                if item.spread { format!("...{value}") } else { value }
+                if item.spread {
+                    format!("...{value}")
+                } else {
+                    value
+                }
             })
             .collect::<Vec<_>>()
     };
@@ -41,11 +52,19 @@ macro_rules! render_op_field {
             .map(|(key, value)| (key, expr_ref(*value)))
             .collect::<Vec<_>>()
     };
-    ($krate:ident, [$data:ty], $field:ident) => { $field };
-    ($krate:ident, (sym $label:literal), $field:ident) => {
-        $krate.symbols.get(*$field).unwrap_or("<unknown>").to_owned()
+    ($krate:ident, [$data:ty], $field:ident) => {
+        $field
     };
-    ($krate:ident, (ty), $field:ident) => { type_ref($krate, *$field) };
+    ($krate:ident, (sym $label:literal), $field:ident) => {
+        $krate
+            .symbols
+            .get(*$field)
+            .unwrap_or("<unknown>")
+            .to_owned()
+    };
+    ($krate:ident, (ty), $field:ident) => {
+        type_ref($krate, *$field)
+    };
 }
 
 /// Generates [`expr_text`]: the arms of the forms only HIR has, then one
@@ -163,4 +182,3 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         _ => "invalid call".to_owned(),
     }
 }
-

@@ -20,7 +20,11 @@ fn main() -> ExitCode {
         .stack_size(CLI_STACK_BYTES)
         .spawn(|| smelt_transpiler::cli::run().map_err(|error| format!("{error:?}")))
         .map_err(|error| format!("{error:?}"))
-        .and_then(|thread| thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+        .and_then(|thread| {
+            thread
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        });
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

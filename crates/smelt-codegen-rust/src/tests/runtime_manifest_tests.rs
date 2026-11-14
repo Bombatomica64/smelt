@@ -30,12 +30,18 @@ fn runtime_order_and_items_agree() {
         .iter()
         .filter(|name| item_source(name).is_none())
         .collect();
-    assert!(missing.is_empty(), "the order names undefined items: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "the order names undefined items: {missing:?}"
+    );
     let unordered: Vec<_> = item_names()
         .into_iter()
         .filter(|name| !ordered.contains(name))
         .collect();
-    assert!(unordered.is_empty(), "items no order reaches: {unordered:?}");
+    assert!(
+        unordered.is_empty(),
+        "items no order reaches: {unordered:?}"
+    );
 }
 
 /// Every flag a marker names is one the emitter can answer.
@@ -54,7 +60,10 @@ fn every_runtime_flag_is_answered() {
         .into_iter()
         .filter(|name| flag(&context, name).is_none())
         .collect();
-    assert!(unanswered.is_empty(), "flags nothing answers: {unanswered:?}");
+    assert!(
+        unanswered.is_empty(),
+        "flags nothing answers: {unanswered:?}"
+    );
 }
 
 /// A name with no region is not an item.
@@ -83,7 +92,10 @@ fn rendered_text_keeps_order_and_drops_markers() {
     );
     let everything = rendered_text(&|_| true);
     for marker in ["@smelt:", "//~", "/*@if", "/*@end"] {
-        assert!(!everything.contains(marker), "`{marker}` reached generated text");
+        assert!(
+            !everything.contains(marker),
+            "`{marker}` reached generated text"
+        );
     }
 }
 
@@ -98,7 +110,9 @@ fn runtime_manifest_symbol_names_match() {
     let source = smelt_runtime::source::item_source(encode_uri)
         .expect("encodeURI helper is named after its runtime_symbols constant");
     assert!(
-        source.contains(&format!("fn {encode_uri}(value: &(impl SmeltHostText + ?Sized)) -> String {{")),
+        source.contains(&format!(
+            "fn {encode_uri}(value: &(impl SmeltHostText + ?Sized)) -> String {{"
+        )),
         "the emitted encodeURI helper must define `{encode_uri}`"
     );
 }
@@ -127,9 +141,15 @@ fn every_runtime_marker_is_registered() {
         }
     }
     let unregistered: Vec<_> = seen.iter().filter(|name| !ALL.contains(name)).collect();
-    assert!(unregistered.is_empty(), "markers with no constant: {unregistered:?}");
+    assert!(
+        unregistered.is_empty(),
+        "markers with no constant: {unregistered:?}"
+    );
     let unused: Vec<_> = ALL.iter().filter(|name| !seen.contains(*name)).collect();
-    assert!(unused.is_empty(), "constants no runtime text uses: {unused:?}");
+    assert!(
+        unused.is_empty(),
+        "constants no runtime text uses: {unused:?}"
+    );
 }
 
 /// The host registry's markers are real keys of the runtime.
@@ -139,5 +159,8 @@ fn every_host_object_marker_is_a_runtime_marker() {
     let missing: Vec<_> = smelt_stdlib::host_object_markers()
         .filter(|marker| !ALL.contains(marker))
         .collect();
-    assert!(missing.is_empty(), "registry markers the runtime never spells: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "registry markers the runtime never spells: {missing:?}"
+    );
 }

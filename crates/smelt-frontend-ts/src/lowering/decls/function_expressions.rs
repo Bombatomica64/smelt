@@ -2,14 +2,14 @@
 //! value, its free names and captures, and self-recursive function expressions
 //! lifted to a reserved slot.
 
-use crate::lowering::erasure::NotNewErasure;
-use std::collections::HashSet;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use oxc::ast::ast::BindingPattern;
 use smelt_hir::{Body, ErasureReason, Function, FunctionOwner, Item, LocalDecl, Param, Type};
+use std::collections::HashSet;
 
 impl ModuleBuilder<'_> {
     /// Lower a synthetic object-table function while preserving exact key spelling.

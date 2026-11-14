@@ -1,8 +1,8 @@
 //! `Object` statics, `SameValueZero` equality and `Array.isArray`-style type queries.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
@@ -74,7 +74,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the identifier name carried by a normal call argument.
-    pub(in crate::lowering) fn argument_identifier<'a>(argument: &'a Argument<'a>) -> Option<&'a str> {
+    pub(in crate::lowering) fn argument_identifier<'a>(
+        argument: &'a Argument<'a>,
+    ) -> Option<&'a str> {
         match argument {
             Argument::Identifier(ident) => Some(ident.name.as_str()),
             _ => None,
@@ -82,7 +84,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether an expression is the requested identifier.
-    pub(in crate::lowering) fn expression_is_identifier(expression: &Expression<'_>, name: &str) -> bool {
+    pub(in crate::lowering) fn expression_is_identifier(
+        expression: &Expression<'_>,
+        name: &str,
+    ) -> bool {
         matches!(expression, Expression::Identifier(ident) if ident.name == name)
     }
 
@@ -142,10 +147,16 @@ impl ModuleBuilder<'_> {
         }
         let span = self.span(call.span.start, call.span.end);
         let [target, key] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(span, "Reflect.has requires a target and a key"));
+            return Err(SmeltError::unsupported(
+                span,
+                "Reflect.has requires a target and a key",
+            ));
         };
         let (Some(target), Some(key)) = (target.as_expression(), key.as_expression()) else {
-            return Err(SmeltError::unsupported(span, "Reflect.has does not take spread arguments"));
+            return Err(SmeltError::unsupported(
+                span,
+                "Reflect.has does not take spread arguments",
+            ));
         };
         self.key_in_expression(key, target, span, body).map(Some)
     }
@@ -182,7 +193,8 @@ impl ModuleBuilder<'_> {
                 self.span(call.span.start, call.span.end),
                 format!(
                     "{}.{} requires exactly one record argument",
-                    object.name(), member.property.name
+                    object.name(),
+                    member.property.name
                 ),
             ));
         };
@@ -216,19 +228,29 @@ impl ModuleBuilder<'_> {
                     || !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Unknown))
                 {
                     dict = body.push_expr(Expr {
-                        kind: ExprKind::UnknownCast { value: dict, target },
+                        kind: ExprKind::UnknownCast {
+                            value: dict,
+                            target,
+                        },
                         ty: target,
                         span: self.span(call.span.start, call.span.end),
                     });
                 }
                 (key_ty, value_ty)
             }
-            Some(Type::Union(items)) if items.iter().all(|item| self.object_keys_compatible_type(*item)) => {
+            Some(Type::Union(items))
+                if items
+                    .iter()
+                    .all(|item| self.object_keys_compatible_type(*item)) =>
+            {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.erase(ErasureReason::UntypedBuiltin);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 dict = body.push_expr(Expr {
-                    kind: ExprKind::UnknownCast { value: dict, target },
+                    kind: ExprKind::UnknownCast {
+                        value: dict,
+                        target,
+                    },
                     ty: target,
                     span: self.span(call.span.start, call.span.end),
                 });
@@ -304,7 +326,10 @@ impl ModuleBuilder<'_> {
     ///
     /// A property-key record ([`Type::PropKey`]) also holds symbol keys, but
     /// those enumerations report only its string keys, so they are `string`.
-    pub(in crate::lowering) fn enumerated_key_type(&mut self, key_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn enumerated_key_type(
+        &mut self,
+        key_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         if matches!(self.ctx.krate.types.get(key_ty), Some(Type::PropKey)) {
             self.ctx.krate.types.intern(Type::String)
         } else {
@@ -314,7 +339,12 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a type can use JavaScript object projection through `Object.*`.
     pub(in crate::lowering) fn object_keys_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(
                 Type::Dict(_, _)
                 | Type::Unknown
@@ -342,7 +372,9 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "getOwnPropertySymbols" {
+        if !self.names_host(object.name.as_str(), "Object")
+            || member.property.name != "getOwnPropertySymbols"
+        {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -369,7 +401,10 @@ impl ModuleBuilder<'_> {
             })));
         }
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.getOwnPropertySymbols");
+        let value_ty = self.erase_with(
+            ErasureReason::UntypedBuiltin,
+            "Object.getOwnPropertySymbols",
+        );
         let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
         let dict = body.push_expr(Expr {
             kind: ExprKind::UnknownCast { value, target },
@@ -405,7 +440,9 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "getPrototypeOf" {
+        if !self.names_host(object.name.as_str(), "Object")
+            || member.property.name != "getPrototypeOf"
+        {
             return Ok(None);
         }
         let [value] = call.arguments.as_slice() else {
@@ -525,7 +562,9 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object_ident) = &member.object else {
             return Ok(None);
         };
-        if !self.names_host(object_ident.name.as_str(), "Object") || member.property.name != "create" {
+        if !self.names_host(object_ident.name.as_str(), "Object")
+            || member.property.name != "create"
+        {
             return Ok(None);
         }
         let [prototype] = call.arguments.as_slice() else {
@@ -608,7 +647,11 @@ impl ModuleBuilder<'_> {
                 let descriptor = self.argument(descriptor, body)?;
                 let descriptor = Self::erase_to_unknown(descriptor, unknown_ty, span, body);
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+                let dict_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Dict(string_ty, unknown_ty));
                 let descriptors = body.push_expr(Expr {
                     kind: ExprKind::DictLit(Vec::from([(key, descriptor)])),
                     ty: dict_ty,
@@ -702,9 +745,16 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         // not a new erasure: the entries are only re-viewed as the helper's operand.
         let unknown = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
-        let entries = body.push_expr(Expr { kind: ExprKind::TypeAssert { value }, ty: unknown, span });
+        let entries = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: unknown,
+            span,
+        });
         body.push_expr(Expr {
-            kind: ExprKind::DictProjection { op: DictProjectionOp::FromEntries, dict: entries },
+            kind: ExprKind::DictProjection {
+                op: DictProjectionOp::FromEntries,
+                dict: entries,
+            },
             ty,
             span,
         })
@@ -722,12 +772,19 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return Ok(None);
         };
-        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "fromEntries" {
+        if !self.names_host(object.name.as_str(), "Object") || member.property.name != "fromEntries"
+        {
             return Ok(None);
         }
         if let [argument] = call.arguments.as_slice() {
             let value = self.argument(argument, body)?;
-            match self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned() {
+            match self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, value))
+                .cloned()
+            {
                 Some(Type::Dict(key, value_ty)) => {
                     if self.ctx.krate.types.get(key) == Some(&Type::String) {
                         return Ok(Some(value));
@@ -771,35 +828,52 @@ impl ModuleBuilder<'_> {
                         // The runtime helper builds erased values; the result is
                         // narrowed back to the entries' own value type.
                         let span = self.span(call.span.start, call.span.end);
-                        let erased_dict = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown));
+                        let erased_dict =
+                            self.ctx.krate.types.intern(Type::Dict(string_ty, unknown));
                         let built = body.push_expr(Expr {
                             kind: ExprKind::DictProjection {
                                 op: DictProjectionOp::FromEntries,
                                 dict: entries,
                             },
-                            ty: if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) { ty } else { erased_dict },
+                            ty: if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown))
+                            {
+                                ty
+                            } else {
+                                erased_dict
+                            },
                             span,
                         });
                         if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
                             return Ok(Some(built));
                         }
-                        let view = body.push_expr(Expr { kind: ExprKind::TypeAssert { value: built }, ty: unknown, span });
+                        let view = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value: built },
+                            ty: unknown,
+                            span,
+                        });
                         return Ok(Some(body.push_expr(Expr {
-                            kind: ExprKind::UnknownCast { value: view, target: ty },
+                            kind: ExprKind::UnknownCast {
+                                value: view,
+                                target: ty,
+                            },
                             ty,
                             span,
                         })));
                     }
                     if self.erased_or_union_surface(entry_ty) {
                         let key_ty = self.ctx.krate.types.intern(Type::String);
-                        let value_ty = self.erase_unless_unknown(entry_ty, ErasureReason::UntypedBuiltin);
+                        let value_ty =
+                            self.erase_unless_unknown(entry_ty, ErasureReason::UntypedBuiltin);
                         let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                         return Ok(Some(self.erased_from_entries(value, ty, call, body)));
                     }
                 }
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                     let key_ty = self.ctx.krate.types.intern(Type::String);
-                    let value_ty = self.erase_unless_unknown(Self::expr_ty(body, value), ErasureReason::UntypedBuiltin);
+                    let value_ty = self.erase_unless_unknown(
+                        Self::expr_ty(body, value),
+                        ErasureReason::UntypedBuiltin,
+                    );
                     let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                     return Ok(Some(self.erased_from_entries(value, ty, call, body)));
                 }
@@ -906,9 +980,10 @@ impl ModuleBuilder<'_> {
         let [receiver_argument, key_argument] = call.arguments.as_slice() else {
             return Ok(None);
         };
-        let (Some(receiver_expr), Some(key_expr)) =
-            (receiver_argument.as_expression(), key_argument.as_expression())
-        else {
+        let (Some(receiver_expr), Some(key_expr)) = (
+            receiver_argument.as_expression(),
+            key_argument.as_expression(),
+        ) else {
             return Ok(None);
         };
         if !Self::is_effect_free_reread(receiver_expr) || !Self::is_effect_free_reread(key_expr) {
@@ -920,36 +995,43 @@ impl ModuleBuilder<'_> {
         // descriptor's `any` value is recorded once both reads succeed.
         let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let record_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
-        let read_pair = |this: &mut Self, target: &mut Body| -> Result<Option<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
-            let value = this.expression(receiver_expr, target)?;
-            let record = target.push_expr(Expr {
-                kind: ExprKind::UnknownCast {
-                    value,
-                    target: record_ty,
-                },
-                ty: record_ty,
-                span,
-            });
-            let key = this.expression(key_expr, target)?;
-            let key_ty = Self::expr_ty(target, key);
-            // A symbol key indexes the string-keyed record under its reserved
-            // storage spelling; the key conversion does that at the site.
-            let key = if key_ty == string_ty
-                || matches!(this.ctx.krate.types.get(key_ty), Some(Type::Symbol))
-            {
-                key
-            } else if this.is_string_compatible_type(key_ty) {
-                target.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: key },
-                    ty: string_ty,
+        let record_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Dict(string_ty, unknown_ty));
+        let read_pair =
+            |this: &mut Self,
+             target: &mut Body|
+             -> Result<Option<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
+                let value = this.expression(receiver_expr, target)?;
+                let record = target.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value,
+                        target: record_ty,
+                    },
+                    ty: record_ty,
                     span,
-                })
-            } else {
-                return Ok(None);
+                });
+                let key = this.expression(key_expr, target)?;
+                let key_ty = Self::expr_ty(target, key);
+                // A symbol key indexes the string-keyed record under its reserved
+                // storage spelling; the key conversion does that at the site.
+                let key = if key_ty == string_ty
+                    || matches!(this.ctx.krate.types.get(key_ty), Some(Type::Symbol))
+                {
+                    key
+                } else if this.is_string_compatible_type(key_ty) {
+                    target.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: key },
+                        ty: string_ty,
+                        span,
+                    })
+                } else {
+                    return Ok(None);
+                };
+                Ok(Some((record, key)))
             };
-            Ok(Some((record, key)))
-        };
         let Some((tested_record, tested_key)) = read_pair(self, body)? else {
             return Ok(None);
         };
@@ -1061,8 +1143,7 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name == "call"
-            && self.is_object_prototype_own_key_probe(&member.object)
+        if member.property.name == "call" && self.is_object_prototype_own_key_probe(&member.object)
         {
             let [dict_argument, key_argument] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
@@ -1324,7 +1405,9 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
+        if Self::expr_ty(body, key) != key_ty
+            && self.is_string_compatible_type(Self::expr_ty(body, key))
+        {
             key = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: key },
                 ty: key_ty,
@@ -1441,8 +1524,8 @@ impl ModuleBuilder<'_> {
         {
             // A `DataView` is a VIEW, which is the whole reason es-toolkit's
             // `isTypedArray` has to exclude it separately.
-            let is_view =
-                self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::TypedArray) || self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::DataView);
+            let is_view = self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::TypedArray)
+                || self.is_modeled_class(value_ty, smelt_stdlib::StdlibClass::DataView);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(is_view)),
                 ty,

@@ -1,15 +1,15 @@
 //! Fake clocks in tests: `vi.useFakeTimers` and its controls, and sinon's
 //! `useFakeTimers`.
 
-use crate::lowering::support::source_spelling;
+use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::js_str_text;
+use crate::lowering::support::source_spelling;
+use crate::lowering::testing::is_test_mock_namespace;
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, Literal, Type};
 use std::borrow::Cow;
-use crate::SmeltError;
-use crate::lowering::ModuleBuilder;
-use crate::lowering::testing::is_test_mock_namespace;
 
 impl ModuleBuilder<'_> {
     /// Lower Vitest fake-clock APIs to the mutable timestamp observed by `Date.now()`.
@@ -212,7 +212,6 @@ impl ModuleBuilder<'_> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return false;
         };
-        source_spelling(&self.ctx.krate, *name)
-            == Some("SinonFakeTimers")
+        source_spelling(&self.ctx.krate, *name) == Some("SinonFakeTimers")
     }
 }

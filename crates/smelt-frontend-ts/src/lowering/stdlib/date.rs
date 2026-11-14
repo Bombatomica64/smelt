@@ -1,8 +1,8 @@
 //! The `Date` global: `Date.now`, `Date.UTC`, construction and instance methods.
 
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
 use oxc::ast::ast::{CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, DatePart, ErasureReason, Expr, ExprKind, PrimitiveCastOp, Stmt, Type};
@@ -23,9 +23,7 @@ impl ModuleBuilder<'_> {
             .types
             .get(self.type_param_constraint_or_self(ty))
         {
-            Some(Type::Class { name, .. }) => {
-                self.ctx.krate.symbols.get(*name) == Some("Date")
-            }
+            Some(Type::Class { name, .. }) => self.ctx.krate.symbols.get(*name) == Some("Date"),
             Some(Type::Optional(inner)) => self.type_is_known_date_value(*inner),
             Some(Type::Union(items)) => {
                 let values = items
@@ -43,9 +41,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression carries JavaScript `Date` identity despite timestamp storage.
-    pub(in crate::lowering) fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
-        let Some(expr) = body.expr_at(value)
-        else {
+    pub(in crate::lowering) fn expression_is_known_date_value(
+        &self,
+        value: smelt_hir::ExprId,
+        body: &Body,
+    ) -> bool {
+        let Some(expr) = body.expr_at(value) else {
             return false;
         };
         if self.type_is_known_date_value(expr.ty) {
@@ -54,10 +55,11 @@ impl ModuleBuilder<'_> {
         match &expr.kind {
             ExprKind::DateFromParts { .. } | ExprKind::DateFromValue { .. } => true,
             ExprKind::Local(local) => self.scope.is_date_value(*local),
-            ExprKind::TypeAssert { value: asserted_value } => {
-                self.expression_is_known_date_value(*asserted_value, body)
-            }
-            ExprKind::Call { callee, .. } => body.expr_at(*callee)
+            ExprKind::TypeAssert {
+                value: asserted_value,
+            } => self.expression_is_known_date_value(*asserted_value, body),
+            ExprKind::Call { callee, .. } => body
+                .expr_at(*callee)
                 .and_then(|callee| match callee.kind {
                     ExprKind::Item(item) => Some(item),
                     _ => None,
@@ -247,8 +249,7 @@ impl ModuleBuilder<'_> {
         let Some(local) = self.scope.lookup(receiver.name.as_str()) else {
             return false;
         };
-        let Some(decl) = body.local_at(local)
-        else {
+        let Some(decl) = body.local_at(local) else {
             return false;
         };
         matches!(

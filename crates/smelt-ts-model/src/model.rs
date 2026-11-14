@@ -316,7 +316,9 @@ impl TsTypeTable {
     /// Whether every reserved slot has been filled.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.types.iter().all(|slot| matches!(slot, Slot::Filled(_)))
+        self.types
+            .iter()
+            .all(|slot| matches!(slot, Slot::Filled(_)))
     }
 
     /// Number of stored types.
@@ -349,7 +351,9 @@ impl TsTypeTable {
     /// filled: both are converter bugs that would otherwise silently leave a
     /// wrong or missing type behind.
     pub fn fill(&mut self, id: TsTypeId, ty: TsType) {
-        let slot = usize::try_from(id.0).ok().and_then(|index| self.types.get_mut(index));
+        let slot = usize::try_from(id.0)
+            .ok()
+            .and_then(|index| self.types.get_mut(index));
         assert!(
             matches!(slot, Some(Slot::Pending)),
             "TsTypeTable::fill: {id:?} is not a pending slot of this table"
@@ -368,14 +372,21 @@ mod tests {
 
     /// A filled `string` type.
     fn string_type() -> TsType {
-        TsType { kind: TsTypeKind::String, display: Some("string".to_owned()), alias: None }
+        TsType {
+            kind: TsTypeKind::String,
+            display: Some("string".to_owned()),
+            alias: None,
+        }
     }
 
     #[test]
     fn a_pending_slot_is_not_a_truncated_type() {
         let mut table = TsTypeTable::default();
         let id = table.reserve();
-        assert!(table.get(id).is_none(), "a pending slot reads as absent, not as Truncated");
+        assert!(
+            table.get(id).is_none(),
+            "a pending slot reads as absent, not as Truncated"
+        );
         assert!(!table.is_complete());
         table.fill(id, string_type());
         assert_eq!(table.get(id).map(|ty| &ty.kind), Some(&TsTypeKind::String));

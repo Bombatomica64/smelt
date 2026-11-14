@@ -37,9 +37,9 @@
 //! material, which is a surface rather than three calls, and they stay declared
 //! so using one is a named blocker.
 
-use crate::lowering::body_arena::BodyArena;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::body_arena::BodyArena;
 use smelt_hir::{Body, CryptoOp, Expr, ExprKind, Type};
 use smelt_stdlib::RuleId;
 
@@ -281,7 +281,10 @@ impl ModuleBuilder<'_> {
     ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let name = self.crypto_algorithm_name(algorithm, span, body)?;
-        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, algorithm)), Some(Type::String)) {
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, algorithm)),
+            Some(Type::String)
+        ) {
             let none = body.push_expr(Expr {
                 kind: ExprKind::Literal(smelt_hir::Literal::String(String::new())),
                 ty: string_ty,
@@ -362,5 +365,4 @@ impl ModuleBuilder<'_> {
             span,
         }))
     }
-
 }

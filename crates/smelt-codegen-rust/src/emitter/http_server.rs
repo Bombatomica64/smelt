@@ -15,8 +15,8 @@
 //! runtime's `Result<(), _>`: it calls, discards the answer, and reports the
 //! error the source could raise.
 
-use crate::rust::RustExpr;
 use super::*;
+use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Emit `createServer(handler)`.
@@ -25,12 +25,12 @@ impl FunctionEmitter<'_> {
     /// wrapped rather than passed through so the server always holds the one
     /// signature `SmeltHttpHandler` names, whatever the source's arrow was
     /// inferred as.
-    pub(super) fn http_create_server_expr(
-        &self,
-        handler: &Operand,
-    ) -> Result<RustExpr, EmitError> {
+    pub(super) fn http_create_server_expr(&self, handler: &Operand) -> Result<RustExpr, EmitError> {
         let adapted = self.http_handler_adapter(handler)?;
-        Ok(RustExpr::atom(format!("SmeltHttpServer::new({adapted})", adapted = adapted.delimited())))
+        Ok(RustExpr::atom(format!(
+            "SmeltHttpServer::new({adapted})",
+            adapted = adapted.delimited()
+        )))
     }
 
     /// Emit a server answering requests with a fetch handler.
@@ -48,10 +48,14 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(fetch)?;
         let Some(Type::Function(function)) = self.mir.types.get(ty) else {
-            return Err(EmitError::new("`serve` needs a function as its `fetch` handler"));
+            return Err(EmitError::new(
+                "`serve` needs a function as its `fetch` handler",
+            ));
         };
         let Some(request_ty) = function.params.first().copied() else {
-            return Err(EmitError::new("a `fetch` handler takes the request as its first parameter"));
+            return Err(EmitError::new(
+                "a `fetch` handler takes the request as its first parameter",
+            ));
         };
         let mut text = self.operand_expr(fetch)?;
         if matches!(fetch, Operand::Copy(_)) {
@@ -76,12 +80,16 @@ impl FunctionEmitter<'_> {
         let call = format!("smelt_fetch({})", args.join(", "));
         let erased = self.erase_rendered(&RustExpr::path("smelt_answer"), function.return_ty)?;
         let answer = if function.may_throw {
-            format!("{call}.map(|smelt_answer| {erased})", erased = erased.delimited())
+            format!(
+                "{call}.map(|smelt_answer| {erased})",
+                erased = erased.delimited()
+            )
         } else {
             self.carrier_format(self.carrier()?, format_args!("{{ let smelt_answer = {call}; Ok::<SmeltUnknown, Box<dyn ::std::error::Error>>({erased}) }}", erased = erased.delimited()))
         };
         Ok(RustExpr::atom(format!(
-            "SmeltHttpServer::new({{ let smelt_fetch = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ let smelt_fetch_request = smelt_fetch_server_request(&smelt_request); smelt_fetch_server_respond(smelt_response, {answer}); Ok(()) }}) as SmeltHttpHandler }})", text = text.delimited()
+            "SmeltHttpServer::new({{ let smelt_fetch = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ let smelt_fetch_request = smelt_fetch_server_request(&smelt_request); smelt_fetch_server_respond(smelt_response, {answer}); Ok(()) }}) as SmeltHttpHandler }})",
+            text = text.delimited()
         )))
     }
 
@@ -109,7 +117,8 @@ impl FunctionEmitter<'_> {
             "let _ = smelt_handler(smelt_request, smelt_response);"
         };
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_handler = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ {call} Ok(()) }}) as SmeltHttpHandler }}", text = text.delimited()
+            "{{ let smelt_handler = {text}; ::std::rc::Rc::new(move |smelt_request: SmeltIncomingMessage, smelt_response: SmeltServerResponse| {{ {call} Ok(()) }}) as SmeltHttpHandler }}",
+            text = text.delimited()
         )))
     }
 
@@ -136,25 +145,38 @@ impl FunctionEmitter<'_> {
                 let host_text = match args.get(1) {
                     Some(host) => {
                         let string_ty = self.type_id(Type::String)?;
-                        format!("Some(({}).to_string())", self.value_at_type(host, string_ty)?.delimited())
+                        format!(
+                            "Some(({}).to_string())",
+                            self.value_at_type(host, string_ty)?.delimited()
+                        )
                     }
                     None => "None".to_owned(),
                 };
                 let callback_text = match args.get(2) {
                     Some(callback) => {
-                        format!("Some({})", self.http_listen_callback_expr(callback)?.delimited())
+                        format!(
+                            "Some({})",
+                            self.http_listen_callback_expr(callback)?.delimited()
+                        )
                     }
                     None => "None".to_owned(),
                 };
                 Ok(RustExpr::loose(format!(
-                    "{receiver}.listen({port_text}, {host_text}, {callback_text})?", receiver = receiver.tight(), port_text = port_text.delimited()
+                    "{receiver}.listen({port_text}, {host_text}, {callback_text})?",
+                    receiver = receiver.tight(),
+                    port_text = port_text.delimited()
                 )))
             }
-            smelt_hir::HttpServerOp::Close => Ok(RustExpr::loose(format!("{receiver}.close()?", receiver = receiver.tight()))),
+            smelt_hir::HttpServerOp::Close => Ok(RustExpr::loose(format!(
+                "{receiver}.close()?",
+                receiver = receiver.tight()
+            ))),
             smelt_hir::HttpServerOp::Address => {
-                let record = self.address_info_record_expr("smelt_address", "smelt_family", "smelt_port")?;
+                let record =
+                    self.address_info_record_expr("smelt_address", "smelt_family", "smelt_port")?;
                 Ok(receiver.postfix(format!(
-                    ".address().map(|(smelt_address, smelt_family, smelt_port)| {record})", record = record.delimited()
+                    ".address().map(|(smelt_address, smelt_family, smelt_port)| {record})",
+                    record = record.delimited()
                 )))
             }
         }
@@ -179,9 +201,13 @@ impl FunctionEmitter<'_> {
             .iter()
             .find(|interface| self.mir.symbols.get(interface.name) == Some("AddressInfo"))
             .ok_or_else(|| {
-                EmitError::new("`server.address()` needs the AddressInfo record the frontend declares")
+                EmitError::new(
+                    "`server.address()` needs the AddressInfo record the frontend declares",
+                )
             })?;
-        let fields = format!("address: JsString::from({address}), family: JsString::from({family}), port: {port}");
+        let fields = format!(
+            "address: JsString::from({address}), family: JsString::from({family}), port: {port}"
+        );
         if self.context.is_reference_class(interface.name) {
             return Ok(RustExpr::chain(format!(
                 "AddressInfo(::std::rc::Rc::new(::std::cell::RefCell::new(AddressInfoInner {{ {fields} }})))"
@@ -205,7 +231,8 @@ impl FunctionEmitter<'_> {
             "let _ = smelt_listening();"
         };
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_listening = {text}; ::std::rc::Rc::new(move || {{ {call} Ok(()) }}) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }}", text = text.delimited()
+            "{{ let smelt_listening = {text}; ::std::rc::Rc::new(move || {{ {call} Ok(()) }}) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }}",
+            text = text.delimited()
         )))
     }
 
@@ -225,13 +252,20 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let receiver = self.operand_expr(message)?;
         Ok(match op {
-            smelt_hir::IncomingMessageOp::Method => RustExpr::chain(format!("JsString::from({receiver}.method())", receiver = receiver.tight())),
-            smelt_hir::IncomingMessageOp::Url => RustExpr::chain(format!("JsString::from({receiver}.url())", receiver = receiver.tight())),
+            smelt_hir::IncomingMessageOp::Method => RustExpr::chain(format!(
+                "JsString::from({receiver}.method())",
+                receiver = receiver.tight()
+            )),
+            smelt_hir::IncomingMessageOp::Url => RustExpr::chain(format!(
+                "JsString::from({receiver}.url())",
+                receiver = receiver.tight()
+            )),
             smelt_hir::IncomingMessageOp::Headers => {
                 let container = self.signature_type(dest_ty)?;
                 // The host's header pairs are UTF-8; the record holds JavaScript strings.
                 RustExpr::loose(format!(
-                    "<{container} as ::std::iter::FromIterator<(JsString, JsString)>>::from_iter({receiver}.headers().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))))", receiver = receiver.tight()
+                    "<{container} as ::std::iter::FromIterator<(JsString, JsString)>>::from_iter({receiver}.headers().into_iter().map(|(smelt_name, smelt_value)| (JsString::from(smelt_name), JsString::from(smelt_value))))",
+                    receiver = receiver.tight()
                 ))
             }
         })
@@ -249,21 +283,31 @@ impl FunctionEmitter<'_> {
         let float_ty = self.type_id(Type::Float)?;
         let arg_at = |index: usize| -> Result<&Operand, EmitError> {
             args.get(index).ok_or_else(|| {
-                EmitError::new(format!("`ServerResponse` operation {op:?} is missing an argument"))
+                EmitError::new(format!(
+                    "`ServerResponse` operation {op:?} is missing an argument"
+                ))
             })
         };
         Ok(match op {
             smelt_hir::ServerResponseOp::StatusCode => receiver.postfix(".status_code()"),
             smelt_hir::ServerResponseOp::SetStatusCode => {
                 let value = self.value_at_type(arg_at(0)?, float_ty)?;
-                receiver.postfix(format!(".set_status_code({value})", value = value.delimited()))
+                receiver.postfix(format!(
+                    ".set_status_code({value})",
+                    value = value.delimited()
+                ))
             }
             smelt_hir::ServerResponseOp::SetHeader => {
                 let name = self.value_at_type(arg_at(0)?, string_ty)?;
                 let value = self.value_at_type(arg_at(1)?, string_ty)?;
                 // Answers the response so the statement has a value to discard
                 // and `res.setHeader(..)` composes like the other members.
-                RustExpr::atom(format!("{{ {receiver}.set_header(&{name}, &{value}); {receiver}.clone() }}", receiver = receiver.tight(), name = name.tight(), value = value.tight()))
+                RustExpr::atom(format!(
+                    "{{ {receiver}.set_header(&{name}, &{value}); {receiver}.clone() }}",
+                    receiver = receiver.tight(),
+                    name = name.tight(),
+                    value = value.tight()
+                ))
             }
             smelt_hir::ServerResponseOp::GetHeader => {
                 let name = self.value_at_type(arg_at(0)?, string_ty)?;
@@ -279,13 +323,18 @@ impl FunctionEmitter<'_> {
                     Some(headers) => {
                         let headers_ty = self.operand_ty(headers)?;
                         let headers_value = self.operand_expr(headers)?;
-                        let converted =
-                            self.headers_conversion_expr(&headers_value, headers_ty)?;
-                        format!("Some({converted}.entries_in_insertion_order())", converted = converted.tight())
+                        let converted = self.headers_conversion_expr(&headers_value, headers_ty)?;
+                        format!(
+                            "Some({converted}.entries_in_insertion_order())",
+                            converted = converted.tight()
+                        )
                     }
                     None => "None".to_owned(),
                 };
-                receiver.postfix(format!(".write_head({status}, {headers_text})", status = status.delimited()))
+                receiver.postfix(format!(
+                    ".write_head({status}, {headers_text})",
+                    status = status.delimited()
+                ))
             }
             smelt_hir::ServerResponseOp::Write => {
                 let chunk = self.value_at_type(arg_at(0)?, string_ty)?;
@@ -293,7 +342,10 @@ impl FunctionEmitter<'_> {
             }
             smelt_hir::ServerResponseOp::End => {
                 let chunk = match args.first() {
-                    Some(chunk) => format!("Some(({}).to_string())", self.value_at_type(chunk, string_ty)?.delimited()),
+                    Some(chunk) => format!(
+                        "Some(({}).to_string())",
+                        self.value_at_type(chunk, string_ty)?.delimited()
+                    ),
                     None => "None".to_owned(),
                 };
                 receiver.postfix(format!(".end({chunk})"))
@@ -312,10 +364,7 @@ impl FunctionEmitter<'_> {
     /// true afterwards exactly as the spec says a fetched request is consumed;
     /// an empty body is sent as no body rather than as zero bytes, so a GET
     /// built this way is indistinguishable on the wire from a plain one.
-    pub(super) fn http_fetch_request_expr(
-        &self,
-        request: &Operand,
-    ) -> Result<RustExpr, EmitError> {
+    pub(super) fn http_fetch_request_expr(&self, request: &Operand) -> Result<RustExpr, EmitError> {
         let request_text = self.operand_expr(request)?;
         Ok(RustExpr::atom(format!(
             "SmeltFuture::from_future(Box::pin(async move {{ \
@@ -330,7 +379,8 @@ impl FunctionEmitter<'_> {
              let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); \
              let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); \
              let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec(); \
-             Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))", request_text = request_text.delimited()
+             Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+            request_text = request_text.delimited()
         )))
     }
 

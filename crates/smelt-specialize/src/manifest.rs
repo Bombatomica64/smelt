@@ -344,7 +344,11 @@ impl CallableProvenance {
         }
         let start = usize::try_from(self.span.start).ok()?;
         let end = usize::try_from(self.span.end).ok()?;
-        Some(source.get(start..end).is_some_and(|bytes| source_code_hash(bytes) == self.code_hash))
+        Some(
+            source
+                .get(start..end)
+                .is_some_and(|bytes| source_code_hash(bytes) == self.code_hash),
+        )
     }
 }
 

@@ -72,7 +72,10 @@ impl NameIndex {
             &mut duplicates,
         );
         if duplicates.is_empty() {
-            Ok(Self { classes, interfaces })
+            Ok(Self {
+                classes,
+                interfaces,
+            })
         } else {
             Err(duplicates)
         }
@@ -91,7 +94,11 @@ fn unique_positions(
     let mut repeated = Vec::new();
     for (position, name) in names.enumerate() {
         if let Some(first) = positions.get(&name) {
-            duplicates.push(DuplicateName { kind, name, positions: (*first, position) });
+            duplicates.push(DuplicateName {
+                kind,
+                name,
+                positions: (*first, position),
+            });
             repeated.push(name);
         } else {
             positions.insert(name, position);
@@ -156,7 +163,11 @@ impl Mir {
             };
             for (position, function) in self.functions.iter().enumerate() {
                 for block in &function.blocks {
-                    if let Some(Terminator::Call { callee: Callee::Static(target), .. }) = &block.terminator {
+                    if let Some(Terminator::Call {
+                        callee: Callee::Static(target),
+                        ..
+                    }) = &block.terminator
+                    {
                         let callers = lookups.static_callers.entry(*target).or_default();
                         if callers.last() != Some(&position) {
                             callers.push(position);
@@ -182,7 +193,8 @@ impl Mir {
     /// The interface named `name`.
     #[must_use]
     pub fn interface_named(&self, name: Symbol) -> Option<&MirInterface> {
-        self.interfaces.get(*self.lookups().names.interfaces.get(&name)?)
+        self.interfaces
+            .get(*self.lookups().names.interfaces.get(&name)?)
     }
 
     /// Whether a class is named `name`.
@@ -261,8 +273,13 @@ mod tests {
 
     /// Function `id`, whose entry block statically calls `callee` when given.
     fn function(id: u32, callee: Option<u32>) -> MirFunction {
-        let mut function =
-            MirFunction::new(FuncId(id), Symbol(id), HirOrigin::Body(BodyId(0)), TypeId(0), span());
+        let mut function = MirFunction::new(
+            FuncId(id),
+            Symbol(id),
+            HirOrigin::Body(BodyId(0)),
+            TypeId(0),
+            span(),
+        );
         function.blocks[0].terminator = callee.map(|target| Terminator::Call {
             callee: Callee::Static(FuncId(target)),
             args: Vec::new(),
@@ -286,7 +303,10 @@ mod tests {
     /// nothing, rather than its first declaration (audit C12); unique names
     /// answer as before, and a class may share an interface's name.
     #[test]
-    #[expect(clippy::expect_used, reason = "test fixtures unwrap and index their own known-good shapes")]
+    #[expect(
+        clippy::expect_used,
+        reason = "test fixtures unwrap and index their own known-good shapes"
+    )]
     fn a_repeated_name_is_refused_not_resolved_to_its_first() {
         let mut program = mir();
         program.classes = vec![
@@ -299,14 +319,24 @@ mod tests {
         let duplicates = super::NameIndex::new(&program).expect_err("duplicate class");
         assert_eq!(
             duplicates,
-            [super::DuplicateName { kind: "class", name: Symbol(1), positions: (0, 1) }]
+            [super::DuplicateName {
+                kind: "class",
+                name: Symbol(1),
+                positions: (0, 1)
+            }]
         );
         assert!(program.class_named(Symbol(1)).is_none());
-        assert!(program.has_class(Symbol(3)), "a class may share an interface's name");
+        assert!(
+            program.has_class(Symbol(3)),
+            "a class may share an interface's name"
+        );
         assert!(program.has_class(Symbol(2)));
         assert!(program.has_interface(Symbol(3)));
         assert!(!program.has_interface(Symbol(1)));
-        assert_eq!(program.interface_named(Symbol(3)).map(|found| found.name), Some(Symbol(3)));
+        assert_eq!(
+            program.interface_named(Symbol(3)).map(|found| found.name),
+            Some(Symbol(3))
+        );
         assert!(program.interface_named(Symbol(9)).is_none());
     }
 
@@ -319,9 +349,17 @@ mod tests {
         let mut second_block = twice.blocks[0].clone();
         second_block.id = BlockId(1);
         twice.blocks.push(second_block);
-        program.functions = vec![function(0, None), function(1, Some(0)), twice, function(3, Some(1))];
+        program.functions = vec![
+            function(0, None),
+            function(1, Some(0)),
+            twice,
+            function(3, Some(1)),
+        ];
         let callers = |program: &Mir, target| {
-            program.static_callers(FuncId(target)).map(|caller| caller.id).collect::<Vec<_>>()
+            program
+                .static_callers(FuncId(target))
+                .map(|caller| caller.id)
+                .collect::<Vec<_>>()
         };
         assert_eq!(callers(&program, 0), [FuncId(1), FuncId(2)]);
         assert_eq!(callers(&program, 1), [FuncId(3)]);
@@ -340,7 +378,10 @@ mod tests {
         assert!(copy.has_class(Symbol(2)));
         assert!(!copy.has_class(Symbol(1)));
         program.classes.clear();
-        assert!(program.has_class(Symbol(1)), "the lookups stand until cleared");
+        assert!(
+            program.has_class(Symbol(1)),
+            "the lookups stand until cleared"
+        );
         program.clear_index();
         assert!(!program.has_class(Symbol(1)));
     }

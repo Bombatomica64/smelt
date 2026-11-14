@@ -54,7 +54,11 @@ fn literal_key(value: &Literal) -> Option<(u8, u64, std::borrow::Cow<'_, str>)> 
         Literal::Bool(flag) => Some((0, u64::from(*flag), "".into())),
         Literal::Int(number) => Some((1, u64::from_ne_bytes(number.to_ne_bytes()), "".into())),
         Literal::Float(number) if number.is_nan() => None,
-        Literal::Float(number) => Some((2, (if *number == 0.0 { 0.0_f64 } else { *number }).to_bits(), "".into())),
+        Literal::Float(number) => Some((
+            2,
+            (if *number == 0.0 { 0.0_f64 } else { *number }).to_bits(),
+            "".into(),
+        )),
         Literal::String(text) => Some((3, 0, text.as_str().into())),
         Literal::Symbol(text) => Some((4, 0, text.as_str().into())),
         Literal::BigInt(digits) => Some((7, 0, digits.as_str().into())),
@@ -137,7 +141,9 @@ impl ModuleBuilder<'_> {
                     .types
                     .iter()
                     .map(|member| self.ts_type_decode_facts(member))
-                    .fold(empty_union_facts(), |left, right| union_facts(left, right, &mut seen))
+                    .fold(empty_union_facts(), |left, right| {
+                        union_facts(left, right, &mut seen)
+                    })
             }
             TSType::TSParenthesizedType(inner) => self.ts_type_decode_facts(&inner.type_annotation),
             TSType::TSTypeReference(reference) if reference.type_arguments.is_none() => {

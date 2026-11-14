@@ -20,9 +20,9 @@ use std::collections::HashMap;
 
 use smelt_hir::TypeId;
 
-use crate::lowering::{ConstCollection, ConstLiteral};
-use crate::lowering::resolve::EnumBinding;
 use crate::ObjectConst;
+use crate::lowering::resolve::EnumBinding;
+use crate::lowering::{ConstCollection, ConstLiteral};
 
 /// A `RegExp` literal constant: source pattern, flags and its HIR type.
 type ConstRegexp = (String, String, TypeId);
@@ -59,7 +59,10 @@ impl ConstRegistry {
     /// under the local name from the exporting module's qualified entries
     /// (see `ModuleBuilder::adopt_exported_facts`).
     pub(in crate::lowering) fn new(literals: HashMap<String, ConstLiteral>) -> Self {
-        Self { literals, ..Self::default() }
+        Self {
+            literals,
+            ..Self::default()
+        }
     }
 
     /// Return whether `name` resolves to a folded literal, object, or collection constant.
@@ -200,8 +203,8 @@ impl ConstRegistry {
 #[cfg(test)]
 mod tests {
     use super::ConstRegistry;
-    use crate::lowering::{ConstCollection, ConstLiteral};
     use crate::ObjectConst;
+    use crate::lowering::{ConstCollection, ConstLiteral};
     use smelt_hir::{Literal, TypeId};
 
     /// Build a folded string literal constant.

@@ -143,7 +143,12 @@ impl ErasureSettings {
         if let Some(table) = config {
             push_levels(&mut settings, table.default, &table.levels, None)?;
             for scope in &table.scope {
-                push_levels(&mut settings, scope.default, &scope.levels, Some(&scope.paths))?;
+                push_levels(
+                    &mut settings,
+                    scope.default,
+                    &scope.levels,
+                    Some(&scope.paths),
+                )?;
             }
         }
         for flag in cli {
@@ -159,9 +164,10 @@ impl ErasureSettings {
             .rev()
             .filter(|setting| setting.reason.is_none_or(|set| set == reason))
             .find(|setting| {
-                setting.scope.as_ref().is_none_or(|globs| {
-                    globs.iter().any(|glob| path_matches_glob(relative, glob))
-                })
+                setting
+                    .scope
+                    .as_ref()
+                    .is_none_or(|globs| globs.iter().any(|glob| path_matches_glob(relative, glob)))
             })
             .map_or_else(|| reason.default_severity(), |setting| setting.severity)
     }
@@ -294,7 +300,10 @@ impl<'run> SourceIndex<'run> {
             .iter()
             .map(|module| {
                 let relative = manifest_relative_path(Path::new(&module.source.path), &base);
-                (module.source.file, (relative, sources.text(module.source.file)))
+                (
+                    module.source.file,
+                    (relative, sources.text(module.source.file)),
+                )
             })
             .collect();
         Self { files }
@@ -317,12 +326,18 @@ pub(crate) fn resolve(
     let mut resolved = frontend
         .iter()
         .map(|record| (record, ErasureOrigin::Frontend))
-        .chain(backend.iter().map(|record| (record, ErasureOrigin::Backend)))
+        .chain(
+            backend
+                .iter()
+                .map(|record| (record, ErasureOrigin::Backend)),
+        )
         .map(|(record, origin)| {
             let (relative, text) = index
                 .files
                 .get(&record.span.file)
-                .map_or((PathBuf::from("<unknown>"), None), |(path, text)| (path.clone(), *text));
+                .map_or((PathBuf::from("<unknown>"), None), |(path, text)| {
+                    (path.clone(), *text)
+                });
             let (line, column) = text
                 .and_then(|text| smelt_hir::line_col(text, record.span.start))
                 .unwrap_or((1, 1));
@@ -556,7 +571,10 @@ fn class_of(reason: &str) -> &'static str {
 
 /// Render the breakdown as the report's Markdown section.
 pub(crate) fn render_breakdown_markdown(out: &mut String, breakdown: &ErasureBreakdown) {
-    push_fmt(out, format_args!("## Avoidable erasure by reason and source line\n"));
+    push_fmt(
+        out,
+        format_args!("## Avoidable erasure by reason and source line\n"),
+    );
     out.push('\n');
     push_fmt(
         out,
@@ -570,7 +588,10 @@ pub(crate) fn render_breakdown_markdown(out: &mut String, breakdown: &ErasureBre
     push_fmt(out, format_args!("| Reason | Class | Decisions |\n"));
     push_fmt(out, format_args!("| --- | --- | ---: |\n"));
     for row in &breakdown.by_reason {
-        push_fmt(out, format_args!("| `{}` | {} | {} |\n", row.reason, row.class, row.count));
+        push_fmt(
+            out,
+            format_args!("| `{}` | {} | {} |\n", row.reason, row.class, row.count),
+        );
     }
     out.push('\n');
     if breakdown.avoidable_lines.is_empty() {
@@ -585,7 +606,10 @@ pub(crate) fn render_breakdown_markdown(out: &mut String, breakdown: &ErasureBre
         ),
     );
     out.push('\n');
-    push_fmt(out, format_args!("| Source line | Reason | Decisions | Detail |\n"));
+    push_fmt(
+        out,
+        format_args!("| Source line | Reason | Decisions | Detail |\n"),
+    );
     push_fmt(out, format_args!("| --- | --- | ---: | --- |\n"));
     for row in &breakdown.avoidable_lines {
         push_fmt(
@@ -648,7 +672,10 @@ mod tests {
         let sources = LoweredSources::from_texts([(file, text.to_owned())]);
         let settings = ErasureSettings::new(None, &[]).expect("settings");
         let resolved = resolve(&krate, &sources, &[], Path::new("."), &settings);
-        let lines = resolved.iter().map(|record| (record.line, record.column)).collect::<Vec<_>>();
+        let lines = resolved
+            .iter()
+            .map(|record| (record.line, record.column))
+            .collect::<Vec<_>>();
         assert_eq!(lines, [(3, 10)]);
     }
 
@@ -683,21 +710,42 @@ mod tests {
         let settings = ErasureSettings::new(Some(&table), &[]).expect("settings");
         let src = Path::new("src/a.ts");
         let vendor = Path::new("vendor/lib/b.ts");
-        assert_eq!(settings.severity(ErasureReason::ExplicitAny, src), ErasureSeverity::Deny);
-        assert_eq!(settings.severity(ErasureReason::TypeLevel, src), ErasureSeverity::Warn);
-        assert_eq!(settings.severity(ErasureReason::ExplicitAny, vendor), ErasureSeverity::Allow);
+        assert_eq!(
+            settings.severity(ErasureReason::ExplicitAny, src),
+            ErasureSeverity::Deny
+        );
+        assert_eq!(
+            settings.severity(ErasureReason::TypeLevel, src),
+            ErasureSeverity::Warn
+        );
+        assert_eq!(
+            settings.severity(ErasureReason::ExplicitAny, vendor),
+            ErasureSeverity::Allow
+        );
 
-        let cli = vec!["explicit-any=allow".to_owned(), "all:vendor/**=deny".to_owned()];
+        let cli = vec![
+            "explicit-any=allow".to_owned(),
+            "all:vendor/**=deny".to_owned(),
+        ];
         let settings = ErasureSettings::new(Some(&table), &cli).expect("settings");
-        assert_eq!(settings.severity(ErasureReason::ExplicitAny, src), ErasureSeverity::Allow);
-        assert_eq!(settings.severity(ErasureReason::TypeLevel, vendor), ErasureSeverity::Deny);
+        assert_eq!(
+            settings.severity(ErasureReason::ExplicitAny, src),
+            ErasureSeverity::Allow
+        );
+        assert_eq!(
+            settings.severity(ErasureReason::TypeLevel, vendor),
+            ErasureSeverity::Deny
+        );
     }
 
     /// Unknown reasons and levels are rejected with the list of known names.
     #[test]
     fn unknown_names_are_rejected() {
         let error = ErasureSettings::new(None, &["no-such=warn".to_owned()]).unwrap_err();
-        assert!(error.contains("unknown erasure reason `no-such`"), "{error}");
+        assert!(
+            error.contains("unknown erasure reason `no-such`"),
+            "{error}"
+        );
         assert!(error.contains("explicit-any"), "{error}");
         let error = ErasureSettings::new(None, &["explicit-any=loud".to_owned()]).unwrap_err();
         assert!(error.contains("unknown level `loud`"), "{error}");
@@ -718,7 +766,11 @@ mod tests {
             detail: String::new(),
             severity: "allow".to_owned(),
         };
-        let records = vec![record("explicit-any", 1), record("explicit-any", 2), record("type-level", 3)];
+        let records = vec![
+            record("explicit-any", 1),
+            record("explicit-any", 2),
+            record("type-level", 3),
+        ];
         assert_eq!(summary(&records), "explicit-any: 2\ntype-level: 1\n");
     }
 }

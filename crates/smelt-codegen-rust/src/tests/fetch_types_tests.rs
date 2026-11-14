@@ -231,13 +231,19 @@ fn url_search_params_runtime_is_pay_for_use_and_declares_its_dependency() {
     );
     let mut ctx = HirCtx::new();
     assert!(
-        to_hir(r#"const params = new URLSearchParams("a=1");"#, FileId(0), &mut ctx).is_ok(),
+        to_hir(
+            r#"const params = new URLSearchParams("a=1");"#,
+            FileId(0),
+            &mut ctx
+        )
+        .is_ok(),
         "HIR"
     );
     let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
     smelt_mir::opt::optimize(&mut mir);
     assert!(
-        runtime_demand::backend_dependencies(&RuntimeDemand::of(&mir)).contains(&BackendDependency::Url),
+        runtime_demand::backend_dependencies(&RuntimeDemand::of(&mir))
+            .contains(&BackendDependency::Url),
         "a params value serializes through `url::form_urlencoded`, so the crate needs `url`"
     );
 }
@@ -293,7 +299,10 @@ fn response_and_request_runtimes_are_pay_for_use() {
     assert!(!plain.contains("SmeltBody"), "{plain}");
 
     let response_only = source_for(r#"const made = new Response("hi");"#);
-    assert!(response_only.contains("struct SmeltResponse"), "{response_only}");
+    assert!(
+        response_only.contains("struct SmeltResponse"),
+        "{response_only}"
+    );
     assert!(
         response_only.contains("struct SmeltBody"),
         "a response holds a body, so the body comes with it: {response_only}"

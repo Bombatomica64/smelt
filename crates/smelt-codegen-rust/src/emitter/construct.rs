@@ -38,7 +38,10 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call_text = RustExpr::chain(format!("smelt_construct({callee_text}, ::std::vec![{arg_texts}])", callee_text = callee_text.delimited()));
+        let call_text = RustExpr::chain(format!(
+            "smelt_construct({callee_text}, ::std::vec![{arg_texts}])",
+            callee_text = callee_text.delimited()
+        ));
         self.extract_rendered(&call_text, dest_ty, &self.render_scope())
     }
 
@@ -55,7 +58,10 @@ impl FunctionEmitter<'_> {
             .map(|arg| self.erase(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call_text = RustExpr::chain(format!("smelt_construct_like({value_text}, ::std::vec![{arg_texts}])", value_text = value_text.delimited()));
+        let call_text = RustExpr::chain(format!(
+            "smelt_construct_like({value_text}, ::std::vec![{arg_texts}])",
+            value_text = value_text.delimited()
+        ));
         self.extract_rendered(&call_text, dest_ty, &self.render_scope())
     }
 
@@ -84,10 +90,18 @@ impl FunctionEmitter<'_> {
         // Static methods are own properties of the class object
         // (`class_proto::class_static_entries`).
         let methods = crate::class_proto::class_static_entries(self.mir, self.context, class)?;
-        let method_keys = methods.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+        let method_keys = methods
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
         let mut statics = methods
             .into_iter()
-            .map(|(key, adapter)| format!("({key:?}.to_owned(), {adapter})", adapter = adapter.delimited()))
+            .map(|(key, adapter)| {
+                format!(
+                    "({key:?}.to_owned(), {adapter})",
+                    adapter = adapter.delimited()
+                )
+            })
             .collect::<Vec<_>>();
         statics.extend(self.class_value_static_hooks(class, &method_keys)?);
         let statics_text = if statics.is_empty() {
@@ -98,7 +112,8 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::chain(format!(
             "smelt_class_value({:?}, {:?}, {constructor_text}, {statics_text})",
             covered[0],
-            covered.join(","), constructor_text = constructor_text.delimited()
+            covered.join(","),
+            constructor_text = constructor_text.delimited()
         )))
     }
 
@@ -126,7 +141,11 @@ impl FunctionEmitter<'_> {
     ///
     /// The runtime builds the enumerable view from the last two
     /// (`smelt_class_value_view`). `#private` statics are never properties.
-    fn class_value_static_hooks(&self, class: smelt_hir::Symbol, methods: &[String]) -> Result<Vec<String>, EmitError> {
+    fn class_value_static_hooks(
+        &self,
+        class: smelt_hir::Symbol,
+        methods: &[String],
+    ) -> Result<Vec<String>, EmitError> {
         let mut readable = Vec::new();
         let mut writable = Vec::new();
         let mut enumerable = Vec::new();
@@ -160,7 +179,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             own = false;
-            current = found.base.and_then(|base| crate::classes::find_class(self.mir, base));
+            current = found
+                .base
+                .and_then(|base| crate::classes::find_class(self.mir, base));
         }
         let carrier = self.carrier()?;
         let fields_text = enumerable
@@ -170,8 +191,11 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let methods_text =
-            methods.iter().map(|key| format!("SmeltUnknown::String({key:?}.into())")).collect::<Vec<_>>().join(", ");
+        let methods_text = methods
+            .iter()
+            .map(|key| format!("SmeltUnknown::String({key:?}.into())"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let mut entries = vec![
             self.carrier_format(carrier, format_args!(
                 "(\"{fields_marker}\".to_owned(), SmeltUnknown::Array(::std::vec::Vec::<SmeltUnknown>::from([{fields_text}]).into()))",
@@ -193,7 +217,11 @@ impl FunctionEmitter<'_> {
         }
         let mut set_arms = String::new();
         for (key, global, ty) in &writable {
-            let value = self.extract_rendered(&RustExpr::path("smelt_static_value"), *ty, &self.render_scope())?;
+            let value = self.extract_rendered(
+                &RustExpr::path("smelt_static_value"),
+                *ty,
+                &self.render_scope(),
+            )?;
             let store = self.global_store_text(*global, &value)?;
             set_arms.push_str(&format!("{key:?} => {{ {store}; true }}, "));
         }
@@ -222,7 +250,9 @@ impl FunctionEmitter<'_> {
         let value_text = self.erase(value)?;
         let target_text = self.erase(target)?;
         Ok(RustExpr::chain(format!(
-            "smelt_instance_of_value(&{value_text}, &{target_text})", value_text = value_text.tight(), target_text = target_text.tight()
+            "smelt_instance_of_value(&{value_text}, &{target_text})",
+            value_text = value_text.tight(),
+            target_text = target_text.tight()
         )))
     }
 }

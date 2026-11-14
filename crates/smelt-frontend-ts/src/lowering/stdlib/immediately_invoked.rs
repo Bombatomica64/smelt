@@ -35,12 +35,9 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Future(_)) => Some(ty),
             Some(Type::Union(members)) => {
-                let mut futures = members
-                    .iter()
-                    .copied()
-                    .filter(|member| {
-                        matches!(self.ctx.krate.types.get(*member), Some(Type::Future(_)))
-                    });
+                let mut futures = members.iter().copied().filter(|member| {
+                    matches!(self.ctx.krate.types.get(*member), Some(Type::Future(_)))
+                });
                 let only = futures.next()?;
                 futures.next().is_none().then_some(only)
             }
@@ -128,9 +125,10 @@ impl ModuleBuilder<'_> {
                 function.return_type.is_some(),
                 &function.params,
             )),
-            Expression::ArrowFunctionExpression(arrow) => {
-                Some(declares_signature(arrow.return_type.is_some(), &arrow.params))
-            }
+            Expression::ArrowFunctionExpression(arrow) => Some(declares_signature(
+                arrow.return_type.is_some(),
+                &arrow.params,
+            )),
             _ => None,
         };
         let Some(skip_hint) = skip_hint else {
@@ -168,18 +166,15 @@ impl ModuleBuilder<'_> {
             type_hint
         };
         let callee_hint = type_hint.map(|return_ty| {
-            self.ctx
-                .krate
-                .types
-                .intern(Type::Function(FunctionType {
-                    params: Vec::new(),
-                    rest: None,
-                    required_params: None,
-                    mutable_params: Vec::new(),
-                    return_ty,
-                    is_async: false,
-                    may_throw: false,
-                }))
+            self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                mutable_params: Vec::new(),
+                return_ty,
+                is_async: false,
+                may_throw: false,
+            }))
         });
         let callee = match &call.callee {
             Expression::FunctionExpression(function) => {

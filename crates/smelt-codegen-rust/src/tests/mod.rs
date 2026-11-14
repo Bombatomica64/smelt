@@ -4,8 +4,8 @@ use super::*;
 use smelt_frontend_py as py_frontend;
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
-use smelt_stdlib::BackendDependency;
 use smelt_mir::HirOrigin;
+use smelt_stdlib::BackendDependency;
 
 use crate::crate_builder::generated_deps;
 use crate::deps::GeneratedDep;
@@ -33,7 +33,10 @@ fn program_body(source: &str) -> &str {
 /// crate cannot satisfy it.
 #[track_caller]
 fn rust_fn(source: &str, name: &str) -> String {
-    let mut lines = program_body(source).lines().map(str::trim).skip_while(|line| !declares_fn(line, name));
+    let mut lines = program_body(source)
+        .lines()
+        .map(str::trim)
+        .skip_while(|line| !declares_fn(line, name));
     let Some(signature) = lines.next() else {
         panic!("no emitted function named `{name}`:\n{source}");
     };
@@ -46,7 +49,10 @@ fn rust_fn(source: &str, name: &str) -> String {
         item.push(line);
         depth = depth.saturating_add(brace_delta(line));
     }
-    assert!(depth == 0_i32, "emitted function `{name}` has no closing brace:\n{source}");
+    assert!(
+        depth == 0_i32,
+        "emitted function `{name}` has no closing brace:\n{source}"
+    );
     item.join("\n")
 }
 
@@ -92,9 +98,17 @@ fn rust_declaration(source: &str, prefix: &str) -> String {
     let mut lines = program_body(source)
         .lines()
         .map(str::trim)
-        .skip_while(|line| !line.strip_prefix("pub ").unwrap_or(line).starts_with(prefix))
+        .skip_while(|line| {
+            !line
+                .strip_prefix("pub ")
+                .unwrap_or(line)
+                .starts_with(prefix)
+        })
         .peekable();
-    assert!(lines.peek().is_some(), "no generated declaration starting `{prefix}`:\n{source}");
+    assert!(
+        lines.peek().is_some(),
+        "no generated declaration starting `{prefix}`:\n{source}"
+    );
     let mut depth = 0_i32;
     let mut item = Vec::new();
     for line in lines {
@@ -250,21 +264,19 @@ fn emitted_function_body<'a>(source: &'a str, signature: &str) -> &'a str {
     rest.get(..end).unwrap_or(rest)
 }
 
+mod accessor_field_tests;
+mod bigint_tests;
+mod blocker_site_tests;
 mod carrier_trial_tests;
-mod labelled_loop_tests;
-mod local_binding_tests;
-mod name_rule_tests;
+mod closure_binding_tests;
+mod closure_capture_frame_tests;
+mod console_inspect_tests;
+mod discriminated_union_tests;
+mod drifted_helper_tests;
 mod edition_tests;
-mod reserved_name_tests;
-mod runtime_demand_tests;
-mod template_hygiene_tests;
-mod emit_callback_options_tests;
-mod emit_python_strings_tests;
-mod emit_python_collections_tests;
-mod emit_python_json_tests;
 mod emit_array_methods_tests;
-mod emit_promise_calls_tests;
 mod emit_async_tests;
+mod emit_callback_options_tests;
 mod emit_classes_tests;
 mod emit_closures_tests;
 mod emit_collections_tests;
@@ -273,48 +285,50 @@ mod emit_emission_tests;
 mod emit_erasure_tests;
 mod emit_errors_tests;
 mod emit_generics_tests;
+mod emit_promise_calls_tests;
+mod emit_python_collections_tests;
+mod emit_python_json_tests;
+mod emit_python_strings_tests;
 mod emit_regex_tests;
 mod emit_strings_tests;
 mod emit_unions_tests;
 mod emit_vitest_tests;
-mod keyed_presence_and_receiver_tests;
-mod generics_tests;
-mod static_call_arg_precedence_tests;
-mod reference_class_tests;
-mod module_globals_tests;
-mod snapshot_tests;
-mod snapshot_family_tests;
+mod erased_rest_callback_tests;
+mod erased_runtime_shape_tests;
 mod fetch_types_tests;
+mod function_semantics_tests;
+mod generic_call_site_tests;
+mod generics_tests;
 mod host_override_tests;
-mod thrown_tests;
-mod optional_and_truthiness_tests;
-mod runtime_manifest_tests;
+mod keyed_presence_and_receiver_tests;
+mod labelled_loop_tests;
+mod local_binding_tests;
+mod local_write_index_tests;
+mod module_globals_tests;
+mod name_and_shape_tests;
+mod name_rule_tests;
 mod nullish_and_identity_tests;
+mod number_format_tests;
+mod object_model_tests;
+mod optional_and_truthiness_tests;
+mod python_stdlib_spelling_tests;
+mod receiver_bound_slot_tests;
+mod reference_class_tests;
+mod rejoin_tests;
+mod reserved_name_tests;
+mod runtime_demand_tests;
+mod runtime_manifest_tests;
+mod snapshot_family_tests;
+mod snapshot_tests;
+mod static_call_arg_precedence_tests;
+mod stdlib_boundary_tests;
 mod tail_r3_tests;
 mod tail_r7_tests;
 mod tail_r8_tests;
-mod receiver_bound_slot_tests;
-mod truthiness_lowering_tests;
-mod name_and_shape_tests;
-mod object_model_tests;
-mod stdlib_boundary_tests;
-mod function_semantics_tests;
-mod blocker_site_tests;
-mod closure_capture_frame_tests;
-mod erased_runtime_shape_tests;
-mod python_stdlib_spelling_tests;
-mod drifted_helper_tests;
-mod console_inspect_tests;
-mod rejoin_tests;
-mod weak_receiver_tests;
-mod bigint_tests;
-mod local_write_index_tests;
+mod template_hygiene_tests;
+mod thrown_tests;
 mod trial_rollback_tests;
+mod truthiness_lowering_tests;
 mod union_element_read_tests;
 mod union_type_param_scope_tests;
-mod closure_binding_tests;
-mod generic_call_site_tests;
-mod discriminated_union_tests;
-mod accessor_field_tests;
-mod erased_rest_callback_tests;
-mod number_format_tests;
+mod weak_receiver_tests;

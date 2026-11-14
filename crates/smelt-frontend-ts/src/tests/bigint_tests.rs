@@ -41,13 +41,19 @@ const SMALL = 0x1fn;
             })
         })
     };
-    ensure!(literal("9999999999999999999999"), "the wide literal lost digits");
+    ensure!(
+        literal("9999999999999999999999"),
+        "the wide literal lost digits"
+    );
     ensure!(literal("31"), "a hex bigint literal is its decimal value");
     ensure!(
-        !ctx.krate.bodies.iter().any(|body| body
-            .exprs
+        !ctx.krate
+            .bodies
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(_) | Literal::Int(_))))),
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::Literal(Literal::Float(_) | Literal::Int(_))
+            ))),
         "a bigint literal lowered to a number"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -129,10 +135,18 @@ function halve(a: bigint): bigint {
     // A bigint `/` or `%` is never the infallible `BinOp` (which has no
     // unwind edge for its `RangeError`).
     ensure!(
-        !ctx.krate.bodies.iter().any(|body| body.exprs.iter().any(|expr| {
-            matches!(expr.kind, ExprKind::BinOp { op: BinOp::Div | BinOp::Rem, .. })
-                && ctx.krate.types.get(expr.ty) == Some(&Type::BigInt)
-        })),
+        !ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::Div | BinOp::Rem,
+                        ..
+                    }
+                ) && ctx.krate.types.get(expr.ty) == Some(&Type::BigInt)
+            })),
         "a bigint division stayed an infallible BinOp"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -158,17 +172,23 @@ function total(values: readonly unknown[], big: boolean): number | bigint {
     )?;
     let either = |ty: smelt_hir::TypeId| match ctx.krate.types.get(ty) {
         Some(Type::Union(items)) => {
-            items.iter().any(|item| ctx.krate.types.get(*item) == Some(&Type::Float))
-                && items.iter().any(|item| ctx.krate.types.get(*item) == Some(&Type::BigInt))
+            items
+                .iter()
+                .any(|item| ctx.krate.types.get(*item) == Some(&Type::Float))
+                && items
+                    .iter()
+                    .any(|item| ctx.krate.types.get(*item) == Some(&Type::BigInt))
         }
         _ => false,
     };
     ensure!(
-        ctx.krate.bodies.iter().any(|body| body
-            .exprs
+        ctx.krate
+            .bodies
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::BinOp { op: BinOp::Add, .. })
-                && either(expr.ty))),
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::BinOp { op: BinOp::Add, .. }
+            ) && either(expr.ty))),
         "`number | bigint` + `number | bigint` is not `number | bigint`"
     );
     Ok(())

@@ -88,8 +88,11 @@ fn a_type_from_an_in_crate_module_is_not_blocked() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     // Something else in the project is outside the crate, so the check is live
     // rather than short-circuited by an empty set.
-    fs::write(dir.join("elsewhere.ts"), "export type Elsewhere = number;\n")
-        .map_err(|error| format!("write elsewhere.ts: {error}"))?;
+    fs::write(
+        dir.join("elsewhere.ts"),
+        "export type Elsewhere = number;\n",
+    )
+    .map_err(|error| format!("write elsewhere.ts: {error}"))?;
     ctx.project_sources_outside_crate
         .insert(canonical(&dir, "elsewhere.ts")?);
     let main = dir.join("main.ts").display().to_string();

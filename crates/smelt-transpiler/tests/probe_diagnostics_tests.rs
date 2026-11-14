@@ -36,8 +36,14 @@ clone-strategy = "aggressive"
     // builtin Smelt does not model. A fail-fast pass would only report the first.
     // (`Reflect`/`Math`/`JSON` now resolve as namespace values, so this uses
     // `structuredClone`, whose bare value reference is not lowered yet.)
-    fs::write(project_path.join("src/a.ts"), "console.log(missingAlpha);\n")?;
-    fs::write(project_path.join("src/b.ts"), "const f = structuredClone;\n")?;
+    fs::write(
+        project_path.join("src/a.ts"),
+        "console.log(missingAlpha);\n",
+    )?;
+    fs::write(
+        project_path.join("src/b.ts"),
+        "const f = structuredClone;\n",
+    )?;
 
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     let json = smelt(&[
@@ -49,7 +55,10 @@ clone-strategy = "aggressive"
     ])?;
 
     // Both files surface (recovery past the first failure).
-    ensure(json.contains("missingAlpha"), "missing first-file diagnostic")?;
+    ensure(
+        json.contains("missingAlpha"),
+        "missing first-file diagnostic",
+    )?;
     ensure(
         json.contains("structuredClone"),
         "missing second-file diagnostic",

@@ -119,7 +119,9 @@ export function collect(rows: number[][]): number[] {
 
     // The closure captures a `Weak` to its own cell...
     assert!(
-        source.contains("let smelt_capture_recurse = ::std::rc::Rc::downgrade(&smelt_capture_recurse);"),
+        source.contains(
+            "let smelt_capture_recurse = ::std::rc::Rc::downgrade(&smelt_capture_recurse);"
+        ),
         "{source}"
     );
     // ...and upgrades it to call itself.
@@ -200,7 +202,8 @@ function expose(callback: (value: unknown) => unknown): unknown {
     );
 
     assert!(
-        source.contains("fn expose(callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> SmeltUnknown>)"),
+        source
+            .contains("fn expose(callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown) -> SmeltUnknown>)"),
         "{source}"
     );
     assert!(!source.contains("fn expose(callback: &dyn Fn"), "{source}");
@@ -273,7 +276,6 @@ const r = takesTwo(func1, func1);
         accessor_def.contains("SmeltUnknown::Function"),
         "the accessor must build an erased SmeltUnknown::Function value\n{source}"
     );
-
 }
 
 #[test]
@@ -461,9 +463,9 @@ export function run(values: number[]): string {
     );
     let errors = result.expect_err("irreconcilable reduce callback must be rejected");
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("callback returns an unsupported type")),
+        errors.iter().any(|error| error
+            .message
+            .contains("callback returns an unsupported type")),
         "expected the reduce return-type rejection, got: {errors:?}"
     );
 }

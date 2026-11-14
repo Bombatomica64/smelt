@@ -40,9 +40,16 @@ export function pairs(n: number): string {
     assert!(body.contains(&continue_outer), "{body}");
     // The jump runs the outer update first: `a + 1.0` precedes it.
     let jump = body.find(&continue_outer).unwrap_or_default();
-    assert!(body.get(..jump).is_some_and(|before| before.contains("a + 1.0")), "{body}");
+    assert!(
+        body.get(..jump)
+            .is_some_and(|before| before.contains("a + 1.0")),
+        "{body}"
+    );
     // The inner loop is a loop, so its own back edge has its own header.
-    assert!(body.matches("loop {").count() + body.matches("while ").count() >= 2, "{body}");
+    assert!(
+        body.matches("loop {").count() + body.matches("while ").count() >= 2,
+        "{body}"
+    );
 }
 
 /// `break outer` from two loops deep leaves the outer loop, and a loop no
@@ -76,11 +83,16 @@ export function plain(n: number): number {
     let plain = emitted_function_body(&source, "fn plain(");
     assert!(!plain.contains("'smelt_loop_"), "{plain}");
     let first = emitted_function_body(&source, "fn first(");
-    if let Some(label) = first
-        .lines()
-        .find_map(|line| line.trim().split_once(": loop {").map(|(label, _)| label.to_owned()))
-    {
-        assert!(first.contains(&format!("break {label};")) || first.contains(&format!("continue {label};")), "{first}");
+    if let Some(label) = first.lines().find_map(|line| {
+        line.trim()
+            .split_once(": loop {")
+            .map(|(label, _)| label.to_owned())
+    }) {
+        assert!(
+            first.contains(&format!("break {label};"))
+                || first.contains(&format!("continue {label};")),
+            "{first}"
+        );
     }
 }
 
@@ -109,13 +121,22 @@ fn an_irreducible_cycle_is_an_emit_error() {
         .iter_mut()
         .find(|function| {
             matches!(
-                function.blocks.first().and_then(|block| block.terminator.as_ref()),
+                function
+                    .blocks
+                    .first()
+                    .and_then(|block| block.terminator.as_ref()),
                 Some(Terminator::Switch { .. })
             )
         })
         .unwrap_or_else(|| panic!("`f` branches in its entry block"));
-    let Some(Terminator::Switch { then_block, else_block, .. }) =
-        function.blocks.first().and_then(|block| block.terminator.clone())
+    let Some(Terminator::Switch {
+        then_block,
+        else_block,
+        ..
+    }) = function
+        .blocks
+        .first()
+        .and_then(|block| block.terminator.clone())
     else {
         panic!("entry switch");
     };
@@ -127,7 +148,10 @@ fn an_irreducible_cycle_is_an_emit_error() {
     retarget(function, then_block, else_block);
     retarget(function, else_block, then_block);
     let error = match emit_source(&mir) {
-        Ok(source) => panic!("an irreducible cycle emitted:\n{}", emitted_function_body(&source, "fn f(")),
+        Ok(source) => panic!(
+            "an irreducible cycle emitted:\n{}",
+            emitted_function_body(&source, "fn f(")
+        ),
         Err(error) => error.to_string(),
     };
     assert!(error.contains("could not be structured"), "{error}");

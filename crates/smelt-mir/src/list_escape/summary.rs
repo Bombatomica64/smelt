@@ -284,10 +284,7 @@ impl CallSummaries {
                 .iter()
                 .enumerate()
                 .map(|(index, function)| {
-                    if function.is_async
-                        || function.is_generator
-                        || overridable.contains(&index)
-                    {
+                    if function.is_async || function.is_generator || overridable.contains(&index) {
                         FunctionSummary::Unresolvable
                     } else {
                         FunctionSummary::Known(SummaryFacts::optimistic(function))

@@ -16,5 +16,5 @@ mod function_expressions;
 mod functions;
 mod inferred_types;
 mod super_call;
-mod virtual_methods;
 pub(in crate::lowering) mod types_iface;
+mod virtual_methods;

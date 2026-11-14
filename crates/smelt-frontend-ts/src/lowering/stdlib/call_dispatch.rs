@@ -1,10 +1,10 @@
 //! Call-expression lowering hub: the order in which a call's decisions are taken,
 //! and the builtin registry that routes a call to its standard-library family.
 
+use crate::SmeltError;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{ModuleBuilder, stdlib_dispatch};
-use crate::SmeltError;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Type, TypeParamDef};
@@ -86,7 +86,10 @@ impl ReceiverFrame {
             Expression::ComputedMemberExpression(member) => Some(member.object.span()),
             _ => None,
         };
-        Self { object, lowered: DispatchedReceiver::Unasked }
+        Self {
+            object,
+            lowered: DispatchedReceiver::Unasked,
+        }
     }
 }
 
@@ -234,7 +237,9 @@ impl<'builder> ModuleBuilder<'builder> {
         let fact = HashMap::from([(name.to_owned(), inner)]);
         let lowered = self.with_narrowing(Some(fact), |this| this.call_expression(call, body));
         let op = lowered?;
-        Ok(Some(self.wrap_optional_receiver_method(receiver, op, call.span, body)))
+        Ok(Some(self.wrap_optional_receiver_method(
+            receiver, op, call.span, body,
+        )))
     }
 
     /// Whether the builtin method handlers are keyed on a receiver of type
@@ -276,30 +281,48 @@ impl<'builder> ModuleBuilder<'builder> {
         }
         self.speculate(body, |this, body| {
             let block = body.push_block(span);
-            let lowered = this.with_stmt_block(block, |this| -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-                let receiver = this.expression(&member.object, body)?;
-                let receiver_ty = Self::expr_ty(body, receiver);
-                let Some(present_ty) = this.optional_present_type(receiver_ty) else {
-                    return Ok(None);
-                };
-                if !this.builtin_keyed_receiver_type(present_ty) {
-                    return Ok(None);
-                }
-                let temp = body.push_local(smelt_hir::LocalDecl {
-                    name: Some(this.intern_synthesized_name("smelt_optional_receiver")),
-                    ty: receiver_ty,
-                    mutable: false,
-                    span,
-                });
-                let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
-                this.push_stmt_to_sink(body, smelt_hir::Stmt::Let { pat, ty: receiver_ty, value: Some(receiver) });
-                this.pinned_nodes.push((node, temp, present_ty));
-                let op = this.lower_conditional_arm(body, span, |this, body| this.call_expression(call, body));
-                this.pinned_nodes.pop();
-                let op = op?;
-                let temp_read = body.push_expr(Expr { kind: ExprKind::Local(temp), ty: receiver_ty, span });
-                Ok(Some(this.wrap_optional_receiver_method(temp_read, op, call.span, body)))
-            })?;
+            let lowered = this.with_stmt_block(
+                block,
+                |this| -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+                    let receiver = this.expression(&member.object, body)?;
+                    let receiver_ty = Self::expr_ty(body, receiver);
+                    let Some(present_ty) = this.optional_present_type(receiver_ty) else {
+                        return Ok(None);
+                    };
+                    if !this.builtin_keyed_receiver_type(present_ty) {
+                        return Ok(None);
+                    }
+                    let temp = body.push_local(smelt_hir::LocalDecl {
+                        name: Some(this.intern_synthesized_name("smelt_optional_receiver")),
+                        ty: receiver_ty,
+                        mutable: false,
+                        span,
+                    });
+                    let pat = body.push_pattern(smelt_hir::Pattern::Binding(temp));
+                    this.push_stmt_to_sink(
+                        body,
+                        smelt_hir::Stmt::Let {
+                            pat,
+                            ty: receiver_ty,
+                            value: Some(receiver),
+                        },
+                    );
+                    this.pinned_nodes.push((node, temp, present_ty));
+                    let op = this.lower_conditional_arm(body, span, |this, body| {
+                        this.call_expression(call, body)
+                    });
+                    this.pinned_nodes.pop();
+                    let op = op?;
+                    let temp_read = body.push_expr(Expr {
+                        kind: ExprKind::Local(temp),
+                        ty: receiver_ty,
+                        span,
+                    });
+                    Ok(Some(this.wrap_optional_receiver_method(
+                        temp_read, op, call.span, body,
+                    )))
+                },
+            )?;
             let Some(conditional) = lowered else {
                 return Ok(None);
             };
@@ -307,7 +330,11 @@ impl<'builder> ModuleBuilder<'builder> {
                 entry.tail = Some(conditional);
             }
             let ty = Self::expr_ty(body, conditional);
-            Ok(Some(body.push_expr(Expr { kind: ExprKind::Block(block), ty, span })))
+            Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Block(block),
+                ty,
+                span,
+            })))
         })
     }
 
@@ -353,7 +380,9 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         let span = self.span(call.span.start, call.span.end);
         if let Some(selected) =
-            self.conditional_class_select(receiver, span, body, |this, body| this.call_expression(call, body))?
+            self.conditional_class_select(receiver, span, body, |this, body| {
+                this.call_expression(call, body)
+            })?
         {
             return Ok(selected);
         }
@@ -414,7 +443,11 @@ impl<'builder> ModuleBuilder<'builder> {
         if ty == read_ty {
             return callee;
         }
-        body.push_expr(Expr { kind: ExprKind::Local(local), ty, span })
+        body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty,
+            span,
+        })
     }
 
     /// The type a call reads its erased callee local at.
@@ -465,13 +498,20 @@ impl<'builder> ModuleBuilder<'builder> {
         let callee = self.stored_erased_callee(callee, body);
         let callee_ty = Self::expr_ty(body, callee);
         let optional_unknown = match self.ctx.krate.types.get(callee_ty) {
-            Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) => Some(*inner),
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) =>
+            {
+                Some(*inner)
+            }
             _ => None,
         };
         // The call result is decided by the run-time callee; a callee that is
         // already erased was recorded where it was erased.
-        let unknown_ty = optional_unknown.unwrap_or_else(|| self.erase_unless_unknown(callee_ty, ErasureReason::ByName));
-        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) || optional_unknown.is_some() {
+        let unknown_ty = optional_unknown
+            .unwrap_or_else(|| self.erase_unless_unknown(callee_ty, ErasureReason::ByName));
+        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
+            || optional_unknown.is_some()
+        {
             callee
         } else {
             body.push_expr(Expr {
@@ -513,9 +553,14 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// The receiver the innermost call's probe kept, when `expression` is its node.
-    pub(in crate::lowering) fn kept_receiver(&self, expression: &Expression<'_>, body: &Body) -> Option<smelt_hir::ExprId> {
+    pub(in crate::lowering) fn kept_receiver(
+        &self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<smelt_hir::ExprId> {
         let kept = self.kept_receivers.last().copied().flatten()?;
-        (kept.node == std::ptr::from_ref(expression).addr() && body.exprs.len() >= kept.exprs_after).then_some(kept.expr)
+        (kept.node == std::ptr::from_ref(expression).addr() && body.exprs.len() >= kept.exprs_after)
+            .then_some(kept.expr)
     }
 
     /// Drop every kept receiver a roll-back to `exprs` expressions discards.
@@ -679,7 +724,10 @@ impl<'builder> ModuleBuilder<'builder> {
         };
         let declares = |key: &str| {
             interface.fields.iter().any(|field| named(field.name, key))
-                || interface.methods.iter().any(|method| named(method.name, key))
+                || interface
+                    .methods
+                    .iter()
+                    .any(|method| named(method.name, key))
         };
         object
             .properties
@@ -754,7 +802,10 @@ impl<'builder> ModuleBuilder<'builder> {
         // (`utils.reduce(xs, f, 0)`, `utils.keys(record)`), which is the
         // utility-function spelling of the name, not a prototype call.
         if let Expression::StaticMemberExpression(member) = &call.callee
-            && smelt_stdlib::is_erased_prototype_call(member.property.name.as_str(), call.arguments.len())
+            && smelt_stdlib::is_erased_prototype_call(
+                member.property.name.as_str(),
+                call.arguments.len(),
+            )
             && !self.imported_utility_object(&member.object)
             && self.receiver_is_statically_erased(&member.object, body)
         {
@@ -802,14 +853,21 @@ impl<'builder> ModuleBuilder<'builder> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
-        if !self.ctx.declared_member_names.contains(member.property.name.as_str()) {
+        if !self
+            .ctx
+            .declared_member_names
+            .contains(member.property.name.as_str())
+        {
             return Ok(false);
         }
         let method = self.intern_source_name(member.property.name.as_str());
         if let Some(receiver_ty) = self.static_receiver_type(&member.object, body) {
             return Ok(self.receiver_owns_member(receiver_ty, method));
         }
-        if matches!(member.object.without_parentheses(), Expression::Identifier(_)) {
+        if matches!(
+            member.object.without_parentheses(),
+            Expression::Identifier(_)
+        ) {
             return Ok(false);
         }
         let mark = self.speculation_mark(body);
@@ -822,7 +880,11 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(expr) => {
                 let node = std::ptr::from_ref(&member.object).addr();
                 if let Some(slot) = self.kept_receivers.last_mut() {
-                    *slot = Some(KeptReceiver { node, expr, exprs_after: body.exprs.len() });
+                    *slot = Some(KeptReceiver {
+                        node,
+                        expr,
+                        exprs_after: body.exprs.len(),
+                    });
                 }
             }
             _ => {
@@ -839,13 +901,20 @@ impl<'builder> ModuleBuilder<'builder> {
     /// call is dispatched: here any declared member wins over a builtin of the
     /// same name, whether it is a class method, an interface signature, or a
     /// function stored in a field.
-    pub(in crate::lowering) fn receiver_owns_member(&mut self, receiver_ty: smelt_hir::TypeId, member: smelt_hir::Symbol) -> bool {
+    pub(in crate::lowering) fn receiver_owns_member(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        member: smelt_hir::Symbol,
+    ) -> bool {
         if self.receiver_declares_method(receiver_ty, member) {
             return true;
         }
         match self.ctx.krate.types.get(receiver_ty).cloned() {
             Some(Type::Union(arms)) => {
-                !arms.is_empty() && arms.iter().all(|arm| self.receiver_owns_member(*arm, member))
+                !arms.is_empty()
+                    && arms
+                        .iter()
+                        .all(|arm| self.receiver_owns_member(*arm, member))
             }
             Some(Type::TypeParam { .. }) => self
                 .type_param_member_bound(receiver_ty)
@@ -853,11 +922,16 @@ impl<'builder> ModuleBuilder<'builder> {
             Some(Type::Class { name, .. }) => {
                 self.stdlib_class_of_type(receiver_ty).is_none()
                     && (self.find_interface(name).is_some_and(|interface| {
-                        interface.methods.iter().any(|signature| signature.name == member)
+                        interface
+                            .methods
+                            .iter()
+                            .any(|signature| signature.name == member)
                             || interface.fields.iter().any(|field| field.name == member)
-                    }) || self.class_field_type(receiver_ty, member).is_ok_and(|field_ty| {
-                        matches!(self.ctx.krate.types.get(field_ty), Some(Type::Function(_)))
-                    }))
+                    }) || self
+                        .class_field_type(receiver_ty, member)
+                        .is_ok_and(|field_ty| {
+                            matches!(self.ctx.krate.types.get(field_ty), Some(Type::Function(_)))
+                        }))
             }
             _ => false,
         }
@@ -914,7 +988,11 @@ impl<'builder> ModuleBuilder<'builder> {
     /// off an erased value is itself erased, exactly as TypeScript types
     /// `anyValue.items` as `any`. Anything whose type is not knowable here
     /// answers `false`, so the caller keeps its ordinary lowering.
-    pub(in crate::lowering) fn receiver_is_statically_erased(&mut self, object: &Expression<'_>, body: &Body) -> bool {
+    pub(in crate::lowering) fn receiver_is_statically_erased(
+        &mut self,
+        object: &Expression<'_>,
+        body: &Body,
+    ) -> bool {
         // A call's result type is decided by overload resolution, which
         // `static_receiver_type` does not perform: it answers the function
         // item's IMPLEMENTATION signature, and an overloaded function's
@@ -977,10 +1055,10 @@ impl<'builder> ModuleBuilder<'builder> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         use oxc::allocator::{Allocator, Box as ArenaBox, CloneIn};
-        use oxc::ast::builder::AstBuilder;
         use oxc::ast::ast::{
             CallExpression, IdentifierName, StaticMemberExpression, TSTypeParameterInstantiation,
         };
+        use oxc::ast::builder::AstBuilder;
 
         if call.optional {
             return Ok(None);
@@ -1029,8 +1107,7 @@ impl<'builder> ModuleBuilder<'builder> {
             }
         };
         let arguments = call.arguments.clone_in(&arena);
-        let synthetic =
-            CallExpression::new(span, callee, no_type_args, arguments, false, &builder);
+        let synthetic = CallExpression::new(span, callee, no_type_args, arguments, false, &builder);
         self.call_expression(&synthetic, body).map(Some)
     }
 
@@ -1129,8 +1206,14 @@ impl<'builder> ModuleBuilder<'builder> {
             arguments.push(argument.clone_in(&arena));
         }
         let method_type_args: Option<ArenaBox<'_, TSTypeParameterInstantiation<'_>>> = None;
-        let synthetic =
-            CallExpression::new(span, method_callee, method_type_args, arguments, false, &builder);
+        let synthetic = CallExpression::new(
+            span,
+            method_callee,
+            method_type_args,
+            arguments,
+            false,
+            &builder,
+        );
         self.call_expression(&synthetic, body).map(Some)
     }
 
@@ -1140,7 +1223,8 @@ impl<'builder> ModuleBuilder<'builder> {
     /// same callee, exactly as in the former sequential guard chain. Do not
     /// reorder entries without verifying overlapping callees still resolve to the
     /// same handler.
-    pub(in crate::lowering) fn builtin_call_handlers() -> impl IntoIterator<Item = BuiltinCallHandler<'builder>> {
+    pub(in crate::lowering) fn builtin_call_handlers()
+    -> impl IntoIterator<Item = BuiltinCallHandler<'builder>> {
         [
             Self::type_test_call_entry,
             Self::typed_test_value_call_entry,
@@ -1148,94 +1232,94 @@ impl<'builder> ModuleBuilder<'builder> {
             Self::regex_replace_call,
             Self::object_assign_call,
             Self::vitest_async_expect_call,
-        Self::vitest_mock_function_call,
-        Self::vitest_spy_on_call,
-        Self::vitest_mock_handle_method_call,
-        Self::vitest_fake_timer_call,
-        Self::date_fns_timezone_context_call,
-        Self::sinon_fake_timers_call,
-        Self::structured_clone_call,
-        Self::uri_encode_call,
-        Self::base64_call,
-        Self::object_prototype_to_string_call,
-        Self::exact_stdlib_call,
-        Self::array_constructor_call,
-        Self::generator_next_call,
-        Self::promise_continuation_call,
-        Self::timer_call,
-        Self::number_to_string_call,
-        Self::number_to_fixed_call,
-        Self::commonjs_require_call,
-        Self::object_metadata_mutation_call,
-        Self::object_get_own_property_symbols_call,
-        Self::object_projection_call,
-        Self::object_has_own_call,
-        Self::reflect_has_call,
-        Self::object_get_own_property_descriptor_call,
-        // Before the collection and list dispatches: `slice`, `set` and `fill`
-        // are names those own for other receivers, and the family's receiver
-        // type is what separates them.
-        Self::dispatch_typed_array_method,
-        // Beside the family's methods and for the same reason: `getInt16` and
-        // `setUint8` are ordinary user method names, so the receiver's own
-        // `DataView` type is what admits the accessor.
-        Self::dispatch_data_view_accessor,
-        Self::dispatch_collection_method,
-        Self::dispatch_headers_method,
-        Self::dispatch_url_search_params_method,
-        Self::dispatch_form_data_method,
-        Self::dispatch_text_encoder_method,
-        Self::dispatch_text_decoder_method,
-        Self::dispatch_node_hash_method,
-        Self::dispatch_blob_method,
-        Self::dispatch_response_method,
-        Self::dispatch_request_method,
-        // Before the emitter dispatch: an `IncomingMessage` reaches the emitter
-        // through it, and the two `node:http` receivers with methods of their
-        // own must claim those names first.
-        Self::http_create_server_call,
-        Self::hono_node_serve_call,
-        Self::dispatch_http_server_method,
-        Self::dispatch_server_response_method,
-        Self::dispatch_sqlite_method,
-        Self::dispatch_event_emitter_method,
-        Self::map_projection_call,
-        Self::regexp_test_call,
-        Self::regexp_exec_call,
-        Self::string_match_call,
-        Self::string_match_all_call,
-        Self::url_to_string_call,
-        Self::string_case_call,
-        Self::string_well_formed_call,
-        Self::string_normalize_call,
-        Self::string_trim_call,
-        Self::string_locale_compare_call,
-        Self::string_affix_call,
-        Self::list_callback_call,
-        Self::list_reduce_call,
-        Self::list_search_call,
-        Self::collection_at_call,
-        Self::list_entries_call,
-        Self::string_search_call,
-        Self::string_replace_call,
-        Self::collection_slice_call,
-        Self::list_push_call,
-        Self::list_unshift_call,
-        Self::list_reverse_call,
-        Self::list_sort_call,
-        Self::modern_array_call,
-        Self::list_pop_call,
-        Self::list_shift_call,
-        Self::string_repeat_call,
-        Self::string_pad_call,
-        Self::string_char_at_call,
-        Self::string_join_call,
-        Self::list_concat_call,
-        Self::list_contains_call,
-        Self::string_contains_call,
-        Self::string_split_call,
-        Self::namespace_member_call,
-        Self::unmodeled_host_namespace_call,
+            Self::vitest_mock_function_call,
+            Self::vitest_spy_on_call,
+            Self::vitest_mock_handle_method_call,
+            Self::vitest_fake_timer_call,
+            Self::date_fns_timezone_context_call,
+            Self::sinon_fake_timers_call,
+            Self::structured_clone_call,
+            Self::uri_encode_call,
+            Self::base64_call,
+            Self::object_prototype_to_string_call,
+            Self::exact_stdlib_call,
+            Self::array_constructor_call,
+            Self::generator_next_call,
+            Self::promise_continuation_call,
+            Self::timer_call,
+            Self::number_to_string_call,
+            Self::number_to_fixed_call,
+            Self::commonjs_require_call,
+            Self::object_metadata_mutation_call,
+            Self::object_get_own_property_symbols_call,
+            Self::object_projection_call,
+            Self::object_has_own_call,
+            Self::reflect_has_call,
+            Self::object_get_own_property_descriptor_call,
+            // Before the collection and list dispatches: `slice`, `set` and `fill`
+            // are names those own for other receivers, and the family's receiver
+            // type is what separates them.
+            Self::dispatch_typed_array_method,
+            // Beside the family's methods and for the same reason: `getInt16` and
+            // `setUint8` are ordinary user method names, so the receiver's own
+            // `DataView` type is what admits the accessor.
+            Self::dispatch_data_view_accessor,
+            Self::dispatch_collection_method,
+            Self::dispatch_headers_method,
+            Self::dispatch_url_search_params_method,
+            Self::dispatch_form_data_method,
+            Self::dispatch_text_encoder_method,
+            Self::dispatch_text_decoder_method,
+            Self::dispatch_node_hash_method,
+            Self::dispatch_blob_method,
+            Self::dispatch_response_method,
+            Self::dispatch_request_method,
+            // Before the emitter dispatch: an `IncomingMessage` reaches the emitter
+            // through it, and the two `node:http` receivers with methods of their
+            // own must claim those names first.
+            Self::http_create_server_call,
+            Self::hono_node_serve_call,
+            Self::dispatch_http_server_method,
+            Self::dispatch_server_response_method,
+            Self::dispatch_sqlite_method,
+            Self::dispatch_event_emitter_method,
+            Self::map_projection_call,
+            Self::regexp_test_call,
+            Self::regexp_exec_call,
+            Self::string_match_call,
+            Self::string_match_all_call,
+            Self::url_to_string_call,
+            Self::string_case_call,
+            Self::string_well_formed_call,
+            Self::string_normalize_call,
+            Self::string_trim_call,
+            Self::string_locale_compare_call,
+            Self::string_affix_call,
+            Self::list_callback_call,
+            Self::list_reduce_call,
+            Self::list_search_call,
+            Self::collection_at_call,
+            Self::list_entries_call,
+            Self::string_search_call,
+            Self::string_replace_call,
+            Self::collection_slice_call,
+            Self::list_push_call,
+            Self::list_unshift_call,
+            Self::list_reverse_call,
+            Self::list_sort_call,
+            Self::modern_array_call,
+            Self::list_pop_call,
+            Self::list_shift_call,
+            Self::string_repeat_call,
+            Self::string_pad_call,
+            Self::string_char_at_call,
+            Self::string_join_call,
+            Self::list_concat_call,
+            Self::list_contains_call,
+            Self::string_contains_call,
+            Self::string_split_call,
+            Self::namespace_member_call,
+            Self::unmodeled_host_namespace_call,
             Self::function_bind_call,
         ]
     }
@@ -1411,7 +1495,9 @@ impl<'builder> ModuleBuilder<'builder> {
     }
 
     /// Strip transparent wrappers around an asserted function-call callee.
-    pub(in crate::lowering) fn transparent_asserted_callee<'a>(callee: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
+    pub(in crate::lowering) fn transparent_asserted_callee<'a>(
+        callee: &'a Expression<'a>,
+    ) -> Option<&'a Expression<'a>> {
         match peel(callee, Wrappers::Parens) {
             Expression::TSAsExpression(as_expr) => Some(&as_expr.expression),
             Expression::TSSatisfiesExpression(satisfies) => Some(&satisfies.expression),

@@ -31,7 +31,13 @@ export function keepFunction(b?: (count: number) => number): number {
 }
 ",
     );
-    assert_eq!([rust_fn(&source, "keep_number"), rust_fn(&source, "keep_function")].join("\n\n"), r"fn keep_number(b: Option<f64>) -> f64 {
+    assert_eq!(
+        [
+            rust_fn(&source, "keep_number"),
+            rust_fn(&source, "keep_function")
+        ]
+        .join("\n\n"),
+        r"fn keep_number(b: Option<f64>) -> f64 {
 let _smelt_tmp_4: f64;
 let _smelt_tmp_5: f64;
 let _smelt_tmp_6: f64;
@@ -61,7 +67,8 @@ return _smelt_tmp_5;
 _smelt_tmp_6 = -1.0;
 return _smelt_tmp_6;
 }
-}");
+}"
+    );
 }
 
 /// A concrete `Option<Rc<dyn Fn>>` narrowed to its function stays concrete.
@@ -76,7 +83,9 @@ export function callIt(b?: (count: number) => number): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "call_it"), r"fn call_it(b: Option<::std::rc::Rc<dyn Fn(f64) -> f64>>) -> f64 {
+    assert_eq!(
+        rust_fn(&source, "call_it"),
+        r"fn call_it(b: Option<::std::rc::Rc<dyn Fn(f64) -> f64>>) -> f64 {
 let _smelt_tmp_4: ::std::rc::Rc<dyn Fn(f64) -> f64>;
 let _smelt_tmp_5: f64;
 let _smelt_tmp_6: f64;
@@ -90,7 +99,8 @@ return _smelt_tmp_5;
 _smelt_tmp_6 = -1.0;
 return _smelt_tmp_6;
 }
-}");
+}"
+    );
 }
 
 /// An optional read at a type parameter that renders erased maps absence onto
@@ -105,7 +115,9 @@ export function orDefault<TDefault = unknown>(value: any, defaultValue?: TDefaul
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "or_default"), r"fn or_default(value: SmeltUnknown, default_value: Option<SmeltUnknown>) -> SmeltUnknown {
+    assert_eq!(
+        rust_fn(&source, "or_default"),
+        r"fn or_default(value: SmeltUnknown, default_value: Option<SmeltUnknown>) -> SmeltUnknown {
 let _smelt_tmp_3: SmeltUnknown;
 let _smelt_tmp_2: bool = matches!(value.clone(), SmeltUnknown::Null);
 if _smelt_tmp_2 {
@@ -114,7 +126,8 @@ return _smelt_tmp_3;
 } else {
 return value.clone();
 }
-}");
+}"
+    );
 }
 
 /// Tuples of any width passed to a list parameter become lists of their elements.
@@ -131,7 +144,9 @@ export function useCount(): number {
 }
 ",
     );
-    assert_eq!(rust_fn(&source, "use_count"), r#"fn use_count() -> f64 {
+    assert_eq!(
+        rust_fn(&source, "use_count"),
+        r#"fn use_count() -> f64 {
 let _smelt_tmp_5: f64;
 let t: (JsString, JsString) = (JsString::from("a"), JsString::from("b"));
 let _smelt_tmp_2: () = ();
@@ -139,7 +154,8 @@ let _smelt_tmp_3: f64 = count(SmeltList::with_id(smelt_next_object_id(), vec![])
 let _smelt_tmp_4: f64 = count(SmeltList::with_id(smelt_next_object_id(), vec![t.0, t.1]));
 _smelt_tmp_5 = _smelt_tmp_3 + _smelt_tmp_4;
 return _smelt_tmp_5;
-}"#);
+}"#
+    );
 }
 
 /// `!obj` on a record or list is a constant `false`.
@@ -162,8 +178,13 @@ export function itemCount(items: number[]): number {
 ",
     );
     // `size`'s value parameter is unconstrained, so only its guard is pinned.
-    assert!(rust_fn(&source, "size").contains("let _smelt_tmp_1: bool = !(true);"), "{source}");
-    assert_eq!([rust_fn(&source, "size2"), rust_fn(&source, "item_count")].join("\n\n"), r#"fn size2(obj: SmeltRecord<JsString, f64>) -> f64 {
+    assert!(
+        rust_fn(&source, "size").contains("let _smelt_tmp_1: bool = !(true);"),
+        "{source}"
+    );
+    assert_eq!(
+        [rust_fn(&source, "size2"), rust_fn(&source, "item_count")].join("\n\n"),
+        r#"fn size2(obj: SmeltRecord<JsString, f64>) -> f64 {
 let _smelt_tmp_2: f64;
 let _smelt_tmp_3: SmeltList<JsString>;
 let _smelt_tmp_4: f64;
@@ -189,7 +210,8 @@ return _smelt_tmp_2;
 _smelt_tmp_3 = items.len() as f64;
 return _smelt_tmp_3;
 }
-}"#);
+}"#
+    );
 }
 
 /// An all-nullish array literal instantiates a generic at the collapsed
@@ -206,5 +228,8 @@ console.log(uniq([null, undefined, null]).length)
     );
     assert!(source.contains("impl SmeltFromUnknown for ()"), "{source}");
     assert!(source.contains(": SmeltList<()> = uniq("), "{source}");
-    assert!(!source.contains("SmeltList<SmeltUnknown> = uniq("), "{source}");
+    assert!(
+        !source.contains("SmeltList<SmeltUnknown> = uniq("),
+        "{source}"
+    );
 }

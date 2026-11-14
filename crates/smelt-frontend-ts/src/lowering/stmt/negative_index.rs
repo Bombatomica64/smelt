@@ -20,8 +20,8 @@ use oxc::ast::ast::{AssignmentTarget, Expression};
 
 use smelt_hir::{Body, Expr, ExprKind, Literal, Stmt, Type};
 
-use crate::lowering::ModuleBuilder;
 use crate::SmeltError;
+use crate::lowering::ModuleBuilder;
 
 impl ModuleBuilder<'_> {
     /// Returns true when a receiver type uses fixed sequence element indexing.

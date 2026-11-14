@@ -65,7 +65,10 @@ export function total(values: number[]): number {
         1,
         "the closure is rendered once, at the fold: {body}"
     );
-    assert!(body.contains("let smelt_callback = ::std::rc::Rc::new("), "{body}");
+    assert!(
+        body.contains("let smelt_callback = ::std::rc::Rc::new("),
+        "{body}"
+    );
 }
 
 /// A `sort` comparator renders inline, so a binding for it would be dead.

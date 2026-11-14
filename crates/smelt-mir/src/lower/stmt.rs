@@ -13,13 +13,13 @@ use std::collections::HashMap;
 use smelt_hir::{ExprId, LocalId as HirLocalId, Stmt as HirStmt};
 
 use crate::{
-    BlockId, Constant, ExceptionHandler, GeneratorCleanup, HirOrigin, LocalDecl, LocalId, LocalKind, NegativeIndex, Operand, Place, Rvalue, Statement,
-    Terminator,
+    BlockId, Constant, ExceptionHandler, GeneratorCleanup, HirOrigin, LocalDecl, LocalId,
+    LocalKind, NegativeIndex, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 use super::context::LoweringCtx;
 use super::scope::{ControlScope, FinallyClause, LabelScope, LoopExit, LoopTargets, Protected};
-use super::{LoweredFunction, LowerError, lower_literal};
+use super::{LowerError, LoweredFunction, lower_literal};
 
 impl LoweringCtx<'_> {
     /// Lowers the entire function body to MIR.
@@ -91,7 +91,10 @@ impl LoweringCtx<'_> {
     }
 
     /// Lowers all statements in a HIR block.
-    pub(super) fn lower_block_stmts(&mut self, block_id: smelt_hir::BlockId) -> Result<(), LowerError> {
+    pub(super) fn lower_block_stmts(
+        &mut self,
+        block_id: smelt_hir::BlockId,
+    ) -> Result<(), LowerError> {
         let block = self.hir_block(block_id)?;
         let stmt_ids = block.stmts.clone();
         self.lower_stmt_run(&stmt_ids)
@@ -109,9 +112,9 @@ impl LoweringCtx<'_> {
             index = index.saturating_add(1);
             if let HirStmt::LabelStart { label, loops } = stmt {
                 let rest = stmt_ids.get(index..).unwrap_or_default();
-                let Some(length) = rest.iter().position(|id| {
-                    matches!(self.hir_stmt(*id), Ok(HirStmt::LabelEnd(end)) if *end == label)
-                }) else {
+                let Some(length) = rest.iter().position(
+                    |id| matches!(self.hir_stmt(*id), Ok(HirStmt::LabelEnd(end)) if *end == label),
+                ) else {
                     return Err(self.error("a labelled statement has no end marker", None));
                 };
                 self.lower_labelled(label, loops, rest.get(..length).unwrap_or_default())?;
@@ -149,20 +152,29 @@ impl LoweringCtx<'_> {
             (stmt_ids, &[][..])
         };
         let enclosing = self.pending_loop_label.take();
-        let lowered = self.with_scope(ControlScope::Label(LabelScope { label, break_target }), |this| {
-            this.lower_stmt_run(prelude)?;
-            if !labelled.is_empty() {
-                this.pending_loop_label = Some(label);
-                this.lower_stmt_run(labelled)?;
-                // Unconsumed after a live run means the loop never opened a
-                // body, and a `continue label` inside would find no target.
-                // Dead code after a `return` lowers nothing and is fine.
-                if this.pending_loop_label.take().is_some() && !this.is_terminated()? {
-                    return Err(this.error("a labelled loop lowered without a loop body to carry its label", None));
+        let lowered = self.with_scope(
+            ControlScope::Label(LabelScope {
+                label,
+                break_target,
+            }),
+            |this| {
+                this.lower_stmt_run(prelude)?;
+                if !labelled.is_empty() {
+                    this.pending_loop_label = Some(label);
+                    this.lower_stmt_run(labelled)?;
+                    // Unconsumed after a live run means the loop never opened a
+                    // body, and a `continue label` inside would find no target.
+                    // Dead code after a `return` lowers nothing and is fine.
+                    if this.pending_loop_label.take().is_some() && !this.is_terminated()? {
+                        return Err(this.error(
+                            "a labelled loop lowered without a loop body to carry its label",
+                            None,
+                        ));
+                    }
                 }
-            }
-            this.terminate_if_open(Terminator::Goto(break_target))
-        });
+                this.terminate_if_open(Terminator::Goto(break_target))
+            },
+        );
         self.pending_loop_label = enclosing;
         lowered?;
         self.switch_to(break_target);
@@ -240,7 +252,8 @@ impl LoweringCtx<'_> {
                 let info = self.hir_expr(*expr)?;
                 let (from, return_span) = (info.ty, info.span);
                 let to = self.function.return_ty;
-                let lowered_operand = self.erased_conversion_in_try(returned, from, to, return_span)?;
+                let lowered_operand =
+                    self.erased_conversion_in_try(returned, from, to, return_span)?;
                 // A finalizer runs *after* the return expression is evaluated but
                 // *before* the value leaves the function, so it may reassign the
                 // very binding the operand names — `try { return x } finally { x = 2 }`
@@ -639,11 +652,10 @@ impl LoweringCtx<'_> {
         // body; see `bind_tuple_pattern`.
         let (item_local, item_pattern) = match self.hir_pattern(pat)? {
             smelt_hir::Pattern::Binding(hir_local) => {
-                let local = self
-                    .locals
-                    .get(hir_local)
-                    .copied()
-                    .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
+                let local =
+                    self.locals.get(hir_local).copied().ok_or_else(|| {
+                        self.error("for pattern references an unknown local", None)
+                    })?;
                 (local, None)
             }
             smelt_hir::Pattern::Tuple(_) => {
@@ -685,8 +697,8 @@ impl LoweringCtx<'_> {
         self.block_mut()?.statements.push(Statement::Assign {
             dest: len,
             value: Rvalue::Len {
-                    operand: Operand::Copy(Place::Local(iter_local)),
-                },
+                operand: Operand::Copy(Place::Local(iter_local)),
+            },
         });
         let cond = self.push_temp(bool_ty, self.block()?.span);
         self.block_mut()?.statements.push(Statement::Assign {
@@ -758,27 +770,34 @@ impl LoweringCtx<'_> {
         let smelt_hir::Pattern::Tuple(items) = self.hir_pattern(pat)?.clone() else {
             return Err(self.error("internal: a tuple binding needs a tuple pattern", None));
         };
-        let Some(smelt_hir::Type::Tuple(item_types)) = self.krate.types.get(source_ty).cloned() else {
+        let Some(smelt_hir::Type::Tuple(item_types)) = self.krate.types.get(source_ty).cloned()
+        else {
             return Err(self.error("a destructured value must be a tuple", None));
         };
         if item_types.len() != items.len() {
             return Err(self.error("a tuple pattern must bind every element", None));
         }
         for (index, (item, item_ty)) in items.into_iter().zip(item_types).enumerate() {
-            let value = Rvalue::TupleIndex { tuple: Operand::Copy(Place::Local(source)), index };
+            let value = Rvalue::TupleIndex {
+                tuple: Operand::Copy(Place::Local(source)),
+                index,
+            };
             match self.hir_pattern(item)?.clone() {
                 smelt_hir::Pattern::Binding(hir_local) => {
-                    let dest = self
-                        .locals
-                        .get(&hir_local)
-                        .copied()
-                        .ok_or_else(|| self.error("tuple pattern references an unknown local", None))?;
-                    self.block_mut()?.statements.push(Statement::Assign { dest, value });
+                    let dest = self.locals.get(&hir_local).copied().ok_or_else(|| {
+                        self.error("tuple pattern references an unknown local", None)
+                    })?;
+                    self.block_mut()?
+                        .statements
+                        .push(Statement::Assign { dest, value });
                 }
                 smelt_hir::Pattern::Tuple(_) => {
                     let span = self.block()?.span;
                     let nested = self.push_temp(item_ty, span);
-                    self.block_mut()?.statements.push(Statement::Assign { dest: nested, value });
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest: nested,
+                        value,
+                    });
                     self.bind_tuple_pattern(item, nested, item_ty)?;
                 }
             }
@@ -987,12 +1006,18 @@ impl FinallyPlan {
         // A Python exception local has no `undefined`; it starts as an
         // exception of no class and no arguments, which no path observes.
         let cleared = if Some(self.thrown_ty) == ctx.py_thrown_ty {
-            Rvalue::PyExceptionNew { classes: Vec::new(), args: Vec::new() }
+            Rvalue::PyExceptionNew {
+                classes: Vec::new(),
+                args: Vec::new(),
+            }
         } else {
             Rvalue::Use(Operand::Const(Constant::Undefined))
         };
         let statements = &mut ctx.block_mut()?.statements;
-        statements.push(Statement::Assign { dest: self.thrown, value: cleared });
+        statements.push(Statement::Assign {
+            dest: self.thrown,
+            value: cleared,
+        });
         statements.push(Statement::Assign {
             dest: self.pending,
             value: Rvalue::Use(Operand::Const(Constant::Bool(false))),

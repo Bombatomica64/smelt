@@ -80,9 +80,10 @@ impl FunctionEmitter<'_> {
         // (`host_base_markers`), so the probe and the marker cannot disagree.
         if smelt_stdlib::is_error_class_name(class_name)
             && matches!(
-            self.mir.types.get(value_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
-        ) {
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            )
+        {
             let value_text = self.operand_expr(value)?;
             // `Error` is the base class, so ANY error marker satisfies it. A
             // subclass must match the class name the marker records:
@@ -98,7 +99,9 @@ impl FunctionEmitter<'_> {
             // does) only the markers survive, so its erasure stamps
             // `__smelt_error` with the nearest builtin error base's name — see
             // `host_base_markers` — and answers these same probes.
-            let marker_probe = if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Error) {
+            let marker_probe = if smelt_stdlib::instance_of_rule(class_name)
+                == Some(smelt_stdlib::InstanceOfRule::Error)
+            {
                 std::iter::once(SMELT_ERROR)
                     .chain(smelt_stdlib::host_markers_extending(class_name))
                     .map(|marker| format!("smelt_value.contains_key(\"{marker}\")"))
@@ -114,9 +117,13 @@ impl FunctionEmitter<'_> {
                     "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if {marker_probe})", value_text = value_text.cloned_value().delimited()
                 ))));
             }
-            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "matches!({value_text}, SmeltUnknown::Object(smelt_value) if {marker_probe})", value_text = value_text.cloned_value().delimited()
-            ))));
+            return Ok(RustExpr::atom(self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "matches!({value_text}, SmeltUnknown::Object(smelt_value) if {marker_probe})",
+                    value_text = value_text.cloned_value().delimited()
+                ),
+            )));
         }
         // A concrete source `Map`/`Set` is unconditionally an instance of its own
         // class, and any OTHER concrete operand carries no such identity. Those
@@ -156,7 +163,8 @@ impl FunctionEmitter<'_> {
         if let Some(check) = self.typed_array_instance_of_expr(value, class_name)? {
             return Ok(check);
         }
-        if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::ArrayBuffer)
+        if smelt_stdlib::instance_of_rule(class_name)
+            == Some(smelt_stdlib::InstanceOfRule::ArrayBuffer)
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
@@ -181,7 +189,9 @@ impl FunctionEmitter<'_> {
             .is_some_and(smelt_stdlib::StdlibClass::is_blob_runtime_type)
             && self.is_blob_class_type(value_ty)?
         {
-            if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::File) {
+            if smelt_stdlib::instance_of_rule(class_name)
+                == Some(smelt_stdlib::InstanceOfRule::File)
+            {
                 return Ok(self.operand_expr(value)?.postfix(".is_file()"));
             }
             return Ok(RustExpr::path("true"));
@@ -226,13 +236,21 @@ impl FunctionEmitter<'_> {
         {
             let value_text = self.operand_expr(value)?;
             if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "matches!({value_text}, Some(SmeltUnknown::Promise(_)))", value_text = value_text.cloned_value().delimited()
-                ))));
+                return Ok(RustExpr::atom(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "matches!({value_text}, Some(SmeltUnknown::Promise(_)))",
+                        value_text = value_text.cloned_value().delimited()
+                    ),
+                )));
             }
-            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "matches!({value_text}, SmeltUnknown::Promise(_))", value_text = value_text.cloned_value().delimited()
-            ))));
+            return Ok(RustExpr::atom(self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "matches!({value_text}, SmeltUnknown::Promise(_))",
+                    value_text = value_text.cloned_value().delimited()
+                ),
+            )));
         }
         // `AbortController`/`AbortSignal` erase to marker-bearing records (see
         // `abort_controller_constructor_expression`). They are recognized by
@@ -274,16 +292,22 @@ impl FunctionEmitter<'_> {
                         "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if {probe})", value_text = value_text.cloned_value().delimited()
                     ))));
                 }
-                return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "matches!({value_text}, SmeltUnknown::Object(smelt_value) if {probe})", value_text = value_text.cloned_value().delimited()
-                ))));
+                return Ok(RustExpr::atom(self.carrier_format(
+                    self.carrier()?,
+                    format_args!(
+                        "matches!({value_text}, SmeltUnknown::Object(smelt_value) if {probe})",
+                        value_text = value_text.cloned_value().delimited()
+                    ),
+                )));
             }
         }
         // Nothing above recognized the pair. For a CONCRETE operand that is a
         // real static answer: the class hierarchy settles whether the operand's
         // class is or extends the target.
         if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
-            return Ok(RustExpr::from(self.class_extends_or_equals(*name, class).to_string()));
+            return Ok(RustExpr::from(
+                self.class_extends_or_equals(*name, class).to_string(),
+            ));
         }
         // For a DYNAMIC operand it is not, and round 10 made that a blocker
         // rather than a `false` fold, because folding silently deleted the
@@ -299,12 +323,15 @@ impl FunctionEmitter<'_> {
         if self.instanceof_operand_is_dynamic(value_ty)
             && smelt_stdlib::typescript_stdlib_class(class_name).is_some()
         {
-            return Err(EmitError::new(self.carrier_format(self.carrier()?, format_args!(
-                "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
+            return Err(EmitError::new(self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "`instanceof {class_name}` on a dynamically-typed value is not modeled: \
                  `{class_name}` values carry no identity marker on an erased value, so the \
                  check cannot be answered at runtime. A modeled class needs a host-object \
                  registry marker and an `IntoSmeltUnknown` that stamps it."
-            ))));
+                ),
+            )));
         }
         if let Some(check) = self.erased_user_class_instance_of_expr(value, value_ty, class)? {
             return Ok(check);
@@ -320,7 +347,9 @@ impl FunctionEmitter<'_> {
         class: Symbol,
     ) -> Result<RustExpr, EmitError> {
         if let Some(Type::Class { name, .. }) = self.mir.types.get(value_ty) {
-            return Ok(RustExpr::from(self.class_extends_or_equals(*name, class).to_string()));
+            return Ok(RustExpr::from(
+                self.class_extends_or_equals(*name, class).to_string(),
+            ));
         }
         if let Some(check) = self.erased_user_class_instance_of_expr(value, value_ty, class)? {
             return Ok(check);
@@ -375,9 +404,21 @@ impl FunctionEmitter<'_> {
         ));
         let value_text = self.operand_expr(value)?;
         Ok(Some(if optional {
-            RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if {probe})", value_text = value_text.cloned_value().delimited())))
+            RustExpr::atom(self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if {probe})",
+                    value_text = value_text.cloned_value().delimited()
+                ),
+            ))
         } else {
-            RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("matches!({value_text}, SmeltUnknown::Object(smelt_value) if {probe})", value_text = value_text.cloned_value().delimited())))
+            RustExpr::atom(self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "matches!({value_text}, SmeltUnknown::Object(smelt_value) if {probe})",
+                    value_text = value_text.cloned_value().delimited()
+                ),
+            ))
         }))
     }
 
@@ -400,9 +441,7 @@ impl FunctionEmitter<'_> {
             .structural_record_fields(receiver_ty)
             .into_iter()
             .flatten()
-            .find(|field| {
-                field.name == method
-            })
+            .find(|field| field.name == method)
         else {
             return Ok(None);
         };
@@ -439,15 +478,25 @@ impl FunctionEmitter<'_> {
             // class-field arrow that mutates that very cell ("already
             // borrowed"). Bind it first so the guard drops before the call.
             RustExpr::atom(format!(
-                "{{ let smelt_callable = {receiver_text}.0.borrow().{method_name}.clone(); (smelt_callable)({rendered_args}) }}", receiver_text = receiver_text.tight()
+                "{{ let smelt_callable = {receiver_text}.0.borrow().{method_name}.clone(); (smelt_callable)({rendered_args}) }}",
+                receiver_text = receiver_text.tight()
             ))
         } else if rendered_args.is_empty() {
-            RustExpr::atom(format!("({receiver_text}.{method_name}.clone())()", receiver_text = receiver_text.tight()))
+            RustExpr::atom(format!(
+                "({receiver_text}.{method_name}.clone())()",
+                receiver_text = receiver_text.tight()
+            ))
         } else {
-            RustExpr::atom(format!("({receiver_text}.{method_name}.clone())({rendered_args})", receiver_text = receiver_text.tight()))
+            RustExpr::atom(format!(
+                "({receiver_text}.{method_name}.clone())({rendered_args})",
+                receiver_text = receiver_text.tight()
+            ))
         };
         if self.function_value_call_is_fallible(function) {
-            Ok(Some(RustExpr::atom(format!("{call}?", call = call.tight()))))
+            Ok(Some(RustExpr::atom(format!(
+                "{call}?",
+                call = call.tight()
+            ))))
         } else {
             Ok(Some(call))
         }
@@ -483,7 +532,13 @@ impl FunctionEmitter<'_> {
         }
         let value_text = self.operand_expr(value)?;
         let probed = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
-            self.carrier_format(self.carrier()?, format_args!("{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)", value_text = value_text.tight()))
+            self.carrier_format(
+                self.carrier()?,
+                format_args!(
+                    "{value_text}.clone().unwrap_or(SmeltUnknown::Undefined)",
+                    value_text = value_text.tight()
+                ),
+            )
         } else {
             format!("{value_text}.clone()", value_text = value_text.tight())
         };
@@ -498,7 +553,8 @@ impl FunctionEmitter<'_> {
             suffix = crate::stdlib::host_override_slot_suffix(class_name),
         ));
         Ok(Some(RustExpr::chain(format!(
-            "{slot}.with(|smelt_slot| smelt_host_override_instance_of(smelt_slot, &{probed}, &[{marker_list}]))", slot = slot.tight()
+            "{slot}.with(|smelt_slot| smelt_host_override_instance_of(smelt_slot, &{probed}, &[{marker_list}]))",
+            slot = slot.tight()
         ))))
     }
 

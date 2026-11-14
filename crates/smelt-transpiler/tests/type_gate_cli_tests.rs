@@ -35,14 +35,18 @@ fn run(dir: &Path, args: &[&str]) -> TestResult<RunOutcome> {
         .args(args)
         .env_remove("SMELT_TS7")
         .output()?;
-    Ok((output.status.success(), String::from_utf8_lossy(&output.stderr).into_owned()))
+    Ok((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    ))
 }
 
 /// The refusal every gated failure carries.
 const REFUSAL: &str = "Smelt lowers only programs that type-check";
 
 /// A TypeScript program `tsc` rejects (TS2322 on line 2) that Smelt can lower.
-const ILL_TYPED_TS: &str = "function f(x: string): void {\n  const n: number = x;\n  console.log(n);\n}\nf(\"a\");\n";
+const ILL_TYPED_TS: &str =
+    "function f(x: string): void {\n  const n: number = x;\n  console.log(n);\n}\nf(\"a\");\n";
 
 /// A TypeScript checker error fails `build` before the output exists.
 #[cfg(feature = "ts7")]
@@ -52,9 +56,15 @@ fn build_refuses_ill_typed_typescript() -> TestResult {
     project(temp.path(), "main.ts", ILL_TYPED_TS, "")?;
     let (ok, stderr) = run(temp.path(), &["build"])?;
     ensure(!ok, "an ill-typed program built")?;
-    ensure(stderr.contains("error[type-check]") && stderr.contains("TS2322"), stderr.clone())?;
+    ensure(
+        stderr.contains("error[type-check]") && stderr.contains("TS2322"),
+        stderr.clone(),
+    )?;
     ensure(stderr.contains(REFUSAL), stderr)?;
-    ensure(!temp.path().join("dist").exists(), "a refused build wrote its output")
+    ensure(
+        !temp.path().join("dist").exists(),
+        "a refused build wrote its output",
+    )
 }
 
 /// `--allow-type-errors` lowers it, with the errors as warnings; so does the
@@ -66,11 +76,22 @@ fn allowing_type_errors_builds_ill_typed_typescript() -> TestResult {
     project(temp.path(), "main.ts", ILL_TYPED_TS, "")?;
     let (ok, stderr) = run(temp.path(), &["build", "--allow-type-errors"])?;
     ensure(ok, stderr.clone())?;
-    ensure(stderr.contains("warning[type-check]") && stderr.contains("TS2322"), stderr)?;
-    ensure(temp.path().join("dist/src/main.rs").is_file(), "the allowed build wrote no crate")?;
+    ensure(
+        stderr.contains("warning[type-check]") && stderr.contains("TS2322"),
+        stderr,
+    )?;
+    ensure(
+        temp.path().join("dist/src/main.rs").is_file(),
+        "the allowed build wrote no crate",
+    )?;
 
     let manifest = TempProject::new()?;
-    project(manifest.path(), "main.ts", ILL_TYPED_TS, "\n[build]\ntype-errors = \"allow\"\n")?;
+    project(
+        manifest.path(),
+        "main.ts",
+        ILL_TYPED_TS,
+        "\n[build]\ntype-errors = \"allow\"\n",
+    )?;
     let (manifest_ok, manifest_stderr) = run(manifest.path(), &["build"])?;
     ensure(manifest_ok, manifest_stderr)
 }
@@ -80,7 +101,12 @@ fn allowing_type_errors_builds_ill_typed_typescript() -> TestResult {
 #[test]
 fn a_well_typed_program_builds() -> TestResult {
     let temp = TempProject::new()?;
-    project(temp.path(), "main.ts", "const n: number = 2;\nconsole.log(n);\n", "")?;
+    project(
+        temp.path(),
+        "main.ts",
+        "const n: number = 2;\nconsole.log(n);\n",
+        "",
+    )?;
     let (ok, stderr) = run(temp.path(), &["build"])?;
     ensure(ok, stderr.clone())?;
     ensure(!stderr.contains("type-check"), stderr)
@@ -98,7 +124,10 @@ fn an_allowed_ill_typed_program_never_miscompiles_silently() -> TestResult {
     project(temp.path(), "main.ts", source, "")?;
     let (ok, stderr) = run(temp.path(), &["build", "--allow-type-errors"])?;
     ensure(!ok, "a duplicate implementation lowered")?;
-    ensure(stderr.contains("duplicate function implementation `f`"), stderr)
+    ensure(
+        stderr.contains("duplicate function implementation `f`"),
+        stderr,
+    )
 }
 
 /// A Python program ty rejects (an `int` parameter given a `str`).
@@ -112,10 +141,16 @@ fn build_refuses_ill_typed_python() -> TestResult {
     project(temp.path(), "main.py", ILL_TYPED_PY, "")?;
     let (ok, stderr) = run(temp.path(), &["build"])?;
     ensure(!ok, "an ill-typed Python program built")?;
-    ensure(stderr.contains("error[type-check]") && stderr.contains("invalid-argument-type"), stderr.clone())?;
+    ensure(
+        stderr.contains("error[type-check]") && stderr.contains("invalid-argument-type"),
+        stderr.clone(),
+    )?;
     ensure(stderr.contains("src/main.py:5:"), stderr.clone())?;
     ensure(stderr.contains(REFUSAL), stderr)?;
-    ensure(!temp.path().join("dist").exists(), "a refused build wrote its output")
+    ensure(
+        !temp.path().join("dist").exists(),
+        "a refused build wrote its output",
+    )
 }
 
 /// With type errors allowed, the ty error is a warning and the gate does not
@@ -126,7 +161,10 @@ fn allowing_type_errors_passes_the_gate_for_python() -> TestResult {
     let temp = TempProject::new()?;
     project(temp.path(), "main.py", ILL_TYPED_PY, "")?;
     let (_, stderr) = run(temp.path(), &["build", "--allow-type-errors"])?;
-    ensure(stderr.contains("warning[type-check]") && stderr.contains("invalid-argument-type"), stderr.clone())?;
+    ensure(
+        stderr.contains("warning[type-check]") && stderr.contains("invalid-argument-type"),
+        stderr.clone(),
+    )?;
     ensure(!stderr.contains(REFUSAL), stderr)
 }
 
@@ -135,7 +173,12 @@ fn allowing_type_errors_passes_the_gate_for_python() -> TestResult {
 #[test]
 fn a_well_typed_python_program_builds() -> TestResult {
     let temp = TempProject::new()?;
-    project(temp.path(), "main.py", "def twice(x: int) -> int:\n    return x * 2\n\n\nprint(twice(3))\n", "")?;
+    project(
+        temp.path(),
+        "main.py",
+        "def twice(x: int) -> int:\n    return x * 2\n\n\nprint(twice(3))\n",
+        "",
+    )?;
     let (ok, stderr) = run(temp.path(), &["build"])?;
     ensure(ok, stderr.clone())?;
     ensure(!stderr.contains("type-check"), stderr)
@@ -213,11 +256,27 @@ fn node_globals_type_check() -> TestResult {
 fn declared_package_sources_type_check() -> TestResult {
     let package = "export function increment(value: number): number {\n  return value + 1;\n}\n";
     let manifest = "\n[packages.utility]\npath = \"vendor/utility\"\n";
-    let main = |argument: &str| format!("import {{ increment }} from \"utility\";\nconsole.log(increment({argument}));\n");
+    let main = |argument: &str| {
+        format!("import {{ increment }} from \"utility\";\nconsole.log(increment({argument}));\n")
+    };
     let (valid, invalid) = (main("4"), main("\"4\""));
     ensure_gate_sees(
-        build_files(&[("vendor/utility/src/index.ts", package), ("src/main.ts", &valid)], "main.ts", manifest)?,
-        build_files(&[("vendor/utility/src/index.ts", package), ("src/main.ts", &invalid)], "main.ts", manifest)?,
+        build_files(
+            &[
+                ("vendor/utility/src/index.ts", package),
+                ("src/main.ts", &valid),
+            ],
+            "main.ts",
+            manifest,
+        )?,
+        build_files(
+            &[
+                ("vendor/utility/src/index.ts", package),
+                ("src/main.ts", &invalid),
+            ],
+            "main.ts",
+            manifest,
+        )?,
         "TS2345",
     )
 }
@@ -235,8 +294,15 @@ fn test_globals_type_check_in_test_files_only() -> TestResult {
         "TS2345",
     )?;
     // The same globals in an ordinary module are not declared.
-    let (ok, stderr) = build_files(&[("src/main.ts", "describe(\"x\", () => {});\n")], "main.ts", "")?;
-    ensure(!ok && stderr.contains("Cannot find name 'describe'"), stderr)
+    let (ok, stderr) = build_files(
+        &[("src/main.ts", "describe(\"x\", () => {});\n")],
+        "main.ts",
+        "",
+    )?;
+    ensure(
+        !ok && stderr.contains("Cannot find name 'describe'"),
+        stderr,
+    )
 }
 
 /// TypeScript importing Python type-checks against the Python module's
@@ -246,19 +312,37 @@ fn test_globals_type_check_in_test_files_only() -> TestResult {
 #[test]
 fn cross_language_imports_type_check() -> TestResult {
     let python = "def twice(x: float) -> float:\n    return x * 2\n";
-    let ts_main = |argument: &str| format!("import {{ twice }} from \"./arith\";\nconsole.log(twice({argument}));\n");
+    let ts_main = |argument: &str| {
+        format!("import {{ twice }} from \"./arith\";\nconsole.log(twice({argument}));\n")
+    };
     let (valid, invalid) = (ts_main("4"), ts_main("\"4\""));
     ensure_gate_sees(
-        build_files(&[("src/arith.py", python), ("src/main.ts", &valid)], "main.ts", "")?,
-        build_files(&[("src/arith.py", python), ("src/main.ts", &invalid)], "main.ts", "")?,
+        build_files(
+            &[("src/arith.py", python), ("src/main.ts", &valid)],
+            "main.ts",
+            "",
+        )?,
+        build_files(
+            &[("src/arith.py", python), ("src/main.ts", &invalid)],
+            "main.ts",
+            "",
+        )?,
         "TS2345",
     )?;
     let typescript = "export function twice(x: number): number {\n  return x * 2;\n}\n";
     let py_main = |argument: &str| format!("from arith import twice\n\nprint(twice({argument}))\n");
     let (valid_py, invalid_py) = (py_main("4.0"), py_main("\"4\""));
     ensure_gate_sees(
-        build_files(&[("src/arith.ts", typescript), ("src/main.py", &valid_py)], "main.py", "")?,
-        build_files(&[("src/arith.ts", typescript), ("src/main.py", &invalid_py)], "main.py", "")?,
+        build_files(
+            &[("src/arith.ts", typescript), ("src/main.py", &valid_py)],
+            "main.py",
+            "",
+        )?,
+        build_files(
+            &[("src/arith.ts", typescript), ("src/main.py", &invalid_py)],
+            "main.py",
+            "",
+        )?,
         "invalid-argument-type",
     )
 }
@@ -331,8 +415,14 @@ fn a_hook_context_is_typed() -> TestResult {
         .args(["check", "--message-format", "json"])
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    ensure(stdout.contains("lifecycle callbacks with parameters"), format!("expected the lowering blocker:\n{stdout}"))?;
-    ensure(!stdout.contains("\"type-check\""), format!("the hook context must type-check:\n{stdout}"))
+    ensure(
+        stdout.contains("lifecycle callbacks with parameters"),
+        format!("expected the lowering blocker:\n{stdout}"),
+    )?;
+    ensure(
+        !stdout.contains("\"type-check\""),
+        format!("the hook context must type-check:\n{stdout}"),
+    )
 }
 
 /// A package Smelt resolves to nothing (a test-only dev dependency not
@@ -350,7 +440,14 @@ fn an_uninstalled_package_is_an_untyped_module() -> TestResult {
     };
     ensure_gate_sees(
         build_files(&[("src/main.spec.ts", &program(""))], "main.spec.ts", "")?,
-        build_files(&[("src/main.spec.ts", &program("const wrong: string = total; void wrong;"))], "main.spec.ts", "")?,
+        build_files(
+            &[(
+                "src/main.spec.ts",
+                &program("const wrong: string = total; void wrong;"),
+            )],
+            "main.spec.ts",
+            "",
+        )?,
         "TS2322",
     )
 }
@@ -369,6 +466,9 @@ fn a_node_timer_handle_is_a_number() -> TestResult {
         .args(["build", "--hir"])
         .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    ensure(output.status.success(), String::from_utf8_lossy(&output.stderr).into_owned())?;
+    ensure(
+        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )?;
     ensure(stdout.contains("let timer: Optional<Float>"), stdout)
 }

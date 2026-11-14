@@ -1,7 +1,7 @@
 //! Existence checks: the "does this reference exist" validation of rvalues,
 //! operands, places, and callees used by structural validation.
 
-use crate::{MirBody, Callee, GlobalProjection, Mir, Operand, Place, Rvalue};
+use crate::{Callee, GlobalProjection, Mir, MirBody, Operand, Place, Rvalue};
 
 use super::structure::validate_local_exists;
 use super::{ValidationError, error};
@@ -94,7 +94,9 @@ pub(super) fn validate_callee_exists(
         Callee::Indirect(operand) => {
             validate_operand_exists(mir, body, operand, errors);
         }
-        Callee::Op(op, _) => op.reads(|operand| validate_operand_exists(mir, body, operand, errors)),
+        Callee::Op(op, _) => {
+            op.reads(|operand| validate_operand_exists(mir, body, operand, errors));
+        }
         Callee::Builtin(_) => {}
     }
 }

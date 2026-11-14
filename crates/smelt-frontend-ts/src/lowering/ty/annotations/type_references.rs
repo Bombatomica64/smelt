@@ -2,12 +2,12 @@
 //! qualified, renamed, or a global lib type) resolved to its HIR type, and the
 //! checks for names a source module declares or shadows.
 
-use std::collections::HashMap;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::resolve::TypeBinding;
 use oxc::ast::ast::TSTypeName;
 use smelt_hir::{ErasureReason, FunctionType, Item, Type};
+use std::collections::HashMap;
 
 impl ModuleBuilder<'_> {
     /// Whether any class, interface or type alias of the crate is named
@@ -49,7 +49,10 @@ impl ModuleBuilder<'_> {
         // spellings).
         let binding = match &reference.type_name {
             TSTypeName::IdentifierReference(_) => self.resolve_type_name(&name_text),
-            _ => self.types.param_type(&name_text).map_or(TypeBinding::Source, TypeBinding::Param),
+            _ => self
+                .types
+                .param_type(&name_text)
+                .map_or(TypeBinding::Source, TypeBinding::Param),
         };
         if let TypeBinding::Param(param_ty) = binding {
             if reference.type_arguments.is_some() {
@@ -78,7 +81,11 @@ impl ModuleBuilder<'_> {
         // module declares itself shadows the global one, so it skips the table
         // and resolves through the declaration path in the fallback arm; an
         // empty spelling matches no builtin arm.
-        let builtin_spelling = if binding == TypeBinding::Lib { name_text.as_str() } else { "" };
+        let builtin_spelling = if binding == TypeBinding::Lib {
+            name_text.as_str()
+        } else {
+            ""
+        };
         // `Omit` with a fixed key set over a known record. Anything else keeps
         // the opaque reference below, whose `T` a call site still instantiates.
         // `builtin_spelling` is only `Omit` when the resolver answered
@@ -151,7 +158,11 @@ impl ModuleBuilder<'_> {
                     args: Vec::new(),
                 });
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                Ok(self.ctx.krate.types.intern(Type::Union(vec![file_ty, string_ty])))
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Union(vec![file_ty, string_ty])))
             }
             ("BodyInit", []) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -339,7 +350,8 @@ impl ModuleBuilder<'_> {
             // and it stopped the crate from being emitted at all.
             ("Parameters" | "ConstructorParameters", [function_arg]) => {
                 let function_ty = self.ts_type_to_hir(function_arg)?;
-                if let Some(Type::Function(function_ty_data)) = self.ctx.krate.types.get(function_ty)
+                if let Some(Type::Function(function_ty_data)) =
+                    self.ctx.krate.types.get(function_ty)
                 {
                     Ok(self
                         .ctx
@@ -357,7 +369,8 @@ impl ModuleBuilder<'_> {
             }
             ("ReturnType", [function_arg]) => {
                 let function_ty = self.ts_type_to_hir(function_arg)?;
-                if let Some(Type::Function(function_ty_data)) = self.ctx.krate.types.get(function_ty)
+                if let Some(Type::Function(function_ty_data)) =
+                    self.ctx.krate.types.get(function_ty)
                 {
                     Ok(function_ty_data.return_ty)
                 } else {
@@ -418,11 +431,10 @@ impl ModuleBuilder<'_> {
                         &lowered_args,
                         self.span(reference.span.start, reference.span.end),
                     )?;
-                    let alias_is_union = matches!(
-                        self.ctx.krate.types.get(alias.ty),
-                        Some(Type::Union(_))
-                    );
-                    let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
+                    let alias_is_union =
+                        matches!(self.ctx.krate.types.get(alias.ty), Some(Type::Union(_)));
+                    let substituted_alias_ty =
+                        self.substitute_type_params(alias.ty, &substitutions);
                     let reference_span = self.span(reference.span.start, reference.span.end);
                     let shaped = self.alias_reference_shaped_by_checker(
                         substituted_alias_ty,
@@ -433,7 +445,9 @@ impl ModuleBuilder<'_> {
                     if shaped != substituted_alias_ty {
                         return Ok(shaped);
                     }
-                    let alias_has_fields = self.types.alias_fields(symbol)
+                    let alias_has_fields = self
+                        .types
+                        .alias_fields(symbol)
                         .is_some_and(|fields| !fields.is_empty());
                     if alias_has_fields
                         && !alias_is_union
@@ -444,9 +458,10 @@ impl ModuleBuilder<'_> {
                             .iter()
                             .map(|param| {
                                 substitutions.get(&param.name).copied().unwrap_or_else(|| {
-                                    self.ctx.krate.types.intern(Type::TypeParam {
-                                        name: param.name,
-                                    })
+                                    self.ctx
+                                        .krate
+                                        .types
+                                        .intern(Type::TypeParam { name: param.name })
                                 })
                             })
                             .collect();
@@ -506,7 +521,10 @@ impl ModuleBuilder<'_> {
                     .class_type_params
                     .get(&symbol)
                     .cloned()
-                    .or_else(|| self.find_class(symbol).map(|class| class.type_params.clone()))
+                    .or_else(|| {
+                        self.find_class(symbol)
+                            .map(|class| class.type_params.clone())
+                    })
                     && let Some(completed) =
                         self.type_arguments_with_defaults(&class_type_params, &lowered_args)
                 {
@@ -588,7 +606,9 @@ impl ModuleBuilder<'_> {
         let has_other_members = self
             .find_interface(name)
             .is_some_and(|interface| !interface.fields.is_empty())
-            || self.interfaces.call_signatures(name)
+            || self
+                .interfaces
+                .call_signatures(name)
                 .is_some_and(|call_sigs| !call_sigs.is_empty());
         if has_other_members {
             return None;
@@ -612,7 +632,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the full source path for a qualified type name.
-    pub(in crate::lowering) fn qualified_type_name_text(qualified: &oxc::ast::ast::TSQualifiedName<'_>) -> String {
+    pub(in crate::lowering) fn qualified_type_name_text(
+        qualified: &oxc::ast::ast::TSQualifiedName<'_>,
+    ) -> String {
         let left = match &qualified.left {
             TSTypeName::IdentifierReference(left) => left.name.to_string(),
             TSTypeName::QualifiedName(left) => Self::qualified_type_name_text(left),
@@ -632,7 +654,10 @@ impl ModuleBuilder<'_> {
     /// `class Context` (the cross-kind half of H61, and Hono's 437 `E0609`).
     /// The rename map answers `None` for every unambiguous name, so nothing
     /// about a crate without a collision changes.
-    pub(in crate::lowering) fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+    pub(in crate::lowering) fn resolve_type_reference_symbol(
+        &mut self,
+        name_text: &str,
+    ) -> smelt_hir::Symbol {
         // A lexically scoped declaration (a block-local class, alias or
         // interface reusing a name) is the one in sight.
         if let Some(symbol) = self.classes.scoped_type_name(name_text) {
@@ -731,7 +756,9 @@ impl ModuleBuilder<'_> {
             .filter_map(|(path, renames)| {
                 let rendered = renames.get(name)?;
                 let canonical = Self::canonical_module_path(path)?;
-                canonical_candidates.contains(&canonical).then_some((path, rendered))
+                canonical_candidates
+                    .contains(&canonical)
+                    .then_some((path, rendered))
             })
             .min_by_key(|(path, _)| *path)
             .map(|(_, rendered)| rendered.clone())

@@ -18,8 +18,8 @@ use smelt_hir::{
 };
 
 use crate::{
-    BasicBlock, BlockId, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind,
-    MirClosure, MirFunction, NegativeIndex, Operand,
+    BasicBlock, BlockId, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, MirClosure, MirFunction,
+    NegativeIndex, Operand,
 };
 
 use super::scope::{ControlScope, HandlerMarks};
@@ -110,7 +110,9 @@ fn record_type_param_bounds(
             && let Some(smelt_hir::Type::Class { name, args }) = krate.types.get(constraint)
             && args.is_empty()
             && krate.items.iter().any(|item| match item {
-                smelt_hir::Item::Class(class) => class.name == *name && class.type_params.is_empty(),
+                smelt_hir::Item::Class(class) => {
+                    class.name == *name && class.type_params.is_empty()
+                }
                 smelt_hir::Item::Interface(interface) => {
                     interface.name == *name && interface.type_params.is_empty()
                 }
@@ -270,9 +272,7 @@ impl<'hir> LoweringCtx<'hir> {
             // Propagate a generic free function's declared type parameters so
             // codegen can emit real Rust generics rather than erasing `T` to
             // `SmeltUnknown`.
-            function
-                .type_params
-                .clone_from(&hir_function.type_params);
+            function.type_params.clone_from(&hir_function.type_params);
         }
         let locals = build_locals(&mut function, body)?;
         let mut type_param_bounds = HashMap::new();
@@ -293,10 +293,18 @@ impl<'hir> LoweringCtx<'hir> {
                 | smelt_hir::Item::MutableGlobal(_) => None,
             })
         {
-            record_type_param_bounds(shared.krate, &class_item.type_params, &mut type_param_bounds);
+            record_type_param_bounds(
+                shared.krate,
+                &class_item.type_params,
+                &mut type_param_bounds,
+            );
         }
         if let Some(hir_function) = function_item_for_body(shared.krate, body_id) {
-            record_type_param_bounds(shared.krate, &hir_function.type_params, &mut type_param_bounds);
+            record_type_param_bounds(
+                shared.krate,
+                &hir_function.type_params,
+                &mut type_param_bounds,
+            );
         }
 
         let mut ctx = Self::from_parts(shared, body, function, locals);
@@ -397,7 +405,6 @@ impl<'hir> LoweringCtx<'hir> {
         })
     }
 
-
     /// Returns a reference to the current block.
     pub(super) fn block(&self) -> Result<&BasicBlock, LowerError> {
         let block_index = usize_from_u32(
@@ -420,7 +427,11 @@ impl<'hir> LoweringCtx<'hir> {
         // the handler it runs under is written down (see `HandlerMarks`).
         let handler = self.current_exception_handler();
         let block = self.current_block;
-        let at = self.function.blocks.get(block_index).map_or(0, |current| current.statements.len());
+        let at = self
+            .function
+            .blocks
+            .get(block_index)
+            .map_or(0, |current| current.statements.len());
         self.handler_marks.record(block, at, handler);
         self.function
             .blocks
@@ -441,7 +452,10 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Returns a HIR item by ID.
-    pub(super) fn hir_item(&self, item_id: smelt_hir::ItemId) -> Result<&smelt_hir::Item, LowerError> {
+    pub(super) fn hir_item(
+        &self,
+        item_id: smelt_hir::ItemId,
+    ) -> Result<&smelt_hir::Item, LowerError> {
         let item_index = usize_from_u32(item_id.0, "HIR item index does not fit in usize")?;
         self.krate
             .items
@@ -450,7 +464,10 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Returns a HIR block by ID.
-    pub(super) fn hir_block(&self, block_id: smelt_hir::BlockId) -> Result<&smelt_hir::Block, LowerError> {
+    pub(super) fn hir_block(
+        &self,
+        block_id: smelt_hir::BlockId,
+    ) -> Result<&smelt_hir::Block, LowerError> {
         let block_index = usize_from_u32(block_id.0, "HIR block index does not fit in usize")?;
         self.body
             .blocks

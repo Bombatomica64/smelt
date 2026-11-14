@@ -23,9 +23,8 @@ use tsrs_ast::{self as ast, Kind, Node, SourceFile, Symbol};
 use tsrs_checker::Type;
 use tsrs_core::P;
 
-use crate::{FileTypes, SpanKey};
 use crate::convert::Converter;
-
+use crate::{FileTypes, SpanKey};
 
 /// Span-keyed types of one file: value positions and type annotations.
 pub(crate) struct CollectedTypes {
@@ -108,13 +107,22 @@ fn is_evolved_array(converter: &Converter<'_>, id: crate::TsTypeId) -> bool {
     let Some(TsTypeKind::Array { element, .. }) = converter.kind_of_converted(id) else {
         return false;
     };
-    !matches!(converter.kind_of_converted(*element), None | Some(TsTypeKind::Any | TsTypeKind::Never))
+    !matches!(
+        converter.kind_of_converted(*element),
+        None | Some(TsTypeKind::Any | TsTypeKind::Never)
+    )
 }
 
 /// Collects the type of every value-position node and type node in `file`.
-pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFile>) -> CollectedTypes {
-    let mut collected =
-        CollectedTypes { values: HashMap::new(), type_nodes: HashMap::new(), evolved_arrays: HashMap::new() };
+pub(crate) fn collect_file_types(
+    converter: &mut Converter<'_>,
+    file: P<SourceFile>,
+) -> CollectedTypes {
+    let mut collected = CollectedTypes {
+        values: HashMap::new(),
+        type_nodes: HashMap::new(),
+        evolved_arrays: HashMap::new(),
+    };
     let mut evolving = EvolvingArrays::default();
     let text = file.text();
     let mut work: Vec<P<Node>> = vec![file.as_node()];
@@ -137,7 +145,10 @@ pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFi
         }
         push_children_in_order(node, &mut work);
     }
-    #[expect(clippy::iter_over_hash_type, reason = "keyed inserts, one per declaration")]
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "keyed inserts, one per declaration"
+    )]
     for (declaration, reads) in evolving.reads {
         if let Some(id) = joined_evolved_array(converter, &reads) {
             collected.evolved_arrays.insert(declaration, id);
@@ -149,14 +160,20 @@ pub(crate) fn collect_file_types(converter: &mut Converter<'_>, file: P<SourceFi
 /// The array type holding every element type of `reads`, the evolved types of
 /// one evolving array's reads: one read's type as it is, or an array of the
 /// union of their element types.
-fn joined_evolved_array(converter: &mut Converter<'_>, reads: &[P<Type>]) -> Option<crate::TsTypeId> {
+fn joined_evolved_array(
+    converter: &mut Converter<'_>,
+    reads: &[P<Type>],
+) -> Option<crate::TsTypeId> {
     let (&first, rest) = reads.split_first()?;
     if rest.iter().all(|&read| read == first) {
         return Some(converter.convert_root(first));
     }
     let mut elements: Vec<P<Type>> = Vec::new();
     for &read in reads {
-        let element = *converter.checker().get_type_arguments_exported(read).first()?;
+        let element = *converter
+            .checker()
+            .get_type_arguments_exported(read)
+            .first()?;
         if !elements.contains(&element) {
             elements.push(element);
         }
@@ -187,7 +204,9 @@ fn is_annotation_type_node(node: P<Node>) -> bool {
 /// object-literal property (`{ ada: 10 }`) reports the *property's* type.
 /// Shorthand properties (`{ id }`) stay: their name is also the value read.
 fn is_value_position(node: P<Node>) -> bool {
-    (ast::is_expression_node(node) || node.kind() == Kind::Identifier || ast::is_declaration_name(node))
+    (ast::is_expression_node(node)
+        || node.kind() == Kind::Identifier
+        || ast::is_declaration_name(node))
         && !ast::is_part_of_type_node(node)
         && !ast::is_omitted_expression(node)
         && !matches!(node.kind(), Kind::SpreadElement | Kind::SpreadAssignment)

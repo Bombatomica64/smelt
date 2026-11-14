@@ -32,13 +32,20 @@ impl FunctionEmitter<'_> {
 
     /// `SmeltBinding<T>` for a local of type `ty`.
     pub(super) fn binding_storage_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
-        Ok(RustType::raw(format!("SmeltBinding<{}>", self.rendered_type(ty)?)))
+        Ok(RustType::raw(format!(
+            "SmeltBinding<{}>",
+            self.rendered_type(ty)?
+        )))
     }
 
     /// Declares a possibly-unbound local before any block: as a plain
     /// `SmeltBinding<T>`, or as the shared cell holding one when a closure
     /// captures it. Both start unassigned.
-    pub(super) fn emit_binding_declaration(&self, local: LocalId, out: &mut String) -> Result<(), EmitError> {
+    pub(super) fn emit_binding_declaration(
+        &self,
+        local: LocalId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         let decl = self.local_decl(local)?;
         let storage = self.binding_storage_type(decl.ty)?;
         let name = self.local_name(local)?;
@@ -47,7 +54,9 @@ impl FunctionEmitter<'_> {
                 "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{storage}>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));\n"
             ));
         } else {
-            out.push_str(&format!("    let mut {name}: {storage} = SmeltBinding::unbound();\n"));
+            out.push_str(&format!(
+                "    let mut {name}: {storage} = SmeltBinding::unbound();\n"
+            ));
         }
         self.mark_local_declared(local);
         Ok(())
@@ -82,7 +91,9 @@ impl FunctionEmitter<'_> {
         let local = binding_local(binding)?;
         if !self.local_is_maybe_unbound(local)? {
             return Ok((
-                call::RenderedCall::propagating(RustExpr::atom("Ok::<(), Box<dyn ::std::error::Error>>(())")),
+                call::RenderedCall::propagating(RustExpr::atom(
+                    "Ok::<(), Box<dyn ::std::error::Error>>(())",
+                )),
                 self.none_ty,
             ));
         }
@@ -119,21 +130,29 @@ impl FunctionEmitter<'_> {
     /// or `(*storage.bound_mut())` for a write through it. Only reads MIR
     /// proved assigned reach here (the validator rejects any other), so
     /// `bound` never finds the binding empty.
-    pub(super) fn binding_value(&self, local: LocalId, mutable: bool) -> Result<RustExpr, EmitError> {
+    pub(super) fn binding_value(
+        &self,
+        local: LocalId,
+        mutable: bool,
+    ) -> Result<RustExpr, EmitError> {
         let storage = self.binding_storage(local, mutable)?;
         let accessor = if mutable { "bound_mut" } else { "bound" };
-        Ok(RustExpr::atom(format!("(*{}.{accessor}())", storage.tight())))
+        Ok(RustExpr::atom(format!(
+            "(*{}.{accessor}())",
+            storage.tight()
+        )))
     }
 
     /// The name the source gave `local`, which the raised error quotes.
     fn binding_source_name(&self, local: LocalId) -> Result<String, EmitError> {
         match self.local_decl(local)?.kind {
-            LocalKind::UserBinding(symbol) | LocalKind::Param { symbol: Some(symbol) } => {
-                Ok(self.symbol_source_name(symbol)?.to_owned())
-            }
-            LocalKind::Param { symbol: None } | LocalKind::Temp => {
-                Err(EmitError::new("a checked binding read names no source binding"))
-            }
+            LocalKind::UserBinding(symbol)
+            | LocalKind::Param {
+                symbol: Some(symbol),
+            } => Ok(self.symbol_source_name(symbol)?.to_owned()),
+            LocalKind::Param { symbol: None } | LocalKind::Temp => Err(EmitError::new(
+                "a checked binding read names no source binding",
+            )),
         }
     }
 }

@@ -35,7 +35,10 @@ pub fn parse(path: &str) -> ConfigResult<Config> {
 ///
 /// Returns an error when `path` is not valid UTF-8, or as [`parse`] does.
 pub fn parse_path(path: &Path) -> ConfigResult<Config> {
-    parse(path.to_str().ok_or("manifest path contains invalid UTF-8")?)
+    parse(
+        path.to_str()
+            .ok_or("manifest path contains invalid UTF-8")?,
+    )
 }
 
 #[cfg(test)]
@@ -92,10 +95,22 @@ mod tests {
     #[test]
     fn unsupported_settings_are_manifest_errors() {
         for (extra, expected) in [
-            ("[strict]\ntypescript = false", "error[smelt::manifest]: strict.typescript=false is not supported in v1.0"),
-            ("[strict]\npython = false", "error[smelt::manifest]: strict.python=false is not supported in v1.0"),
-            ("[runtime]\nclone-strategy = \"never\"", "error[smelt::manifest]: runtime.clone-strategy=\"never\" is not supported in v1.0"),
-            ("[runtime]\nclone-strategy = \"always\"", "error[smelt::manifest]: runtime.clone-strategy=\"always\" is not supported in v1.0"),
+            (
+                "[strict]\ntypescript = false",
+                "error[smelt::manifest]: strict.typescript=false is not supported in v1.0",
+            ),
+            (
+                "[strict]\npython = false",
+                "error[smelt::manifest]: strict.python=false is not supported in v1.0",
+            ),
+            (
+                "[runtime]\nclone-strategy = \"never\"",
+                "error[smelt::manifest]: runtime.clone-strategy=\"never\" is not supported in v1.0",
+            ),
+            (
+                "[runtime]\nclone-strategy = \"always\"",
+                "error[smelt::manifest]: runtime.clone-strategy=\"always\" is not supported in v1.0",
+            ),
         ] {
             let error = parse_with(extra).expect_err(extra).to_string();
             assert!(error.contains(expected), "{extra}: {error}");
@@ -108,9 +123,16 @@ mod tests {
     #[test]
     fn only_a_compiling_rust_edition_is_accepted() {
         parse_with("[rust]\nedition = \"2024\"").expect("2024 parses");
-        for extra in ["[rust]\nedition = \"2021\"", "[rust]\nedition = \"2015\"", "[rust]\nedition = \"2099\""] {
+        for extra in [
+            "[rust]\nedition = \"2021\"",
+            "[rust]\nedition = \"2015\"",
+            "[rust]\nedition = \"2099\"",
+        ] {
             let error = parse_with(extra).expect_err(extra).to_string();
-            assert!(error.contains("unknown variant") && error.contains("2024"), "{extra}: {error}");
+            assert!(
+                error.contains("unknown variant") && error.contains("2024"),
+                "{extra}: {error}"
+            );
         }
     }
 
@@ -118,22 +140,32 @@ mod tests {
     /// there is no fallback, and a misspelt key is rejected.
     #[test]
     fn the_oci_fallback_is_configured_in_specialization() {
-        let configured =
-            parse_with("[specialization.oci-fallback]\nruntime = \"docker\"\nimage = \"ubuntu@sha256:00\"");
+        let configured = parse_with(
+            "[specialization.oci-fallback]\nruntime = \"docker\"\nimage = \"ubuntu@sha256:00\"",
+        );
         assert_eq!(
             configured.as_ref().ok().and_then(Config::oci_fallback),
             Some(("docker", "ubuntu@sha256:00"))
         );
         let absent = parse_with("");
-        assert!(absent.as_ref().is_ok_and(|config| config.oci_fallback().is_none()));
-        let misspelt = parse_with("[specialization.oci-fallback]\nruntime = \"docker\"\nimg = \"x\"");
+        assert!(
+            absent
+                .as_ref()
+                .is_ok_and(|config| config.oci_fallback().is_none())
+        );
+        let misspelt =
+            parse_with("[specialization.oci-fallback]\nruntime = \"docker\"\nimg = \"x\"");
         assert!(misspelt.is_err_and(|error| error.to_string().contains("unknown")));
     }
 
     /// A misspelt key is an error, in a table and at the top level.
     #[test]
     fn unknown_keys_are_rejected() {
-        for extra in ["[rust]\neditoin = \"2021\"", "[runtim]\nclone-strategy = \"aggressive\"", "[strict]\ntypescrpt = true"] {
+        for extra in [
+            "[rust]\neditoin = \"2021\"",
+            "[runtim]\nclone-strategy = \"aggressive\"",
+            "[strict]\ntypescrpt = true",
+        ] {
             let error = parse_with(extra).expect_err(extra).to_string();
             assert!(error.contains("unknown"), "{extra}: {error}");
         }
@@ -169,7 +201,10 @@ mod tests {
             .expect("git parses");
         assert_eq!(
             git.packages()["utility"].location,
-            PackageLocation::Git { url: "https://example.com/u.git".to_owned(), rev: "v1".to_owned() }
+            PackageLocation::Git {
+                url: "https://example.com/u.git".to_owned(),
+                rev: "v1".to_owned()
+            }
         );
     }
 
@@ -178,12 +213,20 @@ mod tests {
     #[test]
     fn malformed_package_declarations_are_rejected() {
         for (declaration, expected) in [
-            ("path = \"a\"\nrev = \"v1\"", "a `path` package has no revision"),
+            (
+                "path = \"a\"\nrev = \"v1\"",
+                "a `path` package has no revision",
+            ),
             ("git = \"u\"", "`git` needs a pinned `rev`"),
-            ("path = \"a\"\ngit = \"u\"\nrev = \"v1\"", "exactly one of `path` and `git`"),
+            (
+                "path = \"a\"\ngit = \"u\"\nrev = \"v1\"",
+                "exactly one of `path` and `git`",
+            ),
             ("entry = \"index.ts\"", "exactly one of `path` and `git`"),
         ] {
-            let error = parse_packages(declaration).expect_err(declaration).to_string();
+            let error = parse_packages(declaration)
+                .expect_err(declaration)
+                .to_string();
             assert!(error.contains(expected), "{declaration}: {error}");
         }
     }

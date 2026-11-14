@@ -2,12 +2,11 @@
 
 mod common;
 
-use std::fs;
+use std::{fs, path::Path};
 
 use common::{
     TempProject, TestResult, cargo_run_manifest, cargo_run_manifest_with_env, cargo_test_manifest,
-    ensure, ensure_eq, ensure_node_agrees, smelt,
-    smelt_in, smelt_with_env, tool_missing,
+    ensure, ensure_eq, ensure_node_agrees, smelt, smelt_in, smelt_with_env, tool_missing,
     utf8_path,
 };
 
@@ -1202,7 +1201,10 @@ crate-name = "ts_workspace_relative_manifest"
 clone-strategy = "aggressive"
 "#,
     )?;
-    fs::write(project_path.join("package.json"), "{\"name\":\"workspace-root\",\"private\":true}\n")?;
+    fs::write(
+        project_path.join("package.json"),
+        "{\"name\":\"workspace-root\",\"private\":true}\n",
+    )?;
     fs::write(
         project_path.join("packages/utility/package.json"),
         "{\"name\":\"utility\",\"source\":\"src/index.ts\"}\n",
@@ -1224,9 +1226,12 @@ clone-strategy = "aggressive"
 /// Write a small library: a barrel, a module it re-exports, a subpath module,
 /// and a module the manifest excludes (it imports a package nothing provides,
 /// so reaching it would fail the build).
-fn write_package_sources(root: &std::path::Path) -> TestResult {
+fn write_package_sources(root: &Path) -> TestResult {
     fs::create_dir_all(root.join("src/extra"))?;
-    fs::write(root.join("src/index.ts"), "export * from \"./increment\";\nexport * from \"./client\";\n")?;
+    fs::write(
+        root.join("src/index.ts"),
+        "export * from \"./increment\";\nexport * from \"./client\";\n",
+    )?;
     fs::write(
         root.join("src/increment.ts"),
         "export function increment(value: number): number {\n  return value + 1;\n}\n",
@@ -1243,7 +1248,7 @@ fn write_package_sources(root: &std::path::Path) -> TestResult {
 }
 
 /// The manifest and program shared by the `[packages]` tests.
-fn write_package_consumer(project_path: &std::path::Path, package_decl: &str) -> TestResult {
+fn write_package_consumer(project_path: &Path, package_decl: &str) -> TestResult {
     fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
@@ -1293,6 +1298,33 @@ fn build_resolves_a_declared_package_from_a_local_path() -> TestResult {
     Ok(())
 }
 
+/// Runs `git` in `repo` with a fixed identity and default branch.
+fn git_in(repo: &Path, args: &[&str]) -> TestResult {
+    let status = std::process::Command::new("git")
+        .current_dir(repo)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "init.defaultBranch=main",
+        ])
+        .args(args)
+        .status()?;
+    ensure(status.success(), format!("git {args:?} failed"))
+}
+
+/// The package checkouts in `cache`, without hidden bookkeeping entries.
+fn cached_checkouts(cache: &Path) -> TestResult<Vec<String>> {
+    Ok(fs::read_dir(cache)?
+        .map(|listed| listed.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|name| !name.starts_with('.'))
+        .collect())
+}
+
 /// `[packages.<name>] git` + `rev` fetches the pinned revision into the
 /// package cache once and reuses it; a later commit on the branch is not seen.
 #[test]
@@ -1301,14 +1333,7 @@ fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult 
     let project_path = project.path();
     let repo = project_path.join("upstream");
     write_package_sources(&repo)?;
-    let git = |args: &[&str]| -> TestResult {
-        let status = std::process::Command::new("git")
-            .current_dir(&repo)
-            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
-            .args(args)
-            .status()?;
-        ensure(status.success(), format!("git {args:?} failed"))
-    };
+    let git = |args: &[&str]| git_in(&repo, args);
     git(&["init", "--quiet"])?;
     git(&["add", "."])?;
     git(&["commit", "--quiet", "-m", "v1"])?;
@@ -1325,25 +1350,32 @@ fn build_resolves_a_declared_package_from_a_pinned_git_revision() -> TestResult 
     let cache = project_path.join("cache");
     let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
     for _ in 0_u8..2 {
-        smelt_with_env(&["--manifest-path", &manifest_arg, "build"], &[("SMELT_PACKAGE_CACHE", &cache)])?;
+        smelt_with_env(
+            &["--manifest-path", &manifest_arg, "build"],
+            &[("SMELT_PACKAGE_CACHE", &cache)],
+        )?;
         let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
         ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
     }
     // The checkout is keyed by the commit `v1` resolves to (and the URL), not
     // by the spelling `v1`, so a moved tag or branch is a new checkout.
-    let tagged = std::process::Command::new("git").current_dir(&repo).args(["rev-parse", "v1^0"]).output()?;
+    let tagged = std::process::Command::new("git")
+        .current_dir(&repo)
+        .args(["rev-parse", "v1^0"])
+        .output()?;
     let commit = String::from_utf8(tagged.stdout)?.trim().to_owned();
-    let checkouts = fs::read_dir(&cache)?
-        .map(|listed| listed.map(|entry| entry.file_name().to_string_lossy().into_owned()))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter(|name| !name.starts_with('.'))
-        .collect::<Vec<_>>();
+    let checkouts = cached_checkouts(&cache)?;
     ensure(
         checkouts.len() == 1
-            && checkouts.iter().all(|name| name.starts_with("utility-") && name.ends_with(&commit))
-            && checkouts.first().is_some_and(|name| cache.join(name).join(".git").is_dir()),
-        format!("the pinned checkout is cached under <name>-<url hash>-<commit {commit}>: {checkouts:?}"),
+            && checkouts
+                .iter()
+                .all(|name| name.starts_with("utility-") && name.ends_with(&commit))
+            && checkouts
+                .first()
+                .is_some_and(|name| cache.join(name).join(".git").is_dir()),
+        format!(
+            "the pinned checkout is cached under <name>-<url hash>-<commit {commit}>: {checkouts:?}"
+        ),
     )?;
     Ok(())
 }
@@ -1381,9 +1413,21 @@ clone-strategy = "aggressive"
 
     let manifest = project_path.join("dist/Cargo.toml");
     let unset = cargo_run_manifest_with_env(&manifest, &[("TZ", "UTC")], &["SMELT_TEST_PORT"])?;
-    ensure_eq(&unset, &"3000 America/Santiago\n".to_owned(), "an unset variable is undefined")?;
-    let set = cargo_run_manifest_with_env(&manifest, &[("SMELT_TEST_PORT", "4321"), ("TZ", "UTC")], &[])?;
-    ensure_eq(&set, &"4321 America/Santiago\n".to_owned(), "a set variable is read")?;
+    ensure_eq(
+        &unset,
+        &"3000 America/Santiago\n".to_owned(),
+        "an unset variable is undefined",
+    )?;
+    let set = cargo_run_manifest_with_env(
+        &manifest,
+        &[("SMELT_TEST_PORT", "4321"), ("TZ", "UTC")],
+        &[],
+    )?;
+    ensure_eq(
+        &set,
+        &"4321 America/Santiago\n".to_owned(),
+        "a set variable is read",
+    )?;
     Ok(())
 }
 
@@ -1480,7 +1524,12 @@ console.log(read({ value: 3 }), read());
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
     let main = fs::read_to_string(project_path.join("src/main.ts"))?;
     let types = fs::read_to_string(project_path.join("src/types.ts"))?;
-    ensure_node_agrees(&[("main.ts", &main), ("types.ts", &types)], "main.ts", "3 0\n", "multiline_type_import")?;
+    ensure_node_agrees(
+        &[("main.ts", &main), ("types.ts", &types)],
+        "main.ts",
+        "3 0\n",
+        "multiline_type_import",
+    )?;
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"3 0\n".to_owned(), "unexpected stdout")?;
 
@@ -1596,7 +1645,10 @@ export function read(options?: StartOptions): number {
     // generated shape, with no erasure in the signature.
     let generated = generated_rust_text(project_path)?;
     let signature = emitted_signature(&generated, "read")?;
-    ensure(signature == "pub(crate) fn read(options: Option<StartOptions>) -> f64 {", format!("read signature: {signature}"))?;
+    ensure(
+        signature == "pub(crate) fn read(options: Option<StartOptions>) -> f64 {",
+        format!("read signature: {signature}"),
+    )?;
 
     Ok(())
 }
@@ -1644,7 +1696,7 @@ clone-strategy = "aggressive"
 }
 
 /// Writes a barrel-cycle TypeScript project: `index.ts` re-exports modules that import it back.
-fn write_barrel_cycle_sources(project_path: &std::path::Path) -> TestResult {
+fn write_barrel_cycle_sources(project_path: &Path) -> TestResult {
     fs::write(
         project_path.join("src/result.ts"),
         r#"import type { ResultAsync } from "./index";
@@ -1846,11 +1898,7 @@ type ManifestProject = Result<(TempProject, String), Box<dyn std::error::Error>>
 
 /// Write a manifest-built project whose files are `files` (path, source),
 /// entered from `src/main.ts`, and return it with its manifest path.
-fn multi_module_project(
-    name: &str,
-    build: bool,
-    files: &[(&str, &str)],
-) -> ManifestProject {
+fn multi_module_project(name: &str, build: bool, files: &[(&str, &str)]) -> ManifestProject {
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
@@ -1966,7 +2014,10 @@ fn build_types_cycle_early_reads_of_a_pending_class() -> TestResult {
         "let done: bool = c.finalized",
         "let res: Option<SmeltResponse> = c.__smelt_get___smelt_symbol_unique__at_",
     ] {
-        ensure(generated.contains(typed), format!("expected `{typed}` in the cycle-early module"))?;
+        ensure(
+            generated.contains(typed),
+            format!("expected `{typed}` in the cycle-early module"),
+        )?;
     }
     ensure(
         generated.contains("c.__smelt_get_text().clone().__smelt_call"),
@@ -2044,7 +2095,7 @@ console.log(value, setters.map((setter) => setter.priority + setter.subPriority)
 
 /// Every generated `.rs` file under a built project's `dist/src`, concatenated,
 /// so a signature assertion does not depend on which module a function lands in.
-fn generated_rust_text(project: &std::path::Path) -> TestResult<String> {
+fn generated_rust_text(project: &Path) -> TestResult<String> {
     let mut text = String::new();
     for entry in fs::read_dir(project.join("dist/src"))? {
         let path = entry?.path();
@@ -2058,7 +2109,10 @@ fn generated_rust_text(project: &std::path::Path) -> TestResult<String> {
 /// Asserts the emitted signature line of free function `name` is exactly `expected`.
 fn ensure_emitted_signature(generated: &str, name: &str, expected: &str) -> TestResult {
     let signature = emitted_signature(generated, name)?;
-    ensure(signature == expected, format!("`{name}`: expected `{expected}`, got `{signature}`"))
+    ensure(
+        signature == expected,
+        format!("`{name}`: expected `{expected}`, got `{signature}`"),
+    )
 }
 
 /// The emitted signature line of free function `name` (`fn name<..>(..) -> ..`).
@@ -2068,7 +2122,10 @@ fn emitted_signature(generated: &str, name: &str) -> TestResult<String> {
         .lines()
         .find(|line| {
             line.find(&needle).is_some_and(|at| {
-                matches!(generated_after(line, at.saturating_add(needle.len())), Some('<' | '('))
+                matches!(
+                    generated_after(line, at.saturating_add(needle.len())),
+                    Some('<' | '(')
+                )
             })
         })
         .map(str::to_owned)
@@ -2219,7 +2276,11 @@ console.log(longest(new Rope(3), new Rope(9)).label())
         "the interface struct and the implementing class must implement the trait",
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
-    ensure_eq(&stdout, &"2 two lit#5 rope7#7\nrope9\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(
+        &stdout,
+        &"2 two lit#5 rope7#7\nrope9\n".to_owned(),
+        "unexpected stdout",
+    )?;
     Ok(())
 }
 
@@ -2653,11 +2714,16 @@ console.log(reversed(["a", "b"]).join(","), reversed([1, 2]).join(","));
         "`sift` stays a real Rust generic",
     )?;
     ensure(
-        generated.contains("let xs: SmeltList<f64>") || generated.contains("let mut xs: SmeltList<f64>"),
+        generated.contains("let xs: SmeltList<f64>")
+            || generated.contains("let mut xs: SmeltList<f64>"),
         "the concrete local keeps its element type",
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
-    ensure_eq(&stdout, &"3,2,1 3,2,1\nb,a 2,1\n".to_owned(), "unexpected stdout")
+    ensure_eq(
+        &stdout,
+        &"3,2,1 3,2,1\nb,a 2,1\n".to_owned(),
+        "unexpected stdout",
+    )
 }
 
 #[test]
@@ -2712,8 +2778,12 @@ console.log(make()[0][0], renamed.exported()[0][0], fixed.exported());
     let generated = generated_rust_text(project.path())?;
     let heads = generated_lines_with(&generated, "fn build(&self)");
     ensure(
-        heads.iter().any(|head| head.contains("SmeltList<(U, f64)>"))
-            && heads.iter().any(|head| head.contains("SmeltList<(f64, f64)>")),
+        heads
+            .iter()
+            .any(|head| head.contains("SmeltList<(U, f64)>"))
+            && heads
+                .iter()
+                .any(|head| head.contains("SmeltList<(f64, f64)>")),
         format!("each copy of `build` is typed in its receiving class, got {heads:?}"),
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
@@ -2892,7 +2962,11 @@ console.log(applyAll([new DaySetter(3)], bad) === bad, isNaN(bad.getTime()));
         )?;
     }
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
-    ensure_eq(&stdout, &"9 9 true\ntrue true\n".to_owned(), "unexpected stdout")?;
+    ensure_eq(
+        &stdout,
+        &"9 9 true\ntrue true\n".to_owned(),
+        "unexpected stdout",
+    )?;
     Ok(())
 }
 

@@ -27,7 +27,10 @@ fn assert_rejected(source: &str, code: &str, message: &str) -> Result<(), String
     let error = single_error(source)?;
     ensure_eq!(error.code, code);
     ensure_eq!(error.message.as_str(), message);
-    ensure_eq!(error.category, smelt_stdlib::DiagnosticCategory::TypeConstraint);
+    ensure_eq!(
+        error.category,
+        smelt_stdlib::DiagnosticCategory::TypeConstraint
+    );
     Ok(())
 }
 
@@ -35,8 +38,12 @@ fn assert_rejected(source: &str, code: &str, message: &str) -> Result<(), String
 fn field_type(ctx: &HirCtx, owner: &str, field: &str) -> Option<Type> {
     ctx.krate.items.iter().find_map(|item| {
         let fields = match item {
-            Item::Class(class) if ctx.krate.symbols.source(class.name) == Some(owner) => &class.fields,
-            Item::Interface(interface) if ctx.krate.symbols.source(interface.name) == Some(owner) => {
+            Item::Class(class) if ctx.krate.symbols.source(class.name) == Some(owner) => {
+                &class.fields
+            }
+            Item::Interface(interface)
+                if ctx.krate.symbols.source(interface.name) == Some(owner) =>
+            {
                 &interface.fields
             }
             _ => return None,
@@ -219,7 +226,11 @@ fn an_increment_under_less_or_equal_is_not_proven() -> Result<(), String> {
         "import type { int32 } from \"bun\";\nfunction f(end: int32): void {\n  for (let i: int32 = 0; i <= end; i++) {\n    console.log(i);\n  }\n}\nf(3);\n",
     )?;
     ensure_eq!(error.code, "smelt::int32-unproven");
-    ensure!(error.message.starts_with("'i' is an 'int32'"), "{}", error.message);
+    ensure!(
+        error.message.starts_with("'i' is an 'int32'"),
+        "{}",
+        error.message
+    );
     Ok(())
 }
 
@@ -243,7 +254,11 @@ fn a_read_after_the_increment_is_not_bounded_by_the_test() -> Result<(), String>
         "import type { int32 } from \"bun\";\nfunction f(end: int32): int32 {\n  let i: int32 = 0;\n  let x: int32 = 0;\n  while (i < end) {\n    i++;\n    x = i + 1;\n  }\n  return x;\n}\nf(3);\n",
     )?;
     ensure_eq!(error.code, "smelt::int32-unproven");
-    ensure!(error.message.starts_with("'x' is an 'int32'"), "{}", error.message);
+    ensure!(
+        error.message.starts_with("'x' is an 'int32'"),
+        "{}",
+        error.message
+    );
     Ok(())
 }
 

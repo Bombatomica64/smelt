@@ -3,9 +3,9 @@
 //! Lowers standard-library `Map` and `Set` receiver methods into typed HIR
 //! dict/set operations. The impl block below documents the concern in detail.
 
-use crate::lowering::resolve::HostGlobal;
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::resolve::HostGlobal;
 use crate::lowering::{ArrayExpressionElement, ModuleBuilder};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::span::GetSpan;
@@ -88,9 +88,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let receiver_kind = match self.ctx.krate.types.get(effective_ty) {
-            Some(Type::Dict(_, _) | Type::JsMap(_, _)) => {
-                smelt_stdlib::TypeScriptReceiverKind::Map
-            }
+            Some(Type::Dict(_, _) | Type::JsMap(_, _)) => smelt_stdlib::TypeScriptReceiverKind::Map,
             Some(Type::Set(_)) => smelt_stdlib::TypeScriptReceiverKind::Set,
             _ => return Ok(None),
         };
@@ -109,7 +107,9 @@ impl ModuleBuilder<'_> {
             RuleId::TsMapHas => self.map_has_call(call, op_receiver, body)?,
             RuleId::TsMapGet => self.map_get_call(call, op_receiver, body)?,
             RuleId::TsMapMutation => self.map_mutation_call(call, op_receiver, body)?,
-            RuleId::TsMapProjection => self.map_projection_with_receiver(call, op_receiver, body)?,
+            RuleId::TsMapProjection => {
+                self.map_projection_with_receiver(call, op_receiver, body)?
+            }
             RuleId::TsSetHas => self.set_contains_call(call, op_receiver, body)?,
             RuleId::TsSetMutation => self.set_mutation_call(call, op_receiver, body)?,
             RuleId::TsSetProjection => self.set_projection_call(call, op_receiver, body)?,
@@ -119,9 +119,9 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         if optional_inner.is_some() {
-            Ok(Some(
-                self.wrap_optional_receiver_method(receiver, op, call.span, body),
-            ))
+            Ok(Some(self.wrap_optional_receiver_method(
+                receiver, op, call.span, body,
+            )))
         } else {
             Ok(Some(op))
         }
@@ -260,11 +260,16 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let item = self.argument(argument, body)?;
         let types = &self.ctx.krate.types;
-        if types.get(element_ty) != Some(&Type::Float) || types.get(Self::expr_ty(body, item)) != Some(&Type::Int) {
+        if types.get(element_ty) != Some(&Type::Float)
+            || types.get(Self::expr_ty(body, item)) != Some(&Type::Int)
+        {
             return Ok(item);
         }
         Ok(body.push_expr(Expr {
-            kind: ExprKind::PrimitiveCast { op: smelt_hir::PrimitiveCastOp::ToFloat, operand: item },
+            kind: ExprKind::PrimitiveCast {
+                op: smelt_hir::PrimitiveCastOp::ToFloat,
+                operand: item,
+            },
             ty: element_ty,
             span: self.span(argument.span().start, argument.span().end),
         }))
@@ -879,7 +884,12 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        let Some(Type::Optional(present_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, iterable)).cloned()
+        let Some(Type::Optional(present_ty)) = self
+            .ctx
+            .krate
+            .types
+            .get(Self::expr_ty(body, iterable))
+            .cloned()
         else {
             return None;
         };
@@ -892,14 +902,25 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         let hir_span = self.span(span.start, span.end);
-        let fallback = body.push_expr(Expr { kind: empty, ty: viewed_ty, span: hir_span });
+        let fallback = body.push_expr(Expr {
+            kind: empty,
+            ty: viewed_ty,
+            span: hir_span,
+        });
         let fallback = if viewed_ty == present_ty {
             fallback
         } else {
-            body.push_expr(Expr { kind: ExprKind::TypeAssert { value: fallback }, ty: present_ty, span: hir_span })
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: fallback },
+                ty: present_ty,
+                span: hir_span,
+            })
         };
         Some(body.push_expr(Expr {
-            kind: ExprKind::OptionalCoalesce { optional: iterable, fallback },
+            kind: ExprKind::OptionalCoalesce {
+                optional: iterable,
+                fallback,
+            },
             ty: present_ty,
             span: hir_span,
         }))
@@ -1011,14 +1032,16 @@ impl ModuleBuilder<'_> {
                 // set, as `new Set(undefined)` does in JavaScript: the optional
                 // argument coalesces to the empty value of its present type,
                 // which then converts like any other argument.
-                let (mut list, raw_ty, list_ty) =
-                    self.absent_iterable_as_empty(argument_value, argument.span(), body).map_or(
-                        (argument_value, argument_raw_ty, argument_ty),
-                        |present| {
-                            let present_ty = Self::expr_ty(body, present);
-                            (present, present_ty, self.type_param_constraint_or_self(present_ty))
-                        },
-                    );
+                let (mut list, raw_ty, list_ty) = self
+                    .absent_iterable_as_empty(argument_value, argument.span(), body)
+                    .map_or((argument_value, argument_raw_ty, argument_ty), |present| {
+                        let present_ty = Self::expr_ty(body, present);
+                        (
+                            present,
+                            present_ty,
+                            self.type_param_constraint_or_self(present_ty),
+                        )
+                    });
                 let item_ty = match self.ctx.krate.types.get(list_ty).cloned() {
                     Some(Type::List(item_ty)) => item_ty,
                     // `new Set(otherSet)` builds a NEW set holding the other's
@@ -1062,15 +1085,13 @@ impl ModuleBuilder<'_> {
                         string_ty
                     }
                     _ if self.erased_or_union_surface(list_ty) => {
-                        let item_ty = if matches!(
-                            self.ctx.krate.types.get(list_ty),
-                            Some(Type::Unknown)
-                        ) {
-                            // not a new erasure: the iterable is already erased
-                            self.unknown_type(NotNewErasure::ErasedUpstream)
-                        } else {
-                            self.erase_with(ErasureReason::DynamicOperator, "new Set(union)")
-                        };
+                        let item_ty =
+                            if matches!(self.ctx.krate.types.get(list_ty), Some(Type::Unknown)) {
+                                // not a new erasure: the iterable is already erased
+                                self.unknown_type(NotNewErasure::ErasedUpstream)
+                            } else {
+                                self.erase_with(ErasureReason::DynamicOperator, "new Set(union)")
+                            };
                         let asserted_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
                         list = body.push_expr(Expr {
                             kind: ExprKind::TypeAssert { value: list },
@@ -1122,9 +1143,12 @@ impl ModuleBuilder<'_> {
         let Some(Type::Union(arms)) = self.ctx.krate.types.get(hint) else {
             return hint;
         };
-        let mut maps = arms
-            .iter()
-            .filter(|arm| matches!(self.ctx.krate.types.get(**arm), Some(Type::Dict(..) | Type::JsMap(..))));
+        let mut maps = arms.iter().filter(|arm| {
+            matches!(
+                self.ctx.krate.types.get(**arm),
+                Some(Type::Dict(..) | Type::JsMap(..))
+            )
+        });
         match (maps.next(), maps.next()) {
             (Some(arm), None) => *arm,
             _ => hint,
@@ -1228,9 +1252,7 @@ impl ModuleBuilder<'_> {
             }
             [argument] if !matches!(argument, Argument::SpreadElement(_)) => {
                 let value = self.argument(argument, body)?;
-                return self
-                    .map_from_iterable(value, new_expr.span, body)
-                    .map(Some);
+                return self.map_from_iterable(value, new_expr.span, body).map(Some);
             }
             _ => {
                 return Err(SmeltError::unsupported(
@@ -1268,11 +1290,17 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let hir_span = self.span(span.start, span.end);
         // `new Map(undefined)` is an empty map, like `new Set(undefined)`.
-        let value = self.absent_iterable_as_empty(value, span, body).unwrap_or(value);
+        let value = self
+            .absent_iterable_as_empty(value, span, body)
+            .unwrap_or(value);
         let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
         let (list, key_ty, value_item_ty) = match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::Dict(key_ty, item_ty) | Type::JsMap(key_ty, item_ty)) => {
-                let entry_ty = self.ctx.krate.types.intern(Type::Tuple(vec![key_ty, item_ty]));
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![key_ty, item_ty]));
                 let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
                 let entries = body.push_expr(Expr {
                     kind: ExprKind::DictProjection {
@@ -1287,7 +1315,10 @@ impl ModuleBuilder<'_> {
             Some(Type::List(entry_ty)) => match self.ctx.krate.types.get(entry_ty).cloned() {
                 Some(Type::Tuple(items)) if items.len() == 2 => {
                     let (Some(key_ty), Some(item_ty)) = (items.first(), items.get(1)) else {
-                        return Err(SmeltError::unsupported(hir_span, "new Map entries must be [key, value] pairs"));
+                        return Err(SmeltError::unsupported(
+                            hir_span,
+                            "new Map entries must be [key, value] pairs",
+                        ));
                     };
                     (value, *key_ty, *item_ty)
                 }
@@ -1303,7 +1334,11 @@ impl ModuleBuilder<'_> {
                 // this is the dynamic boundary the argument already crossed,
                 // not a new erasure.
                 let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
-                let entry_ty = self.ctx.krate.types.intern(Type::Tuple(vec![unknown, unknown]));
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![unknown, unknown]));
                 let entries_ty = self.ctx.krate.types.intern(Type::List(entry_ty));
                 let entries = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value },
@@ -1319,7 +1354,11 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        let ty = self.ctx.krate.types.intern(Type::JsMap(key_ty, value_item_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::JsMap(key_ty, value_item_ty));
         // A `Map<K, V>` annotation whose components differ (a wider value
         // union) is reached the way any typed value reaches its declared type:
         // the binding coerces it.

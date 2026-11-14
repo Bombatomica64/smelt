@@ -1,9 +1,9 @@
 //! Calls of a callable value held in a local, and the receiver types that make a
 //! call dynamic.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::SmeltError;
-use crate::lowering::{ModuleBuilder};
+use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Argument, Expression};
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, FunctionType, Literal, Type};
 
@@ -40,7 +40,9 @@ impl ModuleBuilder<'_> {
             || self
                 .scope
                 .lookup(callee_ident.name.as_str())
-                .is_some_and(|local| self.type_is_dynamic_call_surface(Self::local_ty(body, local)));
+                .is_some_and(|local| {
+                    self.type_is_dynamic_call_surface(Self::local_ty(body, local))
+                });
         let optional_function_ty = match self.ctx.krate.types.get(callee_ty) {
             Some(Type::Optional(inner))
                 if call.optional
@@ -170,7 +172,9 @@ impl ModuleBuilder<'_> {
             }
             match self.ctx.krate.types.get(*param) {
                 Some(Type::List(item_ty)) => Some(*item_ty),
-                Some(Type::Never) => Some(self.erase_with(ErasureReason::TypeLevel, "never parameter")),
+                Some(Type::Never) => {
+                    Some(self.erase_with(ErasureReason::TypeLevel, "never parameter"))
+                }
                 _ => None,
             }
         });
@@ -362,7 +366,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a local's structural class type is an erased callable object.
-    pub(in crate::lowering) fn is_callable_object_erased_class(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn is_callable_object_erased_class(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Class { name, .. }) => self.types.is_callable_object_alias(*name),
             _ => false,
@@ -412,7 +419,10 @@ impl ModuleBuilder<'_> {
     /// parameter, a union, or a class-shaped type that erases to `SmeltUnknown`
     /// (see [`Self::class_type_erases_to_unknown`]). Optional receivers unwrap to
     /// their inner type first so `Funnel<Args> | undefined` is recognized too.
-    pub(in crate::lowering) fn receiver_type_dispatches_dynamically(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn receiver_type_dispatches_dynamically(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
         let inner = match self.ctx.krate.types.get(ty) {
             Some(Type::Optional(inner)) => *inner,
             _ => ty,
@@ -498,14 +508,10 @@ impl ModuleBuilder<'_> {
         }
         if let Some(rest_index) = function.rest {
             let rest_args = supplied.get(rest_index..).unwrap_or_default().to_vec();
-            let rest_param_ty = function
-                .params
-                .get(rest_index)
-                .copied()
-                .unwrap_or_else(|| {
-                    let item = self.erase(ErasureReason::Unclassified);
-                    self.ctx.krate.types.intern(Type::List(item))
-                });
+            let rest_param_ty = function.params.get(rest_index).copied().unwrap_or_else(|| {
+                let item = self.erase(ErasureReason::Unclassified);
+                self.ctx.krate.types.intern(Type::List(item))
+            });
             args.push(body.push_expr(Expr {
                 kind: ExprKind::ListLit(rest_args),
                 ty: rest_param_ty,

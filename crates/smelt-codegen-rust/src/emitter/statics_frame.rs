@@ -25,7 +25,9 @@
 //! another evaluation's class, though both are the same Rust struct.
 
 use smelt_hir::{Symbol, Type};
-use smelt_stdlib::runtime_symbols::markers::{SMELT_CLASS_FIELDS, SMELT_CLASS_FRAME, SMELT_CLASS_METHODS, SMELT_METHOD};
+use smelt_stdlib::runtime_symbols::markers::{
+    SMELT_CLASS_FIELDS, SMELT_CLASS_FRAME, SMELT_CLASS_METHODS, SMELT_METHOD,
+};
 
 use crate::rust::RustExpr;
 
@@ -36,8 +38,14 @@ impl FunctionEmitter<'_> {
     /// per-evaluation statics, spelled against the handle `smelt_struct_value`:
     /// the class-value markers when `class` is a statics frame, the frame
     /// identity when it is the owner of one, nothing otherwise.
-    pub(super) fn statics_frame_markers(&self, class: Symbol, reference: bool) -> Result<String, EmitError> {
-        if let Some(owner) = crate::classes::find_class(self.mir, class).and_then(|found| found.statics_of) {
+    pub(super) fn statics_frame_markers(
+        &self,
+        class: Symbol,
+        reference: bool,
+    ) -> Result<String, EmitError> {
+        if let Some(owner) =
+            crate::classes::find_class(self.mir, class).and_then(|found| found.statics_of)
+        {
             return self.statics_frame_class_value_markers(class, owner);
         }
         let Some(frame_field) = self.owner_frame_field(class) else {
@@ -56,7 +64,11 @@ impl FunctionEmitter<'_> {
 
     /// `value` (of type `ty`) erased through the coercion seam, for an
     /// erased adapter built outside the emitter (`class_proto`).
-    pub(crate) fn erased_value_text(&self, value: &RustExpr, ty: smelt_hir::TypeId) -> Result<RustExpr, EmitError> {
+    pub(crate) fn erased_value_text(
+        &self,
+        value: &RustExpr,
+        ty: smelt_hir::TypeId,
+    ) -> Result<RustExpr, EmitError> {
         self.erase_rendered(value, ty)
     }
 
@@ -68,7 +80,11 @@ impl FunctionEmitter<'_> {
 
     /// The hidden field of owner class `class` that holds its statics frame.
     fn owner_frame_field(&self, class: Symbol) -> Option<Symbol> {
-        let frame = self.mir.classes.iter().find(|candidate| candidate.statics_of == Some(class))?;
+        let frame = self
+            .mir
+            .classes
+            .iter()
+            .find(|candidate| candidate.statics_of == Some(class))?;
         let found = crate::classes::find_class(self.mir, class)?;
         found
             .fields
@@ -78,12 +94,17 @@ impl FunctionEmitter<'_> {
     }
 
     /// The class-value markers of frame class `frame` (statics of `owner`).
-    fn statics_frame_class_value_markers(&self, frame: Symbol, owner: Symbol) -> Result<String, EmitError> {
+    fn statics_frame_class_value_markers(
+        &self,
+        frame: Symbol,
+        owner: Symbol,
+    ) -> Result<String, EmitError> {
         let carrier = self.carrier()?;
         let owner_name = self.symbol_source_name(owner)?.to_owned();
         // An anonymous class expression (`return class { .. }`) has the empty
         // name in JavaScript; its symbol is minted.
-        let display_name = if self.mir.symbols.origin(owner) == smelt_hir::SymbolOrigin::Synthesized {
+        let display_name = if self.mir.symbols.origin(owner) == smelt_hir::SymbolOrigin::Synthesized
+        {
             String::new()
         } else {
             owner_name.clone()
@@ -142,7 +163,11 @@ impl FunctionEmitter<'_> {
         let carrier = self.carrier()?;
         let mut get_arms = String::new();
         let mut set_arms = String::new();
-        for field in frame_class.fields.iter().filter(|field| field.visibility.is_own_property()) {
+        for field in frame_class
+            .fields
+            .iter()
+            .filter(|field| field.visibility.is_own_property())
+        {
             let key = self.symbol_source_name(field.name)?.to_owned();
             let field_name = self.context.names().field_text(self.mir, field.name);
             let read = self.erase_rendered(
@@ -150,7 +175,11 @@ impl FunctionEmitter<'_> {
                 field.ty,
             )?;
             get_arms.push_str(&format!("{key:?} => {}, ", read.delimited()));
-            let value = self.extract_rendered(&RustExpr::path("smelt_static_value"), field.ty, &self.render_scope())?;
+            let value = self.extract_rendered(
+                &RustExpr::path("smelt_static_value"),
+                field.ty,
+                &self.render_scope(),
+            )?;
             set_arms.push_str(&format!(
                 "{key:?} => {{ let smelt_stored = {}; smelt_frame.0.borrow_mut().{field_name} = smelt_stored; true }}, ",
                 value.delimited()
@@ -192,16 +221,22 @@ impl FunctionEmitter<'_> {
         }
         let mut args = vec!["smelt_frame.clone()".to_owned()];
         for (index, param) in function.params.iter().skip(1).enumerate() {
-            let Some(local) = function.locals.get(usize::try_from(param.0).unwrap_or(usize::MAX)) else {
+            let Some(local) = function
+                .locals
+                .get(usize::try_from(param.0).unwrap_or(usize::MAX))
+            else {
                 return Ok(None);
             };
-            if !super::record_coercion::type_supports_from_unknown(self.mir, self.context, local.ty) {
+            if !super::record_coercion::type_supports_from_unknown(self.mir, self.context, local.ty)
+            {
                 return Ok(None);
             }
             args.push(
                 super::record_coercion::record_field_from_unknown_expr(
                     self.mir,
-                    &RustExpr::chain(format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)")),
+                    &RustExpr::chain(format!(
+                        "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Undefined)"
+                    )),
                     local.ty,
                 )?
                 .into_string(),

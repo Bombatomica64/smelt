@@ -30,7 +30,6 @@ use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{ExprId, ItemId, LocalId, Span, Symbol, TypeId};
 
-
 /// What one function-typed local has collected so far: its `fn.prop = value`
 /// writes, the span of the first, and the callable interface it was declared
 /// at.
@@ -226,13 +225,21 @@ impl LocalScope {
     /// groups not named stay visible to the nested body.
     pub(in crate::lowering) fn enter_body(&mut self, groups: ScopeGroups) -> BodyScopeFrame {
         BodyScopeFrame {
-            bindings: groups.has(ScopeGroups::BINDINGS).then(|| self.take_bindings()),
-            date_values: groups.has(ScopeGroups::DATE_VALUES).then(|| self.take_date_values()),
+            bindings: groups
+                .has(ScopeGroups::BINDINGS)
+                .then(|| self.take_bindings()),
+            date_values: groups
+                .has(ScopeGroups::DATE_VALUES)
+                .then(|| self.take_date_values()),
             callable_props: groups
                 .has(ScopeGroups::CALLABLE_PROPS)
                 .then(|| self.take_callable_prop_writes()),
-            explicit_any: groups.has(ScopeGroups::EXPLICIT_ANY).then(|| self.take_explicit_any()),
-            narrowings: groups.has(ScopeGroups::NARROWINGS).then(|| self.take_narrowings()),
+            explicit_any: groups
+                .has(ScopeGroups::EXPLICIT_ANY)
+                .then(|| self.take_explicit_any()),
+            narrowings: groups
+                .has(ScopeGroups::NARROWINGS)
+                .then(|| self.take_narrowings()),
         }
     }
 

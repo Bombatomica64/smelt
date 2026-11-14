@@ -75,8 +75,7 @@ function sameZero(x: number | string): boolean {
     );
     assert!(
         source.contains(".into_smelt_unknown().same_js_key(")
-            || source.contains("into_smelt_unknown()")
-                && source.contains(".same_js_key("),
+            || source.contains("into_smelt_unknown()") && source.contains(".same_js_key("),
         "expected concrete union to be erased before same_js_key, got:\n{source}"
     );
 }

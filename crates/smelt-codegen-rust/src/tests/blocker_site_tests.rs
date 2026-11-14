@@ -61,7 +61,10 @@ fn a_blocker_inside_a_function_names_the_function_and_its_span() {
         error.message
     );
     let site = error.site.expect("blocker should name its site");
-    assert!(site.contains("probe"), "site should name the function: {site}");
+    assert!(
+        site.contains("probe"),
+        "site should name the function: {site}"
+    );
     // A unit test lowers from memory rather than a file, so the path is
     // `<memory>`; a manifest build names the real file (`smelt build` on the
     // Hono slice prints ``.../reg-exp-router/node.ts:4178..5003``). Either way
@@ -79,7 +82,10 @@ fn the_rendered_blocker_reads_as_one_line() {
     // line a reader sees is the readable one rather than struct syntax.
     let error = emit_error_for(OMITTED_GENERATOR_ARGUMENT);
     let rendered = format!("{error}");
-    assert!(rendered.starts_with("a generator value has no eager default"), "{rendered}");
+    assert!(
+        rendered.starts_with("a generator value has no eager default"),
+        "{rendered}"
+    );
     assert!(rendered.contains("(in `probe` at "), "{rendered}");
     assert_eq!(rendered, format!("{error:?}"));
 }

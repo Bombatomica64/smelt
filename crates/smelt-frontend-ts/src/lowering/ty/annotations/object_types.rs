@@ -9,7 +9,10 @@ use smelt_hir::{ErasureReason, FunctionType, Type};
 
 impl ModuleBuilder<'_> {
     /// Return whether a source type is a callable value with object fields.
-    pub(in crate::lowering) fn ts_type_is_known_callable_object_surface(&mut self, ty: &TSType<'_>) -> bool {
+    pub(in crate::lowering) fn ts_type_is_known_callable_object_surface(
+        &mut self,
+        ty: &TSType<'_>,
+    ) -> bool {
         if Self::ts_type_is_callable_object_surface(ty) {
             return true;
         }
@@ -59,7 +62,9 @@ impl ModuleBuilder<'_> {
     /// unless the alias resolves locally to a concrete class or dict. Erasing the
     /// surface to `unknown` keeps runtime field access and callable-object values
     /// intact instead of collapsing the value to only the object-literal fields.
-    pub(in crate::lowering) fn ts_type_is_opaque_object_intersection_surface(ty: &TSType<'_>) -> bool {
+    pub(in crate::lowering) fn ts_type_is_opaque_object_intersection_surface(
+        ty: &TSType<'_>,
+    ) -> bool {
         let TSType::TSIntersectionType(intersection) = ty else {
             return false;
         };
@@ -85,7 +90,9 @@ impl ModuleBuilder<'_> {
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
     /// Whether every member of a type literal names an `Object.prototype`
     /// member, so that every object satisfies it (see `type_literal_to_hir`).
-    fn type_literal_is_object_prototype_surface(literal: &oxc::ast::ast::TSTypeLiteral<'_>) -> bool {
+    fn type_literal_is_object_prototype_surface(
+        literal: &oxc::ast::ast::TSTypeLiteral<'_>,
+    ) -> bool {
         const OBJECT_PROTOTYPE_MEMBERS: [&str; 6] = [
             "toString",
             "toLocaleString",
@@ -97,7 +104,9 @@ impl ModuleBuilder<'_> {
         !literal.members.is_empty()
             && literal.members.iter().all(|member| {
                 let key = match member {
-                    TSSignature::TSPropertySignature(property) if !property.computed => &property.key,
+                    TSSignature::TSPropertySignature(property) if !property.computed => {
+                        &property.key
+                    }
                     TSSignature::TSMethodSignature(method) if !method.computed => &method.key,
                     _ => return false,
                 };
@@ -105,7 +114,9 @@ impl ModuleBuilder<'_> {
                     oxc::ast::ast::PropertyKey::StaticIdentifier(identifier) => {
                         std::borrow::Cow::Borrowed(identifier.name.as_str())
                     }
-                    oxc::ast::ast::PropertyKey::StringLiteral(literal) if !has_lone_surrogate(literal.value) => {
+                    oxc::ast::ast::PropertyKey::StringLiteral(literal)
+                        if !has_lone_surrogate(literal.value) =>
+                    {
                         js_str_text(literal.value)
                     }
                     _ => return false,
@@ -185,18 +196,15 @@ impl ModuleBuilder<'_> {
                     None
                 };
                 Ok::<_, SmeltError>(self.ctx.krate.types.intern(Type::Function(FunctionType {
-                    mutable_params: self
-                        .mutable_params_from_returned_tuple_state(&params, return_ty),
+                    mutable_params:
+                        self.mutable_params_from_returned_tuple_state(&params, return_ty),
                     params,
                     rest,
                     required_params: Some(Self::formal_parameters_required_count(
                         &signature.params,
                     )),
                     return_ty,
-                    is_async: matches!(
-                        self.ctx.krate.types.get(return_ty),
-                        Some(Type::Future(_))
-                    ),
+                    is_async: matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))),
                     may_throw: false,
                 })))
             })();
@@ -239,8 +247,8 @@ impl ModuleBuilder<'_> {
                     None
                 };
                 Ok::<_, SmeltError>(self.ctx.krate.types.intern(Type::Function(FunctionType {
-                    mutable_params: self
-                        .mutable_params_from_returned_tuple_state(&params, return_ty),
+                    mutable_params:
+                        self.mutable_params_from_returned_tuple_state(&params, return_ty),
                     params,
                     rest,
                     required_params: Some(Self::formal_parameters_required_count(
@@ -299,11 +307,12 @@ impl ModuleBuilder<'_> {
             [single] => *single,
             _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
         };
-        let value_ty = if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
-            self.ctx.krate.types.intern(Type::Optional(value_ty))
-        } else {
-            value_ty
-        };
+        let value_ty =
+            if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
+                self.ctx.krate.types.intern(Type::Optional(value_ty))
+            } else {
+                value_ty
+            };
         Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
     }
 
@@ -344,7 +353,10 @@ impl ModuleBuilder<'_> {
     /// of *type parameters* (`merge<T, S>(..): T & S`) must not be claimed as a
     /// record: `merge` is called on arrays too and returns one, so asserting a
     /// record would force the value into a record and lose the array.
-    pub(super) fn intersection_object_type(&mut self, members: &[smelt_hir::TypeId]) -> smelt_hir::TypeId {
+    pub(super) fn intersection_object_type(
+        &mut self,
+        members: &[smelt_hir::TypeId],
+    ) -> smelt_hir::TypeId {
         let modeled = members
             .iter()
             .copied()

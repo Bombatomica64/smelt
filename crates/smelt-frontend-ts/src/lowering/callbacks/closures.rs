@@ -1,16 +1,16 @@
 //! Shared callback helpers: return-type checks, the call forms of `.call` and
 //! `.apply`, and what a receiver's type declares as a method.
 
-use crate::lowering::erasure::NotNewErasure;
-use crate::lowering::body_arena::BodyArena;
-use crate::lowering::support::source_spelling;
 use crate::RestParam;
+use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::state::fn_ctx::BodyKind;
+use crate::lowering::state::local_scope::ScopeGroups;
+use crate::lowering::support::source_spelling;
 use crate::lowering::{
     BindingPattern, Body, CaptureMode, ClosureCapture, Expr, ExprKind, FunctionType, HashSet,
     Literal, LocalDecl, ModuleBuilder, Param, SmeltError, Span, Type,
 };
-use crate::lowering::state::fn_ctx::BodyKind;
-use crate::lowering::state::local_scope::ScopeGroups;
 use smelt_hir::ErasureReason;
 impl ModuleBuilder<'_> {
     /// Validate the inferred callback return type for an array method.
@@ -33,7 +33,11 @@ impl ModuleBuilder<'_> {
 
     /// Whether the class named `name` itself (not its bases) declares
     /// `method` as a method; see [`Self::receiver_declares_method`].
-    fn class_symbol_declares_method(&self, name: smelt_hir::Symbol, method: smelt_hir::Symbol) -> bool {
+    fn class_symbol_declares_method(
+        &self,
+        name: smelt_hir::Symbol,
+        method: smelt_hir::Symbol,
+    ) -> bool {
         let item_method = self.class_by_symbol(name).is_some_and(|class| {
             class.methods.iter().any(|item| {
                 self.ctx
@@ -102,7 +106,9 @@ impl ModuleBuilder<'_> {
                     if self.class_symbol_declares_method(class_name, method) {
                         return true;
                     }
-                    current = self.class_by_symbol(class_name).and_then(|class| class.base);
+                    current = self
+                        .class_by_symbol(class_name)
+                        .and_then(|class| class.base);
                 }
                 false
             }
@@ -261,8 +267,7 @@ impl ModuleBuilder<'_> {
         // spelling, instead of wrapping it to install a binding that equals the
         // default.
         if matches!(
-            body.expr_at(receiver)
-                .map(|expr| &expr.kind),
+            body.expr_at(receiver).map(|expr| &expr.kind),
             Some(ExprKind::Literal(Literal::None))
         ) {
             return callee;
@@ -295,7 +300,6 @@ impl ModuleBuilder<'_> {
             })
         }
     }
-
 
     /// Lower a function-valued object property into a closure expression.
     ///
@@ -360,7 +364,10 @@ impl ModuleBuilder<'_> {
         } else if let Some((_, function_ty)) = &hint_function {
             function_ty.return_ty
         } else {
-            self.erase_with(ErasureReason::MissingAnnotation, "function expression return")
+            self.erase_with(
+                ErasureReason::MissingAnnotation,
+                "function expression return",
+            )
         };
 
         // A postfix update inside this body belongs to this body, not to the

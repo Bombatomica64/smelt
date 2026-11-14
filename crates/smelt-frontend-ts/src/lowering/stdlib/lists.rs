@@ -1,13 +1,13 @@
 //! Array methods: mutation, sorting, slicing and the modern copying forms.
 
-use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::body_arena::BodyArena;
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem,
-    Stmt, Type,
+    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Stmt,
+    Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -74,7 +74,10 @@ impl ModuleBuilder<'_> {
         };
         let ty = self.ctx.krate.types.intern(Type::Optional(*element_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListPop { list, raises_when_empty: false },
+            kind: ExprKind::ListPop {
+                list,
+                raises_when_empty: false,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -320,16 +323,15 @@ impl ModuleBuilder<'_> {
         // optionality comes from an optional BASE (`child.#values` with
         // `child: Node | undefined`) keeps the path it already had, which
         // writes the array back through the base.
-        let optional_from_base = body.expr_at(list)
-            .is_some_and(|expr| match &expr.kind {
-                ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. } => {
-                    matches!(
-                        self.ctx.krate.types.get(Self::expr_ty(body, *receiver)),
-                        Some(Type::Optional(_))
-                    )
-                }
-                _ => false,
-            });
+        let optional_from_base = body.expr_at(list).is_some_and(|expr| match &expr.kind {
+            ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. } => {
+                matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, *receiver)),
+                    Some(Type::Optional(_))
+                )
+            }
+            _ => false,
+        });
         if !optional_from_base
             && let Some(Type::Optional(inner)) = self.ctx.krate.types.get(list_ty).cloned()
             && matches!(self.ctx.krate.types.get(inner), Some(Type::List(_)))
@@ -652,10 +654,12 @@ impl ModuleBuilder<'_> {
                     }
                     // A union element with array arms (`number | number[]`)
                     // flattens arm by arm; see `lowering::union_flat`.
-                    Some(Type::Union(_)) => match self.union_flat_item_type(element_ty, call.arguments.first()) {
-                        Some(item_ty) => item_ty,
-                        None => return Ok(None),
-                    },
+                    Some(Type::Union(_)) => {
+                        match self.union_flat_item_type(element_ty, call.arguments.first()) {
+                            Some(item_ty) => item_ty,
+                            None => return Ok(None),
+                        }
+                    }
                     // An item that is not an array stays as it is.
                     _ => element_ty,
                 };
@@ -1357,8 +1361,15 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let index = self.argument(index_argument, body)?;
-        self.optional_at_index_expr(receiver, item_ty, index, call.span.start, call.span.end, body)
-            .map(Some)
+        self.optional_at_index_expr(
+            receiver,
+            item_ty,
+            index,
+            call.span.start,
+            call.span.end,
+            body,
+        )
+        .map(Some)
     }
 
     /// Lower direct TypeScript `Array.prototype.concat` calls with any number of arguments, widening element types.

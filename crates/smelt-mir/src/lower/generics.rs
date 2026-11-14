@@ -114,7 +114,10 @@ pub(super) fn lower_effective_interface_fields(
     for source_field in &interface.fields {
         let mut lowered_field = source_field.clone();
         lowered_field.ty = substitute_type_id(mir, lowered_field.ty, substitutions);
-        if let Some(existing) = slots.get(&lowered_field.name).and_then(|slot| fields.get_mut(*slot)) {
+        if let Some(existing) = slots
+            .get(&lowered_field.name)
+            .and_then(|slot| fields.get_mut(*slot))
+        {
             *existing = lowered_field;
         } else {
             slots.insert(lowered_field.name, fields.len());
@@ -245,7 +248,8 @@ pub(super) fn substitute_type_id(
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float
-            | Type::String | Type::PyStr
+            | Type::String
+            | Type::PyStr
             | Type::Symbol
             | Type::PropKey
             | Type::Unknown

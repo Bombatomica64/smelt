@@ -126,7 +126,10 @@ fn collect_thrown_class_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
             else {
                 continue;
             };
-            let Some(decl) = usize::try_from(local.0).ok().and_then(|index| locals.get(index)) else {
+            let Some(decl) = usize::try_from(local.0)
+                .ok()
+                .and_then(|index| locals.get(index))
+            else {
                 continue;
             };
             if let Some(Type::Class { name, .. }) = mir.types.get(decl.ty)
@@ -179,10 +182,7 @@ fn close_over_heritage(mir: &Mir, references: &mut HashSet<Symbol>) {
             if references.contains(&base) && references.insert(class.name) {
                 changed = true;
             }
-            if references.contains(&class.name)
-                && mir.has_class(base)
-                && references.insert(base)
-            {
+            if references.contains(&class.name) && mir.has_class(base) && references.insert(base) {
                 changed = true;
             }
         }
@@ -199,8 +199,7 @@ fn class_has_index_store(mir: &Mir, name: Symbol) -> bool {
             .iter()
             .any(|field| mir.symbols.get(field.name) == Some(smelt_hir::CLASS_INDEX_STORE_FIELD))
     };
-    crate::classes::find_class(mir, name)
-        .is_some_and(|class| has_index_store(&class.fields))
+    crate::classes::find_class(mir, name).is_some_and(|class| has_index_store(&class.fields))
         || mir
             .interfaces
             .iter()
@@ -274,7 +273,9 @@ fn collect_bound_receiver_triggers(mir: &Mir, references: &mut HashSet<Symbol>) 
             let Some(local) = operand_base_local(receiver) else {
                 continue;
             };
-            let Some(decl) = usize::try_from(local.0).ok().and_then(|index| locals.get(index))
+            let Some(decl) = usize::try_from(local.0)
+                .ok()
+                .and_then(|index| locals.get(index))
             else {
                 continue;
             };

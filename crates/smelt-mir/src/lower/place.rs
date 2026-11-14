@@ -10,7 +10,7 @@ use smelt_hir::{ExprId, ExprKind};
 use crate::{Constant, GlobalProjection, Operand, Place};
 
 use super::context::LoweringCtx;
-use super::{LoweredPlace, LoweredPlaceBase, LowerError, PlaceWritebacks, WritebackTarget};
+use super::{LowerError, LoweredPlace, LoweredPlaceBase, PlaceWritebacks, WritebackTarget};
 
 impl LoweringCtx<'_> {
     /// Lowers an lvalue expression to a MIR place for assignment targets.
@@ -21,10 +21,7 @@ impl LoweringCtx<'_> {
         clippy::wildcard_enum_match_arm,
         reason = "every expression kind not named here is a value, never a place"
     )]
-    pub(super) fn lower_place(
-        &mut self,
-        expr_id: ExprId,
-    ) -> Result<LoweredPlace, LowerError> {
+    pub(super) fn lower_place(&mut self, expr_id: ExprId) -> Result<LoweredPlace, LowerError> {
         let expr = self.hir_expr(expr_id)?.clone();
         match &expr.kind {
             ExprKind::Local(local) => {
@@ -43,8 +40,15 @@ impl LoweringCtx<'_> {
                 // `blocker-logs/hono-h6-place-global.md`.
                 if let Some(base) = self.mutable_global_receiver(*receiver) {
                     if !self.global_writes_in_place(*receiver)? {
-                        let (copy, writebacks) = self.global_receiver_copy(base, *receiver, expr.span)?;
-                        return Ok((Place::Field { base: copy, field: *field }, writebacks));
+                        let (copy, writebacks) =
+                            self.global_receiver_copy(base, *receiver, expr.span)?;
+                        return Ok((
+                            Place::Field {
+                                base: copy,
+                                field: *field,
+                            },
+                            writebacks,
+                        ));
                     }
                     return Ok((
                         Place::Global {
@@ -67,7 +71,8 @@ impl LoweringCtx<'_> {
                 if let Some(base) = self.mutable_global_receiver(*receiver)
                     && !self.global_writes_in_place(*receiver)?
                 {
-                    let (copy, writebacks) = self.global_receiver_copy(base, *receiver, expr.span)?;
+                    let (copy, writebacks) =
+                        self.global_receiver_copy(base, *receiver, expr.span)?;
                     let index_operand = self.lower_expr(*index)?;
                     return Ok((
                         Place::Index {
@@ -146,7 +151,9 @@ impl LoweringCtx<'_> {
                     writebacks,
                 ))
             }
-            ExprKind::OptionalIndex { receiver, index, .. } => {
+            ExprKind::OptionalIndex {
+                receiver, index, ..
+            } => {
                 let (base, writebacks) = self.narrowed_receiver_base(*receiver, expr.span)?;
                 let index_operand = self.lower_expr(*index)?;
                 Ok((
@@ -213,8 +220,7 @@ impl LoweringCtx<'_> {
                 | ExprKind::OptionalIndex { .. }
         ) {
             let receiver_operand = self.lower_expr(receiver)?;
-            let local =
-                self.materialize_operand_local(receiver_operand, receiver_expr.ty, span)?;
+            let local = self.materialize_operand_local(receiver_operand, receiver_expr.ty, span)?;
             return Ok((local, PlaceWritebacks::new()));
         }
         let (place, mut writebacks) = self.lower_place(receiver)?;
@@ -227,8 +233,7 @@ impl LoweringCtx<'_> {
         // the value read for it, which is what the previous code always did.
         if matches!(place, Place::Global { .. }) {
             let receiver_operand = self.lower_expr(receiver)?;
-            let local =
-                self.materialize_operand_local(receiver_operand, receiver_expr.ty, span)?;
+            let local = self.materialize_operand_local(receiver_operand, receiver_expr.ty, span)?;
             return Ok((local, writebacks));
         }
         let local = self.push_temp(receiver_expr.ty, span);
@@ -291,7 +296,10 @@ impl LoweringCtx<'_> {
     /// `SmeltRecord`/`Map` in Rust) has an in-cell write the emitter spells.
     fn global_writes_in_place(&self, receiver: ExprId) -> Result<bool, LowerError> {
         let ty = self.hir_expr(receiver)?.ty;
-        Ok(matches!(self.krate.types.get(ty), Some(smelt_hir::Type::Dict(..))))
+        Ok(matches!(
+            self.krate.types.get(ty),
+            Some(smelt_hir::Type::Dict(..))
+        ))
     }
 
     /// A copy of the global `receiver` reads, as a write root, with the

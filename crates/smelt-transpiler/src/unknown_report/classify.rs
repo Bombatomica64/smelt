@@ -6,7 +6,10 @@ use super::{Category, scan::count_occurrences};
 
 /// How a scanned file says where its runtime prelude ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(variant_size_differences, reason = "a two-word value copied once per scanned file")]
+#[expect(
+    variant_size_differences,
+    reason = "a two-word value copied once per scanned file"
+)]
 pub(super) enum PreludeBoundary {
     /// The emitter wrote [`smelt_codegen_rust::PRELUDE_END_MARKER`] at this
     /// 0-based line: every line at or before it is prelude, every line after
@@ -50,7 +53,10 @@ pub(super) enum LineSite {
 impl PreludeBoundary {
     /// The boundary of a whole file's text.
     pub(super) fn of(text: &str) -> Self {
-        if let Some(line) = text.lines().position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER) {
+        if let Some(line) = text
+            .lines()
+            .position(|line| line.trim() == smelt_codegen_rust::PRELUDE_END_MARKER)
+        {
             return Self::Marker { line };
         }
         // The header sits in the file's opening comment block, before any item.
@@ -58,7 +64,13 @@ impl PreludeBoundary {
             .lines()
             .take_while(|line| line.starts_with("//"))
             .any(|line| line.starts_with(smelt_codegen_rust::MODULE_SOURCE_HEADER));
-        if names_its_source { Self::Module } else { Self::Heuristic { in_prelude_helper: false } }
+        if names_its_source {
+            Self::Module
+        } else {
+            Self::Heuristic {
+                in_prelude_helper: false,
+            }
+        }
     }
 
     /// Place line `index` (whose text is `line`), advancing the heuristic.
@@ -68,7 +80,9 @@ impl PreludeBoundary {
             Self::Marker { .. } | Self::Module => LineSite::ProgramByProvenance,
             Self::Heuristic { in_prelude_helper } => {
                 update_prelude_helper_state(line, in_prelude_helper);
-                LineSite::Program { in_prelude_helper: *in_prelude_helper }
+                LineSite::Program {
+                    in_prelude_helper: *in_prelude_helper,
+                }
             }
         }
     }
@@ -122,7 +136,8 @@ fn adapter_item_closing(line: &str) -> Option<&'static str> {
     {
         return Some("}");
     }
-    line.starts_with("    fn from_smelt_unknown(").then_some("    }")
+    line.starts_with("    fn from_smelt_unknown(")
+        .then_some("    }")
 }
 
 /// Update whether we are inside a `smelt_*` runtime prelude helper definition.

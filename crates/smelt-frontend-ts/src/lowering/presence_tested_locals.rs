@@ -41,9 +41,9 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc::ast::ast::{
-    AssignmentExpression, AssignmentTarget, BinaryExpression, BindingPattern, ConditionalExpression, Expression,
-    IfStatement, LogicalExpression, Program, UnaryExpression, UnaryOperator,
-    VariableDeclarator, WhileStatement,
+    AssignmentExpression, AssignmentTarget, BinaryExpression, BindingPattern,
+    ConditionalExpression, Expression, IfStatement, LogicalExpression, Program, UnaryExpression,
+    UnaryOperator, VariableDeclarator, WhileStatement,
 };
 use oxc::ast_visit::Visit;
 
@@ -97,10 +97,7 @@ impl PresenceTestedLocalCollector {
         let Some(frame) = self.frames.pop() else {
             return;
         };
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "`max` per span commutes"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "`max` per span commutes")]
         for (name, span) in &frame.params {
             // A parameter the body tests for presence accepts an absent value
             // whatever its annotation says: `options?.times` on `options: Options`
@@ -110,10 +107,7 @@ impl PresenceTestedLocalCollector {
                 *entry = (*entry).max(test);
             }
         }
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "`max` per span commutes"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "`max` per span commutes")]
         for name in &frame.keyed {
             let Some(test) = frame.tested.get(name).copied() else {
                 continue;
@@ -132,7 +126,9 @@ impl PresenceTestedLocalCollector {
         if let Some(frame) = self.frame() {
             for param in &params.items {
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
-                    frame.params.insert(binding.name.to_string(), binding.span.start);
+                    frame
+                        .params
+                        .insert(binding.name.to_string(), binding.span.start);
                 }
             }
         }
@@ -264,7 +260,10 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
     }
 
     /// Visits `value?.member`, whose receiver the program tests for presence.
-    fn visit_static_member_expression(&mut self, member: &oxc::ast::ast::StaticMemberExpression<'a>) {
+    fn visit_static_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'a>,
+    ) {
         if member.optional {
             self.record_test(&member.object, PresenceTest::Truthiness);
         }
@@ -272,7 +271,10 @@ impl<'a> Visit<'a> for PresenceTestedLocalCollector {
     }
 
     /// Visits `value?.[key]`, whose receiver the program tests for presence.
-    fn visit_computed_member_expression(&mut self, member: &oxc::ast::ast::ComputedMemberExpression<'a>) {
+    fn visit_computed_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'a>,
+    ) {
         if member.optional {
             self.record_test(&member.object, PresenceTest::Truthiness);
         }

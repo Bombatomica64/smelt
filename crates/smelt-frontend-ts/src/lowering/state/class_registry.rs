@@ -176,10 +176,7 @@ impl ClassRegistry {
         declared: HashSet<String>,
         constructor_functions: HashSet<String>,
     ) {
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "resets a field on every entry"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "resets a field on every entry")]
         for entry in self.names.values_mut() {
             entry.declared = None;
         }
@@ -187,10 +184,7 @@ impl ClassRegistry {
             (declared, ClassDeclaration::Class),
             (constructor_functions, ClassDeclaration::ConstructorFunction),
         ] {
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "keyed inserts of one value"
-            )]
+            #[expect(clippy::iter_over_hash_type, reason = "keyed inserts of one value")]
             for name in names {
                 self.names.entry(name).or_default().declared = Some(kind);
             }
@@ -213,7 +207,10 @@ impl ClassRegistry {
     /// lexically scoped ones included.
     pub(in crate::lowering) fn declared_in_module(&self, name: &str) -> bool {
         self.scoped_type_names.contains_key(name)
-            || self.names.get(name).is_some_and(|entry| entry.declared.is_some())
+            || self
+                .names
+                .get(name)
+                .is_some_and(|entry| entry.declared.is_some())
     }
 
     /// Whether `name` names a class nominally: registered, or declared by
@@ -235,7 +232,9 @@ impl ClassRegistry {
     /// Return whether `name` is a class the current module declares (lowered
     /// yet or not).
     pub(in crate::lowering) fn is_pending(&self, name: &str) -> bool {
-        self.names.get(name).is_some_and(|entry| entry.declared.is_some())
+        self.names
+            .get(name)
+            .is_some_and(|entry| entry.declared.is_some())
     }
 
     /// Publish the static fields of class `name` for its own method bodies.
@@ -258,7 +257,10 @@ impl ClassRegistry {
     }
 
     /// The static fields of `name`, when it is a class still being lowered.
-    pub(in crate::lowering) fn statics_in_flight(&self, name: &str) -> Option<&[smelt_hir::StaticField]> {
+    pub(in crate::lowering) fn statics_in_flight(
+        &self,
+        name: &str,
+    ) -> Option<&[smelt_hir::StaticField]> {
         let name = self.alias_target(name);
         self.statics_in_flight
             .iter()
@@ -274,7 +276,9 @@ impl ClassRegistry {
 
     /// Return the HIR item registered for the class named `name`.
     pub(in crate::lowering) fn item(&self, name: &str) -> Option<ItemId> {
-        self.names.get(self.alias_target(name)).and_then(|entry| entry.item)
+        self.names
+            .get(self.alias_target(name))
+            .and_then(|entry| entry.item)
     }
 
     /// Make `from` stand for the class `to` until [`Self::pop_alias`].
@@ -404,7 +408,9 @@ impl ClassRegistry {
 
     /// The registered items by name.
     fn items_by_name(&self) -> HashMap<String, ItemId> {
-        self.entries().map(|(name, item)| (name.clone(), item)).collect()
+        self.entries()
+            .map(|(name, item)| (name.clone(), item))
+            .collect()
     }
 
     /// Record that the interface `name` declares a numeric index signature.
@@ -487,10 +493,7 @@ impl ClassRegistry {
         for (name, entry) in &mut self.names {
             entry.item = items.remove(name);
         }
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "keyed inserts of distinct keys"
-        )]
+        #[expect(clippy::iter_over_hash_type, reason = "keyed inserts of distinct keys")]
         for (name, item) in items {
             self.names.entry(name).or_default().item = Some(item);
         }
