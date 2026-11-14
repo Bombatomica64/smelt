@@ -1261,6 +1261,13 @@ fn new_map_into_erased_slot() -> TestResult {
     verify_node_parity("new_map_into_erased_slot")
 }
 
+/// A method returning an anonymous object type of functions erases with its
+/// function values: an erased matcher is still callable.
+#[test]
+fn erased_record_of_functions() -> TestResult {
+    verify_node_parity("erased_record_of_functions")
+}
+
 /// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
