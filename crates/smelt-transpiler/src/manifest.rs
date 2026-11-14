@@ -993,8 +993,23 @@ fn barrel_export_name_from_module(module: &str) -> Option<String> {
 
 /// Normalizes a path key without requiring the path to already exist.
 fn normalize_path_key(path: &Path) -> PathBuf {
+    // An existing file is keyed by its canonical path, so the spellings that
+    // reach the closure for ONE file agree: an entry joined onto a relative
+    // manifest directory (`src/types.ts`), an import resolved to an absolute
+    // path, a path through a symlinked directory. Lexical normalization alone
+    // keyed them apart, the file was lowered once per spelling with its own
+    // copy of every type, and which copy a reader got depended on the working
+    // directory `smelt` ran in.
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    let absolute = if path.is_relative() {
+        std::env::current_dir().map_or_else(|_| path.to_path_buf(), |dir| dir.join(path))
+    } else {
+        path.to_path_buf()
+    };
     let mut normalized = PathBuf::new();
-    for component in path.components() {
+    for component in absolute.components() {
         match component {
             std::path::Component::CurDir => {}
             std::path::Component::ParentDir => {

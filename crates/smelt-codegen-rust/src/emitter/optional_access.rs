@@ -522,6 +522,48 @@ impl FunctionEmitter<'_> {
                         &self.render_scope(),
                     );
                 }
+                // An ERASED optional fallback (`a ?? b?.c` with `b` erased) can
+                // be `Some(undefined)`: `?.` on an erased value keeps the raw
+                // read. `??` tests the value, so a nullish tag is absent too,
+                // and only a present value is converted to the inner type.
+                // Converting the whole `Option` instead turned `undefined` into
+                // `NaN` and `None` into an invented `0`, so the chain's own
+                // final fallback never applied.
+                if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
+                    && fallback_inner != inner
+                    && matches!(self.mir.types.get(*fallback_inner), Some(Type::Unknown))
+                {
+                    let optional_text = self.operand_expr(optional)?;
+                    let fallback_text = self.operand_expr(fallback)?;
+                    let mapped_value = self.rendered_at_type(
+                        &RustExpr::path("smelt_value"),
+                        *fallback_inner,
+                        *inner,
+                        &self.render_scope(),
+                    )?;
+                    let fallback_option = format!(
+                        "{fallback}.filter(|smelt_value| !smelt_unknown_is_nullish(smelt_value)).map(|smelt_value| {mapped_value})",
+                        fallback = fallback_text.tight(),
+                        mapped_value = mapped_value.delimited()
+                    );
+                    if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
+                    {
+                        return Ok(optional_text.postfix(format!(".or_else(|| {fallback_option})")));
+                    }
+                    let coalesced = optional_text.postfix(format!(
+                        ".unwrap_or_else(|| {fallback_option}.unwrap_or({}))",
+                        self.default_value(*inner)?.delimited()
+                    ));
+                    if dest_ty == *inner {
+                        return Ok(coalesced);
+                    }
+                    return self.rendered_at_type(
+                        &coalesced,
+                        *inner,
+                        dest_ty,
+                        &self.render_scope(),
+                    );
+                }
                 if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
                     && fallback_inner == inner
                     && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
