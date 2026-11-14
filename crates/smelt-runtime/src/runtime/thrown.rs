@@ -468,14 +468,16 @@ fn smelt_global_object() -> SmeltUnknown { thread_local! { static SMELT_GLOBAL_O
 //
 // **Dynamic boundary.** The target's static type is `unknown`, so its own
 // properties are only known at run time; the helper copies each source's own
-// enumerable string-keyed entries onto the SAME object (JavaScript mutates the
-// target in place and returns it), writing through `smelt_index_assign` so a
+// enumerable entries onto the SAME object (JavaScript mutates the target in
+// place and returns it): string keys, and symbol keys too (`Object.assign`
+// copies own enumerable symbol properties, unlike `for...in`; a
+// `{ [Symbol.iterator]() {..} }` source makes the target iterable), writing through `smelt_index_assign` so a
 // function, array or byte-backed target keeps its own write rules (a class
 // value's own statics land in their storage). A class value SOURCE copies its
 // enumerable static fields (`smelt_class_value_view`), not its markers.
 // @smelt:item smelt_unknown_assign when unknown & unknown_assign
 /// `Object.assign(target, source)` onto an erased target, in place.
-fn smelt_unknown_assign(target: &mut SmeltUnknown, source: &SmeltUnknown) { let entries: Vec<(String, SmeltUnknown)> = match source { SmeltUnknown::Object(object) => /*@if class_value*/smelt_class_value_view(object).map_or_else(|| /*@end*/{ let shape = smelt_for_in_object_shape(object); object.iter().filter(|(key, _)| smelt_is_for_in_shape_key(shape, key)).map(|(key, value)| (key.to_string_lossy(), value)).collect() }/*@if class_value*/, |view| view.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt_proto:")).map(|(key, value)| (key.to_string_lossy(), value)).collect())/*@end*/, SmeltUnknown::Array(values) => values.clone().into_vec().into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(text) => text.units().iter().enumerate().map(|(index, unit)| (index.to_string(), SmeltUnknown::String(JsString::from_units(&[*unit])))).collect(), _ => Vec::new() }; for (key, value) in entries { smelt_index_assign(target, key, value); } }
+fn smelt_unknown_assign(target: &mut SmeltUnknown, source: &SmeltUnknown) { let entries: Vec<(String, SmeltUnknown)> = match source { SmeltUnknown::Object(object) => /*@if class_value*/smelt_class_value_view(object).map_or_else(|| /*@end*/{ let shape = smelt_for_in_object_shape(object); object.iter().filter(|(key, _)| smelt_is_for_in_shape_key(shape, key) || (key.eq_str_prefix("__smelt_symbol") && !shape.host)).map(|(key, value)| (key.to_string_lossy(), value)).collect() }/*@if class_value*/, |view| view.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt_proto:")).map(|(key, value)| (key.to_string_lossy(), value)).collect())/*@end*/, SmeltUnknown::Array(values) => values.clone().into_vec().into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(text) => text.units().iter().enumerate().map(|(index, unit)| (index.to_string(), SmeltUnknown::String(JsString::from_units(&[*unit])))).collect(), _ => Vec::new() }; for (key, value) in entries { smelt_index_assign(target, key, value); } }
 // @smelt:item-end
 
 // Emits the fallible `new RegExp(pattern, flags)` adapter into the prelude.
