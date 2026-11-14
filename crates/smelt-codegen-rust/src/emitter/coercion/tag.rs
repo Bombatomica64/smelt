@@ -73,6 +73,25 @@ impl FunctionEmitter<'_> {
         Ok(markers)
     }
 
+    /// The built-in error class `class_name` extends, if its base chain
+    /// reaches one (`class AbortError extends Error` is `Some("Error")`).
+    pub(in crate::emitter) fn error_base_name(&self, class_name: Symbol) -> Option<String> {
+        let mut current = Some(class_name);
+        for _ in 0u32..64 {
+            let class = crate::classes::find_class(self.mir, current?)?;
+            let base = class.base?;
+            let base_name = self.mir.symbols.get(base)?;
+            if smelt_stdlib::host_object_by_class(base_name).is_some() {
+                return None;
+            }
+            if smelt_stdlib::is_error_class_name(base_name) {
+                return Some(base_name.to_owned());
+            }
+            current = Some(base);
+        }
+        None
+    }
+
     /// Emits a runtime tag check for `SmeltUnknown`.
     pub(in crate::emitter) fn tag_check(
         &self,

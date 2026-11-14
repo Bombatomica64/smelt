@@ -1248,6 +1248,13 @@ fn optional_tuple_rest_length() -> TestResult {
     verify_node_parity("optional_tuple_rest_length")
 }
 
+/// An erased error enumerates the own keys Node does: never `message`,
+/// `stack` or `cause`, and `name` only when a constructor assigned it.
+#[test]
+fn erased_error_own_keys() -> TestResult {
+    verify_node_parity("erased_error_own_keys")
+}
+
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")

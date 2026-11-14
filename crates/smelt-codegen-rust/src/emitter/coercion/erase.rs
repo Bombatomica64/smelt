@@ -839,12 +839,32 @@ impl FunctionEmitter<'_> {
         // written live through the class value's hooks
         // (`emitter::statics_frame`), never copied into the object.
         let frame = self.is_statics_frame_class(*name);
+        let error_base = self.error_base_name(*name);
         let entries_result = fields
             .iter()
             .filter(|field| !frame && field.visibility.is_own_property())
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = self.context.names().field_text(self.mir, field.name);
+                // An error's `name` is inherited from its built-in base's
+                // prototype unless a constructor assigned one: own, and
+                // enumerable, only then. The erased record answers an absent
+                // `name` from its `__smelt_error` marker, so a `name` still
+                // equal to the base's is left to it rather than listed by
+                // `Object.keys`, a spread or `Object.assign` (which copied it
+                // onto es-toolkit's cloned error).
+                if let Some(base) = &error_base
+                    && source_name == "name"
+                    && matches!(self.mir.types.get(field.ty), Some(Type::String))
+                {
+                    let read = field_base.postfix(format!(".{field_name}")).cloned_value();
+                    let field_value = self.erase_rendered(&read, field.ty)?;
+                    return Ok(format!(
+                        "if {read} != {base:?} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}",
+                        read = read.delimited(),
+                        field_value = field_value.delimited()
+                    ));
+                }
                 // An accessor erases the value its getter answers now.
                 let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
                 let optional_read = if accessor {
