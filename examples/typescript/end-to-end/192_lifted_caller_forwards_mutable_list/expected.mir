@@ -20,8 +20,7 @@ fn sift_down (FuncId(0)) -> None
     switch move %8 ? bb1 : bb2
   bb1:
     %10 = closure_call copy %2(copy %0[copy %3], copy %0[copy %1])
-    %11 = move %10 < 0.0
-    %9 = move %11
+    %9 = move %10 < 0.0
     goto bb3
   bb2:
     %9 = false
