@@ -481,6 +481,24 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(start, end),
         });
+        // A class local narrowed to a subclass (`if (s instanceof Rect)` on an
+        // `s: Shape`) is read as the subclass: a typed view the backend
+        // converts (a checked downcast of a polymorphic handle), so a read
+        // AND a write of a subclass member (`s.h = 7`) address the
+        // subclass's field instead of a field the base type does not have.
+        if ty != base_ty
+            && let (Some(Type::Class { name: base_class, .. }), Some(Type::Class { name, .. })) = (
+                self.ctx.krate.types.get(base_ty),
+                self.ctx.krate.types.get(ty),
+            )
+            && base_class != name
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: local_expr },
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         if ty != base_ty
             && matches!(
                 self.ctx.krate.types.get(base_ty),
