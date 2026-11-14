@@ -74,6 +74,13 @@ impl FunctionEmitter<'_> {
         // own `==`. Other value-typed elements compare by JS value and
         // reference-typed elements structurally.
         let Some(from_index_operand) = from_index else {
+            if let Some(compare) = self.function_identity_compare(element_ty) {
+                return Ok(RustExpr::atom(format!(
+                    "{{ let smelt_needle = {item_text}; {borrowed_list_text}.iter().{method_name}(|smelt_item| {compare}(smelt_item, &smelt_needle)).map_or(-1.0, |smelt_idx| smelt_idx as f64) }}",
+                    item_text = item_text.delimited(),
+                    borrowed_list_text = borrowed_list_text.tight()
+                )));
+            }
             if self.list_item_uses_same_value_zero(element_ty) {
                 if self.mir.types.get(element_ty) == Some(&Type::Float) {
                     return Ok(RustExpr::atom(format!(

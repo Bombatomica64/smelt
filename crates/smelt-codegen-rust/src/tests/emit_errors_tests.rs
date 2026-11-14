@@ -58,7 +58,7 @@ thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped0_0> = 
 SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped0_0 = ::std::rc::Rc::new(|closure_arg_0: f64| -> Result<JsString, Box<dyn std::error::Error>> {
 let _smelt_tmp_1: JsString = thrower(closure_arg_0)?;
 Ok::<JsString, Box<dyn std::error::Error>>(_smelt_tmp_1.clone())
-}); smelt_function }).clone())
+}); smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_0()); smelt_function }).clone())
 }"
     );
 }

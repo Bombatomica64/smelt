@@ -1195,6 +1195,19 @@ fn smelt_link_function_identity<D: ?Sized + 'static, O: ?Sized + 'static>(derive
 /// Link `derived` to an already-resolved canonical identity.
 fn smelt_link_function_identity_key<D: ?Sized + 'static>(derived: &::std::rc::Rc<D>, canonical: SmeltFunctionIdentity) { smelt_update_callable(derived, |meta| meta.identity = Some(canonical)); }
 
+/// Make `function` one more representation of the function `token` names.
+#[allow(dead_code)]
+fn smelt_join_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>, token: &SmeltFunctionIdentity) {
+    let own = smelt_canonical_function_identity(function);
+    if own == *token { return; }
+    if token.0.length.get().is_none() { token.0.length.set(own.0.length.get()); }
+    if token.0.properties.borrow().is_none() {
+        let moved = own.0.properties.borrow_mut().take();
+        *token.0.properties.borrow_mut() = moved;
+    }
+    smelt_link_function_identity_key(function, token.clone());
+}
+
 /// Return the stable key for an erased callback wrapper.
 #[allow(dead_code)]
 fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
@@ -5088,13 +5101,18 @@ smelt_local.block_on(&smelt_runtime, async move {
 })
 }
 
+fn __smelt_fn_identity_8() -> SmeltFunctionIdentity {
+    thread_local! { static SMELT_FN_IDENTITY: SmeltFunctionIdentity = SmeltFunctionIdentity::default(); }
+    SMELT_FN_IDENTITY.with(Clone::clone)
+}
+
 type SmeltFnTyped8_0 = ::std::rc::Rc<dyn Fn(SmeltUnion2) -> f64>;
 fn __smelt_fn_typed_8_0() -> SmeltFnTyped8_0 {
     thread_local! { static SMELT_FN_TYPED: ::std::cell::OnceCell<SmeltFnTyped8_0> = ::std::cell::OnceCell::new(); }
     SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped8_0 = ::std::rc::Rc::new(|closure_arg_0: SmeltUnion2| {
     let _smelt_tmp_1: f64 = area(closure_arg_0.clone());
     _smelt_tmp_1
-    }); smelt_function }).clone())
+    }); smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_8()); smelt_function }).clone())
 }
 
 fn __smelt_from_unknown_record_0(smelt_value: SmeltUnknown) -> Circle {
