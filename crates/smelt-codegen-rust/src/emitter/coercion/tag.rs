@@ -337,6 +337,27 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Emits `Object.setPrototypeOf(target, prototype)`.
+    ///
+    /// Both operands cross the erased-`unknown` seam: a prototype is reflection
+    /// (a class prototype, `null`, or any object), and the link it sets is only
+    /// observable on an erased object, which shares its identity with the
+    /// rendered operand. The runtime helper answers the target.
+    pub(in crate::emitter) fn set_prototype_of_expr(
+        &self,
+        target: &Operand,
+        prototype: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let target_text = self.value_at_type(target, unknown_ty)?;
+        let prototype_text = self.value_at_type(prototype, unknown_ty)?;
+        Ok(RustExpr::chain(format!(
+            "smelt_set_prototype_of({target_text}, {prototype_text})",
+            target_text = target_text.delimited(),
+            prototype_text = prototype_text.delimited()
+        )))
+    }
+
     /// Emits the JavaScript `Object.prototype.toString.call(x)` tag probe.
     ///
     /// Defers the tag resolution to the `smelt_object_to_string_tag` runtime

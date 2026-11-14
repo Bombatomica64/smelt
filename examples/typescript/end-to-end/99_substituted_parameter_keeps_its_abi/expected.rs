@@ -1973,12 +1973,12 @@ fn smelt_regexp_literal(map: &SmeltObject) -> String { let source = match map.ge
 thread_local! { static SMELT_CLASS_CONSTRUCTORS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
 
 /// One interned constructor value per class name, for `instance.constructor`.
-fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
+fn smelt_class_constructor(class_name: String) -> SmeltUnknown { SMELT_CLASS_CONSTRUCTORS.with(|constructors| constructors.borrow_mut().entry(class_name.clone()).or_insert_with(|| { let marker = class_name.clone(); SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(build)) = smelt_class_builder(&marker) { let built = build(args)?; if let SmeltUnknown::Object(object) = &built && object.get("__smelt_class").is_none() { object.insert("__smelt_class", SmeltUnknown::String(marker.as_str().into())); } return Ok(built); } let fields = Vec::from([("__smelt_class".to_owned(), SmeltUnknown::String(marker.as_str().into()))]); Ok(SmeltUnknown::Object(SmeltObject::new(fields))) })) }).clone()) }
 
 /// Return the opaque `Object.getPrototypeOf` sentinel for an erased value.
 /// Discriminate the class whose prototype a host-marker record reflects.
 fn smelt_reflected_marker_class(map: &SmeltObject) -> Option<String> {
-    let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
+    let (marker, class) = [("__smelt_date", "Date"), ("__smelt_map", "Map"), ("__smelt_set", "Set"), ("__smelt_regexp", "RegExp"), ("__smelt_dataview", "DataView"), ("__smelt_buffer", "Buffer"), ("__smelt_error", "Error"), ("__smelt_file", "File"), ("__smelt_blob", "Blob"), ("__smelt_number", "Number"), ("__smelt_boolean", "Boolean"), ("__smelt_int8array", "Int8Array"), ("__smelt_uint8array", "Uint8Array"), ("__smelt_uint8clampedarray", "Uint8ClampedArray"), ("__smelt_int16array", "Int16Array"), ("__smelt_uint16array", "Uint16Array"), ("__smelt_int32array", "Int32Array"), ("__smelt_uint32array", "Uint32Array"), ("__smelt_float32array", "Float32Array"), ("__smelt_float64array", "Float64Array"), ("__smelt_bigint64array", "BigInt64Array"), ("__smelt_biguint64array", "BigUint64Array")].into_iter().find(|(marker, _)| map.contains_key(marker))?;
     if let Some(SmeltUnknown::String(name)) = map.get(marker) { if smelt_builtin_construct_kind(&name.to_string_lossy()).is_some() { return Some(name.to_string_lossy()); } }
     Some(class.to_owned())
 }
@@ -2023,8 +2023,66 @@ fn smelt_register_object_prototype(id: usize, prototype: SmeltUnknown) { SMELT_O
 fn smelt_recorded_object_prototype(id: usize) -> Option<SmeltUnknown> { SMELT_OBJECT_PROTOTYPES.with(|prototypes| prototypes.borrow().get(&id).cloned()) }
 
 /// Create a fresh erased object from a runtime prototype value (`Object.create`).
-fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(JsString, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if sentinel.eq_str("__smelt_proto:class") => { fields.push(("__smelt_class".into(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key.eq_str("__smelt_class") || key.eq_str_prefix("__smelt_proto:") { fields.push((key, value)); } else { fields.push((JsString::from(format!("__smelt_proto:{key}")), value)); } } }, _ => {} } let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); } SmeltUnknown::Object(object) }
-fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value { if let Some(prototype) = smelt_recorded_object_prototype(map.id) { return prototype; } } match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".into()), SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String("__smelt_proto:object".into()) }, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:array" || &**marker == "__smelt_proto:promise" || &**marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".into()), _ => SmeltUnknown::String("__smelt_proto:object".into()) } }
+fn smelt_object_from_prototype(prototype: SmeltUnknown) -> SmeltUnknown { let mut fields: Vec<(JsString, SmeltUnknown)> = Vec::new(); match &prototype { SmeltUnknown::String(sentinel) if sentinel.eq_str("__smelt_proto:class") => { fields.push(("__smelt_class".into(), SmeltUnknown::Bool(true))); }, SmeltUnknown::Object(map) if smelt_class_prototype_tag(map).is_some() => { if let Some(tag) = smelt_class_prototype_tag(map) { fields.push(("__smelt_class".into(), SmeltUnknown::String(tag))); } }, SmeltUnknown::Object(map) => { for (key, value) in map.iter() { if key.eq_str("__smelt_class") || key.eq_str_prefix("__smelt_proto:") { fields.push((key, value)); } else { fields.push((JsString::from(format!("__smelt_proto:{key}")), value)); } } }, _ => {} } let object = SmeltObject::new(fields); if smelt_prototype_slot_is_observable(&prototype) { smelt_register_object_prototype(object.id, prototype); } SmeltUnknown::Object(object) }
+thread_local! {
+    static SMELT_CLASS_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_CLASS_VALUES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_CLASS_BUILDERS: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Record the erased constructor an instance of the class tagged `tag` carries.
+fn smelt_note_class_builder(map: &SmeltObject, tag: &JsString) {
+    let Some(builder @ SmeltUnknown::Function(_)) = map.get("__smelt_method:constructor") else { return };
+    SMELT_CLASS_BUILDERS.with(|builders| { builders.borrow_mut().entry(tag.to_string_lossy()).or_insert(builder); });
+}
+
+/// The erased constructor recorded for the class tagged `tag`, if any.
+fn smelt_class_builder(tag: &str) -> Option<SmeltUnknown> { SMELT_CLASS_BUILDERS.with(|builders| builders.borrow().get(tag).cloned()) }
+
+/// The key a class prototype stores its class tag under.
+const SMELT_CLASS_PROTO_KEY: &str = "__smelt_method:__smelt_class_proto";
+
+/// The program class tagged `tag`, as its base's tag (`""` for a root
+/// class); `None` when no class, or more than one, carries the tag.
+fn smelt_program_class(tag: &str) -> Option<&'static str> {
+    const SMELT_PROGRAM_CLASSES: &[(&str, &str)] = &[
+        ("Chain", ""),
+    ];
+    SMELT_PROGRAM_CLASSES.iter().find(|(name, _)| *name == tag).map(|(_, base)| *base)
+}
+
+/// The interned prototype object of the class tagged `tag`.
+fn smelt_class_prototype(tag: &str) -> SmeltUnknown {
+    if let Some(found) = SMELT_CLASS_PROTOTYPES.with(|prototypes| prototypes.borrow().get(tag).cloned()) { return found; }
+    let prototype = SmeltObject::new(Vec::from([(SMELT_CLASS_PROTO_KEY.to_owned(), SmeltUnknown::String(tag.into()))]));
+    let value = SmeltUnknown::Object(prototype.clone());
+    SMELT_CLASS_PROTOTYPES.with(|prototypes| { prototypes.borrow_mut().insert(tag.to_owned(), value.clone()); });
+    let base = match smelt_program_class(tag) { Some(base) if !base.is_empty() && base != tag => smelt_class_prototype(base), _ => SmeltUnknown::String("__smelt_proto:object".into()) };
+    smelt_register_object_prototype(prototype.id, base);
+    value
+}
+
+/// The class tag a class prototype object carries, if `map` is one.
+fn smelt_class_prototype_tag(map: &SmeltObject) -> Option<JsString> { match map.get(SMELT_CLASS_PROTO_KEY) { Some(SmeltUnknown::String(tag)) => Some(tag), _ => None } }
+
+/// Intern the class value built for `tag`: the first one built is the class
+/// from then on, so every read of the class is the same value.
+fn smelt_intern_class_value(tag: &str, value: SmeltUnknown) -> SmeltUnknown {
+    SMELT_CLASS_VALUES.with(|values| {
+        let mut values = values.borrow_mut();
+        if let Some(found) = values.get(tag) {
+            if let (SmeltUnknown::Object(found), SmeltUnknown::Object(built)) = (found, &value) && matches!(found.get("__smelt_call"), None | Some(SmeltUnknown::Undefined)) && let Some(call) = built.get("__smelt_call") { found.insert("__smelt_call", call); }
+            return found.clone();
+        }
+        values.insert(tag.to_owned(), value.clone());
+        value
+    })
+}
+
+/// The class value of the class tagged `tag`: the interned one once the
+/// program has read the class, else the per-tag constructor stand-in.
+fn smelt_class_value_of(tag: &str) -> SmeltUnknown { SMELT_CLASS_VALUES.with(|values| values.borrow().get(tag).cloned()).unwrap_or_else(|| smelt_class_constructor(tag.to_owned())) }
+fn smelt_prototype_sentinel(value: &SmeltUnknown) -> SmeltUnknown { if let SmeltUnknown::Object(map) = value { if let Some(prototype) = smelt_recorded_object_prototype(map.id) { return prototype; } } match value { SmeltUnknown::Null => SmeltUnknown::Null, SmeltUnknown::Array(_) => SmeltUnknown::String("__smelt_proto:array".into()), SmeltUnknown::Promise(_) => SmeltUnknown::String("__smelt_proto:promise".into()), SmeltUnknown::Object(map) if let Some(SmeltUnknown::String(tag)) = map.get("__smelt_class") => { smelt_note_class_builder(map, &tag); smelt_class_prototype(&tag.to_string_lossy()) }, SmeltUnknown::Object(map) if map.contains_key("__smelt_class") => SmeltUnknown::String("__smelt_proto:class".into()), SmeltUnknown::Object(map) => match smelt_reflected_marker_class(map) { Some(class) => smelt_reflected_prototype(class), None => SmeltUnknown::String("__smelt_proto:object".into()) }, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:object" => SmeltUnknown::Null, SmeltUnknown::String(marker) if &**marker == "__smelt_proto:array" || &**marker == "__smelt_proto:promise" || &**marker == "__smelt_proto:class" => SmeltUnknown::String("__smelt_proto:object".into()), _ => SmeltUnknown::String("__smelt_proto:object".into()) } }
 /// Read the JavaScript `__proto__` accessor for an erased value.
 fn smelt_proto_accessor(value: &SmeltUnknown) -> SmeltUnknown { match value { SmeltUnknown::Object(map) if map.contains_key("__proto__") => smelt_get_object_field(map, "__proto__"), other => smelt_prototype_sentinel(other) } }
 
@@ -2509,7 +2567,9 @@ fn smelt_record_property(record: &SmeltRecord<JsString, SmeltUnknown>, key: &(im
 }
 fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
-    if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { return smelt_class_constructor(class_name.to_string()); } }
+    if field == "constructor" && !map.contains_key("constructor") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_class") { smelt_note_class_builder(map, &class_name); return smelt_class_value_of(&class_name.to_string_lossy()); } }
+    if field == "constructor" && !map.contains_key("constructor") && let Some(tag) = smelt_class_prototype_tag(map) { return smelt_class_value_of(&tag.to_string_lossy()); }
+    if field == "prototype" && !map.contains_key("prototype") && map.contains_key("__smelt_class_value") && let Some(SmeltUnknown::String(tag)) = map.get("name") { return smelt_class_prototype(&tag.to_string_lossy()); }
     if let Some(element) = smelt_host_buffer_element(map, field) { return element; }
     if field == "constructor" && !map.contains_key("constructor") { if let Some(class) = smelt_marker_constructor_class(map) { return smelt_builtin_namespace(class); } }
     if map.contains_key("__smelt_global_object") && !map.contains_key(field) && smelt_builtin_construct_kind(field).is_some() { return smelt_builtin_namespace(field); }
@@ -2562,6 +2622,19 @@ fn smelt_object_prototype_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnkn
         "Object.prototype.toString" | "Object.prototype.toLocaleString" => SmeltUnknown::String(smelt_object_to_string_tag(&receiver).into()),
         "Object.prototype.valueOf" => smelt_unbox_primitive(receiver),
         "Object.prototype.hasOwnProperty" | "Object.prototype.propertyIsEnumerable" => { let key = smelt_property_key(args.next().unwrap_or(SmeltUnknown::Undefined)); SmeltUnknown::Bool(smelt_has_own_property(&receiver, &key)) }
+        "Object.prototype.isPrototypeOf" => {
+            let mut current = args.next().unwrap_or(SmeltUnknown::Undefined);
+            let mut steps = 0_u32;
+            if !matches!(current, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Promise(_) | SmeltUnknown::Function(_)) { return SmeltUnknown::Bool(false); }
+            loop {
+                let next = smelt_prototype_sentinel(&current);
+                let same = |left: &SmeltUnknown, right: &SmeltUnknown| match (left, right) { (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::String(left), SmeltUnknown::String(right)) => left == right, _ => false };
+                steps += 1;
+                if steps > 10_000 || matches!(next, SmeltUnknown::Null | SmeltUnknown::Undefined) || same(&next, &current) { return SmeltUnknown::Bool(false); }
+                if same(&next, &receiver) { return SmeltUnknown::Bool(true); }
+                current = next;
+            }
+        }
         _ => SmeltUnknown::Bool(false),
     }
 }
@@ -2577,7 +2650,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
         "propertyIsEnumerable" => "Object.prototype.propertyIsEnumerable",
         _ => return None,
     };
-    Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_object_prototype_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))
+    Some(SMELT_OBJECT_PROTOTYPE_MEMBERS.with(|members| members.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {  Ok(smelt_object_prototype_apply(key, args)) }); smelt_link_function_identity_key(&function, smelt_method_identity(key)); SmeltUnknown::Function(function) }).clone()))
 }
 
 /// Every modeled builtin member: `(class, kind, member, length, key)`.

@@ -722,6 +722,41 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
+        let span = self.span(call.span.start, call.span.end);
+        if let ("Object", "setPrototypeOf", [target, prototype]) = (
+            object.name(),
+            member.property.name.as_str(),
+            call.arguments.as_slice(),
+        ) {
+            // The link is reflection, observable only on an erased object (see
+            // `ExprKind::SetPrototypeOf`). The call answers its target: a
+            // target that is a plain name is read again, keeping its own type,
+            // and the link is set as an effect with no value; any other target
+            // is evaluated once and answered erased.
+            if let Some(Expression::Identifier(_)) = target.as_expression() {
+                let target_expression = target.as_expression();
+                let target = self.argument(target, body)?;
+                let prototype = self.argument(prototype, body)?;
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let effect = body.push_expr(Expr {
+                    kind: ExprKind::SetPrototypeOf { target, prototype },
+                    ty: none_ty,
+                    span,
+                });
+                self.push_stmt_to_sink(body, smelt_hir::Stmt::Expr(effect));
+                return target_expression
+                    .map(|expression| self.expression(expression, body))
+                    .transpose();
+            }
+            let target = self.argument(target, body)?;
+            let prototype = self.argument(prototype, body)?;
+            let ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.setPrototypeOf");
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::SetPrototypeOf { target, prototype },
+                ty,
+                span,
+            })));
+        }
         for argument in &call.arguments {
             let _ = self.argument(argument, body)?;
         }

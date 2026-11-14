@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13826,
+      "concrete": 13827,
       "generic": 228,
-      "erased": 7844
+      "erased": 7841
     },
     "reads": {
       "concrete": 341,
@@ -5970,7 +5970,7 @@
     },
     "src/compat/object/clone.ts": {
       "values": {
-        "concrete": 79,
+        "concrete": 80,
         "generic": 0,
         "erased": 78
       },
@@ -9882,7 +9882,7 @@
       "values": {
         "concrete": 21,
         "generic": 0,
-        "erased": 25
+        "erased": 22
       },
       "reads": {
         "concrete": 0,

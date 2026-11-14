@@ -349,6 +349,9 @@ impl RuntimeDemand {
             Rvalue::DefineProperties { .. } => {
                 self.add(Need::DefineProperties);
             }
+            Rvalue::SetPrototypeOf { .. } => {
+                self.add(Need::SetPrototypeOf);
+            }
             Rvalue::UnknownCast { .. } => {
                 self.add(Need::Unknown);
             }

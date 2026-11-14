@@ -400,6 +400,15 @@ fn json_type_only_interface() -> TestResult {
     verify_node_parity_with("json_type_only_interface", &["types.ts"])
 }
 
+/// A class's prototype is one object with identity: `.constructor` is the
+/// class, the chain runs through the base prototype, and `Object.create`,
+/// `setPrototypeOf`, `isPrototypeOf` and `instanceof` agree with it
+/// (docs/design/class-prototypes.md).
+#[test]
+fn class_prototypes() -> TestResult {
+    verify_node_parity("class_prototypes")
+}
+
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {
