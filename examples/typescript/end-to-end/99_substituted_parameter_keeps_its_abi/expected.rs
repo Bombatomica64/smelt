@@ -4088,7 +4088,7 @@ impl SmeltFromUnknown for SmeltMatch {
 
 /// A reference-class handle seen through its shared cell (see `SmeltWeakReceiver`).
 trait SmeltReferenceHandle: Clone + 'static {
-    type Cell;
+    type Cell: ?Sized;
     fn smelt_handle_cell(&self) -> &::std::rc::Rc<Self::Cell>;
     fn smelt_from_handle_cell(cell: ::std::rc::Rc<Self::Cell>) -> Self;
 }

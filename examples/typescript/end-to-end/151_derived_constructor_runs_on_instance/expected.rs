@@ -4293,7 +4293,7 @@ impl Clone for SmartGreeter {
 }
 impl PartialEq for SmartGreeter {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for SmartGreeter {
@@ -4451,7 +4451,7 @@ impl Clone for App {
 }
 impl PartialEq for App {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for App {
@@ -4525,7 +4525,7 @@ impl Clone for PlainApp {
 }
 impl PartialEq for PlainApp {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for PlainApp {
@@ -4652,7 +4652,7 @@ impl Clone for DoubleTally {
 }
 impl PartialEq for DoubleTally {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for DoubleTally {
@@ -4923,7 +4923,7 @@ impl Clone for FromThree {
 }
 impl PartialEq for FromThree {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for FromThree {
@@ -5139,7 +5139,7 @@ impl Clone for RoutedApp {
 }
 impl PartialEq for RoutedApp {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for RoutedApp {

@@ -4138,12 +4138,16 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFr
 }
 
 #[allow(dead_code)]
-struct Counter(::std::rc::Rc<::std::cell::RefCell<CounterInner>>);
+struct Counter(::std::rc::Rc<dyn CounterSmeltCell>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct CounterInner {
     _hits: SmeltList<JsString>,
 }
+/// Any instance of `Counter` or of a class extending it, viewed as a `Counter`.
+#[allow(dead_code, non_snake_case)]
+trait CounterSmeltCell { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner>; fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner>; fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_class_name(&self) -> &'static str; fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
+impl CounterSmeltCell for ::std::cell::RefCell<CounterInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CounterInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Counter" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Counter(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Counter {
     fn clone(&self) -> Self {
         Counter(::std::rc::Rc::clone(&self.0))
@@ -4151,7 +4155,7 @@ impl Clone for Counter {
 }
 impl PartialEq for Counter {
     fn eq(&self, other: &Self) -> bool {
-        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
     }
 }
 impl Default for Counter {
@@ -4165,7 +4169,10 @@ impl ::std::fmt::Debug for Counter {
     }
 }
 impl IntoSmeltUnknown for Counter {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).smelt_erase() }
+}
+impl Counter {
+    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {
         let __smelt_id = smelt_reference_object_identity(&self.0);
         let __smelt_proto = self.__smelt_proto_entries();
         if let Some(__smelt_open) = smelt_open_reference_view(__smelt_id) { return SmeltUnknown::Object(__smelt_open); }
@@ -4185,6 +4192,8 @@ impl SmeltFromUnknown for Counter {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Counter", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<DeclaredReporting>() { return Counter(smelt_subclass_origin.0.clone()); }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Reporting>() { return Counter(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         result
     }
@@ -4195,8 +4204,11 @@ struct DeclaredReporting(::std::rc::Rc<::std::cell::RefCell<DeclaredReportingInn
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct DeclaredReportingInner {
-    _hits: SmeltList<JsString>,
+    __smelt_base: CounterInner,
 }
+impl ::std::ops::Deref for DeclaredReportingInner { type Target = CounterInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for DeclaredReportingInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+impl CounterSmeltCell for ::std::cell::RefCell<DeclaredReportingInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CounterInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "DeclaredReporting" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { DeclaredReporting(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for DeclaredReporting {
     fn clone(&self) -> Self {
         DeclaredReporting(::std::rc::Rc::clone(&self.0))
@@ -4248,8 +4260,11 @@ struct Reporting(::std::rc::Rc<::std::cell::RefCell<ReportingInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct ReportingInner {
-    _hits: SmeltList<JsString>,
+    __smelt_base: CounterInner,
 }
+impl ::std::ops::Deref for ReportingInner { type Target = CounterInner; fn deref(&self) -> &Self::Target { &self.__smelt_base } }
+impl ::std::ops::DerefMut for ReportingInner { fn deref_mut(&mut self) -> &mut Self::Target { &mut self.__smelt_base } }
+impl CounterSmeltCell for ::std::cell::RefCell<ReportingInner> { fn borrow(&self) -> ::std::cell::Ref<'_, CounterInner> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view }) } fn borrow_mut(&self) -> ::std::cell::RefMut<'_, CounterInner> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| { let smelt_view: &mut CounterInner = smelt_inner; smelt_view }) } fn try_borrow(&self) -> Result<::std::cell::Ref<'_, CounterInner>, ::std::cell::BorrowError> { ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| { let smelt_view: &CounterInner = smelt_inner; smelt_view })) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_class_name(&self) -> &'static str { "Reporting" } fn smelt_erase(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Reporting(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Reporting {
     fn clone(&self) -> Self {
         Reporting(::std::rc::Rc::clone(&self.0))
@@ -4467,11 +4482,13 @@ impl Counter {
         smelt_proto_entries.push(("__smelt_method:#hits".to_owned(), SmeltUnknown::Array(self.0.borrow()._hits.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new();  smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Counter".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl DeclaredReporting {
     fn new() -> Self {
-    let mut this: Self = DeclaredReporting(::std::rc::Rc::new(::std::cell::RefCell::new(DeclaredReportingInner { _hits: SmeltList::new(Vec::<JsString>::new()) })));
+    let mut this: Self = DeclaredReporting(::std::rc::Rc::new(::std::cell::RefCell::new(DeclaredReportingInner { __smelt_base: CounterInner { _hits: SmeltList::new(Vec::<JsString>::new()) } })));
     let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
     this = _smelt_tmp_1;
     return this;
@@ -4505,11 +4522,13 @@ impl DeclaredReporting {
         smelt_proto_entries.push(("__smelt_method:report".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.report(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("DeclaredReporting::report")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new();  smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("DeclaredReporting".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl Reporting {
     fn new() -> Self {
-    let mut this: Self = Reporting(::std::rc::Rc::new(::std::cell::RefCell::new(ReportingInner { _hits: SmeltList::new(Vec::<JsString>::new()) })));
+    let mut this: Self = Reporting(::std::rc::Rc::new(::std::cell::RefCell::new(ReportingInner { __smelt_base: CounterInner { _hits: SmeltList::new(Vec::<JsString>::new()) } })));
     let _smelt_tmp_1: Self = Self::__smelt_init_Counter(this);
     this = _smelt_tmp_1;
     return this;
@@ -4543,6 +4562,8 @@ impl Reporting {
         smelt_proto_entries.push(("__smelt_method:report".to_owned(), { let smelt_method: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { let _ = &smelt_args; let smelt_result = smelt_receiver.report(); Ok(SmeltUnknown::String(smelt_result.into())) } }); smelt_link_function_identity_key(&smelt_method, smelt_method_identity("Reporting::report")); SmeltUnknown::Function(smelt_method) }));
         smelt_proto_entries
     }
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { let smelt_own = self; let _ = &smelt_own; { let smelt_object_value = smelt_own; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new();  smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Reporting".into()))); smelt_object_entries.extend(smelt_struct_value.__smelt_proto_entries()); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) } }
 }
 
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Boxed<T> {

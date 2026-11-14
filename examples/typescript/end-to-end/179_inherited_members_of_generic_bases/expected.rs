@@ -4320,7 +4320,7 @@ impl Clone for Leaf {
 }
 impl PartialEq for Leaf {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for Leaf {
@@ -4378,7 +4378,7 @@ impl Clone for Nums {
 }
 impl PartialEq for Nums {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for Nums {
@@ -4520,7 +4520,7 @@ impl Clone for YearParser {
 }
 impl PartialEq for YearParser {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for YearParser {

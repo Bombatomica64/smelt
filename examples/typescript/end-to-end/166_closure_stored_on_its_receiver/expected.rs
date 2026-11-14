@@ -4241,7 +4241,7 @@ impl Clone for Sub {
 }
 impl PartialEq for Sub {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for Sub {

@@ -410,9 +410,13 @@ pub(crate) fn emit_reference_record_storage(
         format!("impl{impl_generics} PartialEq for {name}{type_args}"),
         |impl_writer| {
             impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
-                // The address alone: a polymorphic handle's `Rc<dyn ..>` also
-                // carries a vtable, which is no part of identity.
-                fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
+                if polymorphic {
+                    // The address alone: a polymorphic handle's `Rc<dyn ..>`
+                    // also carries a vtable, which is no part of identity.
+                    fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
+                } else {
+                    fn_writer.line("::std::rc::Rc::ptr_eq(&self.0, &other.0)");
+                }
             });
         },
     );
