@@ -334,6 +334,7 @@ impl FunctionEmitter<'_> {
             function,
             &self.context.owned_callback_params,
             &self.context.bound_traits,
+            self.context.type_param_elision(),
             &self.context.erased_arguments,
         );
         let type_params = function

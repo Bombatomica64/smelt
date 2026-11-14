@@ -1427,6 +1427,7 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "189_rust_reserved_keyword_identifiers",
     "190_type_parameter_scope_ends_with_its_class",
     "191_checker_typed_array_literals_and_generic_calls",
+    "192_lifted_caller_forwards_mutable_list",
     "193_array_constrained_type_parameters",
     "194_structural_record_names_keep_source_keys",
     "195_closure_return_from_the_checker",

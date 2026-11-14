@@ -27,6 +27,15 @@ impl FunctionEmitter<'_> {
         // first, so they still accept a non-erased source.) `value_at_type`
         // handles a non-erased `Option` source directly without delegating back
         // to `extract`, so this cannot recurse.
+        // A whole `T` recovered from the carrier converts through the
+        // `SmeltFromUnknown` bound every lifted parameter declares, so the
+        // generic trial does not count it; see the `IntoSmeltUnknown` twin in
+        // `erase`. A container of `T`s is rebuilt and still counts.
+        let _bound_conversion = matches!(
+            self.mir.types.get(target),
+            Some(Type::TypeParam { name }) if scope.spells(*name)
+        )
+        .then(|| self.context.carrier_boundary());
         let source_ty = self.operand_ty(value)?;
         let target_is_primitive = matches!(
             self.mir.types.get(target),

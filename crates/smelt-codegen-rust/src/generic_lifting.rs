@@ -25,7 +25,9 @@ use crate::{
     EmitError,
     bound_traits::BoundTraitPlan,
     classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
-    generic_bindings, id_index,
+    generic_bindings,
+    generic_elision::TypeParamElision,
+    id_index,
 };
 
 /// Per function, whether a call site passes an erased argument at a bare
@@ -76,6 +78,7 @@ pub(crate) fn function_emits_rust_generics(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    elision: &TypeParamElision,
     erased_arguments: &ErasedArgumentMemo,
 ) -> bool {
     !liftable_type_params(
@@ -83,6 +86,7 @@ pub(crate) fn function_emits_rust_generics(
         function,
         owned_callback_params,
         bounds,
+        elision,
         erased_arguments,
     )
     .is_empty()
@@ -349,6 +353,7 @@ pub(crate) fn liftable_type_params(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    elision: &TypeParamElision,
     erased_arguments: &ErasedArgumentMemo,
 ) -> HashSet<Symbol> {
     if function.type_params.is_empty() {
@@ -367,7 +372,12 @@ pub(crate) fn liftable_type_params(
         .collect();
 
     if called_with_erased_type_param_argument_memoized(mir, function, erased_arguments)
-        || !callback_only_params_are_pinned_at_every_call_site(mir, function, owned_callback_params)
+        || !callback_only_params_are_pinned_at_every_call_site(
+            mir,
+            function,
+            owned_callback_params,
+            elision,
+        )
     {
         return HashSet::new();
     }
@@ -387,9 +397,9 @@ pub(crate) fn liftable_type_params(
             let name = type_param.name;
             // The parameter must have an inference source in the emitted signature.
             // Either a direct value parameter position ...
-            let directly = param_types
-                .iter()
-                .any(|&param_ty| type_param_preserved_in_emitted_type(mir, param_ty, name));
+            let directly = param_types.iter().any(|&param_ty| {
+                type_param_preserved_in_emitted_type(mir, elision, param_ty, name)
+            });
             // ... or a position of a callback emitted as `&F{n}` with an
             // `F{n}: Fn(..) + ?Sized` bound, which rustc infers through from the
             // closure's own type. The disjunct deliberately calls the renderer's own
@@ -401,6 +411,7 @@ pub(crate) fn liftable_type_params(
                     mir,
                     function,
                     owned_callback_params,
+                    elision,
                     name,
                 )
                 .is_some())
@@ -491,6 +502,7 @@ fn callback_only_params_are_pinned_at_every_call_site(
     mir: &Mir,
     function: &MirFunction,
     owned: &HashSet<(FuncId, LocalId)>,
+    elision: &TypeParamElision,
 ) -> bool {
     let param_types: Vec<TypeId> = function
         .params
@@ -510,11 +522,11 @@ fn callback_only_params_are_pinned_at_every_call_site(
         .iter()
         .filter(|type_param| {
             !param_types.iter().any(|&param_ty| {
-                type_param_preserved_in_emitted_type(mir, param_ty, type_param.name)
+                type_param_preserved_in_emitted_type(mir, elision, param_ty, type_param.name)
             })
         })
         .filter_map(|type_param| {
-            type_param_inferable_through_callback(mir, function, owned, type_param.name)
+            type_param_inferable_through_callback(mir, function, owned, elision, type_param.name)
                 .map(|index| (type_param.name, index))
         })
         .collect();
@@ -1113,16 +1125,30 @@ fn operand_type_is_erased(mir: &Mir, caller: &MirFunction, operand: &Operand) ->
 /// This is deliberately *narrower* than
 /// [`generic_bindings::match_types`](crate::generic_bindings), which does bind
 /// through `Type::Function` at any depth.
-fn type_param_preserved_in_emitted_type(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+fn type_param_preserved_in_emitted_type(
+    mir: &Mir,
+    elision: &TypeParamElision,
+    ty: TypeId,
+    name: Symbol,
+) -> bool {
     match mir.types.get(ty) {
         Some(Type::TypeParam { name: param_name }) => *param_name == name,
         // Unions erase to `SmeltUnknown` and functions are a callback boundary,
         // so neither preserves the type parameter in a directly-inferable value
         // position.
         Some(Type::Union(_) | Type::Function(_)) | None => false,
+        // A generated class or interface spells only its carried positions
+        // (`crate::generic_elision`). `ListOfRecursiveArraysOrValues<T>`, whose
+        // `T` reaches no field, emits as the bare struct, so an argument at an
+        // elided position gives Rust nothing to infer the parameter from
+        // (E0282 at es-toolkit's compat `flattenDeep`, whose only `T` is there).
+        Some(Type::Class { name: class, args }) => args.iter().enumerate().any(|(index, arg)| {
+            elision.is_carried(*class, index)
+                && type_param_preserved_in_emitted_type(mir, elision, *arg, name)
+        }),
         Some(other) => other
             .children()
-            .any(|child| type_param_preserved_in_emitted_type(mir, child, name)),
+            .any(|child| type_param_preserved_in_emitted_type(mir, elision, child, name)),
     }
 }
 
@@ -1183,6 +1209,7 @@ fn type_param_inferable_through_callback(
     mir: &Mir,
     function: &MirFunction,
     owned: &HashSet<(FuncId, LocalId)>,
+    elision: &TypeParamElision,
     name: Symbol,
 ) -> Option<usize> {
     for (index, param) in function.params.iter().enumerate() {
@@ -1220,9 +1247,9 @@ fn type_param_inferable_through_callback(
             .enumerate()
             .any(|(nested_index, nested)| {
                 callback.rest != Some(nested_index)
-                    && type_param_preserved_in_emitted_type(mir, *nested, name)
+                    && type_param_preserved_in_emitted_type(mir, elision, *nested, name)
             })
-            || type_param_preserved_in_emitted_type(mir, callback.return_ty, name);
+            || type_param_preserved_in_emitted_type(mir, elision, callback.return_ty, name);
         if inferable {
             return Some(index);
         }
@@ -1392,10 +1419,11 @@ pub(crate) fn callback_generic_params(
     function: &MirFunction,
     owned: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    elision: &TypeParamElision,
     erased_arguments: &ErasedArgumentMemo,
     plan: &crate::names::RustNames,
 ) -> Result<Vec<(LocalId, String)>, EmitError> {
-    if !function_emits_rust_generics(mir, function, owned, bounds, erased_arguments) {
+    if !function_emits_rust_generics(mir, function, owned, bounds, elision, erased_arguments) {
         return Ok(Vec::new());
     }
     let mut taken: HashSet<String> = HashSet::new();
@@ -1445,6 +1473,7 @@ pub(crate) fn function_impl_generics_list(
     function: &MirFunction,
     owned_callback_params: &HashSet<(FuncId, LocalId)>,
     bounds: &BoundTraitPlan,
+    elision: &TypeParamElision,
     erased_arguments: &ErasedArgumentMemo,
 ) -> Result<Vec<String>, EmitError> {
     let liftable = liftable_type_params(
@@ -1452,6 +1481,7 @@ pub(crate) fn function_impl_generics_list(
         function,
         owned_callback_params,
         bounds,
+        elision,
         erased_arguments,
     );
     if liftable.is_empty() {

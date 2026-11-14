@@ -138,10 +138,29 @@ impl FunctionEmitter<'_> {
     /// Converts a type ID to its Rust text in a nested or value position.
     pub(super) fn rendered_type(&self, ty: TypeId) -> Result<RustType, EmitError> {
         let rendered = self.lexical_rust_type(ty, false)?;
-        if rendered.holds_carrier() {
+        if rendered.holds_carrier() && self.carrier_type_concerns_trial(ty) {
             self.context.note_carrier_use();
         }
         Ok(rendered)
+    }
+
+    /// Whether a rendered type that holds the carrier says anything about the
+    /// generic trial ([`Self::renders_real_generics`]).
+    ///
+    /// Outside a trial every carrier use is recorded as before. Inside one, a
+    /// type that mentions none of the type parameters in scope (an `unknown`
+    /// local, a `SmeltList<SmeltUnknown>` built by `Array(n)`) renders the same
+    /// whether the function is generic or erased, so it cannot be why the
+    /// generic rendering fails; recording it demoted every generic function
+    /// that also holds an unrelated erased value. Every conversion between such
+    /// a value and a `T` still records its own carrier use.
+    fn carrier_type_concerns_trial(&self, ty: TypeId) -> bool {
+        if self.trial_generic_function().is_none() {
+            return true;
+        }
+        self.current_function_type_params()
+            .iter()
+            .any(|name| crate::generic_bindings::type_param_occurs(self.mir, ty, *name))
     }
 
     /// Converts a type ID to its Rust text at a signature root, where a callable
@@ -272,6 +291,7 @@ impl FunctionEmitter<'_> {
                     self.function,
                     &self.context.owned_callback_params,
                     &self.context.bound_traits,
+                    self.context.type_param_elision(),
                     &self.context.erased_arguments,
                 );
             }
