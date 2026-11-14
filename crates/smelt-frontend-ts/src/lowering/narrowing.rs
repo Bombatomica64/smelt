@@ -90,6 +90,8 @@ impl ModuleBuilder<'_> {
             }
         } else if let Some((name, target)) = self.optional_none_inverse_guard(expression, body) {
             out.insert(name, target);
+        } else if let Some((name, target)) = self.falsy_optional_object_guard(expression, body) {
+            out.insert(name, target);
         } else if let Some((name, target)) = self.typeof_inverse_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.instanceof_inverse_guard(expression, body) {
@@ -406,6 +408,39 @@ impl ModuleBuilder<'_> {
             identifier.name.to_string(),
             self.ctx.krate.types.intern(Type::None),
         ))
+    }
+
+    /// Recognize a bare local that tests FALSY while its present payload is
+    /// always truthy: there it is nullish, so it narrows to `None`.
+    ///
+    /// `x: T | null` with `T` an object, function, list or other always-truthy
+    /// surface has exactly one falsy inhabitant kind, the nullish one, so the
+    /// branch where `x` is falsy (`if (!x) return x;`) sees `null`, as
+    /// TypeScript's own narrowing does. Without it the branch read `x` at
+    /// `T | null`: returning it from a function declared to answer `U | null`
+    /// needed `Option<T>` -> `Option<U>`, which a generic `T`/`U` cannot
+    /// convert, so the function's generics erased. A payload that can itself
+    /// be falsy (`string`, `number`, `boolean`, a type parameter, a union) is
+    /// left alone: there the falsy branch still holds `""`, `0` or `false`.
+    fn falsy_optional_object_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::Identifier(identifier) = expression.without_parentheses() else {
+            return None;
+        };
+        let name = identifier.name.as_str();
+        let local = self.scope.lookup(name)?;
+        let local_ty = match self.narrowed_type(name) {
+            Some(ty) => ty,
+            None => Self::local_ty_checked(body, local)?,
+        };
+        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return None;
+        };
+        self.type_is_always_truthy_object_surface(inner)
+            .then(|| (name.to_owned(), self.ctx.krate.types.intern(Type::None)))
     }
 
     /// Recognize bare truthiness guards that remove `undefined`/`None` from locals.

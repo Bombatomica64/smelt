@@ -142,9 +142,14 @@ fn a_homogeneous_inline_object_type_stays_a_string_dict() -> Result<(), String> 
 }
 
 #[test]
-fn a_heterogeneous_inline_object_type_naming_a_type_parameter_stays_a_dict() -> Result<(), String> {
-    // A synthesized struct has no binder for `T`, so the literal keeps its
-    // previous lowering rather than leaking an unbound parameter.
+fn a_heterogeneous_inline_object_type_naming_a_type_parameter_is_a_generic_record()
+-> Result<(), String> {
+    // The synthesized struct declares the parameters its fields name and the
+    // reference forwards them: `{ value: T; count: number }` in `first<T>` is
+    // `SmeltRecord…<T>`, as a hand-written `struct Options<T>` would be.
+    // Old requirement: the literal stayed `Dict<String, T | Float>` because
+    // "a synthesized struct has no binder for `T`"; that merged `T | number`
+    // into both fields and erased `ParseResult<V>`-style aliases downstream.
     let mut ctx = HirCtx::new();
     lower_ok(
         ts!(
@@ -155,10 +160,15 @@ fn a_heterogeneous_inline_object_type_naming_a_type_parameter_stays_a_dict() -> 
         &mut ctx,
     )?;
     let options_ty = param_type(&ctx, "first", 0)?;
+    let Some(Type::Class { args, .. }) = ctx.krate.types.get(options_ty) else {
+        return Err(format!(
+            "expected a record, got {:?}",
+            ctx.krate.types.get(options_ty)
+        ));
+    };
     ensure!(
-        matches!(ctx.krate.types.get(options_ty), Some(Type::Dict(_, _))),
-        "expected a dict, got {:?}",
-        ctx.krate.types.get(options_ty)
+        matches!(args.as_slice(), [arg] if matches!(ctx.krate.types.get(*arg), Some(Type::TypeParam { .. }))),
+        "expected the record to forward `T`, got {args:?}"
     );
     Ok(())
 }

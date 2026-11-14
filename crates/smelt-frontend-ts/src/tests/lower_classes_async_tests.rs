@@ -595,11 +595,16 @@ abstract class Parser<Value> {
         "new",
         "new(value: T, validate_value: fn(T) -> Bool) -> ValueSetter<T>",
     )?;
-    ensure_signature(
-        &ctx,
-        "run",
-        "run(this: Parser<Value>) -> Optional<Dict<String, String | ValueSetter<Value>>>",
-    )?;
+    // The returned literal is a generic record over `Value` (its synthesized
+    // name is a structural hash). It was `Dict<String, String |
+    // ValueSetter<Value>>`, merging both field types into every value.
+    let run = smelt_hir::function_signature(&ctx.krate, "run")
+        .ok_or("missing function item named `run`")?;
+    ensure!(
+        run.starts_with("run(this: Parser<Value>) -> Optional<SmeltRecord")
+            && run.ends_with("<Value>>"),
+        "signature of `run`: {run}"
+    );
     ensure_signature(
         &ctx,
         "validate",

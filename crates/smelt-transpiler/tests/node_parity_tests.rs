@@ -12,7 +12,7 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure_eq, ensure_node_agrees, smelt_in,
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in,
     workspace_root,
 };
 
@@ -780,6 +780,55 @@ fn record_callable_type_arguments() -> TestResult {
 #[test]
 fn date_setter_erased_receiver() -> TestResult {
     verify_node_parity("date_setter_erased_receiver")
+}
+
+/// A generic alias over a union with an object arm (`{ value: V; rest: string }
+/// | null`) lowers to an optional generic record, a generic helper mapping it
+/// stays generic, and `if (!r) return r;` returns the narrowed `null`.
+#[test]
+fn generic_record_result_alias() -> TestResult {
+    verify_node_parity("generic_record_result_alias")?;
+    // Type preservation, on the same source: `mapValue` keeps both
+    // parameters as Rust generics, and each call passes its arrow at the
+    // instantiated type (`(n) => n * 2` takes `&f64`), not through an erased
+    // adapter. The arrow's parameter type is TypeScript's instantiated one
+    // (`callbacks::body_lowering::names_type_param_out_of_scope`); with the
+    // callee's bare `A` the call bound `A` to `SmeltUnknown` (E0631).
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("generic_record_result_alias.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"generic-record\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    let map_value = source
+        .lines()
+        .find(|line| line.contains("fn map_value<"))
+        .ok_or("map_value did not keep its generics")?;
+    ensure(
+        !map_value.contains("SmeltUnknown>") && !map_value.contains(": SmeltUnknown"),
+        map_value.to_owned(),
+    )?;
+    for call in source
+        .lines()
+        .filter(|line| line.contains("map_value(") && !line.contains("fn map_value"))
+    {
+        ensure(
+            !call.contains("&SmeltUnknown"),
+            format!("erased callback adapter: {call}"),
+        )?;
+    }
+    Ok(())
 }
 
 /// A class value carries its static methods, so a computed-key call finds

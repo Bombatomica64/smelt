@@ -3046,23 +3046,16 @@ function select(left: Result<number>, right: Result<number>): unknown {
     let function = function_item(&ctx, module, 1)?;
     let body = function_body(&ctx, function)?;
 
-    ensure!(
-        body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::PrimitiveCast {
-                    op: PrimitiveCastOp::ToBool,
-                    ..
-                }
-            )
-        }),
-        "optional object logical fallback should branch on runtime truthiness"
-    );
+    // `Result<number>` is `Optional<SmeltRecord…<Float>>`, whose present
+    // payload is always truthy, so `left || right` selects exactly as
+    // `left ?? right` does and lowers to the optional coalesce, keeping the
+    // selected record. Old requirement: a runtime `ToBool` cast feeding a
+    // `Conditional`, which held only while the alias erased to `unknown`.
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
-        "optional object logical fallback should preserve the selected object"
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "optional object logical fallback should select the present operand"
     );
     ensure!(
         !body

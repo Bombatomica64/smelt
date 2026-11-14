@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14098,
+      "concrete": 14107,
       "generic": 228,
-      "erased": 7928
+      "erased": 7919
     },
     "reads": {
       "concrete": 341,
@@ -2179,9 +2179,9 @@
     },
     "src/array/unzipWith.spec.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 25,
         "generic": 0,
-        "erased": 17
+        "erased": 8
       },
       "reads": {
         "concrete": 0,

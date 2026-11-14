@@ -516,7 +516,11 @@ impl ModuleBuilder<'_> {
 
     /// The type parameters `fields` mention, in first-mention order, declared
     /// on the derived record so it stays a real Rust generic.
-    fn type_params_mentioned(&self, fields: &[Field], span: smelt_hir::Span) -> Vec<TypeParamDef> {
+    pub(in crate::lowering) fn type_params_mentioned(
+        &self,
+        fields: &[Field],
+        span: smelt_hir::Span,
+    ) -> Vec<TypeParamDef> {
         let mut names = Vec::new();
         for field in fields {
             self.collect_type_params(field.ty, &mut names);

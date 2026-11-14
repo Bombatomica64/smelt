@@ -15,10 +15,20 @@
 //! method) whose fields do not share one value type lowers to a synthesized
 //! interface, exactly as the alias spelling `type O = { … }` does. Its name is
 //! derived from the structure, so the same shape written in several places, in
-//! one file or in several, shares one generated struct. A literal that
-//! mentions a type parameter keeps its `Dict` lowering: a synthesized
-//! interface has no declaration site at which to bind that parameter (the
-//! same limit `callable_object` and `Partial<T>` apply).
+//! one file or in several, shares one generated struct.
+//!
+//! A literal that mentions type parameters (`{ value: V; rest: string }`, as
+//! in `type ParseResult<V> = { value: V; rest: string } | null`) lowers to a
+//! GENERIC synthesized struct: it declares the parameters it mentions, in
+//! first-mention order, and the reference passes them through as its type
+//! arguments (`SmeltRecord…<V>`). Substituting the enclosing scope's
+//! parameters (an alias instantiation `ParseResult<number>`, a generic call)
+//! then instantiates the struct (`SmeltRecord…<f64>`), as a hand-written
+//! `struct ParseResult<V> { value: V, rest: String }` would be. The `Dict`
+//! lowering it replaces merged `V | string` into every field, and an alias
+//! reference over it resolved to a nominal record no struct backs, so the
+//! value erased to `SmeltUnknown`. Derived records (`Partial<T>`, `Pick<..>`)
+//! bind their parameters the same way (`type_params_mentioned`).
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -36,9 +46,10 @@ impl ModuleBuilder<'_> {
     /// `fields` are the literal's fields as `type_literal_fields` returned them
     /// (the declared type, not yet wrapped in `Optional` for an optional
     /// field). Returns `None`, leaving the caller's
-    /// `Dict` lowering in charge, when the fields share one value type, when
-    /// the literal declares anything other than named property signatures, or
-    /// when a field mentions a type parameter.
+    /// `Dict` lowering in charge, when the fields share one value type or when
+    /// the literal declares anything other than named property signatures. A
+    /// literal whose fields mention type parameters yields a generic struct
+    /// reference (see the module docs).
     pub(in crate::lowering) fn anonymous_record_literal_type(
         &mut self,
         literal: &TSTypeLiteral<'_>,
@@ -64,12 +75,6 @@ impl ModuleBuilder<'_> {
                 if !prop.computed || self.is_resolvable_property_key(&prop.key))
         });
         if !plain_properties || fields.len() != literal.members.len() {
-            return None;
-        }
-        if fields
-            .iter()
-            .any(|field| self.type_mentions_type_param(field.ty))
-        {
             return None;
         }
         // An interface field of an optional property stores `Optional<T>`, as
@@ -109,8 +114,20 @@ impl ModuleBuilder<'_> {
         let minted = self.anonymous_record_name(&fields);
         let name = self.intern_synthesized_type_name(&minted);
         let name_text = minted.as_str().to_owned();
+        let span = self.span(0, 0);
+        // The struct is generic over exactly the parameters its fields name;
+        // the reference forwards them, so the enclosing scope binds them.
+        let type_params = self.type_params_mentioned(&fields, span);
+        let args = type_params
+            .iter()
+            .map(|param| {
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::TypeParam { name: param.name })
+            })
+            .collect();
         if self.find_interface(name).is_none() {
-            let span = self.span(0, 0);
             let members = StructuralMembers {
                 fields,
                 decode_facts,
@@ -119,16 +136,13 @@ impl ModuleBuilder<'_> {
             let item = self.register_callable_object_interface(
                 name,
                 &name_text,
-                Vec::new(),
+                type_params,
                 members,
                 span,
             );
             self.items.insert(name_text, item);
         }
-        Some(self.ctx.krate.types.intern(Type::Class {
-            name,
-            args: Vec::new(),
-        }))
+        Some(self.ctx.krate.types.intern(Type::Class { name, args }))
     }
 
     /// Derive the generated name of an anonymous record from its structure.
