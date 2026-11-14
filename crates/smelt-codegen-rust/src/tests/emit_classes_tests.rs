@@ -1273,6 +1273,7 @@ fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
     assert_eq!(
         rust_items(&source, &["fn f"]),
         r"fn f(name: SmeltUnknown) -> SmeltUnknown {
+smelt_reset_this();
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
 return { let smelt_index_base = _smelt_tmp_1.clone(); match name.clone() { SmeltUnknown::String(smelt_name) if smelt_name.to_string().parse::<usize>().map_or(true, |smelt_position| smelt_position.to_string() != smelt_name.to_string()) => smelt_get_unknown_field(&smelt_index_base, &smelt_name), _ => match smelt_index_base {
 SmeltUnknown::String(smelt_value) => {

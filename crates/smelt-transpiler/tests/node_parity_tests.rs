@@ -1522,3 +1522,12 @@ fn callee_value_calls() -> TestResult {
 fn apply_argument_lists() -> TestResult {
     verify_node_parity("apply_argument_lists")
 }
+
+/// Every call supplies its callee's `this`: a member call, `.call`/`.apply`/
+/// `.bind` supply a receiver and a plain call supplies `undefined`, typed or
+/// erased; an arrow sees its enclosing plain function's `this`; a callable
+/// object forwarding its receiver (es-toolkit's `throttle`) keeps it.
+#[test]
+fn receiver_frames() -> TestResult {
+    verify_node_parity("receiver_frames")
+}

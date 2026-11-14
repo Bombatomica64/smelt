@@ -348,6 +348,7 @@ fn this_receiver_channel_is_a_boundary() {
     // the tag.
     for line in [
         "    let _smelt_tmp_1: SmeltUnknown = smelt_this();",
+        "    let _smelt_tmp_2: SmeltUnknown = smelt_frame_this.clone();",
         "    let _smelt_tmp_4 = capped.smelt_bind_this(SmeltUnknown::Object(left.clone()));",
         "    let _smelt_tmp_5 = capped.smelt_bind_this(SmeltUnknown::Object(right.clone()));",
         "        let _smelt_this_guard = smelt_push_this(receiver.clone());",

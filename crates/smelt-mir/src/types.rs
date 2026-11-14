@@ -264,6 +264,11 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
+    /// Where this closure's `this` comes from (carried over from
+    /// `ClosureExpr::this_binding`): its own call's receiver, its enclosing
+    /// function's (an arrow), or forwarded untouched (a function item's value
+    /// wrapper).
+    pub this_binding: smelt_hir::ClosureThis,
     /// The language this closure body came from.
     ///
     /// See `MirFunction::language`. A closure body is emitted through its own

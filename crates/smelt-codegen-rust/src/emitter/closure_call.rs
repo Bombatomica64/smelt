@@ -7,19 +7,51 @@ use smelt_hir::{FunctionType, Symbol};
 
 impl FunctionEmitter<'_> {
     /// Install a receiver on a callable value.
+    ///
+    /// `receiver` is `None` for `BindOwnThis`: the receiver is the running
+    /// frame's own `this` (`smelt_frame_this`, already a `SmeltUnknown`), so
+    /// no MIR temporary reads it and it always takes the eager install path.
     pub(super) fn bind_this_expr(
         &self,
         callee: &Operand,
-        receiver: &Operand,
+        receiver: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let receiver_text = self.erase(receiver)?;
+        let receiver_text = match receiver {
+            Some(operand) => self.erase(operand)?,
+            None => RustExpr::chain(self.this_read_text()),
+        };
         // A callee that still has its `Type::Function` keeps it: the
         // typed `smelt_bind_this` method returns a `SmeltErasedFunction`
         // so binding a receiver never costs the callable its static
         // shape. Only an already-erased callee goes through the free
         // function, which also handles a callable OBJECT receiver.
         let callee_ty = self.operand_ty(callee)?;
+        // A callable OBJECT (a callable interface's struct, such as es-toolkit's
+        // `DebouncedFunction<F>`) carries its receiver on a copy whose call slot
+        // installs it: `debounced.apply(this, args)` then passes `this`
+        // explicitly instead of relying on the caller's channel.
+        if let Some(call_ty) = self.callable_interface_call_field_ty(callee_ty)
+            && let Some(Type::Function(function)) = self.mir.types.get(call_ty).cloned()
+        {
+            let slot = if self.is_erased_unknown_rest_function(&function) && !function.may_throw {
+                format!("smelt_bound_object.{SMELT_CALL}.smelt_bind_this(smelt_bound_this.clone())")
+            } else {
+                let params = (0..function.params.len())
+                    .map(|index| format!("smelt_bound_arg_{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ let smelt_bound_callee = smelt_bound_object.{SMELT_CALL}.clone(); let smelt_bound_receiver = smelt_bound_this.clone(); let smelt_bound: {ty} = ::std::rc::Rc::new(move |{params}| {{ let _smelt_this_guard = smelt_push_this(smelt_bound_receiver.clone()); (smelt_bound_callee)({params}) }}); smelt_bound }}",
+                    ty = self.rendered_type(call_ty)?,
+                )
+            };
+            return Ok(RustExpr::atom(format!(
+                "{{ let mut smelt_bound_object = {object}.clone(); let smelt_bound_this = {receiver_text}; smelt_bound_object.{SMELT_CALL} = {slot}; smelt_bound_object }}",
+                object = self.operand_expr(callee)?.tight(),
+                receiver_text = receiver_text.delimited(),
+            )));
+        }
         if let Some(Type::Function(function)) = self.mir.types.get(callee_ty).cloned() {
             // A `Type::Function` has two Rust spellings (see `rust_type`):
             // the erased `SmeltErasedFunction` struct, which carries the
@@ -51,8 +83,8 @@ impl FunctionEmitter<'_> {
                     return self.value_at_type(callee, dest_ty);
                 }
                 return Ok({
-                    let receiver = self.operand_expr(callee)?;
-                    receiver.postfix(format!(
+                    let bound_callee = self.operand_expr(callee)?;
+                    bound_callee.postfix(format!(
                         ".smelt_bind_this({receiver_text})",
                         receiver_text = receiver_text.delimited()
                     ))
@@ -69,32 +101,38 @@ impl FunctionEmitter<'_> {
             // it eagerly would rebuild the instance's whole erased
             // view — every prototype member included — on every call
             // through a function-valued field.
-            let receiver_ty = self.operand_ty(receiver)?;
-            let (bind_receiver, install) = if matches!(
-                self.mir.types.get(receiver_ty),
-                Some(Type::Unknown)
-            ) {
-                (
-                    format!(
-                        "let smelt_bound_this = {receiver_text};",
-                        receiver_text = receiver_text.delimited()
-                    ),
-                    "smelt_push_this(smelt_bound_this.clone())".to_owned(),
-                )
-            } else {
-                let lazy_erase = self.erase_rendered(
+            let typed_receiver = match receiver {
+                Some(operand) => {
+                    let receiver_ty = self.operand_ty(operand)?;
+                    (!matches!(self.mir.types.get(receiver_ty), Some(Type::Unknown)))
+                        .then_some((operand, receiver_ty))
+                }
+                None => None,
+            };
+            let (bind_receiver, install) = if let Some((typed_operand, receiver_ty)) =
+                typed_receiver
+            {
+                let lazy_erase = self.lazy_receiver_erasure(
                     &RustExpr::path("smelt_bound_receiver").cloned_value(),
                     receiver_ty,
                 )?;
                 (
                     format!(
                         "let smelt_bound_receiver = {}.clone();",
-                        self.operand_expr(receiver)?.tight()
+                        self.operand_expr(typed_operand)?.tight()
                     ),
                     format!(
                         "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})",
                         lazy_erase = lazy_erase.delimited()
                     ),
+                )
+            } else {
+                (
+                    format!(
+                        "let smelt_bound_this = {receiver_text};",
+                        receiver_text = receiver_text.delimited()
+                    ),
+                    "smelt_push_this(smelt_bound_this.clone())".to_owned(),
                 )
             };
             // A generic class's function-valued field is STORED with

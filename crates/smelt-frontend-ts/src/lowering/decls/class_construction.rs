@@ -365,7 +365,16 @@ impl ModuleBuilder<'_> {
                 // rather than as an inherent method, because an inherent method
                 // is what cannot be assigned in the first place.
                 ClassFieldInit::Method(function) => {
-                    self.function_expression_value(function, Some(*field_ty), function.span, body)?
+                    // A METHOD's `this` is the instance it is installed on.
+                    self.keep_enclosing_this = true;
+                    let value = self.function_expression_value(
+                        function,
+                        Some(*field_ty),
+                        function.span,
+                        body,
+                    );
+                    self.keep_enclosing_this = false;
+                    value?
                 }
             };
             body.push_stmt(Stmt::Assign { target, value });

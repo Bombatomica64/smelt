@@ -796,6 +796,8 @@ pub mod boundary {
     pub const THIS_CALL: &str = "smelt_this()";
     /// Binding a receiver.
     pub const BIND_THIS_CALL: &str = "smelt_bind_this(";
+    /// The running frame's own `this`, taken off the channel at entry.
+    pub const FRAME_THIS: &str = "smelt_frame_this";
     /// A class's prototype entries, as the generated local.
     pub const PROTO_ENTRIES_LOCAL: &str = "__smelt_proto_entries";
     /// A class's prototype entries.
