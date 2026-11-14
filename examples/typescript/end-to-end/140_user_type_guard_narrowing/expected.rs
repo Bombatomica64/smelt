@@ -4175,7 +4175,6 @@ pub(crate) fn length_or(value: SmeltUnion15, big: bool) -> f64 {
     let mut _smelt_tmp_4: bool;
     let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: bool;
     let _smelt_tmp_8: JsString;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_11: bool;
@@ -4187,8 +4186,7 @@ pub(crate) fn length_or(value: SmeltUnion15, big: bool) -> f64 {
     if _smelt_tmp_3 {
     _smelt_tmp_5 = match value.clone() { SmeltUnion15::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_6 = _smelt_tmp_5.len() as f64;
-    _smelt_tmp_7 = _smelt_tmp_6 > 2.0;
-    _smelt_tmp_4 = _smelt_tmp_7;
+    _smelt_tmp_4 = _smelt_tmp_6 > 2.0;
     } else {
     _smelt_tmp_4 = false;
     }

@@ -31,6 +31,11 @@ impl ModuleBuilder<'_> {
                 ty: stored_ty,
                 span,
             });
+            // A pin at the binding's own type needs no assertion: the read is
+            // already the value at that type.
+            if stored_ty == present_ty {
+                return Ok(read);
+            }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: read },
                 ty: present_ty,

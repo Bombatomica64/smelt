@@ -45,8 +45,7 @@ fn header_of (FuncId(0)) -> String
     %7 = copy %10.field13
     goto bb5
   bb5:
-    %12 = primitive_cast_bool move %7
-    %4 = move %12
+    %4 = primitive_cast_bool move %7
     goto bb6
   bb6:
     switch move %4 ? bb7 : bb8
@@ -101,8 +100,7 @@ fn status_of (FuncId(1)) -> Float
   bb1:
     %3 = unknown_cast copy %0 as t16
     %4 = instanceof move %3, class7
-    %5 = !move %4
-    %2 = move %5
+    %2 = !move %4
     goto bb3
   bb2:
     %2 = false
@@ -126,8 +124,7 @@ fn status_of (FuncId(1)) -> Float
     %9 = copy %12.field14
     goto bb8
   bb8:
-    %14 = primitive_cast_bool move %9
-    %6 = move %14
+    %6 = primitive_cast_bool move %9
     goto bb9
   bb9:
     switch move %6 ? bb10 : bb11

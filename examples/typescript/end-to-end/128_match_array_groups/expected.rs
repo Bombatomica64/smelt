@@ -3923,7 +3923,6 @@ pub(crate) fn describe(text: JsString) -> () {
     let mut _smelt_tmp_27: bool;
     let mut _smelt_tmp_28: bool;
     let mut _smelt_tmp_29: JsString;
-    let mut _smelt_tmp_30: JsString;
     let mut _smelt_tmp_32: SmeltMatch;
     let mut _smelt_tmp_35: SmeltMatch;
     let mut _smelt_tmp_36: SmeltList<Option<JsString>>;
@@ -3974,8 +3973,7 @@ pub(crate) fn describe(text: JsString) -> () {
     _smelt_tmp_25 = _smelt_tmp_25 + 1;
     continue;
     } else {
-    _smelt_tmp_30 = group.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_29 = _smelt_tmp_30;
+    _smelt_tmp_29 = group.clone().expect("optional value was absent after narrowing");
     let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_25 = _smelt_tmp_25 + 1;
     continue;
@@ -4001,7 +3999,6 @@ pub(crate) fn digits(text: JsString) -> JsString {
     let tagged: JsString;
     let mut _smelt_tmp_7: JsString;
     let _smelt_tmp_8: SmeltList<JsString>;
-    let _smelt_tmp_9: JsString;
     let _smelt_tmp_10: SmeltRegExp;
     let _smelt_tmp_11: Option<SmeltList<JsString>>;
     let _smelt_tmp_12: SmeltList<JsString>;
@@ -4025,8 +4022,7 @@ pub(crate) fn digits(text: JsString) -> JsString {
     let mut _smelt_tmp_7: JsString = JsString::new();
     if _smelt_tmp_6 {
     _smelt_tmp_8 = Into::<SmeltList<_>>::into(all.clone().expect("optional value was absent after narrowing"));
-    _smelt_tmp_9 = JsString::join(_smelt_tmp_8.borrow().iter(), &JsString::from("+"));
-    _smelt_tmp_7 = _smelt_tmp_9;
+    _smelt_tmp_7 = JsString::join(_smelt_tmp_8.borrow().iter(), &JsString::from("+"));
     } else {
     _smelt_tmp_7 = JsString::from("none");
     }

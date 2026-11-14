@@ -24,16 +24,14 @@ fn #respond (FuncId(0)) -> String
     %5 = "" + copy %1
     %6 = move %5 + ":"
     %7 = unknown_cast copy %2 as t1
-    %8 = move %6 + move %7
-    %4 = move %8
+    %4 = move %6 + move %7
     goto bb3
   bb2:
     %9 = "" + copy %1
     %10 = move %9 + ":"
     %11 = unknown_cast copy %2 as t0
     %12 = string_upper move %11
-    %13 = move %10 + move %12
-    %4 = move %13
+    %4 = move %10 + move %12
     goto bb3
   bb3:
     return move %4

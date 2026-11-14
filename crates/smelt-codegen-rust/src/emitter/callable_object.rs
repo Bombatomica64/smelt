@@ -624,7 +624,8 @@ impl FunctionEmitter<'_> {
                     | Operand::Move(Place::Field { .. } | Place::Index { .. }),
                 )
                 | Rvalue::BindThis { .. }
-                | Rvalue::OptionalField { .. },
+                | Rvalue::OptionalField { .. }
+                | Rvalue::OptionalIndex { .. },
             ) => ErasedCallReceiver::Unresolved,
             Some(_) => ErasedCallReceiver::Plain,
         }
@@ -667,6 +668,10 @@ impl FunctionEmitter<'_> {
                 .is_ok_and(|decl| self.has_dynamic_shape(decl.ty))
                 .then_some(Operand::Copy(Place::Local(*base))),
             Rvalue::OptionalField {
+                receiver: Operand::Copy(place) | Operand::Move(place),
+                ..
+            }
+            | Rvalue::OptionalIndex {
                 receiver: Operand::Copy(place) | Operand::Move(place),
                 ..
             } => {

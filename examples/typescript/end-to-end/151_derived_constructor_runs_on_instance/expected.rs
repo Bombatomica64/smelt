@@ -5086,16 +5086,12 @@ impl AppBase {
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
     let mut _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
-    let _smelt_tmp_7: JsString;
     let full: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
     let _smelt_tmp_4: bool = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = JsString::from("hit ") + &full.clone();
-    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5 = JsString::from("hit ") + &full.clone();
     } else {
-    _smelt_tmp_7 = JsString::from("miss ") + &full.clone();
-    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_5 = JsString::from("miss ") + &full.clone();
     }
     _smelt_tmp_5.clone()
     }
@@ -5138,16 +5134,12 @@ impl App {
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
     let mut _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
-    let _smelt_tmp_7: JsString;
     let full: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
     let _smelt_tmp_4: bool = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = JsString::from("hit ") + &full.clone();
-    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5 = JsString::from("hit ") + &full.clone();
     } else {
-    _smelt_tmp_7 = JsString::from("miss ") + &full.clone();
-    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_5 = JsString::from("miss ") + &full.clone();
     }
     _smelt_tmp_5.clone()
     }
@@ -5190,16 +5182,12 @@ impl PlainApp {
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move |closure_arg_0: JsString| {
     let mut _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
-    let _smelt_tmp_7: JsString;
     let full: JsString = (((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().prefix).clone()) + &closure_arg_0.clone();
     let _smelt_tmp_4: bool = ((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().routes).clone().borrow().contains(&full.clone());
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = JsString::from("hit ") + &full.clone();
-    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5 = JsString::from("hit ") + &full.clone();
     } else {
-    _smelt_tmp_7 = JsString::from("miss ") + &full.clone();
-    _smelt_tmp_5 = _smelt_tmp_7.clone();
+    _smelt_tmp_5 = JsString::from("miss ") + &full.clone();
     }
     _smelt_tmp_5.clone()
     }

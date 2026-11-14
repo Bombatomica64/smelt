@@ -4572,15 +4572,13 @@ pub(crate) fn add__module_main(a: f64, b: Option<f64>) -> f64 {
 pub(crate) fn fact__module_main(n: f64) -> f64 {
     let mut _smelt_tmp_2: f64;
     let _smelt_tmp_3: f64;
-    let _smelt_tmp_5: f64;
     let _smelt_tmp_1: bool = n <= 1.0;
     if _smelt_tmp_1 {
     _smelt_tmp_2 = 1.0;
     } else {
     _smelt_tmp_3 = n - 1.0;
     let _smelt_tmp_4: f64 = fact__module_main(_smelt_tmp_3);
-    _smelt_tmp_5 = n * _smelt_tmp_4;
-    _smelt_tmp_2 = _smelt_tmp_5;
+    _smelt_tmp_2 = n * _smelt_tmp_4;
     }
     return _smelt_tmp_2;
 }
@@ -4590,7 +4588,6 @@ pub(crate) fn join(head: JsString, rest: SmeltList<JsString>) -> JsString {
     let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: SmeltList<JsString>;
-    let _smelt_tmp_9: JsString;
     let _smelt_tmp_2: f64 = rest.len() as f64;
     let _smelt_tmp_3: bool = _smelt_tmp_2 != 0.0;
     if _smelt_tmp_3 {
@@ -4598,8 +4595,7 @@ pub(crate) fn join(head: JsString, rest: SmeltList<JsString>) -> JsString {
     _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from("/");
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(rest.borrow().iter().skip({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(rest.len().saturating_sub({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
     let _smelt_tmp_8: JsString = join(rest.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new()), _smelt_tmp_7);
-    _smelt_tmp_9 = _smelt_tmp_6 + &_smelt_tmp_8;
-    _smelt_tmp_4 = _smelt_tmp_9;
+    _smelt_tmp_4 = _smelt_tmp_6 + &_smelt_tmp_8;
     } else {
     _smelt_tmp_4 = head.clone();
     }
@@ -4612,12 +4608,10 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let mut next: f64;
     let mut eq: f64;
     let mut _smelt_tmp_12: bool;
-    let _smelt_tmp_13: bool;
     let mut _smelt_tmp_14: bool;
     let _smelt_tmp_15: JsString;
     let _smelt_tmp_16: f64;
     let _smelt_tmp_17: f64;
-    let _smelt_tmp_18: bool;
     let _smelt_tmp_19: f64;
     let _smelt_tmp_20: f64;
     let _smelt_tmp_21: bool;
@@ -4627,7 +4621,6 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let mut _smelt_tmp_28: bool;
     let mut _smelt_tmp_29: bool;
     let mut _smelt_tmp_30: f64;
-    let mut _smelt_tmp_31: bool;
     let mut _smelt_tmp_32: f64;
     let mut _smelt_tmp_33: JsString;
     let mut _smelt_tmp_34: f64;
@@ -4646,20 +4639,13 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let _smelt_tmp_9: f64 = -1.0;
     let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
-    let mut _smelt_tmp_12: bool = false;
-    if _smelt_tmp_11 {
-    _smelt_tmp_13 = key.clone().clone().is_some_and(|value| !value.is_empty());
-    _smelt_tmp_12 = _smelt_tmp_13;
-    } else {
-    _smelt_tmp_12 = false;
-    }
+    let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().is_some_and(|value| !value.is_empty()) } else { false };
     let mut _smelt_tmp_14: bool = false;
     if _smelt_tmp_12 {
     _smelt_tmp_15 = key.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_16 = _smelt_tmp_15.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     _smelt_tmp_17 = -1.0;
-    _smelt_tmp_18 = _smelt_tmp_16 == _smelt_tmp_17;
-    _smelt_tmp_14 = _smelt_tmp_18;
+    _smelt_tmp_14 = _smelt_tmp_16 == _smelt_tmp_17;
     } else {
     _smelt_tmp_14 = false;
     }
@@ -4683,8 +4669,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     _smelt_tmp_28 = eq > next;
     if _smelt_tmp_28 {
     _smelt_tmp_30 = -1.0;
-    _smelt_tmp_31 = next != _smelt_tmp_30;
-    _smelt_tmp_29 = _smelt_tmp_31;
+    _smelt_tmp_29 = next != _smelt_tmp_30;
     if _smelt_tmp_29 {
     _smelt_tmp_32 = -1.0;
     eq = _smelt_tmp_32;

@@ -106,14 +106,12 @@ export function firstEntry(values: string[]): string | undefined {
         rust_items(&source, &["fn first_entry"]),
         r#"fn first_entry(values: SmeltList<JsString>) -> Option<JsString> {
 let mut _smelt_tmp_5: bool;
-let _smelt_tmp_6: bool;
 let _smelt_tmp_7: Option<(i64, JsString)>;
 let _smelt_tmp_8: (i64, JsString);
 let _smelt_tmp_9: JsString;
 let mut iterator: SmeltList<(i64, JsString)> = Into::<SmeltList<_>>::into(values.borrow().iter().cloned().enumerate().map(|(smelt_idx, smelt_item)| (smelt_idx as i64, smelt_item)).collect::<Vec<_>>());
 let result: SmeltGeneratorResult<(i64, JsString), ()> = if iterator.is_empty() { SmeltGeneratorResult::Complete(()) } else { SmeltGeneratorResult::Yielded(iterator.borrow_mut().remove(0)) };
-_smelt_tmp_6 = matches!(result.clone(), SmeltGeneratorResult::Complete(_));
-_smelt_tmp_5 = _smelt_tmp_6;
+_smelt_tmp_5 = matches!(result.clone(), SmeltGeneratorResult::Complete(_));
 if _smelt_tmp_5 {
 return None::<JsString>;
 } else {

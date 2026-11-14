@@ -4863,20 +4863,11 @@ impl Tile {
 impl Counter {
     fn push(&self, value: f64) -> Result<f64, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: f64;
     let mut _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = value; _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().accept.clone()); (smelt_callable)(value) };
-    let mut _smelt_tmp_5: f64 = 0.0;
-    if _smelt_tmp_4 {
-    _smelt_tmp_6 = self.0.borrow().items.clone().len() as f64;
-    _smelt_tmp_5 = _smelt_tmp_6;
-    } else {
-    _smelt_tmp_7 = -1.0;
-    _smelt_tmp_5 = _smelt_tmp_7;
-    }
+    let _smelt_tmp_5: f64 = if _smelt_tmp_4 { self.0.borrow().items.clone().len() as f64 } else { -1.0 };
     return Ok(_smelt_tmp_5);
     }
     fn accept(&self, value: f64) -> bool {
@@ -4908,20 +4899,11 @@ impl Plain {
     }
     fn push(&self, value: f64) -> Result<f64, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: f64;
     let mut _smelt_tmp_2: SmeltList<f64> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_3: f64 = { let smelt_push_item = value; _smelt_tmp_2.borrow_mut().push(smelt_push_item); _smelt_tmp_2.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_2);
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().accept.clone()); (smelt_callable)(value) };
-    let mut _smelt_tmp_5: f64 = 0.0;
-    if _smelt_tmp_4 {
-    _smelt_tmp_6 = self.0.borrow().items.clone().len() as f64;
-    _smelt_tmp_5 = _smelt_tmp_6;
-    } else {
-    _smelt_tmp_7 = -1.0;
-    _smelt_tmp_5 = _smelt_tmp_7;
-    }
+    let _smelt_tmp_5: f64 = if _smelt_tmp_4 { self.0.borrow().items.clone().len() as f64 } else { -1.0 };
     return Ok(_smelt_tmp_5);
     }
     fn accept(&self, value: f64) -> bool {
@@ -4941,16 +4923,9 @@ impl Plain {
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<T> {
     fn run(&self, input: JsString) -> Result<T, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: T;
-    let _smelt_tmp_6: T;
     let result: Parsed<T> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().validate.clone()); (smelt_callable)(&result.value) };
-    let mut _smelt_tmp_5: T = Default::default();
-    if _smelt_tmp_4 {
-    _smelt_tmp_5 = result.value.clone();
-    } else {
-    _smelt_tmp_6 = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().fallback.clone()); (smelt_callable)() };
-    _smelt_tmp_5 = _smelt_tmp_6;
-    }
+    let _smelt_tmp_5: T = if _smelt_tmp_4 { result.value.clone() } else { { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().fallback.clone()); (smelt_callable)() } };
     return Ok(_smelt_tmp_5);
     }
     fn validate(&self, value: T) -> bool {
@@ -4979,16 +4954,9 @@ impl YearParser {
     }
     fn run(&self, input: JsString) -> Result<f64, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
     let result: Parsed<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().validate.clone()); (smelt_callable)(result.value) };
-    let mut _smelt_tmp_5: f64 = 0.0;
-    if _smelt_tmp_4 {
-    _smelt_tmp_5 = result.value;
-    } else {
-    _smelt_tmp_6 = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().fallback.clone()); (smelt_callable)() };
-    _smelt_tmp_5 = _smelt_tmp_6;
-    }
+    let _smelt_tmp_5: f64 = if _smelt_tmp_4 { result.value } else { { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().fallback.clone()); (smelt_callable)() } };
     return Ok(_smelt_tmp_5);
     }
     fn validate(&self, value: f64) -> bool {
@@ -5034,16 +5002,9 @@ impl StrictYear {
     }
     fn run(&self, input: JsString) -> Result<f64, Box<dyn std::error::Error>> {
     let mut _smelt_tmp_5: f64;
-    let _smelt_tmp_6: f64;
     let result: Parsed<f64> = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().parse.clone()); (smelt_callable)(input.clone()) };
     let _smelt_tmp_4: bool = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().validate.clone()); (smelt_callable)(result.value) };
-    let mut _smelt_tmp_5: f64 = 0.0;
-    if _smelt_tmp_4 {
-    _smelt_tmp_5 = result.value;
-    } else {
-    _smelt_tmp_6 = { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().fallback.clone()); (smelt_callable)() };
-    _smelt_tmp_5 = _smelt_tmp_6;
-    }
+    let _smelt_tmp_5: f64 = if _smelt_tmp_4 { result.value } else { { let smelt_callable = ::std::clone::Clone::clone(&self.0.borrow().fallback.clone()); (smelt_callable)() } };
     return Ok(_smelt_tmp_5);
     }
     fn validate(&self, value: f64) -> bool {

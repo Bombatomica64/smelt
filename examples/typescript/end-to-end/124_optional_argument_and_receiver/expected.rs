@@ -3840,7 +3840,6 @@ fn main() {
     let mut _smelt_tmp_19: Option<JsString>;
     let mut _smelt_tmp_20: JsString;
     let mut _smelt_tmp_21: f64;
-    let mut _smelt_tmp_22: Option<JsString>;
     let mut _smelt_tmp_23: bool;
     let mut _smelt_tmp_24: bool;
     let mut _smelt_tmp_25: Option<JsString>;
@@ -3850,7 +3849,6 @@ fn main() {
     let mut _smelt_tmp_29: bool;
     let mut _smelt_tmp_30: Option<JsString>;
     let mut _smelt_tmp_31: JsString;
-    let mut _smelt_tmp_32: Option<JsString>;
     let mut _smelt_tmp_33: bool;
     let mut _smelt_tmp_34: bool;
     let mut _smelt_tmp_35: Option<f64>;
@@ -3882,7 +3880,6 @@ fn main() {
     let mut _smelt_tmp_11: Option<JsString>;
     let _smelt_tmp_12: JsString;
     let _smelt_tmp_13: f64;
-    let _smelt_tmp_14: Option<JsString>;
     let _smelt_tmp_15: bool;
     let mut _smelt_tmp_16: JsString;
     let _smelt_tmp_17: JsString;
@@ -3891,7 +3888,6 @@ fn main() {
     let mut _smelt_tmp_20: Option<JsString>;
     let _smelt_tmp_21: JsString;
     let _smelt_tmp_22: JsString;
-    let _smelt_tmp_23: JsString;
     let _smelt_tmp_24: JsString;
     let _smelt_tmp_2: Option<JsString> = closure_arg_0.clone().as_ref().and_then(|_smelt_value| (usize::try_from(0.0 as i64).ok()).and_then(|smelt_index| _smelt_value.char_at(smelt_index)));
     let _smelt_tmp_3: bool = _smelt_tmp_2.clone() == Some(JsString::from("/"));
@@ -3911,8 +3907,7 @@ fn main() {
     if _smelt_tmp_10 {
     _smelt_tmp_12 = closure_arg_0.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_13 = -1.0;
-    _smelt_tmp_14 = ({ let smelt_len = _smelt_tmp_12.clone().len() as i64; let smelt_index = _smelt_tmp_13 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_tmp_12.clone().char_at(smelt_index));
-    _smelt_tmp_11 = _smelt_tmp_14.clone();
+    _smelt_tmp_11 = ({ let smelt_len = _smelt_tmp_12.clone().len() as i64; let smelt_index = _smelt_tmp_13 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_tmp_12.clone().char_at(smelt_index));
     } else {
     _smelt_tmp_11 = None::<JsString>;
     }
@@ -3932,8 +3927,7 @@ fn main() {
     } else {
     _smelt_tmp_20 = closure_arg_1.clone();
     }
-    _smelt_tmp_23 = _smelt_tmp_17.clone() + &_smelt_tmp_20.clone().unwrap_or_else(|| JsString::from("undefined"));
-    _smelt_tmp_8 = _smelt_tmp_23.clone();
+    _smelt_tmp_8 = _smelt_tmp_17.clone() + &_smelt_tmp_20.clone().unwrap_or_else(|| JsString::from("undefined"));
     }
     _smelt_tmp_24 = _smelt_tmp_6.clone() + &_smelt_tmp_8.clone();
     _smelt_tmp_24.clone()
@@ -3955,8 +3949,7 @@ fn main() {
     if _smelt_tmp_18 {
     _smelt_tmp_20 = w.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_21 = -1.0;
-    _smelt_tmp_22 = ({ let smelt_len = _smelt_tmp_20.len() as i64; let smelt_index = _smelt_tmp_21 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_tmp_20.char_at(smelt_index));
-    _smelt_tmp_19 = _smelt_tmp_22;
+    _smelt_tmp_19 = ({ let smelt_len = _smelt_tmp_20.len() as i64; let smelt_index = _smelt_tmp_21 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_tmp_20.char_at(smelt_index));
     _smelt_tmp_23 = w.clone().is_none();
     _smelt_tmp_24 = !(_smelt_tmp_23);
     if _smelt_tmp_24 {
@@ -3970,8 +3963,7 @@ fn main() {
     _smelt_tmp_29 = !(_smelt_tmp_28);
     if _smelt_tmp_29 {
     _smelt_tmp_31 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_32 = Some(_smelt_tmp_31.to_upper_case());
-    _smelt_tmp_30 = _smelt_tmp_32;
+    _smelt_tmp_30 = Some(_smelt_tmp_31.to_upper_case());
     } else {
     _smelt_tmp_30 = None::<JsString>;
     }
@@ -4012,8 +4004,7 @@ fn main() {
     _smelt_tmp_29 = !(_smelt_tmp_28);
     if _smelt_tmp_29 {
     _smelt_tmp_31 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_32 = Some(_smelt_tmp_31.to_upper_case());
-    _smelt_tmp_30 = _smelt_tmp_32;
+    _smelt_tmp_30 = Some(_smelt_tmp_31.to_upper_case());
     } else {
     _smelt_tmp_30 = None::<JsString>;
     }

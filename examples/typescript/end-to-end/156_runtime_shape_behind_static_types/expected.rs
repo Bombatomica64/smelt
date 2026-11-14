@@ -4176,14 +4176,10 @@ pub(crate) fn maybe(flag: bool) -> SmeltFuture<Option<f64>> {
     let flag = flag.clone();
     move |closure_arg_0: ::std::rc::Rc<dyn Fn(Option<f64>) -> ()>| {
     let mut _smelt_tmp_2: ();
-    let _smelt_tmp_3: ();
-    let _smelt_tmp_4: ();
     if flag {
-    _smelt_tmp_3 = (closure_arg_0)(Some(1.0));
-    _smelt_tmp_2 = _smelt_tmp_3.clone();
+    _smelt_tmp_2 = (closure_arg_0)(Some(1.0));
     } else {
-    _smelt_tmp_4 = (closure_arg_0)(None);
-    _smelt_tmp_2 = _smelt_tmp_4.clone();
+    _smelt_tmp_2 = (closure_arg_0)(None);
     }
     ()
     }

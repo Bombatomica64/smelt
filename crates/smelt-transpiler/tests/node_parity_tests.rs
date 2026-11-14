@@ -1443,3 +1443,11 @@ fn python_entry_runs_imported_module_body() -> TestResult {
         "a Python entry's import ran its module body",
     )
 }
+
+/// An optional call on an erased receiver short-circuits as `?.` does (a
+/// nullish link ends the chain and skips the arguments), and a computed member
+/// call reads the member its literal or dynamic key names.
+#[test]
+fn optional_erased_calls() -> TestResult {
+    verify_node_parity("optional_erased_calls")
+}

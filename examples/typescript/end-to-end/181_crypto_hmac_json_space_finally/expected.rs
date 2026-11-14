@@ -5055,7 +5055,6 @@ pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCry
     let _smelt_tmp_4: SmeltTextEncoder;
     let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: SmeltTypedArray;
-    let _smelt_tmp_7: SmeltUnion6;
     let _smelt_tmp_8: SmeltRecord<JsString, JsString>;
     let _smelt_tmp_9: SmeltList<JsString>;
     let _smelt_tmp_11: SmeltCryptoKey;
@@ -5067,8 +5066,7 @@ pub(crate) async fn get_key__module_main(secret: SmeltUnion7) -> Result<SmeltCry
     _smelt_tmp_6 = _smelt_tmp_4.encode(&_smelt_tmp_5);
     _smelt_tmp_3 = SmeltUnion6::M0(_smelt_tmp_6);
     } else {
-    _smelt_tmp_7 = match secret.clone() { SmeltUnion7::M1(value) => SmeltUnion6::M0(value), SmeltUnion7::M2(value) => SmeltUnion6::M1(value), SmeltUnion7::M3(value) => SmeltUnion6::M2(value), _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_3 = _smelt_tmp_7;
+    _smelt_tmp_3 = match secret.clone() { SmeltUnion7::M1(value) => SmeltUnion6::M0(value), SmeltUnion7::M2(value) => SmeltUnion6::M1(value), SmeltUnion7::M3(value) => SmeltUnion6::M2(value), _ => unreachable!("union guard selected an excluded member") };
     }
     bytes = _smelt_tmp_3;
     _smelt_tmp_8 = SmeltRecord::from([(JsString::from("name"), JsString::from("HMAC")), (JsString::from("hash"), JsString::from("SHA-256"))]);

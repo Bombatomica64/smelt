@@ -830,10 +830,8 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     let mut _smelt_tmp_13: bool;
     let mut _smelt_tmp_14: bool;
     let mut _smelt_tmp_15: f64;
-    let mut _smelt_tmp_16: f64;
     let mut _smelt_tmp_17: bool;
     let mut _smelt_tmp_18: f64;
-    let mut _smelt_tmp_19: f64;
     let mut _smelt_tmp_20: f64;
     let mut _smelt_tmp_21: f64;
     let mut _smelt_tmp_22: f64;
@@ -848,13 +846,11 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     if !(_smelt_tmp_13) { break; }
     _smelt_tmp_14 = i < a_len;
     if _smelt_tmp_14 {
-    _smelt_tmp_16 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&a, i as f64);
-    _smelt_tmp_15 = _smelt_tmp_16;
+    _smelt_tmp_15 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&a, i as f64);
     a_char = _smelt_tmp_15;
     _smelt_tmp_17 = i < b_len;
     if _smelt_tmp_17 {
-    _smelt_tmp_19 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&b, i as f64);
-    _smelt_tmp_18 = _smelt_tmp_19;
+    _smelt_tmp_18 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&b, i as f64);
     } else {
     _smelt_tmp_18 = 0.0;
     }
@@ -870,8 +866,7 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     a_char = _smelt_tmp_15;
     _smelt_tmp_17 = i < b_len;
     if _smelt_tmp_17 {
-    _smelt_tmp_19 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&b, i as f64);
-    _smelt_tmp_18 = _smelt_tmp_19;
+    _smelt_tmp_18 = (|smelt_text: &JsStr, smelt_index: f64| if smelt_index < 0.0 { f64::NAN } else { let smelt_index = smelt_index as usize; smelt_text.unit_at(smelt_index).map_or(f64::NAN, f64::from) })(&b, i as f64);
     } else {
     _smelt_tmp_18 = 0.0;
     }

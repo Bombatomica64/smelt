@@ -4390,12 +4390,9 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_7: Option<SmeltList<JsString>>;
     let _smelt_tmp_8: bool;
     let mut _smelt_tmp_9: SmeltList<JsString>;
-    let _smelt_tmp_10: SmeltList<JsString>;
-    let _smelt_tmp_11: SmeltList<JsString>;
     let _smelt_tmp_12: bool;
     let mut _smelt_tmp_13: Option<JsString>;
     let _smelt_tmp_14: Option<SmeltList<JsString>>;
-    let _smelt_tmp_15: Option<JsString>;
     let _smelt_tmp_4: bool = token == "*";
     if _smelt_tmp_4 {
     _smelt_tmp_6 = next.char_at({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).unwrap_or_default() != "/";
@@ -4407,22 +4404,14 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
-    _smelt_tmp_13 = _smelt_tmp_15;
+    _smelt_tmp_13 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
     }
     return _smelt_tmp_13.clone().unwrap_or_else(|| JsString::new());
     } else {
     _smelt_tmp_8 = prev == "/";
-    let mut _smelt_tmp_9: SmeltList<JsString> = SmeltList::new(Vec::<JsString>::new());
-    if _smelt_tmp_8 {
-    _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::new(), JsString::from("label")]; smelt_list_items }));
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(_smelt_tmp_10);
-    } else {
-    _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::new(), JsString::from("prefixed")]; smelt_list_items }));
-    _smelt_tmp_9 = Into::<SmeltList<_>>::into(_smelt_tmp_11);
-    }
+    let _smelt_tmp_9: SmeltList<JsString> = if _smelt_tmp_8 { Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::new(), JsString::from("label")]; smelt_list_items })) } else { Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::new(), JsString::from("prefixed")]; smelt_list_items })) };
     _smelt_tmp_7 = Some(_smelt_tmp_9);
     _smelt_tmp_5 = _smelt_tmp_7;
     pattern = _smelt_tmp_5;
@@ -4430,8 +4419,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
-    _smelt_tmp_13 = _smelt_tmp_15;
+    _smelt_tmp_13 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
     }
@@ -4444,8 +4432,7 @@ pub(crate) fn pick(token: JsString, next: JsString, prev: JsString) -> JsString 
     let mut _smelt_tmp_13: Option<JsString> = None::<JsString>;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = pattern.clone();
-    _smelt_tmp_15 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
-    _smelt_tmp_13 = _smelt_tmp_15;
+    _smelt_tmp_13 = pattern.as_ref().and_then(|_smelt_value| (usize::try_from(2.0 as i64).ok()).and_then(|smelt_index| _smelt_value.borrow().get(smelt_index).cloned()));
     } else {
     _smelt_tmp_13 = Some(JsString::from("none"));
     }
