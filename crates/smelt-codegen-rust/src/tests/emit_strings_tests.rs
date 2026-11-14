@@ -119,28 +119,24 @@ function label(values: string[]): string[] {
         r"fn label(values: SmeltList<JsString>) -> SmeltList<JsString> {
 let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, _arg0: &SmeltList<JsString>| {
 let mut _smelt_tmp_3: JsString;
-let _smelt_tmp_4: JsString;
 let _smelt_tmp_5: JsString;
 let _smelt_tmp_2: bool = (closure_arg_1 as f64) == 0.0;
 if _smelt_tmp_2 {
 _smelt_tmp_3 = closure_arg_0.clone();
 } else {
-_smelt_tmp_4 = closure_arg_0.clone().to_lower_case();
-_smelt_tmp_3 = _smelt_tmp_4.clone();
+_smelt_tmp_3 = closure_arg_0.clone().to_lower_case();
 }
 _smelt_tmp_5 = JsString::new() + &_smelt_tmp_3.clone();
 _smelt_tmp_5.clone()
 });
 let _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: i64, _arg0: &SmeltList<JsString>| {
 let mut _smelt_tmp_3: JsString;
-let _smelt_tmp_4: JsString;
 let _smelt_tmp_5: JsString;
 let _smelt_tmp_2: bool = (closure_arg_1 as f64) == 0.0;
 if _smelt_tmp_2 {
 _smelt_tmp_3 = closure_arg_0.clone();
 } else {
-_smelt_tmp_4 = closure_arg_0.clone().to_lower_case();
-_smelt_tmp_3 = _smelt_tmp_4.clone();
+_smelt_tmp_3 = closure_arg_0.clone().to_lower_case();
 }
 _smelt_tmp_5 = JsString::new() + &_smelt_tmp_3.clone();
 _smelt_tmp_5.clone()
@@ -441,7 +437,6 @@ let mut _smelt_tmp_7: bool;
 let _smelt_tmp_8: f64;
 let _smelt_tmp_9: f64;
 let _smelt_tmp_10: f64;
-let _smelt_tmp_11: bool;
 let mut _smelt_tmp_12: Option<JsString>;
 let p: JsString = parts.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new());
 let _smelt_tmp_4: f64 = index + 1.0;
@@ -453,8 +448,7 @@ if _smelt_tmp_6 {
 _smelt_tmp_8 = p.index_of(&JsString::from("*"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
 _smelt_tmp_9 = p.len() as f64;
 _smelt_tmp_10 = _smelt_tmp_9 - 1.0;
-_smelt_tmp_11 = _smelt_tmp_8 == _smelt_tmp_10;
-_smelt_tmp_7 = _smelt_tmp_11;
+_smelt_tmp_7 = _smelt_tmp_8 == _smelt_tmp_10;
 } else {
 _smelt_tmp_7 = false;
 }

@@ -369,15 +369,13 @@ _smelt_tmp_1.clone()
 });
 let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: SmeltDate, closure_arg_1: &SmeltList<JsString>| {
 let mut _smelt_tmp_5: SmeltList<JsString>;
-let _smelt_tmp_6: SmeltList<JsString>;
 let _smelt_tmp_2: f64 = (closure_arg_0.clone()).get_time();
 let _smelt_tmp_3: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = (_smelt_tmp_2) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.day() as f64) } else { f64::NAN } };
 let _smelt_tmp_4: bool = _smelt_tmp_3 == 1.0;
 if _smelt_tmp_4 {
 _smelt_tmp_5 = Into::<SmeltList<_>>::into(closure_arg_1.clone());
 } else {
-_smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
-_smelt_tmp_5 = Into::<SmeltList<_>>::into(_smelt_tmp_6.clone());
+_smelt_tmp_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
 }
 _smelt_tmp_5.clone()
 });

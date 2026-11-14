@@ -4016,12 +4016,10 @@ impl Index {
     let smelt_self = self.clone();
     move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
     let _smelt_tmp_3: SmeltRecord<JsString, bool> = smelt_self.0.borrow()._known.clone();
     let _smelt_tmp_4: bool = _smelt_tmp_3.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = closure_arg_0.clone() + &suffix.clone();
-    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5 = closure_arg_0.clone() + &suffix.clone();
     } else {
     _smelt_tmp_5 = closure_arg_0.clone();
     }
@@ -4033,12 +4031,10 @@ impl Index {
     let smelt_self = self.clone();
     move |closure_arg_0: JsString, _arg0: i64, _arg1: &SmeltList<JsString>| {
     let mut _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
     let _smelt_tmp_3: SmeltRecord<JsString, bool> = smelt_self.0.borrow()._known.clone();
     let _smelt_tmp_4: bool = _smelt_tmp_3.get(&closure_arg_0.clone()).unwrap_or(false) == true;
     if _smelt_tmp_4 {
-    _smelt_tmp_6 = closure_arg_0.clone() + &suffix.clone();
-    _smelt_tmp_5 = _smelt_tmp_6.clone();
+    _smelt_tmp_5 = closure_arg_0.clone() + &suffix.clone();
     } else {
     _smelt_tmp_5 = closure_arg_0.clone();
     }

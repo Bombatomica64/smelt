@@ -1,0 +1,3 @@
+[] [] {} Error boom
+["code"] ["code"] {"code":7} Error bad
+["name"] ["name"] {"name":"NamedError"} NamedError named

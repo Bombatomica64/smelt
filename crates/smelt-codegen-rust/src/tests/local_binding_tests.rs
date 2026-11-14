@@ -34,15 +34,13 @@ move |closure_arg_0: f64| {
 let mut _smelt_tmp_3: f64;
 let _smelt_tmp_4: f64;
 let _smelt_tmp_5: f64;
-let _smelt_tmp_6: f64;
 let _smelt_tmp_2: bool = closure_arg_0 <= 0.0;
 if _smelt_tmp_2 {
 _smelt_tmp_3 = 0.0;
 } else {
 _smelt_tmp_4 = closure_arg_0 - 1.0;
 _smelt_tmp_5 = ((*(*smelt_capture_walk.upgrade().expect("self-recursive closure called after its defining scope returned").borrow()).bound()))(_smelt_tmp_4);
-_smelt_tmp_6 = 1.0 + _smelt_tmp_5;
-_smelt_tmp_3 = _smelt_tmp_6;
+_smelt_tmp_3 = 1.0 + _smelt_tmp_5;
 }
 _smelt_tmp_3
 }

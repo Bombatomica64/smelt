@@ -5509,7 +5509,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     let plain: SmeltResponse;
     let mut _smelt_tmp_13: bool;
     let _smelt_tmp_14: bool;
-    let _smelt_tmp_15: bool;
     let mut _smelt_tmp_16: f64;
     let _smelt_tmp_17: AddressInfo;
     let _smelt_tmp_19: JsString;
@@ -5597,8 +5596,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let mut _smelt_tmp_13: bool = false;
     if _smelt_tmp_12 {
     _smelt_tmp_14 = address.clone().is_none();
-    _smelt_tmp_15 = !(_smelt_tmp_14);
-    _smelt_tmp_13 = _smelt_tmp_15;
+    _smelt_tmp_13 = !(_smelt_tmp_14);
     } else {
     _smelt_tmp_13 = false;
     }

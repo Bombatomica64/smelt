@@ -45,8 +45,7 @@ fn segments (FuncId(0)) -> List<String>
     return move %2
   bb5:
     %16 = "" + move %4
-    %17 = move %16 + "<last>"
-    %15 = move %17
+    %15 = move %16 + "<last>"
     goto bb7
   bb6:
     %15 = move %4
@@ -155,8 +154,7 @@ fn matches (FuncId(4)) -> Bool
     %3 = true
     goto bb3
   bb2:
-    %4 = regex_test copy %0 copy %1
-    %3 = move %4
+    %3 = regex_test copy %0 copy %1
     goto bb3
   bb3:
     return move %3

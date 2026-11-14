@@ -4075,27 +4075,23 @@ impl Ctx {
     let _smelt_tmp_5: JsString;
     let _smelt_tmp_6: JsString;
     let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: JsString;
     let _smelt_tmp_9: JsString;
     let _smelt_tmp_10: JsString;
     let _smelt_tmp_11: JsString;
     let _smelt_tmp_12: JsString;
-    let _smelt_tmp_13: JsString;
     let _smelt_tmp_3: bool = matches!(detail.clone(), SmeltUnion2::M1(_));
     let mut _smelt_tmp_4: JsString = JsString::new();
     if _smelt_tmp_3 {
     _smelt_tmp_5 = JsString::new() + &data.clone();
     _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from(":");
     _smelt_tmp_7 = match detail.clone() { SmeltUnion2::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_8 = _smelt_tmp_6 + &JsString::from(smelt_number_to_string(_smelt_tmp_7));
-    _smelt_tmp_4 = _smelt_tmp_8;
+    _smelt_tmp_4 = _smelt_tmp_6 + &JsString::from(smelt_number_to_string(_smelt_tmp_7));
     } else {
     _smelt_tmp_9 = JsString::new() + &data.clone();
     _smelt_tmp_10 = _smelt_tmp_9 + &JsString::from(":");
     _smelt_tmp_11 = match detail.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_12 = _smelt_tmp_11.to_upper_case();
-    _smelt_tmp_13 = _smelt_tmp_10 + &_smelt_tmp_12;
-    _smelt_tmp_4 = _smelt_tmp_13;
+    _smelt_tmp_4 = _smelt_tmp_10 + &_smelt_tmp_12;
     }
     return _smelt_tmp_4;
     }

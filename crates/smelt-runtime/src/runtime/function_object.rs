@@ -230,6 +230,21 @@ fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUn
     if let SmeltUnknown::Object(object) = &value && let Some(SmeltUnknown::Function(build)) = object.get("__smelt_method:constructor") {
         return (build)(args).unwrap_or_else(|error| smelt_panic_throw(error));
     }
+    //~ A `Date` builds a new date from one argument, as `new Date(value)` does:
+    //~ a number is a time value, a date its time value, a string a parsed date
+    //~ (date-fns' `constructFrom`, `new (date.constructor)(value)`). Its
+    //~ `constructor` read answers no callable that builds a date.
+// @smelt:if date
+    if let SmeltUnknown::Object(object) = &value && object.contains_key("__smelt_date") && let [argument] = args.as_slice() {
+        // The same recovery a date takes from any erased value, then a fresh
+        // date: `new Date(other)` copies the time value, not the date.
+        let time = match argument {
+            SmeltUnknown::Bool(flag) => if *flag { 1.0 } else { 0.0 },
+            other => SmeltDate::smelt_from_unknown(other.clone()).get_time(),
+        };
+        return SmeltDate::new(time).into_smelt_unknown();
+    }
+// @smelt:end
     let constructor = smelt_get_unknown_field(&value, "constructor");
     if smelt_callable_of(&constructor).is_some() { return smelt_construct(constructor, args); }
     match (value, args.as_slice()) {

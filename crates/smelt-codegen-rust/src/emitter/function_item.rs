@@ -105,6 +105,14 @@ impl FunctionEmitter<'_> {
             if self.function.is_async {
                 out.push_str(&Self::async_main_runtime_prologue(self.function.can_throw));
             }
+            // The entry's imports run first, each once, in start-up order
+            // (`crate::startup`).
+            out.push_str(&crate::startup::startup_calls(
+                self.mir,
+                self.context,
+                Some(self.function.id),
+                self.function.can_throw,
+            )?);
             self.emit_body(out)?;
             if self.function.is_async {
                 out.push_str(Self::ASYNC_MAIN_RUNTIME_EPILOGUE);

@@ -981,6 +981,10 @@ struct ModuleBuilder<'ctx> {
     /// at an assumed type to reach a fixed point
     /// (`ModuleBuilder::constructor_function_field_type`).
     pinned_nodes: Vec<(usize, smelt_hir::LocalId, smelt_hir::TypeId)>,
+    /// Optional erased calls being lowered (by node address), so the call
+    /// re-lowered inside its present arm is not claimed again
+    /// (`optional_erased_receiver_call`).
+    claimed_optional_calls: Vec<usize>,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///

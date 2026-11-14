@@ -4092,15 +4092,8 @@ pub(crate) fn total(rows: SmeltUnion7) -> JsString {
 
 pub(crate) fn first_of(values: SmeltList<SmeltUnion10>) -> JsString {
     let mut _smelt_tmp_3: JsString;
-    let _smelt_tmp_4: JsString;
     let _smelt_tmp_1: f64 = values.len() as f64;
     let _smelt_tmp_2: bool = _smelt_tmp_1 == 0.0;
-    let mut _smelt_tmp_3: JsString = JsString::new();
-    if _smelt_tmp_2 {
-    _smelt_tmp_3 = JsString::from("empty");
-    } else {
-    _smelt_tmp_4 = match &values.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion10::M0(0.0)) { SmeltUnion10::M0(smelt_union_arm) => JsString::from(smelt_number_to_string(*smelt_union_arm)), SmeltUnion10::M1(smelt_union_arm) => smelt_union_arm.clone() };
-    _smelt_tmp_3 = _smelt_tmp_4;
-    }
+    let _smelt_tmp_3: JsString = if _smelt_tmp_2 { JsString::from("empty") } else { match &values.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnion10::M0(0.0)) { SmeltUnion10::M0(smelt_union_arm) => JsString::from(smelt_number_to_string(*smelt_union_arm)), SmeltUnion10::M1(smelt_union_arm) => smelt_union_arm.clone() } };
     return _smelt_tmp_3;
 }

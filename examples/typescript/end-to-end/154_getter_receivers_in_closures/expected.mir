@@ -194,8 +194,7 @@ closure ClosureId(1) -> Bool
   bb1:
     switch copy %4 ? bb2 : bb3
   bb2:
-    %6 = closure_call copy %2(copy %0)
-    %5 = copy %6
+    %5 = closure_call copy %2(copy %0)
     goto bb4
   bb3:
     %5 = false
@@ -220,8 +219,7 @@ closure ClosureId(2) -> String
     %4 = primitive_cast_bool copy %3
     switch copy %4 ? bb2 : bb3
   bb2:
-    %6 = copy %3
-    %5 = copy %6
+    %5 = copy %3
     goto bb4
   bb3:
     %5 = ""

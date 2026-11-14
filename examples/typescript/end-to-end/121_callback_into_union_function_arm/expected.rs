@@ -3912,8 +3912,6 @@ fn main() {
     let _smelt_tmp_7: bool;
     let mut _smelt_tmp_8: Ex;
     let _smelt_tmp_9: ::std::rc::Rc<dyn Fn(JsString) -> Ex>;
-    let _smelt_tmp_10: Ex;
-    let _smelt_tmp_11: Ex;
     let _smelt_tmp_12: f64;
     let _smelt_tmp_4: bool = closure_arg_1.clone().is_none();
     if _smelt_tmp_4 {
@@ -3926,11 +3924,9 @@ fn main() {
     _smelt_tmp_7 = matches!(exception_1.clone(), SmeltUnion4::M1(_));
     if _smelt_tmp_7 {
     _smelt_tmp_9 = (match exception_1.clone() { SmeltUnion4::M1(value) => value, _ => unreachable!("union guard selected an excluded member") }).clone();
-    _smelt_tmp_10 = (_smelt_tmp_9)(JsString::from("ctx"));
-    _smelt_tmp_8 = _smelt_tmp_10.clone();
+    _smelt_tmp_8 = (_smelt_tmp_9)(JsString::from("ctx"));
     } else {
-    _smelt_tmp_11 = match exception_1.clone() { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
-    _smelt_tmp_8 = _smelt_tmp_11.clone();
+    _smelt_tmp_8 = match exception_1.clone() { SmeltUnion4::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     }
     ex = _smelt_tmp_8.clone();
     _smelt_tmp_12 = closure_arg_0 + ex.code;

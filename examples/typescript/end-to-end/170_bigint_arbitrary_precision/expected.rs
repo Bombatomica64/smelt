@@ -4636,13 +4636,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_155 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<::num_bigint::BigInt> = vec![huge.clone(), _smelt_tmp_154.clone(), two_53.clone(), ::num_bigint::BigInt::from(0_i64)]; smelt_list_items }));
     ordered = Into::<SmeltList<_>>::into({ let mut smelt_comparator = ::std::rc::Rc::new(|closure_arg_0: ::num_bigint::BigInt, closure_arg_1: ::num_bigint::BigInt| {
     let mut _smelt_tmp_3: f64;
-    let _smelt_tmp_4: f64;
     let _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
     let _smelt_tmp_2: bool = &closure_arg_0 < &closure_arg_1;
     if _smelt_tmp_2 {
-    _smelt_tmp_4 = -1.0;
-    _smelt_tmp_3 = _smelt_tmp_4;
+    _smelt_tmp_3 = -1.0;
     } else {
     _smelt_tmp_5 = &closure_arg_0 > &closure_arg_1;
     if _smelt_tmp_5 {

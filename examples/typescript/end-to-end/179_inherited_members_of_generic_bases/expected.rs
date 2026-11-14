@@ -4398,21 +4398,12 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Base<T>
     }
     fn push(&self, value: T) -> f64 {
     let mut _smelt_tmp_7: f64;
-    let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: f64;
     let mut _smelt_tmp_3: SmeltList<T> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let wrapped: Box1<T> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
-    let mut _smelt_tmp_7: f64 = 0.0;
-    if _smelt_tmp_6 {
-    _smelt_tmp_8 = self.0.borrow().items.clone().len() as f64;
-    _smelt_tmp_7 = _smelt_tmp_8;
-    } else {
-    _smelt_tmp_9 = -1.0;
-    _smelt_tmp_7 = _smelt_tmp_9;
-    }
+    let _smelt_tmp_7: f64 = if _smelt_tmp_6 { self.0.borrow().items.clone().len() as f64 } else { -1.0 };
     return _smelt_tmp_7;
     }
     fn check(&self, box_: Box1<T>) -> bool {
@@ -4457,21 +4448,12 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Middle<
     }
     fn push(&self, value: SmeltList<T>) -> f64 {
     let mut _smelt_tmp_7: f64;
-    let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: f64;
     let mut _smelt_tmp_3: SmeltList<SmeltList<T>> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let wrapped: Box1<SmeltList<T>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
-    let mut _smelt_tmp_7: f64 = 0.0;
-    if _smelt_tmp_6 {
-    _smelt_tmp_8 = self.0.borrow().items.clone().len() as f64;
-    _smelt_tmp_7 = _smelt_tmp_8;
-    } else {
-    _smelt_tmp_9 = -1.0;
-    _smelt_tmp_7 = _smelt_tmp_9;
-    }
+    let _smelt_tmp_7: f64 = if _smelt_tmp_6 { self.0.borrow().items.clone().len() as f64 } else { -1.0 };
     return _smelt_tmp_7;
     }
     fn check(&self, box_: Box1<SmeltList<T>>) -> bool {
@@ -4526,21 +4508,12 @@ impl Leaf {
     }
     fn push(&self, value: SmeltList<JsString>) -> f64 {
     let mut _smelt_tmp_7: f64;
-    let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: f64;
     let mut _smelt_tmp_3: SmeltList<SmeltList<JsString>> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value.clone(); _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let wrapped: Box1<SmeltList<JsString>> = Box1 { value: value.clone(), _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
-    let mut _smelt_tmp_7: f64 = 0.0;
-    if _smelt_tmp_6 {
-    _smelt_tmp_8 = self.0.borrow().items.clone().len() as f64;
-    _smelt_tmp_7 = _smelt_tmp_8;
-    } else {
-    _smelt_tmp_9 = -1.0;
-    _smelt_tmp_7 = _smelt_tmp_9;
-    }
+    let _smelt_tmp_7: f64 = if _smelt_tmp_6 { self.0.borrow().items.clone().len() as f64 } else { -1.0 };
     return _smelt_tmp_7;
     }
     fn check(&self, box_: Box1<SmeltList<JsString>>) -> bool {
@@ -4589,21 +4562,12 @@ impl Nums {
     }
     fn push(&self, value: f64) -> f64 {
     let mut _smelt_tmp_7: f64;
-    let _smelt_tmp_8: f64;
-    let _smelt_tmp_9: f64;
     let mut _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
     let _smelt_tmp_4: f64 = { let smelt_push_item = value; _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
     let wrapped: Box1<f64> = Box1 { value: value, _smelt_phantom: ::std::marker::PhantomData };
     let _smelt_tmp_6: bool = self.check(wrapped);
-    let mut _smelt_tmp_7: f64 = 0.0;
-    if _smelt_tmp_6 {
-    _smelt_tmp_8 = self.0.borrow().items.clone().len() as f64;
-    _smelt_tmp_7 = _smelt_tmp_8;
-    } else {
-    _smelt_tmp_9 = -1.0;
-    _smelt_tmp_7 = _smelt_tmp_9;
-    }
+    let _smelt_tmp_7: f64 = if _smelt_tmp_6 { self.0.borrow().items.clone().len() as f64 } else { -1.0 };
     return _smelt_tmp_7;
     }
     fn check(&self, box_: Box1<f64>) -> bool {

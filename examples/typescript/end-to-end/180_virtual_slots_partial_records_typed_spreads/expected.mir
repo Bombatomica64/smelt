@@ -142,12 +142,10 @@ fn push (FuncId(11)) -> Float throws
     %4 = closure_call copy %0.field9(copy %1)
     switch move %4 ? bb1 : bb2
   bb1:
-    %6 = len copy %0.field10
-    %5 = move %6
+    %5 = len copy %0.field10
     goto bb3
   bb2:
-    %7 = -1.0
-    %5 = move %7
+    %5 = -1.0
     goto bb3
   bb3:
     return move %5
@@ -199,8 +197,7 @@ fn run (FuncId(15)) -> T throws
     %5 = copy %2.field7
     goto bb3
   bb2:
-    %6 = closure_call copy %0.field19()
-    %5 = move %6
+    %5 = closure_call copy %0.field19()
     goto bb3
   bb3:
     return move %5

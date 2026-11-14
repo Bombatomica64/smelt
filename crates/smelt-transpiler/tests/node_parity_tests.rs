@@ -393,6 +393,13 @@ fn imported_type_predicate() -> TestResult {
     verify_node_parity_with("imported_type_predicate", &["predicates.ts"])
 }
 
+/// `JSON.stringify` of interfaces from a module imported only for its types,
+/// which lowers after the module that serializes them.
+#[test]
+fn json_type_only_interface() -> TestResult {
+    verify_node_parity_with("json_type_only_interface", &["types.ts"])
+}
+
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
 #[test]
 fn try_around_raising_callback() -> TestResult {
@@ -1217,7 +1224,6 @@ fn emission_rules_behaviour() -> TestResult {
     verify_node_parity("emission_rules_behaviour")
 }
 
-/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 /// A method whose callback parameter is optional (a default, or `?`) is
 /// callable through an erased instance: an absent argument takes the
 /// default, a given callback is called.
@@ -1248,6 +1254,35 @@ fn optional_tuple_rest_length() -> TestResult {
     verify_node_parity("optional_tuple_rest_length")
 }
 
+/// An erased error enumerates the own keys Node does: never `message`,
+/// `stack` or `cause`, and `name` only when a constructor assigned it.
+#[test]
+fn erased_error_own_keys() -> TestResult {
+    verify_node_parity("erased_error_own_keys")
+}
+
+/// `new Map([..])`/`new Set([..])` passed to an `unknown` or generic parameter
+/// are built from their entries, and a generic `size` read counts them.
+#[test]
+fn new_map_into_erased_slot() -> TestResult {
+    verify_node_parity("new_map_into_erased_slot")
+}
+
+/// A method returning an anonymous object type of functions erases with its
+/// function values: an erased matcher is still callable.
+#[test]
+fn erased_record_of_functions() -> TestResult {
+    verify_node_parity("erased_record_of_functions")
+}
+
+/// `new (date.constructor)(value)` builds a date from a time value, another
+/// date or an ISO string, as `new Date(value)` does (date-fns' `constructFrom`).
+#[test]
+fn construct_like_date() -> TestResult {
+    verify_node_parity("construct_like_date")
+}
+
+/// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
@@ -1314,4 +1349,149 @@ fn abstract_parser_slots() -> TestResult {
 #[test]
 fn unbound_method_values() -> TestResult {
     verify_node_parity("unbound_method_values")
+}
+
+/// A manifest's entries run as a JavaScript program evaluates its module
+/// graph: every module body once, a module's imports before it, several
+/// entries in the order the manifest lists them. An entry not named
+/// `main.ts` (or nested under a source root) is the program too; it once
+/// produced an empty `main` that ran nothing.
+#[test]
+fn entry_modules_run_in_order() -> TestResult {
+    let fixtures =
+        workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity/entry_modules");
+    let read = |path: &str| fs::read_to_string(fixtures.join(path));
+    let (shared, app, second, start, both) = (
+        read("shared.ts")?,
+        read("app.ts")?,
+        read("second.ts")?,
+        read("app/start.ts")?,
+        read("both.ts")?,
+    );
+    let files = [
+        ("shared.ts", shared.as_str()),
+        ("app.ts", app.as_str()),
+        ("second.ts", second.as_str()),
+        ("app/start.ts", start.as_str()),
+        ("both.ts", both.as_str()),
+    ];
+    // (manifest `[sources]`, what Node prints for the same program)
+    let cases = [
+        (
+            "entries = [\"src/app.ts\"]",
+            "app.ts",
+            "shared body\napp body 1\n",
+        ),
+        (
+            "roots = [\"src\"]\nentries = [\"src/app/start.ts\"]",
+            "app/start.ts",
+            "shared body\nstart body 1\n",
+        ),
+        (
+            "entries = [\"src/app.ts\", \"src/second.ts\"]",
+            "both.ts",
+            "shared body\napp body 1\nsecond body 1\n",
+        ),
+    ];
+    for (sources, node_entry, expected) in cases {
+        ensure_node_agrees(&files, node_entry, expected, "entry_modules_run_in_order")?;
+        let project = TempProject::new()?;
+        let root = project.path();
+        fs::create_dir_all(root.join("src/app"))?;
+        for (file, text) in &files {
+            if *file != "both.ts" {
+                fs::write(root.join("src").join(file), text)?;
+            }
+        }
+        fs::write(
+            root.join("Smelt.toml"),
+            format!(
+                "[project]\nname = \"entries\"\nversion = \"0.1.0\"\n\n[sources]\n{sources}\n\n[output]\ntarget = \"./dist\"\ncrate-name = \"entries\"\nbuild = false\n"
+            ),
+        )?;
+        smelt_in(root, &["build"])?;
+        let stdout = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
+        ensure_eq(
+            &stdout,
+            &expected.to_owned(),
+            format!("entries `{sources}`: generated Rust stdout"),
+        )?;
+    }
+    Ok(())
+}
+
+/// A module other than the single entry that awaits at top level cannot run
+/// from `main`: the build says so instead of emitting a `main` that skips it.
+#[test]
+fn awaiting_imported_module_is_a_build_error() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::write(
+        root.join("src/slow.ts"),
+        "await Promise.resolve();\nconsole.log(\"slow body\");\nexport const ready = true;\n",
+    )?;
+    fs::write(
+        root.join("src/app.ts"),
+        "import { ready } from \"./slow\";\nconsole.log(\"app body\", ready);\n",
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"entries\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/app.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    let Err(error) = smelt_in(root, &["build"]) else {
+        return Err("a build whose imported module awaits at top level succeeded".into());
+    };
+    ensure(
+        error
+            .to_string()
+            .contains("awaits at top level but is not the program's single entry"),
+        format!("the build failed for another reason: {error}"),
+    )
+}
+
+/// A Python entry runs an imported module's body at its first import, before
+/// its own code, as `CPython` does (`helper body` then `app body 2`, checked
+/// against `python3 app.py`).
+#[test]
+fn python_entry_runs_imported_module_body() -> TestResult {
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root)?;
+    fs::write(
+        root.join("helper.py"),
+        "print(\"helper body\")\nVALUE = 2\n",
+    )?;
+    fs::write(
+        root.join("app.py"),
+        "import helper\nprint(\"app body\", helper.VALUE)\n",
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"pymods\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"app.py\"]\n\n[output]\ntarget = \"./dist\"\ncrate-name = \"pymods\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let stdout = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &stdout,
+        &"helper body\napp body 2\n".to_owned(),
+        "a Python entry's import ran its module body",
+    )
+}
+
+/// An optional call on an erased receiver short-circuits as `?.` does (a
+/// nullish link ends the chain and skips the arguments), and a computed member
+/// call reads the member its literal or dynamic key names.
+#[test]
+fn optional_erased_calls() -> TestResult {
+    verify_node_parity("optional_erased_calls")
+}
+
+/// A conditional, comma or logical callee is a value, so it is called with
+/// `this` undefined (a member read inside it loses its receiver); a
+/// parenthesized member keeps its receiver; comma expressions evaluate every
+/// operand and yield the last.
+#[test]
+fn callee_value_calls() -> TestResult {
+    verify_node_parity("callee_value_calls")
 }

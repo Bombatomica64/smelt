@@ -79,12 +79,10 @@ closure ClosureId(0) -> Float
     switch copy %7 ? bb5 : bb6
   bb5:
     %9 = unknown_cast copy %2 as t3
-    %10 = closure_call copy %9("ctx")
-    %8 = copy %10
+    %8 = closure_call copy %9("ctx")
     goto bb7
   bb6:
-    %11 = unknown_cast copy %2 as t2
-    %8 = copy %11
+    %8 = unknown_cast copy %2 as t2
     goto bb7
   bb7:
     %3 = copy %8

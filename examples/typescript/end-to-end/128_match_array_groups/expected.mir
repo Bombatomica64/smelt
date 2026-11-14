@@ -153,8 +153,7 @@ fn describe (FuncId(1)) -> None
     %29 = "undefined"
     goto bb11
   bb10:
-    %30 = move %3
-    %29 = move %30
+    %29 = move %3
     goto bb11
   bb11:
     %31 = call @console_log(move %29) -> bb12
@@ -200,8 +199,7 @@ fn digits (FuncId(2)) -> String
     switch move %6 ? bb1 : bb2
   bb1:
     %8 = copy %1
-    %9 = string_join move %8, "+"
-    %7 = move %9
+    %7 = string_join move %8, "+"
     goto bb3
   bb2:
     %7 = "none"

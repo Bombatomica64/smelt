@@ -1274,7 +1274,7 @@ fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
         rust_items(&source, &["fn f"]),
         r"fn f(name: SmeltUnknown) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
-return match _smelt_tmp_1.clone() {
+return { let smelt_index_base = _smelt_tmp_1.clone(); match name.clone() { SmeltUnknown::String(smelt_name) if smelt_name.to_string().parse::<usize>().map_or(true, |smelt_position| smelt_position.to_string() != smelt_name.to_string()) => smelt_get_unknown_field(&smelt_index_base, &smelt_name), _ => match smelt_index_base {
 SmeltUnknown::String(smelt_value) => {
 let smelt_len = smelt_value.len() as i64;
 let smelt_index = match name.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN } as i64;
@@ -1290,7 +1290,7 @@ usize::try_from(smelt_normalized).ok().and_then(|smelt_position| smelt_values.ge
 SmeltUnknown::Object(smelt_values) => smelt_get_object_field(&smelt_values, &JsString::from(smelt_property_key(name.clone()))),
 smelt_receiver @ SmeltUnknown::Function(_) => smelt_get_unknown_field(&smelt_receiver, &JsString::from(smelt_property_key(name.clone()))),
 _ => SmeltUnknown::Undefined,
-};
+} } };
 }"
     );
 }

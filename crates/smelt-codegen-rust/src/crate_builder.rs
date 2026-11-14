@@ -48,7 +48,10 @@ pub fn emit_source_with_allocator(
     mir: &Mir,
     allocator: GeneratedAllocator,
 ) -> Result<String, EmitError> {
-    let source = emit_root(mir, allocator, |_function, _context| FreeFunctionHome::Root)?.source();
+    let source = emit_root(mir, allocator, Vec::new(), |_function, _context| {
+        FreeFunctionHome::Root
+    })?
+    .source();
     assert_runtime_symbols_defined([source.as_str()])?;
     Ok(source)
 }
@@ -61,9 +64,11 @@ pub fn emit_source_with_allocator(
 pub(crate) fn emit_root(
     mir: &Mir,
     allocator: GeneratedAllocator,
+    startup: Vec<crate::startup::StartupBody>,
     mut route_free_function: impl FnMut(&MirFunction, &EmitContext) -> FreeFunctionHome,
 ) -> Result<EmittedRoot, EmitError> {
-    let context = EmitContext::new(mir)?;
+    let mut context = EmitContext::new(mir)?;
+    context.set_startup(startup);
     // Decide, once, which free functions emit real Rust generics (signature
     // safety plus a body-cleanliness trial) so the definition and every call
     // site agree on the generic-vs-erased shape.
@@ -598,11 +603,26 @@ impl CrateBuilder<'_, HoistedItemsWritten> {
         Ok(())
     }
 
-    /// Give a crate whose program has no `main` an empty one.
+    /// Give a crate whose program has no `main` one: the start-up bodies in
+    /// order (several entries; see `crate::startup`), or nothing for a crate
+    /// whose manifest runs no module (a library).
     fn emit_main_fallback(&mut self) -> Result<(), EmitError> {
-        let (mir, out) = (self.mir, &mut self.out);
-        if !has_main_function(mir)? {
-            out.push_str("\nfn main() {}\n");
+        let mir = self.mir;
+        if has_main_function(mir)? {
+            return Ok(());
+        }
+        let throws = crate::startup::startup_throws(mir, self.context, None);
+        let calls = crate::startup::startup_calls(mir, self.context, None, throws)?;
+        if throws {
+            self.out.push_str(&format!(
+                "\nfn main() -> Result<(), {}> {{\n{calls}Ok(())\n}}\n",
+                crate::thrown::ERROR_BOX
+            ));
+        } else if calls.is_empty() {
+            // A library: the manifest runs no module.
+            self.out.push_str("\nfn main() {}\n");
+        } else {
+            self.out.push_str(&format!("\nfn main() {{\n{calls}}}\n"));
         }
         Ok(())
     }

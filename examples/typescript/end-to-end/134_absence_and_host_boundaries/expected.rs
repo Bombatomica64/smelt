@@ -5020,7 +5020,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_59: bool;
     let mut _smelt_tmp_60: JsString;
     let _smelt_tmp_61: SmeltList<JsString>;
-    let _smelt_tmp_62: JsString;
     let _smelt_tmp_65: ();
     let _smelt_tmp_7: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
     let _smelt_tmp_8: SmeltRecord<JsString, JsString> = make_record(_smelt_tmp_7);
@@ -5085,8 +5084,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let mut _smelt_tmp_60: JsString = JsString::new();
     if _smelt_tmp_59 {
     _smelt_tmp_61 = Into::<SmeltList<_>>::into(head.clone().expect("optional value was absent after narrowing"));
-    _smelt_tmp_62 = JsString::join(_smelt_tmp_61.borrow().iter(), &JsString::from(","));
-    _smelt_tmp_60 = _smelt_tmp_62;
+    _smelt_tmp_60 = JsString::join(_smelt_tmp_61.borrow().iter(), &JsString::from(","));
     } else {
     _smelt_tmp_60 = JsString::from("none");
     }
