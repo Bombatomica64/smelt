@@ -66,7 +66,7 @@ Result:
 
 | Test surface | `smelt build` | Generated `cargo test` | Diagnostics |
 |---|---:|---:|---|
-| `src/format/test.ts` | pass | pass, `108 / 108` tests | Builds with generated-code warnings; grouped report in `blocker-logs/date-fns-format-probe-warnings.md`. |
+| `src/format/test.ts` | pass | pass, `108 / 108` tests | Builds with generated-code warnings; grouped report in `date-fns-format-probe-warnings.md` (in git history). |
 
 Features validated by this native Rust test run:
 
@@ -628,7 +628,7 @@ Status: green as of the 2026-05-11 external rerun.
 - Upstream revision: `424a783de1fd974bcdbe907c9c5eb5154e9db29f`
 - Manifest: `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml`
 - Scope: all `253` sorted `pkgs/core/src/**/test.ts` source test files
-- Diagnostics: `blocker-logs/date-fns-full-tests-current.md`
+- Diagnostics: `date-fns-full-tests-current.md` (in git history)
 
 | Measurement | Result | Notes |
 |---|---:|---|
@@ -647,7 +647,7 @@ Follow-up on 2026-05-26:
   `/tmp/smelt_date_fns_resume_20260526/date-fns` at the same pinned revision.
 - Focused manifest:
   `/tmp/smelt_date_fns_resume_20260526/each_hour_probe/Smelt.toml`.
-- Focused generated diagnostic report: `blocker-logs/date-fns-each-hour-current.md`
+- Focused generated diagnostic report: `date-fns-each-hour-current.md` (in git history)
   (`cargo check` passes with `0` errors and `20` warnings).
 - Invalid-Date preservation is fixed through general Date emission: the focused
   `eachHourOfInterval` probe now completes, with all three invalid-Date empty-array tests
@@ -658,7 +658,7 @@ Follow-up on 2026-05-26:
   `eachWeekendOfInterval` probe at
   `/tmp/smelt_date_fns_resume_20260526/each_weekend_probe/Smelt.toml` no longer hangs and
   completes at `11 / 13` passing; grouped diagnostics are in
-  `blocker-logs/date-fns-each-weekend-current.md`.
+  `date-fns-each-weekend-current.md` (in git history).
 - The refreshed full native run now completes at `2057 / 2851` passing. Largest remaining failure modules
   are `parse/test.ts` (`247`), `intlFormatDistance/test.ts` (`88`),
   `formatDistanceToNowStrict/test.ts` (`42`), `parseISO/test.ts` (`33`), and
@@ -676,7 +676,7 @@ Follow-up on 2026-05-26:
   `addMinutes` (`2 / 2`), `toDate` (`2 / 2`), and the `constructFrom` timezone-context edge case.
 - Panic-focused isolated validation, kept separate from concurrent overload edits, emits the
   complete `253`-file probe without a compiler stack overflow and passes generated `cargo check`
-  with `0` errors and `655` warnings in `blocker-logs/date-fns-full-tests-current.md`.
+  with `0` errors and `655` warnings in `date-fns-full-tests-current.md` (in git history).
 - In that isolated validation, the full native suite completes with `1903 / 2851` passing and
   `0` panics. The `invalid_date` filter now passes `342 / 344`; all `parseISO` invalid-input
   checks pass after preserving `RegExp` split separators and preventing conditional assignment
@@ -695,7 +695,7 @@ Follow-up on 2026-05-26:
 Follow-up on 2026-05-27:
 
 - Panic-focused isolated validation continues to emit and compile the complete `253`-file probe.
-  The current grouped report is `blocker-logs/date-fns-full-tests-current.md`: generated
+  The current grouped report is `date-fns-full-tests-current.md` (in git history): generated
   `cargo check` passes with `0` errors and `754` warnings.
 - `Values extends unknown[]` is intentionally erased at the generated Rust generic ABI as
   `SmeltUnknown`, but rest-call lowering now projects erased array spreads back to the required
@@ -722,7 +722,7 @@ Follow-up on 2026-05-27:
   `/tmp/smelt_date_fns_parse_probe_20260527/Smelt.toml`, using date-fns
   `424a783de1fd974bcdbe907c9c5eb5154e9db29f`. Its generated `cargo check` passes with
   `0` errors and `310` warnings; grouped diagnostics are in
-  `blocker-logs/date-fns-parse-current.md`.
+  `date-fns-parse-current.md` (in git history).
 - The isolated `parse/test.ts` native execution currently passes `38 / 247` tests
   (`209` failing). Mixed `+(parts[index] || 0)` selection is fixed through erased-value
   numeric coercion; the remaining broad blocker is general subclass method erasure when
@@ -739,7 +739,7 @@ Follow-up on 2026-05-30:
 - The `format/test.ts` canary was rebuilt from
   `/tmp/smelt_date_fns_resume_20260526/format_probe/Smelt.toml` and passes all `108 / 108`
   generated tests again. Grouped diagnostics are in
-  `blocker-logs/date-fns-format-probe-warnings.md` with `0` errors and `300` warnings.
+  `date-fns-format-probe-warnings.md` (in git history) with `0` errors and `300` warnings.
 - Full-suite refresh through `smelt rust-test-report --build-manifest
   /tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` is currently blocked before generated
   Rust by the concurrent overload-selection failure in
@@ -748,7 +748,7 @@ Follow-up on 2026-05-30:
   test execution. Temporary generated Cargo target directories under `/tmp` were removed to
   recover space; source probes and repository files were left intact.
 - The isolated `parse/test.ts` probe was rebuilt and remeasured in
-  `blocker-logs/date-fns-parse-current.md`: generated `cargo check` passes with `0` errors
+  `date-fns-parse-current.md` (in git history): generated `cargo check` passes with `0` errors
   and `311` warnings, and native execution remains `38 / 247` passing (`209` failing).
 - Focused instrumentation of `test_parse_calendar_year_numeric` shows
   `parse("2017", "y", referenceDate)` returns a Date object whose timestamp payload is `NaN`
@@ -761,7 +761,7 @@ Follow-up on 2026-05-30:
   time fields progress like JavaScript instead of being rejected by `chrono::with_*`.
   The isolated probe terminates under a 30s guard and still reports `16 / 21` passing; the
   remaining failures are assertion mismatches in normalization, option-step, and timezone
-  context behavior. Grouped diagnostics: `blocker-logs/date-fns-each-hour-current.md`.
+  context behavior. Grouped diagnostics: `date-fns-each-hour-current.md` (in git history).
 - The already-generated full crate still times out with the `eachHourOfInterval` filter when
   run without rebuilding; because a fresh full build is currently blocked by the concurrent
   overload-selection work in `formatDistance/index.ts`, that full-crate timeout should be
@@ -906,13 +906,13 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in source emission | Fresh `/tmp/smelt_date_fns_full_tests_20260604/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`. Conditional array spreads now select compatible list-rest overloads, so the full source probe emits successfully. Generated `cargo check` currently reports two unrelated errors (`E0308` in `localize_index_3.rs` and missing `ResultDate` in `isMatch_index_1.rs`) plus `754` warnings in `blocker-logs/date-fns-full-tests-20260604-current.md`. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in source emission | Fresh `/tmp/smelt_date_fns_full_tests_20260604/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`. Conditional array spreads now select compatible list-rest overloads, so the full source probe emits successfully. Generated `cargo check` currently reports two unrelated errors (`E0308` in `localize_index_3.rs` and missing `ResultDate` in `isMatch_index_1.rs`) plus `754` warnings in `date-fns-full-tests-20260604-current.md` (in git history). |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Broad parser/Intl runtime parity | Fresh `parse/test.ts` execution passes `247 / 247` (`100%`); `intlFormatDistance/test.ts` last recorded `88` failures | Parse context, DST transitions, custom locale behavior, caught error identity/message access, and JavaScript Date string parsing pass. Report: `blocker-logs/date-fns-parse-20260604-green-full.md`. |
+| 1 | Broad parser/Intl runtime parity | Fresh `parse/test.ts` execution passes `247 / 247` (`100%`); `intlFormatDistance/test.ts` last recorded `88` failures | Parse context, DST transitions, custom locale behavior, caught error identity/message access, and JavaScript Date string parsing pass. Report: `date-fns-parse-20260604-green-full.md` (in git history). |
 | 2 | Remaining invalid-date semantics | Panic-focused isolated `invalid_date` execution passes `344 / 344`; `closestTo` passes `11 / 11` | The compiler stack-overflow abort, eager optional-index panic path, Date identity mismatch, and invalid-date `differenceInBusinessDays` guard failures no longer reproduce. |
 | 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 
@@ -1137,7 +1137,7 @@ eight-repo rerun.
       computed property keys, and `addPropImplementation`.
     - previous blocker fixed: `packages/remeda/src/addProp.test-d.ts` now lowers type assertion
       call arguments such as `{} as { ... }` and erases Vitest `expectTypeOf` type assertions.
-    - newer generated-Rust blocker log: `blocker-logs/remeda-errors-summary.md`.
+    - newer generated-Rust blocker log: `remeda-errors-summary.md` (in git history).
     - previous generated-Rust blocker fixed: branch-scoped temporaries after common `if` joins no
       longer produce `E0425`.
     - previous generated-Rust blocker fixed: boxed `FnMut` closure parameters are emitted as

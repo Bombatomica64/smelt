@@ -1737,7 +1737,7 @@ return { let smelt_source_value = (({ let smelt_receiver = self.clone(); let sme
 /// only travels where the enclosing function returns `Result`: a reader that is
 /// itself fallible propagates with `?`, and one that is not takes the panic
 /// path, the floor every non-fallible callback seam uses
-/// (`blocker-logs/hono-fallible-ops.md`). The program stops at the throw rather
+/// (`hono-fallible-ops.md`, in git history). The program stops at the throw rather
 /// than continuing with a fabricated value.
 #[test]
 fn a_throwing_getter_read_is_fallible_in_both_enclosures() {

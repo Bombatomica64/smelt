@@ -250,7 +250,7 @@ JSON Schema in [`smelt-schema.json`](smelt-schema.json)). Every command takes
 | `smelt rust-test-report` | Run generated tests (`--focus`, `--guard`, `--full`) and write a compact Markdown investigation report. |
 | `smelt typedness-report <path>` | Measure concrete/generic/erased counts; `--baseline`, `--fail-on-regression`, `--update-baseline`. |
 | `smelt smelt-unknown-report <src>` | Classify `SmeltUnknown` in generated Rust; same baseline flags. |
-| `smelt ts7-parity-report <path>...` | Compare Smelt's TypeScript types with the TypeScript 7 checker's. |
+| `smelt ts7-parity-report <path>...` | Compare Smelt's TypeScript types with the TypeScript 7 checker's. Method: [`blocker-logs/ts7-parity.md`](blocker-logs/ts7-parity.md). |
 | `smelt list-escape-report <Smelt.toml>` | Classify list-typed MIR locals as escaping, aliased or frame-local. |
 | `smelt dump-ast` / `dump-hir` / `dump-mir <file>` | Print an intermediate form of one file. |
 | `smelt dump-schema` | Print the JSON Schema for `Smelt.toml`. |
@@ -285,7 +285,7 @@ Repository layout outside `crates/`:
 | `examples/` | End-to-end programs with golden HIR/Rust (`typescript/end-to-end`, `python/end-to-end`) and sample projects such as `hono_crud`. |
 | `specs/` | Design documents and milestone specs. |
 | `docs/` | Current design notes (metaprogramming, erasure reasons, specialization). |
-| `blocker-logs/` | Investigation reports, CI baselines and report methodologies. |
+| `blocker-logs/` | CI baselines, report methodologies and current-status reports, see [`blocker-logs/README.md`](blocker-logs/README.md). Investigation reports are temporary. |
 | `benchmarks/` | Hand-written TypeScript vs generated Rust, see [`benchmarks/README.md`](benchmarks/README.md). |
 | `scripts/` | CI gate scripts, publishing, regeneration helpers. |
 | `skills/` | Agent skills (debug workflow, dev log). |

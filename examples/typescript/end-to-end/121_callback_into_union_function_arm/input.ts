@@ -22,7 +22,7 @@ type ExFn = (context: string) => Ex;
 
 // (The default is written inline: a default that reads a MODULE-level const
 // from a lifted top-level arrow is a separate open defect, recorded in
-// `blocker-logs/hono-phase3-round2.md`.)
+// `hono-phase3-round2.md` (in git history).)
 const timeout = (duration: number, exception: ExFn | Ex = new Ex(504)): number => {
   const ex = typeof exception === 'function' ? exception('ctx') : exception;
   return duration + ex.code;

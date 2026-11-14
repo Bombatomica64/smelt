@@ -14,7 +14,7 @@
 // declares its temporaries in one match arm and assigns them in the other, so
 // the crate does not compile. Inside a function body — which is where the tier
 // puts it — the same source is fine. See
-// `blocker-logs/top-level-try-await-tail.md`.
+// `top-level-try-await-tail.md` (in git history).
 
 // `randomUUID()` answers a v4 UUID: 36 characters, dashes at the four fixed
 // offsets, version nibble `4`, and variant nibble one of 8/9/a/b. The value is

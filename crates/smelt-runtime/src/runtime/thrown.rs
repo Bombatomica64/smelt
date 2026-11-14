@@ -370,7 +370,7 @@ fn smelt_encode_uri_component_throwing(value: &(impl SmeltHostText + ?Sized)) ->
 // the base64 pair were all free functions. The route is the same one and for
 // the same reason: only a call carries an `unwind` edge, so a fallible
 // operation has to be a call (see
-// `blocker-logs/standards-throwing-rvalue.md`).
+// `standards-throwing-rvalue.md` (in git history)).
 //
 // The BOUND is checked here rather than in the infallible members, which stay
 // as they are: a read or write inside the window is not fallible, and paying

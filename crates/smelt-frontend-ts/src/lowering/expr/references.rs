@@ -802,7 +802,7 @@ impl ModuleBuilder<'_> {
                 // terminator); reached through a callback value it still
                 // aborts. Closing that needs `may_throw` inference through
                 // callback parameter types — see
-                // `blocker-logs/hono-fallible-ops.md` §8.
+                // `hono-fallible-ops.md` (in git history) §8.
                 self.builtin_unary_closure_expression(
                     string_ty,
                     string_ty,
@@ -1897,7 +1897,7 @@ impl ModuleBuilder<'_> {
         // an empty erased record cast to the class — silently discarded the
         // value the module's initializer produced, and emitted the cast at the
         // record type rather than at `SmeltUnknown`, so the generated crate did
-        // not even compile (`blocker-logs/standards-module-const-host-value.md`).
+        // not even compile (`standards-module-const-host-value.md`, in git history).
         //
         // Such a binding lifts to a module-global slot in
         // `ModuleBuilder::collect_class_value_globals`, and the read resolves

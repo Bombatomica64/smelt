@@ -6,7 +6,7 @@
 //! the union reached the emitter as `SmeltUnknown` far from the reference with
 //! nothing naming the alias. Hono's five-arm `ResponseHeadersInit` erased that
 //! way for weeks because `src/utils/mime.ts` was missing from the dependency
-//! closure (see `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`).
+//! closure (see `standards-generic-arm-and-typeof-indexed-alias.md` (in git history)).
 //!
 //! So the blocker fires only for that gap: a RELATIVE specifier resolving to a
 //! file the manifest's own source roots contain and the closure did not reach.
