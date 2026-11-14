@@ -1,0 +1,137 @@
+name: Coverage
+
+# Instrumented branch coverage of the whole workspace, published as the README
+# tables, the badges and coverage-summary.json. It gates nothing, so it runs
+# off the merge path: after each push to main, nightly, and on demand.
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+    # Same list as ci.yml. The coverage commit itself only touches ignored
+    # paths (and is pushed with GITHUB_TOKEN, which starts no workflow).
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE*'
+      - '.gitignore'
+      - '*.svg'
+      - 'coverage-summary.json'
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+
+# One writer at a time. Not cancel-in-progress: the job takes ~50 minutes and
+# main can take several merges in that time, so cancelling would mean the report
+# never finishes. GitHub keeps at most one pending run per group, so a burst of
+# merges collapses into one follow-up run measuring the newest commit.
+concurrency:
+  group: coverage-main
+  cancel-in-progress: false
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install nightly Rust (for branch coverage)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+
+      # No native GUI libraries are installed here on purpose: smelt-gui is
+      # excluded from the workspace (see `exclude` in the root Cargo.toml), so
+      # `--workspace` can never reach gpui and the xcb/xkbcommon dev packages
+      # are never linked. Re-add them only if smelt-gui rejoins the workspace.
+
+      # DELIBERATELY NO `Swatinem/rust-cache` STEP HERE. Please do not re-add one.
+      #
+      # This job builds through `cargo +nightly`, and `dtolnay/rust-toolchain@nightly`
+      # above is unpinned, so it resolves a new nightly roughly every day.
+      # rust-cache hashes the resolved rustc version into its cache key, so the
+      # key rotated daily while the cached artifacts were also invalidated daily
+      # by the very same rustc change. The lane could therefore never hit.
+      #
+      # Measured on run 30451649094 (and confirmed identical on the PR run
+      # 30451166101): the restore reported success, then cargo recompiled all
+      # 324 units from `unicode-ident` upward — a fully cold instrumented build
+      # in both cases. Re-adding a cache here only pays off together with a
+      # *pinned* nightly (e.g. `nightly-YYYY-MM-DD`), which was considered and
+      # rejected to avoid the recurring manual toolchain bump.
+
+      - name: Install coverage tool
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      # Without these the sandbox-backed specialization tests cannot run, and
+      # `smelt-specialize` would report ~50% line / ~36% branch coverage for code
+      # that never ran.
+      - name: Install test tools
+        uses: ./.github/actions/setup-test-tools
+
+      - name: Test with coverage
+        env:
+          SMELT_REQUIRE_SANDBOX: "1"
+        run: |
+          cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
+
+      - name: Coverage summary (JSON)
+        run: |
+          cargo +nightly llvm-cov report --branch --json --summary-only --output-path coverage-summary.json
+
+      - name: Generate badge
+        run: |
+          bash scripts/coverage_badge.sh lcov.info coverage.svg coverage-summary.json
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: |
+            lcov.info
+            coverage.svg
+            coverage-summary.json
+            coverage-functions.svg
+            coverage-lines.svg
+            coverage-regions.svg
+            coverage-branches.svg
+
+      # Main moves underneath a 50-minute job, and the old `git pull --rebase`
+      # of the coverage commit conflicted whenever the README changed meanwhile
+      # ("could not apply ... update coverage report"), turning main's CI red.
+      # Instead, every attempt starts from the CURRENT tip and regenerates the
+      # README tables there from this run's summary, so there is nothing to
+      # rebase and nothing to conflict; a push that loses a race just retries.
+      - name: Publish coverage to main
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/coverage"
+          mkdir -p "$report"
+          cp lcov.info coverage-summary.json coverage*.svg "$report"/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4 5; do
+            git fetch --quiet origin main
+            git reset --quiet --hard origin/main
+            cp "$report"/coverage-summary.json "$report"/coverage*.svg .
+            python3 scripts/update_readme_coverage.py coverage-summary.json README.md "$report/lcov.info"
+            git add README.md coverage-summary.json coverage.svg coverage-functions.svg \
+              coverage-lines.svg coverage-regions.svg coverage-branches.svg
+            if git diff --quiet --cached; then
+              echo "No coverage updates to commit."
+              exit 0
+            fi
+            git commit --quiet -m "chore(ci): update coverage report"
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push lost a race with another commit (attempt $attempt); retrying on the new tip."
+            sleep $((attempt * 5))
+          done
+          echo "::error::Could not publish the coverage report after 5 attempts."
+          exit 1

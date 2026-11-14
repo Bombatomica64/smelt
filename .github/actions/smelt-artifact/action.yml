@@ -1,0 +1,17 @@
+name: smelt from the build job
+description: Download the smelt binary the build job compiled for this commit to target/debug/smelt.
+
+runs:
+  using: composite
+  steps:
+    - name: Download smelt
+      uses: actions/download-artifact@v7
+      with:
+        name: smelt-bin
+        path: target/debug
+
+    - name: Make smelt executable
+      shell: bash
+      run: |
+        chmod +x target/debug/smelt
+        ls -la target/debug/smelt

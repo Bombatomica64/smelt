@@ -1,0 +1,29 @@
+name: Unpack the test archive
+description: Download the nextest archive the build job made and unpack it in place.
+
+# The archive holds `target/debug/...` and `target/nextest/*.json`. Unpacking it
+# into the workspace root (rather than a temporary directory) matters: the test
+# binaries bake absolute paths in at compile time (`CARGO_BIN_EXE_smelt`,
+# `CARGO_MANIFEST_DIR`, `CARGO_TARGET_TMPDIR`), and every runner checks the
+# repository out at the same path as the build job did.
+
+runs:
+  using: composite
+  steps:
+    - name: Download test archive
+      uses: actions/download-artifact@v7
+      with:
+        name: test-archive
+
+    - name: Unpack test archive
+      shell: bash
+      run: |
+        tar --zstd -xf tests.tar.zst
+        rm tests.tar.zst
+        mkdir -p target/tmp
+        du -sh target
+
+    - name: Install nextest
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-nextest
