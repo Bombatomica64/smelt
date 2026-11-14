@@ -725,7 +725,7 @@ impl FunctionEmitter<'_> {
     /// global object above all — where there is no typed record to merge into.
     fn unknown_assign_expr(
         &self,
-        target: &Operand,
+        target: &RustExpr,
         sources: &[Operand],
     ) -> Result<RustExpr, EmitError> {
         let mut steps = Vec::with_capacity(sources.len());
@@ -738,7 +738,7 @@ impl FunctionEmitter<'_> {
         }
         Ok(RustExpr::atom(format!(
             "{{ let mut smelt_target = {}; {} smelt_target }}",
-            self.operand_expr(target)?.delimited(),
+            target.delimited(),
             steps.join(" ")
         )))
     }
@@ -751,8 +751,20 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let target_ty = self.operand_ty(target)?;
+        // An erased target (`unknown`, or a type parameter this scope spells
+        // as the carrier) is the shared object itself: merge into it in place.
+        // A type parameter spelled as a real Rust generic crosses into the
+        // carrier through its `IntoSmeltUnknown` bound first.
         if matches!(self.mir.types.get(target_ty), Some(Type::Unknown)) {
-            return self.unknown_assign_expr(target, sources);
+            return self.unknown_assign_expr(&self.operand_expr(target)?, sources);
+        }
+        if matches!(self.mir.types.get(target_ty), Some(Type::TypeParam { .. })) {
+            let target_text = if self.renders_erased(target_ty)? {
+                self.operand_expr(target)?
+            } else {
+                self.erase(target)?
+            };
+            return self.unknown_assign_expr(&target_text, sources);
         }
         if !matches!(self.mir.types.get(target_ty), Some(Type::Dict(_, _))) {
             return Err(EmitError::new("dict assign target must be a dict"));

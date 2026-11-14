@@ -1226,6 +1226,14 @@ fn erased_optional_callback_method() -> TestResult {
     verify_node_parity("erased_optional_callback_method")
 }
 
+/// `Object.assign` onto a value of a type parameter writes into that object
+/// and returns it, keeping its own symbol-keyed method and gaining the
+/// sources' members.
+#[test]
+fn object_assign_erased_target() -> TestResult {
+    verify_node_parity("object_assign_erased_target")
+}
+
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")

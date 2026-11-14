@@ -1,5 +1,6 @@
 //! `Object.assign` onto records, classes and callable values.
 
+use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::{LONE_SURROGATE_NAME, has_lone_surrogate, js_str_text};
 use crate::lowering::support::source_spelling;
 use crate::lowering::{ModuleBuilder, SmeltError};
@@ -86,6 +87,9 @@ impl ModuleBuilder<'_> {
             })));
         }
         if let Some(expr) = self.object_assign_class_target(target_arg, source_args, call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.object_assign_erased_target(target_arg, source_args, call, body)? {
             return Ok(Some(expr));
         }
         if self.object_assign_callable_target_candidate(target_arg, body)
@@ -495,6 +499,72 @@ impl ModuleBuilder<'_> {
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.assign");
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// Lower `Object.assign(target, ...sources)` onto an erased target: a value
+    /// of a type parameter whose constraint is not a function
+    /// (`pattern: p extends Matcher`).
+    ///
+    /// JavaScript writes each source's own properties INTO the target and
+    /// returns that same object, so everything else that holds it sees them.
+    /// An erased value's storage is that shared object, so the merge is an
+    /// in-place `DictAssign` on it, typed as the target. The record path below
+    /// casts the target to a `Dict`, a copy the target never sees, and the
+    /// callable path wrapped it as the call slot of a new object. ts-pattern's
+    /// `chainable(pattern)` (`Object.assign(pattern, { optional, and, or })`)
+    /// took the callable path, so its result lost the matcher's own
+    /// symbol-keyed method and no pattern built on it matched.
+    ///
+    /// The target is evaluated once, whatever it is (`Object.assign(make(), ..)`
+    /// merges into the object the call returned). A function-typed target
+    /// keeps the callable decoration, where the call slot is the point.
+    /// `None`, having lowered nothing, for any other target.
+    fn object_assign_erased_target(
+        &mut self,
+        target_arg: &Argument<'_>,
+        source_args: &[Argument<'_>],
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(target_expression) = target_arg.as_expression() else {
+            return Ok(None);
+        };
+        let mark = self.speculation_mark(body);
+        let target = self.expression(target_expression, body)?;
+        let target_ty = Self::expr_ty(body, target);
+        // An `unknown`/`any` target is not taken yet: its in-place merge copies
+        // the own entries of an erased Error or Blob source that JavaScript
+        // does not enumerate (`Object.keys` of an erased Error lists
+        // `name,message,stack,cause`), which breaks es-toolkit's `clone`.
+        let erased = match self.ctx.krate.types.get(target_ty) {
+            Some(Type::TypeParam { .. }) => !matches!(
+                self.ctx
+                    .krate
+                    .types
+                    .get(self.type_param_constraint_or_self(target_ty)),
+                Some(Type::Function(_))
+            ),
+            _ => false,
+        };
+        if !erased {
+            self.roll_back_to(mark, body);
+            return Ok(None);
+        }
+        let mut sources = Vec::with_capacity(source_args.len());
+        for source_arg in source_args {
+            sources.push(self.argument(source_arg, body)?);
+        }
+        // The result is the target with the sources' members added
+        // (`p & { optional, .. }`): typed `p`, a caller instantiating `p`
+        // would project it back to `p`'s own members and drop the added ones.
+        // It is the erased object itself, so it is typed as the carrier.
+        // not a new erasure: the target already renders as the erased carrier
+        let ty = self.unknown_type(NotNewErasure::ErasedUpstream);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictAssign { target, sources },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Return whether an `Object.assign` target should use callable decoration lowering.
