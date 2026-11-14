@@ -593,6 +593,15 @@ impl ModuleBuilder<'_> {
                 ) if annotated_ty.is_none() && array.elements.is_empty() => {
                     self.checker_evolved_array_type(binding.span.start, binding.span.end)
                 }
+                // An unannotated object or array literal takes the type
+                // TypeScript inferred for the binding, as if that were its
+                // annotation (`checker_literal_binding_type`).
+                (
+                    BindingPattern::BindingIdentifier(binding),
+                    Some(init @ (Expression::ObjectExpression(_) | Expression::ArrayExpression(_))),
+                ) if annotated_ty.is_none() => {
+                    self.checker_literal_binding_type(init, binding.span.start, binding.span.end)
+                }
                 _ => annotated_ty,
             };
             // Both shapes assign into a local reserved before this statement

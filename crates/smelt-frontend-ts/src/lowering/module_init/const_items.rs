@@ -63,6 +63,11 @@ impl ModuleBuilder<'_> {
                 }
             }
             if let Some(object) = Self::object_const_initializer(init) {
+                // Unannotated, the literal takes the type TypeScript inferred
+                // for the binding (`checker_literal_binding_type`).
+                let type_hint = type_hint.or_else(|| {
+                    self.checker_literal_binding_type(init, binding.span.start, binding.span.end)
+                });
                 let item = if let Ok(item) =
                     self.object_const_declaration(binding.name.as_str(), object, type_hint)
                 {

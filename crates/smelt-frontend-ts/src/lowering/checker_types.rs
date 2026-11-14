@@ -37,7 +37,10 @@
 //!   polymorphic `this` (Smelt's own rule maps it to the enclosing class);
 //! - a structural object type other than a single call signature (Smelt names
 //!   anonymous object shapes after their source site, which a re-spelling
-//!   cannot reproduce).
+//!   cannot reproduce), except a plain-data record for an unannotated literal
+//!   binding, spelled as its type literal (structural records are named by
+//!   structure, so it lowers to the struct the same literal written in source
+//!   lowers to).
 
 use std::fmt::Write as _;
 
@@ -200,6 +203,17 @@ impl ModuleBuilder<'_> {
         lowered
     }
 
+    /// Whether `ty` mentions a union anywhere (an optional is not one).
+    fn type_mentions_union(&self, ty: TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Union(_)) => true,
+            Some(other) => other
+                .children()
+                .any(|child| self.type_mentions_union(child)),
+            None => false,
+        }
+    }
+
     /// Whether `ty` mentions `never` anywhere.
     ///
     /// A checker return such as `never[][]` (`flatMapDeep([], n => [[n]])`,
@@ -213,6 +227,78 @@ impl ModuleBuilder<'_> {
                 .any(|child| self.type_mentions_never(child)),
             None => false,
         }
+    }
+
+    /// The type TypeScript inferred for an unannotated variable whose
+    /// initializer is the object or array literal `init`, declared by the
+    /// binding at `start..end`, lowered as if the source had written it as
+    /// the annotation.
+    ///
+    /// Without an annotation the literal has no contextual type: a `Dict`
+    /// needs one value type for every key, so `{ id: 1, enabled: false }`
+    /// became `Dict<String, SmeltUnknown>` and every property read lost its
+    /// type, and a list of such records lost its elements'. The checker types
+    /// the binding `{ id: number; enabled: boolean }[]`; a hand port declares
+    /// exactly that, and the re-spelled annotation lowers to the struct the
+    /// same written annotation gives (`decls::anonymous_record`, named by
+    /// structure). Only the binding's own declaration takes it: a literal in
+    /// any other position flows into a slot whose type is the authority, and
+    /// the checker's view of the bare expression may be narrower than it.
+    ///
+    /// Only a fully representable answer is taken: its lowering records no
+    /// erasure (an `any` element, an open layout), and it holds no union
+    /// (`[true, null, 1, 'a']` is a list of a union codegen would erase, where
+    /// the mixed literal already erases once) and no `never`. A literal with a
+    /// spread copies another value's shape and keeps its own lowering, and an
+    /// empty array literal is left to `checker_evolved_array_type`.
+    pub(in crate::lowering) fn checker_literal_binding_type(
+        &mut self,
+        init: &oxc::ast::ast::Expression<'_>,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
+        let spreads = match init {
+            oxc::ast::ast::Expression::ArrayExpression(array) => {
+                array.elements.is_empty()
+                    || array.elements.iter().any(|element| {
+                        matches!(
+                            element,
+                            oxc::ast::ast::ArrayExpressionElement::SpreadElement(_)
+                        )
+                    })
+            }
+            oxc::ast::ast::Expression::ObjectExpression(object) => {
+                object.properties.iter().any(|property| {
+                    matches!(
+                        property,
+                        oxc::ast::ast::ObjectPropertyKind::SpreadProperty(_)
+                    )
+                })
+            }
+            _ => true,
+        };
+        if spreads {
+            return None;
+        }
+        let facts = self.ts_facts?;
+        let id = facts.type_id_at(&self.path, start, end)?;
+        if checker_type_joins_null_and_undefined(facts, id, 0)
+            || checker_type_has_present_undefined_property(facts, id, 0)
+        {
+            return None;
+        }
+        let records_before = self.ctx.krate.erasures.len();
+        let lowered = self
+            .respell_and_lower_spelling(facts, id, start, end, true)
+            .filter(|ty| {
+                self.ctx.krate.erasures.len() == records_before
+                    && !self.type_mentions_never(*ty)
+                    && !self.type_mentions_union(*ty)
+            });
+        if lowered.is_none() {
+            self.ctx.krate.erasures.truncate(records_before);
+        }
+        lowered
     }
 
     /// The outermost kind of the type the checker resolved the call at
@@ -331,6 +417,19 @@ impl ModuleBuilder<'_> {
         start: u32,
         end: u32,
     ) -> Option<TypeId> {
+        self.respell_and_lower_spelling(facts, id, start, end, false)
+    }
+
+    /// [`Self::respell_and_lower`], spelling plain-data object types as type
+    /// literals when `records` is set (see [`Respeller::plain_record`]).
+    fn respell_and_lower_spelling(
+        &mut self,
+        facts: &TsTypeFacts,
+        id: TsTypeId,
+        start: u32,
+        end: u32,
+        records: bool,
+    ) -> Option<TypeId> {
         let top = facts.types.get(id)?;
         if matches!(
             top.kind,
@@ -348,6 +447,7 @@ impl ModuleBuilder<'_> {
             builder: self,
             facts,
             annotation: (start, end),
+            records,
         }
         .respell(id, 0)?;
         self.lower_respelled_annotation(&text, start, end)
@@ -457,6 +557,13 @@ struct Respeller<'builder, 'ctx> {
     facts: &'builder TsTypeFacts,
     /// Byte span of the annotation being re-spelled, in the builder's file.
     annotation: (u32, u32),
+    /// Whether plain-data object types are spelled as type literals. Only an
+    /// unannotated literal binding asks for it
+    /// ([`ModuleBuilder::checker_literal_binding_type`]): there the object
+    /// type IS the literal's shape, while an object type the checker computes
+    /// for an annotation (`ReturnType<..>` of a branded function) is the
+    /// result of type-level operations Smelt's other lowering owns.
+    records: bool,
 }
 
 impl Respeller<'_, '_> {
@@ -540,7 +647,11 @@ impl Respeller<'_, '_> {
                     None
                 }
             }
-            TsTypeKind::Object(object) => self.callable(object, depth),
+            TsTypeKind::Object(object) => self.callable(object, depth).or_else(|| {
+                self.records
+                    .then(|| self.plain_record(object, depth))
+                    .flatten()
+            }),
             TsTypeKind::Any
             | TsTypeKind::Unknown
             | TsTypeKind::Never
@@ -621,6 +732,43 @@ impl Respeller<'_, '_> {
             if readonly { "readonly " } else { "" },
             parts.join(", ")
         ))
+    }
+
+    /// A plain-data structural type (named properties only), as a type literal.
+    ///
+    /// `{ id: number; enabled: boolean }` is spelled as written, so it lowers
+    /// exactly as the same type literal written in source does: a shared
+    /// value type keeps the `Dict` lowering, differing ones the synthesized
+    /// struct `decls::anonymous_record` names by structure, the same struct
+    /// for the same shape wherever it is spelled. A type with call, construct
+    /// or index signatures, with no property, or with a property name that
+    /// cannot be written as a key is declined.
+    fn plain_record(&self, object: &TsObjectType, depth: usize) -> Option<String> {
+        if object.properties.is_empty()
+            || !object.call_signatures.is_empty()
+            || !object.construct_signatures.is_empty()
+            || !object.index_signatures.is_empty()
+        {
+            return None;
+        }
+        let members = object
+            .properties
+            .iter()
+            .map(|property| {
+                let key = if is_identifier(&property.name) {
+                    property.name.clone()
+                } else if property.name.starts_with("__@") {
+                    // A symbol-keyed property: no source key spells it.
+                    return None;
+                } else {
+                    string_literal(&property.name)
+                };
+                let ty = self.respell(property.ty, depth)?;
+                let optional = if property.optional { "?" } else { "" };
+                Some(format!("{key}{optional}: {ty};"))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(format!("{{ {} }}", members.join(" ")))
     }
 
     /// A structural type that is exactly one call signature, as a function type.
@@ -704,6 +852,48 @@ fn checker_type_joins_null_and_undefined(facts: &TsTypeFacts, id: TsTypeId, dept
     checker_type_children(facts, id)
         .into_iter()
         .any(|child| checker_type_joins_null_and_undefined(facts, child, depth + 1))
+}
+
+/// Whether checker type `id` holds an object with a REQUIRED property whose
+/// type admits `undefined` (`{ b: undefined, c: 3 }`).
+///
+/// Such a property is present even when its value is `undefined` (`'b' in
+/// source` holds), while a struct field holding `Option<T>` erases an empty
+/// value by omitting the key, so a literal of that shape is declined. An
+/// optional property (`b?: T`) is absent-or-valued and representable.
+fn checker_type_has_present_undefined_property(
+    facts: &TsTypeFacts,
+    id: TsTypeId,
+    depth: usize,
+) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    if let Some(TsTypeKind::Object(object)) = facts.types.get(id).map(|ty| &ty.kind)
+        && object
+            .properties
+            .iter()
+            .any(|property| !property.optional && checker_type_admits_undefined(facts, property.ty))
+    {
+        return true;
+    }
+    checker_type_children(facts, id)
+        .into_iter()
+        .any(|child| checker_type_has_present_undefined_property(facts, child, depth + 1))
+}
+
+/// Whether checker type `id` is `undefined`/`void` or a union with such a member.
+fn checker_type_admits_undefined(facts: &TsTypeFacts, id: TsTypeId) -> bool {
+    match facts.types.get(id).map(|ty| &ty.kind) {
+        Some(TsTypeKind::Undefined | TsTypeKind::Void) => true,
+        Some(TsTypeKind::Union { members, .. }) => members.iter().any(|member| {
+            matches!(
+                facts.types.get(*member).map(|ty| &ty.kind),
+                Some(TsTypeKind::Undefined | TsTypeKind::Void)
+            )
+        }),
+        _ => false,
+    }
 }
 
 /// The keyword spelling of an intrinsic kind.
