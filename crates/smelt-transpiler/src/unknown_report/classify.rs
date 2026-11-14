@@ -127,9 +127,18 @@ impl AdapterBody {
 /// as `impl<T: IntoSmeltUnknown> Default for Cell<T>` names the trait too, and
 /// is not an adapter. `from_smelt_unknown` is matched as a method because its
 /// `impl` block also holds the program's own methods.
+///
+/// `SmeltLiveObject` is the same crossing as `IntoSmeltUnknown`, one property
+/// at a time: a live record's erased view reads and writes the record through
+/// it (`smelt-codegen-rust/src/emitter/live_view.rs`), so the field erasures
+/// that were the body of the record's `IntoSmeltUnknown` impl are its body
+/// instead. The record's own fields and every typed use of it stay outside the
+/// impl and stay judged (`live_object_impl_is_an_adapter` in the tests).
 fn adapter_item_closing(line: &str) -> Option<&'static str> {
     let implements_adapter = line.starts_with("impl")
-        && (line.contains(" IntoSmeltUnknown for ") || line.contains(" SmeltFromUnknown for "));
+        && (line.contains(" IntoSmeltUnknown for ")
+            || line.contains(" SmeltFromUnknown for ")
+            || line.contains(" SmeltLiveObject for "));
     if implements_adapter
         || line.starts_with("fn __smelt_from_unknown_record_")
         || line.starts_with("fn smelt_decode_")

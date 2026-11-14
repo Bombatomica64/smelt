@@ -677,6 +677,7 @@ impl FunctionEmitter<'_> {
                 crate::reference_origin::restore_or_rebuild_expr(
                     &RustExpr::path("smelt_record_map"),
                     &rebuild,
+                    self.context.is_live_record(*name),
                 )
             } else {
                 rebuild

@@ -440,8 +440,23 @@ impl FunctionEmitter<'_> {
                     self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?,
                 );
                 let item_text = shared.use_text();
+                // An erased object that is a view of a typed record
+                // (`emitter::live_view`) is read as a dictionary VIEW of that
+                // record: the record stays one object, and the dictionary's
+                // reads and writes are the record's. Any other object is its
+                // own store and is copied entry by entry, as before.
+                let object_view = if crate::runtime_prelude::flag(self.context, "live_views") == Some(true)
+                    && let Ok(erased_item) = self.erase_rendered(&RustExpr::path("smelt_typed").cloned_value(), *item)
+                {
+                    format!(
+                        "match smelt_values.smelt_typed_view(move |smelt_value: SmeltUnknown| {item_text}, |smelt_typed| {erased_item}) {{ Some(smelt_view) => smelt_view, None => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {item_text}))) }}",
+                        erased_item = erased_item.delimited()
+                    )
+                } else {
+                    format!("SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {item_text})))")
+                };
                 Ok(shared.wrap(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {item_text}))), SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), {item_text})).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| {{ let smelt_value = SmeltUnknown::String(JsString::from_units(&[*smelt_unit])); (JsString::from(smelt_index.to_string()), {item_text}) }}).collect(), _ => SmeltRecord::new() }}", text = text.delimited()
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => {object_view}, SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), {item_text})).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| {{ let smelt_value = SmeltUnknown::String(JsString::from_units(&[*smelt_unit])); (JsString::from(smelt_index.to_string()), {item_text}) }}).collect(), _ => SmeltRecord::new() }}", text = text.delimited()
                 )))))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {

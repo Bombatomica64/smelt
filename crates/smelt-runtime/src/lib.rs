@@ -123,6 +123,7 @@ mod runtime {
     include!("runtime/json_serde.rs");
     include!("runtime/key_eq.rs");
     include!("runtime/list.rs");
+    include!("runtime/live_view.rs");
     include!("runtime/math.rs");
     include!("runtime/number_format.rs");
     include!("runtime/object.rs");

@@ -1,0 +1,83 @@
+interface Point
+
+fn nudge (FuncId(0)) -> None
+  locals
+    %0 param target: Dict<String, Float>
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field1 + 1.0
+    %0.field1 = move %1
+    return none
+
+fn remember (FuncId(1)) -> Dict<String, Float>
+  locals
+    %0 param target: Dict<String, Float>
+    %1 temp: Dict<String, Float>
+  bb0:
+    %1 = global_set #0 = copy %0
+    return copy %0
+
+fn main_ (FuncId(2)) -> None
+  locals
+    %0 user point: Point
+    %1 user returned: Dict<String, Float>
+    %2 user other: Point
+    %3 temp: Point
+    %4 temp: None
+    %5 temp: None
+    %6 temp: None
+    %7 temp: Dict<String, Float>
+    %8 temp: Dict<String, Float>
+    %9 temp: None
+    %10 temp: Dict<String, Float>
+    %11 temp: Float
+    %12 temp: None
+    %13 temp: Point
+    %14 temp: None
+    %15 temp: Dict<String, Float>
+    %16 temp: None
+  bb0:
+    %0 = {"x": 1.0, "y": 2.0}
+    %4 = call fn0(copy %0) -> bb1
+  bb1:
+    %5 = call fn0(copy %0) -> bb2
+  bb2:
+    %6 = call @console_log(copy %0.field1, copy %0.field2) -> bb3
+  bb3:
+    %7 = call fn1(copy %0) -> bb4
+  bb4:
+    %1 = move %7
+    %0.field1 = 40.0
+    %8 = global_get #0
+    %9 = call @console_log(copy %8.field1, copy %1.field1) -> bb5
+  bb5:
+    %10 = global_get #0
+    %11 = copy %10.field1 + 2.0
+    global0.field1 = move %11
+    %12 = call @console_log(copy %0.field1) -> bb6
+  bb6:
+    %2 = {"x": 100.0, "y": 0.0}
+    %14 = call fn0(copy %2) -> bb7
+  bb7:
+    %15 = global_get #0
+    %16 = call @console_log(copy %2.field1, copy %0.field1, copy %15.field1) -> bb8
+  bb8:
+    return none
+
+fn smelt_global_init__last__1 (FuncId(3)) -> Dict<String, Float>
+  locals
+    %0 temp: Dict<String, Float>
+  bb0:
+    %0 = {"x": 0.0}
+    return move %0
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 temp: None
+    %1 temp: None
+  bb0:
+    %0 = global_get #0
+    %1 = call fn2() -> bb1
+  bb1:
+    return none
+

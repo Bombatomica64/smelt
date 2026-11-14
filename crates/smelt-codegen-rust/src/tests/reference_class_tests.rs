@@ -597,3 +597,39 @@ function run(): void {
         "cycle members are lifted; Forest/Holder/Plain (cycles through a list), Leaf and Wrap stay values"
     );
 }
+
+// ---- Classification: an object shape handed to an erased or map slot ------
+
+/// Rule: an object shape whose value reaches a slot typed `unknown`, a type
+/// parameter or `Record<K, V>` is a reference record, because that slot holds
+/// the caller's object and what it does with it is not visible in the shape's
+/// own typed uses (`classify::collect_view_flow_triggers`).
+#[test]
+fn classifies_a_shape_handed_to_an_erased_or_map_slot_as_reference() {
+    for callee in [
+        "function take(value: unknown): void {}",
+        "function take(value: Record<string, unknown>): void {}",
+        "function take(value: Record<string, number>): void {}",
+        "function take<T>(value: T): T { return value; }",
+    ] {
+        let names = reference_class_names(&format!(
+            "type Size = {{ width: number; height: number }};\n{callee}\nfunction run(): void {{ const size: Size = {{ width: 1, height: 2 }}; take(size); }}\n"
+        ));
+        assert_eq!(names, vec!["Size".to_owned()], "{callee}");
+    }
+    // An assignment and a return into such a slot are the same flow.
+    let names = reference_class_names(
+        "type Size = { width: number; height: number };\nfunction erase(): unknown { const size: Size = { width: 1, height: 2 }; return size; }\n",
+    );
+    assert_eq!(names, vec!["Size".to_owned()]);
+}
+
+/// A shape that only ever meets its own type keeps the by-value struct: the
+/// trigger must not lift what nothing can observe.
+#[test]
+fn a_shape_that_stays_at_its_own_type_is_a_value_record() {
+    let names = reference_class_names(
+        "type Size = { width: number; height: number };\nfunction area(size: Size): number { return size.width * size.height; }\nfunction run(): number { const size: Size = { width: 1, height: 2 }; return area(size); }\n",
+    );
+    assert!(names.is_empty(), "{names:?}");
+}

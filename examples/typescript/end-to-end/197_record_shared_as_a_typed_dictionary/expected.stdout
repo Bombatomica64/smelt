@@ -1,0 +1,8 @@
+4 6
+5 5
+40 5
+42
+30 {"height":42,"depth":7,"width":30} {"height":42,"depth":7,"width":30}
+{ height: 42, depth: 7, width: 30 }
+2 4
+{ width: 2, height: 2 } 30

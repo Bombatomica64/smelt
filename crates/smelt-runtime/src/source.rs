@@ -231,6 +231,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/list.rs"),
     },
     RuntimeModule {
+        name: "live_view",
+        source: include_str!("runtime/live_view.rs"),
+    },
+    RuntimeModule {
         name: "math",
         source: include_str!("runtime/math.rs"),
     },

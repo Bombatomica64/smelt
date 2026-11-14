@@ -32,6 +32,8 @@
 //! - a collection method mutates one of its instance fields in place (see
 //!   [`collect_field_mutation_triggers`]), or
 //! - it stores a virtual method SLOT (see [`collect_virtual_slot_triggers`]), or
+//! - it is an object shape whose values are handed to a slot of an erased or
+//!   dictionary type (see [`collect_view_flow_triggers`]), or
 //! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
 //! - it contains itself by value, directly or through other shapes (see
 //!   [`collect_by_value_cycle_triggers`]), or
@@ -83,6 +85,7 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     }
     collect_bound_receiver_triggers(mir, &mut references);
     collect_identity_comparison_triggers(mir, &mut references);
+    collect_view_flow_triggers(mir, &mut references);
     collect_virtual_slot_triggers(mir, &mut references);
     collect_thrown_class_triggers(mir, &mut references);
     // After every other trigger, so a shape those already lifted counts as the
@@ -536,6 +539,171 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
     for closure in &mir.closures {
         record(&closure.locals, &closure.blocks);
     }
+}
+
+/// An object shape whose value is handed to a slot of an erased or dictionary
+/// type: an argument, an assignment or a return whose destination is
+/// `unknown`/`any`, a type parameter or `Record<K, V>`.
+///
+/// JavaScript hands that slot the object itself. Whoever holds it can write a
+/// property, add or delete one, keep it and read it later, or compare it by
+/// identity, and none of that is visible in the shape's own typed uses, which
+/// are all the other triggers look at. A by-value struct erases to a fresh
+/// snapshot each time, so the callee of `function bump(p: any) { p.x = 1 }`
+/// wrote a copy and `held === value` through two `unknown` slots was `false`.
+/// The reference representation gives the slot a view of the one object
+/// (`emitter::live_view`).
+///
+/// Only shapes: a class instance's erased view is the snapshot-plus-hook of
+/// `emitter::view_write_through`, with its own trigger
+/// ([`collect_bound_receiver_triggers`]). Not a callable object
+/// ([`is_callable_shape`]), which crosses as a function value, nor a shape
+/// with a getter-backed property ([`has_accessor_fields`]). Only a value
+/// read straight from a local is seen ([`for_each_record_flow`]); a value that
+/// reaches such a slot some other way keeps the representation its other uses
+/// give it, as before this trigger existed.
+fn collect_view_flow_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    for_each_record_flow(mir, |name, slot| {
+        let view_slot = matches!(
+            mir.types.get(slot),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Dict(_, _))
+        );
+        if view_slot
+            && mir.interfaces.iter().any(|interface| {
+                interface.name == name
+                    && !is_callable_shape(mir, interface)
+                    && !has_accessor_fields(mir, interface)
+            })
+        {
+            references.insert(name);
+        }
+    });
+}
+
+/// Call `flow(record, slot)` for every value of a record type (a class or an
+/// object shape, named `record`) that a body hands to a slot of type `slot`:
+/// an argument of a direct or indirect call against the callee's parameter,
+/// an assignment to a local, a `return` against the body's return type.
+/// `Optional` is looked through on both sides.
+///
+/// Only a value read straight from a local is seen. The two readers, the
+/// classification above and the runtime demand scan
+/// (`RuntimeDemand::of`, for a record converted at a `Record<K, V>` slot),
+/// each treat a flow this misses as they did before either existed.
+pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt_hir::TypeId)) {
+    let strip = |mut ty: smelt_hir::TypeId| {
+        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+            ty = *inner;
+        }
+        ty
+    };
+    let record_of = |locals: &[smelt_mir::LocalDecl], operand: &Operand| -> Option<Symbol> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return None;
+        };
+        let ty = strip(locals.get(usize::try_from(local.0).ok()?)?.ty);
+        match mir.types.get(ty) {
+            Some(Type::Class { name, .. }) if is_record_type_symbol(mir, *name) => Some(*name),
+            _ => None,
+        }
+    };
+    let local_ty = |locals: &[smelt_mir::LocalDecl], local: LocalId| {
+        usize::try_from(local.0)
+            .ok()
+            .and_then(|index| locals.get(index))
+            .map(|decl| decl.ty)
+    };
+    let mut scan = |locals: &[smelt_mir::LocalDecl],
+                    blocks: &[smelt_mir::BasicBlock],
+                    return_ty: smelt_hir::TypeId| {
+        let mut hand = |operand: &Operand, slot: smelt_hir::TypeId| {
+            if let Some(name) = record_of(locals, operand) {
+                flow(name, strip(slot));
+            }
+        };
+        for block in blocks {
+            for statement in &block.statements {
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(operand),
+                } = statement
+                    && let Some(slot) = local_ty(locals, *dest)
+                {
+                    hand(operand, slot);
+                }
+            }
+            match &block.terminator {
+                Some(smelt_mir::Terminator::Call { callee, args, .. }) => {
+                    let params: Vec<smelt_hir::TypeId> = match callee {
+                        smelt_mir::Callee::Static(function) => usize::try_from(function.0)
+                            .ok()
+                            .and_then(|index| mir.functions.get(index))
+                            .map(|target| {
+                                target
+                                    .params
+                                    .iter()
+                                    .filter_map(|param| local_ty(&target.locals, *param))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        smelt_mir::Callee::Indirect(
+                            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)),
+                        ) => match local_ty(locals, *local).and_then(|ty| mir.types.get(strip(ty)))
+                        {
+                            Some(Type::Function(function)) => function.params.clone(),
+                            _ => Vec::new(),
+                        },
+                        _ => Vec::new(),
+                    };
+                    for (operand, slot) in args.iter().zip(params) {
+                        hand(operand, slot);
+                    }
+                }
+                Some(smelt_mir::Terminator::Return(operand)) => hand(operand, return_ty),
+                _ => {}
+            }
+        }
+    };
+    for function in &mir.functions {
+        scan(&function.locals, &function.blocks, function.return_ty);
+    }
+    for closure in &mir.closures {
+        scan(&closure.locals, &closure.blocks, closure.return_ty);
+    }
+}
+
+/// Whether `interface` is a callable object: a shape with a call signature,
+/// which carries the function in a synthetic `__smelt_call` slot.
+///
+/// A callable object crosses an erased slot as a FUNCTION value carrying its
+/// properties (`emitter::callable_object`), not as an object view, and is
+/// built and read as the by-value struct that emitter spells. It is therefore
+/// neither lifted by [`collect_view_flow_triggers`] nor a live record.
+pub(crate) fn is_callable_shape(mir: &Mir, interface: &smelt_mir::MirInterface) -> bool {
+    // The slot is named by its SOURCE spelling, and an interface that extends
+    // a callable one inherits it.
+    crate::classes::effective_interface_fields(mir, interface)
+        .iter()
+        .any(|field| {
+            mir.names
+                .get(field.name)
+                .or_else(|| mir.symbols.get(field.name))
+                == Some(smelt_stdlib::runtime_symbols::markers::SMELT_CALL)
+        })
+}
+
+/// Whether some property of `interface` is stored as an accessor: an object
+/// literal supplies it through `get f()` (`accessor_prelude`).
+///
+/// Accessor storage is spelled on the by-value struct only; the shared-cell
+/// record has plain fields, which would freeze a getter at the value it had
+/// when the record was built. Such a shape is therefore not lifted by
+/// [`collect_view_flow_triggers`], and is not a live record.
+pub(crate) fn has_accessor_fields(mir: &Mir, interface: &smelt_mir::MirInterface) -> bool {
+    mir.accessor_fields
+        .iter()
+        .any(|(owner, _)| *owner == interface.name)
 }
 
 /// Whether `name` is a record type this crate declares: a class, or an object

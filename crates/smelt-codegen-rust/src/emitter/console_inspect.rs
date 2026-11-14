@@ -344,6 +344,9 @@ pub(crate) fn emit_console_inspect_support(
             &record.constructor,
             &fields,
             record.reference,
+            // A live record's views may have given the object properties and
+            // a key order its fields do not describe (`emitter::live_view`).
+            context.is_live_record(*symbol),
         ));
     }
     for index in 0..mir.types.all().len() {

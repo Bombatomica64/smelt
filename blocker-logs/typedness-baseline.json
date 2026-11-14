@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8480,
-      "generic": 150,
+      "concrete": 8562,
+      "generic": 154,
       "erased": 56
     },
     "reads": {
-      "concrete": 903,
-      "generic": 42,
+      "concrete": 936,
+      "generic": 43,
       "erased": 20
     },
     "calls": {
-      "concrete": 2310,
+      "concrete": 2344,
       "generic": 15,
       "erased": 2
     }
@@ -1629,6 +1629,57 @@
       },
       "calls": {
         "concrete": 11,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/197_record_shared_as_a_typed_dictionary/input.ts": {
+      "values": {
+        "concrete": 40,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 15,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/198_record_shared_as_a_structural_subset/input.ts": {
+      "values": {
+        "concrete": 22,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 9,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/199_record_shared_at_a_type_parameter/input.ts": {
+      "values": {
+        "concrete": 20,
+        "generic": 4,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 8,
+        "generic": 1,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 10,
         "generic": 0,
         "erased": 0
       }

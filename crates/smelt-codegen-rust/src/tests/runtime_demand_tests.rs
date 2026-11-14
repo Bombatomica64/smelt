@@ -133,6 +133,7 @@ fn every_need_closes_to_a_self_contained_runtime() {
         reference_classes: true,
         erased_view_write_through: true,
         reads_this: true,
+        live_records: true,
     };
     let mut failures = Vec::new();
     for need in Need::ALL {

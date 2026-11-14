@@ -20,10 +20,10 @@ impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store
 impl<V> SmeltRecord<JsString, V> {
     //~ Whether the record has the key spelled by the runtime text `key`.
     #[allow(dead_code)]
-    fn has_text_key(&self, key: &str) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
+    fn has_text_key(&self, key: &str) -> bool { key.with_js_key(|key| /*@if live_views*/self.store.live_has(key).unwrap_or_else(|| /*@end*/self.store.borrow().contains_key(key)/*@if live_views*/)/*@end*/) }
     //~ The value at the key spelled by the runtime text `key`.
     #[allow(dead_code)]
-    fn get_text(&self, key: &str) -> Option<V> where V: Clone { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
+    fn get_text(&self, key: &str) -> Option<V> where V: Clone { key.with_js_key(|key| /*@if live_views*/self.store.live_get(key).or_store(|| /*@end*/self.store.borrow().get(key).cloned()/*@if live_views*/)/*@end*/) }
 }
 // @smelt:item-end
 
@@ -78,18 +78,18 @@ impl SmeltObject {
 //=     fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
 // @smelt:end
     fn from_unknown_record(record: SmeltRecord<JsString, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }
-    fn len(&self) -> usize { self.store.borrow().len() }
+    fn len(&self) -> usize { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().len() }
     #[inline]
-    fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| self.store.borrow().contains_key(key)) }
+    fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| /*@if live_views*/self.store.live_has(key).unwrap_or_else(|| /*@end*/self.store.borrow().contains_key(key)/*@if live_views*/)/*@end*/) }
     #[inline]
     //~ An erased view of a concrete `Date` (`IntoSmeltUnknown for SmeltDate`
     //~ keeps the date as the store's origin) IS that date: its time value is
     //~ the date's current one, which a write through the concrete handle may
     //~ have changed since the view was made.
 // @smelt:if date
-    fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| { if *key == "__smelt_date" && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { return Some(SmeltUnknown::Number(date.get_time())); } self.store.borrow().get(key).cloned() }) }
+    fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| { /*@if live_views*/if let SmeltLiveRead::Record(found) = self.store.live_get(key) { return found; } /*@end*/if *key == "__smelt_date" && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { return Some(SmeltUnknown::Number(date.get_time())); } self.store.borrow().get(key).cloned() }) }
 // @smelt:else
-//=     fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow().get(key).cloned()) }
+//=     fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| /*@if live_views*/self.store.live_get(key).or_store(|| /*@end*/self.store.borrow().get(key).cloned()/*@if live_views*/)/*@end*/) }
 // @smelt:end
     //~ [`Self::get`] spelled like a record's text-keyed read.
     #[allow(dead_code)]
@@ -98,14 +98,14 @@ impl SmeltObject {
     //~ whose static type erased it) sets the date it is a view of, so every
     //~ alias, typed or erased, sees one object as in JavaScript.
 // @smelt:if date
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } self.store.borrow_mut().insert(key, value) }
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } /*@if live_views*/self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key, value) }
 // @smelt:else
-//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { self.store.borrow_mut().insert(key.into(), value) }
+//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { /*@if live_views*/let key = key.into(); self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key.into(), value) }
 // @smelt:end
-    fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.borrow_mut().remove(key)) }
-    fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<JsString> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
-    fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
+    fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| /*@if live_views*/{ self.store.sync(); self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key)/*@if live_views*/ }/*@end*/) }
+    fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> Vec<JsString> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
+    fn values(&self) -> Vec<SmeltUnknown> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
 // @smelt:if reference_origins
     //~ Record the live typed value this erased object is a view of.
     //~
@@ -116,7 +116,30 @@ impl SmeltObject {
     fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { *self.store.origin_mut() = Some(Box::new(origin)); self }
     //~ The live typed value this erased object is a view of, when it is a `T`.
     #[allow(dead_code)]
-    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { /*@if live_views*/if let Some(link) = self.store.live.borrow().as_ref() { return link.object.smelt_live_handle().downcast_ref::<T>().cloned(); } /*@end*/self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+// @smelt:if live_views
+    //~ An erased view of the typed record `record` (see `live_view.rs`): the
+    //~ record stays the one object, and this view reads and writes it.
+    #[allow(dead_code)]
+    fn smelt_live_view<T: SmeltLiveObject + Clone + 'static>(id: usize, record: T) -> Self {
+        let object = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) };
+        *object.store.live.borrow_mut() = Some(SmeltLiveLink::erased(::std::rc::Rc::new(record)));
+        object
+    }
+    //~ Make this plain erased object a view of `record`, the typed record
+    //~ just built from its properties, so the two are ONE object from here on:
+    //~ they share an identity, either side's writes are the other's, and the
+    //~ record keeps this object's own key order and undeclared properties.
+    //~ An object that already stands for a typed value (a record, a host
+    //~ value) or carries the runtime's own keys is left as it is.
+    #[allow(dead_code)]
+    fn smelt_adopt<T: SmeltLiveObject + Clone + 'static>(&self, record: &T) {
+        if self.store.is_live() || self.store.origin().is_some() { return; }
+        let entries = { let store = self.store.borrow(); if store.has_internal_keys() { return; } store.entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>() };
+        smelt_live_adopt(record, self.id, entries);
+        *self.store.live.borrow_mut() = Some(SmeltLiveLink::erased(::std::rc::Rc::new(record.clone())));
+    }
+// @smelt:end
     //~ Build an erased object whose entries `build` produces on first use (see `SmeltStoreCell`).
     #[allow(dead_code)]
     fn lazy_with_id<K: Into<JsString>>(id: usize, build: impl FnOnce() -> Vec<(K, SmeltUnknown)> + 'static) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::lazy(SmeltFieldStore::default(), Box::new(move || build().into_iter().map(|(key, value)| (key.into(), value)).collect()), |store, entries| { for (key, value) in entries { store.insert(key, value); } })) } }
@@ -131,8 +154,15 @@ impl SmeltObject {
 impl<K, V> SmeltRecord<K, V> {
     //~ The live typed value this record's store is an erased view of, when it is a `T`.
     #[allow(dead_code)]
-    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
+    fn smelt_origin<T: Clone + 'static>(&self) -> Option<T> { /*@if live_views*/if let Some(link) = self.store.live.borrow().as_ref() { return link.object.smelt_live_handle().downcast_ref::<T>().cloned(); } /*@end*/self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<T>()).cloned() }
 }
+// @smelt:if live_views
+impl SmeltRecord<JsString, SmeltUnknown> {
+    //~ `SmeltObject::smelt_adopt` for the record handle on an erased object's store.
+    #[allow(dead_code)]
+    fn smelt_adopt<T: SmeltLiveObject + Clone + 'static>(&self, record: &T) { SmeltObject::from_unknown_record(self.clone()).smelt_adopt(record); }
+}
+// @smelt:end
 // @smelt:item-end
 
 // @smelt:item smelt_object_has_host_marker when unknown

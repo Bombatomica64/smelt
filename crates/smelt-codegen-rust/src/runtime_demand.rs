@@ -487,6 +487,15 @@ impl RuntimeDemand {
                 closure.return_ty,
             );
         }
+        // A record value at a `Record<K, V>` slot crosses through its erasure
+        // (`FunctionEmitter::rendered_at_type`: the dictionary is read off
+        // the record's erased object, or is a view of it), so the conversion
+        // needs the erased runtime even in a program with no erased type.
+        crate::classify::for_each_record_flow(mir, |_, slot| {
+            if matches!(mir.types.get(slot), Some(Type::Dict(_, _))) {
+                demand.add(Need::Unknown);
+            }
+        });
         demand.close();
         // Which container a dict renders as depends on whether the carrier is
         // present, so this reads the closed demand and adds a leaf need.

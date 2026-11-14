@@ -1,0 +1,28 @@
+module examples/typescript/end-to-end/198_record_shared_as_a_structural_subset/input.ts (ModuleId(0))
+  body BodyId(4)
+  items
+    global mut last: Dict<String, Float>
+    interface Point fields [Public x: Float, Public y: Float] methods []
+    fn nudge owner Module
+    fn remember owner Module
+    fn main owner Module
+  exprs
+    #0: None = global_get @1(last)
+    #1: fn() -> None = @4(main)
+    #2: None = call #1()
+  stmts
+    s0: #0
+    s1: #2
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Dict<String, Float>
+  t3 = None
+  t4 = fn(Dict<String, Float>) -> None
+  t5 = fn(Dict<String, Float>) -> Dict<String, Float>
+  t6 = fn() -> None
+  t7 = Point
+  t8 = fn(Dict<String, Float>) -> None
+  t9 = fn(Dict<String, Float>) -> Dict<String, Float>
+  t10 = fn() -> None

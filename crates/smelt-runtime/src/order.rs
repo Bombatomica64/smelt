@@ -120,6 +120,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("SmeltThisBinding"),
     Entry::Blank("unknown & write_through"),
     Entry::Item("smelt_object_write_through"),
+    Entry::Item("SmeltLiveObject"),
     Entry::Blank("reads_this & unknown"),
     Entry::Item("smelt_live_member"),
     Entry::Blank("vitest_mock"),

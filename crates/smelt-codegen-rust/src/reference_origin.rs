@@ -79,11 +79,23 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 ///
 /// The handle type is inferred from `rebuild`'s type — both arms of the match
 /// must agree — so a generic record needs no spelled type arguments here.
-pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> RustExpr {
+///
+/// With `adopt` (a live record, see `emitter::live_view`) the rebuilt record
+/// adopts the object behind the view, so the two are one object from then on.
+pub(crate) fn restore_or_rebuild_expr(
+    record: &RustExpr,
+    rebuild: &RustExpr,
+    adopt: bool,
+) -> RustExpr {
+    let view = record.parenthesized_if_needed();
+    let fresh = rebuild.delimited();
+    if adopt {
+        return RustExpr::atom(format!(
+            "match {view}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {{ let smelt_rebuilt = {fresh}; {view}.smelt_adopt(&smelt_rebuilt); smelt_rebuilt }} }}"
+        ));
+    }
     RustExpr::atom(format!(
-        "match {}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {rebuild} }}",
-        record.parenthesized_if_needed(),
-        rebuild = rebuild.delimited()
+        "match {view}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {fresh} }}"
     ))
 }
 
@@ -104,6 +116,11 @@ pub(crate) fn restore_or_rebuild_expr(record: &RustExpr, rebuild: &RustExpr) -> 
 ///
 /// Fields are rebuilt under the same whitelist as the value-record recovery
 /// (`type_supports_from_unknown`); anything else keeps its `Default`.
+///
+/// For a `live` record (`emitter::live_view`) the rebuilt record then ADOPTS
+/// the object it was read from: a plain erased object cast to the record type
+/// is that record from then on, with one identity, shared writes and the
+/// object's own key order.
 pub(crate) fn emit_reference_from_smelt_unknown_impl(
     writer: &mut crate::rust::CodeWriter,
     mir: &smelt_mir::Mir,
@@ -112,8 +129,20 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    live: bool,
 ) {
     let mut assigns = Vec::new();
+    // A live record adopts the plain object it is rebuilt from (see
+    // `emitter::live_view`), but only when every property was carried over:
+    // a field left at its `Default` would otherwise replace, in every view of
+    // that object, the value the object still holds.
+    let adopts = live
+        && fields.iter().all(|field| {
+            !field.visibility.is_own_property()
+                || crate::emitter::record_coercion::type_supports_from_unknown(
+                    mir, context, field.ty,
+                )
+        });
     for field in fields {
         if !field.visibility.is_own_property()
             || !crate::emitter::record_coercion::type_supports_from_unknown(mir, context, field.ty)
@@ -152,6 +181,9 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
                 fn_writer.line("let result = Self::default();");
                 for assign in &assigns {
                     fn_writer.line(assign);
+                }
+                if adopts {
+                    fn_writer.line("smelt_object.smelt_adopt(&result);");
                 }
                 fn_writer.line("result");
             });
