@@ -1234,6 +1234,13 @@ fn object_assign_erased_target() -> TestResult {
     verify_node_parity("object_assign_erased_target")
 }
 
+/// A parameter the call passes no argument for is `undefined`, never `null`,
+/// through a function, a constructor, a static method and a tuple rest element.
+#[test]
+fn missing_argument_undefined() -> TestResult {
+    verify_node_parity("missing_argument_undefined")
+}
+
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
     verify_node_parity("class_inheritance_behaviour")
