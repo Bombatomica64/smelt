@@ -624,6 +624,24 @@ impl FunctionEmitter<'_> {
             } => self.callable_object_assign_expr(callable, props, spreads, dest_ty),
             Rvalue::DictCopy { dict } => self.dict_copy_expr(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_expr(*op, dict),
+            Rvalue::CollectionIterator {
+                op,
+                set,
+                collection,
+            } => self.collection_iterator_expr(*op, *set, collection),
+            Rvalue::CollectionLen { collection, .. } => {
+                let collection_text = self.operand_expr(collection)?;
+                Ok(RustExpr::atom(format!(
+                    "({collection}.smelt_live_len() as f64)",
+                    collection = collection_text.delimited()
+                )))
+            }
+            Rvalue::CollectionAt {
+                op,
+                set,
+                collection,
+                index,
+            } => self.collection_at_expr(*op, *set, collection, index),
             Rvalue::StringSplit {
                 haystack,
                 separator,

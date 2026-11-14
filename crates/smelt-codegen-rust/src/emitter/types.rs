@@ -643,6 +643,7 @@ impl FunctionEmitter<'_> {
             // than a field of the value.
             Some(smelt_stdlib::StdlibClass::DataView) => Some("SmeltDataView"),
             Some(smelt_stdlib::StdlibClass::CryptoKey) => Some("SmeltCryptoKey"),
+            Some(smelt_stdlib::StdlibClass::HostConstructor) => Some("SmeltHostConstructor"),
             // A `Date` is a shared, mutable time value (`smelt-runtime`'s `date.rs`).
             Some(smelt_stdlib::StdlibClass::Date) => Some("SmeltDate"),
             _ => None,

@@ -19,6 +19,40 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // An iterator's `[Symbol.iterator]()` answers the iterator itself:
+        // that is what makes it iterable (`for (const k of map.keys())`).
+        // A synchronous generator (a `function*` result, or a collection
+        // iterator) is one, so the call is the receiver, with its type.
+        if call.arguments.is_empty()
+            && let Expression::StaticMemberExpression(key) = &member.expression
+            && key.property.name == "iterator"
+            && self
+                .host_global(&key.object)
+                .is_some_and(|host| host.name() == "Symbol")
+        {
+            let mark = self.speculation_mark(body);
+            let receiver = self.expression(&member.object, body)?;
+            if matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
+                Some(Type::Generator {
+                    is_async: false,
+                    ..
+                })
+            ) {
+                return Ok(receiver);
+            }
+            self.roll_back_to(mark, body);
+        }
+        self.computed_member_value_call_inner(call, member, body)
+    }
+
+    /// Call `object[key](..)` through the value the member read produces.
+    fn computed_member_value_call_inner(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         // JavaScript evaluates the callee (`object[key]`) before the
         // arguments, so the member read is lowered first.
         let callee = self.computed_member(member, body)?;

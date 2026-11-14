@@ -1,5 +1,6 @@
 //! Control-flow statement lowering (C-style `for`, `for-of`, `for-in`, switch case labels).
 
+use crate::lowering::body_arena::BodyArena;
 use crate::lowering::js_text::js_str_literal;
 use oxc::span::GetSpan;
 
@@ -409,6 +410,205 @@ impl ModuleBuilder<'_> {
         let update_value =
             self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
 
+        body.push_stmt_to_block(
+            block,
+            Stmt::WhileUpdate {
+                cond,
+                body: loop_body,
+                update_target,
+                update_value,
+            },
+        );
+        Ok(())
+    }
+
+    /// The collection a `for...of` over `iter` walks by position, with what
+    /// each item is and its type: a fresh collection iterator
+    /// (`map.keys()`, `set.values()`, `map.entries()`) or a `Map`/`Set`
+    /// itself (whose default iterator is its entries / its values). `None`
+    /// for any other iterable.
+    pub(in crate::lowering) fn collection_for_of_source(
+        &mut self,
+        iter: smelt_hir::ExprId,
+        body: &Body,
+    ) -> Option<(smelt_hir::ExprId, DictProjectionOp, bool, smelt_hir::TypeId)> {
+        if let Some((
+            ExprKind::CollectionIterator {
+                op,
+                set,
+                collection,
+            },
+            ty,
+        )) = body.expr_at(iter).map(|expr| (expr.kind.clone(), expr.ty))
+            && let Some(Type::Generator { yield_ty, .. }) = self.ctx.krate.types.get(ty).cloned()
+        {
+            return Some((collection, op, set, yield_ty));
+        }
+        match self.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned() {
+            Some(Type::Set(item_ty)) => Some((iter, DictProjectionOp::Values, true, item_ty)),
+            Some(Type::JsMap(key_ty, value_ty) | Type::Dict(key_ty, value_ty)) => {
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![key_ty, value_ty]));
+                Some((iter, DictProjectionOp::Entries, false, entry_ty))
+            }
+            _ => None,
+        }
+    }
+
+    /// Lower `for (x of collection)`, `for (x of map.entries())` and the other
+    /// collection iterators to a live positional loop:
+    ///
+    /// ```text
+    /// let collection = <collection>; let index = 0;
+    /// while index < CollectionLen(collection) { let x = CollectionAt(collection, index); <body>; index += 1 }
+    /// ```
+    ///
+    /// The length is re-read at every step, so the loop sees entries added
+    /// while it runs, as JavaScript's iteration does, and there is no iterator
+    /// object or resume call: what a hand-written port's indexed loop is.
+    /// `op` selects the item (keys, values or entries) and `set` whether the
+    /// collection is a `Set`; `item_ty` is the item's type.
+    pub(in crate::lowering) fn lower_collection_for_of(
+        &mut self,
+        for_stmt: &oxc::ast::ast::ForOfStatement<'_>,
+        collection: smelt_hir::ExprId,
+        op: DictProjectionOp,
+        set: bool,
+        item_ty: smelt_hir::TypeId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let ForStatementLeft::VariableDeclaration(decl) = &for_stmt.left else {
+            return Err(SmeltError::unsupported(
+                self.span(for_stmt.left.span().start, for_stmt.left.span().end),
+                "for...of targets must be variable declarations for now",
+            ));
+        };
+        let [declarator] = decl.declarations.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(decl.span.start, decl.span.end),
+                "for...of currently supports exactly one loop binding",
+            ));
+        };
+        let annotated_ty = declarator
+            .type_annotation
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?;
+        let mutable = decl.kind == oxc::ast::ast::VariableDeclarationKind::Let;
+        let span = self.expression_span(&for_stmt.right);
+        let collection_ty = Self::expr_ty(body, collection);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+
+        // The collection is evaluated once, as the iterable is.
+        let collection_symbol = self.intern_synthesized_name("__smelt_collection");
+        let collection_local = body.push_local(LocalDecl {
+            name: Some(collection_symbol),
+            ty: collection_ty,
+            mutable: false,
+            span,
+        });
+        let collection_pat = body.push_pattern(Pattern::Binding(collection_local));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: collection_pat,
+                ty: collection_ty,
+                value: Some(collection),
+            },
+        );
+        let index_symbol = self.intern_synthesized_name("__smelt_index");
+        let index_local = body.push_local(LocalDecl {
+            name: Some(index_symbol),
+            ty: number_ty,
+            mutable: true,
+            span,
+        });
+        let index_pat = body.push_pattern(Pattern::Binding(index_local));
+        let zero = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(0.0)),
+            ty: number_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: index_pat,
+                ty: number_ty,
+                value: Some(zero),
+            },
+        );
+        let read = |kind: ExprKind, ty: smelt_hir::TypeId, arena: &mut Body| {
+            arena.push_expr(Expr { kind, ty, span })
+        };
+
+        // Body: bind the item at the current position, then the statements.
+        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
+        let item_collection = read(ExprKind::Local(collection_local), collection_ty, body);
+        let item_index = read(ExprKind::Local(index_local), number_ty, body);
+        let item = read(
+            ExprKind::CollectionAt {
+                op,
+                set,
+                collection: item_collection,
+                index: item_index,
+            },
+            item_ty,
+            body,
+        );
+        self.binding_declaration(
+            &declarator.id,
+            Some(item),
+            annotated_ty,
+            mutable,
+            body,
+            loop_body,
+        )?;
+        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+            for nested_statement in &block_stmt.body {
+                self.statement_in_block(nested_statement, body, loop_body)?;
+            }
+        } else {
+            self.statement_in_block(&for_stmt.body, body, loop_body)?;
+        }
+
+        // Condition: the position is below the live length.
+        let cond_index = read(ExprKind::Local(index_local), number_ty, body);
+        let cond_collection = read(ExprKind::Local(collection_local), collection_ty, body);
+        let len = read(
+            ExprKind::CollectionLen {
+                set,
+                collection: cond_collection,
+            },
+            number_ty,
+            body,
+        );
+        let cond = read(
+            ExprKind::BinOp {
+                op: smelt_hir::BinOp::Lt,
+                lhs: cond_index,
+                rhs: len,
+            },
+            bool_ty,
+            body,
+        );
+        // Latch: advance the position.
+        let update_target = read(ExprKind::Local(index_local), number_ty, body);
+        let update_current = read(ExprKind::Local(index_local), number_ty, body);
+        let one = read(ExprKind::Literal(Literal::Float(1.0)), number_ty, body);
+        let update_value = read(
+            ExprKind::BinOp {
+                op: smelt_hir::BinOp::Add,
+                lhs: update_current,
+                rhs: one,
+            },
+            number_ty,
+            body,
+        );
         body.push_stmt_to_block(
             block,
             Stmt::WhileUpdate {

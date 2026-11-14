@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13829,
+      "concrete": 13851,
       "generic": 237,
-      "erased": 7794
+      "erased": 7784
     },
     "reads": {
-      "concrete": 341,
+      "concrete": 339,
       "generic": 34,
-      "erased": 1027
+      "erased": 1024
     },
     "calls": {
       "concrete": 2141,
       "generic": 39,
-      "erased": 1258
+      "erased": 1261
     }
   },
   "programs": {
@@ -1516,12 +1516,12 @@
     },
     "src/array/pullAt.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 14,
         "generic": 4,
         "erased": 0
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 0,
         "generic": 0,
         "erased": 0
       },
@@ -3330,7 +3330,7 @@
       "calls": {
         "concrete": 0,
         "generic": 0,
-        "erased": 0
+        "erased": 2
       }
     },
     "src/compat/_internal/normalizeForCase.ts": {
@@ -3364,7 +3364,7 @@
       "calls": {
         "concrete": 0,
         "generic": 0,
-        "erased": 0
+        "erased": 1
       }
     },
     "src/compat/_internal/tags.ts": {
@@ -4326,7 +4326,7 @@
         "erased": 14
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 0,
         "generic": 0,
         "erased": 1
       },
@@ -4882,14 +4882,14 @@
     },
     "src/compat/array/xor.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 23,
         "generic": 0,
         "erased": 13
       },
       "reads": {
         "concrete": 2,
         "generic": 0,
-        "erased": 4
+        "erased": 2
       },
       "calls": {
         "concrete": 1,
@@ -5273,9 +5273,9 @@
     },
     "src/compat/function/memoize.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 12,
         "generic": 0,
-        "erased": 30
+        "erased": 24
       },
       "reads": {
         "concrete": 0,
@@ -7109,14 +7109,14 @@
     },
     "src/compat/predicate/isMatchWith.ts": {
       "values": {
-        "concrete": 131,
+        "concrete": 132,
         "generic": 0,
         "erased": 64
       },
       "reads": {
         "concrete": 1,
         "generic": 0,
-        "erased": 13
+        "erased": 12
       },
       "calls": {
         "concrete": 15,
@@ -9897,7 +9897,7 @@
     },
     "src/object/cloneDeep.spec.ts": {
       "values": {
-        "concrete": 292,
+        "concrete": 294,
         "generic": 0,
         "erased": 123
       },
@@ -10883,9 +10883,9 @@
     },
     "src/predicate/isFunction.spec.ts": {
       "values": {
-        "concrete": 49,
+        "concrete": 62,
         "generic": 0,
-        "erased": 25
+        "erased": 21
       },
       "reads": {
         "concrete": 0,

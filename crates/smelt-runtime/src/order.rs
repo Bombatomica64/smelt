@@ -84,6 +84,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_host_buffer_marker"),
     Entry::Item("smelt_arguments_object"),
     Entry::Item("smelt_regexp_literal"),
+    Entry::Item("SmeltHostConstructor"),
     Entry::Item("smelt_fresh_identity"),
     Entry::Item("smelt_structured_clone"),
     Entry::Item("smelt_prototype_slot_is_observable"),

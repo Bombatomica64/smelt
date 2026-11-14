@@ -89,6 +89,17 @@ impl<K: SmeltJsKeyEq, V> SmeltJsMapStore<K, V> {
 impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltJsMap<K, V> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltJsMap").field("id", &self.id).field("entries", &self.store.borrow().entries).finish() } }
 
 impl<K, V> SmeltJsMap<K, V> {
+    //~ The key, value and entry at insertion position `index`, read live: an
+    //~ iterator over the map (`keys()`, `values()`, `entries()`) steps
+    //~ through these, so it sees entries added after it was made.
+    #[allow(dead_code)]
+    fn smelt_live_len(&self) -> usize { self.store.borrow().entries.len() }
+    #[allow(dead_code)]
+    fn smelt_key_at(&self, index: usize) -> Option<K> where K: Clone { self.store.borrow().entries.get(index).map(|(key, _)| key.clone()) }
+    #[allow(dead_code)]
+    fn smelt_value_at(&self, index: usize) -> Option<V> where V: Clone { self.store.borrow().entries.get(index).map(|(_, value)| value.clone()) }
+    #[allow(dead_code)]
+    fn smelt_entry_at(&self, index: usize) -> Option<(K, V)> where K: Clone, V: Clone { self.store.borrow().entries.get(index).cloned() }
     fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltJsMapStore::new())) } }
     //~ `clear` removes every entry without comparing keys, so it needs no
     //~ `SmeltJsKeyEq`/`Clone` bounds and lives on the unbounded impl block. It
