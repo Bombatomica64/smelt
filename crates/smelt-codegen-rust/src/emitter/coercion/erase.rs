@@ -191,7 +191,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
-                let absent = self.optional_absent_value(*inner);
+                let absent = self.optional_absent_value(ty, *inner);
                 Ok(smelt_owned_text.postfix(self.carrier_format(
                     self.carrier()?,
                     format_args!(
@@ -323,7 +323,16 @@ impl FunctionEmitter<'_> {
     /// answer `null` when nothing matches (ECMA-262), never `undefined`, so an
     /// absent match erases to `null` (`JSON.stringify("zz".match(/\d/))` is
     /// `"null"`, and `m === null` holds through erased dataflow).
-    fn optional_absent_value(&self, inner: TypeId) -> &'static str {
+    ///
+    /// Likewise a type the source writes `T | null` (`optional` is a
+    /// `TypeInterner::intern_null_optional` id): `null` is the only absent
+    /// value it holds, so at this dynamic boundary its `None` is `null`
+    /// (ts-pattern's `.otherwise(() => null)` answer compared with
+    /// `toEqual(null)`). `T | undefined` and optional fields stay `undefined`.
+    fn optional_absent_value(&self, optional: TypeId, inner: TypeId) -> &'static str {
+        if self.mir.types.absent_is_null(optional) {
+            return "SmeltUnknown::Null";
+        }
         match self.mir.types.get(inner) {
             Some(Type::Class { name, .. })
                 if matches!(
@@ -661,7 +670,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
-                let absent = self.optional_absent_value(*inner);
+                let absent = self.optional_absent_value(ty, *inner);
                 Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(self.carrier()?, format_args!(
                     "{}.clone().map_or({absent}, |smelt_value| {value_wrap})",
                     value.parenthesized_if_needed(), value_wrap = value_wrap.delimited()

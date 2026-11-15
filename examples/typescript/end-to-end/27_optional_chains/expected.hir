@@ -60,8 +60,9 @@ interned types
   t4 = User
   t5 = None
   t6 = Optional<User>
-  t7 = Optional<String>
-  t8 = Unknown
-  t9 = Optional<List<Float>>
-  t10 = Optional<Float>
-  t11 = Optional<fn() -> String>
+  t7 = Optional<User>
+  t8 = Optional<String>
+  t9 = Unknown
+  t10 = Optional<List<Float>>
+  t11 = Optional<Float>
+  t12 = Optional<fn() -> String>

@@ -183,7 +183,8 @@ pub(super) fn substitute_type_id(
         }
         Some(Type::Optional(item)) => {
             let substituted_item = substitute_type_id(mir, item, substitutions);
-            mir.types.intern(Type::Optional(substituted_item))
+            // A `T | null` substitutes to `U | null` (its absent value).
+            mir.types.intern_optional_like(ty, substituted_item)
         }
         Some(Type::Union(items)) => {
             let substituted_items = items

@@ -30,8 +30,10 @@ impl Default for NormalizeOptions {
 /// Intern an optional type after applying canonical optional flattening.
 pub fn optional_of(types: &mut TypeInterner, inner: TypeId) -> TypeId {
     let normalized_inner = normalize_type(types, inner, NormalizeOptions::default());
-    if let Some(Type::Optional(nested)) = types.get(normalized_inner).cloned() {
-        return types.intern(Type::Optional(nested));
+    // Already an optional: it is its own flattening, and keeping its id keeps
+    // a `T | null`'s absent value (`TypeInterner::intern_null_optional`).
+    if matches!(types.get(normalized_inner), Some(Type::Optional(_))) {
+        return normalized_inner;
     }
     types.intern(Type::Optional(normalized_inner))
 }
@@ -106,7 +108,17 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
                 .collect();
             types.intern(Type::Tuple(items))
         }
-        Type::Optional(inner) => normalize_optional_type(types, inner, options),
+        Type::Optional(inner) => {
+            let normalized = normalize_optional_type(types, inner, options);
+            // A `T | null` stays one through normalization: its absent value
+            // is `null` (see `TypeInterner::intern_null_optional`).
+            match types.get(normalized).cloned() {
+                Some(Type::Optional(present)) if types.absent_is_null(ty) => {
+                    types.intern_null_optional(present)
+                }
+                _ => normalized,
+            }
+        }
         Type::Union(items) => normalize_union_type(types, items, options),
         Type::Class { name, args } => {
             let args = args
@@ -188,9 +200,10 @@ fn normalize_optional_type(
     let normalized_inner = normalize_type(types, inner, options);
     if options.flatten_optional
         && !options.preserve_observable_absence
-        && let Some(Type::Optional(nested)) = types.get(normalized_inner).cloned()
+        && matches!(types.get(normalized_inner), Some(Type::Optional(_)))
     {
-        return types.intern(Type::Optional(nested));
+        // The nested optional is the flattening; its id keeps `T | null`.
+        return normalized_inner;
     }
     if options.flatten_union_none
         && !options.preserve_observable_absence

@@ -194,6 +194,17 @@ impl ModuleBuilder<'_> {
         if checker_type_joins_null_and_undefined(facts, return_type, 0) {
             return None;
         }
+        // A function answering `null` (and nothing else) returns `null |
+        // undefined`'s optional with the present unit, `null`: a bare `None`
+        // return would erase as a `void` function's `undefined` through a
+        // function adapter (`conditional::null_or_undefined_join`).
+        if matches!(
+            facts.types.get(return_type).map(|ty| &ty.kind),
+            Some(TsTypeKind::Null)
+        ) {
+            let none = self.ctx.krate.types.intern(Type::None);
+            return Some(self.ctx.krate.types.intern(Type::Optional(none)));
+        }
         let records_before = self.ctx.krate.erasures.len();
         let lowered = self
             .respell_and_lower(facts, return_type, start, end)
