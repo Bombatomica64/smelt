@@ -148,7 +148,7 @@ impl ModuleBuilder<'_> {
     /// wrapped in an `UnknownCast`. That was wrong twice over — the
     /// initializer's value was silently gone, AND the cast was emitted at the
     /// record type rather than at `SmeltUnknown`, so the generated crate did
-    /// not even compile (`blocker-logs/standards-module-const-host-value.md`).
+    /// not even compile (`standards-module-const-host-value.md`, in git history).
     ///
     /// A `let`/`var` that IS mutated has already been lifted by
     /// [`Self::collect_mutable_globals`]; one that is not is a `const` in all
@@ -253,7 +253,7 @@ impl ModuleBuilder<'_> {
             // two functions deliberately rebuilds its `SmeltRegExp` wrapper at
             // each use site, because `lastIndex` is observable per object and a
             // shared wrapper would fuse two source objects' scan positions —
-            // see `blocker-logs/module-const-construction-cost.md`, which
+            // see `module-const-construction-cost.md` (in git history), which
             // measured that decision. A slot would be the more faithful
             // reading of `const P = /x/g` (JavaScript really does have ONE
             // object there), but changing it is that note's decision to revisit,
@@ -455,7 +455,7 @@ impl ModuleBuilder<'_> {
             // `cache.field = value`) is lowered: `Place::Global` names the
             // cell as the assignment root, so the mutation happens inside the
             // cell and no copy is made. See
-            // `blocker-logs/hono-h6-place-global.md`.
+            // `hono-h6-place-global.md` (in git history).
             //
             // A NESTED write (`cache[a][b] = value`) still blocks. Its inner
             // projection has to produce a value, and whether that value shares
@@ -681,7 +681,22 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the mutable-global HIR item id for a name, if it was lifted.
+    ///
+    /// This module's own slot answers first. Otherwise the name may be an
+    /// imported slot, which `items` carries under its local name. `items` is
+    /// seeded with every earlier module's items by bare name
+    /// (`visible_items`), so a same-named PRIVATE slot of another module is
+    /// in there too. A binding this module declares at its top level shadows
+    /// that slot, as JavaScript module scope does. Without this rule, date-fns'
+    /// `eo` locale read `en-US`'s `matchMonthPatterns` slot in place of its own
+    /// folded `matchMonthPatterns`.
     pub(in crate::lowering) fn mutable_global_item(&self, name: &str) -> Option<smelt_hir::ItemId> {
+        if let Some(item) = self.mutable_global_items.get(name).copied() {
+            return Some(item);
+        }
+        if self.source_facts.declares_module_value(name) {
+            return None;
+        }
         let item = self.items.get(name).copied()?;
         matches!(self.item_ref(item), Item::MutableGlobal(_)).then_some(item)
     }

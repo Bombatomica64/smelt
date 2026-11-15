@@ -13,6 +13,7 @@ mod const_items;
 mod construction;
 mod forward_arrows;
 mod globals;
+mod identity_slots;
 mod imports;
 mod module_exports;
 mod mutable_globals;

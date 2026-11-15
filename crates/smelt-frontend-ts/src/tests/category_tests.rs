@@ -1103,12 +1103,19 @@ fn typed_array_name_resolves_as_bare_value() -> Result<(), String> {
     let module = module(&ctx, module_id)?;
     let function = named_function_item(&ctx, module, "ctor")?;
     let body = function_body(&ctx, function)?;
+    // Requirement changed: a bare `Uint8Array` used to resolve to a `null`
+    // placeholder typed as the class, which `instanceof` never read (it
+    // resolves the source name) and every other use got wrong (`typeof` was
+    // "object", `new` through it built nothing). Like every host constructor
+    // read as a value, it is now the one interned constructor object, which
+    // is callable and `===` to `instance.constructor`; the
+    // `host_constructor_values` Node-parity fixture pins the behaviour.
     ensure!(
         body.exprs.iter().any(|expr| matches!(
-            ctx.krate.types.get(expr.ty),
-            Some(Type::Class { name, .. }) if ctx.krate.symbols.get(*name) == Some("Uint8Array")
+            &expr.kind,
+            ExprKind::BuiltinNamespace { name } if name == "Uint8Array"
         )),
-        "expected a bare `Uint8Array` to resolve to a Uint8Array class reference",
+        "expected a bare `Uint8Array` to resolve to its interned constructor value",
     );
     Ok(())
 }

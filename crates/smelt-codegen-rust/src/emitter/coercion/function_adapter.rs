@@ -403,8 +403,25 @@ impl FunctionEmitter<'_> {
             )))));
         }
         let target_text = self.rendered_type(target)?;
+        // The adapter is one more representation of the SAME JavaScript
+        // function, so it shares the source's identity: `===`, own properties
+        // and whether it owns a `prototype` (an es-toolkit `partial` result
+        // narrowed to a typed callback still reads the `prototype` it set).
+        // Only a `SmeltErasedFunction` source is surely `'static`; a typed
+        // `Rc` source may borrow a parameter.
+        let (keep, link) = if self.is_erased_unknown_rest_function(source_function)
+            && !source_function.may_throw
+            && self.context.demand().has(Need::Unknown)
+        {
+            (
+                " let smelt_source_callback = smelt_callback.callback.clone();",
+                " smelt_link_function_identity(&smelt_adapted, &smelt_source_callback);",
+            )
+        } else {
+            ("", "")
+        };
         Ok(Some(RustExpr::atom(format!(
-            "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
+            "{{ let smelt_callback = {value_text}.clone();{keep} let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned});{link} smelt_adapted }}",
             arg_decls.join(", "),
             value_text = value_text.tight(),
             returned = returned.delimited()
@@ -1387,6 +1404,14 @@ impl FunctionEmitter<'_> {
                 "{{ let smelt_narrowed_callable = {adapter}; smelt_register_narrowed_callable(&smelt_narrowed_callable, {wide_erasure}); smelt_narrowed_callable }}",
                 adapter = adapter.delimited(),
                 wide_erasure = wide_erasure.delimited()
+            ))));
+        }
+        // A narrowed erased function is the same JavaScript function: the
+        // adapter shares its identity (see the rendered-text adapter above).
+        if source_is_erased && uses_adapted_callback && self.context.demand().has(Need::Unknown) {
+            return Ok(Some(RustExpr::atom(format!(
+                "{{ let smelt_identity_source = ({function_text}).callback.clone(); let smelt_narrowed_callable = {adapter}; smelt_link_function_identity(&smelt_narrowed_callable, &smelt_identity_source); smelt_narrowed_callable }}",
+                adapter = adapter.delimited()
             ))));
         }
         Ok(Some(adapter))

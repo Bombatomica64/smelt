@@ -43,7 +43,7 @@ use crate::generic_bindings::{CalleeTypeParamBindings, bind_record_instantiation
 use crate::rust::RustExpr;
 use crate::type_substitution::TypeSubstitution;
 use smelt_hir::{FunctionType, Symbol, Type, TypeId};
-use smelt_mir::{MirField, Operand, Place};
+use smelt_mir::{LocalId, MirField, Operand, Place, Rvalue, Statement};
 
 /// How one parameter position is passed on each side of the slot seam.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -438,13 +438,11 @@ impl FunctionEmitter<'_> {
         substituted_param: TypeId,
         rendered: RustExpr,
     ) -> Result<RustExpr, EmitError> {
-        let (Operand::Copy(Place::Field { base, field })
-        | Operand::Move(Place::Field { base, field })) = callee
-        else {
+        let Some((base, field)) = self.callee_slot_field(callee) else {
             return Ok(rendered);
         };
-        let base_ty = self.local_decl(*base)?.ty;
-        let Some((declared_ty, bindings)) = self.declared_record_field_slot(base_ty, *field) else {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some((declared_ty, bindings)) = self.declared_record_field_slot(base_ty, field) else {
             return Ok(rendered);
         };
         let Some(Type::Function(declared)) = self.mir.types.get(declared_ty) else {
@@ -533,6 +531,38 @@ impl FunctionEmitter<'_> {
             (declared_ty, &slot),
             (field.ty, &value_side),
         )?))
+    }
+
+    /// The record field a callee holds as it is: the field itself, or a
+    /// temporary copied once from it (the callee a receiver bind wraps). A
+    /// receiver bind's RESULT is not the slot: it is a wrapper at the
+    /// substituted ABI (`bind_this_expr` bridges inside it), so it answers
+    /// `None` like any other callee.
+    pub(super) fn callee_slot_field(&self, callee: &Operand) -> Option<(LocalId, Symbol)> {
+        let (Operand::Copy(start) | Operand::Move(start)) = callee else {
+            return None;
+        };
+        match start {
+            Place::Field { base, field } => Some((*base, *field)),
+            Place::Local(local) => {
+                let copied_from_field = self
+                    .function
+                    .blocks
+                    .iter()
+                    .flat_map(|block| &block.statements)
+                    .any(|statement| {
+                        matches!(statement, Statement::Assign { dest, value: Rvalue::Use(Operand::Copy(Place::Field { .. }) | Operand::Move(Place::Field { .. })) } if dest == local)
+                    });
+                if !copied_from_field {
+                    return None;
+                }
+                match self.single_assigned_source(*local, 0)? {
+                    Place::Field { base, field } => Some((*base, *field)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Apply [`Self::record_slot_abi_adapter`] to a field value, returning

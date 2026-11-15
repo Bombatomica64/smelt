@@ -252,14 +252,12 @@ fn scan__module_main (FuncId(5)) -> Optional<String>
   bb16:
     switch move %29 ? bb17 : bb18
   bb17:
-    %32 = -1.0
-    %7 = move %32
+    %7 = -1.0
     goto bb18
   bb18:
     switch copy %3 ? bb19 : bb20
   bb19:
-    %33 = move %5 + "%"
-    %5 = move %33
+    %5 = move %5 + "%"
     goto bb20
   bb20:
     %34 = -1.0
@@ -271,14 +269,12 @@ fn scan__module_main (FuncId(5)) -> Optional<String>
     %37 = primitive_cast_bool copy %2
     switch move %37 ? bb25 : bb26
   bb23:
-    %36 = move %5 + "?"
-    %5 = move %36
+    %5 = move %5 + "?"
     goto bb24
   bb24:
     goto bb22
   bb25:
-    %38 = move %5 + "m"
-    %5 = move %38
+    %5 = move %5 + "m"
     goto bb26
   bb26:
     %39 = move %4 + 1.0
@@ -294,8 +290,7 @@ fn scan__module_main (FuncId(5)) -> Optional<String>
   bb29:
     %43 = string_slice copy %0, move %39, move %42
     %44 = move %43 + ";"
-    %45 = move %5 + move %44
-    %5 = move %45
+    %5 = move %5 + move %44
     %4 = move %6
     goto bb11
 

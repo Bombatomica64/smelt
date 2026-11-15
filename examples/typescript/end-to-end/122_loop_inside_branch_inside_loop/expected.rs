@@ -771,19 +771,14 @@ fn main() {
     let mut _smelt_tmp_22: bool;
     let mut _smelt_tmp_23: JsString;
     let mut _smelt_tmp_24: f64;
-    let mut _smelt_tmp_25: usize;
     let mut _smelt_tmp_26: JsString;
     let mut _smelt_tmp_27: f64;
-    let mut _smelt_tmp_28: usize;
     let mut _smelt_tmp_29: JsString;
     let mut _smelt_tmp_31: bool;
     let mut _smelt_tmp_32: f64;
     let mut _smelt_tmp_33: bool;
     let mut _smelt_tmp_34: usize;
     let mut _smelt_tmp_35: bool;
-    let mut _smelt_tmp_36: f64;
-    let mut _smelt_tmp_37: usize;
-    let mut _smelt_tmp_38: usize;
     let mut _smelt_tmp_43: SmeltList<JsString>;
     let mut _smelt_tmp_44: SmeltList<JsString>;
     let mut _smelt_tmp_46: bool;
@@ -797,8 +792,6 @@ fn main() {
     let mut _smelt_tmp_55: bool;
     let mut _smelt_tmp_56: f64;
     let mut _smelt_tmp_57: f64;
-    let mut _smelt_tmp_58: usize;
-    let mut _smelt_tmp_59: usize;
     let mut _smelt_tmp_60: JsString;
     let mut _smelt_tmp_62: f64;
     let mut _smelt_tmp_63: f64;
@@ -817,20 +810,17 @@ fn main() {
     while i_1 < len_1 {
     _smelt_tmp_23 = JsString::new() + &JsString::from(smelt_number_to_string(row.borrow().get(i_1).cloned().unwrap_or_else(|| 0.0)));
     _smelt_tmp_24 = { let smelt_push_item = _smelt_tmp_23; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_25 = i_1 + 1;
-    i_1 = _smelt_tmp_25;
+    i_1 = i_1 + 1;
     }
     _smelt_tmp_62 = i as f64;
     _smelt_tmp_26 = JsString::from("/") + &JsString::from(smelt_number_to_string(_smelt_tmp_62));
     _smelt_tmp_27 = { let smelt_push_item = _smelt_tmp_26; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_28 = i + 1;
-    i = _smelt_tmp_28;
+    i = i + 1;
     } else {
     _smelt_tmp_62 = i as f64;
     _smelt_tmp_26 = JsString::from("/") + &JsString::from(smelt_number_to_string(_smelt_tmp_62));
     _smelt_tmp_27 = { let smelt_push_item = _smelt_tmp_26; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_28 = i + 1;
-    i = _smelt_tmp_28;
+    i = i + 1;
     continue;
     }
     }
@@ -851,16 +841,12 @@ fn main() {
     _smelt_tmp_35 = j < _smelt_tmp_34;
     if !(_smelt_tmp_35) { break; }
     _smelt_tmp_64 = j as f64;
-    _smelt_tmp_36 = total + _smelt_tmp_64;
-    total = _smelt_tmp_36;
-    _smelt_tmp_37 = j + 1;
-    j = _smelt_tmp_37;
+    total = total + _smelt_tmp_64;
+    j = j + 1;
     }
-    _smelt_tmp_38 = k + 1;
-    k = _smelt_tmp_38;
+    k = k + 1;
     } else {
-    _smelt_tmp_38 = k + 1;
-    k = _smelt_tmp_38;
+    k = k + 1;
     continue;
     }
     }
@@ -901,8 +887,7 @@ fn main() {
     continue;
     }
     }
-    _smelt_tmp_58 = j_1 + 1;
-    j_1 = _smelt_tmp_58;
+    j_1 = j_1 + 1;
     } else {
     _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get(j_1).cloned().unwrap_or_else(|| SmeltList::new(Vec::<JsString>::new())));
     _smelt_tmp_52 = 0;
@@ -922,12 +907,10 @@ fn main() {
     continue;
     }
     }
-    _smelt_tmp_58 = j_1 + 1;
-    j_1 = _smelt_tmp_58;
+    j_1 = j_1 + 1;
     }
     }
-    _smelt_tmp_59 = r + 1;
-    r = _smelt_tmp_59;
+    r = r + 1;
     }
     _smelt_tmp_60 = JsString::join(seen.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_60); };

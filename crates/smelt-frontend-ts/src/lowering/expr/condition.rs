@@ -56,6 +56,36 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
             return Ok(cond);
         }
+        // A read by key from a string-keyed dictionary (`formatters[c]` on a
+        // `{ [token: string]: Formatter }`) is typed as the value type, but a
+        // key the dictionary does not hold reads as `undefined`. When the value
+        // type is always truthy (a function, a class instance), presence alone
+        // decides the test, so it is the key probe rather than a constant
+        // `true`: folding it made every missing key look present (date-fns'
+        // `format` took `-`, ` ` and `:` for tokens and printed nothing for
+        // them). A value type that can be falsy reads a missing key as its
+        // default (`0`, `""`, `false`), which is already falsy.
+        if matches!(
+            self.ctx.krate.types.get(cond_ty),
+            Some(Type::Function(_) | Type::Class { .. })
+        ) && let Some(ExprKind::Index { receiver, index }) =
+            body.expr_at(cond).map(|expr| expr.kind.clone())
+            && matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
+                Some(Type::Dict(key, _)) if matches!(self.ctx.krate.types.get(*key), Some(Type::String | Type::PropKey))
+            )
+        {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictContainsKey {
+                    dict: receiver,
+                    key: index,
+                    lookup: smelt_hir::PropertyLookup::Own,
+                },
+                ty,
+                span,
+            }));
+        }
         // A function or class value is always truthy in JavaScript, and so is a
         // type parameter whose constraint pins it to an object surface. An
         // unconstrained `T`, however, can hold `0`, `-0`, `NaN`, `""`, `false`,

@@ -5,11 +5,13 @@ module examples/typescript/end-to-end/73_set_insertion_order/input.ts (ModuleId(
     %1 const seen: List<String>
     %2 const value: String
     %3 const iterated: List<String>
-    %4 let value: String
-    %5 const letterList: Set<String>
-    %6 const numbers: Set<Float>
-    %7 const flags: Set<Bool>
-    %8 const same: Set<String>
+    %4 const __smelt_collection: Set<String>
+    %5 let __smelt_index: Float
+    %6 const value: String
+    %7 const letterList: Set<String>
+    %8 const numbers: Set<Float>
+    %9 const flags: Set<Bool>
+    %10 const same: Set<String>
   exprs
     #0: String = "hello"
     #1: List<String> = string_chars #0
@@ -33,96 +35,105 @@ module examples/typescript/end-to-end/73_set_insertion_order/input.ts (ModuleId(
     #19: None = call #18(#17)
     #20: List<String> = []
     #21: Set<String> = %0
-    #22: List<String> = set_values #21
-    #23: List<String> = %3
-    #24: String = %4
-    #25: Float = list_push #23, #24
+    #22: Float = 0.0
+    #23: Set<String> = %4
+    #24: Float = %5
+    #25: String = collection_at values set=true #23[#24]
     #26: List<String> = %3
-    #27: String = "|"
-    #28: String = string_join #26, #27
-    #29: None = @2(console_log)
-    #30: None = call #29(#28)
-    #31: Set<String> = %0
-    #32: List<String> = set_values #31
-    #33: String = "|"
-    #34: String = string_join #32, #33
-    #35: None = @3(console_log)
-    #36: None = call #35(#34)
-    #37: Set<String> = %0
-    #38: List<String> = set_values #37
-    #39: List<String> = []
-    #40: List<String> = list_concat #38, #39
-    #41: String = "|"
-    #42: String = string_join #40, #41
-    #43: None = @4(console_log)
-    #44: None = call #43(#42)
-    #45: Set<String> = %0
-    #46: List<String> = set_values #45
-    #47: List<String> = []
-    #48: List<String> = list_concat #46, #47
-    #49: String = "|"
-    #50: String = string_join #48, #49
-    #51: None = @5(console_log)
-    #52: None = call #51(#50)
-    #53: String = "c"
-    #54: String = "a"
-    #55: String = "b"
-    #56: Set<String> = set{#53, #54, #55}
-    #57: Set<String> = %5
-    #58: String = "a"
-    #59: Bool = set_delete #57, #58
-    #60: Set<String> = %5
-    #61: String = "z"
-    #62: Set<String> = set_add #60, #61
-    #63: Set<String> = %5
-    #64: String = "c"
-    #65: Set<String> = set_add #63, #64
-    #66: Set<String> = %5
-    #67: List<String> = set_values #66
-    #68: String = "|"
-    #69: String = string_join #67, #68
-    #70: None = @6(console_log)
-    #71: None = call #70(#69)
-    #72: Set<String> = %5
-    #73: Float = len #72
-    #74: None = @7(console_log)
-    #75: None = call #74(#73)
-    #76: Float = 30.0
-    #77: Float = 10.0
-    #78: Float = 20.0
-    #79: Float = 10.0
-    #80: Set<Float> = set{#76, #77, #78, #79}
-    #81: Set<Float> = %6
-    #82: List<Float> = set_values #81
-    #83: String = "|"
-    #84: String = string_join #82, #83
-    #85: None = @8(console_log)
-    #86: None = call #85(#84)
-    #87: Bool = true
-    #88: Bool = false
-    #89: Bool = true
-    #90: Set<Bool> = set{#87, #88, #89}
-    #91: Set<Bool> = %7
-    #92: List<Bool> = set_values #91
-    #93: fn(Bool, Int, List<Bool>) -> String = closure BodyId(0) captures 0 -> String
-    #94: List<String> = list_map #92, #93
-    #95: String = "|"
-    #96: String = string_join #94, #95
-    #97: None = @9(console_log)
-    #98: None = call #97(#96)
-    #99: Set<String> = %0
-    #100: Set<String> = %8
-    #101: Set<String> = %0
-    #102: Bool = JsStrictEq #100, #101
-    #103: None = @10(console_log)
-    #104: None = call #103(#102)
-    #105: String = "hello"
-    #106: List<String> = string_chars #105
-    #107: Set<String> = list_to_set #106
+    #27: String = %6
+    #28: Float = list_push #26, #27
+    #29: Float = %5
+    #30: Set<String> = %4
+    #31: Float = collection_len set=true #30
+    #32: Bool = Lt #29, #31
+    #33: Float = %5
+    #34: Float = %5
+    #35: Float = 1.0
+    #36: Float = Add #34, #35
+    #37: List<String> = %3
+    #38: String = "|"
+    #39: String = string_join #37, #38
+    #40: None = @2(console_log)
+    #41: None = call #40(#39)
+    #42: Set<String> = %0
+    #43: List<String> = set_values #42
+    #44: String = "|"
+    #45: String = string_join #43, #44
+    #46: None = @3(console_log)
+    #47: None = call #46(#45)
+    #48: Set<String> = %0
+    #49: Generator<String, None, None> = collection_iterator values set=true #48
+    #50: List<String> = set_values #48
+    #51: String = "|"
+    #52: String = string_join #50, #51
+    #53: None = @4(console_log)
+    #54: None = call #53(#52)
+    #55: Set<String> = %0
+    #56: Generator<String, None, None> = collection_iterator values set=true #55
+    #57: List<String> = set_values #55
+    #58: String = "|"
+    #59: String = string_join #57, #58
+    #60: None = @5(console_log)
+    #61: None = call #60(#59)
+    #62: String = "c"
+    #63: String = "a"
+    #64: String = "b"
+    #65: Set<String> = set{#62, #63, #64}
+    #66: Set<String> = %7
+    #67: String = "a"
+    #68: Bool = set_delete #66, #67
+    #69: Set<String> = %7
+    #70: String = "z"
+    #71: Set<String> = set_add #69, #70
+    #72: Set<String> = %7
+    #73: String = "c"
+    #74: Set<String> = set_add #72, #73
+    #75: Set<String> = %7
+    #76: List<String> = set_values #75
+    #77: String = "|"
+    #78: String = string_join #76, #77
+    #79: None = @6(console_log)
+    #80: None = call #79(#78)
+    #81: Set<String> = %7
+    #82: Float = len #81
+    #83: None = @7(console_log)
+    #84: None = call #83(#82)
+    #85: Float = 30.0
+    #86: Float = 10.0
+    #87: Float = 20.0
+    #88: Float = 10.0
+    #89: Set<Float> = set{#85, #86, #87, #88}
+    #90: Set<Float> = %8
+    #91: List<Float> = set_values #90
+    #92: String = "|"
+    #93: String = string_join #91, #92
+    #94: None = @8(console_log)
+    #95: None = call #94(#93)
+    #96: Bool = true
+    #97: Bool = false
+    #98: Bool = true
+    #99: Set<Bool> = set{#96, #97, #98}
+    #100: Set<Bool> = %9
+    #101: List<Bool> = set_values #100
+    #102: fn(Bool, Int, List<Bool>) -> String = closure BodyId(0) captures 0 -> String
+    #103: List<String> = list_map #101, #102
+    #104: String = "|"
+    #105: String = string_join #103, #104
+    #106: None = @9(console_log)
+    #107: None = call #106(#105)
     #108: Set<String> = %0
-    #109: Bool = JsStrictEq #107, #108
-    #110: None = @11(console_log)
-    #111: None = call #110(#109)
+    #109: Set<String> = %10
+    #110: Set<String> = %0
+    #111: Bool = JsStrictEq #109, #110
+    #112: None = @10(console_log)
+    #113: None = call #112(#111)
+    #114: String = "hello"
+    #115: List<String> = string_chars #114
+    #116: Set<String> = list_to_set #115
+    #117: Set<String> = %0
+    #118: Bool = JsStrictEq #116, #117
+    #119: None = @11(console_log)
+    #120: None = call #119(#118)
   stmts
     s0: let %0: Set<String> = #2
     s1: #8
@@ -131,25 +142,28 @@ module examples/typescript/end-to-end/73_set_insertion_order/input.ts (ModuleId(
     s4: for %2 in #11 BlockId(1)
     s5: #19
     s6: let %3: List<String> = #20
-    s7: #25
-    s8: for %4 in #22 BlockId(2)
-    s9: #30
-    s10: #36
-    s11: #44
-    s12: #52
-    s13: let %5: Set<String> = #56
-    s14: #59
-    s15: #62
-    s16: #65
-    s17: #71
-    s18: #75
-    s19: let %6: Set<Float> = #80
-    s20: #86
-    s21: let %7: Set<Bool> = #90
-    s22: #98
-    s23: let %8: Set<String> = #99
-    s24: #104
-    s25: #111
+    s7: let %4: Set<String> = #21
+    s8: let %5: Float = #22
+    s9: let %6: String = #25
+    s10: #28
+    s11: while #32 BlockId(2) update #33 = #36
+    s12: #41
+    s13: #47
+    s14: #54
+    s15: #61
+    s16: let %7: Set<String> = #65
+    s17: #68
+    s18: #71
+    s19: #74
+    s20: #80
+    s21: #84
+    s22: let %8: Set<Float> = #89
+    s23: #95
+    s24: let %9: Set<Bool> = #99
+    s25: #107
+    s26: let %10: Set<String> = #108
+    s27: #113
+    s28: #120
 
 interned types
   t0 = String
@@ -160,8 +174,9 @@ interned types
   t5 = Bool
   t6 = Set<Bool>
   t7 = None
-  t8 = List<Float>
-  t9 = List<Bool>
-  t10 = Int
-  t11 = Unknown
-  t12 = fn(Bool, Int, List<Bool>) -> String
+  t8 = Generator<String, None, None>
+  t9 = List<Float>
+  t10 = List<Bool>
+  t11 = Int
+  t12 = Unknown
+  t13 = fn(Bool, Int, List<Bool>) -> String

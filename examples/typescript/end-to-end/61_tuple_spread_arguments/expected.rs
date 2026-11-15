@@ -778,7 +778,6 @@ fn main() {
     let mut __smelt_spread_5: (JsString, JsString, f64);
     let mut _smelt_tmp_15: usize;
     let mut _smelt_tmp_16: bool;
-    let mut _smelt_tmp_19: usize;
     let mut _smelt_tmp_23: ::std::rc::Rc<dyn Fn(JsString, JsString, f64) -> JsString>;
     let mut _smelt_tmp_24: JsString;
     let mut _smelt_tmp_32: f64;
@@ -795,8 +794,7 @@ fn main() {
     __smelt_spread = routes.borrow().get(i).cloned().unwrap_or_else(|| (JsString::new(), JsString::new(), 0.0));
     let _smelt_tmp_17: JsString = record(__smelt_spread.0.clone(), __smelt_spread.1.clone(), __smelt_spread.2);
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = i + 1;
-    i = _smelt_tmp_19;
+    i = i + 1;
     }
     tail = (JsString::from("/c"), 7.0);
     __smelt_spread_1 = tail;

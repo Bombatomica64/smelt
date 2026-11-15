@@ -18,6 +18,19 @@ impl ModuleBuilder<'_> {
         &mut self,
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
+        self.push_type_parameter_scope_carrying(params, &HashMap::new())
+    }
+
+    /// [`Self::push_type_parameter_scope`] where each parameter named in
+    /// `element_carried` stands for a list: its name resolves to `List(T)`, or
+    /// to `List(bound)` when the map gives it a concrete element bound, and
+    /// its lowered constraint and default are the element types of the
+    /// declared ones (see `ty/element_params.rs`).
+    pub(in crate::lowering) fn push_type_parameter_scope_carrying(
+        &mut self,
+        params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
+        element_carried: &HashMap<String, Option<smelt_hir::TypeId>>,
+    ) -> Result<Vec<TypeParamDef>, SmeltError> {
         let Some(params) = params else {
             self.types.push_param_types(HashMap::new());
             self.types.push_param_constraints(HashMap::new());
@@ -27,7 +40,10 @@ impl ModuleBuilder<'_> {
         let mut scope = HashMap::new();
         for param in &params.params {
             let name = self.intern_declared_type_param(param);
-            let ty = self.ctx.krate.types.intern(Type::TypeParam { name });
+            let mut ty = self.ctx.krate.types.intern(Type::TypeParam { name });
+            if let Some(bound) = element_carried.get(param.name.name.as_str()) {
+                ty = self.ctx.krate.types.intern(Type::List(bound.unwrap_or(ty)));
+            }
             scope.insert(param.name.name.to_string(), ty);
         }
         self.types.push_param_types(scope);
@@ -46,6 +62,12 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|constraint| self.ts_type_to_hir(constraint))
                     .transpose()?;
+                let carried = element_carried.contains_key(param.name.name.as_str());
+                let constraint = constraint
+                    .map(|ty| self.carried_element_or_self(ty, carried))
+                    .filter(|ty| {
+                        !carried || !matches!(self.ctx.krate.types.get(*ty), Some(Type::Unknown))
+                    });
                 if let Some(constraint) = constraint {
                     constraints.insert(name, constraint);
                 }
@@ -53,7 +75,8 @@ impl ModuleBuilder<'_> {
                     .default
                     .as_ref()
                     .map(|default| self.ts_type_to_hir(default))
-                    .transpose()?;
+                    .transpose()?
+                    .map(|ty| self.carried_element_or_self(ty, carried));
                 lowered.push(TypeParamDef {
                     name,
                     constraint,
@@ -539,7 +562,7 @@ impl ModuleBuilder<'_> {
         let mut substitutions = HashMap::new();
         for (idx, param) in type_params.iter().enumerate() {
             let actual = if let Some(arg) = args.get(idx) {
-                *arg
+                self.explicit_type_argument_binding(param, *arg)
             } else if let Some(default) = param.default {
                 self.substitute_type_params(default, &substitutions)
             } else {

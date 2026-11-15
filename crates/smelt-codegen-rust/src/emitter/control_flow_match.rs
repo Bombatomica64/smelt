@@ -276,7 +276,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a constant to a Rust match label for the scrutinee type.
-    fn match_label_text_for_scrutinee(&self, constant: &Constant, scrutinee_ty: TypeId) -> String {
+    pub(super) fn match_label_text_for_scrutinee(
+        &self,
+        constant: &Constant,
+        scrutinee_ty: TypeId,
+    ) -> String {
         if matches!(
             self.mir.types.get(scrutinee_ty),
             Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)

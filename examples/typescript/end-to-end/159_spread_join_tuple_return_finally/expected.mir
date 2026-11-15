@@ -123,8 +123,7 @@ async fn caught (FuncId(6)) -> String
   bb5:
     %5 = await move %4 -> bb6 unwind bb3
   bb6:
-    %6 = "unreachable " + move %1
-    %0 = move %6
+    %0 = "unreachable " + move %1
     goto bb2
   bb7:
     %9 = external_new28("multiple times", "")

@@ -561,6 +561,9 @@ impl FunctionEmitter<'_> {
             | Rvalue::BindThis {
                 callee: Operand::Copy(place) | Operand::Move(place),
                 ..
+            }
+            | Rvalue::BindOwnThis {
+                callee: Operand::Copy(place) | Operand::Move(place),
             } => Some(place),
             _ => None,
         }

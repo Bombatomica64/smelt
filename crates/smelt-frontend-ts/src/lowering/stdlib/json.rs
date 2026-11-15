@@ -469,6 +469,10 @@ impl ModuleBuilder<'_> {
             // serializes a bare function is doing something the `string` return
             // type does not describe and deserves to be told.
             Type::Function(_) => nested,
+            // An iterator object (`JSON.stringify(map.keys())`) serializes as
+            // `{}`: its state is not an own enumerable property. It crosses as
+            // its erasure, whose `next` and marker are hidden.
+            Type::Generator { is_async: false, .. } => true,
             Type::Never
             | Type::Future(_)
             | Type::Generator { .. }
@@ -527,7 +531,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return fields for class-like TypeScript types that can map to JSON objects.
-    fn json_class_fields(
+    pub(in crate::lowering) fn json_class_fields(
         &mut self,
         name: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],

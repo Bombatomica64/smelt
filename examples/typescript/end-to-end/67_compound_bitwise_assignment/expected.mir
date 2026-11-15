@@ -38,8 +38,7 @@ fn constant_time_equal_string (FuncId(0)) -> Bool
     %14 = copy %6 < copy %2
     switch move %14 ? bb5 : bb6
   bb3:
-    %22 = move %6 + 1.0
-    %6 = move %22
+    %6 = move %6 + 1.0
     goto bb1
   bb4:
     %23 = move %5 == 0.0
@@ -63,8 +62,7 @@ fn constant_time_equal_string (FuncId(0)) -> Bool
   bb10:
     %8 = move %18
     %20 = move %7 ^ move %8
-    %21 = move %5 | move %20
-    %5 = move %21
+    %5 = move %5 | move %20
     goto bb3
 
 fn main (FuncId(1)) -> None
@@ -110,38 +108,31 @@ fn main (FuncId(1)) -> None
     %38 temp: None
   bb0:
     %0 = 5.0 ^ 3.0
-    %11 = move %0 | 8.0
-    %0 = move %11
+    %0 = move %0 | 8.0
     %12 = call @console_log(move %0) -> bb1
   bb1:
     %1 = 255.0
-    %13 = move %1 & 15.0
-    %1 = move %13
+    %1 = move %1 & 15.0
     %14 = call @console_log(move %1) -> bb2
   bb2:
     %2 = 1.0
-    %15 = move %2 << 4.0
-    %2 = move %15
+    %2 = move %2 << 4.0
     %16 = call @console_log(move %2) -> bb3
   bb3:
     %3 = -16.0
-    %18 = move %3 >> 2.0
-    %3 = move %18
+    %3 = move %3 >> 2.0
     %19 = call @console_log(move %3) -> bb4
   bb4:
     %4 = -16.0
-    %21 = move %4 >>> 28.0
-    %4 = move %21
+    %4 = move %4 >>> 28.0
     %22 = call @console_log(move %4) -> bb5
   bb5:
     %5 = 17.0
-    %23 = move %5 % 5.0
-    %5 = move %23
+    %5 = move %5 % 5.0
     %24 = call @console_log(move %5) -> bb6
   bb6:
     %6 = 6.0
-    %25 = move %6 ^ 3.0
-    %6 = move %25
+    %6 = move %6 ^ 3.0
     %26 = call @console_log(move %6) -> bb7
   bb7:
     %7 = [1.0, 2.0, 3.0, 4.0]
@@ -154,8 +145,7 @@ fn main (FuncId(1)) -> None
     switch move %30 ? bb9 : bb11
   bb9:
     %9 = copy %7[copy %28]
-    %31 = move %8 | move %9
-    %8 = move %31
+    %8 = move %8 | move %9
     goto bb10
   bb10:
     %28 = copy %28 + 1

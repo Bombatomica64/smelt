@@ -3279,8 +3279,21 @@ function call(values: readonly unknown[]): unknown {
     Ok(())
 }
 
+/// Spreading an array-constrained generic parameter into a rest list passes
+/// the list it already is.
+///
+/// Corrected expectation (element-carried type parameters,
+/// `lowering/ty/element_params.rs`):
+/// - old requirement: `values: Values` was a bare type parameter, so the
+///   spread had to be extracted into a rest list through an `UnknownCast`;
+/// - new requirement: `Values extends unknown[]` is carried as its element,
+///   so `values` is `List<Values>` and reaches the rest list as a list, with
+///   no cast;
+/// - evidence: the source constrains `Values` to an array, so every value of
+///   it is a list at run time; the program `call([1, "two", true])` prints
+///   the same three rest elements as Node.
 #[test]
-fn casts_generic_array_spread_to_rest_list_before_concatenation() -> Result<(), String> {
+fn spreads_array_constrained_generic_into_rest_list_as_a_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -3298,12 +3311,12 @@ function call<Values extends unknown[]>(values: Values): unknown[] {
     let body = function_body(&ctx, function_item(&ctx, module, 1)?)?;
 
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            expr.kind,
-            ExprKind::UnknownCast { target, .. }
-                if matches!(ctx.krate.types.get(target), Some(Type::List(_)))
+        body.locals.iter().any(|local| matches!(
+            ctx.krate.types.get(local.ty),
+            Some(Type::List(item))
+                if matches!(ctx.krate.types.get(*item), Some(Type::TypeParam { .. }))
         )),
-        "generic spread array was not extracted as a rest list"
+        "the array-constrained parameter is not a list of its element"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -4030,10 +4043,14 @@ function run(): void {
     let _module = module(&ctx, module_id)?;
 
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `Params extends any[]` is carried as its element
+    // (`lowering/ty/element_params.rs`), so `readonly Params[]` (a list of
+    // argument arrays) is a list of lists of it; before the rule the erased
+    // `Params` stood for each whole array and the slot read `List<Params>`.
     ensure_signature(
         &ctx,
         "batch",
-        "batch<Params, BatchResponse>(callback: fn(List<Params>) -> Future<BatchResponse>) -> None",
+        "batch<Params, BatchResponse>(callback: fn(List<List<Params>>) -> Future<BatchResponse>) -> None",
     )?;
     ensure_signature(&ctx, "run", "run() -> None")?;
     ensure_exprs!(&ctx, VitestMockFn, AsyncOp, Await);
@@ -7843,6 +7860,9 @@ function keysFromMap(input: Map<string, number>, opaque: unknown) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `input.keys()` is a live iterator (`CollectionIterator`), but one that
+    // `Array.from` drains where it is made is the projection itself
+    // (`generator_items_expr`), so the drained list is a `DictProjection`.
     // `Array.from(opaque)` used to be an `UnknownCast` of the erased value,
     // which aliased an erased array; it is now a copy of it (`ListCopy`), a
     // NEW array as in JavaScript.
@@ -7901,6 +7921,8 @@ function clone(input: Map<string, number>, values: unknown[]) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `input.entries()` drained by the Map constructor where it is made is
+    // the entries projection (`generator_items_expr`).
     ensure_exprs!(&ctx, ListPairsToDict, ListCallback, DictProjection);
     Ok(())
 }
@@ -10691,7 +10713,7 @@ export const now = (): number => Date.now();
 /// which is why a report of radash's `class Person { friends: Person[] = [];
 /// self?: Person }` emitting a field-less struct could not be checked against a
 /// test. (That report did not reproduce — see
-/// `blocker-logs/radash-self-referential-class.md` — and this fixture exists so
+/// `radash-self-referential-class.md` (in git history) — and this fixture exists so
 /// the next such claim is answered by a run rather than by an argument.)
 #[test]
 fn self_referential_class_keeps_fields_and_constructor_arity() -> Result<(), String> {

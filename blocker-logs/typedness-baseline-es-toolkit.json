@@ -2,19 +2,19 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13835,
-      "generic": 342,
-      "erased": 7723
+      "concrete": 13664,
+      "generic": 351,
+      "erased": 7491
     },
     "reads": {
-      "concrete": 342,
-      "generic": 49,
-      "erased": 1011
+      "concrete": 340,
+      "generic": 50,
+      "erased": 1006
     },
     "calls": {
-      "concrete": 2143,
+      "concrete": 2161,
       "generic": 63,
-      "erased": 1234
+      "erased": 1212
     }
   },
   "programs": {
@@ -173,7 +173,7 @@
     },
     "src/array/at.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 2,
         "erased": 0
       },
@@ -207,7 +207,7 @@
     },
     "src/array/cartesianProduct.ts": {
       "values": {
-        "concrete": 23,
+        "concrete": 18,
         "generic": 7,
         "erased": 0
       },
@@ -241,7 +241,7 @@
     },
     "src/array/chunk.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 3,
         "erased": 2
       },
@@ -275,7 +275,7 @@
     },
     "src/array/combinations.ts": {
       "values": {
-        "concrete": 25,
+        "concrete": 21,
         "generic": 0,
         "erased": 11
       },
@@ -309,7 +309,7 @@
     },
     "src/array/compact.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 3
       },
@@ -343,7 +343,7 @@
     },
     "src/array/countBy.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 2,
         "erased": 2
       },
@@ -412,8 +412,8 @@
     "src/array/differenceBy.ts": {
       "values": {
         "concrete": 2,
-        "generic": 0,
-        "erased": 15
+        "generic": 6,
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -479,7 +479,7 @@
     },
     "src/array/drop.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 1,
         "generic": 2,
         "erased": 0
       },
@@ -513,7 +513,7 @@
     },
     "src/array/dropRight.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 3,
         "erased": 0
       },
@@ -547,7 +547,7 @@
     },
     "src/array/dropRightWhile.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 4,
         "erased": 0
       },
@@ -615,7 +615,7 @@
     },
     "src/array/fill.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 5
       },
@@ -632,9 +632,9 @@
     },
     "src/array/filterAsync.spec.ts": {
       "values": {
-        "concrete": 87,
+        "concrete": 95,
         "generic": 0,
-        "erased": 25
+        "erased": 17
       },
       "reads": {
         "concrete": 0,
@@ -700,9 +700,9 @@
     },
     "src/array/flatMapAsync.spec.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 97,
         "generic": 0,
-        "erased": 61
+        "erased": 35
       },
       "reads": {
         "concrete": 0,
@@ -710,9 +710,9 @@
         "erased": 9
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 6,
         "generic": 0,
-        "erased": 8
+        "erased": 4
       }
     },
     "src/array/flatMapAsync.ts": {
@@ -785,9 +785,9 @@
     },
     "src/array/flatten.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 12,
         "generic": 0,
-        "erased": 14
+        "erased": 12
       },
       "reads": {
         "concrete": 0,
@@ -836,9 +836,9 @@
     },
     "src/array/forEachAsync.spec.ts": {
       "values": {
-        "concrete": 58,
+        "concrete": 62,
         "generic": 0,
-        "erased": 21
+        "erased": 17
       },
       "reads": {
         "concrete": 0,
@@ -887,7 +887,7 @@
     },
     "src/array/forEachRight.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 3,
         "erased": 0
       },
@@ -921,7 +921,7 @@
     },
     "src/array/groupBy.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 5
       },
@@ -1074,7 +1074,7 @@
     },
     "src/array/intersectionBy.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 8
       },
@@ -1210,7 +1210,7 @@
     },
     "src/array/keyBy.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 5
       },
@@ -1280,7 +1280,7 @@
       "values": {
         "concrete": 9,
         "generic": 0,
-        "erased": 10
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -1295,9 +1295,9 @@
     },
     "src/array/mapAsync.spec.ts": {
       "values": {
-        "concrete": 56,
+        "concrete": 64,
         "generic": 0,
-        "erased": 34
+        "erased": 26
       },
       "reads": {
         "concrete": 0,
@@ -1305,9 +1305,9 @@
         "erased": 9
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 4,
         "generic": 0,
-        "erased": 5
+        "erased": 3
       }
     },
     "src/array/mapAsync.ts": {
@@ -1346,7 +1346,7 @@
     },
     "src/array/maxBy.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 4,
         "erased": 0
       },
@@ -1380,7 +1380,7 @@
     },
     "src/array/minBy.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 4,
         "erased": 0
       },
@@ -1414,7 +1414,7 @@
     },
     "src/array/orderBy.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
         "erased": 15
       },
@@ -1448,7 +1448,7 @@
     },
     "src/array/partition.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 6,
         "erased": 0
       },
@@ -1482,7 +1482,7 @@
     },
     "src/array/pull.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 4
       },
@@ -1521,7 +1521,7 @@
         "erased": 0
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 0,
         "generic": 0,
         "erased": 0
       },
@@ -1533,9 +1533,9 @@
     },
     "src/array/reduceAsync.spec.ts": {
       "values": {
-        "concrete": 152,
+        "concrete": 177,
         "generic": 0,
-        "erased": 89
+        "erased": 63
       },
       "reads": {
         "concrete": 3,
@@ -1543,16 +1543,16 @@
         "erased": 27
       },
       "calls": {
-        "concrete": 14,
+        "concrete": 18,
         "generic": 0,
-        "erased": 9
+        "erased": 5
       }
     },
     "src/array/reduceAsync.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
-        "erased": 8
+        "erased": 7
       },
       "reads": {
         "concrete": 0,
@@ -1584,7 +1584,7 @@
     },
     "src/array/remove.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 17,
         "generic": 5,
         "erased": 0
       },
@@ -1652,7 +1652,7 @@
     },
     "src/array/sampleSize.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 12,
         "generic": 1,
         "erased": 5
       },
@@ -1686,7 +1686,7 @@
     },
     "src/array/shuffle.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 3,
         "erased": 0
       },
@@ -1856,7 +1856,7 @@
     },
     "src/array/takeRightWhile.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 4,
         "erased": 0
       },
@@ -1890,7 +1890,7 @@
     },
     "src/array/takeWhile.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 4,
         "erased": 0
       },
@@ -1924,7 +1924,7 @@
     },
     "src/array/toFilled.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 7
       },
@@ -2094,7 +2094,7 @@
     },
     "src/array/uniqBy.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 7
       },
@@ -2128,7 +2128,7 @@
     },
     "src/array/uniqWith.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 8,
         "erased": 0
       },
@@ -2162,7 +2162,7 @@
     },
     "src/array/unzip.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 13,
         "generic": 0,
         "erased": 5
       },
@@ -2196,7 +2196,7 @@
     },
     "src/array/unzipWith.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 9,
         "generic": 5,
         "erased": 4
       },
@@ -2230,7 +2230,7 @@
     },
     "src/array/windowed.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 19,
         "generic": 3,
         "erased": 4
       },
@@ -2400,7 +2400,7 @@
     },
     "src/array/zip.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 13,
         "generic": 2,
         "erased": 2
       },
@@ -2434,7 +2434,7 @@
     },
     "src/array/zipObject.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 3,
         "generic": 0,
         "erased": 3
       },
@@ -2468,7 +2468,7 @@
     },
     "src/array/zipWith.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 2,
         "erased": 19
       },
@@ -3063,7 +3063,7 @@
     },
     "src/compat/_internal/arrayViews.ts": {
       "values": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
         "erased": 0
       },
@@ -3114,7 +3114,7 @@
     },
     "src/compat/_internal/copyArray.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 4,
         "erased": 1
       },
@@ -3165,7 +3165,7 @@
     },
     "src/compat/_internal/flattenArrayLike.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 9,
         "generic": 3,
         "erased": 0
       },
@@ -3201,7 +3201,7 @@
       "values": {
         "concrete": 3,
         "generic": 0,
-        "erased": 3
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -3318,7 +3318,7 @@
     },
     "src/compat/_internal/mapToEntries.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 9
       },
@@ -3330,7 +3330,7 @@
       "calls": {
         "concrete": 0,
         "generic": 0,
-        "erased": 0
+        "erased": 2
       }
     },
     "src/compat/_internal/normalizeForCase.ts": {
@@ -3352,7 +3352,7 @@
     },
     "src/compat/_internal/setToEntries.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 6
       },
@@ -3364,7 +3364,7 @@
       "calls": {
         "concrete": 0,
         "generic": 0,
-        "erased": 0
+        "erased": 1
       }
     },
     "src/compat/_internal/tags.ts": {
@@ -3471,7 +3471,7 @@
     },
     "src/compat/array/chunk.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 4,
         "erased": 0
       },
@@ -3522,7 +3522,7 @@
     },
     "src/compat/array/countBy.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
         "erased": 14
       },
@@ -3539,7 +3539,7 @@
     },
     "src/compat/array/difference.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 7,
         "erased": 0
       },
@@ -3692,7 +3692,7 @@
     },
     "src/compat/array/every.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 22,
         "generic": 0,
         "erased": 24
       },
@@ -3709,7 +3709,7 @@
     },
     "src/compat/array/fill.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 1,
         "erased": 7
       },
@@ -3726,7 +3726,7 @@
     },
     "src/compat/array/filter.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 18,
         "generic": 0,
         "erased": 28
       },
@@ -3743,7 +3743,7 @@
     },
     "src/compat/array/find.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 25
       },
@@ -3760,7 +3760,7 @@
     },
     "src/compat/array/findIndex.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 23,
         "generic": 0,
         "erased": 41
       },
@@ -3777,7 +3777,7 @@
     },
     "src/compat/array/findLast.ts": {
       "values": {
-        "concrete": 33,
+        "concrete": 32,
         "generic": 0,
         "erased": 27
       },
@@ -3794,7 +3794,7 @@
     },
     "src/compat/array/findLastIndex.ts": {
       "values": {
-        "concrete": 32,
+        "concrete": 30,
         "generic": 0,
         "erased": 43
       },
@@ -3879,9 +3879,9 @@
     },
     "src/compat/array/flatten.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 26,
         "generic": 0,
-        "erased": 16
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -3930,7 +3930,7 @@
     },
     "src/compat/array/forEach.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 18
       },
@@ -3947,7 +3947,7 @@
     },
     "src/compat/array/forEachRight.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 17
       },
@@ -3998,7 +3998,7 @@
     },
     "src/compat/array/includes.ts": {
       "values": {
-        "concrete": 37,
+        "concrete": 36,
         "generic": 0,
         "erased": 16
       },
@@ -4015,7 +4015,7 @@
     },
     "src/compat/array/indexOf.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 20,
         "generic": 0,
         "erased": 6
       },
@@ -4049,7 +4049,7 @@
     },
     "src/compat/array/intersection.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 12,
         "erased": 0
       },
@@ -4066,7 +4066,7 @@
     },
     "src/compat/array/intersectionBy.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
         "erased": 31
       },
@@ -4083,14 +4083,14 @@
     },
     "src/compat/array/intersectionWith.ts": {
       "values": {
-        "concrete": 14,
-        "generic": 12,
-        "erased": 18
+        "concrete": 12,
+        "generic": 15,
+        "erased": 15
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 2
+        "generic": 1,
+        "erased": 1
       },
       "calls": {
         "concrete": 1,
@@ -4100,7 +4100,7 @@
     },
     "src/compat/array/invokeMap.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 20,
         "generic": 0,
         "erased": 25
       },
@@ -4168,7 +4168,7 @@
     },
     "src/compat/array/lastIndexOf.ts": {
       "values": {
-        "concrete": 23,
+        "concrete": 22,
         "generic": 0,
         "erased": 6
       },
@@ -4185,7 +4185,7 @@
     },
     "src/compat/array/map.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 21
       },
@@ -4202,7 +4202,7 @@
     },
     "src/compat/array/nth.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 4,
         "erased": 0
       },
@@ -4219,9 +4219,9 @@
     },
     "src/compat/array/orderBy.ts": {
       "values": {
-        "concrete": 61,
+        "concrete": 59,
         "generic": 0,
-        "erased": 69
+        "erased": 68
       },
       "reads": {
         "concrete": 5,
@@ -4236,7 +4236,7 @@
     },
     "src/compat/array/partition.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 23
       },
@@ -4287,7 +4287,7 @@
     },
     "src/compat/array/pullAllBy.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 13
       },
@@ -4304,7 +4304,7 @@
     },
     "src/compat/array/pullAllWith.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 27,
         "generic": 0,
         "erased": 21
       },
@@ -4321,12 +4321,12 @@
     },
     "src/compat/array/pullAt.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 30,
         "generic": 0,
         "erased": 14
       },
       "reads": {
-        "concrete": 1,
+        "concrete": 0,
         "generic": 0,
         "erased": 1
       },
@@ -4338,9 +4338,9 @@
     },
     "src/compat/array/reduce.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 14,
         "generic": 0,
-        "erased": 22
+        "erased": 21
       },
       "reads": {
         "concrete": 0,
@@ -4350,14 +4350,14 @@
       "calls": {
         "concrete": 2,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/compat/array/reduceRight.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 17,
         "generic": 0,
-        "erased": 23
+        "erased": 22
       },
       "reads": {
         "concrete": 0,
@@ -4367,7 +4367,7 @@
       "calls": {
         "concrete": 2,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       }
     },
     "src/compat/array/reject.ts": {
@@ -4491,7 +4491,7 @@
     },
     "src/compat/array/slice.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 30,
         "generic": 4,
         "erased": 1
       },
@@ -4508,7 +4508,7 @@
     },
     "src/compat/array/some.ts": {
       "values": {
-        "concrete": 51,
+        "concrete": 46,
         "generic": 0,
         "erased": 55
       },
@@ -4527,7 +4527,7 @@
       "values": {
         "concrete": 8,
         "generic": 0,
-        "erased": 6
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
@@ -4542,7 +4542,7 @@
     },
     "src/compat/array/sortedIndex.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 19,
         "generic": 0,
         "erased": 7
       },
@@ -4559,7 +4559,7 @@
     },
     "src/compat/array/sortedIndexBy.ts": {
       "values": {
-        "concrete": 48,
+        "concrete": 47,
         "generic": 0,
         "erased": 14
       },
@@ -4593,7 +4593,7 @@
     },
     "src/compat/array/sortedLastIndex.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 20,
         "generic": 0,
         "erased": 7
       },
@@ -4848,7 +4848,7 @@
     },
     "src/compat/array/unzipWith.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 7,
         "erased": 10
       },
@@ -4882,14 +4882,14 @@
     },
     "src/compat/array/xor.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 20,
         "generic": 0,
         "erased": 13
       },
       "reads": {
         "concrete": 2,
         "generic": 0,
-        "erased": 4
+        "erased": 2
       },
       "calls": {
         "concrete": 1,
@@ -4901,7 +4901,7 @@
       "values": {
         "concrete": 6,
         "generic": 0,
-        "erased": 35
+        "erased": 34
       },
       "reads": {
         "concrete": 0,
@@ -4918,7 +4918,7 @@
       "values": {
         "concrete": 5,
         "generic": 0,
-        "erased": 33
+        "erased": 32
       },
       "reads": {
         "concrete": 0,
@@ -4950,7 +4950,7 @@
     },
     "src/compat/array/zipObject.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 3
       },
@@ -4967,9 +4967,9 @@
     },
     "src/compat/array/zipObjectDeep.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
-        "erased": 9
+        "erased": 8
       },
       "reads": {
         "concrete": 1,
@@ -5020,7 +5020,7 @@
       "values": {
         "concrete": 5,
         "generic": 0,
-        "erased": 10
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -5035,7 +5035,7 @@
     },
     "src/compat/function/ary.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 3
       },
@@ -5071,7 +5071,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 13
+        "erased": 12
       },
       "reads": {
         "concrete": 0,
@@ -5086,7 +5086,7 @@
     },
     "src/compat/function/bind.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 17
       },
@@ -5103,7 +5103,7 @@
     },
     "src/compat/function/bindKey.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 17
       },
@@ -5120,9 +5120,9 @@
     },
     "src/compat/function/curry.ts": {
       "values": {
-        "concrete": 49,
+        "concrete": 46,
         "generic": 0,
-        "erased": 37
+        "erased": 35
       },
       "reads": {
         "concrete": 0,
@@ -5137,9 +5137,9 @@
     },
     "src/compat/function/curryRight.ts": {
       "values": {
-        "concrete": 56,
+        "concrete": 53,
         "generic": 0,
-        "erased": 40
+        "erased": 38
       },
       "reads": {
         "concrete": 0,
@@ -5156,7 +5156,7 @@
       "values": {
         "concrete": 31,
         "generic": 1,
-        "erased": 23
+        "erased": 21
       },
       "reads": {
         "concrete": 7,
@@ -5207,7 +5207,7 @@
       "values": {
         "concrete": 0,
         "generic": 0,
-        "erased": 8
+        "erased": 7
       },
       "reads": {
         "concrete": 0,
@@ -5273,9 +5273,9 @@
     },
     "src/compat/function/memoize.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 12,
         "generic": 0,
-        "erased": 32
+        "erased": 24
       },
       "reads": {
         "concrete": 0,
@@ -5292,7 +5292,7 @@
       "values": {
         "concrete": 2,
         "generic": 0,
-        "erased": 9
+        "erased": 8
       },
       "reads": {
         "concrete": 0,
@@ -5358,9 +5358,9 @@
     },
     "src/compat/function/overArgs.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
-        "erased": 24
+        "erased": 22
       },
       "reads": {
         "concrete": 0,
@@ -5409,9 +5409,9 @@
     },
     "src/compat/function/rearg.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
-        "erased": 11
+        "erased": 10
       },
       "reads": {
         "concrete": 0,
@@ -5426,7 +5426,7 @@
     },
     "src/compat/function/rest.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 8,
         "generic": 0,
         "erased": 3
       },
@@ -5443,9 +5443,9 @@
     },
     "src/compat/function/spread.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
-        "erased": 11
+        "erased": 10
       },
       "reads": {
         "concrete": 0,
@@ -5562,7 +5562,7 @@
     },
     "src/compat/math/clamp.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 15,
         "generic": 0,
         "erased": 1
       },
@@ -5613,7 +5613,7 @@
     },
     "src/compat/math/inRange.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 21,
         "generic": 0,
         "erased": 0
       },
@@ -5630,7 +5630,7 @@
     },
     "src/compat/math/max.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 8
       },
@@ -5698,7 +5698,7 @@
     },
     "src/compat/math/min.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 12,
         "generic": 0,
         "erased": 8
       },
@@ -5766,7 +5766,7 @@
     },
     "src/compat/math/random.ts": {
       "values": {
-        "concrete": 39,
+        "concrete": 37,
         "generic": 0,
         "erased": 2
       },
@@ -5783,7 +5783,7 @@
     },
     "src/compat/math/range.ts": {
       "values": {
-        "concrete": 26,
+        "concrete": 24,
         "generic": 0,
         "erased": 5
       },
@@ -5800,7 +5800,7 @@
     },
     "src/compat/math/rangeRight.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 26,
         "generic": 0,
         "erased": 4
       },
@@ -5868,9 +5868,9 @@
     },
     "src/compat/math/sumBy.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
-        "erased": 15
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -5885,7 +5885,7 @@
     },
     "src/compat/object/assign.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 0,
         "erased": 5
       },
@@ -5902,7 +5902,7 @@
     },
     "src/compat/object/assignIn.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 13,
         "generic": 0,
         "erased": 5
       },
@@ -5919,7 +5919,7 @@
     },
     "src/compat/object/assignInWith.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 16,
         "generic": 0,
         "erased": 12
       },
@@ -5936,7 +5936,7 @@
     },
     "src/compat/object/assignWith.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 16,
         "generic": 0,
         "erased": 12
       },
@@ -5953,7 +5953,7 @@
     },
     "src/compat/object/at.ts": {
       "values": {
-        "concrete": 24,
+        "concrete": 21,
         "generic": 1,
         "erased": 3
       },
@@ -5970,7 +5970,7 @@
     },
     "src/compat/object/clone.ts": {
       "values": {
-        "concrete": 80,
+        "concrete": 79,
         "generic": 0,
         "erased": 77
       },
@@ -6038,7 +6038,7 @@
     },
     "src/compat/object/create.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 11
       },
@@ -6055,7 +6055,7 @@
     },
     "src/compat/object/defaults.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 19,
         "generic": 0,
         "erased": 13
       },
@@ -6072,9 +6072,9 @@
     },
     "src/compat/object/defaultsDeep.ts": {
       "values": {
-        "concrete": 44,
+        "concrete": 41,
         "generic": 0,
-        "erased": 44
+        "erased": 43
       },
       "reads": {
         "concrete": 1,
@@ -6174,7 +6174,7 @@
     },
     "src/compat/object/forInRight.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 13
       },
@@ -6191,7 +6191,7 @@
     },
     "src/compat/object/forOwn.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 13
       },
@@ -6208,7 +6208,7 @@
     },
     "src/compat/object/forOwnRight.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 8,
         "generic": 0,
         "erased": 13
       },
@@ -6225,7 +6225,7 @@
     },
     "src/compat/object/fromPairs.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 8
       },
@@ -6276,7 +6276,7 @@
     },
     "src/compat/object/get.ts": {
       "values": {
-        "concrete": 41,
+        "concrete": 40,
         "generic": 0,
         "erased": 14
       },
@@ -6293,9 +6293,9 @@
     },
     "src/compat/object/has.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 27,
         "generic": 0,
-        "erased": 6
+        "erased": 5
       },
       "reads": {
         "concrete": 0,
@@ -6310,9 +6310,9 @@
     },
     "src/compat/object/hasIn.ts": {
       "values": {
-        "concrete": 32,
+        "concrete": 31,
         "generic": 0,
-        "erased": 10
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -6344,7 +6344,7 @@
     },
     "src/compat/object/invertBy.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
         "erased": 13
       },
@@ -6446,9 +6446,9 @@
     },
     "src/compat/object/mergeWith.ts": {
       "values": {
-        "concrete": 66,
+        "concrete": 61,
         "generic": 0,
-        "erased": 53
+        "erased": 51
       },
       "reads": {
         "concrete": 0,
@@ -6463,7 +6463,7 @@
     },
     "src/compat/object/omit.ts": {
       "values": {
-        "concrete": 55,
+        "concrete": 51,
         "generic": 0,
         "erased": 17
       },
@@ -6480,7 +6480,7 @@
     },
     "src/compat/object/omitBy.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 18
       },
@@ -6497,7 +6497,7 @@
     },
     "src/compat/object/pick.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 21,
         "generic": 0,
         "erased": 14
       },
@@ -6514,7 +6514,7 @@
     },
     "src/compat/object/pickBy.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 20,
         "generic": 0,
         "erased": 20
       },
@@ -6565,7 +6565,7 @@
     },
     "src/compat/object/result.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 16,
         "generic": 0,
         "erased": 10
       },
@@ -6633,7 +6633,7 @@
     },
     "src/compat/object/toPairs.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
         "erased": 13
       },
@@ -6650,7 +6650,7 @@
     },
     "src/compat/object/toPairsIn.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 10,
         "generic": 0,
         "erased": 13
       },
@@ -6718,7 +6718,7 @@
     },
     "src/compat/object/updateWith.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 25,
         "generic": 0,
         "erased": 16
       },
@@ -6752,7 +6752,7 @@
     },
     "src/compat/object/valuesIn.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 2
       },
@@ -6786,7 +6786,7 @@
     },
     "src/compat/predicate/conformsTo.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 8
       },
@@ -7109,14 +7109,14 @@
     },
     "src/compat/predicate/isMatchWith.ts": {
       "values": {
-        "concrete": 131,
+        "concrete": 128,
         "generic": 0,
         "erased": 64
       },
       "reads": {
         "concrete": 1,
         "generic": 0,
-        "erased": 13
+        "erased": 12
       },
       "calls": {
         "concrete": 15,
@@ -7247,7 +7247,7 @@
       "values": {
         "concrete": 20,
         "generic": 0,
-        "erased": 23
+        "erased": 22
       },
       "reads": {
         "concrete": 0,
@@ -7721,7 +7721,7 @@
     },
     "src/compat/string/startCase.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 18,
         "generic": 0,
         "erased": 0
       },
@@ -7755,9 +7755,9 @@
     },
     "src/compat/string/template.ts": {
       "values": {
-        "concrete": 153,
+        "concrete": 130,
         "generic": 0,
-        "erased": 37
+        "erased": 30
       },
       "reads": {
         "concrete": 26,
@@ -7765,7 +7765,7 @@
         "erased": 2
       },
       "calls": {
-        "concrete": 9,
+        "concrete": 5,
         "generic": 0,
         "erased": 4
       }
@@ -7874,7 +7874,7 @@
     },
     "src/compat/string/truncate.ts": {
       "values": {
-        "concrete": 64,
+        "concrete": 62,
         "generic": 0,
         "erased": 2
       },
@@ -7976,7 +7976,7 @@
     },
     "src/compat/util/bindAll.ts": {
       "values": {
-        "concrete": 29,
+        "concrete": 27,
         "generic": 0,
         "erased": 11
       },
@@ -7993,9 +7993,9 @@
     },
     "src/compat/util/cond.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
-        "erased": 23
+        "erased": 21
       },
       "reads": {
         "concrete": 0,
@@ -8097,7 +8097,7 @@
       "values": {
         "concrete": 32,
         "generic": 0,
-        "erased": 19
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -8216,7 +8216,7 @@
       "values": {
         "concrete": 3,
         "generic": 0,
-        "erased": 16
+        "erased": 15
       },
       "reads": {
         "concrete": 0,
@@ -8231,9 +8231,9 @@
     },
     "src/compat/util/overEvery.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 10,
         "generic": 0,
-        "erased": 15
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -8248,9 +8248,9 @@
     },
     "src/compat/util/overSome.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 10,
         "generic": 0,
-        "erased": 15
+        "erased": 13
       },
       "reads": {
         "concrete": 0,
@@ -8350,7 +8350,7 @@
     },
     "src/compat/util/times.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 13,
         "generic": 0,
         "erased": 5
       },
@@ -8452,7 +8452,7 @@
     },
     "src/compat/util/toPath.ts": {
       "values": {
-        "concrete": 41,
+        "concrete": 35,
         "generic": 0,
         "erased": 11
       },
@@ -8469,7 +8469,7 @@
     },
     "src/compat/util/toPlainObject.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 8
       },
@@ -8622,7 +8622,7 @@
     },
     "src/function/after.spec.ts": {
       "values": {
-        "concrete": 34,
+        "concrete": 33,
         "generic": 0,
         "erased": 23
       },
@@ -8675,7 +8675,7 @@
       "values": {
         "concrete": 2,
         "generic": 0,
-        "erased": 8
+        "erased": 7
       },
       "reads": {
         "concrete": 0,
@@ -8843,9 +8843,9 @@
     },
     "src/function/debounce.ts": {
       "values": {
-        "concrete": 32,
+        "concrete": 62,
         "generic": 1,
-        "erased": 55
+        "erased": 25
       },
       "reads": {
         "concrete": 1,
@@ -8853,50 +8853,50 @@
         "erased": 3
       },
       "calls": {
-        "concrete": 1,
-        "generic": 0,
-        "erased": 9
-      }
-    },
-    "src/function/flow.spec.ts": {
-      "values": {
-        "concrete": 52,
-        "generic": 4,
-        "erased": 98
-      },
-      "reads": {
-        "concrete": 0,
-        "generic": 1,
-        "erased": 3
-      },
-      "calls": {
-        "concrete": 0,
-        "generic": 2,
-        "erased": 17
-      }
-    },
-    "src/function/flow.ts": {
-      "values": {
-        "concrete": 6,
-        "generic": 0,
-        "erased": 11
-      },
-      "reads": {
-        "concrete": 0,
-        "generic": 0,
-        "erased": 3
-      },
-      "calls": {
-        "concrete": 0,
+        "concrete": 8,
         "generic": 0,
         "erased": 2
       }
     },
+    "src/function/flow.spec.ts": {
+      "values": {
+        "concrete": 56,
+        "generic": 4,
+        "erased": 94
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 1,
+        "erased": 3
+      },
+      "calls": {
+        "concrete": 1,
+        "generic": 2,
+        "erased": 16
+      }
+    },
+    "src/function/flow.ts": {
+      "values": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 9
+      },
+      "reads": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 3
+      },
+      "calls": {
+        "concrete": 0,
+        "generic": 0,
+        "erased": 1
+      }
+    },
     "src/function/flowRight.spec.ts": {
       "values": {
-        "concrete": 37,
+        "concrete": 41,
         "generic": 4,
-        "erased": 70
+        "erased": 66
       },
       "reads": {
         "concrete": 0,
@@ -8904,9 +8904,9 @@
         "erased": 1
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 2,
-        "erased": 12
+        "erased": 11
       }
     },
     "src/function/flowRight.ts": {
@@ -8998,7 +8998,7 @@
       "values": {
         "concrete": 4,
         "generic": 0,
-        "erased": 27
+        "erased": 26
       },
       "reads": {
         "concrete": 0,
@@ -9134,7 +9134,7 @@
       "values": {
         "concrete": 7,
         "generic": 0,
-        "erased": 26
+        "erased": 25
       },
       "reads": {
         "concrete": 0,
@@ -9168,7 +9168,7 @@
       "values": {
         "concrete": 12,
         "generic": 0,
-        "erased": 30
+        "erased": 29
       },
       "reads": {
         "concrete": 0,
@@ -9202,7 +9202,7 @@
       "values": {
         "concrete": 8,
         "generic": 0,
-        "erased": 13
+        "erased": 12
       },
       "reads": {
         "concrete": 0,
@@ -9234,14 +9234,14 @@
     },
     "src/function/retry.ts": {
       "values": {
-        "concrete": 26,
+        "concrete": 23,
         "generic": 0,
-        "erased": 14
+        "erased": 13
       },
       "reads": {
         "concrete": 2,
         "generic": 0,
-        "erased": 3
+        "erased": 2
       },
       "calls": {
         "concrete": 4,
@@ -9270,7 +9270,7 @@
       "values": {
         "concrete": 0,
         "generic": 0,
-        "erased": 7
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
@@ -9302,9 +9302,9 @@
     },
     "src/function/throttle.ts": {
       "values": {
-        "concrete": 27,
+        "concrete": 28,
         "generic": 1,
-        "erased": 14
+        "erased": 12
       },
       "reads": {
         "concrete": 5,
@@ -9353,7 +9353,7 @@
     },
     "src/index.ts": {
       "values": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 0,
         "erased": 0
       },
@@ -9625,7 +9625,7 @@
     },
     "src/math/random.spec.ts": {
       "values": {
-        "concrete": 58,
+        "concrete": 52,
         "generic": 0,
         "erased": 0
       },
@@ -9659,7 +9659,7 @@
     },
     "src/math/randomInt.spec.ts": {
       "values": {
-        "concrete": 66,
+        "concrete": 60,
         "generic": 0,
         "erased": 0
       },
@@ -9710,7 +9710,7 @@
     },
     "src/math/range.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 18,
         "generic": 0,
         "erased": 2
       },
@@ -9744,7 +9744,7 @@
     },
     "src/math/rangeRight.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 19,
         "generic": 0,
         "erased": 3
       },
@@ -9761,7 +9761,7 @@
     },
     "src/math/round.spec.ts": {
       "values": {
-        "concrete": 66,
+        "concrete": 65,
         "generic": 0,
         "erased": 0
       },
@@ -9812,7 +9812,7 @@
     },
     "src/math/sum.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 5,
         "generic": 0,
         "erased": 0
       },
@@ -9846,7 +9846,7 @@
     },
     "src/math/sumBy.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 6,
         "generic": 2,
         "erased": 0
       },
@@ -9863,9 +9863,9 @@
     },
     "src/object/clone.spec.ts": {
       "values": {
-        "concrete": 204,
+        "concrete": 208,
         "generic": 0,
-        "erased": 70
+        "erased": 66
       },
       "reads": {
         "concrete": 20,
@@ -9873,16 +9873,16 @@
         "erased": 32
       },
       "calls": {
-        "concrete": 23,
+        "concrete": 24,
         "generic": 0,
-        "erased": 12
+        "erased": 11
       }
     },
     "src/object/clone.ts": {
       "values": {
         "concrete": 21,
         "generic": 0,
-        "erased": 22
+        "erased": 20
       },
       "reads": {
         "concrete": 0,
@@ -9897,7 +9897,7 @@
     },
     "src/object/cloneDeep.spec.ts": {
       "values": {
-        "concrete": 292,
+        "concrete": 293,
         "generic": 0,
         "erased": 123
       },
@@ -9948,7 +9948,7 @@
     },
     "src/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 109,
+        "concrete": 106,
         "generic": 0,
         "erased": 125
       },
@@ -10016,7 +10016,7 @@
     },
     "src/object/flattenObject.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 21,
         "generic": 0,
         "erased": 13
       },
@@ -10067,7 +10067,7 @@
     },
     "src/object/invert.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 5
       },
@@ -10101,7 +10101,7 @@
     },
     "src/object/mapKeys.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 6
       },
@@ -10135,7 +10135,7 @@
     },
     "src/object/mapValues.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 7
       },
@@ -10169,7 +10169,7 @@
     },
     "src/object/merge.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 14
       },
@@ -10203,7 +10203,7 @@
     },
     "src/object/mergeWith.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 15,
         "generic": 0,
         "erased": 16
       },
@@ -10237,7 +10237,7 @@
     },
     "src/object/omit.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 4,
         "generic": 0,
         "erased": 6
       },
@@ -10271,7 +10271,7 @@
     },
     "src/object/omitBy.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 6
       },
@@ -10305,7 +10305,7 @@
     },
     "src/object/pick.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 5
       },
@@ -10339,7 +10339,7 @@
     },
     "src/object/pickBy.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 6,
         "generic": 0,
         "erased": 6
       },
@@ -10373,7 +10373,7 @@
     },
     "src/object/sortKeys.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 7,
         "generic": 0,
         "erased": 4
       },
@@ -10407,7 +10407,7 @@
     },
     "src/object/toCamelCaseKeys.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 13
       },
@@ -10475,7 +10475,7 @@
     },
     "src/object/toSnakeCaseKeys.ts": {
       "values": {
-        "concrete": 10,
+        "concrete": 9,
         "generic": 0,
         "erased": 14
       },
@@ -10781,9 +10781,9 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1029,
+        "concrete": 1022,
         "generic": 0,
-        "erased": 425
+        "erased": 410
       },
       "reads": {
         "concrete": 5,
@@ -10798,7 +10798,7 @@
     },
     "src/predicate/isEqualWith.ts": {
       "values": {
-        "concrete": 129,
+        "concrete": 126,
         "generic": 0,
         "erased": 141
       },
@@ -10851,7 +10851,7 @@
       "values": {
         "concrete": 86,
         "generic": 0,
-        "erased": 69
+        "erased": 63
       },
       "reads": {
         "concrete": 2,
@@ -10883,9 +10883,9 @@
     },
     "src/predicate/isFunction.spec.ts": {
       "values": {
-        "concrete": 49,
+        "concrete": 62,
         "generic": 0,
-        "erased": 25
+        "erased": 21
       },
       "reads": {
         "concrete": 0,
@@ -10968,7 +10968,7 @@
     },
     "src/predicate/isJSONValue.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 19,
         "generic": 0,
         "erased": 9
       },
@@ -11614,7 +11614,7 @@
     },
     "src/promise/allKeyed.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 5,
         "generic": 0,
         "erased": 10
       },
@@ -11648,9 +11648,9 @@
     },
     "src/promise/delay.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 19,
         "generic": 0,
-        "erased": 26
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -11658,9 +11658,9 @@
         "erased": 4
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 4,
         "generic": 0,
-        "erased": 6
+        "erased": 4
       }
     },
     "src/promise/index.ts": {
@@ -11767,9 +11767,9 @@
     },
     "src/promise/timeout.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 12,
         "generic": 0,
-        "erased": 21
+        "erased": 18
       },
       "reads": {
         "concrete": 0,
@@ -11920,7 +11920,7 @@
     },
     "src/string/deburr.spec.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 33,
         "generic": 0,
         "erased": 0
       },
@@ -11937,7 +11937,7 @@
     },
     "src/string/deburr.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 17,
         "generic": 0,
         "erased": 0
       },
@@ -11954,7 +11954,7 @@
     },
     "src/string/escape.spec.ts": {
       "values": {
-        "concrete": 33,
+        "concrete": 23,
         "generic": 0,
         "erased": 0
       },
@@ -11971,7 +11971,7 @@
     },
     "src/string/escape.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       },
@@ -12294,7 +12294,7 @@
     },
     "src/string/startCase.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 14,
         "generic": 0,
         "erased": 0
       },
@@ -12345,7 +12345,7 @@
     },
     "src/string/trimEnd.spec.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 41,
         "generic": 0,
         "erased": 0
       },
@@ -12362,7 +12362,7 @@
     },
     "src/string/trimEnd.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 16,
         "generic": 0,
         "erased": 2
       },
@@ -12396,7 +12396,7 @@
     },
     "src/string/trimStart.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 16,
         "generic": 0,
         "erased": 2
       },
@@ -12413,7 +12413,7 @@
     },
     "src/string/unescape.spec.ts": {
       "values": {
-        "concrete": 49,
+        "concrete": 35,
         "generic": 0,
         "erased": 0
       },
@@ -12430,7 +12430,7 @@
     },
     "src/string/unescape.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 10,
         "generic": 0,
         "erased": 0
       },
@@ -12464,7 +12464,7 @@
     },
     "src/string/upperCase.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 11,
         "generic": 0,
         "erased": 0
       },
@@ -12634,7 +12634,7 @@
     },
     "src/util/invariant.spec.ts": {
       "values": {
-        "concrete": 92,
+        "concrete": 86,
         "generic": 0,
         "erased": 3
       },

@@ -52,6 +52,26 @@ fn smelt_push_this_lazy(erase: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>) -> Smelt
     SmeltThisGuard { previous: SMELT_THIS.with(|slot| slot.replace(SmeltThisBinding::Deferred(erase))) }
 }
 
+//~ A FRAME takes its receiver at entry. JavaScript passes `this` to a call
+//~ like a hidden argument: a member call, `.call`/`.apply`/`.bind` supply
+//~ one, a plain call supplies `undefined`. The channel models that by being
+//~ non-`undefined` only between the install at a call and the callee's
+//~ entry: every generated function and closure body takes (or discards) the
+//~ receiver as its first act and leaves `undefined` behind, so any call its
+//~ body makes without installing a receiver -- a plain `f()`, a callback a
+//~ helper invokes -- sees `undefined`, typed or erased.
+/// Take the receiver installed for this frame, leaving `undefined` for the calls its body makes.
+fn smelt_take_this() -> SmeltUnknown {
+    let receiver = smelt_this();
+    SMELT_THIS.with(|slot| { *slot.borrow_mut() = SmeltThisBinding::Value(SmeltUnknown::Undefined); });
+    receiver
+}
+
+/// Discard the receiver installed for this frame, without forcing a deferred erasure.
+fn smelt_reset_this() {
+    SMELT_THIS.with(|slot| { *slot.borrow_mut() = SmeltThisBinding::Value(SmeltUnknown::Undefined); });
+}
+
 /// Read the `this` receiver installed by the innermost active call.
 fn smelt_this() -> SmeltUnknown {
     let binding = SMELT_THIS.with(|slot| slot.borrow().clone());

@@ -1,0 +1,16 @@
+spread [ 1, 2, 3 ]
+for-of 1
+for-of 2
+Array.from [ 1, 2 ]
+destructured 1 2
+first next 1
+rest [ 2, 3, 4 ]
+after rest true
+generator method [ 'a', 'b' ]
+self iterator true
+method read off true
+shared state [ 2, 3 ]
+async self iterator true
+infinite 1 2
+stepped 1 [ 'first' ]
+rest 1 [ 2, 3, 4 ]

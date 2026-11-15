@@ -812,7 +812,6 @@ pub(crate) fn cluster(list: SmeltList<f64>, size: Option<f64>) -> SmeltList<Smel
     let mut _smelt_tmp_14: f64;
     let mut _smelt_tmp_15: SmeltList<f64>;
     let mut _smelt_tmp_16: f64;
-    let mut _smelt_tmp_17: f64;
     let size_1: f64 = size.clone().unwrap_or(2.0);
     let _smelt_tmp_7: f64 = list.len() as f64;
     let _smelt_tmp_8: f64 = _smelt_tmp_7 / size_1;
@@ -827,8 +826,7 @@ pub(crate) fn cluster(list: SmeltList<f64>, size: Option<f64>) -> SmeltList<Smel
     _smelt_tmp_14 = _smelt_tmp_13 + size_1;
     _smelt_tmp_15 = Into::<SmeltList<_>>::into(list.borrow().iter().skip({ let smelt_len = list.len() as i64; let smelt_index = _smelt_tmp_12 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take({ let smelt_len = list.len() as i64; let smelt_index = _smelt_tmp_14 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = list.len() as i64; let smelt_index = _smelt_tmp_12 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
     _smelt_tmp_16 = { let smelt_push_item = _smelt_tmp_15; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_17 = i + 1.0;
-    i = _smelt_tmp_17;
+    i = i + 1.0;
     }
     return out;
 }

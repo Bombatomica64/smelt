@@ -539,7 +539,7 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
     /// Flush the module-level items the bodies above minted into the context:
     /// function-item accessors and hoisted record conversion/adapter helpers.
     fn flush_hoisted_items(mut self) -> CrateBuilder<'a, HoistedItemsWritten> {
-        let (context, out) = (self.context, &mut self.out);
+        let (mir, context, out) = (self.mir, self.context, &mut self.out);
         // Flushed HERE, after every free function AND every class impl body has been
         // emitted: a function-item value can first be erased inside a constructor or
         // method body, which the free-function loop above skips and the class loop
@@ -581,8 +581,16 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
             );
         }
         for key in &identity_keys {
+            // A `function` declaration is a JavaScript constructor and owns a
+            // `prototype`; an arrow or method item does not (see
+            // `smelt_hir::Crate::constructible_functions`).
+            let make = if mir.constructible_function_items.contains(key) {
+                "SmeltFunctionIdentity::constructor()"
+            } else {
+                "SmeltFunctionIdentity::default()"
+            };
             out.push_str(&format!(
-                "\nfn __smelt_fn_identity_{key}() -> SmeltFunctionIdentity {{\n    thread_local! {{ static SMELT_FN_IDENTITY: SmeltFunctionIdentity = SmeltFunctionIdentity::default(); }}\n    SMELT_FN_IDENTITY.with(Clone::clone)\n}}\n"
+                "\nfn __smelt_fn_identity_{key}() -> SmeltFunctionIdentity {{\n    thread_local! {{ static SMELT_FN_IDENTITY: SmeltFunctionIdentity = {make}; }}\n    SMELT_FN_IDENTITY.with(Clone::clone)\n}}\n"
             ));
         }
         for (key, body) in context.minted.function_item_accessors.borrow().iter() {

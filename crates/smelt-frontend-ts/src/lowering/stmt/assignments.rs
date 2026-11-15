@@ -762,6 +762,13 @@ impl ModuleBuilder<'_> {
             return Ok(false);
         };
         let value = self.expression(&assign.right, body)?;
+        let value = self.erased_destructuring_source(
+            value,
+            array.rest.is_none().then_some(array.elements.len()),
+            body,
+            block,
+            self.span(assign.right.span().start, assign.right.span().end),
+        );
         let value_ty = Self::expr_ty(body, value);
         let value_local = body.push_local(LocalDecl {
             name: Some(

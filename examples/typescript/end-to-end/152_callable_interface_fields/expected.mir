@@ -58,36 +58,39 @@ fn main (FuncId(2)) -> None
     %4 temp: None
     %5 temp: fn(String, Float | String) -> None
     %6 temp: None
-    %7 temp: fn(String) -> Float
-    %8 temp: Float
-    %9 temp: None
-    %10 temp: fn(String) -> Float
-    %11 temp: Float
-    %12 temp: None
+    %7 temp: Get
+    %8 temp: fn(String) -> Float
+    %9 temp: Float
+    %10 temp: None
+    %11 temp: Get
+    %12 temp: fn(String) -> Float
     %13 temp: Float
     %14 temp: None
-    %15 temp: fn(String) -> String
-    %16 temp: String
-    %17 temp: None
-    %18 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
-    %19 temp: None
-    %20 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
-    %21 temp: Dict<String, Bool>
+    %15 temp: Float
+    %16 temp: None
+    %17 temp: Echo
+    %18 temp: fn(String) -> String
+    %19 temp: String
+    %20 temp: None
+    %21 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
     %22 temp: None
     %23 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
-    %24 temp: None
-    %25 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
-    %26 temp: None
-    %27 temp: Optional<String>
-    %28 temp: None
-    %29 temp: Bool
-    %30 temp: None
-    %31 temp: Optional<String>
-    %32 temp: None
-    %33 temp: fn(String) -> Float
-    %34 temp: Float
+    %24 temp: Dict<String, Bool>
+    %25 temp: None
+    %26 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %27 temp: None
+    %28 temp: fn(String, Optional<String>, Optional<SetHeaderOptions>) -> None
+    %29 temp: None
+    %30 temp: Optional<String>
+    %31 temp: None
+    %32 temp: Bool
+    %33 temp: None
+    %34 temp: Optional<String>
     %35 temp: None
-    %36 temp: None
+    %36 temp: fn(String) -> Float
+    %37 temp: Float
+    %38 temp: None
+    %39 temp: None
   bb0:
     %2 = call fn1() -> bb1
   bb1:
@@ -97,45 +100,48 @@ fn main (FuncId(2)) -> None
     %5 = copy %0.field6
     %6 = closure_call move %5("b", 7.0)
     %7 = copy %0.field4
-    %8 = closure_call move %7("a")
-    %9 = call @console_log(move %8) -> bb2
+    %8 = move %7
+    %9 = closure_call move %8("a")
+    %10 = call @console_log(move %9) -> bb2
   bb2:
-    %10 = copy %0.field4
-    %11 = closure_call move %10("b")
-    %12 = call @console_log(move %11) -> bb3
+    %11 = copy %0.field4
+    %12 = move %11
+    %13 = closure_call move %12("b")
+    %14 = call @console_log(move %13) -> bb3
   bb3:
-    %13 = call fn0(copy %0) -> bb4
+    %15 = call fn0(copy %0) -> bb4
   bb4:
-    %14 = call @console_log(move %13) -> bb5
+    %16 = call @console_log(move %15) -> bb5
   bb5:
-    %15 = copy %0.field10
-    %16 = closure_call move %15("zz")
-    %17 = call @console_log(move %16) -> bb6
+    %17 = copy %0.field10
+    %18 = move %17
+    %19 = closure_call move %18("zz")
+    %20 = call @console_log(move %19) -> bb6
   bb6:
-    %18 = copy %0.field8
-    %19 = closure_call move %18("x-one", "1")
-    %20 = copy %0.field8
-    %21 = {"append": true}
-    %22 = closure_call move %20("x-one", "2", move %21)
+    %21 = copy %0.field8
+    %22 = closure_call move %21("x-one", "1")
     %23 = copy %0.field8
-    %24 = closure_call move %23("x-two", "2")
-    %25 = copy %0.field8
-    %26 = closure_call move %25("x-two")
-    %27 = dict_get copy %0.field3, "x-one", _
-    %28 = call @console_log(move %27) -> bb7
+    %24 = {"append": true}
+    %25 = closure_call move %23("x-one", "2", move %24)
+    %26 = copy %0.field8
+    %27 = closure_call move %26("x-two", "2")
+    %28 = copy %0.field8
+    %29 = closure_call move %28("x-two")
+    %30 = dict_get copy %0.field3, "x-one", _
+    %31 = call @console_log(move %30) -> bb7
   bb7:
-    %29 = dict_contains_key copy %0.field3, "x-two", own
-    %30 = call @console_log(move %29) -> bb8
+    %32 = dict_contains_key copy %0.field3, "x-two", own
+    %33 = call @console_log(move %32) -> bb8
   bb8:
-    %31 = dict_get copy %0.field3, "x-inner", _
-    %32 = call @console_log(move %31) -> bb9
+    %34 = dict_get copy %0.field3, "x-inner", _
+    %35 = call @console_log(move %34) -> bb9
   bb9:
     %1 = copy %0.field4
-    %33 = move %1
-    %34 = closure_call move %33("a")
-    %35 = call @console_log(move %34) -> bb10
+    %36 = move %1
+    %37 = closure_call move %36("a")
+    %38 = call @console_log(move %37) -> bb10
   bb10:
-    %36 = call @console_log(copy %0.field16) -> bb11
+    %39 = call @console_log(copy %0.field16) -> bb11
   bb11:
     return none
 

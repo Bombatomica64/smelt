@@ -242,11 +242,11 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
         let entry_at = |pair: &SmeltUnknown| -> Option<(SmeltUnknown, SmeltUnknown)> { let SmeltUnknown::Array(entry) = pair else { return None }; let mut entry = entry.clone().into_vec().into_iter(); match (entry.next(), entry.next()) { (Some(key), Some(value)) => Some((key, value)), _ => None } };
         let entries = pairs.iter().filter_map(entry_at).collect::<Vec<_>>();
         match field {
-            "keys" => { let keys = entries.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(keys.clone().into())))); }
-            "values" => { let values = entries.iter().map(|(_, value)| value.clone()).collect::<Vec<_>>(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(values.clone().into())))); }
-            "entries" => { let pairs = pairs.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(pairs.clone().into())))); }
-            "get" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(entries.iter().find(|(key, _)| key.same_js_key(&needle)).map_or(SmeltUnknown::Undefined, |(_, value)| value.clone())) })); }
-            "has" => { let entries = entries.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(entries.iter().any(|(key, _)| key.same_js_key(&needle)))) })); }
+            "keys" => { let source = entry_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let store = source.clone(); let mut index = 0_usize; Ok(smelt_erased_live_iterator(move || { let pair = store.get(index)?; index = index.saturating_add(1); let SmeltUnknown::Array(entry) = pair else { return Some(SmeltUnknown::Undefined) }; let entry = entry.into_vec(); Some(entry.first().map_or(SmeltUnknown::Undefined, Clone::clone)) })) })); }
+            "values" => { let source = entry_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let store = source.clone(); let mut index = 0_usize; Ok(smelt_erased_live_iterator(move || { let pair = store.get(index)?; index = index.saturating_add(1); let SmeltUnknown::Array(entry) = pair else { return Some(SmeltUnknown::Undefined) }; let entry = entry.into_vec(); Some(entry.get(1).map_or(SmeltUnknown::Undefined, Clone::clone)) })) })); }
+            "entries" => { let source = entry_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let store = source.clone(); let mut index = 0_usize; Ok(smelt_erased_live_iterator(move || { let pair = store.get(index)?; index = index.saturating_add(1); let SmeltUnknown::Array(entry) = pair else { return Some(SmeltUnknown::Undefined) }; let entry = entry.into_vec(); Some(SmeltUnknown::Array(SmeltArray::new(entry))) })) })); }
+            "get" => { let store = entry_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(store.iter().find(|pair| smelt_map_entry_key_is(pair, &needle)).and_then(|pair| match pair { SmeltUnknown::Array(entry) => entry.get(1), _ => None }).unwrap_or(SmeltUnknown::Undefined)) })); }
+            "has" => { let store = entry_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(store.iter().any(|pair| smelt_map_entry_key_is(&pair, &needle)))) })); }
             "forEach" => { let entries = entries.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(callback)) = args.into_iter().next() { for (key, value) in entries.clone() { callback(vec![value, key, receiver.clone()])?; } } Ok(SmeltUnknown::Undefined) })); }
 // @smelt:if live_containers
             "set" | "delete" | "clear" if smelt_live_hook(map).is_some() => { let view = map.clone(); let receiver = SmeltUnknown::Object(map.clone()); let op = field.to_owned(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let answer = smelt_live_container_call(&view, &op, args).unwrap_or(SmeltUnknown::Undefined); smelt_live_container_refresh(&view); Ok(if op == "set" { receiver.clone() } else { answer }) })); }
@@ -268,26 +268,21 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ pairs; `has` applies SameValueZero (`same_js_key`); `forEach` invokes the
     //~ callback with `(value, value, set)` per JS semantics.
     if let Some(SmeltUnknown::Array(members)) = map.get("__smelt_set") {
-        //~ The mutators of an erased Set. A live view writes the typed set it
-        //~ was erased from and refreshes its marker array; any other erased Set
-        //~ owns its members array (a shared `SmeltArray` handle), so the write
-        //~ lands there for every later read. `add` answers the set, `delete` a
-        //~ boolean, `clear` `undefined`, as in JavaScript.
         let member_store = members.clone();
+        let members = members.into_vec();
         match field {
+            "values" | "keys" | "entries" => { let source = member_store; let pairs = field == "entries"; return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let store = source.clone(); let mut index = 0_usize; Ok(smelt_erased_live_iterator(move || { let member = store.get(index)?; index = index.saturating_add(1); Some(if pairs { SmeltUnknown::Array(SmeltArray::new(::std::vec![member.clone(), member])) } else { member }) })) })); }
+            "has" => { let store = member_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(store.iter().any(|member| member.same_js_key(&needle)))) })); }
+            //~ The mutators write the marker's own member array in place, so every
+            //~ alias of the erased set sees them (`new (Cache || Set)()`).
+            //~ A live view instead writes the typed set it was erased from and
+            //~ refreshes its marker array.
 // @smelt:if live_containers
             "add" | "delete" | "clear" if smelt_live_hook(map).is_some() => { let view = map.clone(); let receiver = SmeltUnknown::Object(map.clone()); let op = field.to_owned(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let answer = smelt_live_container_call(&view, &op, args).unwrap_or(SmeltUnknown::Undefined); smelt_live_container_refresh(&view); Ok(if op == "add" { receiver.clone() } else { answer }) })); }
 // @smelt:end
-            "add" => { let store = member_store; let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let member = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); if !store.iter().any(|existing| existing.same_js_key(&member)) { store.push(member); } Ok(receiver.clone()) })); }
+            "add" => { let store = member_store; let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let value = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); if !store.iter().any(|member| member.same_js_key(&value)) { store.push(value); } Ok(receiver.clone()) })); }
             "delete" => { let store = member_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); let kept = store.iter().filter(|member| !member.same_js_key(&needle)).collect::<Vec<_>>(); let removed = kept.len() != store.len(); store.replace_all(kept); Ok(SmeltUnknown::Bool(removed)) })); }
             "clear" => { let store = member_store; return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { store.replace_all(Vec::new()); Ok(SmeltUnknown::Undefined) })); }
-            _ => {}
-        }
-        let members = members.into_vec();
-        match field {
-            "values" | "keys" => { let members = members.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(members.clone().into())))); }
-            "entries" => { let members = members.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(SmeltUnknown::Array(members.clone().into_iter().map(|value| SmeltUnknown::Array(vec![value.clone(), value].into())).collect::<Vec<_>>().into())))); }
-            "has" => { let members = members.clone(); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let needle = args.into_iter().next().unwrap_or(SmeltUnknown::Undefined); Ok(SmeltUnknown::Bool(members.iter().any(|member| member.same_js_key(&needle)))) })); }
             "forEach" => { let members = members.clone(); let receiver = SmeltUnknown::Object(map.clone()); return SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::Function(callback)) = args.into_iter().next() { for member in members.clone() { callback(vec![member.clone(), member.clone(), receiver.clone()])?; } } Ok(SmeltUnknown::Undefined) })); }
             _ => {}
         }

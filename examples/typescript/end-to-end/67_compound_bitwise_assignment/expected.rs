@@ -766,43 +766,29 @@ fn main() {
     let values: SmeltList<f64>;
     let mut hash: f64;
     let mut value: f64;
-    let _smelt_tmp_13: f64;
-    let _smelt_tmp_15: f64;
-    let _smelt_tmp_18: f64;
-    let _smelt_tmp_21: f64;
-    let _smelt_tmp_23: f64;
-    let _smelt_tmp_25: f64;
     let mut _smelt_tmp_28: usize;
     let mut _smelt_tmp_29: usize;
     let mut _smelt_tmp_30: bool;
-    let mut _smelt_tmp_31: f64;
     let mut out: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (5.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (3.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
-    let _smelt_tmp_11: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (out as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (8.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
-    out = _smelt_tmp_11;
+    out = ({ let smelt_bit_lhs = { let smelt_bit_v = (out as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (8.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     let _ = { println!("{}", smelt_console_number(out)); };
     mask = 255.0;
-    _smelt_tmp_13 = ({ let smelt_bit_lhs = { let smelt_bit_v = (mask as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (15.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs & smelt_bit_rhs) as f64 });
-    mask = _smelt_tmp_13;
+    mask = ({ let smelt_bit_lhs = { let smelt_bit_v = (mask as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (15.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs & smelt_bit_rhs) as f64 });
     let _ = { println!("{}", smelt_console_number(mask)); };
     shifted = 1.0;
-    _smelt_tmp_15 = ((({ let smelt_int32_v = (shifted as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shl({ let smelt_uint32_v = (4.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
-    shifted = _smelt_tmp_15;
+    shifted = ((({ let smelt_int32_v = (shifted as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shl({ let smelt_uint32_v = (4.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
     let _ = { println!("{}", smelt_console_number(shifted)); };
     signed = -16.0;
-    _smelt_tmp_18 = ((({ let smelt_int32_v = (signed as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shr({ let smelt_uint32_v = (2.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
-    signed = _smelt_tmp_18;
+    signed = ((({ let smelt_int32_v = (signed as f64).trunc(); if smelt_int32_v.is_finite() { smelt_int32_v.rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }).wrapping_shr({ let smelt_uint32_v = (2.0 as f64).trunc(); if smelt_uint32_v.is_finite() { smelt_uint32_v.rem_euclid(4294967296.0) as u32 } else { 0_u32 } } & 31)) as f64);
     let _ = { println!("{}", smelt_console_number(signed)); };
     unsigned = -16.0;
-    _smelt_tmp_21 = { let smelt_shift_value = (unsigned as f64).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() { smelt_shift_value.rem_euclid(4294967296.0) as u32 } else { 0_u32 }; let smelt_shift_count = (28.0 as f64).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() { smelt_shift_count.rem_euclid(4294967296.0) as u32 } else { 0_u32 }; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 };
-    unsigned = _smelt_tmp_21;
+    unsigned = { let smelt_shift_value = (unsigned as f64).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() { smelt_shift_value.rem_euclid(4294967296.0) as u32 } else { 0_u32 }; let smelt_shift_count = (28.0 as f64).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() { smelt_shift_count.rem_euclid(4294967296.0) as u32 } else { 0_u32 }; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 };
     let _ = { println!("{}", smelt_console_number(unsigned)); };
     rest = 17.0;
-    _smelt_tmp_23 = rest % 5.0;
-    rest = _smelt_tmp_23;
+    rest = rest % 5.0;
     let _ = { println!("{}", smelt_console_number(rest)); };
     flipped = 6.0;
-    _smelt_tmp_25 = ({ let smelt_bit_lhs = { let smelt_bit_v = (flipped as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (3.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
-    flipped = _smelt_tmp_25;
+    flipped = ({ let smelt_bit_lhs = { let smelt_bit_v = (flipped as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (3.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
     let _ = { println!("{}", smelt_console_number(flipped)); };
     values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0]; smelt_list_items }));
     hash = 0.0;
@@ -812,8 +798,7 @@ fn main() {
     _smelt_tmp_30 = _smelt_tmp_28 < _smelt_tmp_29;
     if !(_smelt_tmp_30) { break; }
     value = values.borrow().get(_smelt_tmp_28).cloned().unwrap_or_else(|| 0.0);
-    _smelt_tmp_31 = ({ let smelt_bit_lhs = { let smelt_bit_v = (hash as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (value as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
-    hash = _smelt_tmp_31;
+    hash = ({ let smelt_bit_lhs = { let smelt_bit_v = (hash as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (value as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     _smelt_tmp_28 = _smelt_tmp_28 + 1;
     }
     let _ = { println!("{}", smelt_console_number(hash)); };
@@ -842,8 +827,6 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     let mut _smelt_tmp_17: bool;
     let mut _smelt_tmp_18: f64;
     let mut _smelt_tmp_20: f64;
-    let mut _smelt_tmp_21: f64;
-    let mut _smelt_tmp_22: f64;
     let mut _smelt_tmp_23: bool;
     let a_len: f64 = a.len() as f64;
     let b_len: f64 = b.len() as f64;
@@ -865,10 +848,8 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     }
     b_char = _smelt_tmp_18;
     _smelt_tmp_20 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
-    _smelt_tmp_21 = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
-    diff = _smelt_tmp_21;
-    _smelt_tmp_22 = i + 1.0;
-    i = _smelt_tmp_22;
+    diff = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    i = i + 1.0;
     continue;
     } else {
     _smelt_tmp_15 = 0.0;
@@ -881,10 +862,8 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     }
     b_char = _smelt_tmp_18;
     _smelt_tmp_20 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_char as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
-    _smelt_tmp_21 = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
-    diff = _smelt_tmp_21;
-    _smelt_tmp_22 = i + 1.0;
-    i = _smelt_tmp_22;
+    diff = ({ let smelt_bit_lhs = { let smelt_bit_v = (diff as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (_smelt_tmp_20 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
+    i = i + 1.0;
     continue;
     }
     }

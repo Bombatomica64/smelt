@@ -17,7 +17,7 @@ use ::std::hash::Hash;
 //~ matters beyond speed — `RandomState` seeds per process, so anything that
 //~ observes map iteration order (and some erased-value paths do) varies run to
 //~ run. That is the suspected mechanism behind the intermittent remeda
-//~ `pipe` failure recorded in blocker-logs/smeltlist-shared-buffer.md; a fixed
+//~ `pipe` failure recorded in smeltlist-shared-buffer.md (in git history); a fixed
 //~ hasher makes such a failure reproduce every run instead of one in six.
 #[derive(Default, Clone, Copy)]
 pub struct SmeltFieldHasher(u64);

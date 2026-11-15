@@ -27,12 +27,13 @@ pub use builtin_members::{
 };
 pub use category::DiagnosticCategory;
 pub use classes::{
-    ARRAY_NON_MUTATING_METHODS, HostDataProperty, HostPrimitive, InstanceOfRule, MATCH_CLASS_NAME,
-    MATCH_GROUPS_CLASS_NAME, OBJECT_PROTOTYPE_MEMBERS, PY_EXCEPTION_ARGS_CLASS_NAME,
-    PY_EXCEPTION_CLASS_NAME, RegExpMember, StdlibClass, TYPED_ARRAY_CLASS_NAMES, host_class_parent,
-    host_data_property, instance_of_rule, is_array_non_mutating_method, is_data_view_class,
-    is_object_prototype_member, is_typed_array_class_name, regexp_member,
-    stdlib_class_instance_has_property, subsystem_instance_marker, typescript_stdlib_class,
+    ARRAY_NON_MUTATING_METHODS, HOST_CONSTRUCTOR_CLASS_NAME, HostDataProperty, HostPrimitive,
+    InstanceOfRule, MATCH_CLASS_NAME, MATCH_GROUPS_CLASS_NAME, OBJECT_PROTOTYPE_MEMBERS,
+    PY_EXCEPTION_ARGS_CLASS_NAME, PY_EXCEPTION_CLASS_NAME, RegExpMember, StdlibClass,
+    TYPED_ARRAY_CLASS_NAMES, host_class_parent, host_data_property, instance_of_rule,
+    is_array_non_mutating_method, is_data_view_class, is_object_prototype_member,
+    is_typed_array_class_name, regexp_member, stdlib_class_instance_has_property,
+    subsystem_instance_marker, typescript_stdlib_class,
 };
 pub use deps::{BackendDependency, CrateRequirement};
 pub use erased_prototype_methods::{

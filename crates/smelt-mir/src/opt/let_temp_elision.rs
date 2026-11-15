@@ -36,6 +36,13 @@
 //! * `u` is not a closure's capture: writing a capture is a store into the
 //!   shared cell, not a binding.
 //!
+//! The same pair ending in a whole-local STORE, `t = rv; store u = move t`
+//! (how a reassignment lowers), becomes `store u = rv`. A store's destination
+//! already exists and `rv` is evaluated before the write, so neither the
+//! single-initializer guard nor the no-self-read guard applies: `item =
+//! erased_iterable_take(item)` keeps its one local. The other guards hold as
+//! above.
+//!
 //! The pass covers function and closure bodies alike.
 //!
 //! Behaviour requirement: unchanged (the same value reaches the same local).
@@ -93,14 +100,29 @@ fn elide_body(
         let mut index: usize = 0;
         loop {
             let body = Body { locals, blocks };
-            let Some((at, user)) = next_pair(body, &facts, block_index, index) else {
+            let Some(ElidablePair { at, user, store }) =
+                next_pair(body, &facts, block_index, index)
+            else {
                 break;
             };
             let Some(block) = blocks.get_mut(block_index) else {
                 break;
             };
-            if let Some(Statement::Assign { dest, .. }) = block.statements.get_mut(at) {
-                *dest = user;
+            if let Some(statement) = block.statements.get_mut(at) {
+                if store {
+                    if let Statement::Assign { value, .. } = statement {
+                        let stored = std::mem::replace(
+                            value,
+                            Rvalue::Use(Operand::Copy(Place::Local(user))),
+                        );
+                        *statement = Statement::AssignPlace {
+                            place: Place::Local(user),
+                            value: stored,
+                        };
+                    }
+                } else if let Statement::Assign { dest, .. } = statement {
+                    *dest = user;
+                }
             }
             let after = at.saturating_add(1);
             if after < block.statements.len() {
@@ -113,18 +135,33 @@ fn elide_body(
     changed
 }
 
-/// The next elidable pair of the block at or after `index`: its statement
-/// index and user local. `None` when the block has no more pairs.
+/// One elidable pair: where it starts, the local it writes, and how.
+struct ElidablePair {
+    /// Index of the pair's first statement (`t = rv`).
+    at: usize,
+    /// The local `u` the pair writes.
+    user: LocalId,
+    /// Whether the pair ends in a whole-local store (`store u = move t`)
+    /// rather than an initialization (`u = move t`).
+    store: bool,
+}
+
+/// The next elidable pair of the block at or after `index`. `None` when the
+/// block has no more pairs.
 fn next_pair(
     body: Body<'_>,
     facts: &BodyFacts<'_>,
     block_index: usize,
     mut index: usize,
-) -> Option<(usize, LocalId)> {
+) -> Option<ElidablePair> {
     let len = body.blocks.get(block_index)?.statements.len();
     while index.saturating_add(1) < len {
-        if let Some(user) = elidable_pair(body, facts, block_index, index) {
-            return Some((index, user));
+        if let Some((user, store)) = elidable_pair(body, facts, block_index, index) {
+            return Some(ElidablePair {
+                at: index,
+                user,
+                store,
+            });
         }
         index = index.saturating_add(1);
     }
@@ -132,13 +169,14 @@ fn next_pair(
 }
 
 /// The user local `u` when statements `index` and `index + 1` of the block
-/// are an elidable `t = rv; u = move t` pair.
+/// are an elidable `t = rv; u = move t` pair, and whether the second is a
+/// whole-local store (`store u = move t`).
 fn elidable_pair(
     body: Body<'_>,
     facts: &BodyFacts<'_>,
     block_index: usize,
     index: usize,
-) -> Option<LocalId> {
+) -> Option<(LocalId, bool)> {
     let statements = &body.blocks.get(block_index)?.statements;
     let Statement::Assign {
         dest: temp_dest,
@@ -147,14 +185,23 @@ fn elidable_pair(
     else {
         return None;
     };
-    let Statement::Assign {
-        dest: user_dest,
+    let second = statements.get(index.saturating_add(1))?;
+    let (user_dest, moved, store) = if let Statement::Assign {
+        dest,
         value: Rvalue::Use(moved @ (Operand::Copy(_) | Operand::Move(_))),
-    } = statements.get(index.saturating_add(1))?
-    else {
+    } = second
+    {
+        (*dest, moved, false)
+    } else if let Statement::AssignPlace {
+        place: Place::Local(dest),
+        value: Rvalue::Use(moved @ (Operand::Copy(_) | Operand::Move(_))),
+    } = second
+    {
+        (*dest, moved, true)
+    } else {
         return None;
     };
-    let (temp, user) = (*temp_dest, *user_dest);
+    let (temp, user) = (*temp_dest, user_dest);
     let moves_temp = moved.local() == Some(temp);
     if !moves_temp || temp == user || facts.captures.contains(&user) {
         return None;
@@ -173,11 +220,11 @@ fn elidable_pair(
     // its own to keep single.
     let user_is_temp = matches!(user_decl.kind, crate::LocalKind::Temp);
     (facts.single_use.contains(&temp)
-        && (facts.initializers.get(&user) == Some(&1) || user_is_temp)
-        && !reads_user
+        && (store || facts.initializers.get(&user) == Some(&1) || user_is_temp)
+        && (store || !reads_user)
         && temp_decl.ty == user_decl.ty
         && !is_function(temp_decl.ty))
-    .then_some(user)
+    .then_some((user, store))
 }
 
 /// What the guards ask of a whole body, computed in one walk.
@@ -305,6 +352,7 @@ mod tests {
             symbols: smelt_hir::SymbolInterner::default(),
             names: smelt_hir::OriginalNameTable::default(),
             accessor_fields: Vec::default(),
+            constructible_function_items: std::collections::BTreeSet::new(),
             index: crate::index::MirIndex::default(),
         }
     }
@@ -440,6 +488,46 @@ mod tests {
         });
     }
 
+    /// `t = rv; store u = move t`, where `rv` reads `u`: a store's destination
+    /// already exists and `rv` runs before the write, so the pair becomes one
+    /// store of `rv`.
+    #[test]
+    fn elides_a_self_reading_store() {
+        let (changed, mir) = run(|mir| {
+            let statements = &mut mir.functions[0].blocks[0].statements;
+            statements.insert(
+                0,
+                Statement::Assign {
+                    dest: USER,
+                    value: Rvalue::Use(copy(PARAM)),
+                },
+            );
+            statements[1] = Statement::Assign {
+                dest: TEMP,
+                value: Rvalue::Binary {
+                    op: BinOp::Add,
+                    lhs: copy(PARAM),
+                    rhs: copy(USER),
+                },
+            };
+            statements[2] = Statement::AssignPlace {
+                place: Place::Local(USER),
+                value: Rvalue::Use(Operand::Move(Place::Local(TEMP))),
+            };
+        });
+        assert!(
+            changed,
+            "a store of a temporary takes the temporary's rvalue"
+        );
+        let statements = &mir.functions[0].blocks[0].statements;
+        assert_eq!(statements.len(), 2, "the temporary and its move are gone");
+        assert!(matches!(
+            &statements[1],
+            Statement::AssignPlace { place: Place::Local(dest), value: Rvalue::Binary { rhs, .. } }
+                if *dest == USER && rhs.reads_local(USER)
+        ));
+    }
+
     /// Different types: the move implied a conversion.
     #[test]
     fn declines_when_types_differ() {
@@ -509,6 +597,7 @@ mod tests {
             can_throw: false,
             is_generator: false,
             function_item_key: None,
+            this_binding: smelt_hir::ClosureThis::Own,
             language: smelt_hir::Language::TypeScript,
         });
         mir

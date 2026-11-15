@@ -28,6 +28,7 @@ use crate::rust::RustType;
 
 use crate::erased_list_alias;
 use crate::rust::RustShape;
+pub(in crate::emitter) use extract::erased_to_bounded_list_expr;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -1017,6 +1018,23 @@ impl FunctionEmitter<'_> {
                     smelt_owned_value = smelt_owned_value.delimited()
                 ),
             ));
+            return self.rendered_at_type(&erased, self.type_id(Type::Unknown)?, target, scope);
+        }
+        // A generated record (a struct of declared fields) at a DICT target is
+        // the dict of its own enumerable properties: TypeScript assigns an
+        // object type to `Record<K, V>` structurally, and JavaScript reads it
+        // through the same keys. It goes through the record's erasure (the
+        // object of its fields) and the dict extraction from an erased object,
+        // the two conversions an erased value of this shape already takes.
+        // Without it a struct passed to a `Record<K, V>` parameter
+        // (`invert({ a: "x", length: 2 })` under its own record type) did not
+        // compile (E0308).
+        if matches!(self.mir.types.get(target), Some(Type::Dict(_, _)))
+            && self
+                .structural_record_fields(source)
+                .is_some_and(|fields| !fields.is_empty())
+        {
+            let erased = self.erase_rendered(value_text, source)?;
             return self.rendered_at_type(&erased, self.type_id(Type::Unknown)?, target, scope);
         }
         if source == target && matches!(self.mir.types.get(target), Some(Type::Function(_))) {

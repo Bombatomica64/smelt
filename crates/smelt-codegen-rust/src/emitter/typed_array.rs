@@ -230,7 +230,7 @@ impl FunctionEmitter<'_> {
     /// A FALLIBLE builtin call, so the text ends in `?`: an offset outside the
     /// view is a catchable `RangeError`, and only a call carries the unwind
     /// edge that reaches a `try` (see
-    /// `blocker-logs/standards-throwing-rvalue.md`). The adapter owns the
+    /// `standards-throwing-rvalue.md` (in git history)). The adapter owns the
     /// throw and the spec's `ToIndex` on the offset; the prelude's checked pair
     /// owns the window bound.
     ///
