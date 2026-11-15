@@ -1726,3 +1726,43 @@ fn overloaded_interface_methods() -> TestResult {
 fn union_arm_recovery() -> TestResult {
     verify_node_parity("union_arm_recovery")
 }
+
+/// `JSON.stringify` answers every value as ECMA-262 does: `undefined` for a
+/// top-level `undefined`, function or symbol; omitted or `null` inside a
+/// container; a match result as its array and no match as `null`.
+#[test]
+fn json_stringify_any_value() -> TestResult {
+    verify_node_parity("json_stringify_any_value")
+}
+
+/// A callable parameter (a construct-or-call union, a `Map` value) the
+/// function stores enters owned: `seen.push(make)` / `map.set(k, cb)`.
+#[test]
+fn construct_or_call_params() -> TestResult {
+    verify_node_parity("construct_or_call_params")
+}
+
+/// Erasing a typed promise keeps its future: the erased promise settles, every
+/// erasure of one promise is that promise (`===`), and two promises erased
+/// from two calls stay two (the erasure used to key a hollow, never-settling
+/// promise on the local's stack address).
+#[test]
+fn erased_promise_identity() -> TestResult {
+    verify_node_parity("erased_promise_identity")
+}
+
+/// An async function or a generator writing through a collection or class
+/// parameter writes the caller's object, while two calls over the same object
+/// are pending at once (an `&mut` parameter failed with E0499/E0597).
+#[test]
+fn async_parameter_writes() -> TestResult {
+    verify_node_parity("async_parameter_writes")
+}
+
+/// `Promise.allSettled` answers one `{ status, value | reason }` record per
+/// input in input order, over an array literal or a list; a rejected input is
+/// an entry, never an unhandled rejection.
+#[test]
+fn promise_all_settled() -> TestResult {
+    verify_node_parity("promise_all_settled")
+}

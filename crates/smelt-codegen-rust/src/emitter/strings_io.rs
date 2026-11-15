@@ -239,6 +239,18 @@ impl FunctionEmitter<'_> {
             )),
             _ => "String::new()".to_owned(),
         };
+        // A text that may be `undefined` (`JSON.stringify(undefined, null, 2)`)
+        // stays `undefined`; only a present text is laid out.
+        if matches!(
+            self.mir.types.get(self.operand_ty(text)?),
+            Some(Type::Optional(_))
+        ) {
+            let laid_out = self.text_from_string("smelt_json_indent(&smelt_text, &smelt_indent)");
+            return Ok(RustExpr::chain(format!(
+                "{{ let smelt_indent = {indent}; ({text_text}).map(|smelt_text| {laid_out}) }}",
+                text_text = text_text.delimited()
+            )));
+        }
         Ok(RustExpr::chain(self.text_from_string(&format!(
             "smelt_json_indent(&{text_text}, &{indent})",
             text_text = text_text.tight()

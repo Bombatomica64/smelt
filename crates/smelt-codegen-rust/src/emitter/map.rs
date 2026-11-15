@@ -1698,23 +1698,23 @@ impl FunctionEmitter<'_> {
         value: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if !matches!(
-            self.mir.types.get(dest_ty),
-            Some(Type::String | Type::PyStr)
-        ) {
-            return Err(EmitError::new("JSON stringify destination must be string"));
-        }
-        if !self.is_json_serializable_type(self.operand_ty(value)?) {
-            // The blocker names the TYPE; the enclosing function and its source
-            // span come from the site the emit entrypoints attach
-            // (`EmitError::with_site`), which is the one mechanism every
-            // function-scoped blocker uses. Naming the function here as well
-            // printed it twice and without the span.
-            return Err(EmitError::new(format!(
-                "JSON stringify value must be JSON-serializable, got {}",
-                self.rendered_type(self.operand_ty(value)?)?,
-            )));
-        }
+        // `JSON.stringify` answers `undefined` for a top-level `undefined`,
+        // function or symbol; the frontend types such a call `string |
+        // undefined` (an `Optional<String>` destination).
+        let optional_text = match self.mir.types.get(dest_ty) {
+            Some(Type::String | Type::PyStr) => false,
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
+            {
+                true
+            }
+            _ => return Err(EmitError::new("JSON stringify destination must be string")),
+        };
+        // Every value has a JSON answer in JavaScript (a function or symbol
+        // property is omitted, `null` in an array; a bigint throws), and the
+        // runtime serializer below implements those ECMA-262 rules over the
+        // erased carrier. So nothing is rejected here; a value whose erasure
+        // cannot be rendered still fails at `erase_rendered`.
         // Serialize through the erased carrier, ALWAYS. `JSON.stringify` is
         // specified by ECMA-262, not by serde: an integral number has no
         // fraction (`1`, not `1.0`), a non-finite number is `null`, an
@@ -1731,8 +1731,16 @@ impl FunctionEmitter<'_> {
         // not JavaScript's: `JSON.stringify({a: 1})` printed `{"a":1.0}` for
         // every integral number in the crate, in records, lists, class
         // instances and nested objects alike.
-        let value_ty = self.operand_ty(value)?;
-        let value_text = self.erase_rendered(&self.operand_expr(value)?, value_ty)?;
+        // The operand-based erasure keeps a constant's own value (`undefined`
+        // stays `undefined`, where its `None` type alone would say `null`).
+        let value_text = self.erase(value)?;
+        if optional_text {
+            let text = self.text_from_string("smelt_text");
+            return Ok(RustExpr::chain(format!(
+                "smelt_json_stringify_value(&{value_text}).expect(\"JSON serialization failed\").map(|smelt_text| {text})",
+                value_text = value_text.delimited()
+            )));
+        }
         Ok(RustExpr::chain(self.text_from_string(&format!(
             "{json}{value_text}).expect(\"JSON serialization failed\")",
             json = smelt_stdlib::runtime_symbols::boundary::JSON_TO_STRING,

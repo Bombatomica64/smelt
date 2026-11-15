@@ -836,31 +836,41 @@ impl ModuleBuilder<'_> {
             return annotated_ty;
         }
         let declared = annotated_ty?;
-        let element = match self.ctx.krate.types.get(declared).cloned() {
+        let span = self.span(binding.span.start, binding.span.end);
+        Some(self.erased_element_type(declared, span))
+    }
+
+    /// `ty` with its element erased when it is a record or list of a concrete
+    /// element (`Record<string, unknown[]>` -> `Record<string, unknown>`):
+    /// the slot of a value written with `any` (see
+    /// `lowering::any_written_locals`). Any other type is returned unchanged.
+    pub(in crate::lowering) fn erased_element_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+    ) -> smelt_hir::TypeId {
+        let element = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::Dict(key, value)) => Some((Some(key), value)),
             Some(Type::List(item)) => Some((None, item)),
             _ => None,
         };
         let Some((key, value)) = element else {
-            return annotated_ty;
+            return ty;
         };
         if matches!(self.ctx.krate.types.get(value), Some(Type::Unknown)) {
-            return annotated_ty;
+            return ty;
         }
         // The source's `any` is the boundary: the slot holds whatever value
         // was written (see `lowering::any_written_locals`).
-        let span = self.span(binding.span.start, binding.span.end);
         let erased = self.erase_at(
             ErasureReason::DynamicOperator,
             span,
             "element written with `any`",
         );
-        Some(
-            self.ctx
-                .krate
-                .types
-                .intern(key.map_or(Type::List(erased), |key| Type::Dict(key, erased))),
-        )
+        self.ctx
+            .krate
+            .types
+            .intern(key.map_or(Type::List(erased), |key| Type::Dict(key, erased)))
     }
 
     /// The type of a local the program assigns a keyed read and tests for
