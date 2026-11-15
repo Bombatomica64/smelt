@@ -1726,3 +1726,11 @@ fn overloaded_interface_methods() -> TestResult {
 fn union_arm_recovery() -> TestResult {
     verify_node_parity("union_arm_recovery")
 }
+
+/// `JSON.stringify` answers every value as ECMA-262 does: `undefined` for a
+/// top-level `undefined`, function or symbol; omitted or `null` inside a
+/// container; a match result as its array and no match as `null`.
+#[test]
+fn json_stringify_any_value() -> TestResult {
+    verify_node_parity("json_stringify_any_value")
+}

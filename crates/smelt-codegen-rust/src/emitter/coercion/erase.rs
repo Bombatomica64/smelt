@@ -191,10 +191,11 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
+                let absent = self.optional_absent_value(*inner);
                 Ok(smelt_owned_text.postfix(self.carrier_format(
                     self.carrier()?,
                     format_args!(
-                        ".map_or(SmeltUnknown::Undefined, |smelt_value| {value_wrap})",
+                        ".map_or({absent}, |smelt_value| {value_wrap})",
                         value_wrap = value_wrap.delimited()
                     ),
                 )))
@@ -317,6 +318,26 @@ impl FunctionEmitter<'_> {
                     && !closure.is_generator
                     && !matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
             }))
+    }
+
+    /// The erased value an absent `Option<inner>` stands for.
+    ///
+    /// `undefined`, except for a regular-expression match: `match`/`exec`
+    /// answer `null` when nothing matches (ECMA-262), never `undefined`, so an
+    /// absent match erases to `null` (`JSON.stringify("zz".match(/\d/))` is
+    /// `"null"`, and `m === null` holds through erased dataflow).
+    fn optional_absent_value(&self, inner: TypeId) -> &'static str {
+        match self.mir.types.get(inner) {
+            Some(Type::Class { name, .. })
+                if matches!(
+                    self.match_class_kind(*name),
+                    Ok(Some(smelt_stdlib::StdlibClass::Match))
+                ) =>
+            {
+                "SmeltUnknown::Null"
+            }
+            _ => "SmeltUnknown::Undefined",
+        }
     }
 
     /// Return the BARE name of a source future local being erased, if any.
@@ -666,8 +687,9 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
+                let absent = self.optional_absent_value(*inner);
                 Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(self.carrier()?, format_args!(
-                    "{}.clone().map_or(SmeltUnknown::Undefined, |smelt_value| {value_wrap})",
+                    "{}.clone().map_or({absent}, |smelt_value| {value_wrap})",
                     value.parenthesized_if_needed(), value_wrap = value_wrap.delimited()
                 ))))
             }

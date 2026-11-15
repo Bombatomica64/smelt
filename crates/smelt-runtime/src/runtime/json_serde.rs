@@ -188,3 +188,18 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
     Ok(())
 }
 // @smelt:item-end
+
+// @smelt:item smelt_json_stringify_value when json_stringify_value & dep_serde_json & unknown
+/// `JSON.stringify(value)` where the value may have no JSON text: `undefined`,
+/// a function or a symbol at the top level answers `undefined` (`None`), as
+/// ECMA-262 `SerializeJSONProperty` does; inside an object or array such a
+/// value is omitted or `null`, which `smelt_json_stringify` already writes.
+#[allow(dead_code)]
+fn smelt_json_stringify_value(value: &SmeltUnknown) -> Result<Option<String>, &'static str> {
+    match value {
+        SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_) => Ok(None),
+        SmeltUnknown::Object(object) if object.contains_key("__smelt_call") => Ok(None),
+        _ => smelt_json_stringify(value).map(Some),
+    }
+}
+// @smelt:item-end
