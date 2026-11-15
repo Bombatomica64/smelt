@@ -1,4 +1,4 @@
-class Box fields [Public size: Float] constructor Some(FuncId(13)) methods []
+class Box fields [Public size: Float] constructor Some(FuncId(12)) methods []
 
 fn is_nil (FuncId(0)) -> Bool
   locals
@@ -66,24 +66,7 @@ fn or_else (FuncId(5)) -> T
   bb3:
     return move %3
 
-fn describe (FuncId(6)) -> String
-  locals
-    %0 param value: Optional<T>
-    %1 temp: Bool
-    %2 temp: String
-  bb0:
-    %1 = primitive_cast_bool copy %0
-    switch move %1 ? bb1 : bb2
-  bb1:
-    %2 = "set"
-    goto bb3
-  bb2:
-    %2 = "unset"
-    goto bb3
-  bb3:
-    return move %2
-
-fn compact (FuncId(7)) -> List<T>
+fn compact (FuncId(6)) -> List<T>
   locals
     %0 param items: List<T>
     %1 user out: List<T>
@@ -117,7 +100,7 @@ fn compact (FuncId(7)) -> List<T>
   bb6:
     goto bb3
 
-fn count_strings (FuncId(8)) -> Float
+fn count_strings (FuncId(7)) -> Float
   locals
     %0 param items: List<T>
     %1 user count: Float
@@ -150,7 +133,7 @@ fn count_strings (FuncId(8)) -> Float
   bb6:
     goto bb3
 
-fn keep_defined (FuncId(9)) -> List<T>
+fn keep_defined (FuncId(8)) -> List<T>
   locals
     %0 param items: List<T>
     %1 temp: fn(T, Int, List<T>) -> Bool
@@ -160,7 +143,7 @@ fn keep_defined (FuncId(9)) -> List<T>
     %2 = list_filter copy %0, move %1
     return move %2
 
-fn tally (FuncId(10)) -> String
+fn tally (FuncId(9)) -> String
   locals
     %0 param items: List<T>
     %1 user kinds: List<String>
@@ -192,7 +175,7 @@ fn tally (FuncId(10)) -> String
     %9 = string_join move %1, ","
     return move %9
 
-fn append_if_present (FuncId(11)) -> List<T>
+fn append_if_present (FuncId(10)) -> List<T>
   locals
     %0 param items: List<T>
     %1 param value: T
@@ -209,7 +192,7 @@ fn append_if_present (FuncId(11)) -> List<T>
   bb2:
     return copy %0
 
-fn push_if_truthy (FuncId(12)) -> Float
+fn push_if_truthy (FuncId(11)) -> Float
   locals
     %0 param items: List<T>
     %1 param value: T
@@ -226,24 +209,24 @@ fn push_if_truthy (FuncId(12)) -> Float
     %4 = len copy %0
     return move %4
 
-fn new (FuncId(13)) -> Box
+fn new (FuncId(12)) -> Box
   locals
     %0 user this: Box
     %1 param size: Float
   bb0:
     %0 = struct0 {}
-    %0.field31 = copy %1
+    %0.field29 = copy %1
     return move %0
 
-fn smelt_global_init__box__0 (FuncId(14)) -> Box
+fn smelt_global_init__box__0 (FuncId(13)) -> Box
   locals
     %0 temp: Box
   bb0:
-    %0 = call fn13(2.0) -> bb1
+    %0 = call fn12(2.0) -> bb1
   bb1:
     return move %0
 
-fn main (FuncId(15)) -> None
+fn main (FuncId(14)) -> None
   locals
     %0 user shared: List<Float>
     %1 user same: List<Float>
@@ -288,53 +271,46 @@ fn main (FuncId(15)) -> None
     %40 temp: Box
     %41 temp: Box
     %42 temp: None
-    %43 temp: String
-    %44 temp: String
+    %43 temp: List<Float>
+    %44 temp: List<Float>
     %45 temp: String
-    %46 temp: String
-    %47 temp: Box
+    %46 temp: List<String>
+    %47 temp: List<String>
     %48 temp: String
     %49 temp: None
-    %50 temp: List<Float>
-    %51 temp: List<Float>
-    %52 temp: String
-    %53 temp: List<String>
-    %54 temp: List<String>
-    %55 temp: String
-    %56 temp: None
-    %57 temp: List<String>
-    %58 temp: Float
-    %59 temp: List<Float>
-    %60 temp: Float
-    %61 temp: None
-    %62 temp: List<Float>
-    %63 temp: List<Float>
-    %64 temp: Float
-    %65 temp: List<Float>
-    %66 temp: String
-    %67 temp: List<String>
-    %68 temp: String
-    %69 temp: Box
-    %70 temp: List<Box>
-    %71 temp: String
-    %72 temp: None
-    %73 temp: List<Float>
-    %74 temp: List<Float>
-    %75 temp: Float
-    %76 temp: String
-    %77 temp: Bool
-    %78 temp: None
+    %50 temp: List<String>
+    %51 temp: Float
+    %52 temp: List<Float>
+    %53 temp: Float
+    %54 temp: None
+    %55 temp: List<Float>
+    %56 temp: List<Float>
+    %57 temp: Float
+    %58 temp: List<Float>
+    %59 temp: String
+    %60 temp: List<String>
+    %61 temp: String
+    %62 temp: Box
+    %63 temp: List<Box>
+    %64 temp: String
+    %65 temp: None
+    %66 temp: List<Float>
+    %67 temp: List<Float>
+    %68 temp: Float
+    %69 temp: String
+    %70 temp: Bool
+    %71 temp: None
+    %72 temp: Float
+    %73 temp: Float
+    %74 temp: String
+    %75 temp: None
+    %76 temp: Box
+    %77 temp: List<Box>
+    %78 temp: Box
     %79 temp: Float
-    %80 temp: Float
-    %81 temp: String
+    %80 temp: Box
+    %81 temp: Float
     %82 temp: None
-    %83 temp: Box
-    %84 temp: List<Box>
-    %85 temp: Box
-    %86 temp: Float
-    %87 temp: Box
-    %88 temp: Float
-    %89 temp: None
   bb0:
     %3 = global_get #0
     %4 = call fn0(1.0) -> bb1
@@ -403,85 +379,72 @@ fn main (FuncId(15)) -> None
     %38 = call fn5("y", "x") -> bb30
   bb30:
     %39 = global_get #0
-    %40 = call fn13(9.0) -> bb31
+    %40 = call fn12(9.0) -> bb31
   bb31:
     %41 = call fn5(move %39, move %40) -> bb32
   bb32:
-    %42 = call @console_log(move %35, move %36, move %37, move %38, copy %41.field31) -> bb33
+    %42 = call @console_log(move %35, move %36, move %37, move %38, copy %41.field29) -> bb33
   bb33:
-    %43 = call fn6() -> bb34
+    %43 = [0.0, 1.0, 2.0, 0.0, 3.0]
+    %44 = call fn6(move %43) -> bb34
   bb34:
-    %44 = call fn6(0.0) -> bb35
+    %45 = string_join move %44, ","
+    %46 = ["", "a", "b"]
+    %47 = call fn6(move %46) -> bb35
   bb35:
-    %45 = call fn6(1.0) -> bb36
+    %48 = string_join move %47, ","
+    %49 = call @console_log(move %45, move %48) -> bb36
   bb36:
-    %46 = call fn6("x") -> bb37
+    %50 = ["a", "b"]
+    %51 = call fn7(move %50) -> bb37
   bb37:
-    %47 = global_get #0
-    %48 = call fn6(move %47) -> bb38
+    %52 = [1.0, 2.0]
+    %53 = call fn7(move %52) -> bb38
   bb38:
-    %49 = call @console_log(move %43, move %44, move %45, move %46, move %48) -> bb39
+    %54 = call @console_log(move %51, move %53) -> bb39
   bb39:
-    %50 = [0.0, 1.0, 2.0, 0.0, 3.0]
-    %51 = call fn7(move %50) -> bb40
+    %55 = [1.0, 2.0, 3.0]
+    %56 = call fn8(move %55) -> bb40
   bb40:
-    %52 = string_join move %51, ","
-    %53 = ["", "a", "b"]
-    %54 = call fn7(move %53) -> bb41
+    %57 = len move %56
+    %58 = [1.0, 2.0]
+    %59 = call fn9(move %58) -> bb41
   bb41:
-    %55 = string_join move %54, ","
-    %56 = call @console_log(move %52, move %55) -> bb42
+    %60 = ["a"]
+    %61 = call fn9(move %60) -> bb42
   bb42:
-    %57 = ["a", "b"]
-    %58 = call fn8(move %57) -> bb43
+    %62 = global_get #0
+    %63 = [move %62]
+    %64 = call fn9(move %63) -> bb43
   bb43:
-    %59 = [1.0, 2.0]
-    %60 = call fn8(move %59) -> bb44
+    %65 = call @console_log(move %57, move %59, move %61, move %64) -> bb44
   bb44:
-    %61 = call @console_log(move %58, move %60) -> bb45
-  bb45:
-    %62 = [1.0, 2.0, 3.0]
-    %63 = call fn9(move %62) -> bb46
-  bb46:
-    %64 = len move %63
-    %65 = [1.0, 2.0]
-    %66 = call fn10(move %65) -> bb47
-  bb47:
-    %67 = ["a"]
-    %68 = call fn10(move %67) -> bb48
-  bb48:
-    %69 = global_get #0
-    %70 = [move %69]
-    %71 = call fn10(move %70) -> bb49
-  bb49:
-    %72 = call @console_log(move %64, move %66, move %68, move %71) -> bb50
-  bb50:
     %0 = [1.0, 2.0]
-    %74 = call fn11(copy %0, 3.0) -> bb51
+    %67 = call fn10(copy %0, 3.0) -> bb45
+  bb45:
+    %1 = move %67
+    %68 = list_push copy %1, 4.0
+    %69 = string_join copy %0, ","
+    %70 = move %1 == copy %0
+    %71 = call @console_log(move %69, move %70) -> bb46
+  bb46:
+    %72 = call fn11(copy %0, 5.0) -> bb47
+  bb47:
+    %73 = call fn11(copy %0, 0.0) -> bb48
+  bb48:
+    %74 = string_join move %0, ","
+    %75 = call @console_log(move %72, move %73, move %74) -> bb49
+  bb49:
+    %76 = global_get #0
+    %2 = [move %76]
+    %78 = call fn12(5.0) -> bb50
+  bb50:
+    %79 = call fn11(copy %2, move %78) -> bb51
   bb51:
-    %1 = move %74
-    %75 = list_push copy %1, 4.0
-    %76 = string_join copy %0, ","
-    %77 = move %1 == copy %0
-    %78 = call @console_log(move %76, move %77) -> bb52
+    %80 = copy %2[1.0]
+    %81 = len move %2
+    %82 = call @console_log(move %79, copy %80.field29, move %81) -> bb52
   bb52:
-    %79 = call fn12(copy %0, 5.0) -> bb53
-  bb53:
-    %80 = call fn12(copy %0, 0.0) -> bb54
-  bb54:
-    %81 = string_join move %0, ","
-    %82 = call @console_log(move %79, move %80, move %81) -> bb55
-  bb55:
-    %83 = global_get #0
-    %2 = [move %83]
-    %85 = call fn13(5.0) -> bb56
-  bb56:
-    %86 = call fn12(copy %2, move %85) -> bb57
-  bb57:
-    %87 = copy %2[1.0]
-    %88 = len move %2
-    %89 = call @console_log(move %86, copy %87.field31, move %88) -> bb58
-  bb58:
     return none
 
 closure ClosureId(0) -> Bool

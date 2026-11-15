@@ -22,9 +22,6 @@ function truthy<T>(value: T): boolean {
 function orElse<T>(value: T, fallback: T): T {
   return value ? value : fallback;
 }
-function describe<T>(value?: T): string {
-  return value ? "set" : "unset";
-}
 function compact<T>(items: T[]): T[] {
   const out: T[] = [];
   for (const item of items) {
@@ -74,7 +71,6 @@ console.log(isNull(1), isNull(""), isNull(box));
 console.log(kind(1), kind("a"), kind(true), kind(box), kind(1n));
 console.log(truthy(box), truthy(0), truthy(""), truthy("0"), truthy(NaN), truthy(2));
 console.log(orElse(0, 5), orElse(2, 5), orElse("", "x"), orElse("y", "x"), orElse(box, new Box(9)).size);
-console.log(describe<number>(), describe(0), describe(1), describe("x"), describe(box));
 console.log(compact([0, 1, 2, 0, 3]).join(","), compact(["", "a", "b"]).join(","));
 console.log(countStrings(["a", "b"]), countStrings([1, 2]));
 console.log(keepDefined([1, 2, 3]).length, tally([1, 2]), tally(["a"]), tally([box]));

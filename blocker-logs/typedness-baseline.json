@@ -2,8 +2,8 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8705,
-      "generic": 194,
+      "concrete": 8696,
+      "generic": 193,
       "erased": 56
     },
     "reads": {
@@ -12,7 +12,7 @@
       "erased": 20
     },
     "calls": {
-      "concrete": 2450,
+      "concrete": 2444,
       "generic": 16,
       "erased": 2
     }
@@ -1737,8 +1737,8 @@
     },
     "examples/typescript/end-to-end/202_inspected_type_parameter_stays_generic/input.ts": {
       "values": {
-        "concrete": 123,
-        "generic": 29,
+        "concrete": 114,
+        "generic": 28,
         "erased": 0
       },
       "reads": {
@@ -1747,7 +1747,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 59,
+        "concrete": 53,
         "generic": 0,
         "erased": 0
       }

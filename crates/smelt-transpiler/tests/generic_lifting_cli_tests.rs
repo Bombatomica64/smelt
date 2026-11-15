@@ -374,3 +374,55 @@ console.log(countArrays(nested), countArrays([1, 2, 3]));
         "narrowed_type_parameter_read_as_a_container_stays_erased",
     )
 }
+
+/// Rule (`smelt_codegen_rust::generic_inspection`): a scalar inspection of an
+/// OPTIONAL type parameter value (`value?: T`) is answered on the erased copy
+/// of the whole optional, so an absent argument, a falsy one and a present
+/// one each answer as JavaScript does and the function keeps its `T`.
+///
+/// Behaviour: stdout equals Node's, including a class instance (recovering a
+/// `T` from `undefined` for the absent side of the test would panic there).
+/// Type preservation: both signatures keep `T`.
+///
+/// Why this is not in example `202_inspected_type_parameter_stays_generic`:
+/// a call passing a plain `T` where the parameter is `T | undefined` does not
+/// monomorphize today (the call site instantiates `T` at the erased value),
+/// which is avoidable erasure the examples corpus may not hold. The
+/// definition is what this rule is about; the call site is a separate gap.
+#[test]
+fn optional_type_parameter_is_inspected_through_its_erased_copy() -> TestResult {
+    let source = r"class Box {
+  constructor(public size: number) {}
+}
+function describe<T>(value?: T): string {
+  return value ? 'set' : 'unset';
+}
+function isGiven<T>(value?: T): boolean {
+  return value !== undefined;
+}
+const box = new Box(2);
+console.log(describe<number>(), describe(0), describe(1), describe('x'), describe(box));
+console.log(isGiven<string>(), isGiven(0), isGiven(''), isGiven(box));
+";
+    let expected = "unset unset set set set\nfalse true true true\n";
+    let (generated, stdout) = build_and_run(
+        "optional_type_parameter_is_inspected_through_its_erased_copy",
+        source,
+    )?;
+    for signature in [
+        r"pub(crate) fn describe<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> JsString {",
+        r"pub(crate) fn is_given<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> bool {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "optional_type_parameter_is_inspected_through_its_erased_copy",
+    )
+}

@@ -1080,10 +1080,6 @@ pub struct SmeltRecord<K, V> {
     store: ::std::rc::Rc<::std::cell::RefCell<SmeltFieldStore<K, V>>>,
 }
 
-thread_local! {
-    static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
 /// Whether the allocation an address-table key names is still alive.
 trait SmeltAllocationGuard { fn is_live(&self) -> bool; }
 
@@ -1203,32 +1199,6 @@ fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(Strin
     SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().remove(&id));
     for (key, value) in entries { view.insert(key, value); }
     SmeltUnknown::Object(view)
-}
-
-/// Return a stable erased promise id for a source future local.
-fn smelt_promise_identity(source_key: usize) -> usize {
-    SMELT_PROMISE_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&source_key) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(source_key, id);
-        id
-    })
-}
-
-thread_local! {
-    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Return a stable erased-array id for a source list keyed on its `Vec` address.
-fn smelt_list_identity(source_key: usize) -> usize {
-    SMELT_LIST_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&source_key) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(source_key, id);
-        id
-    })
 }
 
 #[derive(Default)]
@@ -2345,7 +2315,6 @@ pub struct SmeltPromise {
 
 impl SmeltPromise {
     fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
-    fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
     fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
     fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
     #[allow(dead_code)]
@@ -2445,14 +2414,16 @@ pub struct SmeltFuture<T> {
     driven: ::std::rc::Rc<::std::cell::Cell<bool>>,
     tick: ::std::rc::Rc<::std::cell::Cell<bool>>,
     parked: ::std::rc::Rc<::std::cell::Cell<bool>>,
+    erased: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromise>>>,
 }
-impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone() } } }
+impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone(), erased: self.erased.clone() } } }
 impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resolved(T::default()) } }
 impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
 #[allow(dead_code)]
 impl<T> SmeltFuture<T> {
     fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self::with_state(SmeltFutureState::Pending(future)) }
-    fn with_state(state: SmeltFutureState<T>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), tick: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
+    fn with_state(state: SmeltFutureState<T>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), tick: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)), erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    fn smelt_detached(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone(), erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {
         struct SmeltPrimeGuard;
         impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
@@ -2477,11 +2448,14 @@ impl<T> SmeltFuture<T> {
         }
     }
     fn smelt_promise_with(self, erase: impl FnOnce(T) -> SmeltUnknown + 'static) -> SmeltPromise where T: Clone + 'static {
-        match self.smelt_settled() {
+        if let Some(view) = self.erased.borrow().as_ref() { return view.clone(); }
+        let view = match self.smelt_settled() {
             Some(Ok(value)) => SmeltPromise::resolved(erase(value)),
             Some(Err(reason)) => SmeltPromise::settled_rejection(reason),
-            None => SmeltPromise::scheduled(Box::pin(async move { let value = self.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(erase(value)) })),
-        }
+            None => { let source = self.smelt_detached(); SmeltPromise::scheduled(Box::pin(async move { let value = source.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(erase(value)) })) }
+        };
+        *self.erased.borrow_mut() = Some(view.clone());
+        view
     }
     fn smelt_drive(&self) where T: Clone + 'static {
         if self.driven.get() || !matches!(&*self.state.borrow(), SmeltFutureState::Pending(_)) { return; }
@@ -4329,26 +4303,25 @@ fn main() {
     let _smelt_tmp_23: Box_;
     let _smelt_tmp_27: Box_;
     let _smelt_tmp_39: Box_;
-    let _smelt_tmp_47: Box_;
-    let _smelt_tmp_50: SmeltList<f64>;
-    let _smelt_tmp_52: JsString;
-    let _smelt_tmp_53: SmeltList<JsString>;
-    let _smelt_tmp_55: JsString;
-    let _smelt_tmp_57: SmeltList<JsString>;
-    let _smelt_tmp_59: SmeltList<f64>;
-    let _smelt_tmp_62: SmeltList<f64>;
-    let _smelt_tmp_64: f64;
-    let _smelt_tmp_65: SmeltList<f64>;
-    let _smelt_tmp_67: SmeltList<JsString>;
-    let _smelt_tmp_69: Box_;
-    let _smelt_tmp_70: SmeltList<Box_>;
-    let _smelt_tmp_75: f64;
-    let _smelt_tmp_76: JsString;
-    let _smelt_tmp_77: bool;
-    let _smelt_tmp_81: JsString;
-    let _smelt_tmp_83: Box_;
-    let _smelt_tmp_87: Box_;
-    let _smelt_tmp_88: f64;
+    let _smelt_tmp_43: SmeltList<f64>;
+    let _smelt_tmp_45: JsString;
+    let _smelt_tmp_46: SmeltList<JsString>;
+    let _smelt_tmp_48: JsString;
+    let _smelt_tmp_50: SmeltList<JsString>;
+    let _smelt_tmp_52: SmeltList<f64>;
+    let _smelt_tmp_55: SmeltList<f64>;
+    let _smelt_tmp_57: f64;
+    let _smelt_tmp_58: SmeltList<f64>;
+    let _smelt_tmp_60: SmeltList<JsString>;
+    let _smelt_tmp_62: Box_;
+    let _smelt_tmp_63: SmeltList<Box_>;
+    let _smelt_tmp_68: f64;
+    let _smelt_tmp_69: JsString;
+    let _smelt_tmp_70: bool;
+    let _smelt_tmp_74: JsString;
+    let _smelt_tmp_76: Box_;
+    let _smelt_tmp_80: Box_;
+    let _smelt_tmp_81: f64;
     SMELT_GLOBAL_BOX_0.with(|_| ());
     let _smelt_tmp_4: bool = is_nil(1.0);
     let _smelt_tmp_5: bool = is_nil(JsString::from("a"));
@@ -4389,54 +4362,47 @@ fn main() {
     let _smelt_tmp_40: Box_ = Box_::new(9.0);
     let _smelt_tmp_41: Box_ = or_else(_smelt_tmp_39, _smelt_tmp_40);
     let _ = { println!("{} {} {} {} {}", smelt_console_number(_smelt_tmp_35), smelt_console_number(_smelt_tmp_36), _smelt_tmp_37, _smelt_tmp_38, smelt_console_number(_smelt_tmp_41.size)); };
-    let _smelt_tmp_43: JsString = describe(None::<SmeltUnknown>);
-    let _smelt_tmp_44: JsString = describe(Some(SmeltUnknown::Number(0.0 as f64)));
-    let _smelt_tmp_45: JsString = describe(Some(SmeltUnknown::Number(1.0 as f64)));
-    let _smelt_tmp_46: JsString = describe(Some(SmeltUnknown::String("x".into())));
-    _smelt_tmp_47 = SMELT_GLOBAL_BOX_0.with(|smelt_value| smelt_value.borrow().clone());
-    let _smelt_tmp_48: JsString = describe(Some({ let smelt_object_value = _smelt_tmp_47; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::<(String, _)>::new(); smelt_object_entries.push(("size".to_owned(), SmeltUnknown::Number(smelt_object_value.size as f64))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Box".into()))); SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }));
-    let _ = { println!("{} {} {} {} {}", _smelt_tmp_43, _smelt_tmp_44, _smelt_tmp_45, _smelt_tmp_46, _smelt_tmp_48); };
-    _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![0.0, 1.0, 2.0, 0.0, 3.0]; smelt_list_items }));
-    let _smelt_tmp_51: SmeltList<f64> = compact(_smelt_tmp_50);
-    _smelt_tmp_52 = JsString::join(_smelt_tmp_51.borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
-    _smelt_tmp_53 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::from("a"), JsString::from("b")]; smelt_list_items }));
-    let _smelt_tmp_54: SmeltList<JsString> = compact(_smelt_tmp_53);
-    _smelt_tmp_55 = JsString::join(_smelt_tmp_54.borrow().iter(), &JsString::from(","));
-    let _ = { println!("{} {}", _smelt_tmp_52, _smelt_tmp_55); };
-    _smelt_tmp_57 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
-    let _smelt_tmp_58: f64 = count_strings(_smelt_tmp_57);
-    _smelt_tmp_59 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
-    let _smelt_tmp_60: f64 = count_strings(_smelt_tmp_59);
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_58), smelt_console_number(_smelt_tmp_60)); };
-    _smelt_tmp_62 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
-    let _smelt_tmp_63: SmeltList<f64> = keep_defined(_smelt_tmp_62);
-    _smelt_tmp_64 = _smelt_tmp_63.len() as f64;
-    _smelt_tmp_65 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
-    let _smelt_tmp_66: JsString = tally(_smelt_tmp_65);
-    _smelt_tmp_67 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
-    let _smelt_tmp_68: JsString = tally(_smelt_tmp_67);
-    _smelt_tmp_69 = SMELT_GLOBAL_BOX_0.with(|smelt_value| smelt_value.borrow().clone());
-    _smelt_tmp_70 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Box_> = vec![_smelt_tmp_69.clone()]; smelt_list_items }));
-    let _smelt_tmp_71: JsString = tally(_smelt_tmp_70);
-    let _ = { println!("{} {} {} {}", smelt_console_number(_smelt_tmp_64), _smelt_tmp_66, _smelt_tmp_68, _smelt_tmp_71); };
+    _smelt_tmp_43 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![0.0, 1.0, 2.0, 0.0, 3.0]; smelt_list_items }));
+    let _smelt_tmp_44: SmeltList<f64> = compact(_smelt_tmp_43);
+    _smelt_tmp_45 = JsString::join(_smelt_tmp_44.borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
+    _smelt_tmp_46 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::new(), JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+    let _smelt_tmp_47: SmeltList<JsString> = compact(_smelt_tmp_46);
+    _smelt_tmp_48 = JsString::join(_smelt_tmp_47.borrow().iter(), &JsString::from(","));
+    let _ = { println!("{} {}", _smelt_tmp_45, _smelt_tmp_48); };
+    _smelt_tmp_50 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b")]; smelt_list_items }));
+    let _smelt_tmp_51: f64 = count_strings(_smelt_tmp_50);
+    _smelt_tmp_52 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
+    let _smelt_tmp_53: f64 = count_strings(_smelt_tmp_52);
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_51), smelt_console_number(_smelt_tmp_53)); };
+    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
+    let _smelt_tmp_56: SmeltList<f64> = keep_defined(_smelt_tmp_55);
+    _smelt_tmp_57 = _smelt_tmp_56.len() as f64;
+    _smelt_tmp_58 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
+    let _smelt_tmp_59: JsString = tally(_smelt_tmp_58);
+    _smelt_tmp_60 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
+    let _smelt_tmp_61: JsString = tally(_smelt_tmp_60);
+    _smelt_tmp_62 = SMELT_GLOBAL_BOX_0.with(|smelt_value| smelt_value.borrow().clone());
+    _smelt_tmp_63 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Box_> = vec![_smelt_tmp_62.clone()]; smelt_list_items }));
+    let _smelt_tmp_64: JsString = tally(_smelt_tmp_63);
+    let _ = { println!("{} {} {} {}", smelt_console_number(_smelt_tmp_57), _smelt_tmp_59, _smelt_tmp_61, _smelt_tmp_64); };
     shared = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
-    let _smelt_tmp_74: SmeltList<f64> = { let smelt_mut_call_result = append_if_present(&mut shared, 3.0); smelt_mut_call_result };
-    same = Into::<SmeltList<_>>::into(_smelt_tmp_74);
-    _smelt_tmp_75 = { let smelt_push_item = 4.0; same.borrow_mut().push(smelt_push_item); same.len() as f64 };
-    _smelt_tmp_76 = JsString::join(shared.clone().borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
-    _smelt_tmp_77 = same.id() == shared.clone().id();
-    let _ = { println!("{} {}", _smelt_tmp_76, _smelt_tmp_77); };
-    let _smelt_tmp_79: f64 = { let smelt_mut_call_result = push_if_truthy(&mut shared, 5.0); smelt_mut_call_result };
-    let _smelt_tmp_80: f64 = { let smelt_mut_call_result = push_if_truthy(&mut shared, 0.0); smelt_mut_call_result };
-    _smelt_tmp_81 = JsString::join(shared.borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_79), smelt_console_number(_smelt_tmp_80), _smelt_tmp_81); };
-    _smelt_tmp_83 = SMELT_GLOBAL_BOX_0.with(|smelt_value| smelt_value.borrow().clone());
-    boxes = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Box_> = vec![_smelt_tmp_83.clone()]; smelt_list_items }));
-    let _smelt_tmp_85: Box_ = Box_::new(5.0);
-    let _smelt_tmp_86: f64 = { let smelt_mut_call_result = push_if_truthy(&mut boxes, _smelt_tmp_85); smelt_mut_call_result };
-    _smelt_tmp_87 = boxes.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
-    _smelt_tmp_88 = boxes.len() as f64;
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_86), smelt_console_number(_smelt_tmp_87.size), smelt_console_number(_smelt_tmp_88)); };
+    let _smelt_tmp_67: SmeltList<f64> = { let smelt_mut_call_result = append_if_present(&mut shared, 3.0); smelt_mut_call_result };
+    same = Into::<SmeltList<_>>::into(_smelt_tmp_67);
+    _smelt_tmp_68 = { let smelt_push_item = 4.0; same.borrow_mut().push(smelt_push_item); same.len() as f64 };
+    _smelt_tmp_69 = JsString::join(shared.clone().borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
+    _smelt_tmp_70 = same.id() == shared.clone().id();
+    let _ = { println!("{} {}", _smelt_tmp_69, _smelt_tmp_70); };
+    let _smelt_tmp_72: f64 = { let smelt_mut_call_result = push_if_truthy(&mut shared, 5.0); smelt_mut_call_result };
+    let _smelt_tmp_73: f64 = { let smelt_mut_call_result = push_if_truthy(&mut shared, 0.0); smelt_mut_call_result };
+    _smelt_tmp_74 = JsString::join(shared.borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_72), smelt_console_number(_smelt_tmp_73), _smelt_tmp_74); };
+    _smelt_tmp_76 = SMELT_GLOBAL_BOX_0.with(|smelt_value| smelt_value.borrow().clone());
+    boxes = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Box_> = vec![_smelt_tmp_76.clone()]; smelt_list_items }));
+    let _smelt_tmp_78: Box_ = Box_::new(5.0);
+    let _smelt_tmp_79: f64 = { let smelt_mut_call_result = push_if_truthy(&mut boxes, _smelt_tmp_78); smelt_mut_call_result };
+    _smelt_tmp_80 = boxes.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    _smelt_tmp_81 = boxes.len() as f64;
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_79), smelt_console_number(_smelt_tmp_80.size), smelt_console_number(_smelt_tmp_81)); };
     return;
 }
 
@@ -4489,13 +4455,6 @@ pub(crate) fn or_else<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown +
     let _smelt_tmp_2: bool = match ((value.clone()).into_smelt_unknown()) { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
     let _smelt_tmp_3: T = if _smelt_tmp_2 { value.clone() } else { fallback.clone() };
     return _smelt_tmp_3;
-}
-
-pub(crate) fn describe<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> JsString {
-    let mut _smelt_tmp_2: JsString;
-    let _smelt_tmp_1: bool = match (value.clone().map_or(SmeltUnknown::Undefined, |smelt_value| (smelt_value).into_smelt_unknown())) { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
-    let _smelt_tmp_2: JsString = if _smelt_tmp_1 { JsString::from("set") } else { JsString::from("unset") };
-    return _smelt_tmp_2;
 }
 
 pub(crate) fn compact<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> SmeltList<T> {
