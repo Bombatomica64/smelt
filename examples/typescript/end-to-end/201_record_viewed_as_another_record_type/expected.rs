@@ -4716,7 +4716,7 @@ fn smelt_erased_regexp_method(object: SmeltObject, name: &str) -> SmeltUnknown {
 // @smelt:prelude-end — generated program below
 
 #[allow(dead_code)]
-struct Point(::std::rc::Rc<dyn PointSmeltView>);
+struct Point(::std::rc::Rc<::std::cell::RefCell<PointInner>>);
 #[derive(Debug, Default)]
 #[allow(dead_code)]
 struct PointInner {
@@ -4724,12 +4724,6 @@ struct PointInner {
     label: JsString,
     tags: SmeltList<JsString>,
 }
-#[allow(dead_code, non_snake_case)]
-trait PointSmeltView { fn x(&self) -> ::std::cell::Ref<'_, f64>; fn x_mut(&self) -> ::std::cell::RefMut<'_, f64>; fn label(&self) -> ::std::cell::Ref<'_, JsString>; fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString>; fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>>; fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result; fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown; fn smelt_as_Spot(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SpotSmeltView>; fn smelt_as_Marker(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn MarkerSmeltView>; fn smelt_as_Named(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn NamedSmeltView>; fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView>; }
-#[allow(non_snake_case)]
-impl PointSmeltView for ::std::cell::RefCell<PointInner> { fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.tags) } fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.tags) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Point(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Spot(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SpotSmeltView> { self } fn smelt_as_Marker(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn MarkerSmeltView> { self } fn smelt_as_Named(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn NamedSmeltView> { self } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
-#[allow(non_snake_case)]
-impl PointSmeltView for ::std::cell::RefCell<MarkerInner> { fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.tags) } fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.tags) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Marker(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Spot(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SpotSmeltView> { self } fn smelt_as_Marker(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn MarkerSmeltView> { self } fn smelt_as_Named(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn NamedSmeltView> { self } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
 impl Clone for Point {
     fn clone(&self) -> Self {
         Point(::std::rc::Rc::clone(&self.0))
@@ -4737,7 +4731,7 @@ impl Clone for Point {
 }
 impl PartialEq for Point {
     fn eq(&self, other: &Self) -> bool {
-        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
     }
 }
 impl Default for Point {
@@ -4747,7 +4741,7 @@ impl Default for Point {
 }
 impl ::std::fmt::Debug for Point {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        self.0.smelt_debug(formatter)
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
     }
 }
 /// `Point` as its erased and map views read and write it (`SmeltLiveObject`).
@@ -4758,14 +4752,14 @@ impl SmeltLiveObject for Point {
         let smelt_object_value = self;
         let smelt_struct_value = self;
         let mut smelt_object_entries = SmeltLiveSlot(None);
-        if *key == "x" { smelt_object_entries.push(("x", SmeltUnknown::Number(((*smelt_object_value.0.x())).clone() as f64))); } else if *key == "label" { smelt_object_entries.push(("label", SmeltUnknown::String((((*smelt_object_value.0.label())).clone()).into()))); } else if *key == "tags" { smelt_object_entries.push(("tags", SmeltList::clone(&((*smelt_object_value.0.tags())).clone()).into_live_smelt_unknown())); }
+        if *key == "x" { smelt_object_entries.push(("x", SmeltUnknown::Number(smelt_object_value.0.borrow().x.clone() as f64))); } else if *key == "label" { smelt_object_entries.push(("label", SmeltUnknown::String((smelt_object_value.0.borrow().label.clone()).into()))); } else if *key == "tags" { smelt_object_entries.push(("tags", SmeltList::clone(&smelt_object_value.0.borrow().tags.clone()).into_live_smelt_unknown())); }
         smelt_object_entries.0
     }
     #[allow(unused_variables)]
     fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
-        if *key == "x" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; (*self.0.x_mut()) = smelt_field_value; return Ok(()); }
-        if *key == "label" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; (*self.0.label_mut()) = smelt_field_value; return Ok(()); }
-        if *key == "tags" { if !matches!(value, SmeltUnknown::Array(_)) { return Err(value); } let smelt_field_value = { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => match smelt_values.live_list() { Some(smelt_live) => smelt_live, None => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list } }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_ch).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }; (*self.0.tags_mut()) = smelt_field_value; return Ok(()); }
+        if *key == "x" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; self.0.borrow_mut().x = smelt_field_value; return Ok(()); }
+        if *key == "label" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().label = smelt_field_value; return Ok(()); }
+        if *key == "tags" { if !matches!(value, SmeltUnknown::Array(_)) { return Err(value); } let smelt_field_value = { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => match smelt_values.live_list() { Some(smelt_live) => smelt_live, None => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list } }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_ch).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| <JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } }; self.0.borrow_mut().tags = smelt_field_value; return Ok(()); }
         Err(value)
     }
     #[allow(unused_mut, unused_variables)]
@@ -4773,19 +4767,15 @@ impl SmeltLiveObject for Point {
         let smelt_object_value = self;
         let smelt_struct_value = self;
         let mut smelt_object_entries = Vec::<(&'static str, SmeltUnknown)>::new();
-        smelt_object_entries.push(("x", SmeltUnknown::Number(((*smelt_object_value.0.x())).clone() as f64))); smelt_object_entries.push(("label", SmeltUnknown::String((((*smelt_object_value.0.label())).clone()).into()))); smelt_object_entries.push(("tags", SmeltList::clone(&((*smelt_object_value.0.tags())).clone()).into_live_smelt_unknown()));
+        smelt_object_entries.push(("x", SmeltUnknown::Number(smelt_object_value.0.borrow().x.clone() as f64))); smelt_object_entries.push(("label", SmeltUnknown::String((smelt_object_value.0.borrow().label.clone()).into()))); smelt_object_entries.push(("tags", SmeltList::clone(&smelt_object_value.0.borrow().tags.clone()).into_live_smelt_unknown()));
         smelt_object_entries
     }
-    fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone().smelt_any() }
+    fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
     fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
 }
 impl IntoSmeltUnknown for Point {
-    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).into_smelt_unknown_as_concrete() }
-}
-impl Point {
-    #[allow(dead_code)]
-    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))
     }
 }
@@ -4796,11 +4786,10 @@ impl SmeltFromUnknown for Point {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Point", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Marker>() { return Point(smelt_subclass_origin.0.clone().smelt_as_Point()); }
         let result = Self::default();
-        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "x") { (*result.0.x_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Point", "x"); }
-        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { (*result.0.label_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Point", "label"); }
-        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "tags") { (*result.0.tags_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string[]", "Point", "tags"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "x") { result.0.borrow_mut().x = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Point", "x"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { result.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Point", "label"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "tags") { result.0.borrow_mut().tags = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string[]", "Point", "tags"); }
         smelt_object.smelt_adopt(&result);
         result
     }
@@ -4819,9 +4808,7 @@ trait SpotSmeltView { fn x(&self) -> ::std::cell::Ref<'_, f64>; fn x_mut(&self) 
 #[allow(non_snake_case)]
 impl SpotSmeltView for ::std::cell::RefCell<SpotInner> { fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Spot(self).__smelt_own_into_smelt_unknown() } }
 #[allow(non_snake_case)]
-impl SpotSmeltView for ::std::cell::RefCell<PointInner> { fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Point(self).__smelt_own_into_smelt_unknown() } }
-#[allow(non_snake_case)]
-impl SpotSmeltView for ::std::cell::RefCell<MarkerInner> { fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Marker(self).__smelt_own_into_smelt_unknown() } }
+impl SpotSmeltView for ::std::cell::RefCell<PointInner> { fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { IntoSmeltUnknown::into_smelt_unknown(Point(self)) } }
 impl Clone for Spot {
     fn clone(&self) -> Self {
         Spot(::std::rc::Rc::clone(&self.0))
@@ -4887,8 +4874,7 @@ impl SmeltFromUnknown for Spot {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Spot", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Spot(smelt_subclass_origin.0.clone().smelt_as_Spot()); }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Marker>() { return Spot(smelt_subclass_origin.0.clone().smelt_as_Spot()); }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Spot(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "x") { (*result.0.x_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Spot", "x"); }
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { (*result.0.label_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Spot", "label"); }
@@ -4907,11 +4893,11 @@ struct MarkerInner {
     x: f64,
 }
 #[allow(dead_code, non_snake_case)]
-trait MarkerSmeltView { fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>>; fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>>; fn label(&self) -> ::std::cell::Ref<'_, JsString>; fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString>; fn x(&self) -> ::std::cell::Ref<'_, f64>; fn x_mut(&self) -> ::std::cell::RefMut<'_, f64>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result; fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown; fn smelt_as_Point(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn PointSmeltView>; fn smelt_as_Spot(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SpotSmeltView>; fn smelt_as_Named(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn NamedSmeltView>; fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView>; }
+trait MarkerSmeltView { fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>>; fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>>; fn label(&self) -> ::std::cell::Ref<'_, JsString>; fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString>; fn x(&self) -> ::std::cell::Ref<'_, f64>; fn x_mut(&self) -> ::std::cell::RefMut<'_, f64>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result; fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown; }
 #[allow(non_snake_case)]
-impl MarkerSmeltView for ::std::cell::RefCell<MarkerInner> { fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.tags) } fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.tags) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Marker(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Point(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn PointSmeltView> { self } fn smelt_as_Spot(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SpotSmeltView> { self } fn smelt_as_Named(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn NamedSmeltView> { self } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
+impl MarkerSmeltView for ::std::cell::RefCell<MarkerInner> { fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.tags) } fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.tags) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Marker(self).__smelt_own_into_smelt_unknown() } }
 #[allow(non_snake_case)]
-impl MarkerSmeltView for ::std::cell::RefCell<PointInner> { fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.tags) } fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.tags) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Point(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Point(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn PointSmeltView> { self } fn smelt_as_Spot(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SpotSmeltView> { self } fn smelt_as_Named(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn NamedSmeltView> { self } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
+impl MarkerSmeltView for ::std::cell::RefCell<PointInner> { fn tags(&self) -> ::std::cell::Ref<'_, SmeltList<JsString>> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.tags) } fn tags_mut(&self) -> ::std::cell::RefMut<'_, SmeltList<JsString>> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.tags) } fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn x(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.x) } fn x_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.x) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { IntoSmeltUnknown::into_smelt_unknown(Point(self)) } }
 impl Clone for Marker {
     fn clone(&self) -> Self {
         Marker(::std::rc::Rc::clone(&self.0))
@@ -4978,11 +4964,187 @@ impl SmeltFromUnknown for Marker {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Marker", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Marker(smelt_subclass_origin.0.clone().smelt_as_Marker()); }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Marker(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "tags") { (*result.0.tags_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string[]", "Marker", "tags"); }
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { (*result.0.label_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Marker", "label"); }
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "x") { (*result.0.x_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Marker", "x"); }
+        smelt_object.smelt_adopt(&result);
+        result
+    }
+}
+
+#[allow(dead_code)]
+struct Reading(::std::rc::Rc<dyn ReadingSmeltView>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct ReadingInner {
+    value: f64,
+    unit: JsString,
+}
+#[allow(dead_code, non_snake_case)]
+trait ReadingSmeltView { fn value(&self) -> ::std::cell::Ref<'_, f64>; fn value_mut(&self) -> ::std::cell::RefMut<'_, f64>; fn unit(&self) -> ::std::cell::Ref<'_, JsString>; fn unit_mut(&self) -> ::std::cell::RefMut<'_, JsString>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result; fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown; fn smelt_as_Sample(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SampleSmeltView>; }
+#[allow(non_snake_case)]
+impl ReadingSmeltView for ::std::cell::RefCell<ReadingInner> { fn value(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.value) } fn value_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.value) } fn unit(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.unit) } fn unit_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.unit) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Reading(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Sample(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SampleSmeltView> { self } }
+#[allow(non_snake_case)]
+impl ReadingSmeltView for ::std::cell::RefCell<SampleInner> { fn value(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.value) } fn value_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.value) } fn unit(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.unit) } fn unit_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.unit) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Sample(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Sample(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn SampleSmeltView> { self } }
+impl Clone for Reading {
+    fn clone(&self) -> Self {
+        Reading(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for Reading {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+    }
+}
+impl Default for Reading {
+    fn default() -> Self {
+        Reading(::std::rc::Rc::new(::std::cell::RefCell::new(ReadingInner::default())))
+    }
+}
+impl ::std::fmt::Debug for Reading {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.smelt_debug(formatter)
+    }
+}
+/// `Reading` as its erased and map views read and write it (`SmeltLiveObject`).
+impl SmeltLiveObject for Reading {
+    fn smelt_field_names(&self) -> &'static [&'static str] { &["value", "unit"] }
+    #[allow(unused_mut, unused_variables)]
+    fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {
+        let smelt_object_value = self;
+        let smelt_struct_value = self;
+        let mut smelt_object_entries = SmeltLiveSlot(None);
+        if *key == "value" { smelt_object_entries.push(("value", SmeltUnknown::Number(((*smelt_object_value.0.value())).clone() as f64))); } else if *key == "unit" { smelt_object_entries.push(("unit", SmeltUnknown::String((((*smelt_object_value.0.unit())).clone()).into()))); }
+        smelt_object_entries.0
+    }
+    #[allow(unused_variables)]
+    fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
+        if *key == "value" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; (*self.0.value_mut()) = smelt_field_value; return Ok(()); }
+        if *key == "unit" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; (*self.0.unit_mut()) = smelt_field_value; return Ok(()); }
+        Err(value)
+    }
+    #[allow(unused_mut, unused_variables)]
+    fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
+        let smelt_object_value = self;
+        let smelt_struct_value = self;
+        let mut smelt_object_entries = Vec::<(&'static str, SmeltUnknown)>::new();
+        smelt_object_entries.push(("value", SmeltUnknown::Number(((*smelt_object_value.0.value())).clone() as f64))); smelt_object_entries.push(("unit", SmeltUnknown::String((((*smelt_object_value.0.unit())).clone()).into())));
+        smelt_object_entries
+    }
+    fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone().smelt_any() }
+    fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
+    fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+}
+impl IntoSmeltUnknown for Reading {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).into_smelt_unknown_as_concrete() }
+}
+impl Reading {
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))
+    }
+}
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
+impl SmeltFromUnknown for Reading {
+    const HOLDS_RECORD: bool = true;
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Reading", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Sample>() { return Reading(smelt_subclass_origin.0.clone().smelt_as_Reading()); }
+        let result = Self::default();
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "value") { (*result.0.value_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Reading", "value"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "unit") { (*result.0.unit_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Reading", "unit"); }
+        smelt_object.smelt_adopt(&result);
+        result
+    }
+}
+
+#[allow(dead_code)]
+struct Sample(::std::rc::Rc<dyn SampleSmeltView>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct SampleInner {
+    unit: JsString,
+    value: f64,
+}
+#[allow(dead_code, non_snake_case)]
+trait SampleSmeltView { fn unit(&self) -> ::std::cell::Ref<'_, JsString>; fn unit_mut(&self) -> ::std::cell::RefMut<'_, JsString>; fn value(&self) -> ::std::cell::Ref<'_, f64>; fn value_mut(&self) -> ::std::cell::RefMut<'_, f64>; fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result; fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown; fn smelt_as_Reading(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ReadingSmeltView>; }
+#[allow(non_snake_case)]
+impl SampleSmeltView for ::std::cell::RefCell<SampleInner> { fn unit(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.unit) } fn unit_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.unit) } fn value(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.value) } fn value_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.value) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Sample(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Reading(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ReadingSmeltView> { self } }
+#[allow(non_snake_case)]
+impl SampleSmeltView for ::std::cell::RefCell<ReadingInner> { fn unit(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.unit) } fn unit_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.unit) } fn value(&self) -> ::std::cell::Ref<'_, f64> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.value) } fn value_mut(&self) -> ::std::cell::RefMut<'_, f64> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.value) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Reading(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Reading(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ReadingSmeltView> { self } }
+impl Clone for Sample {
+    fn clone(&self) -> Self {
+        Sample(::std::rc::Rc::clone(&self.0))
+    }
+}
+impl PartialEq for Sample {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))
+    }
+}
+impl Default for Sample {
+    fn default() -> Self {
+        Sample(::std::rc::Rc::new(::std::cell::RefCell::new(SampleInner::default())))
+    }
+}
+impl ::std::fmt::Debug for Sample {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        self.0.smelt_debug(formatter)
+    }
+}
+/// `Sample` as its erased and map views read and write it (`SmeltLiveObject`).
+impl SmeltLiveObject for Sample {
+    fn smelt_field_names(&self) -> &'static [&'static str] { &["unit", "value"] }
+    #[allow(unused_mut, unused_variables)]
+    fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {
+        let smelt_object_value = self;
+        let smelt_struct_value = self;
+        let mut smelt_object_entries = SmeltLiveSlot(None);
+        if *key == "unit" { smelt_object_entries.push(("unit", SmeltUnknown::String((((*smelt_object_value.0.unit())).clone()).into()))); } else if *key == "value" { smelt_object_entries.push(("value", SmeltUnknown::Number(((*smelt_object_value.0.value())).clone() as f64))); }
+        smelt_object_entries.0
+    }
+    #[allow(unused_variables)]
+    fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
+        if *key == "unit" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; (*self.0.unit_mut()) = smelt_field_value; return Ok(()); }
+        if *key == "value" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; (*self.0.value_mut()) = smelt_field_value; return Ok(()); }
+        Err(value)
+    }
+    #[allow(unused_mut, unused_variables)]
+    fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
+        let smelt_object_value = self;
+        let smelt_struct_value = self;
+        let mut smelt_object_entries = Vec::<(&'static str, SmeltUnknown)>::new();
+        smelt_object_entries.push(("unit", SmeltUnknown::String((((*smelt_object_value.0.unit())).clone()).into()))); smelt_object_entries.push(("value", SmeltUnknown::Number(((*smelt_object_value.0.value())).clone() as f64)));
+        smelt_object_entries
+    }
+    fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone().smelt_any() }
+    fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
+    fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+}
+impl IntoSmeltUnknown for Sample {
+    fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).into_smelt_unknown_as_concrete() }
+}
+impl Sample {
+    #[allow(dead_code)]
+    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))
+    }
+}
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
+impl SmeltFromUnknown for Sample {
+    const HOLDS_RECORD: bool = true;
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Sample", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Reading>() { return Sample(smelt_subclass_origin.0.clone().smelt_as_Sample()); }
+        let result = Self::default();
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "unit") { (*result.0.unit_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Sample", "unit"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "value") { (*result.0.value_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "Sample", "value"); }
         smelt_object.smelt_adopt(&result);
         result
     }
@@ -5000,9 +5162,7 @@ trait NamedSmeltView { fn label(&self) -> ::std::cell::Ref<'_, JsString>; fn lab
 #[allow(non_snake_case)]
 impl NamedSmeltView for ::std::cell::RefCell<NamedInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Named(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
 #[allow(non_snake_case)]
-impl NamedSmeltView for ::std::cell::RefCell<PointInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Point(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
-#[allow(non_snake_case)]
-impl NamedSmeltView for ::std::cell::RefCell<MarkerInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Marker(self).__smelt_own_into_smelt_unknown() } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
+impl NamedSmeltView for ::std::cell::RefCell<PointInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { IntoSmeltUnknown::into_smelt_unknown(Point(self)) } fn smelt_as_Titled(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn TitledSmeltView> { self } }
 impl Clone for Named {
     fn clone(&self) -> Self {
         Named(::std::rc::Rc::clone(&self.0))
@@ -5067,8 +5227,7 @@ impl SmeltFromUnknown for Named {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Named", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Named(smelt_subclass_origin.0.clone().smelt_as_Named()); }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Marker>() { return Named(smelt_subclass_origin.0.clone().smelt_as_Named()); }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Named(smelt_subclass_origin.0.clone()); }
         let result = Self::default();
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { (*result.0.label_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Named", "label"); }
         smelt_object.smelt_adopt(&result);
@@ -5088,9 +5247,7 @@ trait TitledSmeltView { fn label(&self) -> ::std::cell::Ref<'_, JsString>; fn la
 #[allow(non_snake_case)]
 impl TitledSmeltView for ::std::cell::RefCell<TitledInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Titled(self).__smelt_own_into_smelt_unknown() } }
 #[allow(non_snake_case)]
-impl TitledSmeltView for ::std::cell::RefCell<PointInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Point(self).__smelt_own_into_smelt_unknown() } }
-#[allow(non_snake_case)]
-impl TitledSmeltView for ::std::cell::RefCell<MarkerInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Marker(self).__smelt_own_into_smelt_unknown() } }
+impl TitledSmeltView for ::std::cell::RefCell<PointInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { IntoSmeltUnknown::into_smelt_unknown(Point(self)) } }
 #[allow(non_snake_case)]
 impl TitledSmeltView for ::std::cell::RefCell<NamedInner> { fn label(&self) -> ::std::cell::Ref<'_, JsString> { ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.label) } fn label_mut(&self) -> ::std::cell::RefMut<'_, JsString> { ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.label) } fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self } fn smelt_debug(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { ::std::fmt::Debug::fmt(&*::std::cell::RefCell::borrow(self), formatter) } fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown { Named(self).__smelt_own_into_smelt_unknown() } }
 impl Clone for Titled {
@@ -5157,8 +5314,7 @@ impl SmeltFromUnknown for Titled {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Titled", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Titled(smelt_subclass_origin.0.clone().smelt_as_Titled()); }
-        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Marker>() { return Titled(smelt_subclass_origin.0.clone().smelt_as_Titled()); }
+        if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Point>() { return Titled(smelt_subclass_origin.0.clone()); }
         if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<Named>() { return Titled(smelt_subclass_origin.0.clone().smelt_as_Titled()); }
         let result = Self::default();
         if let Some(smelt_field) = smelt_erased_member(&smelt_object, "label") { (*result.0.label_mut()) = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "Titled", "label"); }
@@ -5168,21 +5324,21 @@ impl SmeltFromUnknown for Titled {
 }
 
 thread_local! {
-    static SMELT_GLOBAL_KEPT_NAMED_0: ::std::cell::RefCell<Named> = ::std::cell::RefCell::new(smelt_global_init__kept_named__3());
-    static SMELT_GLOBAL_KEPT_SPOT_1: ::std::cell::RefCell<Spot> = ::std::cell::RefCell::new(smelt_global_init__kept_spot__4());
-    static SMELT_GLOBAL_ROSTER_2: ::std::cell::RefCell<SmeltList<Named>> = ::std::cell::RefCell::new(smelt_global_init__roster__5());
+    static SMELT_GLOBAL_KEPT_NAMED_0: ::std::cell::RefCell<Named> = ::std::cell::RefCell::new(smelt_global_init__kept_named__5());
+    static SMELT_GLOBAL_KEPT_SPOT_1: ::std::cell::RefCell<Spot> = ::std::cell::RefCell::new(smelt_global_init__kept_spot__6());
+    static SMELT_GLOBAL_ROSTER_2: ::std::cell::RefCell<SmeltList<Named>> = ::std::cell::RefCell::new(smelt_global_init__roster__7());
 }
-fn smelt_global_init__kept_named__3() -> Named {
+fn smelt_global_init__kept_named__5() -> Named {
     let _smelt_tmp_0: Named = Named(::std::rc::Rc::new(::std::cell::RefCell::new(NamedInner { label: JsString::from("nobody") })));
     return _smelt_tmp_0;
 }
 
-fn smelt_global_init__kept_spot__4() -> Spot {
+fn smelt_global_init__kept_spot__6() -> Spot {
     let _smelt_tmp_0: Spot = Spot(::std::rc::Rc::new(::std::cell::RefCell::new(SpotInner { x: 0.0, label: JsString::from("nowhere") })));
     return _smelt_tmp_0;
 }
 
-fn smelt_global_init__roster__5() -> SmeltList<Named> {
+fn smelt_global_init__roster__7() -> SmeltList<Named> {
     let _smelt_tmp_0: SmeltList<Named> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Named> = vec![]; smelt_list_items }));
     return _smelt_tmp_0;
 }
@@ -5191,7 +5347,7 @@ fn main() {
     SMELT_GLOBAL_KEPT_NAMED_0.with(|_| ());
     SMELT_GLOBAL_KEPT_SPOT_1.with(|_| ());
     SMELT_GLOBAL_ROSTER_2.with(|_| ());
-    let _ = main__8();
+    let _ = main__10();
     return;
 }
 
@@ -5269,136 +5425,161 @@ pub(crate) fn enroll(member: Named) -> f64 {
     return _smelt_tmp_4;
 }
 
+pub(crate) fn calibrate(mut sample: Sample) -> Sample {
+    let _smelt_tmp_1: f64 = (*sample.0.value()).clone() + 0.5;
+    (*sample.0.value_mut()) = _smelt_tmp_1;
+    return sample.clone();
+}
+
+pub(crate) fn relabel(mut reading: Reading) -> () {
+    (*reading.0.unit_mut()) = JsString::from("K");
+    return;
+}
+
 pub(crate) fn describe(target: Named) -> JsString {
     let _smelt_tmp_1: JsString = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(target.clone())).expect("JSON serialization failed"));
     return _smelt_tmp_1;
 }
 
-pub(crate) fn main__8() -> () {
+pub(crate) fn main__10() -> () {
     let named: Named;
     let spot: Spot;
     let marker: Marker;
     let titled: Named;
     let points: SmeltList<Point>;
     let mut first: Named;
+    let reading: Reading;
+    let sample: Sample;
     let own: Named;
     let renamed: Named;
-    let _smelt_tmp_13: Named;
-    let mut _smelt_tmp_15: Named;
-    let _smelt_tmp_16: Named;
+    let _smelt_tmp_15: Named;
+    let mut _smelt_tmp_17: Named;
     let _smelt_tmp_18: Named;
-    let _smelt_tmp_19: bool;
-    let _smelt_tmp_20: Point;
+    let _smelt_tmp_20: Named;
     let _smelt_tmp_21: bool;
-    let _smelt_tmp_24: JsString;
-    let _smelt_tmp_28: Spot;
-    let mut _smelt_tmp_30: Spot;
-    let _smelt_tmp_31: f64;
-    let _smelt_tmp_32: Spot;
+    let _smelt_tmp_22: Point;
+    let _smelt_tmp_23: bool;
+    let _smelt_tmp_26: JsString;
+    let _smelt_tmp_30: Spot;
+    let mut _smelt_tmp_32: Spot;
+    let _smelt_tmp_33: f64;
     let _smelt_tmp_34: Spot;
-    let _smelt_tmp_35: bool;
-    let _smelt_tmp_36: Point;
+    let _smelt_tmp_36: Spot;
     let _smelt_tmp_37: bool;
-    let _smelt_tmp_39: JsString;
-    let _smelt_tmp_42: JsString;
-    let mut _smelt_tmp_44: SmeltList<JsString>;
-    let _smelt_tmp_45: f64;
-    let _smelt_tmp_46: f64;
-    let _smelt_tmp_47: Point;
-    let _smelt_tmp_48: bool;
-    let _smelt_tmp_50: JsString;
-    let _smelt_tmp_53: bool;
-    let _smelt_tmp_55: SmeltList<JsString>;
-    let _smelt_tmp_56: Point;
+    let _smelt_tmp_38: Point;
+    let _smelt_tmp_39: bool;
+    let _smelt_tmp_41: JsString;
+    let _smelt_tmp_44: JsString;
+    let mut _smelt_tmp_46: SmeltList<JsString>;
+    let _smelt_tmp_47: f64;
+    let _smelt_tmp_48: f64;
+    let _smelt_tmp_49: Marker;
+    let _smelt_tmp_50: bool;
+    let _smelt_tmp_52: JsString;
+    let _smelt_tmp_55: bool;
     let _smelt_tmp_57: SmeltList<JsString>;
     let _smelt_tmp_58: Point;
-    let _smelt_tmp_61: Point;
-    let _smelt_tmp_62: Point;
-    let _smelt_tmp_67: SmeltList<Named>;
-    let _smelt_tmp_68: SmeltList<Named>;
-    let _smelt_tmp_69: Named;
-    let _smelt_tmp_70: bool;
-    let _smelt_tmp_74: bool;
-    let _smelt_tmp_75: JsString;
-    let _smelt_tmp_9: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("first")]; smelt_list_items }));
-    let mut point: Point = Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 1.0, label: JsString::from("a"), tags: _smelt_tmp_9 })));
-    let _smelt_tmp_11: Named = rename(Named(point.clone().0.clone().smelt_as_Named()), JsString::from("renamed"));
-    named = _smelt_tmp_11;
-    let _ = { println!("{}", (*point.0.label()).clone()); };
-    (*point.0.label_mut()) = JsString::from("later");
-    _smelt_tmp_13 = SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| smelt_value.borrow().clone());
-    let _ = { println!("{} {}", (*_smelt_tmp_13.0.label()).clone(), (*named.0.label()).clone()); };
+    let _smelt_tmp_59: SmeltList<JsString>;
+    let _smelt_tmp_60: Point;
+    let _smelt_tmp_63: Point;
+    let _smelt_tmp_64: Point;
+    let _smelt_tmp_69: SmeltList<Named>;
+    let _smelt_tmp_70: SmeltList<Named>;
+    let _smelt_tmp_71: Named;
+    let _smelt_tmp_72: bool;
+    let _smelt_tmp_77: Reading;
+    let _smelt_tmp_78: bool;
+    let _smelt_tmp_80: JsString;
+    let _smelt_tmp_84: bool;
+    let _smelt_tmp_85: JsString;
+    let _smelt_tmp_11: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("first")]; smelt_list_items }));
+    let mut point: Point = Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 1.0, label: JsString::from("a"), tags: _smelt_tmp_11 })));
+    let _smelt_tmp_13: Named = rename(Named(point.clone().0.clone()), JsString::from("renamed"));
+    named = _smelt_tmp_13;
+    let _ = { println!("{}", point.0.borrow().label.clone()); };
+    point.0.borrow_mut().label = JsString::from("later");
     _smelt_tmp_15 = SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| smelt_value.borrow().clone());
-    (*_smelt_tmp_15.0.label_mut()) = JsString::from("through");
-    _smelt_tmp_16 = { let smelt_global_value = _smelt_tmp_15; SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); smelt_global_value };
-    let _ = { println!("{}", (*point.0.label()).clone()); };
-    _smelt_tmp_18 = SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| smelt_value.borrow().clone());
-    _smelt_tmp_19 = (::std::rc::Rc::as_ptr(&(named.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_18).0) as *const () as usize);
-    _smelt_tmp_20 = { let smelt_struct_value = named.clone().clone(); match { let smelt_view_any = ::std::rc::Rc::clone(&smelt_struct_value.0).smelt_any(); match ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<PointInner>>() { Ok(smelt_cell) => Some(Point(smelt_cell)), Err(_) => match ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<MarkerInner>>() { Ok(smelt_cell) => Some(Point(smelt_cell)), Err(_) => None } } } { Some(smelt_downcast) => smelt_downcast, None => Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 0.0, label: (*smelt_struct_value.0.label()).clone(), tags: SmeltList::new(Vec::<JsString>::new()) }))) } };
-    _smelt_tmp_21 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_20).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(point.clone()).0) as *const () as usize);
-    let _ = { println!("{} {}", _smelt_tmp_19, _smelt_tmp_21); };
-    let _smelt_tmp_23: JsString = describe(Named(point.clone().0.clone().smelt_as_Named()));
-    _smelt_tmp_24 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(named.clone())).expect("JSON serialization failed"));
-    let _ = { println!("{} {}", _smelt_tmp_23, _smelt_tmp_24); };
-    let _smelt_tmp_26: Spot = move_(Spot(point.clone().0.clone().smelt_as_Spot()), 4.0);
-    spot = _smelt_tmp_26;
-    let _ = { println!("{} {}", smelt_console_number((*point.0.x()).clone()), (*point.0.label()).clone()); };
-    (*point.0.x_mut()) = 40.0;
-    _smelt_tmp_28 = SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| smelt_value.borrow().clone());
-    let _ = { println!("{} {}", smelt_console_number((*_smelt_tmp_28.0.x()).clone()), smelt_console_number((*spot.0.x()).clone())); };
+    let _ = { println!("{} {}", (*_smelt_tmp_15.0.label()).clone(), (*named.0.label()).clone()); };
+    _smelt_tmp_17 = SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| smelt_value.borrow().clone());
+    (*_smelt_tmp_17.0.label_mut()) = JsString::from("through");
+    _smelt_tmp_18 = { let smelt_global_value = _smelt_tmp_17; SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); smelt_global_value };
+    let _ = { println!("{}", point.0.borrow().label.clone()); };
+    _smelt_tmp_20 = SMELT_GLOBAL_KEPT_NAMED_0.with(|smelt_value| smelt_value.borrow().clone());
+    _smelt_tmp_21 = (::std::rc::Rc::as_ptr(&(named.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_20).0) as *const () as usize);
+    _smelt_tmp_22 = { let smelt_struct_value = named.clone().clone(); match { let smelt_view_any = ::std::rc::Rc::clone(&smelt_struct_value.0).smelt_any(); match ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<PointInner>>() { Ok(smelt_cell) => Some(Point(smelt_cell)), Err(_) => None } } { Some(smelt_downcast) => smelt_downcast, None => Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 0.0, label: (*smelt_struct_value.0.label()).clone(), tags: SmeltList::new(Vec::<JsString>::new()) }))) } };
+    _smelt_tmp_23 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_22).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(point.clone()).0) as *const () as usize);
+    let _ = { println!("{} {}", _smelt_tmp_21, _smelt_tmp_23); };
+    let _smelt_tmp_25: JsString = describe(Named(point.clone().0.clone()));
+    _smelt_tmp_26 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(named.clone())).expect("JSON serialization failed"));
+    let _ = { println!("{} {}", _smelt_tmp_25, _smelt_tmp_26); };
+    let _smelt_tmp_28: Spot = move_(Spot(point.clone().0.clone()), 4.0);
+    spot = _smelt_tmp_28;
+    let _ = { println!("{} {}", smelt_console_number(point.0.borrow().x.clone()), point.0.borrow().label.clone()); };
+    point.0.borrow_mut().x = 40.0;
     _smelt_tmp_30 = SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| smelt_value.borrow().clone());
-    _smelt_tmp_31 = (*_smelt_tmp_30.0.x()).clone() + 2.0;
-    (*_smelt_tmp_30.0.x_mut()) = _smelt_tmp_31;
-    _smelt_tmp_32 = { let smelt_global_value = _smelt_tmp_30; SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); smelt_global_value };
-    let _ = { println!("{}", smelt_console_number((*point.0.x()).clone())); };
-    _smelt_tmp_34 = SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| smelt_value.borrow().clone());
-    _smelt_tmp_35 = (::std::rc::Rc::as_ptr(&(spot.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_34).0) as *const () as usize);
-    _smelt_tmp_36 = { let smelt_struct_value = spot.clone().clone(); match { let smelt_view_any = ::std::rc::Rc::clone(&smelt_struct_value.0).smelt_any(); match ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<PointInner>>() { Ok(smelt_cell) => Some(Point(smelt_cell)), Err(_) => match ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<MarkerInner>>() { Ok(smelt_cell) => Some(Point(smelt_cell)), Err(_) => None } } } { Some(smelt_downcast) => smelt_downcast, None => Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: (*smelt_struct_value.0.x()).clone(), label: (*smelt_struct_value.0.label()).clone(), tags: SmeltList::new(Vec::<JsString>::new()) }))) } };
-    _smelt_tmp_37 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_36).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(point.clone()).0) as *const () as usize);
-    let _ = { println!("{} {}", _smelt_tmp_35, _smelt_tmp_37); };
-    _smelt_tmp_39 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(spot)).expect("JSON serialization failed"));
-    let _ = { println!("{}", _smelt_tmp_39); };
-    let _smelt_tmp_41: Marker = tag(Marker(point.clone().0.clone().smelt_as_Marker()), JsString::from("second"));
-    marker = _smelt_tmp_41;
-    _smelt_tmp_42 = JsString::join((*point.0.tags()).clone().borrow().iter(), &JsString::from(","));
-    let _ = { println!("{} {}", smelt_console_number((*point.0.x()).clone()), _smelt_tmp_42); };
-    _smelt_tmp_44 = Into::<SmeltList<_>>::into((*point.0.tags()).clone());
-    _smelt_tmp_45 = { let smelt_push_item = JsString::from("third"); _smelt_tmp_44.borrow_mut().push(smelt_push_item); _smelt_tmp_44.len() as f64 };
-    (*point.0.tags_mut()) = Into::<SmeltList<_>>::into(_smelt_tmp_44);
-    _smelt_tmp_46 = (*marker.0.tags()).clone().len() as f64;
-    _smelt_tmp_47 = Point(marker.clone().0.clone().smelt_as_Point());
-    _smelt_tmp_48 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_47).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(point.clone()).0) as *const () as usize);
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_46), _smelt_tmp_48); };
-    _smelt_tmp_50 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(marker)).expect("JSON serialization failed"));
-    let _ = { println!("{}", _smelt_tmp_50); };
-    let _smelt_tmp_52: Named = through_named(Named(point.clone().0.clone().smelt_as_Named()));
-    titled = _smelt_tmp_52;
-    _smelt_tmp_53 = (::std::rc::Rc::as_ptr(&(titled).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(named).0) as *const () as usize);
-    let _ = { println!("{} {}", (*point.0.label()).clone(), _smelt_tmp_53); };
-    _smelt_tmp_55 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
-    _smelt_tmp_56 = Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 1.0, label: JsString::from("p"), tags: _smelt_tmp_55 })));
+    let _ = { println!("{} {}", smelt_console_number((*_smelt_tmp_30.0.x()).clone()), smelt_console_number((*spot.0.x()).clone())); };
+    _smelt_tmp_32 = SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| smelt_value.borrow().clone());
+    _smelt_tmp_33 = (*_smelt_tmp_32.0.x()).clone() + 2.0;
+    (*_smelt_tmp_32.0.x_mut()) = _smelt_tmp_33;
+    _smelt_tmp_34 = { let smelt_global_value = _smelt_tmp_32; SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| *smelt_value.borrow_mut() = smelt_global_value.clone()); smelt_global_value };
+    let _ = { println!("{}", smelt_console_number(point.0.borrow().x.clone())); };
+    _smelt_tmp_36 = SMELT_GLOBAL_KEPT_SPOT_1.with(|smelt_value| smelt_value.borrow().clone());
+    _smelt_tmp_37 = (::std::rc::Rc::as_ptr(&(spot.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_36).0) as *const () as usize);
+    _smelt_tmp_38 = { let smelt_struct_value = spot.clone().clone(); match { let smelt_view_any = ::std::rc::Rc::clone(&smelt_struct_value.0).smelt_any(); match ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<PointInner>>() { Ok(smelt_cell) => Some(Point(smelt_cell)), Err(_) => None } } { Some(smelt_downcast) => smelt_downcast, None => Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: (*smelt_struct_value.0.x()).clone(), label: (*smelt_struct_value.0.label()).clone(), tags: SmeltList::new(Vec::<JsString>::new()) }))) } };
+    _smelt_tmp_39 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_38).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(point.clone()).0) as *const () as usize);
+    let _ = { println!("{} {}", _smelt_tmp_37, _smelt_tmp_39); };
+    _smelt_tmp_41 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(spot)).expect("JSON serialization failed"));
+    let _ = { println!("{}", _smelt_tmp_41); };
+    let _smelt_tmp_43: Marker = tag(Marker(point.clone().0.clone()), JsString::from("second"));
+    marker = _smelt_tmp_43;
+    _smelt_tmp_44 = JsString::join(point.0.borrow().tags.clone().borrow().iter(), &JsString::from(","));
+    let _ = { println!("{} {}", smelt_console_number(point.0.borrow().x.clone()), _smelt_tmp_44); };
+    _smelt_tmp_46 = Into::<SmeltList<_>>::into(point.0.borrow().tags.clone());
+    _smelt_tmp_47 = { let smelt_push_item = JsString::from("third"); _smelt_tmp_46.borrow_mut().push(smelt_push_item); _smelt_tmp_46.len() as f64 };
+    point.0.borrow_mut().tags = Into::<SmeltList<_>>::into(_smelt_tmp_46);
+    _smelt_tmp_48 = (*marker.0.tags()).clone().len() as f64;
+    _smelt_tmp_49 = Marker(point.clone().0.clone());
+    _smelt_tmp_50 = (::std::rc::Rc::as_ptr(&(marker.clone()).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_49).0) as *const () as usize);
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_48), _smelt_tmp_50); };
+    _smelt_tmp_52 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(marker)).expect("JSON serialization failed"));
+    let _ = { println!("{}", _smelt_tmp_52); };
+    let _smelt_tmp_54: Named = through_named(Named(point.clone().0.clone()));
+    titled = _smelt_tmp_54;
+    _smelt_tmp_55 = (::std::rc::Rc::as_ptr(&(titled).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(named).0) as *const () as usize);
+    let _ = { println!("{} {}", point.0.borrow().label.clone(), _smelt_tmp_55); };
     _smelt_tmp_57 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
-    _smelt_tmp_58 = Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 2.0, label: JsString::from("q"), tags: _smelt_tmp_57 })));
-    points = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Point> = vec![_smelt_tmp_56.clone(), _smelt_tmp_58.clone()]; smelt_list_items }));
-    let _ = shout({ let smelt_l: SmeltList<_> = points.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| Named(smelt_value.0.clone().smelt_as_Named())).collect::<Vec<_>>()) });
-    _smelt_tmp_61 = points.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
-    _smelt_tmp_62 = points.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
-    let _ = { println!("{} {}", (*_smelt_tmp_61.0.label()).clone(), (*_smelt_tmp_62.0.label()).clone()); };
-    let _smelt_tmp_64: f64 = enroll(Named(point.clone().0.clone().smelt_as_Named()));
-    let _smelt_tmp_65: f64 = enroll(Named(points.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()).0.clone().smelt_as_Named()));
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_64), smelt_console_number(_smelt_tmp_65)); };
-    _smelt_tmp_67 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ROSTER_2.with(|smelt_value| smelt_value.borrow().clone()));
-    first = _smelt_tmp_67.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    _smelt_tmp_58 = Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 1.0, label: JsString::from("p"), tags: _smelt_tmp_57 })));
+    _smelt_tmp_59 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
+    _smelt_tmp_60 = Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x: 2.0, label: JsString::from("q"), tags: _smelt_tmp_59 })));
+    points = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<Point> = vec![_smelt_tmp_58.clone(), _smelt_tmp_60.clone()]; smelt_list_items }));
+    let _ = shout({ let smelt_l: SmeltList<_> = points.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| Named(smelt_value.0.clone())).collect::<Vec<_>>()) });
+    _smelt_tmp_63 = points.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    _smelt_tmp_64 = points.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    let _ = { println!("{} {}", _smelt_tmp_63.0.borrow().label.clone(), _smelt_tmp_64.0.borrow().label.clone()); };
+    let _smelt_tmp_66: f64 = enroll(Named(point.clone().0.clone()));
+    let _smelt_tmp_67: f64 = enroll(Named(points.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()).0.clone()));
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_66), smelt_console_number(_smelt_tmp_67)); };
+    _smelt_tmp_69 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ROSTER_2.with(|smelt_value| smelt_value.borrow().clone()));
+    first = _smelt_tmp_69.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
     (*first.0.label_mut()) = JsString::from("enrolled");
-    _smelt_tmp_68 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ROSTER_2.with(|smelt_value| smelt_value.borrow().clone()));
-    _smelt_tmp_69 = Named(points.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()).0.clone().smelt_as_Named());
-    _smelt_tmp_70 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_68.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default())).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_69).0) as *const () as usize);
-    let _ = { println!("{} {}", (*point.0.label()).clone(), _smelt_tmp_70); };
+    _smelt_tmp_70 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_ROSTER_2.with(|smelt_value| smelt_value.borrow().clone()));
+    _smelt_tmp_71 = Named(points.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()).0.clone());
+    _smelt_tmp_72 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_70.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default())).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(_smelt_tmp_71).0) as *const () as usize);
+    let _ = { println!("{} {}", point.0.borrow().label.clone(), _smelt_tmp_72); };
+    reading = Reading(::std::rc::Rc::new(::std::cell::RefCell::new(ReadingInner { value: 20.0, unit: JsString::from("C") })));
+    let _smelt_tmp_75: Sample = calibrate(Sample(reading.clone().0.clone().smelt_as_Sample()));
+    sample = _smelt_tmp_75;
+    let _ = relabel(Reading(sample.clone().0.clone().smelt_as_Reading()));
+    _smelt_tmp_77 = Reading(sample.clone().0.clone().smelt_as_Reading());
+    _smelt_tmp_78 = (::std::rc::Rc::as_ptr(&(_smelt_tmp_77).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(reading.clone()).0) as *const () as usize);
+    let _ = { println!("{} {} {}", smelt_console_number((*reading.0.value()).clone()), (*reading.0.unit()).clone(), _smelt_tmp_78); };
+    _smelt_tmp_80 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(sample)).expect("JSON serialization failed"));
+    let _ = { println!("{}", _smelt_tmp_80); };
     own = Named(::std::rc::Rc::new(::std::cell::RefCell::new(NamedInner { label: JsString::from("own") })));
-    let _smelt_tmp_73: Named = rename(own.clone(), JsString::from("mine"));
-    renamed = _smelt_tmp_73;
-    _smelt_tmp_74 = (::std::rc::Rc::as_ptr(&(renamed).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(own.clone()).0) as *const () as usize);
-    _smelt_tmp_75 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(own.clone())).expect("JSON serialization failed"));
-    let _ = { println!("{} {} {} {}", (*own.0.label()).clone(), _smelt_tmp_74, _smelt_tmp_75, (*point.0.label()).clone()); };
+    let _smelt_tmp_83: Named = rename(own.clone(), JsString::from("mine"));
+    renamed = _smelt_tmp_83;
+    _smelt_tmp_84 = (::std::rc::Rc::as_ptr(&(renamed).0) as *const () as usize) == (::std::rc::Rc::as_ptr(&(own.clone()).0) as *const () as usize);
+    _smelt_tmp_85 = JsString::from(smelt_json_stringify(&IntoSmeltUnknown::into_smelt_unknown(own.clone())).expect("JSON serialization failed"));
+    let _ = { println!("{} {} {} {}", (*own.0.label()).clone(), _smelt_tmp_84, _smelt_tmp_85, point.0.borrow().label.clone()); };
     return;
 }

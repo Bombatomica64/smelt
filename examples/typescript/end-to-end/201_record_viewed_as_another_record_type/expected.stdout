@@ -15,4 +15,6 @@ true true
 P Q
 1 2
 enrolled true
+20.5 K true
+{"value":20.5,"unit":"K"}
 mine true {"label":"mine"} enrolled

@@ -2,7 +2,8 @@
 //
 // `Point` below is passed to parameters typed by an interface, by a structural
 // subset with mixed property types, by the same properties declared under
-// another name, and on from one of those to a further one. Each of those slots
+// another name (also back again), and on from one of those to a further one.
+// Each of those slots
 // has its own struct in the generated Rust, and converting a `Point` to it
 // used to build a new value: the callee wrote a copy, an alias it kept went
 // stale, and the value it returned was another object with the slot type's
@@ -32,6 +33,10 @@ type Marker = { tags: string[]; label: string; x: number };
 interface Titled {
   label: string;
 }
+
+// Two names for the same properties, converted both ways.
+type Reading = { value: number; unit: string };
+type Sample = { unit: string; value: number };
 
 let keptNamed: Named = { label: "nobody" };
 let keptSpot: Spot = { x: 0, label: "nowhere" };
@@ -77,6 +82,15 @@ function enroll(member: Named): number {
   return roster.length;
 }
 
+function calibrate(sample: Sample): Sample {
+  sample.value += 0.5;
+  return sample;
+}
+
+function relabel(reading: Reading): void {
+  reading.unit = "K";
+}
+
 function describe(target: Named): string {
   return JSON.stringify(target);
 }
@@ -108,7 +122,7 @@ function main(): void {
   const marker = tag(point, "second");
   console.log(point.x, point.tags.join(","));
   point.tags.push("third");
-  console.log(marker.tags.length, (marker as Point) === point);
+  console.log(marker.tags.length, marker === (point as Marker));
   console.log(JSON.stringify(marker));
 
   // A view handed on to a further view.
@@ -126,6 +140,13 @@ function main(): void {
   const first = roster[0];
   first.label = "enrolled";
   console.log(point.label, roster[1] === (points[0] as Named));
+
+  // Two names for the same properties: each is a view of the other.
+  const reading: Reading = { value: 20, unit: "C" };
+  const sample = calibrate(reading);
+  relabel(sample);
+  console.log(reading.value, reading.unit, (sample as Reading) === reading);
+  console.log(JSON.stringify(sample));
 
   // A record built as the slot's own type is still its own object.
   const own: Named = { label: "own" };

@@ -1,6 +1,8 @@
 interface Point
 interface Spot
 interface Marker
+interface Reading
+interface Sample
 interface Named
 interface Titled
 
@@ -113,7 +115,23 @@ fn enroll (FuncId(6)) -> Float
     %4 = len move %3
     return move %4
 
-fn describe (FuncId(7)) -> String
+fn calibrate (FuncId(7)) -> Sample
+  locals
+    %0 param sample: Sample
+    %1 temp: Float
+  bb0:
+    %1 = copy %0.field7 + 0.5
+    %0.field7 = move %1
+    return copy %0
+
+fn relabel (FuncId(8)) -> None
+  locals
+    %0 param reading: Reading
+  bb0:
+    %0.field8 = "K"
+    return none
+
+fn describe (FuncId(9)) -> String
   locals
     %0 param target: Named
     %1 temp: String
@@ -121,7 +139,7 @@ fn describe (FuncId(7)) -> String
     %1 = json_stringify copy %0
     return move %1
 
-fn main_ (FuncId(8)) -> None
+fn main_ (FuncId(10)) -> None
   locals
     %0 user point: Point
     %1 user named: Named
@@ -130,208 +148,231 @@ fn main_ (FuncId(8)) -> None
     %4 user titled: Named
     %5 user points: List<Point>
     %6 user first: Named
-    %7 user own: Named
-    %8 user renamed: Named
-    %9 temp: List<String>
-    %10 temp: Point
-    %11 temp: Named
-    %12 temp: None
+    %7 user reading: Reading
+    %8 user sample: Sample
+    %9 user own: Named
+    %10 user renamed: Named
+    %11 temp: List<String>
+    %12 temp: Point
     %13 temp: Named
     %14 temp: None
     %15 temp: Named
-    %16 temp: Named
-    %17 temp: None
+    %16 temp: None
+    %17 temp: Named
     %18 temp: Named
-    %19 temp: Bool
-    %20 temp: Point
+    %19 temp: None
+    %20 temp: Named
     %21 temp: Bool
-    %22 temp: None
-    %23 temp: String
-    %24 temp: String
-    %25 temp: None
-    %26 temp: Spot
+    %22 temp: Point
+    %23 temp: Bool
+    %24 temp: None
+    %25 temp: String
+    %26 temp: String
     %27 temp: None
     %28 temp: Spot
     %29 temp: None
     %30 temp: Spot
-    %31 temp: Float
+    %31 temp: None
     %32 temp: Spot
-    %33 temp: None
+    %33 temp: Float
     %34 temp: Spot
-    %35 temp: Bool
-    %36 temp: Point
+    %35 temp: None
+    %36 temp: Spot
     %37 temp: Bool
-    %38 temp: None
-    %39 temp: String
+    %38 temp: Point
+    %39 temp: Bool
     %40 temp: None
-    %41 temp: Marker
-    %42 temp: String
-    %43 temp: None
-    %44 temp: List<String>
-    %45 temp: Float
-    %46 temp: Float
-    %47 temp: Point
-    %48 temp: Bool
-    %49 temp: None
-    %50 temp: String
+    %41 temp: String
+    %42 temp: None
+    %43 temp: Marker
+    %44 temp: String
+    %45 temp: None
+    %46 temp: List<String>
+    %47 temp: Float
+    %48 temp: Float
+    %49 temp: Marker
+    %50 temp: Bool
     %51 temp: None
-    %52 temp: Named
-    %53 temp: Bool
-    %54 temp: None
-    %55 temp: List<String>
-    %56 temp: Point
+    %52 temp: String
+    %53 temp: None
+    %54 temp: Named
+    %55 temp: Bool
+    %56 temp: None
     %57 temp: List<String>
     %58 temp: Point
-    %59 temp: List<Point>
-    %60 temp: None
-    %61 temp: Point
-    %62 temp: Point
-    %63 temp: None
-    %64 temp: Float
-    %65 temp: Float
-    %66 temp: None
-    %67 temp: List<Named>
-    %68 temp: List<Named>
-    %69 temp: Named
-    %70 temp: Bool
-    %71 temp: None
-    %72 temp: Named
-    %73 temp: Named
-    %74 temp: Bool
-    %75 temp: String
+    %59 temp: List<String>
+    %60 temp: Point
+    %61 temp: List<Point>
+    %62 temp: None
+    %63 temp: Point
+    %64 temp: Point
+    %65 temp: None
+    %66 temp: Float
+    %67 temp: Float
+    %68 temp: None
+    %69 temp: List<Named>
+    %70 temp: List<Named>
+    %71 temp: Named
+    %72 temp: Bool
+    %73 temp: None
+    %74 temp: Reading
+    %75 temp: Sample
     %76 temp: None
+    %77 temp: Reading
+    %78 temp: Bool
+    %79 temp: None
+    %80 temp: String
+    %81 temp: None
+    %82 temp: Named
+    %83 temp: Named
+    %84 temp: Bool
+    %85 temp: String
+    %86 temp: None
   bb0:
-    %9 = ["first"]
-    %0 = {"x": 1.0, "label": "a", "tags": move %9}
-    %11 = call fn0(copy %0, "renamed") -> bb1
+    %11 = ["first"]
+    %0 = {"x": 1.0, "label": "a", "tags": move %11}
+    %13 = call fn0(copy %0, "renamed") -> bb1
   bb1:
-    %1 = move %11
-    %12 = call @console_log(copy %0.field2) -> bb2
+    %1 = move %13
+    %14 = call @console_log(copy %0.field2) -> bb2
   bb2:
     %0.field2 = "later"
-    %13 = global_get #0
-    %14 = call @console_log(copy %13.field2, copy %1.field2) -> bb3
-  bb3:
     %15 = global_get #0
-    %15.field2 = "through"
-    %16 = global_set #0 = move %15
-    %17 = call @console_log(copy %0.field2) -> bb4
+    %16 = call @console_log(copy %15.field2, copy %1.field2) -> bb3
+  bb3:
+    %17 = global_get #0
+    %17.field2 = "through"
+    %18 = global_set #0 = move %17
+    %19 = call @console_log(copy %0.field2) -> bb4
   bb4:
-    %18 = global_get #0
-    %19 = copy %1 == move %18
-    %20 = copy %1
-    %21 = move %20 == copy %0
-    %22 = call @console_log(move %19, move %21) -> bb5
+    %20 = global_get #0
+    %21 = copy %1 == move %20
+    %22 = copy %1
+    %23 = move %22 == copy %0
+    %24 = call @console_log(move %21, move %23) -> bb5
   bb5:
-    %23 = call fn7(copy %0) -> bb6
+    %25 = call fn9(copy %0) -> bb6
   bb6:
-    %24 = json_stringify copy %1
-    %25 = call @console_log(move %23, move %24) -> bb7
+    %26 = json_stringify copy %1
+    %27 = call @console_log(move %25, move %26) -> bb7
   bb7:
-    %26 = call fn1(copy %0, 4.0) -> bb8
+    %28 = call fn1(copy %0, 4.0) -> bb8
   bb8:
-    %2 = move %26
-    %27 = call @console_log(copy %0.field1, copy %0.field2) -> bb9
+    %2 = move %28
+    %29 = call @console_log(copy %0.field1, copy %0.field2) -> bb9
   bb9:
     %0.field1 = 40.0
-    %28 = global_get #1
-    %29 = call @console_log(copy %28.field1, copy %2.field1) -> bb10
-  bb10:
     %30 = global_get #1
-    %31 = copy %30.field1 + 2.0
-    %30.field1 = move %31
-    %32 = global_set #1 = move %30
-    %33 = call @console_log(copy %0.field1) -> bb11
+    %31 = call @console_log(copy %30.field1, copy %2.field1) -> bb10
+  bb10:
+    %32 = global_get #1
+    %33 = copy %32.field1 + 2.0
+    %32.field1 = move %33
+    %34 = global_set #1 = move %32
+    %35 = call @console_log(copy %0.field1) -> bb11
   bb11:
-    %34 = global_get #1
-    %35 = copy %2 == move %34
-    %36 = copy %2
-    %37 = move %36 == copy %0
-    %38 = call @console_log(move %35, move %37) -> bb12
+    %36 = global_get #1
+    %37 = copy %2 == move %36
+    %38 = copy %2
+    %39 = move %38 == copy %0
+    %40 = call @console_log(move %37, move %39) -> bb12
   bb12:
-    %39 = json_stringify move %2
-    %40 = call @console_log(move %39) -> bb13
+    %41 = json_stringify move %2
+    %42 = call @console_log(move %41) -> bb13
   bb13:
-    %41 = call fn2(copy %0, "second") -> bb14
+    %43 = call fn2(copy %0, "second") -> bb14
   bb14:
-    %3 = move %41
-    %42 = string_join copy %0.field3, ","
-    %43 = call @console_log(copy %0.field1, move %42) -> bb15
+    %3 = move %43
+    %44 = string_join copy %0.field3, ","
+    %45 = call @console_log(copy %0.field1, move %44) -> bb15
   bb15:
-    %44 = copy %0.field3
-    %45 = list_push copy %44, "third"
-    %0.field3 = move %44
-    %46 = len copy %3.field3
-    %47 = copy %3
-    %48 = move %47 == copy %0
-    %49 = call @console_log(move %46, move %48) -> bb16
+    %46 = copy %0.field3
+    %47 = list_push copy %46, "third"
+    %0.field3 = move %46
+    %48 = len copy %3.field3
+    %49 = copy %0
+    %50 = copy %3 == move %49
+    %51 = call @console_log(move %48, move %50) -> bb16
   bb16:
-    %50 = json_stringify move %3
-    %51 = call @console_log(move %50) -> bb17
+    %52 = json_stringify move %3
+    %53 = call @console_log(move %52) -> bb17
   bb17:
-    %52 = call fn4(copy %0) -> bb18
+    %54 = call fn4(copy %0) -> bb18
   bb18:
-    %4 = move %52
-    %53 = move %4 == move %1
-    %54 = call @console_log(copy %0.field2, move %53) -> bb19
+    %4 = move %54
+    %55 = move %4 == move %1
+    %56 = call @console_log(copy %0.field2, move %55) -> bb19
   bb19:
-    %55 = []
-    %56 = {"x": 1.0, "label": "p", "tags": move %55}
     %57 = []
-    %58 = {"x": 2.0, "label": "q", "tags": move %57}
-    %5 = [move %56, move %58]
-    %60 = call fn5(copy %5) -> bb20
+    %58 = {"x": 1.0, "label": "p", "tags": move %57}
+    %59 = []
+    %60 = {"x": 2.0, "label": "q", "tags": move %59}
+    %5 = [move %58, move %60]
+    %62 = call fn5(copy %5) -> bb20
   bb20:
-    %61 = copy %5[0.0]
-    %62 = copy %5[1.0]
-    %63 = call @console_log(copy %61.field2, copy %62.field2) -> bb21
+    %63 = copy %5[0.0]
+    %64 = copy %5[1.0]
+    %65 = call @console_log(copy %63.field2, copy %64.field2) -> bb21
   bb21:
-    %64 = call fn6(copy %0) -> bb22
+    %66 = call fn6(copy %0) -> bb22
   bb22:
-    %65 = call fn6(copy %5[0.0]) -> bb23
+    %67 = call fn6(copy %5[0.0]) -> bb23
   bb23:
-    %66 = call @console_log(move %64, move %65) -> bb24
+    %68 = call @console_log(move %66, move %67) -> bb24
   bb24:
-    %67 = global_get #2
-    %6 = copy %67[0.0]
+    %69 = global_get #2
+    %6 = copy %69[0.0]
     %6.field2 = "enrolled"
-    %68 = global_get #2
-    %69 = copy %5[0.0]
-    %70 = copy %68[1.0] == move %69
-    %71 = call @console_log(copy %0.field2, move %70) -> bb25
+    %70 = global_get #2
+    %71 = copy %5[0.0]
+    %72 = copy %70[1.0] == move %71
+    %73 = call @console_log(copy %0.field2, move %72) -> bb25
   bb25:
-    %7 = {"label": "own"}
-    %73 = call fn0(copy %7, "mine") -> bb26
+    %7 = {"value": 20.0, "unit": "C"}
+    %75 = call fn7(copy %7) -> bb26
   bb26:
-    %8 = move %73
-    %74 = move %8 == copy %7
-    %75 = json_stringify copy %7
-    %76 = call @console_log(copy %7.field2, move %74, move %75, copy %0.field2) -> bb27
+    %8 = move %75
+    %76 = call fn8(copy %8) -> bb27
   bb27:
+    %77 = copy %8
+    %78 = move %77 == copy %7
+    %79 = call @console_log(copy %7.field7, copy %7.field8, move %78) -> bb28
+  bb28:
+    %80 = json_stringify move %8
+    %81 = call @console_log(move %80) -> bb29
+  bb29:
+    %9 = {"label": "own"}
+    %83 = call fn0(copy %9, "mine") -> bb30
+  bb30:
+    %10 = move %83
+    %84 = move %10 == copy %9
+    %85 = json_stringify copy %9
+    %86 = call @console_log(copy %9.field2, move %84, move %85, copy %0.field2) -> bb31
+  bb31:
     return none
 
-fn smelt_global_init__kept_named__3 (FuncId(9)) -> Named
+fn smelt_global_init__kept_named__5 (FuncId(11)) -> Named
   locals
     %0 temp: Named
   bb0:
     %0 = {"label": "nobody"}
     return move %0
 
-fn smelt_global_init__kept_spot__4 (FuncId(10)) -> Spot
+fn smelt_global_init__kept_spot__6 (FuncId(12)) -> Spot
   locals
     %0 temp: Spot
   bb0:
     %0 = {"x": 0.0, "label": "nowhere"}
     return move %0
 
-fn smelt_global_init__roster__5 (FuncId(11)) -> List<Named>
+fn smelt_global_init__roster__7 (FuncId(13)) -> List<Named>
   locals
     %0 temp: List<Named>
   bb0:
     %0 = []
     return move %0
 
-fn main (FuncId(12)) -> None
+fn main (FuncId(14)) -> None
   locals
     %0 temp: None
     %1 temp: None
@@ -341,7 +382,7 @@ fn main (FuncId(12)) -> None
     %0 = global_get #0
     %1 = global_get #1
     %2 = global_get #2
-    %3 = call fn8() -> bb1
+    %3 = call fn10() -> bb1
   bb1:
     return none
 
