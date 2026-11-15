@@ -1,0 +1,6 @@
+4 q true
+[ 'label', 'x', 'more' ] { label: 'q', x: 4, more: [ 1 ] }
+alpha,mid,zeta zeta,alpha,mid
+two true 1 false
+{"alpha":"two","mid":true,"zeta":1}
+{ alpha: 'two', mid: true, zeta: 1 }

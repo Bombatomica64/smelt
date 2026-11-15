@@ -158,6 +158,7 @@ mod list_mutation;
 mod list_ordering;
 mod list_query;
 pub(crate) mod literals;
+pub(crate) mod live_view;
 mod local_analysis;
 mod local_declaration;
 mod local_use;
@@ -310,6 +311,9 @@ pub(crate) struct EmitContext {
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
     reference_classes: HashSet<Symbol>,
+    /// The reference records whose erased and map views read and write the
+    /// record itself (see [`live_view`]), computed once from the set above.
+    live_records: HashSet<Symbol>,
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
@@ -422,7 +426,7 @@ impl EmitContext {
             }
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
-        let demand = RuntimeDemand::of(mir);
+        let demand = RuntimeDemand::of(mir, &reference_classes);
 
         Ok(Self {
             none_ty,
@@ -441,6 +445,7 @@ impl EmitContext {
             generic_functions: RefCell::new(HashSet::new()),
             generic_reads: RefCell::new(HashSet::new()),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &reference_classes),
+            live_records: live_view::live_records(mir, &reference_classes, &demand),
             reference_classes,
             identity_classes: crate::class_identity::identity_classes(mir),
             type_param_elision: crate::generic_elision::compute(mir),
@@ -542,6 +547,17 @@ impl EmitContext {
     /// only an erasure of a reference record ever stamps one.
     pub(crate) fn has_reference_classes(&self) -> bool {
         !self.reference_classes.is_empty()
+    }
+
+    /// Whether `symbol` is a live record (see [`live_view`]).
+    pub(crate) fn is_live_record(&self, symbol: Symbol) -> bool {
+        self.live_records.contains(&symbol)
+    }
+
+    /// Whether the crate emits any live record, which is what the live-view
+    /// runtime (`smelt-runtime/src/runtime/live_view.rs`) is emitted for.
+    pub(crate) fn has_live_records(&self) -> bool {
+        !self.live_records.is_empty()
     }
 
     /// The closures that capture their receiver weakly (see [`weak_receiver`]).

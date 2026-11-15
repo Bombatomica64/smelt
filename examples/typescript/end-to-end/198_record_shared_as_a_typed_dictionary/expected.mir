@@ -1,0 +1,147 @@
+interface Size
+interface Margin
+
+fn double (FuncId(0)) -> None
+  locals
+    %0 param sizes: Dict<String, Float>
+    %1 user key: String
+    %2 temp: List<String>
+    %3 temp: usize
+    %4 temp: usize
+    %5 temp: Bool
+    %6 temp: Float
+  bb0:
+    %2 = dict_keys copy %0
+    %3 = 0
+    goto bb1
+  bb1:
+    %4 = len copy %2
+    %5 = copy %3 < move %4
+    switch move %5 ? bb2 : bb4
+  bb2:
+    %1 = copy %2[copy %3]
+    %6 = copy %0[copy %1] * 2.0
+    %0[copy %1] = move %6
+    goto bb3
+  bb3:
+    %3 = copy %3 + 1
+    goto bb1
+  bb4:
+    return none
+
+fn widen (FuncId(1)) -> Float
+  locals
+    %0 param sizes: Dict<String, Float>
+    %1 temp: Float
+  bb0:
+    %1 = copy %0["width"] + 1.0
+    %0["width"] = move %1
+    return copy %0["width"]
+
+fn keep (FuncId(2)) -> None
+  locals
+    %0 param sizes: Dict<String, Float>
+    %1 temp: Dict<String, Float>
+  bb0:
+    %1 = global_set #0 = copy %0
+    return none
+
+fn reshape (FuncId(3)) -> None
+  locals
+    %0 param sizes: Dict<String, Float>
+    %1 temp: Bool
+  bb0:
+    %0["depth"] = 7.0
+    %1 = dict_remove_key copy %0, "width"
+    %0["width"] = 30.0
+    return none
+
+fn main_ (FuncId(4)) -> None
+  locals
+    %0 user size: Size
+    %1 user margin: Margin
+    %2 user other: Size
+    %3 temp: Size
+    %4 temp: None
+    %5 temp: None
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: None
+    %9 temp: Dict<String, Float>
+    %10 temp: Dict<String, Float>
+    %11 temp: None
+    %12 temp: Dict<String, Float>
+    %13 temp: Float
+    %14 temp: None
+    %15 temp: None
+    %16 temp: String
+    %17 temp: Dict<String, Float>
+    %18 temp: String
+    %19 temp: None
+    %20 temp: None
+    %21 temp: Margin
+    %22 temp: None
+    %23 temp: None
+    %24 temp: Size
+    %25 temp: None
+    %26 temp: None
+  bb0:
+    %0 = {"width": 2.0, "height": 3.0}
+    %4 = call fn0(copy %0) -> bb1
+  bb1:
+    %5 = call @console_log(copy %0.field1, copy %0.field2) -> bb2
+  bb2:
+    %6 = call fn1(copy %0) -> bb3
+  bb3:
+    %7 = call @console_log(move %6, copy %0.field1) -> bb4
+  bb4:
+    %8 = call fn2(copy %0) -> bb5
+  bb5:
+    %0.field2 = 40.0
+    %9 = global_get #0
+    %10 = global_get #0
+    %11 = call @console_log(copy %9["height"], copy %10["width"]) -> bb6
+  bb6:
+    %12 = global_get #0
+    %13 = copy %12["height"] + 2.0
+    global0["height"] = move %13
+    %14 = call @console_log(copy %0.field2) -> bb7
+  bb7:
+    %15 = call fn3(copy %0) -> bb8
+  bb8:
+    %16 = json_stringify copy %0
+    %17 = global_get #0
+    %18 = json_stringify move %17
+    %19 = call @console_log(copy %0.field1, move %16, move %18) -> bb9
+  bb9:
+    %20 = call @console_log(copy %0) -> bb10
+  bb10:
+    %1 = {"top": 1.0, "left": 2.0}
+    %22 = call fn0(copy %1) -> bb11
+  bb11:
+    %23 = call @console_log(copy %1.field4, copy %1.field5) -> bb12
+  bb12:
+    %2 = {"width": 1.0, "height": 1.0}
+    %25 = call fn0(copy %2) -> bb13
+  bb13:
+    %26 = call @console_log(move %2, copy %0.field1) -> bb14
+  bb14:
+    return none
+
+fn smelt_global_init__kept__2 (FuncId(5)) -> Dict<String, Float>
+  locals
+    %0 temp: Dict<String, Float>
+  bb0:
+    %0 = {}
+    return move %0
+
+fn main (FuncId(6)) -> None
+  locals
+    %0 temp: None
+    %1 temp: None
+  bb0:
+    %0 = global_get #0
+    %1 = call fn4() -> bb1
+  bb1:
+    return none
+

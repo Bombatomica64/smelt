@@ -924,7 +924,22 @@ impl FunctionEmitter<'_> {
         })))
     }
 
-    /// Emits structural equality for a value that NESTS floats.
+    /// Emits structural equality for a value that NESTS floats, or that is or
+    /// holds a live record.
+    ///
+    /// Requirement for records: `BinOp::Eq`/`NotEq` is deep equality (`===`
+    /// is `JsStrictEq` and never reaches here), and a reference record's
+    /// `PartialEq` is identity, so `SmeltList<Person> == SmeltList<Person>`
+    /// asked whether the two lists hold the same objects.
+    /// `expect(keyBy(people, ..)).toEqual({ mike: { .. } })` compared two
+    /// dictionaries of distinct, equal records and failed. The record leaf
+    /// compares own properties instead (`smelt_live_deep_eq`). Type
+    /// preservation: both operands keep their types; no value is erased to be
+    /// compared.
+    ///
+    /// Not covered: a reference record that is not live (generic, callable,
+    /// accessor-backed) and a by-value struct holding a record still compare
+    /// with their `PartialEq`.
     ///
     /// Rust's derived `PartialEq` compares an `f64` leaf with IEEE `==`, so
     /// `SmeltList<f64> == SmeltList<f64>` answers `false` for two lists that
@@ -945,7 +960,9 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
-        if lhs_ty != self.operand_ty(rhs)? || !self.type_nests_float(lhs_ty) {
+        if lhs_ty != self.operand_ty(rhs)?
+            || !(self.type_nests_float(lhs_ty) || self.type_holds_live_record(lhs_ty, 0))
+        {
             return Ok(None);
         }
         let equal_text = self.structural_leaf_equality_expr(
@@ -982,6 +999,32 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Returns whether `ty` is a live record or holds one inside a structure
+    /// [`Self::structural_leaf_equality_expr`] walks (a list, tuple,
+    /// string-keyed or property-keyed dict, or optional).
+    fn type_holds_live_record(&self, ty: TypeId, depth: u8) -> bool {
+        if depth > 16 {
+            return false;
+        }
+        let deeper = depth.saturating_add(1);
+        match self.mir.types.get(ty) {
+            Some(Type::Class { .. }) => self.is_live_record_type(ty),
+            Some(Type::List(item) | Type::Optional(item)) => {
+                self.type_holds_live_record(*item, deeper)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .any(|item| self.type_holds_live_record(*item, deeper)),
+            Some(Type::Dict(key, value))
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
+                    || self.is_prop_key_record_key(*key) =>
+            {
+                self.type_holds_live_record(*value, deeper)
+            }
+            _ => false,
+        }
+    }
+
     /// Returns whether `ty` is a `Float` or nests one, i.e. whether the
     /// structural comparison of a value of this type reaches a float leaf.
     fn type_holds_float(&self, ty: TypeId) -> bool {
@@ -1001,7 +1044,9 @@ impl FunctionEmitter<'_> {
     ///   `isDeepEqual`) all compare numeric leaves with `Object.is`. A BARE
     ///   float never reaches here: a top-level `a != b` on two numbers is
     ///   ordinary IEEE comparison in JavaScript too, and the test matchers
-    ///   already route a scalar `toEqual(NaN)` through the SameValue path.
+    ///   already route a scalar `toEqual(NaN)` through the SameValue path;
+    /// * a **live record** leaf compares own properties through its views
+    ///   (`smelt_live_deep_eq`): the handle's `PartialEq` is identity.
     fn structural_leaf_equality_expr(
         &self,
         left: &RustExpr,
@@ -1015,6 +1060,11 @@ impl FunctionEmitter<'_> {
         );
         Ok(match self.mir.types.get(ty) {
             Some(Type::Function(_)) => self.function_ptr_eq_expr(left, right, ty)?,
+            // `.clone()` copies the handle (an `Rc`), and reads through a
+            // borrowed item of a container walk as well as an owned operand.
+            Some(Type::Class { .. }) if self.is_live_record_type(ty) => RustExpr::atom(format!(
+                "smelt_live_deep_eq({left_receiver}.clone(), {right_receiver}.clone())"
+            )),
             Some(Type::Float) => RustExpr::atom(format!(
                 "({left_operand} == {right_operand} || ({left_receiver}.is_nan() && {right_receiver}.is_nan()))"
             )),
@@ -1052,7 +1102,11 @@ impl FunctionEmitter<'_> {
                     item_equal = item_equal.delimited(),
                 ))
             }
-            Some(Type::Dict(key, value)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
+            // A property-key record answers the same `len`/`iter`/`get`.
+            Some(Type::Dict(key, value))
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
+                    || self.is_prop_key_record_key(*key) =>
+            {
                 let value_equal = self.structural_leaf_equality_expr(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),

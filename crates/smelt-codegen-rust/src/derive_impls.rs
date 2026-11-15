@@ -31,7 +31,8 @@ use crate::{EmitError, accessor_prelude};
 /// fully qualified calls (serde) or the language itself (`Drop`) lists no
 /// method: a source `add` or `drop` method shadows nothing there and keeps its
 /// name. The derives and impls are written in this module, `program_types`,
-/// `reference_storage`, `weak_receiver` and `record_coercion`;
+/// `reference_storage`, `weak_receiver`, `record_coercion` and
+/// `emitter::live_view`;
 /// `tests/reserved_name_tests.rs` checks every `impl Trait for` of a committed
 /// example crate against this table.
 pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
@@ -53,6 +54,18 @@ pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
             "smelt_inspect",
             "smelt_inspect_is_number",
             "smelt_console_text",
+        ],
+    ),
+    (
+        "SmeltLiveObject",
+        &[
+            "smelt_field_names",
+            "smelt_field_get",
+            "smelt_field_set",
+            "smelt_field_entries",
+            "smelt_live_cell",
+            "smelt_live_address",
+            "smelt_live_handle",
         ],
     ),
     ("Drop", &[]),

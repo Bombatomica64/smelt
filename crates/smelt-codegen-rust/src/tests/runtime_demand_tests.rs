@@ -15,7 +15,7 @@ fn demand_of(ts: &str) -> RuntimeDemand {
         Err(_) => panic!("MIR lowering failed"),
     };
     smelt_mir::opt::optimize(&mut mir);
-    RuntimeDemand::of(&mir)
+    RuntimeDemand::of(&mir, &classify::reference_classes(&mir))
 }
 
 /// A wholly typed generator has no erased value of its own, yet the generator
@@ -133,6 +133,7 @@ fn every_need_closes_to_a_self_contained_runtime() {
         reference_classes: true,
         erased_view_write_through: true,
         reads_this: true,
+        live_records: true,
     };
     let mut failures = Vec::new();
     for need in Need::ALL {
@@ -188,4 +189,31 @@ fn an_unpredicted_runtime_use_is_refused_by_name() {
             .carrier()
             .is_ok()
     );
+}
+
+/// A deep comparison of reference records reads them through their views
+/// (`smelt_live_deep_eq`), so a program with no erased value of its own still
+/// carries the erased runtime; the same program without the comparison, and
+/// the same comparison of records nobody shares, do not.
+#[test]
+fn a_deep_comparison_of_reference_records_carries_the_erased_runtime() {
+    let shared = r"
+import { test, expect } from 'vitest';
+interface Person { name: string; age: number }
+function birthday(person: Person): Person { person.age += 1; return person; }
+function people(): Person[] { const list: Person[] = [{ name: 'a', age: 1 }]; birthday(list[0]); return list; }
+";
+    let compared =
+        format!("{shared}test('same', () => {{ expect(people()).toEqual(people()); }});\n");
+    assert!(demand_of(&compared).has(Need::Unknown), "compared");
+    let uncompared =
+        format!("{shared}test('count', () => {{ expect(people().length).toEqual(1); }});\n");
+    assert!(!demand_of(&uncompared).has(Need::Unknown), "not compared");
+    let values = r"
+import { test, expect } from 'vitest';
+interface Point { x: number }
+function points(): Point[] { return [{ x: 1 }]; }
+test('same', () => { expect(points()).toEqual(points()); });
+";
+    assert!(!demand_of(values).has(Need::Unknown), "value records");
 }

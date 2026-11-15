@@ -470,7 +470,10 @@ pub(crate) struct RuntimeDemand {
 impl RuntimeDemand {
     /// Scans `mir` once and closes what it found over the `requires` graph.
     #[must_use]
-    pub(crate) fn of(mir: &Mir) -> Self {
+    pub(crate) fn of(
+        mir: &Mir,
+        reference_classes: &std::collections::HashSet<smelt_hir::Symbol>,
+    ) -> Self {
         let mut demand = Self::default();
         demand.scan_declarations(mir);
         demand.scan_types(mir);
@@ -506,6 +509,21 @@ impl RuntimeDemand {
                 &closure.blocks,
                 closure.return_ty,
             );
+        }
+        // A record value at a `Record<K, V>` slot crosses through its erasure
+        // (`FunctionEmitter::rendered_at_type`: the dictionary is read off
+        // the record's erased object, or is a view of it), so the conversion
+        // needs the erased runtime even in a program with no erased type.
+        crate::classify::for_each_record_flow(mir, |_, slot| {
+            if matches!(mir.types.get(slot), Some(Type::Dict(_, _))) {
+                demand.add(Need::Unknown);
+            }
+        });
+        // A deep `==` over reference records reads them through their views
+        // (`classify::deep_compares_a_reference_shape`), which only a program
+        // with the erased runtime has.
+        if crate::classify::deep_compares_a_reference_shape(mir, reference_classes) {
+            demand.add(Need::Unknown);
         }
         demand.close();
         // Which container a dict renders as depends on whether the carrier is

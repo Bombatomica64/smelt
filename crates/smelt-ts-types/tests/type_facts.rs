@@ -243,6 +243,7 @@ export const boxed = new Box(1);
     let TsTypeKind::Named {
         symbol,
         type_arguments,
+        ..
     } = &ty.kind
     else {
         return Err(format!(

@@ -1,0 +1,87 @@
+interface Point
+
+fn identity (FuncId(0)) -> T
+  locals
+    %0 param value: T
+  bb0:
+    return copy %0
+
+fn pair (FuncId(1)) -> List<T>
+  locals
+    %0 param value: T
+    %1 temp: List<T>
+  bb0:
+    %1 = [copy %0, copy %0]
+    return move %1
+
+fn first (FuncId(2)) -> T
+  locals
+    %0 param values: List<T>
+  bb0:
+    return copy %0[0.0]
+
+fn main_ (FuncId(3)) -> None
+  locals
+    %0 user point: Point
+    %1 user same: Point
+    %2 user both: List<Point>
+    %3 temp: Point
+    %4 temp: Point
+    %5 temp: Bool
+    %6 temp: None
+    %7 temp: None
+    %8 temp: List<Point>
+    %9 temp: Point
+    %10 temp: Point
+    %11 temp: Bool
+    %12 temp: None
+    %13 temp: Point
+    %14 temp: Float
+    %15 temp: Point
+    %16 temp: Bool
+    %17 temp: None
+    %18 temp: String
+    %19 temp: None
+  bb0:
+    %0 = {"x": 1.0, "label": "a"}
+    %4 = call fn0(copy %0) -> bb1
+  bb1:
+    %1 = move %4
+    %5 = copy %1 == copy %0
+    %6 = call @console_log(move %5) -> bb2
+  bb2:
+    %1.field1 = 30.0
+    %7 = call @console_log(copy %0.field1) -> bb3
+  bb3:
+    %8 = call fn1(copy %0) -> bb4
+  bb4:
+    %2 = move %8
+    %9 = copy %2[0.0]
+    %9.field2 = "first"
+    %2[0.0] = move %9
+    %10 = copy %2[1.0]
+    %11 = copy %2[0.0] == copy %2[1.0]
+    %12 = call @console_log(copy %10.field2, copy %0.field2, move %11) -> bb5
+  bb5:
+    %0.field1 = 4.0
+    %13 = call fn2(copy %2) -> bb6
+  bb6:
+    %14 = copy %13.field1
+    %15 = call fn2(move %2) -> bb7
+  bb7:
+    %16 = move %15 == copy %0
+    %17 = call @console_log(move %14, move %16) -> bb8
+  bb8:
+    %18 = json_stringify move %0
+    %19 = call @console_log(move %18) -> bb9
+  bb9:
+    return none
+
+fn main (FuncId(4)) -> None
+  locals
+    %0 temp: None
+  bb0:
+    %0 = call fn3() -> bb1
+  bb1:
+    return none
+

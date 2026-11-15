@@ -298,6 +298,40 @@ struct SmeltPendingFill<K, V> {
     insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>),
 }
 
+// @smelt:if live_views
+/// The typed record a store is a live view of, with this view's conversions.
+//~
+//~ `object` speaks JavaScript property names and erased values, which is the
+//~ one vocabulary every view of a record shares; `key`, `wrap` and `unwrap`
+//~ turn them into this store's key and value types and back (an erased view's
+//~ are the identity, a typed dictionary view's convert each value). `same`
+//~ says whether two values of the view are the same reference, and `apply`
+//~ installs a fresh entry list (`SmeltFieldStore::resync`): both are stored
+//~ as functions so the cell's own methods need no bound on `K` or `V`.
+struct SmeltLiveLink<K, V> {
+    object: ::std::rc::Rc<dyn SmeltLiveObject>,
+    key: fn(JsString) -> K,
+    wrap: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> V>,
+    unwrap: ::std::rc::Rc<dyn Fn(&V) -> SmeltUnknown>,
+    same: fn(&V, &V) -> bool,
+    apply: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>, fn(&V, &V) -> bool),
+}
+
+/// Who answers a read of one key of a store.
+enum SmeltLiveRead<V> {
+    //~ The store itself: it is not a live view, or the key is the runtime's own.
+    Store,
+    //~ The record the store is a live view of: its value, or no such property.
+    Record(Option<V>),
+}
+
+impl<V> SmeltLiveRead<V> {
+    //~ The record's answer, or the store's own when the read is the store's.
+    #[inline]
+    fn or_store(self, store: impl FnOnce() -> Option<V>) -> Option<V> { match self { Self::Record(found) => found, Self::Store => store() } }
+}
+
+// @smelt:end
 /// The `RefCell` around a field store, building a pending snapshot on first use.
 //~
 //~ See `lazy_view` in the code generator: `borrow`/`borrow_mut` are the
@@ -306,16 +340,20 @@ struct SmeltPendingFill<K, V> {
 pub struct SmeltStoreCell<K, V> {
     cell: ::std::cell::RefCell<SmeltFieldStore<K, V>>,
     pending: ::std::cell::Cell<Option<SmeltPendingFill<K, V>>>,
+// @smelt:if live_views
+    //~ The typed record this store is a live view of, if any (see `live_view.rs`).
+    live: ::std::cell::RefCell<Option<SmeltLiveLink<K, V>>>,
+// @smelt:end
 }
 
 #[allow(dead_code)]
 impl<K, V> SmeltStoreCell<K, V> {
     //~ A cell over an already-populated store.
     #[inline]
-    fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None) } }
+    fn new(store: SmeltFieldStore<K, V>) -> Self { Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(None)/*@if live_views*/, live: ::std::cell::RefCell::new(None)/*@end*/ } }
     //~ A cell whose entries `build` produces on the first read or write.
     fn lazy(store: SmeltFieldStore<K, V>, build: Box<dyn FnOnce() -> Vec<(K, V)>>, insert: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>)) -> Self {
-        Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert })) }
+        Self { cell: ::std::cell::RefCell::new(store), pending: ::std::cell::Cell::new(Some(SmeltPendingFill { build, insert }))/*@if live_views*/, live: ::std::cell::RefCell::new(None)/*@end*/ }
     }
     //~ Build the pending snapshot, if any, into the store.
     #[inline]
@@ -326,11 +364,37 @@ impl<K, V> SmeltStoreCell<K, V> {
         }
     }
     //~ Borrow the store, building a pending snapshot first.
+    //~
+    //~ The store of a LIVE view (`live_view.rs`) is a cache of the record it
+    //~ stands for, and borrowing does not refresh it: a read of one data key
+    //~ asks the record (`live_get`), a read of the runtime's own `__smelt`
+    //~ keys needs no refresh, and every whole-store read of data (keys,
+    //~ iteration, length, equality, JSON, inspection) calls `sync` first.
     #[inline]
     fn borrow(&self) -> ::std::cell::Ref<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow() }
-    //~ Mutably borrow the store, building a pending snapshot first.
+    //~ Mutably borrow the store, building a pending snapshot first. A write to
+    //~ a data key of a live view does NOT go through here alone: `SmeltRecord`
+    //~ and `SmeltObject` hand it to the record first (`live_set`/`live_remove`).
     #[inline]
     fn borrow_mut(&self) -> ::std::cell::RefMut<'_, SmeltFieldStore<K, V>> { self.materialize(); self.cell.borrow_mut() }
+// @smelt:if live_views
+    //~ Whether this store is a live view of a typed record.
+    #[inline]
+    fn is_live(&self) -> bool { self.live.borrow().is_some() }
+    //~ Refresh a live view's data entries from its record, before a
+    //~ whole-store read; nothing to do for any other store. A store already
+    //~ borrowed was refreshed by that borrower and is left as it is.
+    #[inline]
+    fn sync(&self) {
+        if self.live.borrow().is_some() { self.sync_live(); }
+    }
+    fn sync_live(&self) {
+        let Some((object, key, wrap, same, apply)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key, ::std::rc::Rc::clone(&link.wrap), link.same, link.apply)) else { return };
+        if self.cell.try_borrow_mut().is_err() { return; }
+        let entries = smelt_live_entries(&object).into_iter().map(|(name, value)| (key(name), wrap(value))).collect::<Vec<_>>();
+        if let Ok(mut store) = self.cell.try_borrow_mut() { apply(&mut store, entries, same); }
+    }
+// @smelt:end
     //~ The origin slot, pending snapshot left unbuilt.
     #[inline]
     fn origin(&self) -> ::std::cell::Ref<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::Ref::map(self.cell.borrow(), |store| &store.origin) }
@@ -338,6 +402,85 @@ impl<K, V> SmeltStoreCell<K, V> {
     #[inline]
     fn origin_mut(&self) -> ::std::cell::RefMut<'_, Option<Box<dyn ::std::any::Any>>> { ::std::cell::RefMut::map(self.cell.borrow_mut(), |store| &mut store.origin) }
 }
+// @smelt:if live_views
+
+//~ Reads and writes of ONE data key of a live view go to the record itself,
+//~ so neither needs the whole view refreshed first.
+#[allow(dead_code)]
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltStoreCell<K, V> {
+    //~ The record behind this view and its key's JavaScript spelling, when
+    //~ this store is a live view and `key` is not one of the runtime's own.
+    #[inline]
+    fn live_target<'a, Q: SmeltPropertyKey + ?Sized>(&self, key: &'a Q) -> Option<(::std::rc::Rc<dyn SmeltLiveObject>, &'a JsStr)> {
+        let live = self.live.borrow();
+        let link = live.as_ref()?;
+        let name = key.smelt_live_key()?;
+        //~ A key in the runtime's namespace is the store's own (a marker, a
+        //~ prototype slot) unless the record declares it: a symbol-keyed
+        //~ property is stored under such a key and is the record's field.
+        if name.smelt_is_internal_key() && !link.object.smelt_field_names().iter().any(|declared| *name == **declared) { return None; }
+        Some((::std::rc::Rc::clone(&link.object), name))
+    }
+    //~ Read a data key of a live view from its record: `Store` when this
+    //~ store is not a live view or the key is the runtime's own, else the
+    //~ record's answer (`None` when it has no such property). A value that is
+    //~ the same reference as the cached one answers with the cached handle, so
+    //~ an erased array or object read twice through one view is one value, as
+    //~ it was while the view was a snapshot.
+    fn live_get<Q>(&self, key: &Q) -> SmeltLiveRead<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized, V: Clone {
+        let Some((object, name)) = self.live_target(key) else { return SmeltLiveRead::Store };
+        let Some(fresh) = smelt_live_get(&object, name) else { return SmeltLiveRead::Record(None) };
+        let Some((wrap, same)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.wrap), link.same)) else { return SmeltLiveRead::Store };
+        let fresh = wrap(fresh);
+        if let Ok(store) = self.cell.try_borrow() && store.len() != 0 && let Some(cached) = store.get(key) && same(cached, &fresh) { return SmeltLiveRead::Record(Some(cached.clone())); }
+        SmeltLiveRead::Record(Some(fresh))
+    }
+    //~ Whether the record behind a live view has the data key `key`; `None`
+    //~ as for `live_get`.
+    fn live_has<Q>(&self, key: &Q) -> Option<bool> where Q: SmeltPropertyKey + ?Sized {
+        let (object, name) = self.live_target(key)?;
+        Some(smelt_live_get(&object, name).is_some())
+    }
+    //~ Write a data key of a live view into its record. `false` when this
+    //~ store is not a live view or the key is the runtime's own: the write
+    //~ is then the store's alone.
+    fn live_set(&self, key: &K, value: &V) -> bool {
+        let Some((object, name)) = self.live_target(key) else { return false };
+        let Some(unwrap) = self.live.borrow().as_ref().map(|link| ::std::rc::Rc::clone(&link.unwrap)) else { return false };
+        smelt_live_set(&object, name, unwrap(value));
+        true
+    }
+    //~ Delete a data key of a live view from its record; `false` as for `live_set`.
+    fn live_remove<Q>(&self, key: &Q) -> bool where Q: SmeltPropertyKey + ?Sized {
+        let Some((object, name)) = self.live_target(key) else { return false };
+        smelt_live_remove(&object, name);
+        true
+    }
+}
+
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltFieldStore<K, V> {
+    //~ Replace this store's data entries with `fresh`, in `fresh`'s order,
+    //~ keeping the runtime's own `__smelt` entries. A cached value that is
+    //~ the same reference as its fresh one (`same`) is kept, for the reason
+    //~ `SmeltStoreCell::live_get` gives.
+    fn resync(&mut self, fresh: Vec<(K, V)>, same: fn(&V, &V) -> bool) {
+        //~ The usual refresh changes values and no key: update in place.
+        if self.entries.len() == fresh.len() && self.entries.iter().zip(&fresh).all(|(entry, (key, _))| entry.key == *key) {
+            for (entry, (_, value)) in self.entries.iter_mut().zip(fresh) { if !same(&entry.value, &value) { entry.value = value; } }
+            return;
+        }
+        let mut cached = ::std::mem::take(&mut self.entries).into_iter().map(Some).collect::<Vec<_>>();
+        self.index = None;
+        self.internal = 0;
+        for (key, value) in fresh {
+            let kept = cached.iter_mut().find(|slot| slot.as_ref().is_some_and(|entry| entry.key == key)).and_then(Option::take);
+            let value = match kept { Some(entry) if same(&entry.value, &value) => entry.value, _ => value };
+            self.insert(key, value);
+        }
+        for entry in cached.into_iter().flatten() { if entry.key.smelt_is_internal_key() { self.insert(entry.key, entry.value); } }
+    }
+}
+// @smelt:end
 
 impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltStoreCell<K, V> {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.borrow().fmt(formatter) }
