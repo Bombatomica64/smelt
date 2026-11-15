@@ -81,7 +81,11 @@ impl ModuleBuilder<'_> {
             });
         }
         let ty = self.object_const_type(&entries, None);
-        Some(ObjectConst { entries, ty })
+        Some(ObjectConst {
+            entries,
+            ty,
+            site: None,
+        })
     }
 
     /// Return the object literal a module-level `const` is initialized with.
@@ -244,8 +248,9 @@ impl ModuleBuilder<'_> {
         object: &oxc::ast::ast::ObjectExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let value = self.object_const_from_expression(object, type_hint)?;
+        let mut value = self.object_const_from_expression(object, type_hint)?;
         let span = self.span(object.span.start, object.span.end);
+        value.site = Some(span);
         let mut body = Body::new(None, span);
         let expr =
             self.object_const_expression(&value, object.span.start, object.span.end, &mut body);
@@ -373,7 +378,11 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
-        Ok(ObjectConst { entries, ty })
+        Ok(ObjectConst {
+            entries,
+            ty,
+            site: None,
+        })
     }
 
     /// Retype one folded object-const value to the type its declaration states.
@@ -440,6 +449,7 @@ impl ModuleBuilder<'_> {
                     ObjectConstValue::Object(ObjectConst {
                         entries,
                         ty: target,
+                        site: None,
                     }),
                     target,
                 ))

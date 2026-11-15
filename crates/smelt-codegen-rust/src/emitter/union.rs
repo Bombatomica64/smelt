@@ -1955,7 +1955,9 @@ impl FunctionEmitter<'_> {
         let Some(class) = crate::classes::find_class(self.mir, name) else {
             return false;
         };
-        let named = |symbol: Symbol| self.symbol_name(symbol) == Ok(member);
+        // Members are compared by their JavaScript spelling: the Rust name is
+        // case-folded (`timestampIsSet` -> `timestamp_is_set`).
+        let named = |symbol: Symbol| self.symbol_source_name(symbol) == Ok(member);
         let has_field = class.fields.iter().any(|candidate| named(candidate.name));
         let has_accessor = class
             .descriptors
@@ -1986,7 +1988,7 @@ impl FunctionEmitter<'_> {
             .is_some_and(|interface| {
                 crate::classes::effective_interface_fields(self.mir, interface)
                     .iter()
-                    .any(|candidate| self.symbol_name(candidate.name) == Ok(field))
+                    .any(|candidate| self.symbol_source_name(candidate.name) == Ok(field))
             })
     }
 

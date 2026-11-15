@@ -510,6 +510,11 @@ impl ModuleBuilder<'_> {
                 },
             );
         }
+        // A plain (non-async, non-generator) `function` is a JavaScript
+        // constructor: its value owns a `prototype`.
+        if !function.r#async && !function.generator {
+            self.ctx.krate.constructible_functions.push(item);
+        }
         Ok(item)
     }
 

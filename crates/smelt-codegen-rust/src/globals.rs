@@ -13,6 +13,10 @@ use crate::rust::CodeWriter;
 use crate::thrown::ERROR_BOX;
 use crate::{EmitError, compact_index};
 
+/// The most statics one `thread_local!` block declares (see
+/// [`emit_mutable_globals`]).
+const GLOBALS_PER_BLOCK: usize = 64;
+
 /// Emit the `thread_local!` block declaring every mutable global's cell.
 ///
 /// Each `#[test]` runs on its own thread, so a `thread_local!` cell gives every
@@ -26,6 +30,13 @@ pub(crate) fn emit_mutable_globals(mir: &Mir, context: &EmitContext) -> Result<S
     let mut any_fallible_init = false;
     writer.line("thread_local! {");
     for (index, global) in mir.globals.iter().enumerate() {
+        // `thread_local!` expands one static per recursion step, so a block
+        // past the default limit (128) fails to compile; a crate with many
+        // module objects (date-fns' locales) gets one block per chunk instead.
+        if index > 0 && index % GLOBALS_PER_BLOCK == 0 {
+            writer.line("}");
+            writer.line("thread_local! {");
+        }
         let name = global_static_name(mir, compact_index(index, "global index")?);
         // The cell's initial value. A constant is emitted inline; an expression
         // initializer is a CALL to the nullary function the frontend

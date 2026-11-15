@@ -389,6 +389,24 @@ impl<T> SmeltFuture<T> {
         let driver = self.clone();
         /*@if timers*/smelt_spawn_promise_task(Box::pin(async move { let _ = driver.smelt_await().await; }));/*@end*/
     }
+    //~ Wait for this future to settle without taking it: its own driver job
+    //~ runs it (`smelt_drive`), and this only reads the result. A
+    //~ `Promise.race` waits on its racers this way, so dropping the wait of a
+    //~ losing racer leaves that promise running, as in JavaScript, and a racer
+    //~ settles on its own job when its timer releases it.
+    fn smelt_when_settled(self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>> where T: Clone + 'static {
+        self.smelt_drive();
+        Box::pin(async move {
+            loop {
+                match &*self.state.borrow() {
+                    SmeltFutureState::Resolved(value) => return Ok(value.clone()),
+                    SmeltFutureState::Rejected(payload) => return Err(smelt_throw(payload.clone())),
+                    _ => {}
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+    }
     //~ A reaction (`then`/`catch`/`finally`) on this future: `body` computes
     //~ the derived future's result (awaiting this one). Its job is queued now
     //~ when this future has settled, and otherwise when it settles, after the

@@ -376,10 +376,49 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(folded) = self.object_const_literal_member(member, body) {
+            return Ok(folded);
+        }
         match self.static_member_with_absent_fallback(member, body, true, true, false) {
             Ok(read) => Ok(self.erase_prototype_method_receiver(read, body)),
             Err(error) => self.detached_prototype_method(member, body)?.ok_or(error),
         }
+    }
+
+    /// `limits.upper` where `limits` is an unwritten module object constant
+    /// whose `upper` entry is a literal: that literal. The object is one
+    /// shared value read through its slot (`identity_slots`), but a member
+    /// that can never change is folded, as a hand port would write the
+    /// constant.
+    fn object_const_literal_member(
+        &self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(receiver) = &member.object else {
+            return None;
+        };
+        let name = receiver.name.as_str();
+        if matches!(
+            self.resolve_value(name),
+            crate::lowering::resolve::ValueBinding::Local(_)
+        ) || self.mutable_global_item(name).is_some()
+        {
+            return None;
+        }
+        let value = self.consts.object(name)?;
+        let entry = value.entries.iter().find(|entry| {
+            entry.key_units.is_none() && entry.key == member.property.name.as_str()
+        })?;
+        let crate::ObjectConstValue::Literal(literal) = &entry.value else {
+            return None;
+        };
+        let (literal, ty) = (literal.clone(), entry.value_ty);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(literal),
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
     }
 
     /// The modeled prototype method `name` names on a typed primitive of `ty`.

@@ -827,6 +827,30 @@ pub(crate) fn class_has_proto_entries(mir: &Mir, context: &EmitContext, class: &
         || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
 }
 
+/// The Rust path a static member of `class` is called through.
+///
+/// A static member cannot mention the class's type parameters (TS2302), so a
+/// generic class's statics are the same at every instantiation and any one
+/// names them: the erased carrier, which meets every bound the generated
+/// `impl` places on a class parameter. Without it `Box::of(x)` leaves the
+/// class's parameter uninferable (E0283).
+pub(crate) fn static_receiver_path(
+    mir: &Mir,
+    context: &EmitContext,
+    class: smelt_hir::Symbol,
+) -> Result<String, EmitError> {
+    let rust_class = context.names().type_name(class)?.as_str().to_owned();
+    let params = crate::classes::find_class(mir, class).map_or(0, |found| found.type_params.len());
+    Ok(if params == 0 {
+        rust_class
+    } else {
+        format!(
+            "{rust_class}::<{}>",
+            vec!["SmeltUnknown"; params].join(", ")
+        )
+    })
+}
+
 /// A class's static methods as `(property key, erased function)` entries of its
 /// class value.
 ///
@@ -846,13 +870,10 @@ pub(crate) fn class_static_entries(
     context: &EmitContext,
     class: smelt_hir::Symbol,
 ) -> Result<Vec<(String, RustExpr)>, EmitError> {
-    let Some(found) = crate::classes::find_class(mir, class) else {
-        return Ok(Vec::new());
-    };
-    if !found.type_params.is_empty() {
+    if crate::classes::find_class(mir, class).is_none() {
         return Ok(Vec::new());
     }
-    let rust_class = context.names().type_name(class)?.as_str().to_owned();
+    let rust_class = static_receiver_path(mir, context, class)?;
     let mut entries = Vec::new();
     for function in &mir.functions {
         let HirOrigin::ClassStaticMethod {

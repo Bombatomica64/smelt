@@ -88,7 +88,7 @@ impl ModuleBuilder<'_> {
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && let Some(init) = &declarator.init
                 && let Some(object) = Self::object_const_initializer(init)
-                && let Ok(value) = {
+                && let Ok(mut value) = {
                     // The declared annotation types the folded metadata, so a
                     // body that recreates the const (`paths[p][1]`) reads the
                     // declared tuple/list shapes rather than the literal's
@@ -118,6 +118,7 @@ impl ModuleBuilder<'_> {
                         collection,
                     );
                 }
+                value.site = Some(self.span(object.span.start, object.span.end));
                 self.consts
                     .set_object(binding.name.as_str().to_owned(), value);
             } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -138,8 +139,9 @@ impl ModuleBuilder<'_> {
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                 && !self.consts.has_object(binding.name.as_str())
                 && let Some(init) = &declarator.init
-                && let Some(map_const) = self.map_const_from_initializer(init)
+                && let Some(mut map_const) = self.map_const_from_initializer(init)
             {
+                map_const.site = Some(self.span(init.span().start, init.span().end));
                 self.consts
                     .set_object(binding.name.as_str().to_owned(), map_const);
             }

@@ -48,6 +48,11 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            if type_hint.is_some_and(|ty| self.type_holds_erasure(ty, 0)) {
+                self.ctx
+                    .source_erased_consts
+                    .insert((self.file_id, binding.name.as_str().to_owned()));
+            }
             // `export const toolkit = ((v) => v) as Toolkit;` — peel
             // transparent TS wrappers (parens, `as`, `satisfies`, `!`) so the
             // arrow/function-initializer dispatch below sees the value
