@@ -1001,7 +1001,7 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether `ty` is a live record or holds one inside a structure
     /// [`Self::structural_leaf_equality_expr`] walks (a list, tuple,
-    /// string-keyed dict, or optional).
+    /// string-keyed or property-keyed dict, or optional).
     fn type_holds_live_record(&self, ty: TypeId, depth: u8) -> bool {
         if depth > 16 {
             return false;
@@ -1015,7 +1015,10 @@ impl FunctionEmitter<'_> {
             Some(Type::Tuple(items)) => items
                 .iter()
                 .any(|item| self.type_holds_live_record(*item, deeper)),
-            Some(Type::Dict(key, value)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
+            Some(Type::Dict(key, value))
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
+                    || self.is_prop_key_record_key(*key) =>
+            {
                 self.type_holds_live_record(*value, deeper)
             }
             _ => false,
@@ -1099,7 +1102,11 @@ impl FunctionEmitter<'_> {
                     item_equal = item_equal.delimited(),
                 ))
             }
-            Some(Type::Dict(key, value)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
+            // A property-key record answers the same `len`/`iter`/`get`.
+            Some(Type::Dict(key, value))
+                if self.mir.types.get(*key).is_some_and(Type::is_text)
+                    || self.is_prop_key_record_key(*key) =>
+            {
                 let value_equal = self.structural_leaf_equality_expr(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),
