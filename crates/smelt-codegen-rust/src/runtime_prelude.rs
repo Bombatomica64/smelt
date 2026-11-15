@@ -267,6 +267,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "generator" => Need::Generator,
         "iterator_result" => Need::IteratorResult,
         "timers" => Need::Timers,
+        "all_settled" => Need::AllSettled,
         "date_now" => Need::DateNow,
         "date_timezone_offset" => Need::DateTimezoneOffset,
         "date" => Need::Date,

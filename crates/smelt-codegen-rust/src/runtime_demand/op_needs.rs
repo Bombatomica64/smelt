@@ -368,6 +368,9 @@ impl RuntimeDemand {
             }
             Rvalue::AsyncOp { op, .. } => {
                 self.add(Need::DepTokio);
+                if matches!(op, smelt_hir::AsyncOp::AllSettled) {
+                    self.add(Need::AllSettled);
+                }
                 if matches!(op, smelt_hir::AsyncOp::HttpFetch) {
                     self.add(Need::Response);
                 }

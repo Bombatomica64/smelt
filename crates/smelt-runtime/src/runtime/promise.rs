@@ -80,8 +80,6 @@ pub struct SmeltPromise {
 impl SmeltPromise {
     //~ Create a pending erased promise identity with shared settle state.
     fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
-    //~ Create a pending promise with a preassigned identity.
-    fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
     //~ Create an already-fulfilled erased promise value.
     fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
 // @smelt:end
@@ -312,8 +310,13 @@ pub struct SmeltFuture<T> {
     //~ runs, another awaiter waits for it rather than driving the future out
     //~ of the queue's order.
     parked: ::std::rc::Rc<::std::cell::Cell<bool>>,
+    //~ The erased promise this future crosses an erased boundary as, made on
+    //~ the first erasure and handed out by every later one: one JavaScript
+    //~ promise is one object, so `const u: unknown = p; u === (p as unknown)`
+    //~ holds and both views share one settled result.
+    erased: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromise>>>,
 }
-impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone() } } }
+impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone(), erased: self.erased.clone() } } }
 impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resolved(T::default()) } }
 impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
 #[allow(dead_code)]
@@ -326,7 +329,11 @@ impl<T> SmeltFuture<T> {
     //~ order — see `from_future_primed` for the eager-prefix constructor.
     fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self::with_state(SmeltFutureState::Pending(future)) }
     //~ A handle over `state` with no reaction waiting and no driver.
-    fn with_state(state: SmeltFutureState<T>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), tick: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
+    fn with_state(state: SmeltFutureState<T>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), tick: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)), erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    //~ Another handle on this future without its erased view: what the erased
+    //~ view's own driver captures, so the view and the future do not hold each
+    //~ other alive through the view cache.
+    fn smelt_detached(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone(), erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     //~ Wrap an ASYNC-FUNCTION-BODY future, priming it with a single no-op-
     //~ waker poll so its synchronous prefix runs at call time (JS
     //~ eager-async-prefix semantics; see `smelt_eager_poll_waker`). Only
@@ -373,13 +380,18 @@ impl<T> SmeltFuture<T> {
     //~ settled value erased by `erase`. A future that has already settled (an
     //~ async body that finished synchronously) gives an already-settled
     //~ promise, so a reaction registered on it is queued at once, as in
-    //~ JavaScript; a pending one gives a promise driven by its own job.
+    //~ JavaScript; a pending one gives a promise driven by its own job. The
+    //~ view is made once and shared by every later erasure (`erased`), so the
+    //~ erased promise keeps the source promise's identity.
     fn smelt_promise_with(self, erase: impl FnOnce(T) -> SmeltUnknown + 'static) -> SmeltPromise where T: Clone + 'static {
-        match self.smelt_settled() {
+        if let Some(view) = self.erased.borrow().as_ref() { return view.clone(); }
+        let view = match self.smelt_settled() {
             Some(Ok(value)) => SmeltPromise::resolved(erase(value)),
             Some(Err(reason)) => SmeltPromise::settled_rejection(reason),
-            None => SmeltPromise::scheduled(Box::pin(async move { let value = self.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(erase(value)) })),
-        }
+            None => { let source = self.smelt_detached(); SmeltPromise::scheduled(Box::pin(async move { let value = source.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(erase(value)) })) }
+        };
+        *self.erased.borrow_mut() = Some(view.clone());
+        view
     }
     //~ Queue one job that drives this future to its settled result, unless one
     //~ is already queued or it has no future left to drive.
@@ -481,6 +493,25 @@ impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {
 //~ `SmeltUnknown`/`SmeltPromise` prelude region so the gate is shared.
 impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Promise(self.smelt_promise_with(IntoSmeltUnknown::into_smelt_unknown)) }
+}
+
+// @smelt:item-end
+
+// @smelt:item smelt_settled_result when all_settled
+//~ One entry of `Promise.allSettled`: the record JavaScript builds for a
+//~ settled input, `{ status: "fulfilled", value }` or `{ status: "rejected",
+//~ reason }`. The value arrives erased because the record's own type is the
+//~ erased carrier wherever `PromiseSettledResult<T>` lowers to it; a program
+//~ whose settled-result type is concrete converts the record to it at the call
+//~ site. The rejection reason is the thrown payload (`smelt_thrown_value`),
+//~ kept whole as `Promise.reject` keeps it.
+#[allow(dead_code)]
+fn smelt_settled_result(settled: Result<SmeltUnknown, Box<dyn std::error::Error>>) -> SmeltUnknown {
+    let entries = match settled {
+        Ok(value) => ::std::vec![("status", SmeltUnknown::String("fulfilled".into())), ("value", value)],
+        Err(error) => ::std::vec![("status", SmeltUnknown::String("rejected".into())), ("reason", smelt_thrown_value(&*error))],
+    };
+    SmeltUnknown::Object(SmeltObject::new(entries))
 }
 
 // @smelt:item-end
