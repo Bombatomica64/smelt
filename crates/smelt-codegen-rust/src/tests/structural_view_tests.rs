@@ -9,7 +9,11 @@ use crate::structural_views::StructuralViews;
 fn planned_views(ts: &str) -> (Vec<String>, Vec<String>) {
     let mut ctx = HirCtx::new();
     assert!(to_hir(ts, FileId(0), &mut ctx).is_ok(), "HIR");
-    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
+    let lowered = smelt_mir::lower_hir(&ctx.krate);
+    assert!(lowered.is_ok(), "MIR lowering");
+    let Ok(mut mir) = lowered else {
+        return (Vec::new(), Vec::new());
+    };
     smelt_mir::opt::optimize(&mut mir);
     let views = StructuralViews::plan(&mir);
     let name = |symbol| mir.symbols.get(symbol).unwrap_or("?").to_owned();
