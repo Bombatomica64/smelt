@@ -38,8 +38,8 @@ impl FunctionEmitter<'_> {
         const MAX_DEPTH: usize = 64;
         blocks.iter().any(|block| {
             block.statements.iter().any(|statement| match statement.value() {
-                Rvalue::ThisRead | Rvalue::BindOwnThis { .. } => true,
-                Rvalue::Closure { id, .. } if depth < MAX_DEPTH => self
+                Some(Rvalue::ThisRead | Rvalue::BindOwnThis { .. }) => true,
+                Some(Rvalue::Closure { id, .. }) if depth < MAX_DEPTH => self
                     .mir_closure(*id)
                     .is_ok_and(|closure| {
                         closure.this_binding == smelt_hir::ClosureThis::Lexical

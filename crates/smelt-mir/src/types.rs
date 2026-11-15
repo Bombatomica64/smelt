@@ -1061,6 +1061,20 @@ pub enum Statement {
         /// inside the single probe and may read `current`.
         value: Rvalue,
     },
+    /// The start of a new instance of a source binding, as rustc's MIR
+    /// `StorageLive`: the binding's next value lives in fresh storage, and a
+    /// closure created before this point keeps the instance it captured.
+    ///
+    /// ECMAScript gives every evaluation of a `let`/`const` declaration its own
+    /// binding, so `while (..) { let c = ..; fns.push(() => c); c = .. }`
+    /// collects closures over distinct `c`s. One MIR local stands for all of
+    /// them, which only matters when the declaration runs more than once and a
+    /// closure captures the binding: lowering emits this statement just before
+    /// such a declaration's assignment, and only there. Codegen gives a local
+    /// stored in a shared capture cell a new cell here; for every other
+    /// storage, and for every analysis, it is a no-op. It reads and writes no
+    /// value, so it does not count as a definition of the local.
+    StorageLive(LocalId),
 }
 
 /// A MIR terminator.

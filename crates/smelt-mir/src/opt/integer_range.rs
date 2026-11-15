@@ -512,6 +512,7 @@ fn useful_locals(
                         }
                     });
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         let terminator_operands: Vec<&Operand> = match &block.terminator {
@@ -621,6 +622,7 @@ fn collect_escaping_locals(blocks: &[BasicBlock], excluded: &mut HashSet<LocalId
                         excluded.extend(captures.iter().filter_map(Operand::local));
                     }
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         if let Some(
@@ -655,7 +657,9 @@ fn definition_closed_candidates(
                         place: Place::Local(dest),
                         value,
                     } => (*dest, value),
-                    Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => continue,
+                    Statement::AssignPlace { .. }
+                    | Statement::DictEntryUpdate { .. }
+                    | Statement::StorageLive(_) => continue,
                 };
                 if !candidates.contains(dest) {
                     continue;
@@ -850,7 +854,9 @@ impl Analysis<'_> {
                 place: Place::Local(dest),
                 value,
             } => (*dest, value),
-            Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => return,
+            Statement::AssignPlace { .. }
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => return,
         };
         if let Some(&position) = self.candidates.index.get(&dest) {
             state[position] = self.evaluate(value, state);
@@ -948,7 +954,8 @@ impl Analysis<'_> {
                     } if *dest == target => Some((position, value)),
                     Statement::Assign { .. }
                     | Statement::AssignPlace { .. }
-                    | Statement::DictEntryUpdate { .. } => None,
+                    | Statement::DictEntryUpdate { .. }
+                    | Statement::StorageLive(_) => None,
                 },
             )?;
             match value {
@@ -1014,7 +1021,8 @@ impl Analysis<'_> {
                 } if *dest == compared => Some((position, value)),
                 Statement::Assign { .. }
                 | Statement::AssignPlace { .. }
-                | Statement::DictEntryUpdate { .. } => None,
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => None,
             },
         )?;
         let (base, offset) = match value {
@@ -1150,7 +1158,7 @@ impl Analysis<'_> {
                     Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                         self.evaluate(value, &state)
                     }
-                    Statement::DictEntryUpdate { .. } => None,
+                    Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => None,
                 });
             }
         }
@@ -1310,7 +1318,9 @@ fn choose_widths(
                     place: Place::Local(dest),
                     value,
                 } => (*dest, value),
-                Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => continue,
+                Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => continue,
             };
             if accepted.contains(&dest) {
                 if !matches!(value, Rvalue::Len { .. }) {
@@ -1498,6 +1508,7 @@ impl Rewriter<'_> {
                 self.rewrite_number_operand(default, prelude);
                 self.rewrite_rvalue(value, prelude);
             }
+            Statement::StorageLive(_) => {}
         }
     }
 

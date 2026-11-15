@@ -102,6 +102,9 @@ impl FunctionEmitter<'_> {
                             index.mutated.insert(*base);
                         }
                     }
+                    Statement::StorageLive(local) => {
+                        index.storage_live.insert(*local);
+                    }
                 }
             }
             if let Some(
@@ -461,6 +464,7 @@ impl FunctionEmitter<'_> {
                             return true;
                         }
                     }
+                    Statement::StorageLive(_) => {}
                 }
             }
             if block
@@ -528,6 +532,7 @@ impl FunctionEmitter<'_> {
                     ..
                 } => *candidate == local,
                 Statement::DictEntryUpdate { current, .. } => *current == local,
+                Statement::StorageLive(_) => false,
                 Statement::AssignPlace { .. } => false,
             };
             if writes_local {
@@ -701,6 +706,7 @@ impl FunctionEmitter<'_> {
                         return Ok(true);
                     }
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         let Some(terminator) = &block.terminator else {
@@ -766,6 +772,11 @@ pub(super) struct LocalWriteIndex {
     /// Locals an unwind edge writes: the handler local of a `Call` or `Await`
     /// terminator, which receives the thrown value.
     unwind_written: HashSet<LocalId>,
+    /// Locals with a [`Statement::StorageLive`]: a binding declared in a loop
+    /// that a closure captures, whose shared capture cell is replaced by a
+    /// fresh one each time the declaration runs, so the cell's own Rust
+    /// binding is reassigned.
+    pub(super) storage_live: HashSet<LocalId>,
 }
 
 /// The blocks of `function` that lie on a cycle, or are reachable from a block

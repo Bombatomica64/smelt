@@ -101,6 +101,15 @@ fn recursive_shapes() -> TestResult {
     verify_node_parity("recursive_shapes")
 }
 
+/// Each run of a `let` declaration is its own binding: a `for (let ..)` head
+/// per iteration, a body `let` and a `for..of`/`for..in` head per run, in
+/// functions, arrows, generators and async bodies; a closure keeps its own
+/// iteration's value, including writes made after it was created.
+#[test]
+fn for_let_per_iteration() -> TestResult {
+    verify_node_parity("for_let_per_iteration")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

@@ -91,6 +91,9 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) handler_marks: HandlerMarks,
     /// The [`HandlerMarks`] of every closure in [`Self::closures`].
     pub(super) closure_handler_marks: Vec<(crate::ClosureId, HandlerMarks)>,
+    /// The HIR locals of [`Self::body`] that some closure expression in it
+    /// captures, computed on first use by [`Self::is_captured_by_closure`].
+    pub(super) captured_locals: Option<std::collections::HashSet<HirLocalId>>,
 }
 
 /// Record the class/interface bound of every type parameter in `params` that
@@ -367,7 +370,34 @@ impl<'hir> LoweringCtx<'hir> {
             type_param_bounds: HashMap::new(),
             handler_marks: HandlerMarks::default(),
             closure_handler_marks: Vec::new(),
+            captured_locals: None,
         }
+    }
+
+    /// Whether some closure expression of the body being lowered captures the
+    /// HIR local `local`.
+    pub(super) fn is_captured_by_closure(&mut self, local: HirLocalId) -> bool {
+        let body = self.body;
+        self.captured_locals
+            .get_or_insert_with(|| {
+                body.exprs
+                    .iter()
+                    .filter_map(|expr| match &expr.kind {
+                        smelt_hir::ExprKind::Closure(closure) => Some(closure),
+                        _ => None,
+                    })
+                    .flat_map(|closure| closure.captures.iter().map(|capture| capture.source_local))
+                    .collect()
+            })
+            .contains(&local)
+    }
+
+    /// Whether the cursor is inside a loop of the body being lowered, so a
+    /// statement here can run more than once per call.
+    pub(super) fn in_loop(&self) -> bool {
+        self.scopes
+            .iter()
+            .any(|scope| matches!(scope, ControlScope::Loop(_)))
     }
 
     /// The language of the file at `span`.

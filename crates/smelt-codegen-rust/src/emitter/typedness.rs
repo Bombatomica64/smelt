@@ -247,6 +247,7 @@ fn measure_body(
                     read(default);
                     value.reads(&mut read);
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         match &block.terminator {

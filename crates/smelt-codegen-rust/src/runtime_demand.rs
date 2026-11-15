@@ -889,7 +889,9 @@ impl RuntimeDemand {
     /// Records what one statement demands, including facts that need the body's
     /// local declarations to answer.
     fn scan_statement(&mut self, mir: &Mir, locals: &[LocalDecl], statement: &Statement) {
-        let value = statement.value();
+        let Some(value) = statement.value() else {
+            return;
+        };
         self.scan_rvalue(value);
         // A program that reaches a class prototype reflectively can call the
         // methods the prototype carries (docs/design/class-prototypes.md,

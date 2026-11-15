@@ -218,7 +218,10 @@ impl FunctionEmitter<'_> {
         );
         let statement_names_local = |statement: &Statement| {
             let inlined = if is_function {
-                inlined_callback_operands(statement.value())
+                statement
+                    .value()
+                    .map(inlined_callback_operands)
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };

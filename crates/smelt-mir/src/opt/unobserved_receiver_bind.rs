@@ -43,7 +43,9 @@ impl Pass for UnobservedReceiverBind {
             .flat_map(|closure| closure.blocks.iter_mut());
         for block in function_blocks.chain(closure_blocks) {
             for statement in &mut block.statements {
-                let value = statement.value_mut();
+                let Some(value) = statement.value_mut() else {
+                    continue;
+                };
                 let Rvalue::BindThis { callee, .. } = value else {
                     continue;
                 };
@@ -84,7 +86,8 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
             } => Some(*dest),
             Statement::Assign { .. }
             | Statement::AssignPlace { .. }
-            | Statement::DictEntryUpdate { .. } => None,
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => None,
         })
         .filter(|dest| forwardable(function, *dest))
         .collect::<Vec<_>>();
@@ -122,7 +125,8 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
                     } if call_callee.local() == Some(*bound) => Some(call_callee),
                     Statement::Assign { .. }
                     | Statement::AssignPlace { .. }
-                    | Statement::DictEntryUpdate { .. } => None,
+                    | Statement::DictEntryUpdate { .. }
+                    | Statement::StorageLive(_) => None,
                 });
             let Some(call_callee) = call else {
                 continue;
@@ -151,7 +155,7 @@ fn program_reads_this(mir: &Mir) -> bool {
         .any(|statement| {
             matches!(
                 statement.value(),
-                Rvalue::ThisRead | Rvalue::BindOwnThis { .. }
+                Some(Rvalue::ThisRead | Rvalue::BindOwnThis { .. })
             )
         })
 }

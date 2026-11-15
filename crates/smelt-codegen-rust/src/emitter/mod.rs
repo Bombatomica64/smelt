@@ -1346,7 +1346,7 @@ fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     Some(value)
                 }
-                Statement::DictEntryUpdate { .. } => None,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => None,
             });
         let carried = match &block.terminator {
             Some(Terminator::Call {

@@ -107,6 +107,7 @@ fn definition_candidates(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> 
                 Statement::DictEntryUpdate { current, .. } => {
                     disqualified.insert(*current);
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         if let Some(Terminator::Call { dest, .. } | Terminator::Await { dest, .. }) =

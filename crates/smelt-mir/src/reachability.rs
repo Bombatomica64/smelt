@@ -85,9 +85,9 @@ fn remove_unreachable(blocks: &mut Vec<BasicBlock>, entry: &mut BlockId) {
     for block in &mut kept {
         map(&mut block.id);
         for statement in &mut block.statements {
-            if let Rvalue::GeneratorYield {
+            if let Some(Rvalue::GeneratorYield {
                 unwind, cleanup, ..
-            } = statement.value_mut()
+            }) = statement.value_mut()
             {
                 if let Some(handler) = unwind {
                     map(&mut handler.catch_block);

@@ -131,6 +131,7 @@ impl Statement {
             Self::Assign { value, .. }
             | Self::AssignPlace { value, .. }
             | Self::DictEntryUpdate { value, .. } => value.visit_types(visit),
+            Self::StorageLive(_) => {}
         }
     }
 
@@ -140,6 +141,7 @@ impl Statement {
             Self::Assign { value, .. }
             | Self::AssignPlace { value, .. }
             | Self::DictEntryUpdate { value, .. } => value.map_types(map),
+            Self::StorageLive(_) => {}
         }
     }
 }

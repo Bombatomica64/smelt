@@ -576,9 +576,11 @@ impl FunctionEmitter<'_> {
             for block in &self.function.blocks {
                 for statement in &block.statements {
                     match statement.value() {
-                        Rvalue::ClosureCall { callee, .. }
-                        | Rvalue::ClosureCallSpread { callee, .. }
-                        | Rvalue::ClosureCallRest { callee, .. } => note(callee),
+                        Some(
+                            Rvalue::ClosureCall { callee, .. }
+                            | Rvalue::ClosureCallSpread { callee, .. }
+                            | Rvalue::ClosureCallRest { callee, .. },
+                        ) => note(callee),
                         _ => {}
                     }
                 }
