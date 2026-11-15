@@ -652,7 +652,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         let value_text = self.erase_rendered(&RustExpr::path("smelt_value"), item_ty)?;
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, {ERROR_BOX}>({value_text}) }}))) }}", future_text = future_text.delimited(), value_text = value_text.delimited()
+            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::scheduled(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, {ERROR_BOX}>({value_text}) }}))) }}", future_text = future_text.delimited(), value_text = value_text.delimited()
         ))))
     }
 
