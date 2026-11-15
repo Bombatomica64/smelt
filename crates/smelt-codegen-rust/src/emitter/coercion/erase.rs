@@ -18,6 +18,18 @@ impl FunctionEmitter<'_> {
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_text = text.cloned_value();
         let ty = self.operand_ty(operand)?;
+        // A lifted `T` VALUE erases through the `IntoSmeltUnknown` bound its
+        // signature declares (`classes::GENERATED_TYPE_PARAM_BOUNDS`): the
+        // bound's own method, which every instantiation supplies, so the generic
+        // trial does not count it against the body. Only a whole operand of type
+        // `T` qualifies: a container of `T`s erases by rebuilding its storage,
+        // which loses JavaScript aliasing the erased signature keeps, and still
+        // counts.
+        let _bound_conversion = matches!(
+            self.mir.types.get(ty),
+            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name)
+        )
+        .then(|| self.context.carrier_boundary());
         match self.mir.types.get(ty) {
             Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name) => {
                 Ok(text)
@@ -633,14 +645,14 @@ impl FunctionEmitter<'_> {
     /// awaits observe the same resolved value. The concrete future expression is
     /// evaluated before the `async move` block so callback captures owned by an
     /// outer `Fn` closure are not moved into the returned promise task.
-    fn promise_future_unknown_expr(
+    pub(in crate::emitter) fn promise_future_unknown_expr(
         &self,
         future_text: &RustExpr,
         item_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let value_text = self.erase_rendered(&RustExpr::path("smelt_value"), item_ty)?;
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, {ERROR_BOX}>({value_text}) }}))) }}", future_text = future_text.delimited(), value_text = value_text.delimited()
+            "{{ let smelt_future = {future_text}; SmeltUnknown::Promise(SmeltPromise::scheduled(Box::pin(async move {{ let smelt_value = smelt_future.await?; Ok::<SmeltUnknown, {ERROR_BOX}>({value_text}) }}))) }}", future_text = future_text.delimited(), value_text = value_text.delimited()
         ))))
     }
 

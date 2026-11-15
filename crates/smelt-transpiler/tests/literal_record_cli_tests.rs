@@ -25,7 +25,7 @@
 //! The fixtures live here and not under `examples/`: a literal that stays a
 //! map is avoidable erasure by definition, and the examples corpus holds none
 //! (`blocker-logs/smelt-unknown-baseline.json`). The literal that takes the
-//! struct is `examples/typescript/end-to-end/196_object_literal_takes_its_checker_record`.
+//! struct is `examples/typescript/end-to-end/197_object_literal_takes_its_checker_record`.
 
 mod common;
 

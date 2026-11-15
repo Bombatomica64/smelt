@@ -238,7 +238,7 @@ impl ModuleBuilder<'_> {
     /// so a typed function stays a typed function and never degrades to
     /// `SmeltUnknown` at the bind.
     pub(in crate::lowering) fn bind_this_receiver(
-        &self,
+        &mut self,
         callee: smelt_hir::ExprId,
         receiver: smelt_hir::ExprId,
         body: &mut Body,
@@ -248,16 +248,18 @@ impl ModuleBuilder<'_> {
         // Only a value that is CALLED through a function value can carry a
         // receiver: a plain function (`Type::Function`, in either of its two
         // Rust spellings) or a dynamic call surface (`unknown`, a type
-        // parameter, a union). A concrete callable OBJECT -- a generated struct
-        // such as `DebouncedFunction<F>` -- dispatches through its own generated
-        // call member instead, and has no function value to wrap; binding a
-        // receiver onto it would have to change its Rust type. Those keep the
-        // receiver-less behaviour they already had rather than being silently
-        // retyped, which is a known gap rather than a modeled case.
-        if !matches!(
-            self.ctx.krate.types.get(ty),
-            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) {
+        // parameter, a union), or a callable OBJECT, whose call slot is wrapped.
+        // A callable OBJECT -- a class or interface type with a call signature,
+        // such as es-toolkit's `DebouncedFunction<F>` -- binds through a copy
+        // whose call slot installs the receiver (codegen's `bind_this_expr`).
+        let callable_object = matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+            && self.function_member_type(ty).is_some();
+        if !callable_object
+            && !matches!(
+                self.ctx.krate.types.get(ty),
+                Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
             return callee;
         }
         // `fn.apply(null, args)` / `fn.call(undefined, ..)` supply NO receiver.
@@ -271,6 +273,18 @@ impl ModuleBuilder<'_> {
             Some(ExprKind::Literal(Literal::None))
         ) {
             return callee;
+        }
+        // Forwarding the function's own `this` binds the receiver its frame
+        // took, read where it is installed: no value of its own.
+        if matches!(
+            body.expr_at(receiver).map(|expr| &expr.kind),
+            Some(ExprKind::ThisRead)
+        ) {
+            return body.push_expr(Expr {
+                kind: ExprKind::BindOwnThis { callee },
+                ty,
+                span,
+            });
         }
         body.push_expr(Expr {
             kind: ExprKind::BindThis { callee, receiver },
@@ -369,6 +383,22 @@ impl ModuleBuilder<'_> {
                 "function expression return",
             )
         };
+        // An async function returns a promise of what its body returns. When
+        // neither an annotation nor a contextual signature already says
+        // `Promise<T>` (an unannotated method of an object literal typed `any`,
+        // or a hint whose return is erased), the body's return type is the
+        // awaited value and the closure's return is its `Future`, exactly as
+        // for an async arrow. Without this the closure ran synchronously and
+        // handed back the bare value, so `.then` on its result was read off a
+        // number.
+        let async_wrapped = function.r#async
+            && !function.generator
+            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)));
+        let return_ty = if async_wrapped {
+            self.ctx.krate.types.intern(Type::Future(return_ty))
+        } else {
+            return_ty
+        };
 
         // A postfix update inside this body belongs to this body, not to the
         // deferral list of a declaration this expression initializes (`const
@@ -377,6 +407,15 @@ impl ModuleBuilder<'_> {
         // so neither crosses the function boundary.
         let ctx = self.nested_fn_ctx(BodyKind::Function, function.r#async, Some(return_ty));
         let scope = ScopeGroups::BINDINGS.with(ScopeGroups::NARROWINGS);
+        // A function expression has its own `this` (its frame takes it): the
+        // enclosing binding is hidden from its body, so it is never captured
+        // (`own_this`), and restored afterwards.
+        // A class method installed as a field keeps its instance's `this`.
+        let prior_this = if std::mem::take(&mut self.keep_enclosing_this) {
+            None
+        } else {
+            self.shadow_enclosing_this()
+        };
         let (body, params, rest, required_params, captures, forwards_arguments, errors) =
             self.with_nested_body(ctx, scope, |this, frame| {
             let mut body = Body::new(
@@ -600,6 +639,9 @@ impl ModuleBuilder<'_> {
             let forwards_arguments = arguments_forwarding.is_some();
             (body, params, rest, required_params, captures, forwards_arguments, errors)
         });
+        if let Some(local) = prior_this {
+            self.scope.bind("this".to_owned(), local);
+        }
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -611,8 +653,10 @@ impl ModuleBuilder<'_> {
         // (`lowering::arguments_forwarding`), so a hint taken here would type the
         // closure at an arity its body does not have. The rewritten signature is
         // the only one that describes what was lowered.
+        // An async wrap above changed the return the hint describes, so the
+        // hint no longer types the closure either.
         let function_ty = match hint_function {
-            Some((ty, _)) if !forwards_arguments => ty,
+            Some((ty, _)) if !forwards_arguments && !async_wrapped => ty,
             _ => self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: params.iter().map(|param| param.ty).collect(),
                 rest: rest_index,
@@ -632,6 +676,7 @@ impl ModuleBuilder<'_> {
                 captures,
                 body: body_id,
                 function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
                 span: self.span(function.span.start, function.span.end),
             }),
             ty: function_ty,

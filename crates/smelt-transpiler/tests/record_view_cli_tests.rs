@@ -5,7 +5,7 @@
 //! (`smelt-codegen-rust/src/emitter/live_view.rs`,
 //! `smelt-runtime/src/runtime/live_view.rs`). The views whose slot type is
 //! itself typed (`Record<string, number>`, a structural subset, a type
-//! parameter) are examples 197-199 under `examples/typescript/end-to-end/`.
+//! parameter) are examples 198-200 under `examples/typescript/end-to-end/`.
 //! The fixtures here are the ones whose SOURCE asks for an erased slot
 //! (`unknown`, `any`, `Record<string, unknown>`, a type parameter the callee
 //! reads properties through), which the examples corpus cannot hold: the

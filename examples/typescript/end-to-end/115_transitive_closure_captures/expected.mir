@@ -227,12 +227,10 @@ closure ClosureId(10) -> Float
     %5 = copy %4 < copy %0
     switch copy %5 ? bb2 : bb4
   bb2:
-    %6 = copy %3 + copy %2
-    %3 = copy %6
+    %3 = copy %3 + copy %2
     goto bb3
   bb3:
-    %7 = copy %4 + 1.0
-    %4 = copy %7
+    %4 = copy %4 + 1.0
     goto bb1
   bb4:
     return copy %3

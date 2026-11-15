@@ -135,8 +135,7 @@ closure ClosureId(2) -> Float
   bb2:
     %2 = copy %0[copy %3]
     %6 = copy %2.field3 ?? 0.0
-    %7 = copy %1 + copy %6
-    %1 = copy %7
+    %1 = copy %1 + copy %6
     goto bb3
   bb3:
     %3 = copy %3 + 1

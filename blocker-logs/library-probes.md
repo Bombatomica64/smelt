@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-11-13 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-11-14 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -20,8 +20,8 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 4 | non-working Rust (4r/0s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 1 | missing-stdlib (0r/1s) |
 | [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 1 | non-working Rust (1r/0s) |
-| [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/observable/src/observable.ts` | 12 | non-working Rust (12r/0s) |
-| [date-fns](https://github.com/date-fns/date-fns) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
+| [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/observable/src/observable.ts` | 8 | non-working Rust (8r/0s) |
+| [date-fns](https://github.com/date-fns/date-fns) | TS | **no** | n/a | `pkgs/tz/src/date/index.d.ts` | 2 | non-working Rust (2r/0s) |
 | [returns](https://github.com/dry-python/returns) | PY | **no** | n/a | `(unknown)` | 29 | non-working Rust (29r/0s) |
 | [result](https://github.com/rustedpy/result) | PY | **no** | n/a | `(unknown)` | 6 | non-working Rust (6r/0s) |
 | [more-itertools](https://github.com/more-itertools/more-itertools) | PY | **no** | n/a | `(unknown)` | 22 | non-working Rust (22r/0s) |
@@ -100,28 +100,30 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 - Source: `ReactiveX/rxjs` @ `c15b37f81ba5`
 - Transpile: **no** — `smelt build` aborts at `packages/observable/src/observable.ts`
 - Tests passing: **n/a** (no Rust crate emitted)
-- Files scanned: 376 · with blockers: 357
+- Files scanned: 376 · with blockers: 354
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 628 | 314 | non-working Rust | local `X` is not callable (Some(None)) |
-| 319 | 319 | non-working Rust | static fields require a concrete literal initializer |
-| 314 | 314 | non-working Rust | dynamic computed and this-parameter interface methods are not lowered yet |
-| 314 | 314 | non-working Rust | base class `X` is not declared |
-| 314 | 314 | non-working Rust | property names must be static identifiers or string literals |
-| 314 | 314 | non-working Rust | condition expression must be boolean or optional (got Some(Symbol)) |
-| 314 | 314 | non-working Rust | statement kind is not lowered yet: TSGlobalDeclaration(TSGlobalDeclaration { span: Span {  |
+| 644 | 322 | non-working Rust | local `X` is not callable (Some(None)) |
+| 322 | 322 | non-working Rust | dynamic computed and this-parameter interface methods are not lowered yet |
+| 322 | 322 | non-working Rust | property names must be static identifiers or string literals |
+| 322 | 322 | non-working Rust | condition expression must be boolean or optional (got Some(Symbol)) |
+| 322 | 322 | non-working Rust | statement kind is not lowered yet: TSGlobalDeclaration(TSGlobalDeclaration { span: Span {  |
 | 19 | 19 | non-working Rust | unresolved package `X`: not a source file and not a modeled host module |
 | 8 | 8 | non-working Rust | statement kind is not lowered yet: TSGlobalDeclaration(TSGlobalDeclaration { span: Span {  |
-| 4 | 4 | non-working Rust | expression kind is not lowered yet: SequenceExpression(SequenceExpression { span: Span { s |
 | 3 | 3 | non-working Rust | module-level variable type is not lowered for function reads yet |
-| 2 | 2 | non-working Rust | call expression is not lowered yet |
 
 ## date-fns
 
 - Source: `date-fns/date-fns` @ `cd53d2538cfa`
-- Transpile: **yes** — Rust crate emitted
-- Generated `cargo test`: transpiled, but pass/fail counts could not be parsed
+- Transpile: **no** — `smelt build` aborts at `pkgs/tz/src/date/index.d.ts`
+- Tests passing: **n/a** (no Rust crate emitted)
+- Files scanned: 1493 · with blockers: 203
+
+| Occurrences | Files | Category | Blocker class |
+| ---: | ---: | --- | --- |
+| 194 | 194 | non-working Rust | declare methods are not lowered yet |
+| 9 | 9 | non-working Rust | `X` is not modeled |
 
 ## returns
 

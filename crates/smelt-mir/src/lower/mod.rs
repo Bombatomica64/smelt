@@ -175,7 +175,7 @@ type LoweredMutationReceiver = (Operand, MutationWriteback);
 /// level and are replayed INNERMOST FIRST, so each level commits into a base
 /// that is itself still live.
 ///
-/// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
+/// See `hono-h31-projected-receiver-writeback.md` (in git history).
 type PlaceWritebacks = Vec<(WritebackTarget, LocalId)>;
 
 /// Where a receiver copy commits back to once the write through it is done.

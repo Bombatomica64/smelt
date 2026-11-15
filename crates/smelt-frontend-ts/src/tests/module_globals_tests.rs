@@ -388,7 +388,7 @@ fn writing_through_a_non_primitive_global_lowers() -> Result<(), String> {
     // mutates the value the cell HOLDS, which used to be a named blocker
     // because a `GlobalGet` yields a copy and the write would land on it. It
     // now lowers to `Place::Global`, which names the cell as the assignment
-    // root so no copy is made. See `blocker-logs/hono-h6-place-global.md`.
+    // root so no copy is made. See `hono-h6-place-global.md` (in git history).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"

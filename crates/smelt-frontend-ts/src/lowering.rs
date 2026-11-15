@@ -17,6 +17,7 @@ mod literal_record_uses;
 mod narrowing;
 mod null_absent;
 mod open_array_hint;
+mod own_this;
 mod peel;
 mod postfix_deferral;
 mod presence_tested_locals;
@@ -990,6 +991,11 @@ struct ModuleBuilder<'ctx> {
     /// re-lowered inside its present arm is not claimed again
     /// (`optional_erased_receiver_call`).
     claimed_optional_calls: Vec<usize>,
+    /// Set for the one `function_expression_value` call that lowers a class
+    /// METHOD reassigned through `this` (`ClassFieldInit::Method`): that body
+    /// keeps the instance's typed `this`, where a `function` expression gets
+    /// its own (`own_this`). Cleared by the call it applies to.
+    keep_enclosing_this: bool,
     /// Number of vitest asymmetric matchers (`expect.any`, `expect.arrayContaining`,
     /// ...) lowered so far in this module.
     ///

@@ -387,6 +387,7 @@ fn lower_run(
             None => modules,
         };
         let sources = LoweredSources::of(&ordered, &run.file_ids);
+        lowering.krate_mut().drain_promises_at_exit();
         Ok(LoweredCrate {
             krate: lowering.into_crate(),
             modules: focused,

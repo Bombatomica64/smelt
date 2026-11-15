@@ -18,7 +18,7 @@
 //! This module decides, from MIR alone, which such traits exist (the
 //! [`BoundTraitPlan`]); `emitter::bound_dispatch` renders them and the
 //! `Rvalue::BoundMethod` / `Rvalue::BoundField` reads that dispatch through
-//! them. See `blocker-logs/bounded-generics-plan.md`, increments 1-3.
+//! them. See `bounded-generics-plan.md` (in git history), increments 1-3.
 //!
 //! # Which members a trait carries
 //!

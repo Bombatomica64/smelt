@@ -32,6 +32,8 @@ pub struct ClosureExpr {
     /// User-written arrows like `(x) => func1(x)` keep `None` and retain fresh
     /// identity, matching JavaScript semantics.
     pub function_item: Option<ItemId>,
+    /// Where this closure's `this` comes from (see [`ClosureThis`]).
+    pub this_binding: ClosureThis,
     /// Source span covering the closure expression.
     pub span: Span,
 }
@@ -60,4 +62,19 @@ pub enum CaptureMode {
     ByMut,
     /// Moved value capture.
     ByValue,
+}
+
+/// Where a closure's JavaScript `this` comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClosureThis {
+    /// A `function`: the receiver its own call supplies (a plain call's is
+    /// `undefined`).
+    Own,
+    /// An ARROW: none of its own; `ExprKind::ThisRead` in its body reads the
+    /// receiver its enclosing function was called with.
+    Lexical,
+    /// A wrapper the compiler synthesizes for a function item used as a value:
+    /// not a JavaScript function of its own -- the item is the function -- so
+    /// the receiver its call supplies reaches the item untouched.
+    Forwarded,
 }

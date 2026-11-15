@@ -50,7 +50,7 @@ console.log(values.join(" "));
 // `SmeltUnknown` signature, which the SmeltUnknown report counts as avoidable
 // erasure until its classifier can tell a source `unknown` from a union that
 // merely lost its shape (see
-// `blocker-logs/standards-example-goldens-cover-modules.md`). The coverage is
+// `standards-example-goldens-cover-modules.md` (in git history)). The coverage is
 // in `emits_generic_hash_map_into_unknown_runtime_conversion` and
 // `emits_string_coercion_default_sort_for_union_elements`.
 

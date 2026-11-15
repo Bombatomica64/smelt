@@ -25,7 +25,7 @@
 // that is not a URL. Both are MIR call terminators (`Rvalue::UrlNew`,
 // the `href` setter) for the reason every fallible stdlib operation is:
 // only a call carries an unwind edge (see
-// `blocker-logs/standards-throwing-rvalue.md`). Their adapters report through
+// `standards-throwing-rvalue.md` (in git history)). Their adapters report through
 // the erased error channel, so they are emitted with the other throwing
 // adapters by the throwing support. Every other setter ignores a value it
 // cannot apply, as the spec says.

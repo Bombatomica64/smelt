@@ -21,8 +21,7 @@ fn break_in_try (FuncId(0)) -> Int throws
     %3 = copy %2 < copy %0
     switch move %3 ? bb2 : bb3
   bb2:
-    %4 = move %2 + 1
-    %2 = move %4
+    %2 = move %2 + 1
     %5 = py_exception_new [] []
     %6 = false
     goto bb4
@@ -34,15 +33,13 @@ fn break_in_try (FuncId(0)) -> Int throws
   bb5:
     goto bb1
   bb6:
-    %11 = move %1 + 1
-    %1 = move %11
+    %1 = move %1 + 1
     %12 = call @console_log("finally", copy %2) -> bb12
   bb7:
     %6 = true
     goto bb6
   bb8:
-    %8 = move %1 + 1
-    %1 = move %8
+    %1 = move %1 + 1
     %9 = call @console_log("finally", move %2) -> bb10
   bb9:
     %10 = call @console_log("body", copy %2) -> bb11 unwind bb7
@@ -78,8 +75,7 @@ fn continue_in_try (FuncId(1)) -> Int throws
     %3 = copy %2 < copy %0
     switch move %3 ? bb2 : bb3
   bb2:
-    %4 = move %2 + 1
-    %2 = move %4
+    %2 = move %2 + 1
     %5 = py_exception_new [] []
     %6 = false
     goto bb4
@@ -91,15 +87,13 @@ fn continue_in_try (FuncId(1)) -> Int throws
   bb5:
     goto bb1
   bb6:
-    %11 = move %1 + 1
-    %1 = move %11
+    %1 = move %1 + 1
     %12 = call @console_log("finally", copy %2) -> bb12
   bb7:
     %6 = true
     goto bb6
   bb8:
-    %8 = move %1 + 1
-    %1 = move %8
+    %1 = move %1 + 1
     %9 = call @console_log("finally", copy %2) -> bb10
   bb9:
     %10 = call @console_log("body", copy %2) -> bb11 unwind bb7
@@ -136,8 +130,7 @@ fn nested (FuncId(2)) -> None throws
     %2 = copy %1 < copy %0
     switch move %2 ? bb2 : bb3
   bb2:
-    %3 = move %1 + 1
-    %1 = move %3
+    %1 = move %1 + 1
     %4 = py_exception_new [] []
     %5 = false
     goto bb4

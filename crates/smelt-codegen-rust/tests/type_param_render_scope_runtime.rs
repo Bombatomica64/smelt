@@ -20,7 +20,7 @@
 //! unconditional was measured and made things strictly worse. The fix threads a
 //! `RenderScope` through value rendering so the position decides once; see
 //! `crates/smelt-codegen-rust/src/emitter/render_scope.rs` and
-//! `blocker-logs/hono-h42-erasure-substitution.md`.
+//! `hono-h42-erasure-substitution.md` (in git history).
 //!
 //! # Why this is a runtime tier and not an end-to-end corpus fixture
 //!
@@ -33,7 +33,7 @@
 //! examples corpus is a hard `avoidable == 0` invariant. Measured: this fixture
 //! contributes 12 such lines, all of them its own seeds. Same call as round 28
 //! made for fixtures 80 and 85
-//! (`blocker-logs/hono-round28-examples-invariant.md`): the erased subject moves
+//! (`hono-round28-examples-invariant.md`, in git history): the erased subject moves
 //! to an executing tier, where the assertion is the VALUE rather than the
 //! spelling.
 //!

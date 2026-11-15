@@ -400,6 +400,17 @@ impl ModuleBuilder<'_> {
                             span: this.span(for_stmt.right.span().start, for_stmt.right.span().end),
                         });
                     }
+                    // A Map or Set, or a fresh iterator over one
+                    // (`map.entries()`), is walked live by position: no
+                    // iterator object, and entries added meanwhile are seen.
+                    if let Some((collection, op, set, item_ty)) =
+                        this.collection_for_of_source(iter, body)
+                    {
+                        this.lower_collection_for_of(
+                            for_stmt, collection, op, set, item_ty, body, block,
+                        )?;
+                        return Ok(None);
+                    }
                     // A synchronous generator receiver has no indexable Rust
                     // representation, so it cannot flow through the index-based
                     // `Stmt::For` lowering. Drain it through the resume protocol

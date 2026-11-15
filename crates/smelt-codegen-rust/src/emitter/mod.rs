@@ -189,6 +189,7 @@ mod string_units;
 mod strings;
 mod strings_io;
 mod text_codec;
+mod this_frame;
 mod throw;
 mod throwing_join;
 mod truthiness;
@@ -622,6 +623,7 @@ impl EmitContext {
                     function,
                     &self.owned_callback_params,
                     &self.bound_traits,
+                    &self.type_param_elision,
                     &self.erased_arguments,
                 )
             })
@@ -752,6 +754,7 @@ impl EmitContext {
                                             caller,
                                             &self.owned_callback_params,
                                             &self.bound_traits,
+                                            &self.type_param_elision,
                                             &self.erased_arguments,
                                         )
                                         .contains(&caller_param)

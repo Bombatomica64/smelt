@@ -388,7 +388,7 @@ pub struct HirCtx {
     /// Deliberately only the closure GAP: a name imported from a module the
     /// crate does have, from a bare package (`type-fest`), or from a module the
     /// manifest excludes keeps the nominal fallback. See
-    /// `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    /// `standards-generic-arm-and-typeof-indexed-alias.md` (in git history).
     pub project_sources_outside_crate: HashSet<String>,
     /// Rust-facing class names for source class names that are AMBIGUOUS across
     /// the crate, keyed by module path then by source class name.

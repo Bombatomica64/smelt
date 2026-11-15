@@ -236,8 +236,7 @@ fn main (FuncId(1)) -> None
   bb12:
     %78 = call fn0("first") -> bb14
   bb13:
-    %79 = copy %14?.["a"]
-    %15 = move %79
+    %15 = copy %14?.["a"]
     goto bb15
   bb14:
     %16 = move %78
@@ -262,8 +261,7 @@ fn main (FuncId(1)) -> None
   bb17:
     %90 = call fn0("second") -> bb19
   bb18:
-    %91 = copy %14?.["a"]
-    %18 = move %91
+    %18 = copy %14?.["a"]
     goto bb20
   bb19:
     %19 = move %90
