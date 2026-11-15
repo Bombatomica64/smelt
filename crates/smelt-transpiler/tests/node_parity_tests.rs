@@ -110,6 +110,15 @@ fn for_let_per_iteration() -> TestResult {
     verify_node_parity("for_let_per_iteration")
 }
 
+/// An object literal's getters and setters are accessor properties: reads run
+/// the getter and writes the setter with the object as `this`, and keys,
+/// values, entries, spread, destructuring and `console.log` see them as Node
+/// does.
+#[test]
+fn object_literal_accessors() -> TestResult {
+    verify_node_parity("object_literal_accessors")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

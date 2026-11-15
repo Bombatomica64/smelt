@@ -7551,10 +7551,16 @@ export const clean = (rule: string) => rule.trim().split(' ').filter(negate(isEm
     Ok(())
 }
 
+/// A getter of an object literal with no record type is stored as the
+/// accessor marker `{ __smelt_get: getter }` in a map of ERASED values, the
+/// only map whose property read calls an accessor (`smelt_record_property`).
+/// A getter-only literal used to join its marker values into a map of marker
+/// maps (`Dict<String, Dict<String, ..>>`), whose `router.routes` read
+/// answered the marker itself.
 #[test]
-fn lowers_complex_object_getters_as_opaque_values() -> Result<(), String> {
+fn object_literal_getter_is_an_accessor_entry_of_an_erased_map() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let module_id = lower_ok(
         ts!(r"
 let cached: string[];
 
@@ -7571,6 +7577,36 @@ const router = {
         &mut ctx,
     )?;
     ensure_exprs!(&ctx, Closure, DictProjection, UnaryOp);
+    let body = module_body(&ctx, module(&ctx, module_id)?)?;
+    let router = body
+        .locals
+        .iter()
+        .find(|local| {
+            local
+                .name
+                .is_some_and(|symbol| symbol_is(&ctx, symbol, "router"))
+        })
+        .ok_or("no `router` local")?;
+    ensure_eq!(
+        smelt_hir::type_display(&ctx.krate, router.ty).as_str(),
+        "Dict<String, Unknown>"
+    );
+    let marker_wraps_closure = body.exprs.iter().any(|expr| match &expr.kind {
+        ExprKind::DictLit(pairs) => pairs.iter().any(|(key, value)| {
+            matches!(
+                body.exprs.get(key.0 as usize).map(|key| &key.kind),
+                Some(ExprKind::Literal(smelt_hir::Literal::String(text))) if text == "__smelt_get"
+            ) && matches!(
+                body.exprs.get(value.0 as usize).map(|value| &value.kind),
+                Some(ExprKind::Closure(_))
+            )
+        }),
+        _ => false,
+    });
+    ensure!(
+        marker_wraps_closure,
+        "the getter is not an accessor marker over its closure"
+    );
     Ok(())
 }
 

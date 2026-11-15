@@ -179,7 +179,7 @@ impl FunctionEmitter<'_> {
     /// marker-bearing host record can arrive as through the structural ABI — so the
     /// projections consult this before delegating to them, and keep their ordinary
     /// key/value filters for every concretely-typed record.
-    fn dict_holds_erased_values(&self, ty: TypeId) -> bool {
+    pub(super) fn dict_holds_erased_values(&self, ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(ty),
             Some(Type::Dict(_, value_ty) | Type::JsMap(_, value_ty))
@@ -1525,8 +1525,19 @@ impl FunctionEmitter<'_> {
                         // A byte-backed view's values are its decoded elements, not
                         // its internal storage fields; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            // A value is read as a property read reads it: a
+                            // stored accessor (an object literal's `get`) runs.
+                            let value =
+                                if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
+                                    format!(
+                                        "smelt_record_own_value(&{dict_text}, smelt_value)",
+                                        dict_text = dict_text.tight()
+                                    )
+                                } else {
+                                    "smelt_value".to_owned()
+                                };
                             return Ok(RustExpr::chain(format!(
-                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\").map(|(_, smelt_value)| smelt_value).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\").map(|(_, smelt_value)| {value}).collect::<Vec<_>>())",
                                 helper =
                                     smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                                 dict_text = dict_text.tight(),
@@ -1597,8 +1608,19 @@ impl FunctionEmitter<'_> {
                         // A byte-backed view's entries pair its element indices with
                         // its decoded elements; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            // As `Values`: a stored accessor runs.
+                            let resolve = if self
+                                .map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                            {
+                                format!(
+                                    ".into_iter().map(|(smelt_key, smelt_value)| (smelt_key, smelt_record_own_value(&{dict_text}, smelt_value)))",
+                                    dict_text = dict_text.tight()
+                                )
+                            } else {
+                                String::new()
+                            };
                             return Ok(RustExpr::chain(format!(
-                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |smelt_values| smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), smelt_value)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\"){resolve}.collect::<Vec<_>>(), |smelt_values| smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), smelt_value)).collect::<Vec<_>>())",
                                 helper =
                                     smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                                 dict_text = dict_text.tight(),

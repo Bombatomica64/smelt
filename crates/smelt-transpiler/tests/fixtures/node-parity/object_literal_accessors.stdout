@@ -1,0 +1,19 @@
+42
+7
+5
+0
+2
+10
+w,h,area
+12 40
+Ada Lovelace hi Ada Lovelace 42
+1 2 3
+{ w: 3, area: [Getter] }
+3,6 2
+w
+area
+6
+100 212
+{ _v: 1, both: [Getter/Setter], onlyGet: [Getter], onlySet: [Setter] }
+9 9 undefined
+set 5|set 9|onlySet 3
