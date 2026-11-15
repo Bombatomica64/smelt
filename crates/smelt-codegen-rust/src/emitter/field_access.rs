@@ -316,14 +316,13 @@ impl FunctionEmitter<'_> {
         if self.storage_field_is_function(receiver_ty, field) {
             // A reference class keeps a function-typed field behind its handle
             // too (see the reference-class read below).
-            let handle = if self.is_reference_class_type(receiver_ty) {
-                ".0.borrow()"
-            } else {
-                ""
-            };
+            if self.is_reference_class_type(receiver_ty) {
+                return Ok(self.reference_field_read_expr(receiver_text, receiver_ty, field)?
+                .cloned_value());
+            }
             return Ok(receiver_text
                 .postfix(format!(
-                    "{handle}.{}",
+                    ".{}",
                     self.context.names().field_text(self.mir, field)
                 ))
                 .cloned_value());
@@ -350,12 +349,8 @@ impl FunctionEmitter<'_> {
         if self.is_reference_class_type(receiver_ty)
             && self.class_has_named_field(receiver_ty, field)
         {
-            return Ok(receiver_text
-                .postfix(format!(
-                    ".0.borrow().{}",
-                    self.context.names().field_text(self.mir, field)
-                ))
-                .cloned_value());
+            return Ok(self.reference_field_read_expr(receiver_text, receiver_ty, field)?
+            .cloned_value());
         }
         Ok(receiver_text
             .postfix(format!(

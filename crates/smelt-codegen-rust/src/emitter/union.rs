@@ -1373,7 +1373,7 @@ impl FunctionEmitter<'_> {
             let rendered_value = self.rvalue_expr_for_dest(value, field_ty)?;
             // A reference class keeps its fields in its shared cell.
             let slot = if self.is_reference_class_type(*member) {
-                format!("smelt_union_arm.0.borrow_mut().{field_name}")
+                self.reference_field_write_place("smelt_union_arm", *member, field)?
             } else {
                 format!("smelt_union_arm.{field_name}")
             };
@@ -1418,12 +1418,16 @@ impl FunctionEmitter<'_> {
             .enumerate()
             .map(|(index, member)| {
                 // A reference class keeps its fields in its shared cell.
-                let cell = if self.is_reference_class_type(*member) { ".0.borrow()" } else { "" };
-                format!(
-                    "{union_enum_name}::M{index}(smelt_union_arm) => smelt_union_arm{cell}.{field_name}.clone()"
-                )
+                let read = if self.is_reference_class_type(*member) {
+                    self.reference_field_read_place("smelt_union_arm", *member, field)?
+                } else {
+                    format!("smelt_union_arm.{field_name}")
+                };
+                Ok(format!(
+                    "{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()"
+                ))
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
         Ok(Some(RustExpr::atom(format!(
             "match &{} {{ {arms} }}",

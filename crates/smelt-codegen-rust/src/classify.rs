@@ -36,6 +36,8 @@
 //!   [`collect_override_triggers`]), or
 //! - it is an object shape whose values are handed to a slot of an erased or
 //!   dictionary type (see [`collect_view_flow_triggers`]), or
+//! - it is an object shape converted to, or from, another object shape that
+//!   shares its properties (see `crate::structural_views`), or
 //! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
 //! - it contains itself by value, directly or through other shapes (see
 //!   [`collect_by_value_cycle_triggers`]), or
@@ -88,6 +90,9 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     collect_bound_receiver_triggers(mir, &mut references);
     collect_identity_comparison_triggers(mir, &mut references);
     collect_view_flow_triggers(mir, &mut references);
+    // A record viewed as another record type, and the type it is viewed as:
+    // one object behind two static types (`crate::structural_views`).
+    references.extend(crate::structural_views::StructuralViews::plan(mir).participants());
     collect_virtual_slot_triggers(mir, &mut references);
     collect_override_triggers(mir, &mut references);
     collect_thrown_class_triggers(mir, &mut references);
@@ -767,16 +772,74 @@ pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt
         }
         ty
     };
-    let record_of = |locals: &[smelt_mir::LocalDecl], operand: &Operand| -> Option<Symbol> {
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
-        else {
-            return None;
-        };
-        let ty = strip(locals.get(usize::try_from(local.0).ok()?)?.ty);
-        match mir.types.get(ty) {
-            Some(Type::Class { name, .. }) if is_record_type_symbol(mir, *name) => Some(*name),
-            _ => None,
+    for_each_value_flow(mir, |source, slot| {
+        if let Some(Type::Class { name, .. }) = mir.types.get(strip(source))
+            && is_record_type_symbol(mir, *name)
+        {
+            flow(*name, strip(slot));
         }
+    });
+}
+
+/// Call `flow(source, slot)` for every value a body hands to a slot, with the
+/// value's own type and the slot's: an argument of a direct or indirect call
+/// against the callee's parameter, an assignment to a local, a `return`
+/// against the body's return type.
+///
+/// Only a value read straight from a local is seen; see
+/// [`for_each_record_flow`], which is this restricted to record values.
+pub(crate) fn for_each_value_flow(
+    mir: &Mir,
+    flow: impl FnMut(smelt_hir::TypeId, smelt_hir::TypeId),
+) {
+    scan_value_flows(mir, false, flow);
+}
+
+/// [`for_each_value_flow`], and also the flows into a slot that is part of
+/// another value: a field initializer of a record literal against the field's
+/// declared type, an element of an array literal against the array's element
+/// type, a store into a field (`holder.part = value`) or a module-level
+/// binding against its declared type.
+///
+/// Read by `crate::structural_views` only, which pairs record types on both
+/// sides; the narrower scan keeps deciding what the erased-slot trigger lifts.
+pub(crate) fn for_each_value_flow_into_parts(
+    mir: &Mir,
+    flow: impl FnMut(smelt_hir::TypeId, smelt_hir::TypeId),
+) {
+    scan_value_flows(mir, true, flow);
+}
+
+/// The declared type of the field `field` of the record type named `record`
+/// (a class, heritage included, or an object shape).
+fn record_field_type(mir: &Mir, record: Symbol, field: Symbol) -> Option<smelt_hir::TypeId> {
+    let fields = match crate::classes::find_class(mir, record) {
+        Some(class) => crate::classes::effective_class_fields(mir, class),
+        None => crate::classes::effective_interface_fields(
+            mir,
+            mir.interfaces
+                .iter()
+                .find(|interface| interface.name == record)?,
+        ),
+    };
+    fields
+        .into_iter()
+        .find(|candidate| candidate.name == field)
+        .map(|candidate| candidate.ty)
+}
+
+/// The scan behind [`for_each_value_flow`] (`parts` off) and
+/// [`for_each_value_flow_into_parts`] (`parts` on).
+fn scan_value_flows(
+    mir: &Mir,
+    parts: bool,
+    mut flow: impl FnMut(smelt_hir::TypeId, smelt_hir::TypeId),
+) {
+    let strip = |mut ty: smelt_hir::TypeId| {
+        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+            ty = *inner;
+        }
+        ty
     };
     let local_ty = |locals: &[smelt_mir::LocalDecl], local: LocalId| {
         usize::try_from(local.0)
@@ -788,8 +851,10 @@ pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt
                     blocks: &[smelt_mir::BasicBlock],
                     return_ty: smelt_hir::TypeId| {
         let mut hand = |operand: &Operand, slot: smelt_hir::TypeId| {
-            if let Some(name) = record_of(locals, operand) {
-                flow(name, strip(slot));
+            if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
+                && let Some(source) = local_ty(locals, *local)
+            {
+                flow(source, slot);
             }
         };
         for block in blocks {
@@ -801,6 +866,56 @@ pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt
                     && let Some(slot) = local_ty(locals, *dest)
                 {
                     hand(operand, slot);
+                }
+                if !parts {
+                    continue;
+                }
+                match statement {
+                    Statement::Assign {
+                        value: Rvalue::Struct { class, fields },
+                        ..
+                    } => {
+                        for (field, operand) in fields {
+                            if let Some(slot) = record_field_type(mir, *class, *field) {
+                                hand(operand, slot);
+                            }
+                        }
+                    }
+                    Statement::Assign {
+                        dest,
+                        value: Rvalue::List(items),
+                    } => {
+                        if let Some(Type::List(element)) =
+                            local_ty(locals, *dest).and_then(|ty| mir.types.get(strip(ty)))
+                        {
+                            for operand in items {
+                                hand(operand, *element);
+                            }
+                        }
+                    }
+                    Statement::Assign {
+                        value: Rvalue::GlobalSet { global, value },
+                        ..
+                    } => {
+                        if let Some(slot) = usize::try_from(*global)
+                            .ok()
+                            .and_then(|index| mir.globals.get(index))
+                        {
+                            hand(value, slot.ty);
+                        }
+                    }
+                    Statement::AssignPlace {
+                        place: Place::Field { base, field },
+                        value: Rvalue::Use(operand),
+                    } => {
+                        if let Some(Type::Class { name, .. }) =
+                            local_ty(locals, *base).and_then(|ty| mir.types.get(strip(ty)))
+                            && let Some(slot) = record_field_type(mir, *name, *field)
+                        {
+                            hand(operand, slot);
+                        }
+                    }
+                    _ => {}
                 }
             }
             match &block.terminator {

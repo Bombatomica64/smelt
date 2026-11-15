@@ -101,6 +101,7 @@ mod options;
 mod program_types;
 pub(crate) mod reference_origin;
 mod reference_storage;
+pub(crate) mod structural_views;
 mod reflection_prelude;
 pub(crate) mod runtime_demand;
 pub(crate) mod runtime_prelude;

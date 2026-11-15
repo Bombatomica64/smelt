@@ -160,6 +160,10 @@ pub(crate) fn emit_reference_record_storage(
     } = shape;
     let inner_name = format!("{name}Inner");
     let polymorphic = layout.as_ref().is_some_and(|found| found.polymorphic);
+    // A shape other records are viewed as: its handle holds a trait object
+    // over whichever record the object was built as
+    // (`crate::structural_views`).
+    let view_target = layout.is_none() && context.structural_views().is_target(*declared_name);
     let nested_base_type = layout
         .as_ref()
         .and_then(|found| found.nested_base_type.clone());
@@ -190,6 +194,8 @@ pub(crate) fn emit_reference_record_storage(
                 "dyn {}{type_args}",
                 crate::class_polymorphism::cell_trait_name(name)
             )
+        } else if view_target {
+            format!("dyn {}", crate::structural_views::view_trait_name(name))
         } else {
             format!("::std::cell::RefCell<{inner_name}{type_args}>")
         };
@@ -245,6 +251,13 @@ pub(crate) fn emit_reference_record_storage(
         writer.line(format!(
             "struct {name}{type_params}(::std::rc::Rc<dyn {}{type_args}>);",
             crate::class_polymorphism::cell_trait_name(name)
+        ));
+    } else if view_target {
+        // Any object used as this shape: one shared cell whose concrete type
+        // is the record it was built as (`crate::structural_views`).
+        writer.line(format!(
+            "struct {name}(::std::rc::Rc<dyn {}>);",
+            crate::structural_views::view_trait_name(name)
         ));
     } else {
         writer.line(format!(
@@ -395,6 +408,43 @@ pub(crate) fn emit_reference_record_storage(
         }
     }
 
+    // The structural view (`crate::structural_views`): the trait every
+    // record used as this shape implements, for this shape's own cell and
+    // for each of those records' cells.
+    if view_target {
+        let field_types = fields
+            .iter()
+            .map(|field| {
+                FunctionEmitter::type_text_for_with_scoped_type_params(
+                    mir,
+                    context,
+                    field.ty,
+                    &TypeSubstitution::lexical(&scoped_type_params),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        writer.line(crate::structural_views::view_trait_declaration(
+            mir,
+            context,
+            *declared_name,
+            fields,
+            &field_types,
+            needs_unknown,
+        )?);
+        let implementors = context.structural_views().implementors(*declared_name);
+        for concrete in std::iter::once(declared_name).chain(implementors) {
+            writer.line(crate::structural_views::view_impl_text(
+                mir,
+                context,
+                *declared_name,
+                *concrete,
+                fields,
+                &field_types,
+                needs_unknown,
+            )?);
+        }
+    }
+
     // Hand-written identity `Clone`: share the SAME cell.
     writer.block(
         format!("impl{impl_generics} Clone for {name}{type_args}"),
@@ -413,7 +463,7 @@ pub(crate) fn emit_reference_record_storage(
         format!("impl{impl_generics} PartialEq for {name}{type_args}"),
         |impl_writer| {
             impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
-                if polymorphic {
+                if polymorphic || view_target {
                     // The address alone: a polymorphic handle's `Rc<dyn ..>`
                     // also carries a vtable, which is no part of identity.
                     fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
@@ -446,7 +496,10 @@ pub(crate) fn emit_reference_record_storage(
             impl_writer.block(
                 "fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result",
                 |fn_writer| {
-                    if type_param_names.is_empty() {
+                    if view_target {
+                        // The record the object was built as prints itself.
+                        fn_writer.line("self.0.smelt_debug(formatter)");
+                    } else if type_param_names.is_empty() {
                         fn_writer.line("::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)");
                     } else {
                         fn_writer.line(format!(
@@ -510,19 +563,45 @@ pub(crate) fn emit_reference_record_storage(
                 .live_object_impl_text(*declared_name, name)?
                 .trim_end(),
         );
-        writer.block(
-            format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
-            |impl_writer| {
-                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line(
-                        "SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))",
-                    );
-                });
-            },
-        );
+        let live_view = "SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))";
+        if view_target {
+            // The handle may hold another record's cell, which erases as that
+            // record (all of its properties, its own identity): the trait
+            // dispatches to the concrete cell, and this shape's own live view
+            // is the inherent method its own cell's erasure calls.
+            writer.block(
+                format!("impl IntoSmeltUnknown for {name}"),
+                |impl_writer| {
+                    impl_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown { ::std::rc::Rc::clone(&self.0).into_smelt_unknown_as_concrete() }");
+                },
+            );
+            writer.block(format!("impl {name}"), |impl_writer| {
+                impl_writer.line("#[allow(dead_code)]");
+                impl_writer.block(
+                    format!(
+                        "fn {}(self) -> SmeltUnknown",
+                        crate::structural_views::OWN_ERASURE_METHOD
+                    ),
+                    |fn_writer| fn_writer.line(live_view),
+                );
+            });
+        } else {
+            writer.block(
+                format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
+                |impl_writer| {
+                    impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                        fn_writer.line(live_view);
+                    });
+                },
+            );
+        }
         let subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
             (Some(class_layout), Some(class)) if class_layout.polymorphic => {
                 crate::class_polymorphism::subclass_origins(mir, context, class)?
+            }
+            // A view target takes back the erased record it was a view of.
+            _ if view_target => {
+                crate::structural_views::implementor_origins(context, *declared_name)?
             }
             _ => Vec::new(),
         };
@@ -536,6 +615,9 @@ pub(crate) fn emit_reference_record_storage(
             fields,
             &subclass_origins,
             true,
+            view_target
+                .then(|| crate::structural_views::accessor_names(mir, context, fields))
+                .as_ref(),
         );
     } else if needs_unknown {
         emit_reference_class_into_smelt_unknown_impl(
@@ -576,6 +658,7 @@ pub(crate) fn emit_reference_record_storage(
             fields,
             &subclass_origins,
             false,
+            None,
         );
     }
     writer.blank_line();
