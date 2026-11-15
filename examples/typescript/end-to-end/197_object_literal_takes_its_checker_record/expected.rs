@@ -1203,11 +1203,11 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltStoreCell<K, V> {
         let (object, name) = self.live_target(key)?;
         Some(smelt_live_get(&object, name).is_some())
     }
-    fn live_set(&self, key: &K, value: &V) -> bool {
-        let Some((object, name)) = self.live_target(key) else { return false };
-        let Some(unwrap) = self.live.borrow().as_ref().map(|link| ::std::rc::Rc::clone(&link.unwrap)) else { return false };
+    fn live_set(&self, key: &K, value: &V) -> Option<bool> {
+        let (object, name) = self.live_target(key)?;
+        let (unwrap, keeps) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.unwrap), link.keeps))?;
         smelt_live_set(&object, name, unwrap(value));
-        true
+        Some(keeps(value))
     }
     fn live_remove<Q>(&self, key: &Q) -> bool where Q: SmeltPropertyKey + ?Sized {
         let Some((object, name)) = self.live_target(key) else { return false };
@@ -1634,7 +1634,7 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
     fn len(&self) -> usize { if let Some(keys) = self.store.live_keys() { return keys.len(); } self.store.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { if let Some(found) = self.store.live_has(key) { return found; } self.store.borrow().contains_key(key) }
-    fn insert(&self, key: K, value: V) -> Option<V> { if self.store.live_set(&key, &value) { return None; } self.store.borrow_mut().insert(key, value) }
+    fn insert(&self, key: K, value: V) -> Option<V> { if self.store.live_set(&key, &value) == Some(false) { return None; } self.store.borrow_mut().insert(key, value) }
     fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.sync(); self.store.live_remove(key); self.store.borrow_mut().remove(key) }
     fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { self.store.live_get(key).or_store(|| self.store.borrow().get(key).cloned()) }
     fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { self.store.sync(); self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
@@ -1667,7 +1667,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> ::std::ops::DerefMut for S
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> Drop for SmeltEntryMut<'_, K, V> {
     fn drop(&mut self) {
         if !self.store.is_live() { return; }
-        if let Some(slot) = self.slot.take() { self.store.live_set(&self.key, &slot); }
+        if let Some(slot) = self.slot.take() { let _kept: Option<bool> = self.store.live_set(&self.key, &slot); }
     }
 }
 
@@ -2027,7 +2027,7 @@ impl SmeltObject {
     fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.live_get(key).or_store(|| self.store.borrow().get(key).cloned())) }
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<SmeltUnknown> { self.get(key) }
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if self.store.live_set(&key, &value) { return None; } self.store.borrow_mut().insert(key.into(), value) }
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if self.store.live_set(&key, &value) == Some(false) { return None; } self.store.borrow_mut().insert(key.into(), value) }
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| { self.store.sync(); self.store.live_remove(key); self.store.borrow_mut().remove(key) }) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { self.store.sync(); self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
     fn keys(&self) -> Vec<JsString> { if let Some(keys) = self.store.live_keys() { return keys; } self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }

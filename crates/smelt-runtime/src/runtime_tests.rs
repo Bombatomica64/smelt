@@ -1325,6 +1325,33 @@ mod live_view_family {
         assert_eq!(replaced.len(), 0, "the record's new array, not the view's kept one");
     }
 
+    /// `view.tags = other`: an array written through a view is the array a
+    /// later read of that view answers with, so a change to it afterwards is
+    /// seen through the view, while a number written through it is the
+    /// record's alone. es-toolkit's `mergeWith` reads an array property,
+    /// changes another erasure of it and writes that back; the read after
+    /// must not answer with the handle kept from the first read.
+    #[test]
+    fn a_reference_value_written_through_a_view_is_the_one_it_hands_out() {
+        let record = point(1.0, "a");
+        record.0.borrow_mut().tags = Some(SmeltList::new(vec![JsString::from("t")]));
+        let erased = view(&record);
+        let Some(SmeltUnknown::Array(before)) = erased.get("tags") else { panic!("tags is an array") };
+        // Another erased array of the same list (its identity, its own
+        // storage), changed and written back.
+        let written = SmeltArray::with_id(before.id, vec![text("u")]);
+        erased.insert("tags", SmeltUnknown::Array(written.clone()));
+        assert_eq!(record.0.borrow().tags.as_ref().map(SmeltList::len), Some(1));
+        let Some(SmeltUnknown::Array(after)) = erased.get("tags") else { panic!("tags is an array") };
+        assert_eq!(after.get(0), Some(text("u")), "the read answers with the array that was written");
+        written.push(text("v"));
+        assert_eq!(after.len(), 2, "and it is that very array");
+        // A number is the record's: written, read back, nothing kept.
+        erased.insert("x", SmeltUnknown::Number(9.0));
+        assert_eq!(record.0.borrow().x, 9.0);
+        assert_eq!(erased.get("x"), Some(SmeltUnknown::Number(9.0)));
+    }
+
     /// `JSON.stringify(view)` writes the record's properties as they are now,
     /// in the object's own-key order, with what a view added and without
     /// what one deleted. It reads the record directly (`live_data`), so it

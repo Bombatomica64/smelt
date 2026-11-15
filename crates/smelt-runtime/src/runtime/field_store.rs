@@ -472,14 +472,19 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltStoreCell<K, V> {
         let (object, name) = self.live_target(key)?;
         Some(smelt_live_get(&object, name).is_some())
     }
-    //~ Write a data key of a live view into its record. `false` when this
+    //~ Write a data key of a live view into its record. `None` when this
     //~ store is not a live view or the key is the runtime's own: the write
-    //~ is then the store's alone.
-    fn live_set(&self, key: &K, value: &V) -> bool {
-        let Some((object, name)) = self.live_target(key) else { return false };
-        let Some(unwrap) = self.live.borrow().as_ref().map(|link| ::std::rc::Rc::clone(&link.unwrap)) else { return false };
+    //~ is then the store's alone. Otherwise whether the view keeps the
+    //~ written value as the handle it hands out for that key (`keeps`): a
+    //~ reference value written through a view IS what the view answers a
+    //~ later read with (an erased array may be one of several erasures of
+    //~ the same list, and the one written is the one the program holds),
+    //~ while any other value is the record's alone.
+    fn live_set(&self, key: &K, value: &V) -> Option<bool> {
+        let (object, name) = self.live_target(key)?;
+        let (unwrap, keeps) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.unwrap), link.keeps))?;
         smelt_live_set(&object, name, unwrap(value));
-        true
+        Some(keeps(value))
     }
     //~ Delete a data key of a live view from its record; `false` as for `live_set`.
     fn live_remove<Q>(&self, key: &Q) -> bool where Q: SmeltPropertyKey + ?Sized {
