@@ -26,15 +26,22 @@ python = ["dep:smelt-frontend-py"]
 # Resolve Python types via Astral's `ty` instead of requiring explicit
 # annotations (issue #93). Implies `python`. ON by default so the CLI resolves
 # Python types via ty end to end out of the box (issue #109). Build with
-# `--no-default-features` for a lean TypeScript-only CLI, or `--features python`
-# for Python with explicit annotations but without ty.
+# `--no-default-features --features ts7` for a TypeScript-only CLI, or
+# `--features python,ts7` for Python with explicit annotations but without ty.
+# (Plain `--no-default-features` also drops `ts7`; see below.)
 ty = ["python", "smelt-frontend-py/ty"]
 
-# Embed the TypeScript 7 checker (tsrs, via `smelt-ts-types`) for
-# `smelt ts7-parity-report`. ON by default. tsrs is only available as a git
-# dependency, which crates.io rejects even for optional dependencies, so a
-# crates.io publish of this crate must first drop this feature and dependency
-# (or tsrs must be published or vendored).
+# Embed the TypeScript 7 checker (tsrs, via `smelt-ts-types`). ON by default.
+# It is not only for `smelt ts7-parity-report`: every TypeScript lowering reads
+# the checker's type facts (`src/ts_facts.rs`, `src/lowering.rs`), and the type
+# gate (`src/type_gate.rs`) counts on it to vouch for TypeScript sources.
+# Without it the sources are `Unverified`, so under the default
+# `[build] type-errors = "deny"` every `smelt build` of a TypeScript project is
+# refused unless `--allow-type-errors` is given, and what is lowered sees
+# annotations only. tsrs is only available as a git dependency, which
+# crates.io rejects even for optional dependencies, so a crates.io publish of
+# this crate must first drop this feature and dependency (or tsrs must be
+# published or vendored).
 ts7 = ["dep:smelt-ts-types"]
 
 [[bin]]

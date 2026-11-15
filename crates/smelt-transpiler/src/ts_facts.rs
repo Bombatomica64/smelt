@@ -16,14 +16,24 @@
 //! (`crate::type_gate`) refuses to build them unless type errors are allowed.
 //! The checker's own diagnostics are the TypeScript type errors of that gate.
 
+// The checker's diagnostics exist only in a build with the checker (`ts7`).
+#[cfg(feature = "ts7")]
 use std::collections::HashMap;
+#[cfg(feature = "ts7")]
 use std::path::Path;
 
+#[cfg(feature = "ts7")]
 use smelt_stdlib::DiagnosticCategory;
-use smelt_ts_model::{TsDiagnostic, TsDiagnosticCategory, TsTypeFacts};
+use smelt_ts_model::TsTypeFacts;
+#[cfg(feature = "ts7")]
+use smelt_ts_model::{TsDiagnostic, TsDiagnosticCategory};
 
-use crate::check_program::{CrossLanguageStubs, ModuleGraph, checker_location};
+#[cfg(feature = "ts7")]
+use crate::check_program::checker_location;
+use crate::check_program::{CrossLanguageStubs, ModuleGraph};
+#[cfg(feature = "ts7")]
 use crate::lowering::{ManifestDiagnostic, Severity, source_line_column};
+#[cfg(feature = "ts7")]
 use crate::manifest::ManifestSource;
 use crate::type_gate::LanguageCheck;
 
@@ -31,9 +41,11 @@ use crate::type_gate::LanguageCheck;
 const DISABLE_VAR: &str = "SMELT_TS7";
 
 /// Code of every diagnostic this module reports; the message carries `TSnnnn`.
+#[cfg(feature = "ts7")]
 const CHECK_CODE: &str = "smelt::ts-check";
 
 /// Code of a checker diagnostic that is Smelt's own resolution drift.
+#[cfg(feature = "ts7")]
 const DRIFT_CODE: &str = "smelt::checker-resolution-drift";
 
 /// What the checker made of a run's TypeScript sources.
@@ -53,25 +65,38 @@ enum TsStatus {
     NoSources,
     /// There are sources, but this build or environment has no checker.
     Disabled(&'static str),
-    /// The checker that should have run produced nothing.
+    /// The checker that should have run produced nothing. Only a build with
+    /// the checker (feature `ts7`) can get here.
+    #[cfg(any(feature = "ts7", test))]
     Failed(String),
     /// The checker ran; its report is in the facts.
+    #[cfg(feature = "ts7")]
     Ran,
 }
 
 impl TsCheck {
     /// The checker's verdict over `graph`, for the type gate: its errors and
     /// warnings when it ran, or why nothing vouches for the sources.
+    #[cfg_attr(
+        not(feature = "ts7"),
+        expect(
+            unused_variables,
+            reason = "only a checker's diagnostics read the graph"
+        )
+    )]
     pub(crate) fn language_check(&self, graph: &ModuleGraph<'_>) -> LanguageCheck {
         match &self.status {
             TsStatus::NoSources => LanguageCheck::Absent,
             TsStatus::Disabled(reason) => LanguageCheck::Unverified((*reason).to_owned()),
+            #[cfg(any(feature = "ts7", test))]
             TsStatus::Failed(failure) => LanguageCheck::Unverified(failure_message(failure)),
+            #[cfg(feature = "ts7")]
             TsStatus::Ran => LanguageCheck::Ran(self.diagnostics(graph)),
         }
     }
 
     /// The checker's errors and warnings over `graph`'s sources.
+    #[cfg(feature = "ts7")]
     fn diagnostics(&self, graph: &ModuleGraph<'_>) -> Vec<ManifestDiagnostic> {
         let located = graph
             .sources()
@@ -88,6 +113,7 @@ impl TsCheck {
 }
 
 /// The sentence a checker failure is reported with.
+#[cfg(any(feature = "ts7", test))]
 fn failure_message(failure: &str) -> String {
     format!("the TypeScript checker failed, so types come from annotations alone: {failure}")
 }
@@ -97,6 +123,7 @@ fn failure_message(failure: &str) -> String {
 ///
 /// The checker's file names are program paths, which end in the source's
 /// absolute path without its leading `/`.
+#[cfg(feature = "ts7")]
 fn checker_diagnostic(
     diagnostic: &TsDiagnostic,
     located: &[(String, &ManifestSource)],
@@ -183,11 +210,13 @@ fn checker_diagnostic(
 
 /// TS7006 and TS7031: a parameter, or a destructured element of one,
 /// "implicitly has an 'any' type".
+#[cfg(feature = "ts7")]
 const IMPLICIT_ANY_PARAMETER: [i32; 2] = [7006, 7031];
 
 /// For each source that imports an untyped package (one Smelt resolved to
 /// nothing, `ManifestSource::unresolved_packages`), the parameter ranges of
 /// the callbacks its calls receive.
+#[cfg(feature = "ts7")]
 fn untyped_callback_parameters<'graph>(
     graph: &ModuleGraph<'graph>,
 ) -> HashMap<&'graph Path, Vec<(u32, u32)>> {
@@ -219,9 +248,11 @@ fn untyped_callback_parameters<'graph>(
 /// occur; the directive is then unused, which says nothing about whether the
 /// program is well typed. An error the directive does suppress is still
 /// suppressed, as the source asks.
+#[cfg(feature = "ts7")]
 const UNUSED_EXPECT_ERROR: i32 = 2578;
 
 /// The specifier a "cannot find module" diagnostic names (TS2307, TS2792).
+#[cfg(feature = "ts7")]
 fn unresolved_specifier(diagnostic: &TsDiagnostic) -> Option<&str> {
     if !matches!(diagnostic.code, 2307_i32 | 2792_i32) {
         return None;
