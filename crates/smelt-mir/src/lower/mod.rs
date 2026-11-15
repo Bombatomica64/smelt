@@ -175,7 +175,7 @@ type LoweredMutationReceiver = (Operand, MutationWriteback);
 /// level and are replayed INNERMOST FIRST, so each level commits into a base
 /// that is itself still live.
 ///
-/// See `blocker-logs/hono-h31-projected-receiver-writeback.md`.
+/// See `hono-h31-projected-receiver-writeback.md` (in git history).
 type PlaceWritebacks = Vec<(WritebackTarget, LocalId)>;
 
 /// Where a receiver copy commits back to once the write through it is done.
@@ -273,6 +273,11 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     // Carry FileId -> path across the HIR/MIR boundary so a later diagnostic
     // can name its source file; see `Mir::file_paths`.
     mir.accessor_fields.clone_from(&krate.accessor_fields);
+    mir.constructible_function_items = krate
+        .constructible_functions
+        .iter()
+        .filter_map(|item| usize::try_from(item.0).ok())
+        .collect();
     mir.file_paths = krate
         .modules
         .iter()

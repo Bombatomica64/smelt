@@ -250,7 +250,7 @@ fn rethrow_through__module_main (FuncId(6)) -> String
     %2 user smelt_pending_thrown: Unknown
     %3 temp: Bool
     %4 temp: Bool
-    %5 temp: usize
+    %5 temp: Float
     %6 temp: String
     %7 temp: String
     %8 temp: String
@@ -276,8 +276,7 @@ fn rethrow_through__module_main (FuncId(6)) -> String
   bb5:
     goto bb2
   bb6:
-    %5 = move %1 + 1
-    %1 = move %5
+    %1 = move %1 + 1
     switch move %3 ? bb10 : bb5
   bb7:
     %3 = true

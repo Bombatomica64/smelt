@@ -979,6 +979,14 @@ fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntr
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
+    #[allow(dead_code)]
+    fn smelt_live_len(&self) -> usize { self.store.borrow().entries().iter().filter(|entry| !entry.key.smelt_is_internal_key()).count() }
+    #[allow(dead_code)]
+    fn smelt_entry_at(&self, index: usize) -> Option<(K, V)> where V: Clone { self.store.borrow().entries().iter().filter(|entry| !entry.key.smelt_is_internal_key()).nth(index).map(|entry| (entry.key.clone(), entry.value.clone())) }
+    #[allow(dead_code)]
+    fn smelt_key_at(&self, index: usize) -> Option<K> where V: Clone { self.smelt_entry_at(index).map(|(key, _)| key) }
+    #[allow(dead_code)]
+    fn smelt_value_at(&self, index: usize) -> Option<V> where V: Clone { self.smelt_entry_at(index).map(|(_, value)| value) }
     fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) } }
     fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
     fn len(&self) -> usize { self.store.borrow().len() }
@@ -1296,10 +1304,8 @@ pub(crate) fn count(text: JsString, needle: JsString) -> i32 {
     let mut _smelt_tmp_11: f64;
     let mut _smelt_tmp_12: f64;
     let mut _smelt_tmp_13: f64;
-    let mut _smelt_tmp_14: i32;
     let mut _smelt_tmp_15: f64;
     let mut _smelt_tmp_16: f64;
-    let mut _smelt_tmp_17: i32;
     let mut _smelt_tmp_18: f64;
     let mut _smelt_tmp_19: i32;
     let mut hits: i32 = 0.0 as i32;
@@ -1315,18 +1321,15 @@ pub(crate) fn count(text: JsString, needle: JsString) -> i32 {
     _smelt_tmp_11 = hits as f64;
     _smelt_tmp_12 = _smelt_tmp_11 + 1.0;
     _smelt_tmp_13 = ({ let smelt_bit_lhs = { let smelt_bit_v = (_smelt_tmp_12 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
-    _smelt_tmp_14 = _smelt_tmp_13 as i32;
-    hits = _smelt_tmp_14;
+    hits = _smelt_tmp_13 as i32;
     _smelt_tmp_15 = i as f64;
     _smelt_tmp_16 = _smelt_tmp_15 + 1.0;
-    _smelt_tmp_17 = _smelt_tmp_16 as i32;
-    i = _smelt_tmp_17;
+    i = _smelt_tmp_16 as i32;
     continue;
     } else {
     _smelt_tmp_15 = i as f64;
     _smelt_tmp_16 = _smelt_tmp_15 + 1.0;
-    _smelt_tmp_17 = _smelt_tmp_16 as i32;
-    i = _smelt_tmp_17;
+    i = _smelt_tmp_16 as i32;
     continue;
     }
     }

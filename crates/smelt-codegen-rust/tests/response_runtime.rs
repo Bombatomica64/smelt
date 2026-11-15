@@ -34,7 +34,7 @@
 //! accepts it, because a constructor is a stdlib *rvalue* and a fallible
 //! rvalue has no throwing edge in MIR to reach an enclosing `try` — the same
 //! shape as `JSON.parse` and the URI decoders (see
-//! `blocker-logs/hono-h10-uri-and-base64-globals.md`). Every status used below
+//! `hono-h10-uri-and-base64-globals.md` (in git history)). Every status used below
 //! is in range, which is what real code passes.
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:

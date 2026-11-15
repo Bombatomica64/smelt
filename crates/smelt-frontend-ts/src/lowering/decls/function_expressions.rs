@@ -62,7 +62,7 @@ impl ModuleBuilder<'_> {
         }
 
         let name = self.intern_exact_source_name(name_text);
-        let (type_params, hinted_function, mut return_ty, body, params, errors) = self.with_type_parameter_scope(function.type_parameters.as_deref(), |this, type_params| {
+        let (type_params, hinted_function, mut return_ty, body, params, errors) = self.with_function_type_parameter_scope(function.type_parameters.as_deref(), crate::lowering::ty::element_params::FunctionSignature::of_function(function), |this, type_params| {
             let hinted_function =
                 type_hint.and_then(|ty| match this.ctx.krate.types.get(ty).cloned() {
                     Some(Type::Function(function_ty)) => Some(function_ty),

@@ -723,8 +723,8 @@ export function firstSeparator(): string {
     let function = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, function)?;
     ensure!(
-        body.exprs
-            .iter()
+        reachable_exprs(&ctx, body)
+            .into_iter()
             .any(|expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 3)),
         "expected the imported exported const array to inline into the function body"
     );
@@ -763,8 +763,8 @@ export function viewCount(): number {
     let function = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, function)?;
     ensure!(
-        body.exprs
-            .iter()
+        reachable_exprs(&ctx, body)
+            .into_iter()
             .any(|expr| matches!(&expr.kind, ExprKind::ListConcat { .. })),
         "expected the imported spread const to inline its ListConcat expression"
     );
@@ -801,14 +801,14 @@ export function numberCount(): number {
     let function = function_item(&ctx, module, 0)?;
     let body = function_body(&ctx, function)?;
     ensure!(
-        body.exprs
-            .iter()
+        reachable_exprs(&ctx, body)
+            .into_iter()
             .any(|expr| matches!(&expr.kind, ExprKind::ListConcat { .. })),
         "expected the imported concat const to inline its ListConcat expression"
     );
     ensure!(
-        body.exprs
-            .iter()
+        reachable_exprs(&ctx, body)
+            .into_iter()
             .any(|expr| matches!(&expr.kind, ExprKind::ListSlice { .. })),
         "expected the imported concat const to inline its ListSlice argument"
     );
@@ -1019,8 +1019,8 @@ const value = SKIP_ITEM;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
     ensure!(
-        body.exprs
-            .iter()
+        reachable_exprs(&ctx, body)
+            .into_iter()
             .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
         "expected imported object const to lower as a Rust record literal"
     );
@@ -1610,9 +1610,8 @@ export function compare(direction: string, x: number, y: number): boolean {
         })
         .ok_or_else(|| "expected compare function to lower".to_owned())?;
     ensure!(
-        compare_body
-            .exprs
-            .iter()
+        reachable_exprs(&ctx, compare_body)
+            .into_iter()
             .any(|expr| { matches!(&expr.kind, ExprKind::DictLit(entries) if entries.len() == 2) }),
         "expected module const function table read to recreate both object entries"
     );

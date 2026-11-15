@@ -230,6 +230,7 @@ mod tests {
         ObjectConst {
             entries: Vec::new(),
             ty: TypeId(0),
+            site: None,
         }
     }
 

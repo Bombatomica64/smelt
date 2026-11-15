@@ -1,0 +1,62 @@
+module examples/typescript/end-to-end/192_lifted_caller_forwards_mutable_list/input.ts (ModuleId(0))
+  body BodyId(5)
+  items
+    type Compare = fn(T, T) -> Float
+    fn sift_down<T> owner Module
+    fn heapify<T> owner Module
+    fn smallest_first<T> owner Module
+  exprs
+    #0: Float = 5.0
+    #1: Float = 3.0
+    #2: Float = 1.0
+    #3: Float = 4.0
+    #4: List<Float> = [#0, #1, #2, #3]
+    #5: Float = 3.0
+    #6: fn(Float, Float) -> Float = closure BodyId(3) captures 0 -> Float
+    #7: fn(List<T>, fn(T, T) -> Float, Float) -> List<T> = @6(smallest_first)
+    #8: List<Float> = call #7(#4, #6, #5)
+    #9: String = ","
+    #10: String = string_join #8, #9
+    #11: None = @8(console_log)
+    #12: None = call #11(#10)
+    #13: String = "b"
+    #14: String = "a"
+    #15: List<String> = [#13, #14]
+    #16: Float = 2.0
+    #17: fn(String, String) -> Float = closure BodyId(4) captures 0 -> Float
+    #18: fn(List<T>, fn(T, T) -> Float, Float) -> List<T> = @6(smallest_first)
+    #19: List<String> = call #18(#15, #17, #16)
+    #20: String = ","
+    #21: String = string_join #19, #20
+    #22: None = @9(console_log)
+    #23: None = call #22(#21)
+  stmts
+    s0: #12
+    s1: #23
+
+interned types
+  t0 = T
+  t1 = Float
+  t2 = fn(T, T) -> Float
+  t3 = T
+  t4 = List<T>
+  t5 = fn(T, T) -> Float
+  t6 = None
+  t7 = fn(List<T>, Float, fn(T, T) -> Float) -> None
+  t8 = T
+  t9 = List<T>
+  t10 = fn(T, T) -> Float
+  t11 = fn(List<T>, fn(T, T) -> Float) -> None
+  t12 = T
+  t13 = List<T>
+  t14 = fn(T, T) -> Float
+  t15 = fn(List<T>, fn(T, T) -> Float, Float) -> List<T>
+  t16 = Bool
+  t17 = fn(List<T>, Float, fn(T, T) -> Float) -> None
+  t18 = fn(List<T>, fn(T, T) -> Float) -> None
+  t19 = List<Float>
+  t20 = fn(Float, Float) -> Float
+  t21 = fn(List<T>, fn(T, T) -> Float, Float) -> List<T>
+  t22 = String
+  t23 = List<String>
+  t24 = fn(String, String) -> Float

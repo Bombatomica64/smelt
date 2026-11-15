@@ -786,9 +786,6 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     let mut _smelt_tmp_7: bool;
     let mut _smelt_tmp_9: JsString;
     let mut _smelt_tmp_10: JsString;
-    let mut _smelt_tmp_11: JsString;
-    let mut _smelt_tmp_12: usize;
-    let mut _smelt_tmp_13: usize;
     let mut _smelt_tmp_14: f64;
     let mut _smelt_tmp_15: JsString;
     let mut _smelt_tmp_16: JsString;
@@ -813,12 +810,9 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_text.len() as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_text.slice(smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
-    _smelt_tmp_11 = out + &_smelt_tmp_10;
-    out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1;
-    last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1;
-    i = _smelt_tmp_13;
+    out = out + &_smelt_tmp_10;
+    last_index = i + 1;
+    i = i + 1;
     continue;
         }
         38.0 => {
@@ -827,12 +821,9 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_text.len() as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_text.slice(smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
-    _smelt_tmp_11 = out + &_smelt_tmp_10;
-    out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1;
-    last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1;
-    i = _smelt_tmp_13;
+    out = out + &_smelt_tmp_10;
+    last_index = i + 1;
+    i = i + 1;
     continue;
         }
         60.0 => {
@@ -841,12 +832,9 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_text.len() as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_text.slice(smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
-    _smelt_tmp_11 = out + &_smelt_tmp_10;
-    out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1;
-    last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1;
-    i = _smelt_tmp_13;
+    out = out + &_smelt_tmp_10;
+    last_index = i + 1;
+    i = i + 1;
     continue;
         }
         62.0 => {
@@ -855,17 +843,13 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_20 = i as f64;
     _smelt_tmp_9 = { let smelt_text = str.clone(); let smelt_len = smelt_text.len() as f64; let smelt_from = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).min({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)); let smelt_count = { let smelt_bound = _smelt_tmp_19 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len).max({ let smelt_bound = _smelt_tmp_20 as f64; if smelt_bound.is_nan() { 0.0 } else { smelt_bound.trunc() } }.clamp(0.0, smelt_len)) - smelt_from; { let smelt_start = smelt_from as usize; smelt_text.slice(smelt_start, smelt_start.saturating_add(smelt_count as usize)) } };
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
-    _smelt_tmp_11 = out + &_smelt_tmp_10;
-    out = _smelt_tmp_11;
-    _smelt_tmp_12 = i + 1;
-    last_index = _smelt_tmp_12;
-    _smelt_tmp_13 = i + 1;
-    i = _smelt_tmp_13;
+    out = out + &_smelt_tmp_10;
+    last_index = i + 1;
+    i = i + 1;
     continue;
         }
         _ => {
-    _smelt_tmp_13 = i + 1;
-    i = _smelt_tmp_13;
+    i = i + 1;
     continue;
         }
     }
@@ -882,7 +866,6 @@ pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut total: f64 = 0.0;
     let mut _smelt_tmp_3: usize = 0;
     loop {
@@ -897,8 +880,7 @@ pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
     continue;
         }
         _ => {
-    _smelt_tmp_7 = total + value;
-    total = _smelt_tmp_7;
+    total = total + value;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
@@ -911,9 +893,6 @@ pub(crate) fn classify(values: SmeltList<f64>) -> JsString {
     let mut value: f64;
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
-    let mut _smelt_tmp_6: JsString;
-    let mut _smelt_tmp_7: JsString;
-    let mut _smelt_tmp_8: JsString;
     let mut seen: JsString = JsString::new();
     let mut _smelt_tmp_3: usize = 0;
     loop {
@@ -923,10 +902,8 @@ pub(crate) fn classify(values: SmeltList<f64>) -> JsString {
     value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
     match value {
         1.0 => {
-    _smelt_tmp_6 = seen + &JsString::from("one");
-    seen = _smelt_tmp_6;
-    _smelt_tmp_8 = seen + &JsString::from(".");
-    seen = _smelt_tmp_8;
+    seen = seen + &JsString::from("one");
+    seen = seen + &JsString::from(".");
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }
@@ -935,10 +912,8 @@ pub(crate) fn classify(values: SmeltList<f64>) -> JsString {
     continue;
         }
         _ => {
-    _smelt_tmp_7 = seen + &JsString::from("?");
-    seen = _smelt_tmp_7;
-    _smelt_tmp_8 = seen + &JsString::from(".");
-    seen = _smelt_tmp_8;
+    seen = seen + &JsString::from("?");
+    seen = seen + &JsString::from(".");
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
         }

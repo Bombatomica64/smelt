@@ -266,6 +266,11 @@ struct SmeltFunctionIdentityState {
     length: ::std::cell::Cell<Option<f64>>,
     //~ Own JavaScript properties (`f.prototype`, `f.placeholder = ..`).
     properties: ::std::cell::RefCell<Option<SmeltObject>>,
+    //~ Whether the function is a JavaScript CONSTRUCTOR (a plain `function`
+    //~ declaration or expression), which alone owns a `prototype` object. An
+    //~ arrow, a method, an async function and a generator have none, so
+    //~ `f.prototype` reads `undefined` for them (`smelt_mark_constructor`).
+    constructor: ::std::cell::Cell<bool>,
 }
 
 /// A JavaScript function identity: a shared token every linked allocation holds.
@@ -280,6 +285,9 @@ impl SmeltFunctionIdentity {
     //~ The identity number two callables share when they are one JS function.
     #[inline]
     fn key(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as usize }
+    //~ A fresh identity for a function the source declares as a constructor.
+    #[allow(dead_code)]
+    fn constructor() -> Self { let identity = Self::default(); identity.0.constructor.set(true); identity }
 }
 
 impl PartialEq for SmeltFunctionIdentity {

@@ -609,15 +609,27 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::IfStatement(if_stmt) => {
-                let cond = self.expression(&if_stmt.test, body)?;
+                // As a statement `if` does: the test is a truthiness condition,
+                // each branch sees the test's guard facts, and a branch's own
+                // facts (an assignment in it) stay in that branch. Without the
+                // scopes, `if (isNaN(d)) { result = NaN; return; }` narrowed
+                // `result` for the statements after it, and the following
+                // `result == null` folded to `false` (date-fns' `closestIndexTo`).
+                let cond = self.condition_expression(&if_stmt.test, body)?;
+                let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 let then_block = body.push_block(self.statement_span(&if_stmt.consequent));
-                self.for_each_callback_statement(&if_stmt.consequent, body, then_block)?;
+                self.with_narrowing(Some(then_narrowing.unwrap_or_default()), |this| {
+                    this.for_each_callback_statement(&if_stmt.consequent, body, then_block)
+                })?;
+                let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
                 let else_block = if_stmt
                     .alternate
                     .as_ref()
                     .map(|alternate| {
                         let else_block = body.push_block(self.statement_span(alternate));
-                        self.for_each_callback_statement(alternate, body, else_block)?;
+                        self.with_narrowing(Some(else_narrowing.unwrap_or_default()), |this| {
+                            this.for_each_callback_statement(alternate, body, else_block)
+                        })?;
                         Ok(else_block)
                     })
                     .transpose()?;

@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// The record's name is a hash of its field names. Corrected expectation:
+/// - old requirement: the hash was taken over the snake-cased Rust field names
+///   (`max_wait`), giving `SmeltRecord9a3342c2e62c0051`;
+/// - new requirement: it is taken over the names as the source spells them
+///   (`maxWait`), so `{ userId }` and `{ user_id }` no longer share one struct
+///   (`lowering/decls/anonymous_record.rs`); the name is now
+///   `SmeltRecord9a3342c2e62c0051`;
+/// - evidence: only the opaque name differs; the emitted body, which is what
+///   this test is about, is byte-identical.
 #[test]
 fn typed_option_bag_parameter_defaults_do_not_require_missing_fields() {
     let source = source_for(
@@ -24,7 +33,7 @@ export function pick(
 
     assert_eq!(
         rust_items(&source, &["fn pick"]),
-        r"fn pick(__param0: SmeltRecord99210bdaad6292f3) -> SmeltUnknown {
+        r"fn pick(__param0: SmeltRecord9a3342c2e62c0051) -> SmeltUnknown {
 let leading: bool = __param0.leading.clone().unwrap_or(false);
 let trailing: bool = __param0.trailing.clone().unwrap_or(true);
 let max_wait: Option<f64> = __param0.max_wait.clone();
@@ -667,7 +676,6 @@ function stopWhenSorted(items: number[]): void {
 let mut _smelt_tmp_2: usize;
 let mut _smelt_tmp_3: bool;
 let mut _smelt_tmp_4: bool;
-let mut _smelt_tmp_5: usize;
 let mut index: usize = 0;
 loop {
 _smelt_tmp_2 = items.len();
@@ -677,8 +685,7 @@ _smelt_tmp_4 = items.borrow().get(index).cloned().unwrap_or_else(|| 0.0) >= 0.0;
 if _smelt_tmp_4 {
 return;
 } else {
-_smelt_tmp_5 = index + 1;
-index = _smelt_tmp_5;
+index = index + 1;
 continue;
 }
 }
@@ -706,15 +713,11 @@ function choose(flag: boolean): unknown[] {
     assert_eq!(
         rust_items(&source, &["fn choose"]),
         r#"fn choose(flag: bool) -> SmeltList<SmeltUnknown> {
-let _smelt_tmp_2: SmeltList<SmeltUnknown>;
-let _smelt_tmp_3: SmeltList<SmeltUnknown>;
 let mut values: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::new(Vec::<SmeltUnknown>::new()));
 if flag {
-_smelt_tmp_2 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::String("ready".into())]; smelt_list_items }));
-values = Into::<SmeltList<_>>::into(_smelt_tmp_2);
+values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::String("ready".into())]; smelt_list_items }));
 } else {
-_smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));
-values = Into::<SmeltList<_>>::into(_smelt_tmp_3);
+values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));
 }
 return values;
 }"#
@@ -1236,7 +1239,6 @@ let mut _smelt_tmp_4: usize;
 let mut _smelt_tmp_5: bool;
 let mut _smelt_tmp_6: bool;
 let mut _smelt_tmp_7: JsString;
-let mut _smelt_tmp_8: JsString;
 let mut out: JsString = JsString::new();
 let mut _smelt_tmp_3: usize = 0;
 loop {
@@ -1247,8 +1249,7 @@ part = parts.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| None::<JsStri
 _smelt_tmp_6 = part.clone().clone().is_some_and(|value| !value.is_empty());
 if _smelt_tmp_6 {
 _smelt_tmp_7 = part.clone().expect("optional value was absent after narrowing");
-_smelt_tmp_8 = out + &_smelt_tmp_7;
-out = _smelt_tmp_8;
+out = out + &_smelt_tmp_7;
 _smelt_tmp_3 = _smelt_tmp_3 + 1;
 continue;
 } else {
@@ -1406,7 +1407,7 @@ fn a_data_view_accessor_is_a_fallible_call_with_the_specs_to_index() {
     // as an rvalue could not reach a `try` at all. It is therefore a call to
     // `Rvalue::DataViewAccess` behind the generated throwing adapter, the
     // same route `JSON.parse` takes. See
-    // `blocker-logs/standards-throwing-rvalue.md`; executed end to end by
+    // `standards-throwing-rvalue.md` (in git history); executed end to end by
     // `examples/typescript/end-to-end/88_data_view_range_error`.
     let read = source_for("export function f(view: DataView) { return view.getInt16(1); }");
     assert!(

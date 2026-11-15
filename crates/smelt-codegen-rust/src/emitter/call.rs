@@ -193,7 +193,7 @@ impl FunctionEmitter<'_> {
     /// MIR hands this call site the SUBSTITUTED parameter type `f64`, which the
     /// same predicate answers FALSE for. The argument was packed by value
     /// against a slot spelled `&`, which is E0308 and is the
-    /// `&(SmeltUnknown, RouterRoute)` family in `hono-round30-types.md`.
+    /// `&(SmeltUnknown, RouterRoute)` family in `hono-round30-types.md` (in git history).
     ///
     /// So the ABI is asked of `abi_params` — the declaration's parameter list —
     /// while the VALUE is still rendered at the substituted type, which is what
@@ -940,7 +940,7 @@ impl FunctionEmitter<'_> {
         // associated function `Class::staticMethod(args)`. Arguments
         // are coerced to the emitted parameter types like any other
         // static call, and missing trailing parameters default.
-        let class_name = self.type_rust_name(class)?;
+        let class_name = crate::class_proto::static_receiver_path(self.mir, self.context, class)?;
         let method_name = static_method_rust_name(self.context, function.id)?;
         // A static method declaring its own Rust generics
         // (`static create<T>(v: T)`) monomorphizes like a free function.

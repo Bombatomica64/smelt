@@ -97,8 +97,7 @@ fn insert (FuncId(2)) -> None throws
   bb2:
     %3 = copy %1[copy %6]
     %4 = undefined
-    %9 = copy %2.field4?.[copy %3]
-    %4 = move %9
+    %4 = copy %2.field4?.[copy %3]
     %10 = !copy %4
     switch move %10 ? bb5 : bb6
   bb3:

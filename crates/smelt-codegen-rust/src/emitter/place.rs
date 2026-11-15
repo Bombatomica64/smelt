@@ -120,7 +120,7 @@ impl FunctionEmitter<'_> {
         // a plain `Fn(..) -> T`, so a `?` in its body is `E0277` ("the `?`
         // operator can only be used in a closure that returns `Result`"). The
         // throw is not dropped there: it takes the same panic path every other
-        // non-fallible callback seam uses (`blocker-logs/hono-fallible-ops.md`,
+        // non-fallible callback seam uses (`hono-fallible-ops.md`, in git history;
         // the round-6 floor), so the program still stops at the throw instead
         // of continuing with a fabricated value.
         let fallible_read = |read: RustExpr| -> RustExpr {

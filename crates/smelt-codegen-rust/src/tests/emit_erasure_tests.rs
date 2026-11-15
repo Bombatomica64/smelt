@@ -379,8 +379,12 @@ export function run(): unknown {
         source.contains("SmeltUnknown::Array(values.into())"),
         "{source}"
     );
+    // Every member is erased, not dropped: the adapter maps each item through
+    // its own erasure. (This assertion used to match `.clone().into_iter()
+    // .map(|value|`, which was the erased-Set `entries` method's text in the
+    // runtime prelude, not this adapter; that method is now a live iterator.)
     assert!(
-        source.contains(".clone().into_iter().map(|value|"),
+        source.contains("self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown)"),
         "{source}"
     );
 }

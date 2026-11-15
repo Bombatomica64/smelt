@@ -56,6 +56,14 @@ pub struct Crate {
     /// constant accessor.
     #[serde(default)]
     pub accessor_fields: Vec<(crate::Symbol, crate::Symbol)>,
+    /// Function items a frontend lowered from a source construct that is a
+    /// CONSTRUCTOR in JavaScript (a plain `function` declaration or
+    /// expression). Only these own a `prototype` object as a value; an arrow,
+    /// a method, an async function and a generator have none, so
+    /// `f.prototype?.constructor === f` tells them apart (date-fns'
+    /// `isConstructor`).
+    #[serde(default)]
+    pub constructible_functions: Vec<ItemId>,
 }
 
 impl Crate {
@@ -112,6 +120,93 @@ impl Crate {
         body.id = id;
         self.bodies.push(body);
         id
+    }
+
+    /// Whether anything in the crate can create a promise: an async body, an
+    /// async runtime operation, or a value of future type.
+    fn can_create_promise(&self) -> bool {
+        self.bodies.iter().any(|body| {
+            body.async_state_machine().is_some()
+                || body.exprs.iter().any(|expr| {
+                    matches!(expr.kind, crate::ExprKind::AsyncOp { .. })
+                        || matches!(self.types.get(expr.ty), Some(crate::Type::Future(_)))
+                })
+        })
+    }
+
+    /// Makes the last TypeScript module body the program runs drain the event
+    /// loop at exit whenever the crate can create a promise at all.
+    ///
+    /// Node always finishes its job queue before exiting, so a promise
+    /// continuation registered anywhere runs. Each frontend makes a module body
+    /// async (with [`crate::AsyncOp::ExitDrain`] appended) when its own scan of
+    /// that body sees event-loop work, but such a scan only sees STATIC types:
+    /// a promise reached through an erased value (`host.later().then(cb)` on
+    /// `host: any`, an async method of an `any` object literal, an async class
+    /// method behind an erased receiver) is an `unknown` at every expression of
+    /// the module body, so `main` stayed synchronous and `cb` never ran. Whether
+    /// such a promise exists at run time is decided by the whole program: none
+    /// can unless something in the crate is async or makes a promise. When
+    /// something is, the module body that runs last gets the drain; when
+    /// nothing is, `main` stays the plain synchronous function it was.
+    ///
+    /// Python is excluded on purpose: a coroutine nobody awaits never runs
+    /// there, so a drain at exit would run code Python itself never runs.
+    pub fn drain_promises_at_exit(&mut self) {
+        let last = self
+            .modules
+            .iter()
+            .enumerate()
+            .filter(|(_, module)| module.body.is_some())
+            .filter_map(|(index, module)| module.run_order.map(|order| (order, index)))
+            .max()
+            .map(|(_, index)| index);
+        let Some(module) = last.and_then(|index| self.modules.get(index)) else {
+            return;
+        };
+        if module.is_async || module.source.language != Language::TypeScript {
+            return;
+        }
+        let Some(body_id) = module.body else {
+            return;
+        };
+        let module_index = last;
+        if !self.can_create_promise() {
+            return;
+        }
+        let none_ty = self.types.intern(crate::Type::None);
+        let future_ty = self.types.intern(crate::Type::Future(none_ty));
+        let Some(body) = usize::try_from(body_id.0)
+            .ok()
+            .and_then(|index| self.bodies.get_mut(index))
+        else {
+            return;
+        };
+        let Some(span) = usize::try_from(body.root.0)
+            .ok()
+            .and_then(|index| body.blocks.get(index))
+            .map(|block| block.span)
+        else {
+            return;
+        };
+        let drain = body.push_expr(crate::Expr {
+            kind: crate::ExprKind::AsyncOp {
+                op: crate::AsyncOp::ExitDrain,
+                args: Vec::new(),
+            },
+            ty: future_ty,
+            span,
+        });
+        let awaited = body.push_expr(crate::Expr {
+            kind: crate::ExprKind::Await(drain),
+            ty: none_ty,
+            span,
+        });
+        body.push_stmt(crate::Stmt::Expr(awaited));
+        body.finish_async();
+        if let Some(module) = module_index.and_then(|index| self.modules.get_mut(index)) {
+            module.is_async = true;
+        }
     }
 }
 

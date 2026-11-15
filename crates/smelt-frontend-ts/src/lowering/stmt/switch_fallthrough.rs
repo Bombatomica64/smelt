@@ -45,7 +45,30 @@ impl ModuleBuilder<'_> {
         false
     }
 
-    /// Lower a switch statement with genuine fallthrough.
+    /// Whether a switch lowers to a HIR `Match` on literal labels: its
+    /// discriminant has a type the arms compare by label (text, a number, a
+    /// boolean, or optional text) and every label is a literal.
+    pub(in crate::lowering) fn switch_matches_by_label(
+        &mut self,
+        switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
+        scrutinee_ty: smelt_hir::TypeId,
+    ) -> bool {
+        let types = &self.ctx.krate.types;
+        let label_comparable = match types.get(scrutinee_ty) {
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => false,
+            Some(Type::Optional(inner)) => types.get(*inner).is_some_and(Type::is_text),
+            _ => true,
+        };
+        label_comparable
+            && switch_stmt
+                .cases
+                .iter()
+                .filter_map(|case| case.test.as_ref())
+                .all(|test| self.literal_case_label(test).is_ok())
+    }
+
+    /// Lower a switch statement as a chain of `===` tests: one with genuine
+    /// fallthrough, or one [`Self::switch_matches_by_label`] rejects.
     ///
     /// The switch becomes a single-iteration `while` loop: each case lowers to
     /// `if matched || scrutinee === label { matched = true; <body> }`, a JS
@@ -57,6 +80,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn switch_fallthrough_statement(
         &mut self,
         switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
+        scrutinee: smelt_hir::ExprId,
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
@@ -86,7 +110,6 @@ impl ModuleBuilder<'_> {
                 ));
             }
         }
-        let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
         let scrutinee_ty = Self::expr_ty(body, scrutinee);
         let scrutinee_name = self.intern_source_name("__switch_value");
         let scrutinee_local = body.push_local(LocalDecl {
@@ -136,18 +159,9 @@ impl ModuleBuilder<'_> {
                 }
                 continue;
             };
-            let label = self.literal_case_label(test)?;
-            let label_ty = self.ctx.krate.types.intern(match &label {
-                Literal::String(_) => Type::String,
-                Literal::Bool(_) => Type::Bool,
-                Literal::None => Type::None,
-                _ => Type::Float,
-            });
-            let label_expr = body.push_expr(Expr {
-                kind: ExprKind::Literal(label),
-                ty: label_ty,
-                span,
-            });
+            // The label is any expression, evaluated as `===`'s right operand
+            // (`case undefined`, `case Kind.A`, a literal).
+            let label_expr = self.equality_operand(BinOp::JsStrictEq, test, body)?;
             let scrutinee_read = body.push_expr(Expr {
                 kind: ExprKind::Local(scrutinee_local),
                 ty: scrutinee_ty,

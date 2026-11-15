@@ -26,7 +26,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        self.push_function_type_parameter_scope(
+            arrow.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_arrow(arrow),
+        )?;
         let saved_outer_locals = self.scope.snapshot_bindings();
         let result = (|| {
             let contextual_function = self.contextual_function_type(type_hint);
@@ -66,9 +69,19 @@ impl ModuleBuilder<'_> {
             let declared_return = contextual_function
                 .as_ref()
                 .map(|function| function.return_ty);
-            let no_return_hint = return_ty.is_none() && declared_return.is_none();
+            // With no contextual signature at all, the checker's inferred
+            // return stands in for the annotation the source left out
+            // (`checker_function_return_type`).
+            let checker_return = if return_ty.is_none() && contextual_function.is_none() {
+                self.checker_function_return_type(arrow.span.start, arrow.span.end)
+            } else {
+                None
+            };
+            let no_return_hint =
+                return_ty.is_none() && declared_return.is_none() && checker_return.is_none();
             let mut return_ty = return_ty
                 .or(declared_return)
+                .or(checker_return)
                 // not a new erasure: "no return hint" sentinel; recorded after
                 // closure-body lowering if the return stays erased
                 .unwrap_or_else(|| self.unknown_type(NotNewErasure::NoHint));
@@ -279,7 +292,10 @@ impl ModuleBuilder<'_> {
         let Some(function_body) = &function.body else {
             return Ok(());
         };
-        self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        self.push_function_type_parameter_scope(
+            function.type_parameters.as_deref(),
+            crate::lowering::ty::element_params::FunctionSignature::of_function(function),
+        )?;
         // Everything below lowers this function's OWN body, where its name does
         // not denote a value it can reach (see `defining_local_functions`).
         let defining = id.name.as_str().to_owned();
@@ -483,6 +499,12 @@ impl ModuleBuilder<'_> {
             saved_locals.push((id.name.as_str().to_owned(), Some(outer_local)));
             this.scope.bind(id.name.as_str().to_owned(), outer_local);
 
+            // A local function has its own `this` (its frame takes it), never
+            // the enclosing one: it is not a capture, and the enclosing binding
+            // is shadowed for its body (`own_this`), restored with the rest.
+            param_names.insert("this".to_owned());
+            let prior_this = this.shadow_enclosing_this();
+            saved_locals.push(("this".to_owned(), prior_this));
             let mut capture_names = Vec::new();
             for statement in &function_body.statements {
                 this.collect_statement_capture_names(statement, &param_names, &mut capture_names);
@@ -615,6 +637,7 @@ impl ModuleBuilder<'_> {
                     captures,
                     body: body_id,
                     function_item: None,
+                    this_binding: smelt_hir::ClosureThis::Own,
                     span: this.span(function.span.start, function.span.end),
                 }),
                 ty: fn_ty,
@@ -651,7 +674,26 @@ impl ModuleBuilder<'_> {
     }
 
     /// Build the public function type for a local arrow declaration.
+    ///
+    /// The annotations are lowered in the arrow's own type-parameter scope,
+    /// pushed as a closure's ([`Self::push_closure_type_parameter_scope`]):
+    /// this is the type of the binding's VALUE, a closure slot that cannot be
+    /// generic, so a constrained parameter reads as its constraint exactly as
+    /// it does in the closure body. Outside any scope `T[number]` named no
+    /// type at all and erased.
     pub(in crate::lowering) fn local_arrow_function_type(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        self.push_closure_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let result = self.local_arrow_function_type_in_scope(arrow, type_hint);
+        self.pop_type_parameter_scope();
+        result
+    }
+
+    /// [`Self::local_arrow_function_type`] once the arrow's scope is pushed.
+    fn local_arrow_function_type_in_scope(
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
@@ -673,6 +715,13 @@ impl ModuleBuilder<'_> {
                 contextual_function
                     .as_ref()
                     .map(|function| function.return_ty)
+            })
+            .or_else(|| {
+                if contextual_function.is_none() {
+                    self.checker_function_return_type(arrow.span.start, arrow.span.end)
+                } else {
+                    None
+                }
             })
             // not a new erasure: provisional pre-pass return, refined from the
             // lowered body

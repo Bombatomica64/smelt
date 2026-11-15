@@ -251,6 +251,16 @@ macro_rules! op_group_transcribed {
                 receiver: one,
             }
                 => (format!("bind_this {callee}, {receiver}"));
+            /// [`ExprKind::BindThis`] with the CURRENT function's own `this` as the
+            /// receiver: `fn.apply(this, args)` / `fn.call(this, ..)` forwarding the
+            /// receiver the enclosing function was called with (es-toolkit's
+            /// `throttle`). The receiver is the one the frame took at entry, read
+            /// where it is installed, so it needs no value of its own.
+            BindOwnThis {
+                /// The callable whose receiver is being bound.
+                callee: one,
+            }
+                => (format!("bind_this {callee}, this"));
             /// JavaScript `new callee(args)` where `callee` is a function VALUE — the
             /// `[[Construct]]` operation, not a call.
             ///
@@ -1215,7 +1225,7 @@ macro_rules! op_group_transcribed {
                 /// The request's own signal is not this value: the spec makes it a
                 /// DEPENDENT signal that follows this one, so `request.signal` is a
                 /// distinct object that aborts when this one does. See
-                /// `blocker-logs/abort-signal-reason-and-statics.md`.
+                /// `abort-signal-reason-and-statics.md` (in git history).
                 signal: opt,
                 /// The STORED `RequestInit` members the init supplied, in source order.
                 ///
@@ -1718,6 +1728,51 @@ macro_rules! op_group_transcribed {
             }
                 fresh(true)
                 => (format!("dict_{op} {dict}"));
+            /// The live number of entries of a `Map` or members of a `Set`, as a
+            /// number: the bound a `for...of` over the collection re-reads at
+            /// every step (see `CollectionAt`).
+            CollectionLen {
+                /// Whether the collection is a `Set` rather than a `Map`.
+                set: [bool],
+                /// The collection.
+                collection: one,
+            }
+                => (format!("collection_len set={set} {collection}"));
+            /// The key, value or `[key, value]` entry at insertion position
+            /// `index` of a `Map`, or the member of a `Set`, read live. A
+            /// `for...of` over the collection reads its items this way, below
+            /// the live `CollectionLen`, so it sees entries added while it runs,
+            /// as JavaScript's does, with no iterator object or resume call.
+            CollectionAt {
+                /// What the item is: a key, a value or an entry.
+                op: [$crate::DictProjectionOp],
+                /// Whether the collection is a `Set` rather than a `Map`.
+                set: [bool],
+                /// The collection.
+                collection: one,
+                /// The position, a number below the live length.
+                index: one,
+            }
+                => (format!("collection_at {op} set={set} {collection}[{index}]"));
+            /// A live, single-pass iterator over a `Map` or `Set`
+            /// (`map.keys()`, `set.values()`, `map.entries()`), typed as a
+            /// generator of the collection's keys, values or entries.
+            ///
+            /// It reads the collection's store by insertion position at each
+            /// step, so it sees entries added after it was made, as
+            /// JavaScript's does; it has `next()`, is consumed once by
+            /// `for...of`/spread/`Array.from`, and is its own iterator.
+            CollectionIterator {
+                /// What each step yields: keys, values or `[key, value]` entries.
+                op: [$crate::DictProjectionOp],
+                /// Whether the collection is a `Set` (its members are both its
+                /// keys and its values) rather than a `Map`.
+                set: [bool],
+                /// The collection.
+                collection: one,
+            }
+                fresh(true)
+                => (format!("collection_iterator {op} set={set} {collection}"));
             /// Split a string into a list of strings.
             StringSplit {
                 /// String value to split.
@@ -2334,6 +2389,19 @@ macro_rules! op_group_transcribed {
                 target: (ty),
             }
                 => (format!("unknown_cast {value} as {target}"));
+            /// The first `count` items of an erased iterable (every item with
+            /// `None`), as a list: what array destructuring reads from a source
+            /// that is only known at run time. An iterator is stepped exactly
+            /// `count` times, as JavaScript's destructuring steps it, so a
+            /// generator does not run past the last item the pattern binds and
+            /// an infinite one still destructures.
+            ErasedIterableTake {
+                /// Erased iterable to read from.
+                value: one @ERASED,
+                /// How many items the pattern binds; `None` with a rest element.
+                count: [Option<usize>],
+            }
+                => (format!("erased_iterable_take {value}, {count:?}"));
             /// Convert a list into a set by collecting unique items.
             ListToSet {
                 /// List value to collect into a set.

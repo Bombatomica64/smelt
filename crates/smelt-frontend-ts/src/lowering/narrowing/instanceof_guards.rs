@@ -64,7 +64,7 @@ impl ModuleBuilder<'_> {
         // erased member path, which has no `get` on the header record and
         // answered `undefined`: a silently wrong value where the equivalent
         // user type predicate (`x is Headers`) narrowed correctly and emitted
-        // the right checked cast (`blocker-logs/standards-instanceof-narrowing.md`).
+        // the right checked cast (`standards-instanceof-narrowing.md`, in git history).
         //
         // An erased local narrows to the target class whenever that class can be
         // recovered from an erased value — `StdlibClass::narrows_from_erased`,

@@ -755,7 +755,6 @@ fn main() {
     let mut x: f64;
     let mut _smelt_tmp_5: usize;
     let mut _smelt_tmp_6: bool;
-    let mut _smelt_tmp_7: f64;
     let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
     let mut sum: f64 = 0.0;
     let mut _smelt_tmp_4: usize = 0;
@@ -764,8 +763,7 @@ fn main() {
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
     x = xs.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| 0.0);
-    _smelt_tmp_7 = sum + x;
-    sum = _smelt_tmp_7;
+    sum = sum + x;
     _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }
     let _ = { println!("{}", smelt_console_number(sum)); };

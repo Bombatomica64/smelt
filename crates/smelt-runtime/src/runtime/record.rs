@@ -139,6 +139,17 @@ fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntr
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
+    //~ The key, value and entry at insertion position `index` among the
+    //~ record's source keys (internal `__smelt` keys skipped), read live (see
+    //~ `SmeltJsMap::smelt_key_at`).
+    #[allow(dead_code)]
+    fn smelt_live_len(&self) -> usize { self.store.borrow().entries().iter().filter(|entry| !entry.key.smelt_is_internal_key()).count() }
+    #[allow(dead_code)]
+    fn smelt_entry_at(&self, index: usize) -> Option<(K, V)> where V: Clone { self.store.borrow().entries().iter().filter(|entry| !entry.key.smelt_is_internal_key()).nth(index).map(|entry| (entry.key.clone(), entry.value.clone())) }
+    #[allow(dead_code)]
+    fn smelt_key_at(&self, index: usize) -> Option<K> where V: Clone { self.smelt_entry_at(index).map(|(key, _)| key) }
+    #[allow(dead_code)]
+    fn smelt_value_at(&self, index: usize) -> Option<V> where V: Clone { self.smelt_entry_at(index).map(|(_, value)| value) }
 // @smelt:if reference_origins
     fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) } }
 // @smelt:else

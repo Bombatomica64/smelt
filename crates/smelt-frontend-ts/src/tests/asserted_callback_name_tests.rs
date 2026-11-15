@@ -13,7 +13,7 @@
 //! behaviour for named items and arrow literals. The GLOBAL BUILTIN arm lives
 //! here instead: those builtins lower to a closure over `SmeltUnknown` whichever
 //! way they are spelled (see
-//! `blocker-logs/hono-h49-builtin-callback-operand.md`), so a fixture carrying
+//! `hono-h49-builtin-callback-operand.md` (in git history)), so a fixture carrying
 //! one would add avoidable erasure to a corpus that holds zero. What has to be
 //! asserted is that the asserted spelling lowers at all, and to the same
 //! callback the bare spelling picks.

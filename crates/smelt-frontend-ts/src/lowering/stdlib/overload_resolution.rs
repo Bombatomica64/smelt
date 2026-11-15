@@ -5,6 +5,7 @@
 //! lowered, so selection reads arguments without lowering them.
 
 use crate::lowering::ModuleBuilder;
+use crate::lowering::checker_types::CheckerValueKind;
 use crate::{OverloadSignature, SmeltError};
 use oxc::ast::ast::{Argument, ArrayExpressionElement};
 use smelt_hir::{Body, Field, FunctionType, Type};
@@ -193,11 +194,11 @@ impl ModuleBuilder<'_> {
             let arg = self.argument(argument, body)?;
             lowered_arg_tys.push(Self::expr_ty(body, arg));
         }
-        let mut selected: Option<(
+        let mut candidates: Vec<(
             (usize, usize, usize, usize),
             OverloadSignature,
             HashMap<_, _>,
-        )> = None;
+        )> = Vec::new();
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
             let constraint_scope = Self::overload_type_param_constraint_scope(signature);
@@ -228,14 +229,17 @@ impl ModuleBuilder<'_> {
                     signature.clone(),
                     substitutions,
                 );
-                if selected
-                    .as_ref()
-                    .is_none_or(|current| candidate.0 > current.0)
-                {
-                    selected = Some(candidate);
-                }
+                candidates.push(candidate);
             }
         }
+        self.retain_overloads_agreeing_with_checker(&mut candidates, span);
+        let selected = candidates.into_iter().reduce(|best, candidate| {
+            if candidate.0 > best.0 {
+                candidate
+            } else {
+                best
+            }
+        });
         if let Some((_, signature, mut substitutions)) = selected {
             // What the arguments left unbound, a type assertion around the
             // call may bind; see `bind_from_asserted_return`.
@@ -336,6 +340,66 @@ impl ModuleBuilder<'_> {
                     .collect::<Vec<_>>()
             ),
         ))
+    }
+
+    /// Drop matching overloads whose return contradicts the kind of value the
+    /// TypeScript 7 checker resolved this very call to, when at least one
+    /// candidate agrees with it.
+    ///
+    /// TypeScript selects the FIRST applicable overload in declaration order.
+    /// Smelt's applicability test is looser than the checker's (erased and
+    /// generic slots accept more), so it ranks matches by specificity, which
+    /// can prefer a later overload the checker never chose: remeda's
+    /// `sortBy(rule)` matches both `(...rules) => (array: T) => ..` and the
+    /// data-first `(array: T, ...rules) => ..` once `array: T[]` is a list.
+    /// The checker's call type comes from the overload it did choose, so a
+    /// candidate returning a different kind of value (a list where the call
+    /// yields a function) is not the one TypeScript selected. Only the
+    /// outermost kind is compared ([`Self::return_may_be_kind`]): the lowered
+    /// candidate is still the authority on the precise type.
+    fn retain_overloads_agreeing_with_checker<S, M>(
+        &self,
+        candidates: &mut Vec<(S, OverloadSignature, M)>,
+        span: oxc::span::Span,
+    ) {
+        if candidates.len() < 2 {
+            return;
+        }
+        let Some(kind) = self.checker_call_value_kind(span.start, span.end) else {
+            return;
+        };
+        let agrees: Vec<bool> = candidates
+            .iter()
+            .map(|(_, signature, _)| self.return_may_be_kind(signature.return_ty, kind))
+            .collect();
+        if agrees.iter().any(|agrees| *agrees) {
+            let mut agrees = agrees.into_iter();
+            candidates.retain(|_| agrees.next().unwrap_or(true));
+        }
+    }
+
+    /// Whether a value of `ty` may be of the checker's outermost `kind`.
+    ///
+    /// Only a type whose own outermost kind is one of [`CheckerValueKind`]'s
+    /// can disagree; anything Smelt cannot tell (`unknown`, a type parameter,
+    /// a class, a record) agrees, and an optional or union agrees through any
+    /// member.
+    fn return_may_be_kind(&self, ty: smelt_hir::TypeId, kind: CheckerValueKind) -> bool {
+        let own = match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(_)) => CheckerValueKind::Function,
+            Some(Type::List(_) | Type::Tuple(_)) => CheckerValueKind::List,
+            Some(Type::String) => CheckerValueKind::String,
+            Some(Type::Float | Type::Int | Type::FixedInt(_)) => CheckerValueKind::Number,
+            Some(Type::Bool) => CheckerValueKind::Boolean,
+            Some(Type::Optional(inner)) => return self.return_may_be_kind(*inner, kind),
+            Some(Type::Union(members)) => {
+                return members
+                    .iter()
+                    .any(|member| self.return_may_be_kind(*member, kind));
+            }
+            _ => return true,
+        };
+        own == kind
     }
 
     /// Score how free a matching overload's inferences are of `undefined` collapse.

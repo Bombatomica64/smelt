@@ -22,7 +22,7 @@
   - `smelt smelt-unknown-report <lib>/dist-smelt/src` and
     `smelt typedness-report <lib>/dist-smelt`
 
-There is an older, unrelated note at `blocker-logs/date-fns-full-baseline.md`
+There is an older, unrelated note at `date-fns-full-baseline.md` (in git history)
 (July 2026, pre-monorepo ref `09ece22e`). Its blocker, the module-level
 `let defaultOptions: DefaultOptions = {}`, no longer reproduces:
 `_lib/defaultOptions` lowers on current main.

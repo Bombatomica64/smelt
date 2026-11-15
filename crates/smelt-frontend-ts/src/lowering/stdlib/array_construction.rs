@@ -255,6 +255,26 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// The `List<yield>` type an iteration of a SYNCHRONOUS generator produces.
+    ///
+    /// Draining a generator (`new Map(gen)`) iterates its iterator protocol,
+    /// so the drained list's element type is the generator's own `yield` type;
+    /// `None` for every other source (an async generator is not sync-iterable).
+    pub(in crate::lowering) fn sync_generator_list_ty(
+        &mut self,
+        source_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let Some(Type::Generator {
+            is_async: false,
+            yield_ty,
+            ..
+        }) = self.ctx.krate.types.get(source_ty).cloned()
+        else {
+            return None;
+        };
+        Some(self.ctx.krate.types.intern(Type::List(yield_ty)))
+    }
+
     /// Drain a synchronous generator into a fresh list of its yielded values.
     ///
     /// Lowered as a checked `UnknownCast` from `Generator<Y, ..>` to `List<Y>`:
@@ -267,6 +287,38 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        // A collection iterator drained where it is made
+        // (`Array.from(map.values())`, `[...set]`, `new Map(other.entries())`)
+        // is never observed between steps, so draining it is projecting the
+        // collection: emit the projection itself, as `map.values().collect()`
+        // would be written by hand, rather than a generator to step through.
+        if let Some(ExprKind::CollectionIterator {
+            op,
+            set,
+            collection,
+        }) = body.expr_at(generator).map(|expr| expr.kind.clone())
+        {
+            let kind = if set {
+                ExprKind::SetProjection {
+                    op: if matches!(op, DictProjectionOp::Entries) {
+                        SetProjectionOp::Entries
+                    } else {
+                        SetProjectionOp::Values
+                    },
+                    set: collection,
+                }
+            } else {
+                ExprKind::DictProjection {
+                    op,
+                    dict: collection,
+                }
+            };
+            return body.push_expr(Expr {
+                kind,
+                ty: list_ty,
+                span,
+            });
+        }
         body.push_expr(Expr {
             kind: ExprKind::GeneratorCollect { generator },
             ty: list_ty,

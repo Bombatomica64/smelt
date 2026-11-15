@@ -705,27 +705,23 @@ impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self
 // @smelt:prelude-end — generated program below
 fn main() {
     let mut _smelt_tmp_2: bool;
-    let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
-    let mut _smelt_tmp_5: f64;
     let mut _smelt_tmp_7: f64;
     let mut i: usize = 0;
-    let mut sum: f64 = 0.0;
+    let mut sum: usize = 0;
     loop {
     _smelt_tmp_2 = i < 6;
     if !(_smelt_tmp_2) { break; }
-    _smelt_tmp_3 = i + 1;
-    i = _smelt_tmp_3;
+    i = i + 1;
     _smelt_tmp_4 = i == 2;
     if _smelt_tmp_4 {
     continue;
     } else {
-    _smelt_tmp_7 = i as f64;
-    _smelt_tmp_5 = sum + _smelt_tmp_7;
-    sum = _smelt_tmp_5;
+    sum = sum + i;
     continue;
     }
     }
-    let _ = { println!("{}", smelt_console_number(sum)); };
+    _smelt_tmp_7 = sum as f64;
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_7)); };
     return;
 }
