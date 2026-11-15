@@ -670,10 +670,17 @@ impl FunctionEmitter<'_> {
         if !lhs_erased && !rhs_erased {
             return Ok(None);
         }
-        // Every side must be either numeric or erased so `ToNumber` coercion is
+        // A `bigint` side compares by mathematical value, never through
+        // `f64` (`2n ** 64n < x` must not round): the runtime relational
+        // helper does that for an erased pair, so the bigint side crosses
+        // into the carrier for the comparison only. The other operand is
+        // already erased, so no typed value loses its type here.
+        let lhs_bigint = matches!(self.mir.types.get(lhs_ty), Some(Type::BigInt));
+        let rhs_bigint = matches!(self.mir.types.get(rhs_ty), Some(Type::BigInt));
+        // Every side must be numeric, a bigint or erased so the coercion is
         // well-defined; anything else falls through to the remaining arms.
-        if !(lhs_erased || self.is_numeric_type(lhs_ty))
-            || !(rhs_erased || self.is_numeric_type(rhs_ty))
+        if !(lhs_erased || lhs_bigint || self.is_numeric_type(lhs_ty))
+            || !(rhs_erased || rhs_bigint || self.is_numeric_type(rhs_ty))
         {
             return Ok(None);
         }
@@ -684,7 +691,7 @@ impl FunctionEmitter<'_> {
         // searches (remeda's `sortedIndex`, `firstBy`, `sortBy`, …). Route these
         // through the runtime abstract-relational helper, which stays lexical for
         // two strings and falls back to `ToNumber` for every other pairing.
-        if lhs_erased && rhs_erased {
+        if (lhs_erased && rhs_erased) || lhs_bigint || rhs_bigint {
             let lhs_text = self.erase(lhs)?;
             let rhs_text = self.erase(rhs)?;
             // The guard at the top of this function restricts `op` to the four
