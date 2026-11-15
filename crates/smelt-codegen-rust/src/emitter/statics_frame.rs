@@ -72,6 +72,16 @@ impl FunctionEmitter<'_> {
         self.erase_rendered(value, ty)
     }
 
+    /// The erased promise of a future whose payload has type `item_ty`: what an
+    /// `async` method's `SmeltFuture` crosses an erased boundary as.
+    pub(crate) fn erased_future_text(
+        &self,
+        future: &RustExpr,
+        item_ty: smelt_hir::TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        self.promise_future_unknown_expr(future, item_ty)
+    }
+
     /// Whether `class` is a statics frame, whose erased form is a class value
     /// rather than an instance (it carries no `__smelt_class` marker).
     pub(super) fn is_statics_frame_class(&self, class: Symbol) -> bool {

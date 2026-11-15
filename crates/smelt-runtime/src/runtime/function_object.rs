@@ -230,6 +230,21 @@ fn smelt_construct_like(value: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUn
     if let SmeltUnknown::Object(object) = &value && let Some(SmeltUnknown::Function(build)) = object.get("__smelt_method:constructor") {
         return (build)(args).unwrap_or_else(|error| smelt_panic_throw(error));
     }
+    //~ A `Date` builds a new date from one argument, as `new Date(value)` does:
+    //~ a number is a time value, a date its time value, a string a parsed date
+    //~ (date-fns' `constructFrom`, `new (date.constructor)(value)`). Its
+    //~ `constructor` read answers no callable that builds a date.
+// @smelt:if date
+    if let SmeltUnknown::Object(object) = &value && object.contains_key("__smelt_date") && let [argument] = args.as_slice() {
+        // The same recovery a date takes from any erased value, then a fresh
+        // date: `new Date(other)` copies the time value, not the date.
+        let time = match argument {
+            SmeltUnknown::Bool(flag) => if *flag { 1.0 } else { 0.0 },
+            other => SmeltDate::smelt_from_unknown(other.clone()).get_time(),
+        };
+        return SmeltDate::new(time).into_smelt_unknown();
+    }
+// @smelt:end
     let constructor = smelt_get_unknown_field(&value, "constructor");
     if smelt_callable_of(&constructor).is_some() { return smelt_construct(constructor, args); }
     match (value, args.as_slice()) {
@@ -301,7 +316,10 @@ fn smelt_same_prototype_link(left: &SmeltUnknown, right: &SmeltUnknown) -> bool 
 //~ constructor is known, named, carrying the classes `instanceof` accepts
 //~ (itself and its subclasses, comma separated), and holding its static
 //~ methods as own properties, keyed as `smelt_property_key` keys them.
-fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); entries.extend(statics); SmeltUnknown::Object(SmeltObject::new(entries)) }
+//~ Interned per class (`smelt_intern_class_value`), so every read of a class
+//~ is one value, except a class with per-evaluation statics, which is a new
+//~ class at every evaluation of its declaration.
+fn smelt_class_value(name: &str, covered: &str, constructor: SmeltUnknown, statics: Vec<(String, SmeltUnknown)>) -> SmeltUnknown { let mut entries = Vec::from([("name".to_owned(), SmeltUnknown::String(name.into())), ("__smelt_class_value".to_owned(), SmeltUnknown::String(covered.into())), ("__smelt_call".to_owned(), constructor)]); let per_evaluation = statics.iter().any(|(key, _)| key == "__smelt_method:__smelt_class_frame"); entries.extend(statics); let value = SmeltUnknown::Object(SmeltObject::new(entries)); if per_evaluation || smelt_program_class(name).is_none() { value } else { smelt_intern_class_value(name, value) } }
 
 //~ A class's MUTABLE static fields are live storage the program reads and
 //~ writes directly (`Box.PI`), so a class value cannot hold copies of them:

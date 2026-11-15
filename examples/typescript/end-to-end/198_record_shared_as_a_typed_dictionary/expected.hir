@@ -1,0 +1,35 @@
+module examples/typescript/end-to-end/198_record_shared_as_a_typed_dictionary/input.ts (ModuleId(0))
+  body BodyId(6)
+  items
+    global mut kept: Dict<String, Float>
+    interface Size fields [Public width: Float, Public height: Float] methods []
+    interface Margin fields [Public top: Float, Public left: Float] methods []
+    fn double owner Module
+    fn widen owner Module
+    fn keep owner Module
+    fn reshape owner Module
+    fn main owner Module
+  exprs
+    #0: None = global_get @2(kept)
+    #1: fn() -> None = @7(main)
+    #2: None = call #1()
+  stmts
+    s0: #0
+    s1: #2
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = Dict<String, Float>
+  t3 = None
+  t4 = fn(Dict<String, Float>) -> None
+  t5 = fn(Dict<String, Float>) -> Float
+  t6 = fn() -> None
+  t7 = Unknown
+  t8 = List<String>
+  t9 = Bool
+  t10 = Size
+  t11 = fn(Dict<String, Float>) -> None
+  t12 = fn(Dict<String, Float>) -> Float
+  t13 = Margin
+  t14 = fn() -> None

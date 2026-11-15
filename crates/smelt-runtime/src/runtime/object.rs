@@ -12,6 +12,29 @@ pub struct SmeltObject {
 }
 
 impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, store: self.store.clone() } } }
+
+//~ A handle on an erased object that does not keep it alive: what an object
+//~ stores to answer ITSELF (an iterator's `[Symbol.iterator]()` returns the
+//~ iterator) without a reference cycle that would never be freed.
+#[derive(Clone)]
+struct SmeltWeakObject {
+    id: usize,
+// @smelt:if reference_origins
+    store: ::std::rc::Weak<SmeltStoreCell<JsString, SmeltUnknown>>,
+// @smelt:else
+//=     store: ::std::rc::Weak<::std::cell::RefCell<SmeltFieldStore<JsString, SmeltUnknown>>>,
+// @smelt:end
+}
+
+impl SmeltObject {
+    /// A handle on this object that does not keep it alive.
+    fn downgrade(&self) -> SmeltWeakObject { SmeltWeakObject { id: self.id, store: ::std::rc::Rc::downgrade(&self.store) } }
+}
+
+impl SmeltWeakObject {
+    /// The object, while anything else still holds it.
+    fn upgrade(&self) -> Option<SmeltObject> { self.store.upgrade().map(|store| SmeltObject { id: self.id, store }) }
+}
 // @smelt:item-end
 
 //~ Typed JavaScript records read source property names through these, with

@@ -110,7 +110,7 @@ resolution from Python).
   crate, keyed by bare name, last write wins** (`crates/smelt-frontend-py/src/lowering/validate.rs:2-15`).
   So `from math import add` binds to "whichever item named `add` was lowered last" — it works in the
   test because there is one `add`. Hono's 63+ modules contain repeated names (`Context` is a known
-  cross-kind collision, see `blocker-logs/hono-h71-cross-kind-type-name-collision.md`), so this
+  cross-kind collision, see `hono-h71-cross-kind-type-name-collision.md` (in git history)), so this
   fallback is not a sound binding rule for Hono.
 
 ### Type surfaces seen from Python

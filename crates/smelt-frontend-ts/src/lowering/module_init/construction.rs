@@ -75,6 +75,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             array_view_receivers: Vec::new(),
             pinned_nodes: Vec::new(),
             claimed_optional_calls: Vec::new(),
+            keep_enclosing_this: false,
             asymmetric_matchers_lowered: 0,
             presence_widened_bindings: HashMap::new(),
             test_counts_assertions: false,

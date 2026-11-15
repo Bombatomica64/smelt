@@ -11,7 +11,7 @@
 // infallible helper's silent zero. The accessor is therefore a call to
 // `BuiltinFn::DataViewAccess`, exactly as `JSON.parse` is, and the width and
 // the direction ride on the builtin rather than being re-read from the member
-// name. See `blocker-logs/standards-throwing-rvalue.md`.
+// name. See `standards-throwing-rvalue.md` (in git history).
 //
 // The view is a PARAMETER everywhere below rather than a module-level `const`,
 // because a module-level binding read from inside a function arrives through

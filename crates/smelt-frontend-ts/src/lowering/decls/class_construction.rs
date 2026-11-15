@@ -47,7 +47,7 @@ impl ModuleBuilder<'_> {
     /// lowering at all, so there is no concrete type, union, or scoped generic
     /// that could carry the forwarded argument, and a call-compatible erased
     /// slot is the only shape that keeps `new Subclass(x)` from becoming a
-    /// blocker. See `blocker-logs/hono-h68-class-expression-binding.md` (H69).
+    /// blocker. See `hono-h68-class-expression-binding.md` (in git history) (H69).
     pub(in crate::lowering) fn synthesize_default_class_constructor(
         &mut self,
         class_text: &str,
@@ -365,7 +365,16 @@ impl ModuleBuilder<'_> {
                 // rather than as an inherent method, because an inherent method
                 // is what cannot be assigned in the first place.
                 ClassFieldInit::Method(function) => {
-                    self.function_expression_value(function, Some(*field_ty), function.span, body)?
+                    // A METHOD's `this` is the instance it is installed on.
+                    self.keep_enclosing_this = true;
+                    let value = self.function_expression_value(
+                        function,
+                        Some(*field_ty),
+                        function.span,
+                        body,
+                    );
+                    self.keep_enclosing_this = false;
+                    value?
                 }
             };
             body.push_stmt(Stmt::Assign { target, value });

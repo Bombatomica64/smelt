@@ -757,7 +757,6 @@ fn main() {
     let mut _smelt_tmp_3: usize;
     let mut _smelt_tmp_4: bool;
     let mut _smelt_tmp_5: ();
-    let mut _smelt_tmp_6: usize;
     let mut _smelt_tmp_7: f64;
     let mut i: usize = 0;
     loop {
@@ -766,8 +765,7 @@ fn main() {
     if _smelt_tmp_4 {
     _smelt_tmp_7 = i as f64;
     _smelt_tmp_5 = (closure_arg_1)(closure_arg_0.borrow().get(i).cloned().unwrap_or_else(|| JsString::new()), _smelt_tmp_7);
-    _smelt_tmp_6 = i + 1;
-    i = _smelt_tmp_6;
+    i = i + 1;
     } else {
     return ();
     }

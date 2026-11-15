@@ -4,7 +4,7 @@ fn main (FuncId(0)) -> None
     %1 user sum: Float
     %2 temp: Bool
     %3 temp: Float
-    %4 temp: usize
+    %4 temp: Float
     %5 temp: None
     %6 temp: Float
   bb0:
@@ -16,10 +16,8 @@ fn main (FuncId(0)) -> None
     switch move %2 ? bb2 : bb3
   bb2:
     %6 = primitive_cast_float copy %0
-    %3 = move %1 + move %6
-    %1 = move %3
-    %4 = move %0 + 1
-    %0 = move %4
+    %1 = move %1 + move %6
+    %0 = move %0 + 1
     goto bb1
   bb3:
     %5 = call @console_log(move %1) -> bb4

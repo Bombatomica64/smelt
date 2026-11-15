@@ -27,6 +27,15 @@ impl FunctionEmitter<'_> {
         // first, so they still accept a non-erased source.) `value_at_type`
         // handles a non-erased `Option` source directly without delegating back
         // to `extract`, so this cannot recurse.
+        // A whole `T` recovered from the carrier converts through the
+        // `SmeltFromUnknown` bound every lifted parameter declares, so the
+        // generic trial does not count it; see the `IntoSmeltUnknown` twin in
+        // `erase`. A container of `T`s is rebuilt and still counts.
+        let _bound_conversion = matches!(
+            self.mir.types.get(target),
+            Some(Type::TypeParam { name }) if scope.spells(*name)
+        )
+        .then(|| self.context.carrier_boundary());
         let source_ty = self.operand_ty(value)?;
         let target_is_primitive = matches!(
             self.mir.types.get(target),
@@ -933,6 +942,22 @@ pub(in crate::emitter) fn erased_to_list_expr(
     item_text: Option<&str>,
     char_text: &RustExpr,
 ) -> RustExpr {
+    erased_to_bounded_list_expr(text, item_text, char_text, None)
+}
+
+/// [`erased_to_list_expr`] reading at most `limit` items of an iterator.
+///
+/// Only the iterator-protocol arm is bounded: it is the one source whose
+/// stepping is observable (a generator runs code between items, and an
+/// infinite one never ends), so it is stepped exactly `limit` times, as array
+/// destructuring steps it. Every other arm already holds its items, and the
+/// caller indexes only the first `limit`.
+pub(in crate::emitter) fn erased_to_bounded_list_expr(
+    text: &RustExpr,
+    item_text: Option<&str>,
+    char_text: &RustExpr,
+    limit: Option<usize>,
+) -> RustExpr {
     // `text` is usually already an owned temporary (an operand render clones the local
     // it reads), so take an owned copy rather than deep-copying it a second time.
     let smelt_owned_text = text.cloned_value();
@@ -963,8 +988,14 @@ pub(in crate::emitter) fn erased_to_list_expr(
     let arguments_arm = convert("smelt_args");
     let map_arm = convert("pairs.into_vec()");
     let set_arm = convert("members.into_vec()");
-    let iterator_arm =
-        convert("smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))");
+    let iterator_arm = match limit {
+        None => {
+            convert("smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null))")
+        }
+        Some(count) => convert(&format!(
+            "smelt_unknown_iterator_take(iterator(vec![]).unwrap_or(SmeltUnknown::Null), {count})"
+        )),
+    };
     RustExpr::atom(format!(
         "{{ let smelt_src = {smelt_owned_text}.into_smelt_unknown(); \
          match smelt_src {{ \

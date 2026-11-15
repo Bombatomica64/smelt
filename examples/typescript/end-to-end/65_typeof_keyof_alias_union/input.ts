@@ -7,7 +7,7 @@
 // inside a union erased the union entirely. That is how Hono's five-arm
 // `ResponseHeadersInit` reached `new Headers(init)` as `SmeltUnknown`: one arm
 // was `Record<'Content-Type', BaseMime>`, and `BaseMime` is exactly this
-// spelling. See `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+// spelling. See `standards-generic-arm-and-typeof-indexed-alias.md` (in git history).
 //
 // The alias is declared BEFORE the const it queries, as Hono's is: module
 // bindings are collected in a prepass, so the annotation sees the binding

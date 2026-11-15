@@ -193,6 +193,38 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        // A collection iterator drained where it is made
+        // (`Array.from(map.values())`, `[...set]`, `new Map(other.entries())`)
+        // is never observed between steps, so draining it is projecting the
+        // collection: emit the projection itself, as `map.values().collect()`
+        // would be written by hand, rather than a generator to step through.
+        if let Some(ExprKind::CollectionIterator {
+            op,
+            set,
+            collection,
+        }) = body.expr_at(generator).map(|expr| expr.kind.clone())
+        {
+            let kind = if set {
+                ExprKind::SetProjection {
+                    op: if matches!(op, DictProjectionOp::Entries) {
+                        SetProjectionOp::Entries
+                    } else {
+                        SetProjectionOp::Values
+                    },
+                    set: collection,
+                }
+            } else {
+                ExprKind::DictProjection {
+                    op,
+                    dict: collection,
+                }
+            };
+            return body.push_expr(Expr {
+                kind,
+                ty: list_ty,
+                span,
+            });
+        }
         body.push_expr(Expr {
             kind: ExprKind::GeneratorCollect { generator },
             ty: list_ty,

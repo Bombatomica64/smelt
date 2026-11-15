@@ -95,14 +95,16 @@ const SETTER_PREFIX: &str = "__smelt_set_";
 /// `undefined`, which the carrier spells exactly.
 fn return_type_is_erasable(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(
-            Type::Never
-            | Type::Future(_)
-            | Type::Generator { .. }
-            | Type::GeneratorResult { .. }
-            | Type::Function(_),
-        )
-        | None => false,
+        // An async method's promise and a generator method's iterator cross as
+        // their erased handles (`SmeltUnknown::Promise`, the iterator-protocol
+        // object): the payload they settle with or yield must cross too.
+        Some(Type::Future(item)) => return_type_is_erasable(mir, *item),
+        Some(Type::Generator {
+            yield_ty,
+            return_ty,
+            ..
+        }) => return_type_is_erasable(mir, *yield_ty) && return_type_is_erasable(mir, *return_ty),
+        Some(Type::Never | Type::GeneratorResult { .. } | Type::Function(_)) | None => false,
         Some(_) => true,
     }
 }
@@ -113,8 +115,9 @@ fn return_type_is_erasable(mir: &Mir, ty: TypeId) -> bool {
 ///
 /// 1. It is a real instance method (`HirOrigin::ClassMethod`), not a
 ///    constructor or a static.
-/// 2. It is neither `async` nor a generator: both return a suspended handle
-///    that has no erased rendering.
+/// 2. Its return crosses ([`return_type_is_erasable`]): an `async` method's
+///    promise and a generator method's iterator cross as their erased handles,
+///    so either kind qualifies when what it settles with or yields does.
 /// 3. Every parameter can be rebuilt from the erased call's arguments
 ///    ([`param_crosses_erased_call`]): a data parameter through
 ///    `SmeltFromUnknown`, a callback whose own parameters and return cross the
@@ -137,9 +140,6 @@ pub(crate) fn method_is_proto_eligible(
     let HirOrigin::ClassMethod { class, .. } = function.origin else {
         return false;
     };
-    if function.is_async || function.is_generator {
-        return false;
-    }
     let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
         return false;
     };
@@ -295,6 +295,10 @@ enum MethodReceiver {
     Instance,
     /// A static method, called as an associated function of this Rust type.
     Static(String),
+    /// A prototype method: the adapter recovers its receiver from the
+    /// dynamically scoped `this` the call installs, so one function serves
+    /// every instance (and an `Object.create(C.prototype)` object).
+    This,
 }
 
 /// The erased adapter for one method: arguments in through
@@ -307,7 +311,7 @@ fn erased_callable_adapter(
     rust_method: &str,
 ) -> Result<RustExpr, EmitError> {
     let skipped = match receiver {
-        MethodReceiver::Instance => 1,
+        MethodReceiver::Instance | MethodReceiver::This => 1,
         MethodReceiver::Static(_) => 0,
     };
     let mut args = Vec::new();
@@ -354,19 +358,52 @@ fn erased_callable_adapter(
     // A throwing method returns `Result<_, Box<dyn Error>>`; the erased
     // callback's own return type is the same `Result`, so the `?` propagates
     // the thrown value across the seam rather than swallowing it.
-    let try_operator = if function.can_throw { "?" } else { "" };
+    // An async method's throw settles its promise: the Rust method returns
+    // the `SmeltFuture` itself, never a `Result`, so nothing is propagated here.
+    // A generator or async method's throw surfaces through what it returns
+    // (a resume of the generator, the settling of the promise), never as a
+    // `Result` of the call itself, so nothing is propagated for either.
+    let returns_future = function.is_async && !function.is_generator;
+    let try_operator = if function.can_throw && !function.is_async && !function.is_generator {
+        "?"
+    } else {
+        ""
+    };
     let (capture, callee) = match receiver {
         MethodReceiver::Instance => (
             "let smelt_receiver = self.clone(); ",
             "smelt_receiver.".to_owned(),
         ),
         MethodReceiver::Static(class) => ("", format!("{class}::")),
+        MethodReceiver::This => ("", "smelt_receiver.".to_owned()),
+    };
+    let recover = if matches!(receiver, MethodReceiver::This) {
+        "let smelt_receiver: Self = SmeltFromUnknown::smelt_from_unknown(smelt_this()); "
+    } else {
+        ""
     };
     let call = format!("{callee}{rust_method}({}){try_operator}", args.join(", "));
-    let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
+    let result = if returns_future {
+        // An async method's MIR return is what its promise settles with; the
+        // Rust method hands back the `SmeltFuture` of it, which crosses as an
+        // erased promise of that payload. An async GENERATOR method returns
+        // its generator (`Type::Generator`), which erases below like any value.
+        let emitter = match &method_emitter {
+            Some(emitter) => emitter,
+            None => method_emitter.insert(crate::emitter::FunctionEmitter::new(
+                mir, context, function,
+            )?),
+        };
+        emitter
+            .erased_future_text(&RustExpr::path("smelt_result"), function.return_ty)?
+            .into_string()
+    } else if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()
     } else if matches!(
+        mir.types.get(function.return_ty),
+        Some(Type::Future(_) | Type::Generator { .. })
+    ) || matches!(
         mir.types.get(function.return_ty),
         Some(Type::Class { name: returned, args: returned_args }) if returned_args.is_empty()
             && crate::classes::find_class(mir, *returned).is_some_and(|returned_class| returned_class.type_params.is_empty())
@@ -396,7 +433,7 @@ fn erased_callable_adapter(
     let identity = method_identity_expr(mir, function)?;
     let body = format!(
         "{{ {capture}\
-         move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; \
+         move |smelt_args: Vec<SmeltUnknown>| {{ let _ = &smelt_args; {recover}\
          let smelt_result = {call}; Ok({result}) }} }}"
     );
     // Renamed rather than shadowed: the unwrapped value is what the identity
@@ -418,7 +455,10 @@ fn erased_callable_adapter(
 /// builds through for `new value.constructor(args)` on an erased instance.
 pub(crate) const CONSTRUCTOR_KEY: &str = "__smelt_method:constructor";
 
-/// Whether `mir` builds through `new value.constructor()` anywhere.
+/// Whether `mir` can build an instance through its erased constructor:
+/// `new value.constructor()` anywhere, or a reflective prototype read
+/// (`Object.getPrototypeOf`, `__proto__`), whose `constructor` es-toolkit's
+/// `clone` takes and calls with `new` (docs/design/class-prototypes.md).
 fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
     *context.constructs_like.get_or_init(|| {
         let bodies = mir
@@ -433,7 +473,8 @@ fn program_constructs_like(mir: &Mir, context: &EmitContext) -> bool {
                     matches!(
                         statement,
                         smelt_mir::Statement::Assign {
-                            value: smelt_mir::Rvalue::ConstructLike { .. },
+                            value: smelt_mir::Rvalue::ConstructLike { .. }
+                                | smelt_mir::Rvalue::PrototypeSentinel { .. },
                             ..
                         }
                     )
@@ -497,6 +538,138 @@ fn constructor_adapter(
         args.join(", "),
         built = built.delimited()
     ))))
+}
+
+/// The methods a class's prototype object carries, as `(key, adapter)` pairs:
+/// every eligible plain method (not an accessor) of the class, inherited ones
+/// included, as a `this`-taking erased function (`MethodReceiver::This`).
+///
+/// Empty for a class whose receiver cannot be recovered from the erased
+/// carrier: a generic class (no `Self` without type arguments), an abstract
+/// one (no instance of its own type), or one with no `SmeltFromUnknown`. Such
+/// a class keeps only its instances' receiver-bound adapters. See
+/// docs/design/class-prototypes.md, section 7.
+fn prototype_method_entries(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<Vec<(String, RustExpr)>, EmitError> {
+    if !class.type_params.is_empty() || matches!(class.kind, smelt_hir::ClassKind::Abstract) {
+        return Ok(Vec::new());
+    }
+    let Some(self_ty) = crate::classes::class_self_type(mir, class.name) else {
+        return Ok(Vec::new());
+    };
+    // A reference class recovers its live instance from an erased view
+    // (`reference_origin`), which is exactly the receiver a method mutates.
+    if !context.is_reference_class(class.name) && !type_supports_from_unknown(mir, context, self_ty)
+    {
+        return Ok(Vec::new());
+    }
+    let mut entries = Vec::new();
+    for method in effective_class_methods(mir, class) {
+        let Some(function) = function_by_id(mir, method) else {
+            continue;
+        };
+        let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
+            continue;
+        };
+        let Some(source_name) = mir.names.get(name).or_else(|| mir.symbols.get(name)) else {
+            continue;
+        };
+        if source_name.starts_with(SETTER_PREFIX)
+            || source_name.starts_with(GETTER_PREFIX)
+            || !method_is_proto_eligible(mir, context, class.name, function)
+        {
+            continue;
+        }
+        let Some(rust_method) = context.names().method(name) else {
+            continue;
+        };
+        let adapter = erased_callable_adapter(
+            mir,
+            context,
+            function,
+            &MethodReceiver::This,
+            rust_method.as_str(),
+        )?;
+        entries.push((format!("{METHOD_KEY_PREFIX}{source_name}"), adapter));
+    }
+    Ok(entries)
+}
+
+/// Whether `class` gets a `__smelt_prototype_methods` function, which the
+/// runtime's `program_classes` table then names.
+pub(crate) fn class_has_prototype_methods(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<bool, EmitError> {
+    Ok(context
+        .demand()
+        .has(crate::runtime_demand::Need::ClassPrototypeMethods)
+        && !prototype_method_entries(mir, context, class)?.is_empty())
+}
+
+/// Emit the `__smelt_prototype_methods` associated function of a class: the
+/// methods its prototype object carries (see [`prototype_method_entries`]).
+///
+/// `None` when the class has none, or when the program never reaches a class
+/// prototype reflectively (`Need::ClassPrototypeMethods`): a class used only
+/// through its static type pays nothing for this.
+///
+/// # Dynamic boundary
+///
+/// Each entry is a `SmeltUnknown`-typed method, and that is a genuine dynamic
+/// boundary, not avoidable erasure. The builder only exists for a program that
+/// reaches a class prototype by reflection: `Object.getPrototypeOf(x)`,
+/// `Object.create(proto)`, `Object.setPrototypeOf`, or `C.prototype` read off
+/// an erased class value. Every such read hands the program a value whose
+/// static type is `unknown` (the prototype), and the program then looks a
+/// method up on it, or on an object linked to it, BY STRING NAME
+/// (`proto.speak`, `Object.create(proto).bark()`). Which class's prototype that
+/// is, and so which methods it carries, is a run-time fact of the value:
+/// es-toolkit's `clone` reaches the prototype of whatever instance it was
+/// handed. No concrete struct, generated union arm or scoped generic can name
+/// that method set ahead of time, and the receiver is supplied by the call
+/// through the `this` channel, itself a boundary. Each adapter is the explicit
+/// boundary shim the policy asks for: `SmeltFromUnknown` recovers the typed
+/// receiver, the real typed method runs, and the result is erased back out.
+/// Where the class IS statically known, the call stays a typed method call and
+/// none of this is emitted. Both sides are pinned by
+/// `prototype_methods_exist_only_for_reflection` in
+/// `src/tests/class_prototype_methods_tests.rs`.
+pub(crate) fn class_prototype_methods_fn(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<Option<String>, EmitError> {
+    if !context
+        .demand()
+        .has(crate::runtime_demand::Need::ClassPrototypeMethods)
+    {
+        return Ok(None);
+    }
+    let entries = prototype_method_entries(mir, context, class)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    let mut out = String::new();
+    out.push_str("    /// The methods this class's prototype object carries, as `this`-taking erased functions.\n");
+    out.push_str("    #[allow(dead_code)]\n");
+    out.push_str(&format!(
+        "    pub(crate) fn {}() -> Vec<(String, SmeltUnknown)> {{\n",
+        smelt_stdlib::runtime_symbols::boundary::PROTOTYPE_METHODS
+    ));
+    out.push_str("        Vec::from([\n");
+    for (key, adapter) in entries {
+        out.push_str(&format!(
+            "            ({key:?}.to_owned(), {adapter}),\n",
+            adapter = adapter.delimited()
+        ));
+    }
+    out.push_str("        ])\n    }\n");
+    Ok(Some(out))
 }
 
 /// Emit the `__smelt_proto_entries` inherent method for a class.
@@ -692,8 +865,6 @@ pub(crate) fn class_static_entries(
         };
         if owner != class
             || !function.type_params.is_empty()
-            || function.is_async
-            || function.is_generator
             || !return_type_is_erasable(mir, function.return_ty)
             || !function.params.iter().enumerate().all(|(index, param)| {
                 local_decl(function, *param).is_some_and(|local| {

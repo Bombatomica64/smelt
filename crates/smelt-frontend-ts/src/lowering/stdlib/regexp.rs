@@ -440,7 +440,7 @@ impl ModuleBuilder<'_> {
         // FALSE and resets), so it has to run the same search `exec` does.
         // Without a flag Node leaves `lastIndex` at 0 and the two are
         // indistinguishable, so the stateless spelling takes the cheaper
-        // `RegexIsMatch`. See `blocker-logs/regex-literal-test-erases-match.md`.
+        // `RegexIsMatch`. See `regex-literal-test-erases-match.md` (in git history).
         //
         // Only a spelling whose flags are VISIBLE here can take the fast path.
         // A `RegExp` receiver reached through a variable takes `RegexTest`,

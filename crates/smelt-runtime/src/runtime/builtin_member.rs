@@ -37,7 +37,20 @@ fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(
 //~ member read off it resolves through the modeled-member registry. The record
 //~ carries only the marker, so it never enumerates as data.
 thread_local! { static SMELT_BUILTIN_PROTOTYPES: ::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); }
-fn smelt_builtin_prototype_object(class: &str) -> SmeltUnknown { SMELT_BUILTIN_PROTOTYPES.with(|cache| cache.borrow_mut().entry(class.to_owned()).or_insert_with(|| SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_builtin_prototype".to_owned(), SmeltUnknown::String(class.into()))])))).clone()) }
+//~ It is also the prototype `Object.getPrototypeOf` reflects for an instance of
+//~ the class (`smelt_reflected_prototype`), so `Object.getPrototypeOf(new
+//~ Date()) === Date.prototype`; its own prototype is its base class's
+//~ (`TypeError.prototype` -> `Error.prototype`, `File.prototype` ->
+//~ `Blob.prototype`) or `Object.prototype`, recorded in the one link table.
+fn smelt_builtin_prototype_object(class: &str) -> SmeltUnknown {
+    if let Some(found) = SMELT_BUILTIN_PROTOTYPES.with(|cache| cache.borrow().get(class).cloned()) { return found; }
+    let prototype = SmeltObject::new(Vec::from([("__smelt_builtin_prototype".to_owned(), SmeltUnknown::String(class.into()))]));
+    let value = SmeltUnknown::Object(prototype.clone());
+    SMELT_BUILTIN_PROTOTYPES.with(|cache| { cache.borrow_mut().insert(class.to_owned(), value.clone()); });
+    let base = match class { "EvalError" | "RangeError" | "ReferenceError" | "SyntaxError" | "TypeError" | "URIError" | "AggregateError" | "DOMException" => smelt_builtin_prototype_object("Error"), "File" => smelt_builtin_prototype_object("Blob"), _ => SmeltUnknown::String("__smelt_proto:object".into()) };
+    smelt_register_object_prototype(prototype.id, base);
+    value
+}
 
 //~ Emit the interned per-member callable and the receiver-method side table.
 /// Callables that consume their receiver as the leading argument.

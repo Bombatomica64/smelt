@@ -14,7 +14,7 @@ mod types;
 /// `dump` spellings of the operation selectors.
 mod op_text;
 
-pub use call::{CaptureMode, ClosureCapture, ClosureExpr};
+pub use call::{CaptureMode, ClosureCapture, ClosureExpr, ClosureThis};
 pub use control_flow::AsyncOp;
 pub use core::Expr;
 pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup};
