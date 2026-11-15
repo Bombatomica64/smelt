@@ -131,12 +131,60 @@ impl ModuleBuilder<'_> {
         } else {
             self.promise_list_combinator_args(op, first_argument, body)?
         };
+        let output_ty = if op == AsyncOp::AllSettled {
+            self.all_settled_output(output_ty, call.span)
+        } else {
+            output_ty
+        };
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp { op, args },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// The output of `Promise.allSettled`: one settled-result record per input.
+    ///
+    /// `values` is the shape `Promise.all` would answer for the same inputs (a
+    /// tuple for an array literal, a list otherwise). Each entry becomes
+    /// `PromiseSettledResult<T>` as the checker resolved the call, so the record
+    /// has whatever type that spelling lowers to everywhere else in the
+    /// program; when the checker's answer does not match `values`' shape (an
+    /// `any` call, or a type that cannot be spelled here), each entry is the
+    /// erased carrier, the type a `{ status, value | reason }` object has
+    /// with no declared shape.
+    fn all_settled_output(
+        &mut self,
+        values: smelt_hir::TypeId,
+        span: oxc::span::Span,
+    ) -> smelt_hir::TypeId {
+        let settled = self
+            .checker_call_type(span.start, span.end)
+            .and_then(|ty| self.future_inner_type(ty));
+        let values_shape = self.ctx.krate.types.get(values).cloned();
+        let settled_shape = settled.and_then(|ty| self.ctx.krate.types.get(ty).cloned());
+        match (values_shape, settled_shape) {
+            (Some(Type::Tuple(inputs)), Some(Type::Tuple(entries)))
+                if inputs.len() == entries.len() =>
+            {
+                self.ctx.krate.types.intern(Type::Tuple(entries))
+            }
+            (Some(Type::List(_)), Some(Type::List(entry))) => {
+                self.ctx.krate.types.intern(Type::List(entry))
+            }
+            (Some(Type::Tuple(inputs)), _) => {
+                let entries = inputs
+                    .iter()
+                    .map(|_| self.erase_with(ErasureReason::UntypedBuiltin, "Promise.allSettled"))
+                    .collect();
+                self.ctx.krate.types.intern(Type::Tuple(entries))
+            }
+            _ => {
+                let entry = self.erase_with(ErasureReason::UntypedBuiltin, "Promise.allSettled");
+                self.ctx.krate.types.intern(Type::List(entry))
+            }
+        }
     }
 
     /// Return output type for Promise combinators over a source array literal.
