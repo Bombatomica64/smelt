@@ -531,7 +531,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return fields for class-like TypeScript types that can map to JSON objects.
-    fn json_class_fields(
+    pub(in crate::lowering) fn json_class_fields(
         &mut self,
         name: smelt_hir::Symbol,
         args: &[smelt_hir::TypeId],

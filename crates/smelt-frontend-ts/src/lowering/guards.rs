@@ -909,6 +909,13 @@ impl ModuleBuilder<'_> {
         if self.statics_frame_owner(ty).is_some() {
             return Some("function");
         }
+        // A host constructor held as a value (`Int8Array` in an array of
+        // constructors) is a function too, not an instance of a class.
+        if let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty)
+            && self.ctx.krate.symbols.get(*name) == Some(smelt_stdlib::HOST_CONSTRUCTOR_CLASS_NAME)
+        {
+            return Some("function");
+        }
         match self.ctx.krate.types.get(ty) {
             Some(Type::None) => Some("undefined"),
             Some(Type::Optional(_) | Type::Future(_)) | None => None,

@@ -1,0 +1,7 @@
+false true true
+false false true
+undefined function function
+true false true
+function,function,function [object Function],[object Function],[object Function]
+15 object
+true true false

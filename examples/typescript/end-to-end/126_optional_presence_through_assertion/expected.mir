@@ -188,11 +188,11 @@ fn main (FuncId(3)) -> None
     %4 = {"handler": "h", "score": 1.0}
     %5 = move %4
     %37 = {}
-    %5.field9 = move %37
-    %38 = copy %5.field9
+    %5.field13 = move %37
+    %38 = copy %5.field13
     %38["k"] = "v"
-    %5.field9 = move %38
-    %39 = copy %5.field9
+    %5.field13 = move %38
+    %39 = copy %5.field13
     %40 = call @console_log(copy %5.field2, copy %5.field3, copy %39["k"]) -> bb19
   bb19:
     return none

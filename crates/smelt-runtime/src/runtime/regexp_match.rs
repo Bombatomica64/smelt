@@ -231,6 +231,36 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:item-end
 
+// @smelt:item smelt_erased_regexp_method when unknown & dep_regress
+/// A `RegExp.prototype` method read off an erased `RegExp` record.
+//~
+//~ **Dynamic boundary.** A RegExp that reaches erased dataflow (a
+//~ `Record<string, unknown>` of patterns, an `any`-typed callback parameter
+//~ such as date-fns' `findKey(parsePatterns, (pattern: any) =>
+//~ pattern.test(s))`) is the marker record `{ source, flags, lastIndex,
+//~ __smelt_regexp }`, and a method call on it is a member READ followed by a
+//~ call. The record stores no `test` member (it lives on `RegExp.prototype`
+//~ in JavaScript), so the read answered `undefined` and the call threw
+//~ `TypeError: value is not a function` where Node matched.
+//~
+//~ The method runs against the record's own `source`/`flags` and its
+//~ `lastIndex` data property, and writes `lastIndex` back into the record, so
+//~ a global or sticky pattern advances exactly as the JavaScript object does
+//~ across repeated erased calls. The argument goes through `ToString`, as in
+//~ JavaScript (`re.test(undefined)` tests `"undefined"`).
+fn smelt_erased_regexp_method(object: SmeltObject, name: &str) -> SmeltUnknown {
+    let name = name.to_owned();
+    SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| {
+        let regexp = SmeltRegExp::smelt_from_unknown(SmeltUnknown::Object(object.clone()));
+        if name == "toString" { return Ok(SmeltUnknown::String(JsString::from(format!("/{}/{}", regexp.source, regexp.flags)))); }
+        let haystack = smelt_erased_to_js_string(&args.into_iter().next().unwrap_or(SmeltUnknown::Undefined));
+        let found = regexp.exec(&haystack);
+        object.insert("lastIndex", SmeltUnknown::Number(smelt_units_to_number(*regexp.last_index.borrow())));
+        Ok(if name == "test" { SmeltUnknown::Bool(found.is_some()) } else { found.map_or(SmeltUnknown::Null, IntoSmeltUnknown::into_smelt_unknown) })
+    }))
+}
+// @smelt:item-end
+
 // @smelt:item smelt_erased_pattern_call when erased_pattern_call
 /// `receiver.match(pattern)` or `receiver.search(pattern)` on an erased receiver.
 //~

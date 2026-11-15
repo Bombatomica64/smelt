@@ -879,7 +879,8 @@ impl FunctionEmitter<'_> {
             // associated function `Class::staticMethod(args)`. Arguments
             // are coerced to the emitted parameter types like any other
             // static call, and missing trailing parameters default.
-            let class_name = self.type_rust_name(class)?;
+            let class_name =
+                crate::class_proto::static_receiver_path(self.mir, self.context, class)?;
             let method_name = static_method_rust_name(self.context, function.id)?;
             let mut rendered_args = args
                 .iter()

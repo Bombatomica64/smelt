@@ -225,7 +225,43 @@ impl FunctionEmitter<'_> {
         if let Some(accessor) = self.function_item_typed_accessor(id, dest_ty)? {
             return Ok(RustExpr::from(accessor));
         }
-        Ok(self.closure_expr_for_type(id, dest_ty)?)
+        let value = self.closure_expr_for_type(id, dest_ty)?;
+        // An inline `function` expression (its own `this`) is a JavaScript
+        // constructor and owns a `prototype`; an arrow does not. Its identity
+        // is marked where the value is created, so every later view of it --
+        // typed, erased, in another module -- answers `f.prototype` alike.
+        // Function items carry the mark on their item identity
+        // (`crate_builder`). Only a program that can read a property of a
+        // function value (the erased runtime) has the identity to mark.
+        let is_function_expression = self.mir_closure(id).is_ok_and(|closure| {
+            closure.this_binding == smelt_hir::ClosureThis::Own
+                && closure.function_item_key.is_none()
+                && !closure.is_generator
+                && !matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
+        });
+        let escapes = self.mir_closure(id).is_ok_and(|closure| closure.escapes);
+        // Only a `'static` value has an identity to mark: an erased function, a
+        // `SmeltErasedFunction`, or a typed `Rc<dyn Fn>` that escapes (an
+        // escaping closure owns every capture, `compute_owned_callback_params`).
+        // A local typed closure may borrow a parameter (`compare: &dyn Fn`), so
+        // it is marked where it is erased instead (`coercion::erase`).
+        if is_function_expression && self.context.demand().has(Need::Unknown) {
+            let mark = if self.rendered_type(dest_ty)?.to_string() == "SmeltErasedFunction" {
+                "smelt_mark_constructor(&smelt_value.callback);"
+            } else if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
+                if !escapes {
+                    return Ok(value);
+                }
+                "smelt_mark_constructor(&smelt_value);"
+            } else {
+                "if let SmeltUnknown::Function(smelt_function) = &smelt_value { smelt_mark_constructor(smelt_function); }"
+            };
+            return Ok(RustExpr::atom(format!(
+                "{{ let smelt_value = {value}; {mark} smelt_value }}",
+                value = value.delimited()
+            )));
+        }
+        Ok(value)
     }
 
     /// A call of a closure value.

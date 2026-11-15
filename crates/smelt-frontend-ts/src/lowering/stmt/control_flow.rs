@@ -74,7 +74,11 @@ impl ModuleBuilder<'_> {
                 span: self.span(for_stmt.span.start, for_stmt.span.end),
             })
         };
-        let loop_body = self.block_from_statement(&for_stmt.body, body)?;
+        // The body's flow facts stay inside the loop (see `for_binding_and_body`).
+        let loop_body = self
+            .with_narrowing(Some(std::collections::HashMap::default()), |this| {
+                this.block_from_statement(&for_stmt.body, body)
+            })?;
         if let Some(update) = &for_stmt.update {
             // Lower the update into its OWN block rather than appending it to the
             // loop body. MIR turns that update block into a latch that becomes
@@ -363,21 +367,25 @@ impl ModuleBuilder<'_> {
             ty: yield_ty,
             span: iter_span,
         });
-        self.binding_declaration(
-            &declarator.id,
-            Some(value_expr),
-            annotated_ty,
-            mutable,
-            body,
-            loop_body,
-        )?;
-        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
-            for nested_statement in &block_stmt.body {
-                self.statement_in_block(nested_statement, body, loop_body)?;
+        // The body's flow facts stay inside the loop (see `for_binding_and_body`).
+        self.with_narrowing(Some(std::collections::HashMap::default()), |this| {
+            this.binding_declaration(
+                &declarator.id,
+                Some(value_expr),
+                annotated_ty,
+                mutable,
+                body,
+                loop_body,
+            )?;
+            if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+                for nested_statement in &block_stmt.body {
+                    this.statement_in_block(nested_statement, body, loop_body)?;
+                }
+            } else {
+                this.statement_in_block(&for_stmt.body, body, loop_body)?;
             }
-        } else {
-            self.statement_in_block(&for_stmt.body, body, loop_body)?;
-        }
+            Ok(())
+        })?;
 
         // Condition: continue while the primed step has not completed.
         let done_step_expr = body.push_expr(Expr {
@@ -560,21 +568,25 @@ impl ModuleBuilder<'_> {
             item_ty,
             body,
         );
-        self.binding_declaration(
-            &declarator.id,
-            Some(item),
-            annotated_ty,
-            mutable,
-            body,
-            loop_body,
-        )?;
-        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
-            for nested_statement in &block_stmt.body {
-                self.statement_in_block(nested_statement, body, loop_body)?;
+        // The body's flow facts stay inside the loop (see `for_binding_and_body`).
+        self.with_narrowing(Some(std::collections::HashMap::default()), |this| {
+            this.binding_declaration(
+                &declarator.id,
+                Some(item),
+                annotated_ty,
+                mutable,
+                body,
+                loop_body,
+            )?;
+            if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+                for nested_statement in &block_stmt.body {
+                    this.statement_in_block(nested_statement, body, loop_body)?;
+                }
+            } else {
+                this.statement_in_block(&for_stmt.body, body, loop_body)?;
             }
-        } else {
-            self.statement_in_block(&for_stmt.body, body, loop_body)?;
-        }
+            Ok(())
+        })?;
 
         // Condition: the position is below the live length.
         let cond_index = read(ExprKind::Local(index_local), number_ty, body);

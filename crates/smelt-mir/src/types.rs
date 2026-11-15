@@ -118,6 +118,11 @@ pub struct Mir {
     /// [`smelt_hir::Crate::accessor_fields`].
     #[serde(default)]
     pub accessor_fields: Vec<(Symbol, Symbol)>,
+    /// Function-item keys (HIR item indexes, as in
+    /// [`MirClosure::function_item_key`]) of JavaScript constructors; see
+    /// [`smelt_hir::Crate::constructible_functions`].
+    #[serde(default)]
+    pub constructible_function_items: std::collections::BTreeSet<usize>,
     /// Name and call-site lookups, built on first use; see [`crate::index`].
     #[serde(skip)]
     pub index: crate::index::MirIndex,
@@ -172,6 +177,7 @@ impl Mir {
             symbols,
             names,
             accessor_fields: Vec::new(),
+            constructible_function_items: std::collections::BTreeSet::new(),
             index: crate::index::MirIndex::default(),
         }
     }

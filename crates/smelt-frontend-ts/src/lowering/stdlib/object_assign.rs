@@ -301,7 +301,10 @@ impl ModuleBuilder<'_> {
                 },
             );
             for (field, field_ty) in &fields {
-                let Some(key) = self.ctx.krate.symbols.get(*field).map(str::to_owned) else {
+                // The JavaScript key the source probes, not the field's
+                // case-folded Rust name (`timestampIsSet`, not
+                // `timestamp_is_set`).
+                let Some(key) = source_spelling(&self.ctx.krate, *field).map(str::to_owned) else {
                     continue;
                 };
                 let probe_read = body.push_expr(Expr {
