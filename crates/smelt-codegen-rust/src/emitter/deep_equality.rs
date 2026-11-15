@@ -38,8 +38,8 @@
 use smelt_mir::{Mir, MirInterface};
 
 use super::{EmitContext, EmitError, FunctionEmitter};
-use crate::runtime_demand::Need;
 use crate::deep_equality::Scope;
+use crate::runtime_demand::Need;
 use crate::rust::{CodeWriter, RustExpr};
 
 /// The name the in-progress set of a comparison is bound to inside an impl.
@@ -59,13 +59,15 @@ impl FunctionEmitter<'_> {
         right: &RustExpr,
         scope: Scope,
     ) -> RustExpr {
-        let (left, right) = (
+        let (left_text, right_text) = (
             left.parenthesized_if_needed(),
             right.parenthesized_if_needed(),
         );
         RustExpr::atom(match scope {
-            Scope::Body => format!("smelt_deep_eq(&{left}, &{right})"),
-            Scope::Impl => format!("SmeltDeepEq::smelt_deep_eq(&{left}, &{right}, {SEEN})"),
+            Scope::Body => format!("smelt_deep_eq(&{left_text}, &{right_text})"),
+            Scope::Impl => {
+                format!("SmeltDeepEq::smelt_deep_eq(&{left_text}, &{right_text}, {SEEN})")
+            }
         })
     }
 
@@ -82,7 +84,7 @@ impl FunctionEmitter<'_> {
         if reference {
             return Ok("::std::rc::Rc::ptr_eq(&self.0, &other.0)".to_owned());
         }
-        let slot = crate::classes::effective_interface_fields(self.mir, interface)
+        let call_slot = crate::classes::effective_interface_fields(self.mir, interface)
             .into_iter()
             .find(|field| {
                 self.mir
@@ -92,7 +94,7 @@ impl FunctionEmitter<'_> {
                     == Some(smelt_stdlib::runtime_symbols::markers::SMELT_CALL)
             })
             .ok_or_else(|| EmitError::new("a callable record has no call slot"))?;
-        let slot = self.context.names().field_text(self.mir, slot.name);
+        let slot = self.context.names().field_text(self.mir, call_slot.name);
         Ok(if self.context.demand().has(Need::Unknown) {
             format!("smelt_same_function_identity(&self.{slot}, &other.{slot})")
         } else {
@@ -149,8 +151,7 @@ impl FunctionEmitter<'_> {
                 .filter(|field| field.visibility.is_own_property())
             {
                 let field_name = self.context.names().field_text(self.mir, field.name);
-                let place =
-                    |side: &str| RustExpr::chain(format!("smelt_{side}.{field_name}"));
+                let place = |side: &str| RustExpr::chain(format!("smelt_{side}.{field_name}"));
                 let part = if crate::accessor_prelude::is_accessor_field(
                     self.mir,
                     interface.name,

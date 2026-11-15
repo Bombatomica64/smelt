@@ -447,9 +447,12 @@ pub(crate) fn type_supports_partial_eq_where(
                         return true;
                     }
                     seen.push(name);
-                    let comparable = effective_interface_fields(mir, interface)
-                        .iter()
-                        .all(|field| type_supports_partial_eq_where(mir, is_reference, field.ty, seen));
+                    let comparable =
+                        effective_interface_fields(mir, interface)
+                            .iter()
+                            .all(|field| {
+                                type_supports_partial_eq_where(mir, is_reference, field.ty, seen)
+                            });
                     seen.pop();
                     return comparable;
                 }

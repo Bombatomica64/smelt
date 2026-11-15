@@ -79,6 +79,10 @@
 //!
 //! [`BinOp::Eq`]: smelt_hir::BinOp::Eq
 //! [`BinOp::NotEq`]: smelt_hir::BinOp::NotEq
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the runtime demand scan and the emitter"
+)]
 
 use std::collections::HashSet;
 
@@ -120,7 +124,11 @@ fn shape(mir: &Mir, name: Symbol) -> Option<&MirInterface> {
 /// Whether `interface` compares through its views: the shapes
 /// `emitter::live_view::live_records` makes live records in a program that
 /// carries the erased runtime.
-fn compares_through_views(mir: &Mir, references: &HashSet<Symbol>, interface: &MirInterface) -> bool {
+fn compares_through_views(
+    mir: &Mir,
+    references: &HashSet<Symbol>,
+    interface: &MirInterface,
+) -> bool {
     interface.type_params.is_empty()
         && references.contains(&interface.name)
         && !crate::classify::is_callable_shape(mir, interface)
@@ -146,7 +154,7 @@ fn mentions_type_param(mir: &Mir, ty: TypeId, depth: u8) -> bool {
 fn walks_dict_keyed_by(mir: &Mir, key: TypeId) -> bool {
     mir.types
         .get(key)
-        .is_some_and(|key| key.is_text() || *key == Type::PropKey)
+        .is_some_and(|key_ty| key_ty.is_text() || *key_ty == Type::PropKey)
 }
 
 /// The shapes the deep comparisons of a program reach, before any is checked

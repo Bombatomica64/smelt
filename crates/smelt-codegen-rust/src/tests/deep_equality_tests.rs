@@ -53,13 +53,14 @@ const GENERIC: &str = "interface Box<T> { value: T; label: string }\n\
 /// same program without the comparison plans none.
 #[test]
 fn a_generic_record_in_a_compared_list_is_planned() {
-    let compared =
-        format!("{VITEST}{GENERIC}test('same', () => {{ expect(boxes(1)).toEqual(boxes(1)); }});\n");
+    let compared = format!(
+        "{VITEST}{GENERIC}test('same', () => {{ expect(boxes(1)).toEqual(boxes(1)); }});\n"
+    );
     assert_eq!(planned_impls(&compared), vec!["Box".to_owned()]);
     let uncompared = format!(
         "{VITEST}{GENERIC}test('count', () => {{ expect(boxes(1).length).toEqual(1); }});\n"
     );
-    assert!(planned_impls(&uncompared).is_empty());
+    assert_eq!(planned_impls(&uncompared), Vec::<String>::new());
 }
 
 /// Rule: a by-value struct is compared field with field, and a shared record
@@ -106,7 +107,7 @@ fn a_record_with_a_callback_field_is_not_planned() {
          function slots(): Slot[] {{ const handler: Handler = {{ run: value => value + 1, name: 'h' }}; const slot: Slot = {{ handler, index: 0 }}; return [slot]; }}\n\
          test('same', () => {{ const all = slots(); expect(all).toEqual(all); }});\n"
     );
-    assert!(planned_impls(&ts).is_empty(), "{:?}", planned_impls(&ts));
+    assert_eq!(planned_impls(&ts), Vec::<String>::new());
 }
 
 /// The emitted impls: a by-value struct compares field with field (a number
