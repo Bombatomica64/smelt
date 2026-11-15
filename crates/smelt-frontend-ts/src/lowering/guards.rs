@@ -424,21 +424,6 @@ impl ModuleBuilder<'_> {
         let Expression::StringLiteral(kind_lit) = &binary.right else {
             return Ok(None);
         };
-        if kind_lit.value == "undefined"
-            && let Expression::Identifier(identifier) = &unary.argument
-            && self.names_host(identifier.name.as_str(), "crypto")
-        {
-            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-            let result = !matches!(
-                binary.operator,
-                BinaryOperator::StrictInequality | BinaryOperator::Inequality
-            );
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(result)),
-                ty: bool_ty,
-                span: self.span(binary.span.start, binary.span.end),
-            })));
-        }
         // Ambient globals that the default deterministic non-DOM, non-Node
         // profile models as *absent* (e.g. `Buffer`, accessed bare or through a
         // global alias as `globalThis.Buffer`). Their `typeof` existence guards
@@ -500,10 +485,32 @@ impl ModuleBuilder<'_> {
                 span: self.span(binary.span.start, binary.span.end),
             })));
         }
+        // An operand whose absent case is `null` (`lowering::null_absent`):
+        // `typeof null` is `"object"`, never `"undefined"`.
+        let argument_span = unary.argument.span();
+        let absent_is_null = self.checker_absent_is_null(argument_span.start, argument_span.end);
         if kind_lit.value == "undefined" {
             let value = self.expression(&unary.argument, body)?;
             let value_ty = Self::expr_ty(body, value);
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            if absent_is_null
+                && matches!(
+                    self.ctx.krate.types.get(value_ty),
+                    Some(Type::Optional(_) | Type::None)
+                )
+            {
+                let check = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty: bool_ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                });
+                return Ok(Some(self.typeof_comparison_result(
+                    binary.operator,
+                    check,
+                    binary.span,
+                    body,
+                )));
+            }
             if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_))) {
                 let check = body.push_expr(Expr {
                     kind: ExprKind::UnknownIs {
@@ -571,6 +578,61 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&unary.argument, body)?;
         let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        // A `null` (or a `T | null` holding it) is an `"object"`: the absent
+        // case matches exactly that kind.
+        if absent_is_null && expected == "object" {
+            let span = self.span(binary.span.start, binary.span.end);
+            let check = match self.ctx.krate.types.get(value_ty).cloned() {
+                Some(Type::None) => Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(true)),
+                    ty: bool_ty,
+                    span,
+                })),
+                Some(Type::Optional(inner)) => {
+                    let absent = body.push_expr(Expr {
+                        kind: ExprKind::UnknownIs {
+                            value,
+                            kind: UnknownKind::Null,
+                        },
+                        ty: bool_ty,
+                        span,
+                    });
+                    Some(match self.static_typeof_match(inner, &expected) {
+                        Some(true) => body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::Bool(true)),
+                            ty: bool_ty,
+                            span,
+                        }),
+                        Some(false) => absent,
+                        None => {
+                            let present = body.push_expr(Expr {
+                                kind: ExprKind::UnknownIs { value, kind },
+                                ty: bool_ty,
+                                span,
+                            });
+                            body.push_expr(Expr {
+                                kind: ExprKind::BinOp {
+                                    op: BinOp::Or,
+                                    lhs: absent,
+                                    rhs: present,
+                                },
+                                ty: bool_ty,
+                                span,
+                            })
+                        }
+                    })
+                }
+                _ => None,
+            };
+            if let Some(check) = check {
+                return Ok(Some(self.typeof_comparison_result(
+                    binary.operator,
+                    check,
+                    binary.span,
+                    body,
+                )));
+            }
+        }
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(value_ty).cloned()
             && self.static_typeof_match(inner, &expected) == Some(true)
         {

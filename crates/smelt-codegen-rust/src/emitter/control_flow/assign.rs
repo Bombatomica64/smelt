@@ -127,8 +127,8 @@ impl FunctionEmitter<'_> {
     fn dict_store_text(
         &self,
         base: LocalId,
-        base_ty: smelt_hir::TypeId,
-        key_ty: smelt_hir::TypeId,
+        base_ty: TypeId,
+        key_ty: TypeId,
         key_text: &RustExpr,
         value: &RustExpr,
     ) -> Result<String, EmitError> {

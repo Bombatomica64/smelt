@@ -16,8 +16,8 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        // `coerces`: the global `isNaN` converts its argument to a number; the
-        // `Number.*` predicates never do.
+        // `coerces`: the global `isNaN` and `isFinite` convert their argument
+        // to a number; the `Number.*` predicates never do.
         let (op, source_name, coerces) = match &call.callee {
             Expression::StaticMemberExpression(member) => {
                 let Expression::Identifier(object) = &member.object else {
@@ -48,6 +48,15 @@ impl ModuleBuilder<'_> {
                 }
                 (NumericPredicateOp::IsNaN, "isNaN".to_owned(), true)
             }
+            // The global `isFinite` converts its argument like `isNaN`.
+            Expression::Identifier(identifier)
+                if self.names_host(identifier.name.as_str(), "isFinite") =>
+            {
+                if self.builtin_call_identifier_is_shadowed(identifier.name.as_str()) {
+                    return Ok(None);
+                }
+                (NumericPredicateOp::IsFinite, "isFinite".to_owned(), true)
+            }
             _ => return Ok(None),
         };
         let [argument] = call.arguments.as_slice() else {
@@ -58,34 +67,21 @@ impl ModuleBuilder<'_> {
         };
         let mut operand = self.argument(argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        // `Number.isSafeInteger` does not coerce: ECMAScript answers `false` for
-        // every non-Number argument. Asserting an erased operand to `number`
-        // here would make `Number.isSafeInteger('1')` answer `true`, so the
-        // erased operand is carried through unchanged and the codegen tests its
-        // runtime tag instead.
-        // The `Number.*` predicates never coerce either: an absent value is
-        // not a number, so `Number.isNaN(x)` over `x: number | undefined` is
-        // `false` when `x` is absent (remeda `when((x) => Number.isNaN(x) ||
-        // x === undefined, ..)` asserted presence and panicked). An optional
-        // operand is carried through and tested where present.
-        let non_coercing_optional = !coerces
-            && matches!(
+        // The `Number.*` predicates never coerce: ECMAScript answers `false`
+        // for every argument that is not a Number, so `Number.isInteger("5")`
+        // is `false` although `Number("5")` is an integer, and an absent value
+        // is not a number (`Number.isNaN(x)` over `x: number | undefined`).
+        // Converting the operand to `number` first gave `"5"` the answer of
+        // `5`, `null` the answer of `0`, and panicked on a `string | number`
+        // operand holding a string. The operand is carried through at its own
+        // type and codegen tests it there: a present optional number, the
+        // number arms of a union, the runtime tag of an erased value; any
+        // other type is never a Number. Only the global `isNaN` converts.
+        if !coerces
+            && !matches!(
                 self.ctx.krate.types.get(operand_ty),
-                Some(Type::Optional(inner))
-                    if matches!(self.ctx.krate.types.get(*inner), Some(Type::Int | Type::Float))
-            );
-        if non_coercing_optional
-            || matches!(op, NumericPredicateOp::IsSafeInteger)
-                && matches!(
-                    self.ctx.krate.types.get(operand_ty),
-                    Some(
-                        Type::Unknown
-                            | Type::TypeParam { .. }
-                            | Type::Class { .. }
-                            | Type::Optional(_)
-                            | Type::Union(_)
-                    )
-                )
+                Some(Type::Int | Type::Float)
+            )
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(Some(body.push_expr(Expr {
@@ -111,9 +107,15 @@ impl ModuleBuilder<'_> {
                     )
                 )
             {
+                // The global `isNaN` applies `ToNumber` (`null` is `0`,
+                // `"12"` is `12`): the `Number(x)` conversion, not an
+                // assertion that the value already is a number.
                 let ty = self.ctx.krate.types.intern(Type::Float);
                 operand = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: operand },
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToJsNumber,
+                        operand,
+                    },
                     ty,
                     span: self.span(argument.span().start, argument.span().end),
                 });

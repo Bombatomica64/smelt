@@ -1,6 +1,7 @@
 //! Numeric emission helpers.
 
 use super::*;
+use crate::emitter::union::union_name;
 use crate::rust::RustExpr;
 use smelt_hir::NumericFormatMethod;
 
@@ -386,29 +387,54 @@ impl FunctionEmitter<'_> {
                 receiver.postfix(format!(".map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})"))
             });
         }
-        // `Number.isSafeInteger` performs NO type coercion: ECMAScript returns
-        // `false` for every argument whose type is not Number, so `'1'` is not a
-        // safe integer even though `Number('1')` is. An erased operand therefore
-        // has to be tested on its RUNTIME TAG rather than pushed through the
-        // number coercion the other predicates here use.
-        if matches!(op, smelt_hir::NumericPredicateOp::IsSafeInteger) && !is_numeric_operand {
-            let carries_runtime_tag = is_erased_operand
-                || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(_)));
-            if !carries_runtime_tag {
+        // The `Number.*` predicates perform NO type coercion: ECMAScript answers
+        // `false` for every argument whose type is not Number, so `'5'` is not
+        // an integer even though `Number('5')` is. The coercing globals
+        // (`isNaN`, `isFinite`) reach here with an operand the frontend
+        // already converted to a number, so a non-number operand is always a
+        // non-coercing predicate: a concrete union is tested on its number
+        // arms, an erased value on its runtime tag, and any other type is not
+        // a Number at all.
+        if !is_numeric_operand {
+            let test = match op {
+                smelt_hir::NumericPredicateOp::IsFinite => "smelt_value.is_finite()",
+                smelt_hir::NumericPredicateOp::IsInteger => {
+                    "smelt_value.is_finite() && smelt_value.fract() == 0.0"
+                }
+                smelt_hir::NumericPredicateOp::IsNaN => "smelt_value.is_nan()",
+                smelt_hir::NumericPredicateOp::IsSafeInteger => {
+                    "smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0"
+                }
+            };
+            if let Some(members) = self.concrete_union_members(operand_ty) {
+                let union_enum_name = union_name(operand_ty);
+                let number_arms = members
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, member)| {
+                        matches!(self.mir.types.get(**member), Some(Type::Int | Type::Float))
+                    })
+                    .map(|(index, _)| format!("{union_enum_name}::M{index}(smelt_value)"))
+                    .collect::<Vec<_>>();
+                if number_arms.is_empty() {
+                    return Ok(RustExpr::path("false"));
+                }
+                let value_text = self.operand_expr(operand)?;
+                return Ok(RustExpr::atom(format!(
+                    "(match &{value_text} {{ {arms} => {{ let smelt_value = *smelt_value as f64; {test} }}, _ => false }})",
+                    value_text = value_text.tight(),
+                    arms = number_arms.join(" | ")
+                )));
+            }
+            if !is_erased_operand {
                 return Ok(RustExpr::path("false"));
             }
             let value_text = self.value_at_type(operand, self.type_id(Type::Unknown)?)?;
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0, _ => false }})", value_text = value_text.delimited()
+                "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => {test}, _ => false }})", value_text = value_text.delimited()
             ))));
         }
-        let operand_expr = if is_numeric_operand {
-            self.float_operand_expr(operand)?
-        } else if is_erased_operand {
-            self.value_at_type(operand, self.type_id(Type::Float)?)?
-        } else {
-            return Ok(RustExpr::path("false"));
-        };
+        let operand_expr = self.float_operand_expr(operand)?;
         Ok(match op {
             smelt_hir::NumericPredicateOp::IsFinite => operand_expr.postfix(".is_finite()"),
             smelt_hir::NumericPredicateOp::IsInteger => RustExpr::loose(format!(
