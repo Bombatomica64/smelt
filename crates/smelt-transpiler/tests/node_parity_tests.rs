@@ -149,6 +149,13 @@ fn object_from_entries_iterables() -> TestResult {
     verify_node_parity("object_from_entries_iterables")
 }
 
+/// `push(a, b, ...xs)` evaluates every argument before appending any, and a
+/// multi-argument push inside a loop pushes that iteration's values.
+#[test]
+fn multi_argument_push() -> TestResult {
+    verify_node_parity("multi_argument_push")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

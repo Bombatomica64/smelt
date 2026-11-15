@@ -1695,6 +1695,26 @@ mod tests {
         format_compact(&mir)
     }
 
+    /// A retyped local read twice by one multi-argument op (`out.push(j, j)`)
+    /// optimizes to valid MIR and keeps its integer type. The frontend once
+    /// stored every push but the last in the body's ENTRY block, so the first
+    /// `j` was read before the loop assigned it; this pass then converted that
+    /// read and the validator rejected the function.
+    #[test]
+    fn multi_argument_push_of_a_retyped_loop_local_is_valid() {
+        let output = optimized(
+            "function f(): number[] { let i = 0; const out: number[] = []; \
+             while (i < 5) { const j = i; out.push(j, j); i = i + 2; } return out; }",
+        );
+        assert_eq!(binding_type(&output, "f", "j"), "usize", "{output}");
+        let body = output
+            .split("\n\n")
+            .find(|chunk| chunk.trim_start().starts_with("fn f "))
+            .unwrap_or_default();
+        assert_eq!(body.matches("list_extend").count(), 1, "{body}");
+        assert!(!body.contains("binding_check"), "{body}");
+    }
+
     /// The declared type of the user binding `name` in the MIR text of `function`.
     fn binding_type(output: &str, function: &str, name: &str) -> String {
         let header = format!("fn {function} ");
