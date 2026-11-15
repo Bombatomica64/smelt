@@ -14,6 +14,20 @@
 // `Object.is(-0, 0)` is `false`, so a caller that inspects the sign of a
 // zero must see the JavaScript answer. NaN and the infinities pass through
 // because `floor` already leaves them alone.
+// JavaScript `Math.max`/`Math.min` of two numbers. Rust's `f64::max`/`min`
+// answer the non-NaN operand and treat `-0` and `+0` as equal; JavaScript
+// answers `NaN` when either operand is `NaN`, and orders `-0` below `+0`, so
+// `Math.max(-0, 0)` is `+0` and `Math.min(0, -0)` is `-0`.
+// @smelt:item smelt_math_max when math_extrema
+/// JavaScript `Math.max` of two numbers.
+#[allow(dead_code)]
+fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_negative() { right } else { left } } else if left > right { left } else { right } }
+
+/// JavaScript `Math.min` of two numbers.
+#[allow(dead_code)]
+fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_positive() { right } else { left } } else if left < right { left } else { right } }
+// @smelt:item-end
+
 // @smelt:item smelt_math_round when math_round
 /// JavaScript `Math.round`: a tie rounds toward +∞, not away from zero.
 fn smelt_math_round(value: f64) -> f64 { let floor = value.floor(); let rounded = if value - floor >= 0.5 { floor + 1.0 } else { floor }; if rounded == 0.0 && value.is_sign_negative() { -0.0 } else { rounded } }

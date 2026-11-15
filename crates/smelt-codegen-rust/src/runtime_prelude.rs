@@ -272,6 +272,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "date_timezone_offset" => Need::DateTimezoneOffset,
         "date" => Need::Date,
         "math_round" => Need::MathRound,
+        "math_extrema" => Need::MathExtrema,
         "parse_number" => Need::ParseNumber,
         "js_string" => Need::JsString,
         "py_repr" => Need::PyRepr,

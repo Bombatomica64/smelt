@@ -720,6 +720,21 @@ mod number_family {
         assert!(smelt_math_round(-0.4).is_sign_negative(), "-0 keeps its sign");
     }
 
+    /// `Math.max`/`Math.min` answer `NaN` when either operand is `NaN`, and
+    /// order `-0` below `+0`.
+    #[test]
+    fn math_extrema_propagate_nan_and_order_signed_zero() {
+        assert!(smelt_math_max(1.0, f64::NAN).is_nan(), "NaN on the right");
+        assert!(smelt_math_max(f64::NAN, 1.0).is_nan(), "NaN on the left");
+        assert!(smelt_math_min(3.0, f64::NAN).is_nan(), "min propagates too");
+        assert!(smelt_math_max(-0.0, 0.0).is_sign_positive(), "+0 is the larger zero");
+        assert!(smelt_math_max(0.0, -0.0).is_sign_positive(), "in either order");
+        assert!(smelt_math_min(0.0, -0.0).is_sign_negative(), "-0 is the smaller zero");
+        assert!(smelt_math_min(-0.0, 0.0).is_sign_negative(), "in either order");
+        assert_eq!(smelt_math_max(2.0, 5.0), 5.0);
+        assert_eq!(smelt_math_min(2.0, f64::NEG_INFINITY), f64::NEG_INFINITY);
+    }
+
     /// `bigint` division by zero is a `RangeError`, not a panic.
     #[test]
     fn bigint_division_reports_range_error() {

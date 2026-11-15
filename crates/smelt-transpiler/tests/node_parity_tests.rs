@@ -165,6 +165,13 @@ fn to_string_rule() -> TestResult {
     verify_node_parity("to_string_rule")
 }
 
+/// `Math.max`/`Math.min` propagate `NaN` from any argument, scalar or spread,
+/// and order `-0` below `+0`.
+#[test]
+fn math_extrema() -> TestResult {
+    verify_node_parity("math_extrema")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

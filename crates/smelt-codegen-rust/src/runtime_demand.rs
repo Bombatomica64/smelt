@@ -89,6 +89,8 @@ declare_needs! {
     Date,
     /// JavaScript `Math.round`.
     MathRound,
+    /// JavaScript `Math.max`/`Math.min` of two numbers.
+    MathExtrema,
     /// The `parseInt`/`parseFloat` prefix parsers.
     ParseNumber,
     /// The `JsString` UTF-16 string type and its borrowed `JsStr` view.
