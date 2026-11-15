@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14238,
+      "concrete": 14244,
       "generic": 355,
-      "erased": 7056
+      "erased": 7050
     },
     "reads": {
       "concrete": 367,
@@ -12,9 +12,9 @@
       "erased": 978
     },
     "calls": {
-      "concrete": 2191,
+      "concrete": 2194,
       "generic": 63,
-      "erased": 1182
+      "erased": 1179
     }
   },
   "programs": {
@@ -10084,9 +10084,9 @@
     },
     "src/object/mapKeys.spec.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 23,
         "generic": 0,
-        "erased": 6
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -10094,9 +10094,9 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 3,
         "generic": 0,
-        "erased": 3
+        "erased": 0
       }
     },
     "src/object/mapKeys.ts": {

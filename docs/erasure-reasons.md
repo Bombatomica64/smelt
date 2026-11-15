@@ -15,7 +15,7 @@ with the source span it was lowering:
   compares against `unknown`, or rebuilds a type whose erasure was already
   decided upstream, uses `unknown_type()`, which records nothing.
 - Python frontend: `erase(reason, span, detail)` in `lowering/type_helpers.rs`.
-- Rust backend: `rust_type` records the four erasures only codegen decides
+- Rust backend: `rust_type` records the five erasures only codegen decides
   (`crates/smelt-codegen-rust/src/emitter/backend_erasure.rs`). Their span is
   the owning function's body (the entry block), because `rust_type` renders a
   `TypeId`, not a local; the detail names the type parameter, class or union.
@@ -52,6 +52,25 @@ The class follows the `SmeltUnknown boundaries` policy: legitimate when the
 **source** type is itself dynamic, avoidable when the source has a static shape
 Smelt failed to carry. Unknown names in a stale sidecar count as avoidable.
 `smelt_hir::erasure` tests pin the table (`reason_classes_follow_policy`).
+
+### `type-level` on an indexed access a call evaluates
+
+`T[K]` and `T[keyof T]` in the declared return of a function or an overload
+signature are evaluated by each call that binds `T`
+(`crates/smelt-frontend-ts/src/lowering/ty/deferred_index.rs`). Where the
+record sits follows what is emitted erased:
+
+- a function with a body is emitted with the access erased, so the record
+  stays at its annotation, whether or not its calls evaluate;
+- an overload signature emits nothing, so it has no record for such an access.
+  The record is made at each call that selects the overload and cannot
+  evaluate it (detail `indexed access not evaluable at this call`), and at an
+  unannotated implementation that takes the overload's erased return (detail
+  `indexed access in the overload return an implementation inherits`).
+
+So an overload nothing calls contributes no `type-level` record for the
+access, and a fall in this count is not by itself a gain in typed values: the
+typedness report measures that.
 
 ## Severities
 

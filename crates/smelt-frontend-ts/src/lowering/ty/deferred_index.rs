@@ -79,6 +79,18 @@ use smelt_hir::{ErasureReason, Symbol, Type, TypeId, TypeParamDef};
 use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::{has_lone_surrogate, js_str_text};
 
+/// What an annotation lowering does with an indexed access over a type
+/// parameter (`T[K]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::lowering) enum IndexedAccessMode {
+    /// Erase it (reason `type-level`): the lowering of every annotation that
+    /// types a value.
+    Erase,
+    /// Keep it as [`Type::IndexedAccess`]: the lowering of a signature's
+    /// return for its callers.
+    Defer,
+}
+
 /// Whether a type annotation spells an indexed access anywhere.
 #[derive(Default)]
 struct IndexedAccessFinder {
@@ -116,9 +128,9 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let records_before = self.ctx.krate.erasures.len();
-        let outer = std::mem::replace(&mut self.defer_indexed_access, true);
+        let outer = std::mem::replace(&mut self.indexed_access_mode, IndexedAccessMode::Defer);
         let lowered = self.ts_type_to_hir(&annotation.type_annotation);
-        self.defer_indexed_access = outer;
+        self.indexed_access_mode = outer;
         self.ctx.krate.erasures.truncate(records_before);
         lowered.ok().filter(|ty| self.mentions_indexed_access(*ty))
     }
@@ -140,9 +152,9 @@ impl ModuleBuilder<'_> {
             return Ok((self.ts_type_to_hir(&annotation.type_annotation)?, None));
         }
         let records_before = self.ctx.krate.erasures.len();
-        let outer = std::mem::replace(&mut self.defer_indexed_access, true);
+        let outer = std::mem::replace(&mut self.indexed_access_mode, IndexedAccessMode::Defer);
         let deferred = self.ts_type_to_hir(&annotation.type_annotation);
-        self.defer_indexed_access = outer;
+        self.indexed_access_mode = outer;
         let deferred = deferred.ok().filter(|ty| self.mentions_indexed_access(*ty));
         let deferred_records = self.ctx.krate.erasures.split_off(records_before);
         let erased = self.ts_type_to_hir(&annotation.type_annotation)?;
@@ -165,7 +177,7 @@ impl ModuleBuilder<'_> {
         object: TypeId,
         index: &TSType<'_>,
     ) -> Result<Option<TypeId>, crate::SmeltError> {
-        if !self.defer_indexed_access
+        if self.indexed_access_mode == IndexedAccessMode::Erase
             || !matches!(
                 self.ctx.krate.types.get(object),
                 Some(Type::TypeParam { .. } | Type::IndexedAccess { .. })

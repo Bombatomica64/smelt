@@ -739,6 +739,26 @@ mod type_children_tests {
         );
     }
 
+    /// An unevaluated indexed access is made of its object then its index:
+    /// the walks that substitute a call's bindings reach both, and it fixes
+    /// no runtime kind (it is not a value's type).
+    #[test]
+    fn indexed_access_holds_its_object_then_its_index() {
+        let access = Type::IndexedAccess {
+            object: id(1),
+            index: id(2),
+        };
+        assert_eq!(access.children().collect::<Vec<_>>(), [id(1), id(2)]);
+        assert_eq!(
+            access.try_map_children(|child| Some(TypeId(child.0 + 10))),
+            Some(Type::IndexedAccess {
+                object: id(11),
+                index: id(12),
+            })
+        );
+        assert_eq!(access.runtime_kind(), None);
+    }
+
     #[test]
     fn map_children_stops_when_a_child_is_declined() {
         let tuple = Type::Tuple(vec![id(1), id(2)]);

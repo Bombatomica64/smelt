@@ -18,66 +18,8 @@ use common::{
     utf8_path,
 };
 
-/// Build `source` as `src/main.ts`, run it, and return (generated Rust, stdout).
-fn build_and_run(crate_name: &str, source: &str) -> TestResult<(String, String)> {
-    let project = TempProject::new()?;
-    let project_path = project.path();
-    fs::create_dir_all(project_path.join("src"))?;
-    fs::write(
-        project_path.join("Smelt.toml"),
-        format!(
-            r#"[project]
-name = "deferred-index"
-version = "0.1.0"
-
-[sources]
-entries = ["src/main.ts"]
-
-[output]
-target = "./dist"
-crate-name = "{crate_name}"
-build = true
-
-[runtime]
-clone-strategy = "aggressive"
-"#
-        ),
-    )?;
-    fs::write(project_path.join("src/main.ts"), source)?;
-    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
-    smelt(&["--manifest-path", &manifest_arg, "build"])?;
-    let generated = fs::read_to_string(project_path.join("dist/src/source_main.rs"))?;
-    let stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
-    Ok((generated, stdout))
-}
-
-/// `generated` declares every local of `locals` (`name`, Rust type) with that type.
-fn ensure_locals(generated: &str, locals: &[(&str, &str)]) -> TestResult {
-    for (name, ty) in locals {
-        let declaration = format!("    let {name}: {ty};");
-        ensure(
-            generated.contains(&declaration),
-            format!("missing `{declaration}` in:\n{generated}"),
-        )?;
-    }
-    Ok(())
-}
-
-/// Rule (`deferred_index.rs`): the declared return of a function item that
-/// indexes a type parameter is evaluated by each call that binds it.
-///
-/// Behaviour: the program prints Node's output; `pluck` is emitted exactly as
-/// before (erased, the signature pinned below). Type preservation: each call
-/// result has the property's type: a literal key selects one property
-/// (`f64`, `JsString`, the `Point` record, `Option<JsString>` for an optional
-/// one), a `Record<string, number>` gives its value, `T[keyof T]` over a
-/// record whose properties share a type gives that type, the access keeps
-/// its place under `| undefined` and `Array<..>`, an access over an access
-/// evaluates inside out, and a key that is no literal takes the type the
-/// TypeScript checker resolved for the call.
-#[test]
-fn indexed_access_return_is_typed_at_each_call() -> TestResult {
-    let source = r#"// A declared return that indexes a type parameter is evaluated by each call
+/// Function items whose declared return indexes a type parameter.
+const ITEM_CALLS: &str = r#"// A declared return that indexes a type parameter is evaluated by each call
 // that binds the parameter; the declaration itself stays as it was.
 interface Point {
   x: number;
@@ -162,6 +104,156 @@ function run(): void {
 
 run();
 "#;
+
+/// Overloads whose return indexes a type parameter, over `any` implementations.
+const OVERLOAD_CALLS: &str = r#"// An overload's return that indexes a type parameter is evaluated by each
+// call that selects the overload; the `any` implementation is untouched.
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface Person {
+  name: string;
+  age: number;
+}
+
+function first<T>(value: readonly T[]): T;
+function first<T extends object>(value: T): T[keyof T];
+function first(value: any): any {
+  return Array.isArray(value) ? value[0] : value[Object.keys(value)[0]];
+}
+
+function field<T extends object, K extends keyof T>(value: T, key: K): T[K];
+function field(value: any, key: any): any {
+  return value[key];
+}
+
+// The implementation has no return annotation: it takes the overload's.
+function values<T extends object>(value: T): Array<T[keyof T]>;
+function values(value: any) {
+  return Object.values(value);
+}
+
+function run(): void {
+  const point: Point = { x: 1, y: 2 };
+  const person: Person = { name: "ada", age: 36 };
+  const ofList = first([4, 5]);
+  const ofPoint = first(point);
+  const ofPerson = first(person);
+  const age = field(person, "age");
+  const name = field(person, "name");
+  const all = values(point);
+  console.log(ofList + 1, ofPoint + 1, typeof ofPerson, age + 1, name.length, all.length, all[0] + all[1]);
+}
+
+run();
+"#;
+
+/// Calls the rule does not evaluate.
+const UNEVALUATED_CALLS: &str = r#"// Calls the rule does not evaluate keep the erased result they always had.
+interface Point {
+  x: number;
+  y: number;
+}
+
+class Counter {
+  count = 2;
+  bump(): number {
+    this.count += 1;
+    return this.count;
+  }
+}
+
+function pluck<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+
+function lastValue<T extends object>(obj: T): T[keyof T] {
+  const keys = Object.keys(obj);
+  return (obj as any)[keys[keys.length - 1]];
+}
+
+// Inside `forward`, the caller's own type parameter binds `T`: that call has
+// nothing to evaluate. A call of `forward` itself does.
+function forward<U extends object, K extends keyof U>(obj: U, key: K): U[K] {
+  const inner = pluck(obj, key);
+  return inner;
+}
+
+function run(): void {
+  const point: Point = { x: 1, y: 2 };
+  // `keyof Counter` names a method too, so no union of fields describes it.
+  const ofCounter = lastValue(new Counter());
+  const forwarded = forward(point, "y");
+  const mixed: Record<string, unknown> = { a: 1, b: "two" };
+  const ofUnknown = pluck(mixed, "b");
+  console.log(ofCounter, forwarded + 1, ofUnknown);
+}
+
+run();
+"#;
+
+/// Build `source` as `src/main.ts`, run it, and return (generated Rust, stdout).
+fn build_and_run(crate_name: &str, source: &str) -> TestResult<(String, String)> {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        format!(
+            r#"[project]
+name = "deferred-index"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "{crate_name}"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#
+        ),
+    )?;
+    fs::write(project_path.join("src/main.ts"), source)?;
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let generated = fs::read_to_string(project_path.join("dist/src/source_main.rs"))?;
+    let stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    Ok((generated, stdout))
+}
+
+/// `generated` declares every local of `locals` (`name`, Rust type) with that type.
+fn ensure_locals(generated: &str, locals: &[(&str, &str)]) -> TestResult {
+    for (name, ty) in locals {
+        let declaration = format!("    let {name}: {ty};");
+        ensure(
+            generated.contains(&declaration),
+            format!("missing `{declaration}` in:\n{generated}"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Rule (`deferred_index.rs`): the declared return of a function item that
+/// indexes a type parameter is evaluated by each call that binds it.
+///
+/// Behaviour: the program prints Node's output; `pluck` is emitted exactly as
+/// before (erased, the signature pinned below). Type preservation: each call
+/// result has the property's type: a literal key selects one property
+/// (`f64`, `JsString`, the `Point` record, `Option<JsString>` for an optional
+/// one), a `Record<string, number>` gives its value, `T[keyof T]` over a
+/// record whose properties share a type gives that type, the access keeps
+/// its place under `| undefined` and `Array<..>`, an access over an access
+/// evaluates inside out, and a key that is no literal takes the type the
+/// TypeScript checker resolved for the call.
+#[test]
+fn indexed_access_return_is_typed_at_each_call() -> TestResult {
+    let source = ITEM_CALLS;
     let expected = "2 ADA 3 true 40\n3 none\n3 number 2 3\n3\n3\n";
     let (generated, stdout) = build_and_run("indexed_access_return_is_typed_at_each_call", source)?;
     ensure(
@@ -210,49 +302,7 @@ run();
 /// is instantiated as before.
 #[test]
 fn overload_indexed_access_return_is_typed_at_each_call() -> TestResult {
-    let source = r#"// An overload's return that indexes a type parameter is evaluated by each
-// call that selects the overload; the `any` implementation is untouched.
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Person {
-  name: string;
-  age: number;
-}
-
-function first<T>(value: readonly T[]): T;
-function first<T extends object>(value: T): T[keyof T];
-function first(value: any): any {
-  return Array.isArray(value) ? value[0] : value[Object.keys(value)[0]];
-}
-
-function field<T extends object, K extends keyof T>(value: T, key: K): T[K];
-function field(value: any, key: any): any {
-  return value[key];
-}
-
-// The implementation has no return annotation: it takes the overload's.
-function values<T extends object>(value: T): Array<T[keyof T]>;
-function values(value: any) {
-  return Object.values(value);
-}
-
-function run(): void {
-  const point: Point = { x: 1, y: 2 };
-  const person: Person = { name: "ada", age: 36 };
-  const ofList = first([4, 5]);
-  const ofPoint = first(point);
-  const ofPerson = first(person);
-  const age = field(person, "age");
-  const name = field(person, "name");
-  const all = values(point);
-  console.log(ofList + 1, ofPoint + 1, typeof ofPerson, age + 1, name.length, all.length, all[0] + all[1]);
-}
-
-run();
-"#;
+    let source = OVERLOAD_CALLS;
     let expected = "5 2 string 37 3 2 3\n";
     let (generated, stdout) = build_and_run(
         "overload_indexed_access_return_is_typed_at_each_call",
@@ -296,48 +346,7 @@ run();
 /// typed.
 #[test]
 fn unevaluated_indexed_access_keeps_the_erased_result() -> TestResult {
-    let source = r#"// Calls the rule does not evaluate keep the erased result they always had.
-interface Point {
-  x: number;
-  y: number;
-}
-
-class Counter {
-  count = 2;
-  bump(): number {
-    this.count += 1;
-    return this.count;
-  }
-}
-
-function pluck<T, K extends keyof T>(obj: T, key: K): T[K] {
-  return obj[key];
-}
-
-function lastValue<T extends object>(obj: T): T[keyof T] {
-  const keys = Object.keys(obj);
-  return (obj as any)[keys[keys.length - 1]];
-}
-
-// Inside `forward`, the caller's own type parameter binds `T`: that call has
-// nothing to evaluate. A call of `forward` itself does.
-function forward<U extends object, K extends keyof U>(obj: U, key: K): U[K] {
-  const inner = pluck(obj, key);
-  return inner;
-}
-
-function run(): void {
-  const point: Point = { x: 1, y: 2 };
-  // `keyof Counter` names a method too, so no union of fields describes it.
-  const ofCounter = lastValue(new Counter());
-  const forwarded = forward(point, "y");
-  const mixed: Record<string, unknown> = { a: 1, b: "two" };
-  const ofUnknown = pluck(mixed, "b");
-  console.log(ofCounter, forwarded + 1, ofUnknown);
-}
-
-run();
-"#;
+    let source = UNEVALUATED_CALLS;
     let expected = "2 3 two\n";
     let (generated, stdout) =
         build_and_run("unevaluated_indexed_access_keeps_the_erased_result", source)?;
