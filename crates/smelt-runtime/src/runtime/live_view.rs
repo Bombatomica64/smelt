@@ -87,7 +87,7 @@ thread_local! {
 }
 
 /// The JavaScript string of the declared property name `name`.
-fn smelt_live_key(name: &'static str) -> JsString {
+fn smelt_live_field_name(name: &'static str) -> JsString {
     SMELT_LIVE_KEYS.with(|keys| keys.borrow_mut().entry((name.as_ptr() as usize, name.len())).or_insert_with(|| JsString::from(name)).clone())
 }
 
@@ -139,7 +139,7 @@ fn smelt_live_deep_eq<T: SmeltLiveObject + IntoSmeltUnknown>(left: T, right: T) 
 fn smelt_open_shape_write<R>(object: &dyn SmeltLiveObject, write: impl FnOnce(&mut SmeltOpenShape) -> R) -> R {
     let cell = object.smelt_live_cell();
     let exists = smelt_open_shape_read(object.smelt_live_address(), |_| ()).is_some();
-    let order = if exists { Vec::new() } else { object.smelt_field_entries().into_iter().map(|(key, _)| smelt_live_key(key)).collect() };
+    let order = if exists { Vec::new() } else { object.smelt_field_entries().into_iter().map(|(key, _)| smelt_live_field_name(key)).collect() };
     SMELT_OPEN_SHAPES.with(|shapes| {
         if shapes.borrow().wants_sweep(&cell) { smelt_sweep_address_table(shapes); }
         write(shapes.borrow_mut().slot(&cell, || SmeltOpenShape { order, extras: Vec::new(), deleted: Vec::new() }))
@@ -207,7 +207,7 @@ fn smelt_live_remove(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) {
 
 /// Every data property of the record behind a view, in the object's own-key order.
 fn smelt_live_entries(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<(JsString, SmeltUnknown)> {
-    let fields = object.smelt_field_entries().into_iter().map(|(key, value)| (smelt_live_key(key), value)).collect::<Vec<_>>();
+    let fields = object.smelt_field_entries().into_iter().map(|(key, value)| (smelt_live_field_name(key), value)).collect::<Vec<_>>();
     let Some((order, extras, deleted)) = smelt_open_shape_read(object.smelt_live_address(), |shape| (shape.order.clone(), shape.extras.clone(), shape.deleted.clone())) else { return fields };
     //~ A field shadowed by a value of another type is listed as that value.
     let mut fields = fields.into_iter().filter(|(key, _)| !deleted.contains(key) && !extras.iter().any(|(name, _)| name == key)).map(Some).collect::<Vec<_>>();
@@ -229,7 +229,7 @@ fn smelt_live_adopt(record: &dyn SmeltLiveObject, id: usize, entries: Vec<(JsStr
         *identities.borrow_mut().slot(&cell, || id) = id;
     });
     let names = record.smelt_field_names();
-    let present = record.smelt_field_entries().into_iter().map(|(key, _)| smelt_live_key(key)).collect::<Vec<_>>();
+    let present = record.smelt_field_entries().into_iter().map(|(key, _)| smelt_live_field_name(key)).collect::<Vec<_>>();
     let order = entries.iter().map(|(key, _)| key.clone()).filter(|key| present.contains(key) || !names.iter().any(|name| *key == **name)).collect::<Vec<_>>();
     let extras = entries.into_iter().filter(|(key, _)| !names.iter().any(|name| *key == **name)).collect::<Vec<_>>();
     if extras.is_empty() && order == present { return; }

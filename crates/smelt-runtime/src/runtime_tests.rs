@@ -1308,10 +1308,10 @@ mod live_view_family {
     fn declared_keys_that_share_storage_stay_distinct() {
         let text: &'static str = "tag-p";
         let (whole, tail, head) = (text, &text[4..], &text[..3]);
-        assert_eq!(smelt_live_key(whole).to_string_lossy(), "tag-p");
-        assert_eq!(smelt_live_key(tail).to_string_lossy(), "p");
-        assert_eq!(smelt_live_key(head).to_string_lossy(), "tag");
-        assert_eq!(smelt_live_key(tail).to_string_lossy(), "p", "the cached answer is the same");
+        assert_eq!(smelt_live_field_name(whole).to_string_lossy(), "tag-p");
+        assert_eq!(smelt_live_field_name(tail).to_string_lossy(), "p");
+        assert_eq!(smelt_live_field_name(head).to_string_lossy(), "tag");
+        assert_eq!(smelt_live_field_name(tail).to_string_lossy(), "p", "the cached answer is the same");
     }
 
     /// A symbol-keyed property is stored under a key in the runtime's own
