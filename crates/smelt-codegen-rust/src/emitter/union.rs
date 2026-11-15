@@ -449,7 +449,7 @@ impl FunctionEmitter<'_> {
             && structural
                 .iter()
                 .filter(|index| {
-                    self.union_member_structural_guard(members[**index], members, **index)
+                    self.union_member_structural_guard(members[**index], members, **index, "value")
                         .is_none()
                 })
                 .count()
@@ -1015,10 +1015,11 @@ impl FunctionEmitter<'_> {
                 ));
             } else {
                 let pattern = self.union_member_unknown_pattern(member);
-                let guard = match self.union_member_structural_guard(member, members, index) {
-                    Some(structural) => format!("matches!(value, {pattern}) && {structural}"),
-                    None => format!("matches!(value, {pattern})"),
-                };
+                let guard =
+                    match self.union_member_structural_guard(member, members, index, "value") {
+                        Some(structural) => format!("matches!(value, {pattern}) && {structural}"),
+                        None => format!("matches!(value, {pattern})"),
+                    };
                 body.push_str(&format!(
                     "        if {guard} {{ return Self::M{index}({extracted}); }}\n",
                     extracted = extracted.delimited()
@@ -1053,7 +1054,7 @@ impl FunctionEmitter<'_> {
                 return (0_u8, index);
             }
             let rank = if self
-                .union_member_structural_guard(member, members, index)
+                .union_member_structural_guard(member, members, index, "value")
                 .is_some()
             {
                 1
@@ -1098,6 +1099,7 @@ impl FunctionEmitter<'_> {
         member: TypeId,
         members: &[TypeId],
         index: usize,
+        binder: &str,
     ) -> Option<String> {
         let tag = self.union_member_unknown_pattern(member);
         let siblings = members
@@ -1126,21 +1128,21 @@ impl FunctionEmitter<'_> {
                 matches!(self.mir.types.get(*sibling), Some(Type::Tuple(other)) if other.len() == arity)
             });
             return if ambiguous {
-                self.tuple_element_kind_guard(items, &siblings)
+                self.tuple_element_kind_guard(items, &siblings, binder)
             } else {
                 Some(self.guard_format(format_args!(
-                    "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
+                    "(matches!(&{binder}, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
                 )))
             };
         }
         if let Some(Type::List(item)) = self.mir.types.get(member) {
-            return self.list_element_guard(*item, &siblings);
+            return self.list_element_guard(*item, &siblings, binder);
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
             return None;
         };
         if let Some(interface) = self.mir.interface_named(*name) {
-            return self.interface_member_structural_guard(interface, &siblings);
+            return self.interface_member_structural_guard(interface, &siblings, binder);
         }
         let fields = crate::classes::find_class(self.mir, *name).map(|class| {
             class
@@ -1159,7 +1161,7 @@ impl FunctionEmitter<'_> {
             })
             .map(|field| {
                 self.guard_format(format_args!(
-                    "matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({field:?}))"
+                    "matches!(&{binder}, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({field:?}))"
                 ))
             })
             .collect::<Vec<_>>();
@@ -1182,7 +1184,17 @@ impl FunctionEmitter<'_> {
     /// arm claimed every array and its element conversion demanded fields the
     /// elements do not have (ts-pattern's exhaustive `lists` spec threw
     /// `expected boolean, got undefined at ...[0].other`).
-    fn list_element_guard(&self, item: TypeId, siblings: &[TypeId]) -> Option<String> {
+    ///
+    /// `binder` is the expression of type `SmeltUnknown` the guard tests; the
+    /// element guard tests the closure's own `smelt_element` binder, passed
+    /// down rather than substituted into rendered text, so a nested list guard
+    /// or a string literal that happens to spell `&value,` is never rewritten.
+    fn list_element_guard(
+        &self,
+        item: TypeId,
+        siblings: &[TypeId],
+        binder: &str,
+    ) -> Option<String> {
         let mut items = vec![item];
         for sibling in siblings {
             let Some(Type::List(other)) = self.mir.types.get(*sibling) else {
@@ -1197,13 +1209,11 @@ impl FunctionEmitter<'_> {
             return None;
         }
         let pattern = self.union_member_unknown_pattern(item);
-        // The item guard is written against `value`; each element is tested
-        // under the reserved binder instead, so no program local can shadow it.
-        let element_guard = self
-            .union_member_structural_guard(item, &items, 0)?
-            .replace("&value,", "&smelt_element,");
+        // Each element is tested under the reserved closure binder, so no
+        // program local can shadow it.
+        let element_guard = self.union_member_structural_guard(item, &items, 0, "smelt_element")?;
         Some(self.guard_format(format_args!(
-            "(matches!(&value, SmeltUnknown::Array(smelt_items) if smelt_items.clone().into_vec().into_iter().all(|smelt_element| matches!(smelt_element, {pattern}) && {element_guard})))"
+            "(matches!(&{binder}, SmeltUnknown::Array(smelt_items) if smelt_items.clone().into_vec().into_iter().all(|smelt_element| matches!(smelt_element, {pattern}) && {element_guard})))"
         )))
     }
 
@@ -1217,7 +1227,12 @@ impl FunctionEmitter<'_> {
     /// Without it the first tuple arm claimed every array of that length, and
     /// its extraction retyped the elements: `['two', 'x']` recovered into
     /// `[1, number]` read `[null, null]` (ts-pattern's tuple-union specs).
-    fn tuple_element_kind_guard(&self, items: &[TypeId], siblings: &[TypeId]) -> Option<String> {
+    fn tuple_element_kind_guard(
+        &self,
+        items: &[TypeId],
+        siblings: &[TypeId],
+        binder: &str,
+    ) -> Option<String> {
         let fixed = |ty: TypeId| {
             let pattern = self.union_member_unknown_pattern(ty);
             (pattern != "SmeltUnknown::Null | SmeltUnknown::Undefined").then_some(pattern)
@@ -1245,7 +1260,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<String>();
         Some(self.guard_format(format_args!(
-            "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}{element_tests}))"
+            "(matches!(&{binder}, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}{element_tests}))"
         )))
     }
 
@@ -1270,6 +1285,7 @@ impl FunctionEmitter<'_> {
         &self,
         interface: &smelt_mir::MirInterface,
         siblings: &[TypeId],
+        binder: &str,
     ) -> Option<String> {
         let fields = crate::classes::effective_interface_fields(self.mir, interface);
         let mut tests = Vec::new();
@@ -1296,10 +1312,11 @@ impl FunctionEmitter<'_> {
                 });
             if absent_somewhere {
                 tests.push(self.guard_format(format_args!(
-                    "matches!(&value, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({key:?}))"
+                    "matches!(&{binder}, SmeltUnknown::Object(smelt_map) if smelt_map.contains_key({key:?}))"
                 )));
             }
-            if literal_disjoint && let Some(test) = Self::literal_field_test(key, literals) {
+            if literal_disjoint && let Some(test) = Self::literal_field_test(key, literals, binder)
+            {
                 tests.push(test);
             }
         }
@@ -1342,7 +1359,11 @@ impl FunctionEmitter<'_> {
 
     /// `value.key` is one of `literals`, as a runtime test on an erased object;
     /// `None` when a literal has no erased spelling to compare against.
-    fn literal_field_test(key: &str, literals: &[smelt_hir::Literal]) -> Option<String> {
+    fn literal_field_test(
+        key: &str,
+        literals: &[smelt_hir::Literal],
+        binder: &str,
+    ) -> Option<String> {
         let arms = literals
             .iter()
             .map(|literal| match literal {
@@ -1362,7 +1383,7 @@ impl FunctionEmitter<'_> {
             })
             .collect::<Option<Vec<_>>>()?;
         Some(format!(
-            "matches!(&value, SmeltUnknown::Object(smelt_map) if {})",
+            "matches!(&{binder}, SmeltUnknown::Object(smelt_map) if {})",
             arms.join(" || ")
         ))
     }

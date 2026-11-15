@@ -12,11 +12,7 @@ impl FunctionEmitter<'_> {
     /// arguments as a turbofish (`Base::<JsString>`), so building it from a
     /// coerced `Rc` never leaves the arguments to inference.
     fn handle_constructor_path(&self, ty: TypeId) -> Result<String, EmitError> {
-        let rendered = self.rendered_type(ty)?.as_str().to_owned();
-        Ok(match rendered.find('<') {
-            Some(index) => format!("{}::{}", &rendered[..index], &rendered[index..]),
-            None => rendered,
-        })
+        Ok(self.rendered_type(ty)?.expression_path())
     }
 
     /// The source and target class names of a class-to-class conversion

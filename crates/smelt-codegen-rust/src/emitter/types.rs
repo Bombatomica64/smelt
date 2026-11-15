@@ -746,10 +746,10 @@ impl FunctionEmitter<'_> {
             if declared_params == 0 {
                 Ok(RustType::raw(type_name))
             } else {
-                let placeholders = vec!["_"; declared_params].join(", ");
-                Ok(RustType::with_shape(
-                    format!("{type_name}<{placeholders}>"),
-                    RustShape::GenericClass,
+                let placeholder = RustType::raw("_");
+                Ok(RustType::generic_class(
+                    type_name,
+                    std::iter::repeat_n(&placeholder, declared_params),
                 ))
             }
         } else {
@@ -790,15 +790,7 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .filter_map(|index| rendered_args.get(*index))
                 .collect::<Vec<_>>();
-            let arg_text = carried_args
-                .iter()
-                .map(|arg| arg.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            Ok(
-                RustType::with_shape(format!("{type_name}<{arg_text}>"), RustShape::GenericClass)
-                    .holding(carried_args.iter().copied()),
-            )
+            Ok(RustType::generic_class(type_name, carried_args))
         }
     }
 
