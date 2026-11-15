@@ -15,20 +15,26 @@
 //! - a `smelt-typedness.json` sidecar (written by `smelt build` next to the
 //!   generated `src/`), or a directory holding one (directly, or as the parent
 //!   of a scanned `src/`): every file in it is a program;
-//! - a `Smelt.toml` manifest: lowered in-process, every source file is a
+//! - a manifest (any `.toml` file, `Smelt.toml` or another name such as
+//!   `Smelt-routers.toml`): lowered in-process, every source file is a
 //!   program (no Rust is generated or compiled);
-//! - a `.ts`/`.py` source file: lowered in-process with its local imports, the
-//!   whole crate is one program named by the path as given. This is how the
-//!   examples corpus (`examples/typescript/end-to-end/*/input.ts`) is measured
-//!   without a Rust build. A file that fails to lower is recorded as refused.
+//! - a `.ts`/`.mts`/`.cts`/`.py` source file: lowered in-process with its local
+//!   imports, the whole crate is one program named by the path as given. This
+//!   is how the examples corpus (`examples/typescript/end-to-end/*/input.ts`)
+//!   is measured without a Rust build.
+//!
+//! Any other extension is an error, and so is an input that fails to lower:
+//! the report stops and names the input, rather than recording a program it
+//! could not measure. (An old report recorded such a program as `null` with
+//! no message and exit 0, so a new example that never lowered could enter a
+//! baseline unjudged.)
 //!
 //! # The ratchet
 //!
 //! A program is *no less typed* than its baseline record when, for every kind
 //! (values, reads, calls), its erased count did not rise. The corpus total is
 //! judged the same way. A program with no baseline record is not judged; a
-//! program the baseline measured that is now refused is a regression, and so
-//! is a baseline program that was not measured at all: a program that vanished
+//! baseline program that was not measured at all is a regression: a program that vanished
 //! from the inputs left the ratchet without anyone deciding it should. With
 //! `--update-baseline`, the baseline is rewritten taking each program's new
 //! record only when it is no less typed, so a record whose erased count rose
@@ -64,8 +70,9 @@ use crate::{
 /// File name of the sidecar `smelt build` writes next to the generated `src/`.
 pub(crate) const SIDECAR_FILE_NAME: &str = "smelt-typedness.json";
 
-/// One program's record: its counts, or `None` when it failed to lower.
-pub(crate) type ProgramRecord = Option<TypednessCounts>;
+/// One program's record: its counts. A program that fails to lower stops the
+/// report (see the module docs, "Inputs"), so every record was measured.
+pub(crate) type ProgramRecord = TypednessCounts;
 
 /// A program's name in a report: a `/`-separated path with no `.` component,
 /// and `..` folded where it can be, so `./x.ts`, `x.ts` and `a/../x.ts` are one
@@ -164,7 +171,7 @@ pub(crate) struct TypednessReport {
     pub(crate) version: SchemaVersion<Self>,
     /// Sum over every measured program.
     pub(crate) total: TypednessCounts,
-    /// Per-program records, by name; `null` marks a refused program.
+    /// Per-program records, by name.
     #[serde(deserialize_with = "unique_programs")]
     pub(crate) programs: Programs,
 }
@@ -178,7 +185,7 @@ impl TypednessReport {
     /// Build a report from program records, computing the total.
     pub(crate) fn from_programs(programs: Programs) -> Self {
         let mut total = TypednessCounts::default();
-        for counts in programs.values().flatten() {
+        for counts in programs.values() {
             total.merge(*counts);
         }
         Self {
@@ -264,17 +271,28 @@ fn measure_input(path: &Path, defines: &[(String, String)]) -> CliResult<Program
     {
         return Ok(report::load_json::<TypednessReport>(path, "")?.programs);
     }
-    if path.file_name().is_some_and(|file| file == "Smelt.toml") {
-        return measure_manifest(path, defines);
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"))
+    {
+        return measure_manifest(path, defines)
+            .map_err(|error| format!("cannot measure manifest `{name}`: {error}").into());
     }
     // A single source program: the whole lowered crate is its record.
-    let record = lowering::ManifestLowering::for_file(&name)
-        .and_then(|lowering| lowering.check()?.into_measured().lower())
-        .ok()
-        .and_then(|lowered| pipeline::lower_to_optimized_mir(&lowered.krate).ok())
-        .and_then(|mir| smelt_codegen_rust::measure_typedness(&mir).ok())
-        .map(|measurement| measurement.total());
+    let record =
+        measure_source(&name).map_err(|error| format!("cannot measure `{name}`: {error}"))?;
     Ok(BTreeMap::from([(ProgramKey::new(&name), record)]))
+}
+
+/// Lower one source file in-process with its local imports and measure the
+/// whole crate. An unsupported extension and a lowering failure are errors.
+fn measure_source(name: &str) -> CliResult<TypednessCounts> {
+    let lowered = lowering::ManifestLowering::for_file(name)?
+        .check()?
+        .into_measured()
+        .lower()?;
+    let mir = pipeline::lower_to_optimized_mir(&lowered.krate)?;
+    Ok(smelt_codegen_rust::measure_typedness(&mir)?.total())
 }
 
 /// Lower a manifest in-process and measure every source file.
@@ -308,12 +326,10 @@ pub(crate) fn programs_of(
             .map(|component| component.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        let entry = programs
+        programs
             .entry(ProgramKey::new(&key))
-            .or_insert(Some(TypednessCounts::default()));
-        if let Some(entry) = entry {
-            entry.merge(*counts);
-        }
+            .or_default()
+            .merge(*counts);
     }
     programs
 }
@@ -413,20 +429,11 @@ pub(crate) fn compare(
         let Some(then) = baseline.programs.get(program) else {
             continue;
         };
-        match (record, then) {
-            (Some(now), Some(then)) => {
-                for detail in worsening(now, then) {
-                    worsened.push(Worsening {
-                        program: program.to_string(),
-                        detail,
-                    });
-                }
-            }
-            (None, Some(_)) => worsened.push(Worsening {
+        for detail in worsening(record, then) {
+            worsened.push(Worsening {
                 program: program.to_string(),
-                detail: "was measured, now refused (fails to lower)".to_owned(),
-            }),
-            (_, None) => {}
+                detail,
+            });
         }
     }
     for detail in worsening(&report.total, &baseline.total) {
@@ -453,11 +460,7 @@ pub(crate) fn updated_baseline(
         .map(|(program, record)| {
             let kept = baseline
                 .and_then(|baseline| baseline.programs.get(program))
-                .filter(|then| match (record, then) {
-                    (Some(now), Some(then)) => !worsening(now, then).is_empty(),
-                    (None, Some(_)) => true,
-                    _ => false,
-                });
+                .filter(|then| !worsening(record, then).is_empty());
             (program.clone(), kept.copied().unwrap_or(*record))
         })
         .collect();
@@ -483,18 +486,9 @@ fn render_markdown(
     let mut out = String::new();
     push_fmt(&mut out, format_args!("# Typedness report\n"));
     out.push('\n');
-    let measured = report
-        .programs
-        .values()
-        .filter(|record| record.is_some())
-        .count();
     push_fmt(
         &mut out,
-        format_args!(
-            "- Programs: {} ({measured} measured, {} refused)\n",
-            report.programs.len(),
-            report.programs.len().saturating_sub(measured)
-        ),
+        format_args!("- Programs: {}\n", report.programs.len()),
     );
     out.push('\n');
     push_fmt(
@@ -624,16 +618,16 @@ mod tests {
         // The update takes such a record.
         let baseline = TypednessReport::from_programs(BTreeMap::from([(
             ProgramKey::new("p.ts"),
-            Some(counts(5, 0, 2)),
+            counts(5, 0, 2),
         )]));
         let report = TypednessReport::from_programs(BTreeMap::from([(
             ProgramKey::new("p.ts"),
-            Some(counts(1, 0, 2)),
+            counts(1, 0, 2),
         )]));
         assert_eq!(compare(&report, &baseline, &[]), Vec::new());
         assert_eq!(
             updated_baseline(&report, Some(&baseline), &[]).programs["p.ts"],
-            Some(counts(1, 0, 2))
+            counts(1, 0, 2)
         );
     }
 
@@ -642,19 +636,19 @@ mod tests {
     #[test]
     fn a_vanished_program_is_judged_and_never_erased_silently() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
-            (ProgramKey::new("kept.ts"), Some(counts(5, 0, 1))),
-            (ProgramKey::new("gone.ts"), Some(counts(5, 0, 1))),
+            (ProgramKey::new("kept.ts"), counts(5, 0, 1)),
+            (ProgramKey::new("gone.ts"), counts(5, 0, 1)),
         ]));
         let report = TypednessReport::from_programs(BTreeMap::from([(
             ProgramKey::new("kept.ts"),
-            Some(counts(5, 0, 1)),
+            counts(5, 0, 1),
         )]));
 
         let worsened = compare(&report, &baseline, &[]);
         assert_eq!(worsened.len(), 1, "{worsened:?}");
         assert_eq!(worsened[0].program, "gone.ts");
         let updated = updated_baseline(&report, Some(&baseline), &[]);
-        assert_eq!(updated.programs["gone.ts"], Some(counts(5, 0, 1)));
+        assert_eq!(updated.programs["gone.ts"], counts(5, 0, 1));
         assert_eq!(
             updated.total, baseline.total,
             "a kept record still counts in the total"
@@ -676,18 +670,17 @@ mod tests {
         assert_eq!(share(KindCounts::new(4, 2, 1)), "85.7%");
     }
 
-    /// Programs are judged individually; new programs are not judged; a refused
-    /// program that used to be measured is a regression.
+    /// Programs are judged individually; new programs are not judged; a
+    /// baseline program no longer measured is judged as vanished.
     #[test]
     fn compare_judges_each_program_and_the_total() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
-            (ProgramKey::new("a.ts"), Some(counts(5, 0, 1))),
-            (ProgramKey::new("b.ts"), Some(counts(5, 0, 1))),
+            (ProgramKey::new("a.ts"), counts(5, 0, 1)),
+            (ProgramKey::new("b.ts"), counts(5, 0, 1)),
         ]));
         let report = TypednessReport::from_programs(BTreeMap::from([
-            (ProgramKey::new("a.ts"), Some(counts(5, 0, 2))),
-            (ProgramKey::new("b.ts"), None),
-            (ProgramKey::new("new.ts"), Some(counts(0, 0, 9))),
+            (ProgramKey::new("a.ts"), counts(5, 0, 2)),
+            (ProgramKey::new("new.ts"), counts(0, 0, 9)),
         ]));
         let worsened = compare(&report, &baseline, &[]);
         let programs = worsened
@@ -704,20 +697,20 @@ mod tests {
     #[test]
     fn update_never_snapshots_a_regression() {
         let baseline = TypednessReport::from_programs(BTreeMap::from([
-            (ProgramKey::new("worse.ts"), Some(counts(5, 0, 1))),
-            (ProgramKey::new("better.ts"), Some(counts(5, 0, 1))),
-            (ProgramKey::new("gone.ts"), Some(counts(1, 0, 0))),
+            (ProgramKey::new("worse.ts"), counts(5, 0, 1)),
+            (ProgramKey::new("better.ts"), counts(5, 0, 1)),
+            (ProgramKey::new("gone.ts"), counts(1, 0, 0)),
         ]));
         let report = TypednessReport::from_programs(BTreeMap::from([
-            (ProgramKey::new("worse.ts"), Some(counts(5, 0, 3))),
-            (ProgramKey::new("better.ts"), Some(counts(6, 0, 0))),
-            (ProgramKey::new("new.ts"), Some(counts(2, 0, 0))),
+            (ProgramKey::new("worse.ts"), counts(5, 0, 3)),
+            (ProgramKey::new("better.ts"), counts(6, 0, 0)),
+            (ProgramKey::new("new.ts"), counts(2, 0, 0)),
         ]));
         let updated = updated_baseline(&report, Some(&baseline), &[]);
-        assert_eq!(updated.programs["worse.ts"], Some(counts(5, 0, 1)));
-        assert_eq!(updated.programs["better.ts"], Some(counts(6, 0, 0)));
-        assert_eq!(updated.programs["new.ts"], Some(counts(2, 0, 0)));
-        assert_eq!(updated.programs["gone.ts"], Some(counts(1, 0, 0)));
+        assert_eq!(updated.programs["worse.ts"], counts(5, 0, 1));
+        assert_eq!(updated.programs["better.ts"], counts(6, 0, 0));
+        assert_eq!(updated.programs["new.ts"], counts(2, 0, 0));
+        assert_eq!(updated.programs["gone.ts"], counts(1, 0, 0));
     }
 
     /// Every spelling of one path is one program.
@@ -748,16 +741,16 @@ mod tests {
         let mut programs = Programs::new();
         merge_programs(
             &mut programs,
-            BTreeMap::from([(ProgramKey::new("x.ts"), None)]),
+            BTreeMap::from([(ProgramKey::new("x.ts"), counts(0, 0, 0))]),
         )
         .expect("first");
         let error = merge_programs(
             &mut programs,
-            BTreeMap::from([(ProgramKey::new("./x.ts"), None)]),
+            BTreeMap::from([(ProgramKey::new("./x.ts"), counts(0, 0, 0))]),
         )
         .expect_err("a duplicate is refused");
         assert!(error.contains("x.ts"), "{error}");
-        let text = r#"{"version":1,"total":{"values":{"concrete":0,"generic":0,"erased":0},"reads":{"concrete":0,"generic":0,"erased":0},"calls":{"concrete":0,"generic":0,"erased":0}},"programs":{"./x.ts":null,"x.ts":null}}"#;
+        let text = r#"{"version":1,"total":{"values":{"concrete":0,"generic":0,"erased":0},"reads":{"concrete":0,"generic":0,"erased":0},"calls":{"concrete":0,"generic":0,"erased":0}},"programs":{"./x.ts":{"values":{"concrete":0,"generic":0,"erased":0},"reads":{"concrete":0,"generic":0,"erased":0},"calls":{"concrete":0,"generic":0,"erased":0}},"x.ts":{"values":{"concrete":0,"generic":0,"erased":0},"reads":{"concrete":0,"generic":0,"erased":0},"calls":{"concrete":0,"generic":0,"erased":0}}}}"#;
         let parsed = serde_json::from_str::<TypednessReport>(text)
             .expect_err("duplicate spellings")
             .to_string();

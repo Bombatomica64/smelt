@@ -43,20 +43,27 @@ emitter because their bodies are emitted inside it.
 
 - sidecar `.json`, or a directory holding `smelt-typedness.json` (directly or as
   the parent of a `src/` root): every file is a program;
-- `Smelt.toml`: lowered in-process, every source file is a program;
-- `.ts`/`.py`: lowered in-process with its local imports; the whole crate is one
-  program named by the path as given (how the examples corpus is measured
-  without a Rust build); a file that fails to lower is recorded `null` (refused).
+- a manifest (any `.toml`, e.g. `Smelt.toml` or `Smelt-routers.toml`): lowered
+  in-process, every source file is a program;
+- `.ts`/`.mts`/`.cts`/`.py`: lowered in-process with its local imports; the
+  whole crate is one program named by the path as given (how the examples
+  corpus is measured without a Rust build).
+
+Any other extension, and any input that fails to lower, stops the report with
+an error naming the input. Earlier versions recorded such a program as `null`
+and exited 0, so a new example that never lowered entered the baseline
+unjudged.
 
 ## Ratchet
 
 A program is no less typed than its record when, for values, reads and calls,
 `erased(now) <= erased(then)`. The total is judged the same way. New programs
-are not judged; a measured program that is now refused is a regression.
+are not judged; a baseline program that is no longer measured is a regression
+until it is named with `--retire-program`.
 `--fail-on-regression` exits 1 listing each program and kind whose erased count
 rose. `--update-baseline` rewrites the baseline taking only records that are no
-less typed (Bun's `AOT_PROGRAMS_UPDATE=1`), dropping programs that no longer
-exist. The typed share `(concrete+generic)/total` is still reported per kind and
+less typed (Bun's `AOT_PROGRAMS_UPDATE=1`); a program no longer measured keeps
+its record until it is retired. The typed share `(concrete+generic)/total` is still reported per kind and
 in the change table, as information.
 
 ### Why the share no longer judges

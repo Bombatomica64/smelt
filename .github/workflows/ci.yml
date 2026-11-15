@@ -204,6 +204,16 @@ jobs:
             --baseline blocker-logs/clippy-baseline.json \
             --messages clippy.json --cargo-status "$status"
 
+      # The feature sets AGENTS.md and README.md recommend besides the default:
+      # a TypeScript-only CLI (`--no-default-features --features ts7`), and the
+      # build with no checker at all (`--no-default-features`). Deny-level
+      # lints (dead code behind a feature) fail them; nothing else builds them.
+      - name: Feature sets compile (no `ty`; no checker)
+        if: ${{ !cancelled() }}
+        run: |
+          cargo check -p smelt-transpiler --lib --no-default-features --features ts7
+          cargo check -p smelt-transpiler --lib --no-default-features
+
       # nextest does not run doctests; `cargo test` did. Same packages, same
       # target dir as the archive above.
       - name: Doctests of the selected packages
@@ -614,14 +624,14 @@ jobs:
   # importing them; the explicit Vitest import added to the disposable clone
   # keeps `typed.test.ts` discoverable without changing upstream sources, and
   # the globals-as-test-modules rule makes every other suite real: 387 tests
-  # (84 before that rule). Four still fail on shapes Smelt does not model yet
-  # (`as any` type-violating inputs x2, `Proxy` traps x1, and `omit function
-  # handles null keys`, which passes `null as unknown as []` where a tuple is
-  # declared) -- see blocker-logs/globals-suite-failures.md -- so the assertion
-  # below pins exactly those four failures until they land. The fourth passed
-  # only vacuously until the multi-line `export {..} from` dependency fix: `_.omit`
-  # had resolved to `undefined`, so the call did nothing. Type-violating test
-  # inputs stay unsupported.
+  # (84 before that rule). Six still fail, pinned exactly by the assertion
+  # below until they land (blocker-logs/globals-suite-failures.md):
+  # - four pass a value the declared parameter type cannot hold: `as any`
+  #   inputs (`boil` funky shape, `inRange` nullish) and `null as unknown as T[]`
+  #   (`omit` null keys, `diff` null root). Type-violating test inputs stay
+  #   unsupported.
+  # - two assert V8 stack-trace text (`AggregateError` "uses stack from ..."
+  #   expects `at fakeMicrotask` in `.stack`), which the runtime does not model.
 
   radash-regression:
     # Full mode only; see the banner above `remeda-regression`.

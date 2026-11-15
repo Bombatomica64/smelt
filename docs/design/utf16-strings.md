@@ -3,7 +3,9 @@
 Status: implemented in steps 0-7 (step 8, performance, was not needed); see "Implementation notes" and "Acceptance results"
 at the end for where the implementation departs from this design. Base: `origin/rw2-wrong-answers` at `f089c1eb`. That is
 the first branch carrying the string-index seam (`c5d98dce`). Every `file:line` below refers
-to that tree.
+to that tree. Some of those files are gone, as this plan intended: the runtime seam
+`crates/smelt-runtime/src/runtime/string_units.rs` was deleted in step 5 (`78f663358`), when
+`JsString` methods replaced the `smelt_utf16_*` helpers.
 
 Decision already taken by the user: a JavaScript string in generated Rust is stored as
 UTF-16 code units, as V8 stores it. This document says how. It does not reopen whether.

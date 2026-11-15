@@ -115,7 +115,7 @@
       "clippy::indexing_slicing": 22,
       "clippy::integer_division": 2,
       "clippy::print_stderr": 2,
-      "clippy::shadow_reuse": 19,
+      "clippy::shadow_reuse": 16,
       "clippy::shadow_unrelated": 35,
       "clippy::unwrap_used": 11,
       "unfulfilled_lint_expectations": 1,
