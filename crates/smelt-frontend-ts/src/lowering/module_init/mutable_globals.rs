@@ -681,7 +681,22 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the mutable-global HIR item id for a name, if it was lifted.
+    ///
+    /// This module's own slot answers first. Otherwise the name may be an
+    /// imported slot, which `items` carries under its local name. `items` is
+    /// seeded with every earlier module's items by bare name
+    /// (`visible_items`), so a same-named PRIVATE slot of another module is
+    /// in there too. A binding this module declares at its top level shadows
+    /// that slot, as JavaScript module scope does. Without this rule, date-fns'
+    /// `eo` locale read `en-US`'s `matchMonthPatterns` slot in place of its own
+    /// folded `matchMonthPatterns`.
     pub(in crate::lowering) fn mutable_global_item(&self, name: &str) -> Option<smelt_hir::ItemId> {
+        if let Some(item) = self.mutable_global_items.get(name).copied() {
+            return Some(item);
+        }
+        if self.source_facts.declares_module_value(name) {
+            return None;
+        }
         let item = self.items.get(name).copied()?;
         matches!(self.item_ref(item), Item::MutableGlobal(_)).then_some(item)
     }

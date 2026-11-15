@@ -633,3 +633,62 @@ fn library_gate_shapes_agree_with_node() -> TestResult {
         "`orFallback` inspects a bare `T` with `??`, so it stays erased",
     )
 }
+
+/// Module `a`: a private `patterns` handed out by `return`, so it is one module
+/// slot.
+const SHADOW_A_TS: &str = r#"const patterns: Record<string, number> = { x: 1 };
+export function getA(): Record<string, number> {
+  return patterns;
+}
+"#;
+
+/// Module `b`: its OWN private `patterns`, read inside an object literal
+/// argument as date-fns' locales read `matchMonthPatterns`. It is not handed
+/// out, so it stays a folded constant.
+const SHADOW_B_TS: &str = r#"const patterns: Record<string, number> = { x: 2 };
+function pick(o: { p: Record<string, number> }): number {
+  return o.p.x;
+}
+export function getB(): number {
+  return pick({ p: patterns });
+}
+"#;
+
+/// The entry: lowers `a` before `b`.
+const SHADOW_MAIN_TS: &str = r#"import { getA } from "./a.ts";
+import { getB } from "./b.ts";
+console.log(getA().x, getB());
+"#;
+
+/// A module's own binding shadows a same-named private slot of another module.
+///
+/// Requirement (behaviour): `b`'s `patterns` is `b`'s object, as JavaScript's
+/// module scope has it; Node prints `1 2`. Every builder sees earlier modules'
+/// items by bare name, and `b` used to read `a`'s slot (printing `1 1`): the
+/// date-fns `eo`/`fr`/`zh-*` locales matched with `en-US`'s patterns.
+/// Requirement (types): `a`'s slot stays a typed `SmeltRecord<JsString, f64>`.
+#[test]
+fn module_bindings_shadow_another_modules_private_slot() -> TestResult {
+    let sources = [
+        ("a.ts", SHADOW_A_TS),
+        ("b.ts", SHADOW_B_TS),
+        ("main.ts", SHADOW_MAIN_TS),
+    ];
+    let expected = "1 2\n";
+    let what = "module binding shadows another module's slot";
+    ensure_node_agrees(&sources, "main.ts", expected, what)?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    smelt_in(root, &["build"])?;
+    let output = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
+    ensure_eq(&output, &expected.to_owned(), what)?;
+    let mut all = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        all.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    ensure(
+        all.contains("::std::cell::RefCell<SmeltRecord<JsString, f64>>"),
+        "`a`'s `patterns` is one typed `SmeltRecord<JsString, f64>` slot",
+    )
+}
