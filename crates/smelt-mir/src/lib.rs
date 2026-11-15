@@ -67,7 +67,7 @@ pub use erased_record_promote::promote_erased_mutated_records;
 pub use format::format_compact;
 pub use list_escape::{
     BodyKey, BodyListEscape, EscapeReason, ListLocalClass, ListLocalFact, ReadOnlyArguments,
-    analyze_list_escapes, rvalue_mints_fresh_list,
+    analyze_list_escapes, rvalue_mints_fresh_list, rvalue_stored_operands,
 };
 pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
 pub use traversal::{Body, BodyOwner, Edge, MirBody, MirBodyMut, Read, ReadMut};

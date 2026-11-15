@@ -14,7 +14,8 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         match op {
-            smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => self.promise_all_expr(args),
+            smelt_hir::AsyncOp::All => self.promise_all_expr(args),
+            smelt_hir::AsyncOp::AllSettled => self.promise_all_settled_expr(args, dest_ty),
             smelt_hir::AsyncOp::Race => self.promise_race_expr(args, dest_ty),
             smelt_hir::AsyncOp::ExitDrain => Ok(RustExpr::atom(format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, {ERROR_BOX}>(()) }}))",
@@ -585,6 +586,90 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "{{ {hoisted}SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }})) }}"
         )))
+    }
+
+    /// `Promise.allSettled`: waits for every input and answers one settled
+    /// record per input, in input order, whether it fulfilled or rejected.
+    ///
+    /// A rejection is an entry, never the combinator's own rejection, and
+    /// awaiting the input handles it, so no input is reported unhandled. Each
+    /// record is built by `smelt_settled_result` over the erased value, then
+    /// converted to the entry type the frontend gave the call (the lowered
+    /// `PromiseSettledResult<T>`), which is the erased carrier itself wherever
+    /// that spelling lowers to it.
+    fn promise_all_settled_expr(
+        &self,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(Type::Future(output_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("Promise.allSettled must produce a future"));
+        };
+        let unknown = self.type_id(Type::Unknown)?;
+        // One settled input, `smelt_settled` of item type `item_ty`, as the
+        // entry type `entry_ty`.
+        let entry =
+            |future: &RustExpr, item_ty: TypeId, entry_ty: TypeId| -> Result<RustExpr, EmitError> {
+                let erased = self.erase_rendered(&RustExpr::path("smelt_value"), item_ty)?;
+                let record = RustExpr::atom(format!(
+                    "smelt_settled_result({future}.await.map(|smelt_value| {erased}))",
+                    future = future.tight(),
+                    erased = erased.delimited(),
+                ));
+                self.rendered_at_type(&record, unknown, entry_ty, &self.render_scope())
+            };
+        match self.mir.types.get(*output_ty) {
+            Some(Type::List(entry_ty)) => {
+                let [list] = args else {
+                    return Err(EmitError::new(
+                        "Promise.allSettled over a list takes one operand",
+                    ));
+                };
+                let Some(future_ty) = self.async_list_operand_item_type(list)? else {
+                    return Err(EmitError::new(
+                        "Promise.allSettled expects a list of promises",
+                    ));
+                };
+                let Some(Type::Future(item_ty)) = self.mir.types.get(future_ty) else {
+                    return Err(EmitError::new(
+                        "Promise.allSettled expects a list of promises",
+                    ));
+                };
+                let value = entry(&RustExpr::path("smelt_future"), *item_ty, *entry_ty)?;
+                Ok(RustExpr::atom(format!(
+                    "SmeltFuture::from_future(Box::pin(async move {{ let mut smelt_entries = Vec::new(); for smelt_future in {list} {{ smelt_entries.push({value}); }} Ok::<_, {ERROR_BOX}>(SmeltList::from(smelt_entries)) }}))",
+                    list = self.await_operand_expr(list)?.delimited(),
+                    value = value.delimited(),
+                )))
+            }
+            Some(Type::Tuple(entry_tys)) => {
+                let (hoisted, awaited) = self.hoisted_awaited_operands(args)?;
+                let values = args
+                    .iter()
+                    .zip(&awaited)
+                    .zip(entry_tys)
+                    .map(|((arg, future), entry_ty)| {
+                        let Some(Type::Future(item_ty)) = self.mir.types.get(self.operand_ty(arg)?)
+                        else {
+                            return Err(EmitError::new(
+                                "Promise.allSettled entries must be promises",
+                            ));
+                        };
+                        Ok(entry(future, *item_ty, *entry_ty)?.into_string())
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?;
+                let tuple = match values.as_slice() {
+                    [single] => format!("({single},)"),
+                    _ => format!("({})", values.join(", ")),
+                };
+                Ok(RustExpr::atom(format!(
+                    "{{ {hoisted}SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({tuple}) }})) }}"
+                )))
+            }
+            _ => Err(EmitError::new(
+                "Promise.allSettled must produce a tuple or a list",
+            )),
+        }
     }
 
     /// The operands of a combinator (`Promise.race`, `Promise.all`), each
