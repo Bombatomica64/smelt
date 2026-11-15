@@ -25,3 +25,9 @@ console.log(checkS("12"));
 const loose: unknown[] = ["12", "x", "", null, 4];
 console.log(loose.map((v) => isNaN(v as any)).join(","));
 console.log(loose.map((v) => isFinite(v as any)).join(","));
+
+// An optional erased value (`value?: any`) is tested on its tag too.
+function isLength(value?: any): boolean { return Number.isSafeInteger(value) && (value as number) >= 0; }
+console.log(isLength(3), isLength(-1), isLength("3"), isLength(), isLength(1.5));
+function nanOf(v?: unknown): boolean { return Number.isNaN(v); }
+console.log(nanOf(NaN), nanOf(), nanOf("NaN"));

@@ -440,7 +440,13 @@ impl FunctionEmitter<'_> {
                     arms = number_arms.join(" | ")
                 )));
             }
-            if !is_erased_operand {
+            // An optional erased value (`value?: any`) carries a runtime tag
+            // too: absent is `undefined`, which is not a Number.
+            let optional_erased = matches!(
+                self.mir.types.get(operand_ty),
+                Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
+            );
+            if !is_erased_operand && !optional_erased {
                 return Ok(RustExpr::path("false"));
             }
             // Genuine dynamic boundary: the operand is a value whose static type
