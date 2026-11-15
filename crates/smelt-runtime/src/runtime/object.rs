@@ -121,9 +121,14 @@ impl SmeltObject {
     //~ whose static type erased it) sets the date it is a view of, so every
     //~ alias, typed or erased, sees one object as in JavaScript.
 // @smelt:if date
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } /*@if live_views*/self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key, value) }
+    //~ A write a live view's record took is the record's alone: the view's
+    //~ cached entry is not written, since every read of it asks the record
+    //~ (`live_get`) or refreshes first (`sync`), and a view that only writes
+    //~ then allocates no store of its own. There is no previous value to
+    //~ answer with (the cache never was one).
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } /*@if live_views*/if self.store.live_set(&key, &value) { return None; } /*@end*/self.store.borrow_mut().insert(key, value) }
 // @smelt:else
-//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { /*@if live_views*/let key = key.into(); self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key.into(), value) }
+//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { /*@if live_views*/let key = key.into(); if self.store.live_set(&key, &value) { return None; } /*@end*/self.store.borrow_mut().insert(key.into(), value) }
 // @smelt:end
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| /*@if live_views*/{ self.store.sync(); self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key)/*@if live_views*/ }/*@end*/) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }

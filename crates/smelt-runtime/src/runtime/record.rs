@@ -169,7 +169,12 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
 // @smelt:end
     fn len(&self) -> usize { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys.len(); } /*@end*/self.store.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { /*@if live_views*/if let Some(found) = self.store.live_has(key) { return found; } /*@end*/self.store.borrow().contains_key(key) }
-    fn insert(&self, key: K, value: V) -> Option<V> { /*@if live_views*/self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key, value) }
+    //~ A write a live view's record took is the record's alone: the view's
+    //~ cached entry is not written, since every read of it asks the record
+    //~ (`live_get`) or refreshes first (`sync`), and a view that only writes
+    //~ then allocates no store of its own. There is no previous value to
+    //~ answer with (the cache never was one).
+    fn insert(&self, key: K, value: V) -> Option<V> { /*@if live_views*/if self.store.live_set(&key, &value) { return None; } /*@end*/self.store.borrow_mut().insert(key, value) }
     fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { /*@if live_views*/self.store.sync(); /*@end*//*@if live_views*/self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key) }
     fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { /*@if live_views*/self.store.live_get(key).or_store(|| /*@end*/self.store.borrow().get(key).cloned()/*@if live_views*/)/*@end*/ }
     fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }

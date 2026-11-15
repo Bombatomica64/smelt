@@ -4029,16 +4029,17 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            let store = values.store.borrow();
             let mut first = true;
-            for entry in store.entries() {
-                if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }
+            let mut write = |key: &JsStr, value: &SmeltUnknown, out: &mut String| -> Result<(), &'static str> {
+                if matches!(value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, key) { return Ok(()); }
                 if !first { out.push(','); }
                 first = false;
-                smelt_json_quote(&entry.key, out);
+                smelt_json_quote(key, out);
                 out.push(':');
-                smelt_json_write(&entry.value, out)?;
-            }
+                smelt_json_write(value, out)
+            };
+            let store = values.store.borrow();
+            for entry in store.entries() { write(&entry.key, &entry.value, out)?; }
             out.push('}');
         }
     }

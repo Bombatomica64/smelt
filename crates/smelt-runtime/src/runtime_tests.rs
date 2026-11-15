@@ -1325,6 +1325,25 @@ mod live_view_family {
         assert_eq!(replaced.len(), 0, "the record's new array, not the view's kept one");
     }
 
+    /// `JSON.stringify(view)` writes the record's properties as they are now,
+    /// in the object's own-key order, with what a view added and without
+    /// what one deleted. It reads the record directly (`live_data`), so it
+    /// needs no refresh of the view's cache to have run first.
+    #[test]
+    fn serializing_a_view_writes_the_record_as_it_is_now() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        let json = |object: &SmeltObject| smelt_json_stringify(&SmeltUnknown::Object(object.clone()));
+        assert_eq!(json(&erased), Ok(r#"{"x":1,"label":"a"}"#.to_owned()));
+        record.0.borrow_mut().x = 2.0;
+        assert_eq!(json(&erased), Ok(r#"{"x":2,"label":"a"}"#.to_owned()), "a later write to the record");
+        erased.insert("extra", SmeltUnknown::Bool(true));
+        erased.remove("x");
+        assert_eq!(json(&erased), Ok(r#"{"label":"a","extra":true}"#.to_owned()), "the open shape");
+        erased.insert("x", SmeltUnknown::Number(5.0));
+        assert_eq!(json(&view(&record)), Ok(r#"{"label":"a","extra":true,"x":5}"#.to_owned()), "through another view");
+    }
+
     /// `const typed = plain as Point`: the plain object becomes a view of the
     /// record built from it, keeping its identity, key order and extras.
     #[test]
