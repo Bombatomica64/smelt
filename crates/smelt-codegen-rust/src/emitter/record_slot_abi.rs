@@ -73,6 +73,9 @@ impl FunctionEmitter<'_> {
         let Type::Class { name, .. } = self.mir.types.get(record_ty)? else {
             return None;
         };
+        if let Some(nested) = self.nested_level_slot(*name, record_ty, field) {
+            return Some(nested);
+        }
         let (declared_ty, type_params) = crate::classes::find_class(self.mir, *name)
             .and_then(|class| {
                 let declared = crate::classes::effective_class_fields(self.mir, class)
@@ -101,6 +104,87 @@ impl FunctionEmitter<'_> {
             return None;
         }
         let bindings = bind_record_instantiation(self.mir, &names, record_ty);
+        Some((declared_ty, bindings))
+    }
+
+    /// Whether `field` of the record `record_ty` lives in a nested ancestor
+    /// level, whose slot keeps its declared ABI.
+    fn record_slot_is_nested(&self, record_ty: TypeId, field: Symbol) -> bool {
+        matches!(
+            self.mir.types.get(record_ty),
+            Some(Type::Class { name, .. }) if self.nested_slot_level(*name, field).is_some()
+        )
+    }
+
+    /// The ancestor level of a nested class layout (`crate::class_polymorphism`)
+    /// that stores `field`, when it is not `class`'s own level.
+    pub(super) fn nested_slot_level(&self, class: Symbol, field: Symbol) -> Option<Symbol> {
+        crate::class_polymorphism::storing_level(
+            self.mir,
+            self.context.polymorphic_classes(),
+            class,
+            field,
+        )
+    }
+
+    /// The declared slot of `field` when a nested ancestor level stores it:
+    /// that level's declared field type, and its type parameters bound to
+    /// what `class` passes up the chain (`Year extends Parser<number>` binds
+    /// `Parser`'s `T = f64`), read at `record_ty`'s own arguments.
+    ///
+    /// The nested record is that declaration instantiated, so its slot takes
+    /// a bare type parameter by reference (`Fn(&f64)`), while every value
+    /// and call the subclass builds is spelled at the substituted type, by
+    /// value; this is the declaration the bridging adapters need.
+    fn nested_level_slot(
+        &self,
+        class: Symbol,
+        record_ty: TypeId,
+        field: Symbol,
+    ) -> Option<(TypeId, CalleeTypeParamBindings)> {
+        let declaring = self.nested_slot_level(class, field)?;
+        let declaring_class = crate::classes::find_class(self.mir, declaring)?;
+        let declared_ty = crate::classes::effective_class_fields(self.mir, declaring_class)
+            .into_iter()
+            .find(|candidate| candidate.name == field)?
+            .ty;
+        let names: Vec<Symbol> = declaring_class
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect();
+        if names.is_empty() {
+            return None;
+        }
+        let through_chain = crate::classes::inherited_type_substitution(self.mir, class, declaring);
+        let own_params: Vec<Symbol> = crate::classes::find_class(self.mir, class)?
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect();
+        let own_bindings = (!own_params.is_empty())
+            .then(|| bind_record_instantiation(self.mir, &own_params, record_ty));
+        let mut declared = Vec::with_capacity(names.len());
+        let mut actual = Vec::with_capacity(names.len());
+        for name in &names {
+            let in_class_scope = *through_chain.get(name)?;
+            let mapped = match &own_bindings {
+                Some(bindings) if bindings.all_concrete() => {
+                    crate::generic_bindings::substituted_type_id_interning(
+                        self.mir,
+                        in_class_scope,
+                        bindings,
+                    )
+                    .unwrap_or(in_class_scope)
+                }
+                _ => in_class_scope,
+            };
+            declared.push(self.mir.types.intern_late(Type::TypeParam { name: *name }));
+            actual.push(Some(mapped));
+        }
+        let bindings = crate::generic_bindings::collect_bindings_from_types(
+            self.mir, &names, &declared, &actual,
+        );
         Some((declared_ty, bindings))
     }
 
@@ -168,6 +252,8 @@ impl FunctionEmitter<'_> {
         if declared_ty == field.ty {
             return Ok(None);
         }
+        let _declared_abi =
+            self.enter_declared_slot_abi(self.record_slot_is_nested(record_ty, field.name));
         let (Some(Type::Function(declared)), Some(Type::Function(rendered))) = (
             self.mir.types.get(declared_ty),
             self.mir.types.get(field.ty),
@@ -407,6 +493,44 @@ impl FunctionEmitter<'_> {
             return false;
         };
         source_declared == target_declared
+    }
+
+    /// The reverse of [`Self::record_slot_abi_adapter`]: a callable READ out
+    /// of `field`'s slot on `record_ty` (stored at the declared ABI), bridged
+    /// to the substituted field type the rest of the emitter spells it at.
+    /// `None` when the two ABIs agree.
+    pub(super) fn record_slot_read_at_substituted_abi(
+        &self,
+        value_text: &RustExpr,
+        record_ty: TypeId,
+        field: &MirField,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let Some((declared_ty, bindings)) = self.declared_record_field_slot(record_ty, field.name)
+        else {
+            return Ok(None);
+        };
+        if declared_ty == field.ty {
+            return Ok(None);
+        }
+        let _declared_abi =
+            self.enter_declared_slot_abi(self.record_slot_is_nested(record_ty, field.name));
+        let (Some(Type::Function(declared_function)), Some(Type::Function(rendered_function))) = (
+            self.mir.types.get(declared_ty),
+            self.mir.types.get(field.ty),
+        ) else {
+            return Ok(None);
+        };
+        if !self.slot_abis_differ(declared_function, rendered_function) {
+            return Ok(None);
+        }
+        let caller_scope = self.current_function_type_params();
+        let slot = TypeSubstitution::lexical(&caller_scope).with_bindings(&bindings);
+        let value_side = TypeSubstitution::lexical(&caller_scope);
+        Ok(Some(self.slot_abi_bridge(
+            value_text,
+            (declared_ty, &slot),
+            (field.ty, &value_side),
+        )?))
     }
 
     /// The record field a callee holds as it is: the field itself, or a

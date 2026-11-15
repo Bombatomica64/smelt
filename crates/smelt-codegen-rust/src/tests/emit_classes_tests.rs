@@ -542,8 +542,8 @@ const text = JSON.stringify(options);
 #[test]
 fn emits_virtual_method_slots_for_abstract_base_adapters() {
     // `ParseResult<T>` is an object-shaped alias that lowers to a real generic struct. The base
-    // declares the slot at its own `T`; the subclass's flattened layout stores it at the argument
-    // it binds. Classes with virtual slots are reference classes, read through the shared cell.
+    // declares the slot at its own `T`; the subclass nests the base record at the argument it
+    // binds. Classes with virtual slots are reference classes, read through the shared cell.
     let source = source_for(
         r#"
 type ParseResult<T> = { value: T };
@@ -580,14 +580,22 @@ export function read(): number {
 
     // `ParseResult<T>` is an object-shaped alias, which now lowers to a real
     // generic struct (it used to erase to `SmeltUnknown`). The base declares
-    // the slot at its own `T`; the subclass's flattened layout stores it at the
-    // argument it binds (`extends Parser<number>`).
+    // the slot at its own `T`.
+    //
+    // Old requirement: the subclass kept a flattened layout and stored a
+    // second `parse` slot at the argument it binds (`ParseResult<f64>`),
+    // because nesting would change the slot's ABI. New requirement: the
+    // hierarchy shares the polymorphic layout (`crate::class_polymorphism`),
+    // so the one slot lives in the nested base record instantiated at that
+    // argument (`ParserInner<f64>`), and every value the subclass stores
+    // there is bridged to the declared ABI (`emitter::record_slot_abi`).
     assert!(
         source.contains("parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<T>>"),
         "{source}"
     );
     assert!(
-        source.contains("parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>>"),
+        source.contains("__smelt_base: ParserInner<f64>")
+            && !source.contains("parse: ::std::rc::Rc<dyn Fn(JsString) -> ParseResult<f64>>,"),
         "{source}"
     );
     // The inherited `run` copy in `impl YearParser` spells `T` as `f64`: the

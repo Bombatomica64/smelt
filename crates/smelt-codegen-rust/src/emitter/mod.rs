@@ -175,6 +175,7 @@ mod primitive_cast;
 mod py_exception;
 mod receiver_bound_slot;
 mod record_slot_abi;
+mod redeclared_field;
 mod render_scope;
 mod rendered_value;
 mod rvalue;
@@ -769,11 +770,12 @@ impl EmitContext {
                         self.take_demotion_requested();
                         let strict = emitter.renders_real_generics()?;
                         let demotion_requested = self.take_demotion_requested();
-                        let generic = strict
+                        let generic = (strict
                             || (!demotion_requested
                                 && crate::generic_lifting::type_params_stay_opaque(mir, function)
                                 && emitter.signature_spells_own_type_params()?
-                                && emitter.erased_seams_keep_identity()?);
+                                && emitter.erased_seams_keep_identity()?))
+                            && !emitter.stores_null_at_own_optional();
                         let reads = self.generic_reads.take();
                         trials.insert(function.id, TrialOutcome { generic, reads });
                         trials
@@ -1715,6 +1717,12 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// The name a method is emitted under instead of its own: the copy a
     /// `super` call reaches (`classes::super_copy_name`).
     method_name: Option<String>,
+    /// Set while rendering the DECLARED side of a slot a nested base level
+    /// stores (`record_slot_abi`): a declaring base's bare type parameter then
+    /// keeps the by-reference ABI the nested record declares, instead of the
+    /// by-value ABI an inherited copy gives it everywhere else
+    /// (`callback_signature::param_type_is_by_shared_reference`).
+    declared_slot_abi: std::cell::Cell<bool>,
     /// Set while rendering text that is HOISTED to module level.
     ///
     /// `function_item_erased_accessor` builds the body of a module-level

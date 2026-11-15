@@ -2646,7 +2646,7 @@ fn build_keeps_same_named_type_params_of_two_generic_classes_distinct() -> TestR
     // substitution rewrote both, and the callback adapter declared
     // `Holder`'s `Value` erased: E0631/E0308 in the inherited `run` (12
     // errors). Behaviour: Node prints the two lines below. Types: the
-    // subclass's virtual slot takes the concrete `f64`.
+    // subclass's nested base record takes the concrete `f64`.
     let files: &[(&str, &str)] = &[(
         "src/main.ts",
         r#"class Holder<Value> {
@@ -2692,11 +2692,15 @@ console.log(negative === null ? "none" : negative.ok(), parser.run("x") === null
     let (project, manifest) = multi_module_project("type-param-identity", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
+    // Old requirement: the subclass kept a flattened layout with its own
+    // `accept` slot at `f64`. New requirement: the hierarchy shares the
+    // polymorphic layout, so the one slot is the base's (`Fn(&Value)`),
+    // stored in the nested base record at `f64` (`ParserInner<f64>`).
     let slots = generated_lines_with(&generated, "accept: ::std::rc::Rc<dyn Fn(");
     ensure(
-        slots.contains(&"accept: ::std::rc::Rc<dyn Fn(f64) -> bool>,")
-            && slots.contains(&"accept: ::std::rc::Rc<dyn Fn(&Value) -> bool>,"),
-        format!("the base slot takes `&Value` and the subclass's `f64`, got {slots:?}"),
+        slots == ["accept: ::std::rc::Rc<dyn Fn(&Value) -> bool>,"]
+            && generated.contains("__smelt_base: ParserInner<f64>"),
+        format!("the one slot is the base's, nested at `f64`, got {slots:?}"),
     )?;
     let stdout = cargo_run_manifest(&project.path().join("dist/Cargo.toml"))?;
     ensure_eq(
@@ -2956,15 +2960,25 @@ console.log(words.check("  hi "), words.check("   "), words.validate("x"));
     let (project, manifest) = multi_module_project("generic-abstract-base", true, files)?;
     smelt(&["--manifest-path", &manifest, "build"])?;
     let generated = generated_rust_text(project.path())?;
+    // Old requirement: each subclass kept a flattened layout with its own
+    // slot at its concrete argument (`Fn(f64)`, `Fn(JsString)`). New
+    // requirement: the hierarchy shares the polymorphic layout, so the one
+    // slot is the base's (`Fn(&Value)`), stored in the nested base record at
+    // each subclass's argument (`ParserInner<f64>`, `ParserInner<JsString>`);
+    // the subclasses' overrides are bridged to that ABI
+    // (`emitter::record_slot_abi`). Never `SmeltUnknown`.
     let slots = generated_lines_with(&generated, "validate: ::std::rc::Rc<dyn Fn(");
-    for expected in [
-        "validate: ::std::rc::Rc<dyn Fn(&Value) -> bool>,",
-        "validate: ::std::rc::Rc<dyn Fn(f64) -> bool>,",
-        "validate: ::std::rc::Rc<dyn Fn(JsString) -> bool>,",
+    ensure(
+        slots == ["validate: ::std::rc::Rc<dyn Fn(&Value) -> bool>,"],
+        format!("the one `validate` slot is the base's, got {slots:?}"),
+    )?;
+    for nested in [
+        "__smelt_base: ParserInner<f64>",
+        "__smelt_base: ParserInner<JsString>",
     ] {
         ensure(
-            slots.contains(&expected),
-            format!("missing slot `{expected}`, got {slots:?}"),
+            generated.contains(nested),
+            format!("a subclass nests the base record at its argument: `{nested}`"),
         )?;
     }
     ensure(

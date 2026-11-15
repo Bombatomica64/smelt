@@ -224,10 +224,15 @@ impl FunctionEmitter<'_> {
                         })?;
                     if self.param_passed_by_mut_ref(function, index) {
                         self.mutable_reference_argument_expr(arg, target_ty, None)
-                    } else if self.callback_param_is_shared_reference(
-                        function,
-                        index,
-                        abi_param(index, target_ty),
+                    } else if self.with_declared_slot_abi(
+                        slot_callee.is_some_and(|callee| self.callee_is_nested_slot(callee)),
+                        || {
+                            self.callback_param_is_shared_reference(
+                                function,
+                                index,
+                                abi_param(index, target_ty),
+                            )
+                        },
                     ) {
                         // The parameter is `&T` (see `callback_param_is_shared_reference`).
                         self.shared_reference_argument_expr(arg, target_ty)

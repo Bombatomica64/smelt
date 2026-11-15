@@ -879,3 +879,141 @@ fn adjacent_hierarchy_shapes_run() -> TestResult {
         "the abstract generic method and its implementation are Rust generics",
     )
 }
+
+/// A subclass fixing a base type parameter a callable slot takes bare
+/// (`YearParser extends Parser<number>` over `validate: (value: V) =>
+/// boolean`, the date-fns parser shape) shares the polymorphic layout: an
+/// upcast is the same object, a write through either static type is seen
+/// through the other, and the override reached through the base runs.
+const FIXED_SLOT_PARAMETER_TS: &str = r#"abstract class Parser<V> {
+  hits = 0;
+  abstract parse(text: string): V;
+  validate(value: V): boolean {
+    return value !== undefined;
+  }
+  run(text: string): V | undefined {
+    this.hits += 1;
+    const value = this.parse(text);
+    return this.validate(value) ? value : undefined;
+  }
+}
+class YearParser extends Parser<number> {
+  parse(text: string): number {
+    return Number(text);
+  }
+  validate(value: number): boolean {
+    return value > 1000;
+  }
+}
+class WordParser extends Parser<string> {
+  parse(text: string): string {
+    return text.trim();
+  }
+}
+const year = new YearParser();
+const asBase: Parser<number> = year;
+console.log(asBase.run("2024"), asBase.run("12"), year.hits, asBase === year);
+year.hits = 10;
+console.log(asBase.hits, asBase.validate(5000), year instanceof Parser);
+const years: Parser<number>[] = [year];
+const word = new WordParser();
+console.log(years[0].run("1999"), word.run(" 1999 "), years[0] === year, word.hits);
+"#;
+
+/// What Node prints for [`FIXED_SLOT_PARAMETER_TS`].
+const FIXED_SLOT_PARAMETER_OUTPUT: &str = "2024 undefined 2 true\n10 true true\n1999 1999 true 1\n";
+
+/// The fixed-parameter hierarchy nests its base record and keeps the slot at
+/// the declared ABI.
+#[test]
+fn fixed_slot_parameter_hierarchies_share_one_object() -> TestResult {
+    let all = agrees_with_node(
+        FIXED_SLOT_PARAMETER_TS,
+        FIXED_SLOT_PARAMETER_OUTPUT,
+        "fixed slot parameter",
+    )?;
+    ensure(
+        all.contains("struct Parser<V>(::std::rc::Rc<dyn ParserSmeltCell<V>>);"),
+        "`Parser` is a polymorphic handle",
+    )?;
+    ensure(
+        all.contains("__smelt_base: ParserInner<f64>")
+            && all.contains("__smelt_base: ParserInner<JsString>"),
+        "each subclass nests the base record at its argument",
+    )
+}
+
+/// A subclass redeclaring an inherited field narrower shares the polymorphic
+/// layout: the one stored property is read through a checked downcast to the
+/// subclass's type and written through an upcast, so a write through either
+/// static type is seen through the other.
+const REDECLARED_FIELD_TS: &str = r#"class Animal {
+  name: string;
+  food: string | number = "seeds";
+  constructor(name: string) {
+    this.name = name;
+  }
+  feed(food: string | number): void {
+    this.food = food;
+  }
+  describe(): string {
+    return `${this.name} eats ${this.food}`;
+  }
+}
+class Dog extends Animal {
+  declare food: string;
+  shout(): string {
+    return this.food.toUpperCase();
+  }
+  treat(): void {
+    this.food = "bone";
+  }
+}
+class Box {
+  value: unknown = 0;
+  set(v: unknown): void {
+    this.value = v;
+  }
+}
+class NumBox extends Box {
+  value: number = 3;
+  double(): number {
+    return this.value * 2;
+  }
+}
+const dog = new Dog("rex");
+const animal: Animal = dog;
+animal.feed("meat");
+console.log(dog.shout(), animal.describe(), animal === dog);
+dog.treat();
+console.log(animal.food, dog.describe());
+const nb = new NumBox();
+const box: Box = nb;
+console.log(nb.double(), box.value);
+box.set(10);
+console.log(nb.double(), box === nb, JSON.stringify(box));
+"#;
+
+/// What Node prints for [`REDECLARED_FIELD_TS`].
+const REDECLARED_FIELD_OUTPUT: &str =
+    "MEAT rex eats meat true\nbone rex eats bone\n6 3\n20 true {\"value\":10}\n";
+
+/// The redeclaring hierarchies nest their base records; the subclass stores
+/// no second copy of the field.
+#[test]
+fn redeclared_fields_share_one_property() -> TestResult {
+    let all = agrees_with_node(
+        REDECLARED_FIELD_TS,
+        REDECLARED_FIELD_OUTPUT,
+        "redeclared field",
+    )?;
+    ensure(
+        all.contains("struct Animal(::std::rc::Rc<dyn AnimalSmeltCell>);")
+            && all.contains("struct Box_(::std::rc::Rc<dyn Box_SmeltCell>);"),
+        "`Animal` and `Box` (renamed `Box_`, a prelude name) are polymorphic handles",
+    )?;
+    ensure(
+        all.contains("__smelt_base: AnimalInner") && all.contains("__smelt_base: Box_Inner"),
+        "each subclass nests its base record",
+    )
+}

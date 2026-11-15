@@ -542,6 +542,7 @@ pub(crate) fn emit_reference_record_storage(
             writer,
             mir,
             context,
+            *declared_name,
             name,
             impl_generics,
             type_args,
@@ -657,6 +658,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
     writer: &mut CodeWriter,
     mir: &Mir,
     context: &EmitContext,
+    class: smelt_hir::Symbol,
     name: &str,
     impl_generics: &str,
     type_args: &str,
@@ -740,10 +742,19 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         .get(field.name)
                         .or_else(|| mir.symbols.get(field.name))
                         .unwrap_or("field");
+                    // A field a subclass redeclares narrower is stored, and so
+                    // read here, at its declaring level's type.
+                    let stored_ty = crate::class_polymorphism::redeclared_field_storage(
+                        mir,
+                        context.polymorphic_classes(),
+                        class,
+                        field.name,
+                    )
+                    .unwrap_or(field.ty);
                     let value = record_field_unknown_expr(
                         mir,
                         &RustExpr::path(format!("__smelt_inner.{field_name}")).cloned_value(),
-                        field.ty,
+                        stored_ty,
                     )
                     .unwrap_or_else(|_| RustExpr::atom("SmeltUnknown::Null"));
                     // A closure capturing this instance weakly must hold it

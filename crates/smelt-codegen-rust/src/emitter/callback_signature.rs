@@ -86,8 +86,15 @@ impl FunctionEmitter<'_> {
             // ..except a declaring base's parameter inside an inherited copy,
             // which IS its argument in the receiving class (the layout stores
             // the slot at that type; `classes::effective_class_fields`).
+            //
+            // A slot a nested base level stores is the exception to the
+            // exception: the nested record holds it at the declaration,
+            // `Fn(&T)` instantiated, so while its declared side is rendered
+            // (`Self::with_declared_slot_abi`) the parameter stays by
+            // reference.
             Some(Type::TypeParam { name }) => self.inherited_bound(*name).is_none_or(|bound| {
-                self.with_inherited_bound(|| self.param_type_is_by_shared_reference(bound))
+                self.declared_slot_abi.get()
+                    || self.with_inherited_bound(|| self.param_type_is_by_shared_reference(bound))
             }),
             // Everything else is decided on the RENDERED Rust type rather than the
             // source variant, because several source spellings share one Rust type.
@@ -105,6 +112,41 @@ impl FunctionEmitter<'_> {
                 )
             }
         }
+    }
+
+    /// Run `render` with a nested slot's DECLARED ABI in force (see the
+    /// `declared_slot_abi` field); the previous state is restored afterwards.
+    pub(super) fn with_declared_slot_abi<R>(&self, active: bool, render: impl FnOnce() -> R) -> R {
+        let _guard = self.enter_declared_slot_abi(active);
+        render()
+    }
+
+    /// Put a nested slot's DECLARED ABI in force until the guard drops
+    /// (see [`Self::with_declared_slot_abi`]).
+    pub(super) fn enter_declared_slot_abi(&self, active: bool) -> DeclaredSlotAbiGuard<'_> {
+        let previous = self
+            .declared_slot_abi
+            .replace(active || self.declared_slot_abi.get());
+        DeclaredSlotAbiGuard {
+            cell: &self.declared_slot_abi,
+            previous,
+        }
+    }
+
+    /// Whether `callee` reads a slot that a nested base level stores
+    /// (`record_slot_abi`), so it is called at that level's declared ABI.
+    pub(super) fn callee_is_nested_slot(&self, callee: &Operand) -> bool {
+        let (Operand::Copy(Place::Field { base, field })
+        | Operand::Move(Place::Field { base, field })) = callee
+        else {
+            return false;
+        };
+        self.local_decl(*base).is_ok_and(|decl| {
+            matches!(
+                self.mir.types.get(decl.ty),
+                Some(Type::Class { name, .. }) if self.nested_slot_level(*name, *field).is_some()
+            )
+        })
     }
 
     /// Wrap one already-rendered callback argument for a by-shared-reference
@@ -419,5 +461,20 @@ impl FunctionEmitter<'_> {
             return self.rendered_type(ty);
         }
         self.param_type(ty)
+    }
+}
+
+/// Restores the previous declared-slot-ABI state when dropped
+/// (see `FunctionEmitter::enter_declared_slot_abi`).
+pub(super) struct DeclaredSlotAbiGuard<'a> {
+    /// The emitter's flag.
+    cell: &'a std::cell::Cell<bool>,
+    /// Its value before the guard was entered.
+    previous: bool,
+}
+
+impl Drop for DeclaredSlotAbiGuard<'_> {
+    fn drop(&mut self) {
+        self.cell.set(self.previous);
     }
 }
