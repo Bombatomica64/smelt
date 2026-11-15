@@ -1734,3 +1734,10 @@ fn union_arm_recovery() -> TestResult {
 fn json_stringify_any_value() -> TestResult {
     verify_node_parity("json_stringify_any_value")
 }
+
+/// A callable parameter (a construct-or-call union, a `Map` value) the
+/// function stores enters owned: `seen.push(make)` / `map.set(k, cb)`.
+#[test]
+fn construct_or_call_params() -> TestResult {
+    verify_node_parity("construct_or_call_params")
+}
