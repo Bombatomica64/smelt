@@ -142,7 +142,28 @@ impl FunctionEmitter<'_> {
             // wrapper has the read's type, so it converts the stored
             // callable's result the way a direct call through the field
             // does (see `declared_slot_return_is_erased`).
-            let direct_call = RustExpr::atom(format!("(smelt_bound_callee)({params})"));
+            // The wrapper has the callee's substituted type, which every local
+            // and call site of the bound value agrees on; a callee stored in a
+            // generic record's slot is called at the slot's DECLARED ABI, so
+            // each argument is bridged across that seam as it is forwarded
+            // (`apply: (fn: (value: T) => T) => T` at `T = number` wants
+            // `Fn(&f64)` callbacks, the wrapper receives `Fn(f64)` ones).
+            let forwarded_args = function
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    self.slot_argument_at_declared_abi(
+                        callee,
+                        index,
+                        *param,
+                        RustExpr::path(format!("smelt_bound_arg_{index}")),
+                    )
+                    .map(RustExpr::into_string)
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
+            let direct_call = RustExpr::atom(format!("(smelt_bound_callee)({forwarded_args})"));
             let forwarded = if self.declared_slot_return_is_erased(callee, &function) {
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 self.rendered_at_type(
