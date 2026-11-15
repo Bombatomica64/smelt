@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14105,
+      "concrete": 14229,
       "generic": 351,
       "erased": 7072
     },
@@ -224,7 +224,7 @@
     },
     "src/array/chunk.spec.ts": {
       "values": {
-        "concrete": 65,
+        "concrete": 66,
         "generic": 0,
         "erased": 37
       },
@@ -632,7 +632,7 @@
     },
     "src/array/filterAsync.spec.ts": {
       "values": {
-        "concrete": 95,
+        "concrete": 98,
         "generic": 0,
         "erased": 17
       },
@@ -700,7 +700,7 @@
     },
     "src/array/flatMapAsync.spec.ts": {
       "values": {
-        "concrete": 97,
+        "concrete": 100,
         "generic": 0,
         "erased": 35
       },
@@ -836,7 +836,7 @@
     },
     "src/array/forEachAsync.spec.ts": {
       "values": {
-        "concrete": 62,
+        "concrete": 65,
         "generic": 0,
         "erased": 17
       },
@@ -1295,7 +1295,7 @@
     },
     "src/array/mapAsync.spec.ts": {
       "values": {
-        "concrete": 64,
+        "concrete": 67,
         "generic": 0,
         "erased": 26
       },
@@ -1533,7 +1533,7 @@
     },
     "src/array/reduceAsync.spec.ts": {
       "values": {
-        "concrete": 181,
+        "concrete": 190,
         "generic": 0,
         "erased": 59
       },
@@ -8656,7 +8656,7 @@
     },
     "src/function/ary.spec.ts": {
       "values": {
-        "concrete": 17,
+        "concrete": 19,
         "generic": 0,
         "erased": 62
       },
@@ -9115,7 +9115,7 @@
     },
     "src/function/partial.spec.ts": {
       "values": {
-        "concrete": 89,
+        "concrete": 95,
         "generic": 4,
         "erased": 117
       },
@@ -9149,7 +9149,7 @@
     },
     "src/function/partialRight.spec.ts": {
       "values": {
-        "concrete": 53,
+        "concrete": 59,
         "generic": 4,
         "erased": 117
       },
@@ -9183,7 +9183,7 @@
     },
     "src/function/rest.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 11,
         "generic": 0,
         "erased": 57
       },
@@ -9217,7 +9217,7 @@
     },
     "src/function/retry.spec.ts": {
       "values": {
-        "concrete": 84,
+        "concrete": 85,
         "generic": 0,
         "erased": 138
       },
@@ -9319,7 +9319,7 @@
     },
     "src/function/unary.spec.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 0,
         "erased": 24
       },
@@ -9863,7 +9863,7 @@
     },
     "src/object/clone.spec.ts": {
       "values": {
-        "concrete": 211,
+        "concrete": 220,
         "generic": 0,
         "erased": 65
       },
@@ -9897,7 +9897,7 @@
     },
     "src/object/cloneDeep.spec.ts": {
       "values": {
-        "concrete": 293,
+        "concrete": 304,
         "generic": 0,
         "erased": 123
       },
@@ -9931,7 +9931,7 @@
     },
     "src/object/cloneDeepWith.spec.ts": {
       "values": {
-        "concrete": 74,
+        "concrete": 84,
         "generic": 0,
         "erased": 92
       },
@@ -10152,7 +10152,7 @@
     },
     "src/object/merge.spec.ts": {
       "values": {
-        "concrete": 98,
+        "concrete": 112,
         "generic": 0,
         "erased": 86
       },
@@ -10186,7 +10186,7 @@
     },
     "src/object/mergeWith.spec.ts": {
       "values": {
-        "concrete": 92,
+        "concrete": 103,
         "generic": 0,
         "erased": 77
       },
@@ -10390,7 +10390,7 @@
     },
     "src/object/toCamelCaseKeys.spec.ts": {
       "values": {
-        "concrete": 66,
+        "concrete": 74,
         "generic": 0,
         "erased": 51
       },
@@ -10424,7 +10424,7 @@
     },
     "src/object/toMerged.spec.ts": {
       "values": {
-        "concrete": 159,
+        "concrete": 171,
         "generic": 0,
         "erased": 81
       },
@@ -10458,7 +10458,7 @@
     },
     "src/object/toSnakeCaseKeys.spec.ts": {
       "values": {
-        "concrete": 56,
+        "concrete": 63,
         "generic": 0,
         "erased": 43
       },

@@ -207,6 +207,30 @@ fn smelt_vitest_asymmetric_equals(left: &SmeltUnknown, right: &SmeltUnknown, see
     }
 }
 
+//~ `expect(a).toEqual(b)`: the matcher-aware walk above, except that an own
+//~ property holding `undefined` is skipped on both sides, as Vitest's
+//~ `toEqual` does (`{ n: undefined, s: 'x' }` equals `{ s: 'x' }` and
+//~ `{ a: undefined, s: 'x' }`); `toStrictEqual` keeps the strict walk.
+/// Whether two values are equal under Vitest's `toEqual`.
+fn smelt_vitest_loose_equals(left: &SmeltUnknown, right: &SmeltUnknown, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
+    if smelt_asymmetric_marker(right).is_some() || smelt_asymmetric_marker(left).is_some() { return smelt_vitest_asymmetric_equals(left, right, seen); }
+    match (left, right) {
+        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.len() == right.len() && left.iter().zip(right.iter()).all(|(left, right)| smelt_vitest_loose_equals(&left, &right, seen)),
+        (SmeltUnknown::Object(left_object), SmeltUnknown::Object(right_object)) if !smelt_object_has_host_identity(left_object) && !smelt_object_has_host_identity(right_object) => {
+            if left_object.id == right_object.id { return true; }
+            if !seen.insert((left_object.id, right_object.id)) { return true; }
+            let defined = |object: &SmeltObject| object.iter().filter(|(key, value)| smelt_is_for_in_object_key(object, &key.to_string_lossy()) && !matches!(value, SmeltUnknown::Undefined)).collect::<Vec<_>>();
+            let (left_entries, right_entries) = (defined(left_object), defined(right_object));
+            left_entries.len() == right_entries.len() && left_entries.iter().all(|(key, value)| right_object.get(key).is_some_and(|other| smelt_vitest_loose_equals(value, &other, seen)))
+        }
+        _ => smelt_vitest_asymmetric_equals(left, right, seen),
+    }
+}
+
+/// Whether `object` is a host value (a `Date`, `Map`, error, class instance
+/// ...) that the structural walk compares by its own rules.
+fn smelt_object_has_host_identity(object: &SmeltObject) -> bool { object.iter().any(|(key, _)| { let key = key.to_string_lossy(); key.starts_with("__smelt_") && key != "__smelt_class" }) }
+
 //~ `vi.spyOn(target, name)` is a real boundary adapter, not a
 //~ placeholder: it resolves the member's CURRENT value through the
 //~ shared `smelt_host_method` decision the member-read emitter uses,

@@ -661,6 +661,7 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
+            let annotated_ty = self.any_written_binding_type(declarator, annotated_ty);
             let exprs_before_initializer = body.exprs.len();
             // Postfix stores move after the binding only when no later part of
             // the initializer can observe them; otherwise each one stores where
@@ -823,6 +824,47 @@ impl ModuleBuilder<'_> {
     /// already nullishable is left alone, and so is one with falsy inhabitants
     /// (whose Rust defaults already read as falsy) unless the program compares
     /// the local with `undefined`/`null` explicitly.
+    fn any_written_binding_type(
+        &mut self,
+        declarator: &oxc::ast::ast::VariableDeclarator<'_>,
+        annotated_ty: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+            return annotated_ty;
+        };
+        if !self.any_written_bindings.contains(&binding.span.start) {
+            return annotated_ty;
+        }
+        let declared = annotated_ty?;
+        let element = match self.ctx.krate.types.get(declared).cloned() {
+            Some(Type::Dict(key, value)) => Some((Some(key), value)),
+            Some(Type::List(item)) => Some((None, item)),
+            _ => None,
+        };
+        let Some((key, value)) = element else {
+            return annotated_ty;
+        };
+        if matches!(self.ctx.krate.types.get(value), Some(Type::Unknown)) {
+            return annotated_ty;
+        }
+        // The source's `any` is the boundary: the slot holds whatever value
+        // was written (see `lowering::any_written_locals`).
+        let span = self.span(binding.span.start, binding.span.end);
+        let erased = self.erase_at(
+            ErasureReason::DynamicOperator,
+            span,
+            "element written with `any`",
+        );
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(key.map_or(Type::List(erased), |key| Type::Dict(key, erased))),
+        )
+    }
+
+    /// The type of a local the program assigns a keyed read and tests for
+    /// presence.
     fn presence_widened_binding_type(
         &mut self,
         declarator: &oxc::ast::ast::VariableDeclarator<'_>,
