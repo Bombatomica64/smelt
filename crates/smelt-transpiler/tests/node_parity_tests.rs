@@ -1603,3 +1603,12 @@ fn handled_rejections() -> TestResult {
 fn race_continuations_before_timers() -> TestResult {
     verify_node_parity("race_continuations_before_timers")
 }
+
+/// Typed and erased promise reactions share JavaScript's one FIFO job queue: a
+/// reaction on a settled promise is queued when it is registered, one on a
+/// pending promise when that promise settles, so typed and erased chains
+/// interleave in Node's order.
+#[test]
+fn microtask_order() -> TestResult {
+    verify_node_parity("microtask_order")
+}
