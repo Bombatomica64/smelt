@@ -1074,7 +1074,7 @@ fn constrained_type_param_erases_alone_with_callback() {
     // decided per parameter.
     let source = source_for(
         r"
-export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
+export function groupBy<T, K extends PropertyKey>(xs: T[], key: (x: T) => K): K[] {
   return xs.map(key);
 }
 ",

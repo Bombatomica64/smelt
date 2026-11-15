@@ -2,7 +2,8 @@
 //!
 //! # The rule
 //!
-//! A type parameter of a function-like declaration whose constraint is
+//! A type parameter of a function-like declaration or of a type alias (the
+//! two scopes `ty/element_params.rs` pushes) whose constraint is
 //! written as exactly one primitive keyword (`S extends string`,
 //! `N extends number`, `B extends boolean`, `I extends bigint`) resolves, in
 //! that declaration, to the primitive itself: `function shout<S extends
@@ -24,6 +25,12 @@
 //!   (`JsString`, `f64`, `bool`, a bigint) instead of the erased value. The
 //!   literal type TypeScript tracks through it has no Rust counterpart and is
 //!   widened to the primitive, as it is everywhere else in the lowering.
+//!   No caller sees a different type for it: every type that can instantiate
+//!   such a parameter (a literal, a union of literals, a string or numeric
+//!   enum) already lowers to the same primitive at the call site, so a result
+//!   typed `S` arrives as the `JsString` the caller's `"a" | "b"` or
+//!   `Color` local is declared with, where it used to arrive erased and be
+//!   converted back (example `201_primitive_bounded_type_parameter`).
 //!
 //! # Scope
 //!

@@ -766,6 +766,14 @@ fn lowers_string_methods_on_coercible_receivers() {
     // String padding/charAt/repeat and prefix-with-position accept string-compatible receivers (`T
     // extends string`, erased returns) and numeric-like arguments. Behaviour is in the
     // `classes_behaviour` node-parity fixture.
+    //
+    // Corrected expectation. Old requirement: `firstChar<T extends string>(s: T)` took the
+    // erased value (`s: SmeltUnknown`). New requirement: it takes `s: JsString`. Evidence:
+    // every TypeScript type assignable to `T extends string` (a literal, a literal union, a
+    // string enum) is a string value at run time and already lowers to `JsString` at the
+    // call site, so the erased parameter carried no information a `JsString` loses
+    // (`lowering/ty/primitive_params.rs`; example `201_primitive_bounded_type_parameter`
+    // prints Node's output). The receiver is more typed, never less.
     let source = source_for(
         r"
 export function pad(s: string, n: number, c: string): string {
@@ -790,7 +798,7 @@ export function startsAt(s: string, t: string, p: number): boolean {
         ),
         r"fn pad(s: JsString, n: f64, c: JsString) -> JsString
 
-fn first_char(s: SmeltUnknown) -> JsString
+fn first_char(s: JsString) -> JsString
 
 fn repeated(s: JsString, n: f64) -> JsString
 

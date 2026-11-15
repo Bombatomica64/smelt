@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8478,
-      "generic": 162,
+      "concrete": 8582,
+      "generic": 165,
       "erased": 56
     },
     "reads": {
-      "concrete": 932,
+      "concrete": 937,
       "generic": 47,
       "erased": 20
     },
     "calls": {
-      "concrete": 2350,
+      "concrete": 2391,
       "generic": 16,
       "erased": 2
     }
@@ -598,7 +598,7 @@
     },
     "examples/typescript/end-to-end/126_optional_presence_through_assertion/input.ts": {
       "values": {
-        "concrete": 64,
+        "concrete": 66,
         "generic": 0,
         "erased": 0
       },
@@ -700,7 +700,7 @@
     },
     "examples/typescript/end-to-end/131_reduce_right_and_declared_const_shapes/input.ts": {
       "values": {
-        "concrete": 93,
+        "concrete": 87,
         "generic": 0,
         "erased": 0
       },
@@ -1346,7 +1346,7 @@
     },
     "examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_spreads/input.ts": {
       "values": {
-        "concrete": 121,
+        "concrete": 122,
         "generic": 13,
         "erased": 0
       },
@@ -1363,7 +1363,7 @@
     },
     "examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts": {
       "values": {
-        "concrete": 98,
+        "concrete": 99,
         "generic": 0,
         "erased": 2
       },
@@ -1714,6 +1714,23 @@
       },
       "calls": {
         "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/201_primitive_bounded_type_parameter/input.ts": {
+      "values": {
+        "concrete": 106,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 41,
         "generic": 0,
         "erased": 0
       }

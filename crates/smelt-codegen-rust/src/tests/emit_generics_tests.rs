@@ -186,11 +186,15 @@ function copy<T>(value: T): unknown[] {
     );
 }
 
+/// The bound is a template literal type so that `S` stays erased: a parameter bounded by
+/// the bare `string` keyword is a `JsString` (`lowering/ty/primitive_params.rs`, covered by
+/// `primitive_bounded_type_param_is_the_primitive`), and this test is about the index read
+/// off an ERASED string. It was written with `S extends string` when that erased too.
 #[test]
 fn emits_runtime_index_for_erased_string_generics() {
     let source = source_for(
         r"
-function first<S extends string>(value: S): string {
+function first<S extends `a${string}`>(value: S): string {
   return value[0];
 }
 ",
@@ -596,7 +600,7 @@ const doubled = mapArr(nums, (x) => x * 2);
 fn constrained_type_param_erases_without_demoting_its_siblings() {
     let source = source_for(
         r"
-function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+function pickFirst<T, K extends PropertyKey>(arr: T[], key: (item: T) => K, fallback: T): T {
   if (arr.length > 0) { return arr[0]; }
   return fallback;
 }
@@ -620,7 +624,7 @@ fn type_param_inspected_inside_a_closure_does_not_lift() {
     // parameters.
     let source = source_for(
         r"
-function scan<T, K extends string>(arr: T[], key: (item: T) => K): T[] {
+function scan<T, K extends PropertyKey>(arr: T[], key: (item: T) => K): T[] {
   const out: T[] = [];
   arr.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
   return out;
@@ -648,7 +652,7 @@ const r = scan(['a', 'b'], (s) => 'k');
 fn type_param_moved_into_an_erased_container_lifts() {
     let source = source_for(
         r"
-function collect<T, K extends string>(rows: T[][], key: (vals: T[]) => K): K[] {
+function collect<T, K extends PropertyKey>(rows: T[][], key: (vals: T[]) => K): K[] {
   const out: K[] = [];
   for (let i = 0; i < rows.length; i++) {
     const group = new Array(rows.length);
@@ -768,5 +772,54 @@ _smelt_tmp_3 = x.clone();
 }
 return _smelt_tmp_3;
 }"
+    );
+}
+
+/// A function type parameter bounded by one primitive keyword is that primitive
+/// (`smelt_frontend_ts::lowering::ty::primitive_params`); `PropertyKey`, `keyof T` and a union
+/// of primitives are outside the rule and keep the erased value.
+///
+/// Planted defect: with `primitive_bounded_params` returning no parameter, `echo`, `twice`,
+/// `flip` and `bump` take and return `SmeltUnknown` and this test fails.
+#[test]
+fn primitive_bounded_type_param_is_the_primitive() {
+    let source = source_for(
+        r"
+export function echo<S extends string>(text: S): S { return text; }
+export function twice<N extends number>(value: N): N[] { return [value, value]; }
+export function flip<B extends boolean>(flag: B): boolean { return !flag; }
+export function bump<I extends bigint>(value: I): bigint { return value + 1n; }
+export function keyed<K extends PropertyKey>(key: K): K { return key; }
+export function either<U extends string | number>(value: U): U { return value; }
+export function member<T, K extends keyof T>(key: K): K { return key; }
+",
+    );
+
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "sig echo",
+                "sig twice",
+                "sig flip",
+                "sig bump",
+                "sig keyed",
+                "sig either",
+                "sig member"
+            ]
+        ),
+        r"fn echo(text: JsString) -> JsString
+
+fn twice(value: f64) -> SmeltList<f64>
+
+fn flip(flag: bool) -> bool
+
+fn bump(value: ::num_bigint::BigInt) -> ::num_bigint::BigInt
+
+fn keyed(key: SmeltUnknown) -> SmeltUnknown
+
+fn either(value: SmeltUnknown) -> SmeltUnknown
+
+fn member(key: SmeltUnknown) -> SmeltUnknown"
     );
 }

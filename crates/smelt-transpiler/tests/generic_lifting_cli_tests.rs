@@ -221,6 +221,14 @@ console.log(withoutRepeats([1, 2, 1, 3, 1], "numbers").join(","));
 /// program. Type preservation: `second`, which reads an element out of a
 /// `T[]` (a container read), keeps its `T` beside the erased `K`.
 ///
+/// `second`'s `K` is bounded by `PropertyKey` so that it stays erased and the
+/// partial lift is what the test exercises. It was `K extends string` until
+/// a parameter bounded by one primitive keyword started lowering as that
+/// primitive (`lowering/ty/primitive_params.rs`): `_label` would be a
+/// `JsString` and `second` fully typed, which that rule's own example
+/// (`201_primitive_bounded_type_parameter`) covers. The pinned signature is
+/// unchanged.
+///
 /// Why this is not an end-to-end example: `T[K]` has no Rust type, so each
 /// member-reading function here is erased by construction, and that corpus
 /// must stay free of erased entries.
@@ -263,7 +271,7 @@ function hasKey<T, K extends keyof T>(obj: T, key: K): boolean {
 }
 
 // A read off a CONTAINER of `T` stays a move: `T` is still a Rust generic.
-function second<T, K extends string>(items: T[], _label: K): T {
+function second<T, K extends PropertyKey>(items: T[], _label: K): T {
   return items[1];
 }
 

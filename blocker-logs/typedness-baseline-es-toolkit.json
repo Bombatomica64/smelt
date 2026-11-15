@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14229,
+      "concrete": 14238,
       "generic": 351,
-      "erased": 7072
+      "erased": 7060
     },
     "reads": {
       "concrete": 367,
@@ -683,9 +683,9 @@
     },
     "src/array/flatMap.ts": {
       "values": {
-        "concrete": 1,
+        "concrete": 3,
         "generic": 8,
-        "erased": 4
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -785,9 +785,9 @@
     },
     "src/array/flatten.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 14,
         "generic": 0,
-        "erased": 12
+        "erased": 9
       },
       "reads": {
         "concrete": 0,
@@ -7466,9 +7466,9 @@
     },
     "src/compat/string/capitalize.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7585,9 +7585,9 @@
     },
     "src/compat/string/lowerFirst.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7789,9 +7789,9 @@
     },
     "src/compat/string/toLower.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7806,9 +7806,9 @@
     },
     "src/compat/string/toUpper.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7925,9 +7925,9 @@
     },
     "src/compat/string/upperFirst.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -11871,7 +11871,7 @@
       "values": {
         "concrete": 6,
         "generic": 0,
-        "erased": 1
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
