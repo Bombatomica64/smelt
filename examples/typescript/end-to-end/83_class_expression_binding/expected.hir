@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/83_class_expression_binding/input.ts (ModuleId(0))
-  body BodyId(11)
+  body BodyId(12)
   items
     class Counter fields [Hidden #hits: List<String>] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
     class DeclaredReporting fields [] constructor Some(ItemId(7)) methods [ItemId(8)] implements []
@@ -114,11 +114,12 @@ interned types
   t10 = List<T>
   t11 = Float
   t12 = __smelt_anon_class_1394
-  t13 = Boxed
-  t14 = Counter
-  t15 = List<String>
-  t16 = Boxed<T>
-  t17 = Boxed<Float>
-  t18 = fn(Float) -> Float
-  t19 = List<Float>
-  t20 = Bool
+  t13 = fn() -> __smelt_anon_class_1394
+  t14 = Boxed
+  t15 = Counter
+  t16 = List<String>
+  t17 = Boxed<T>
+  t18 = Boxed<Float>
+  t19 = fn(Float) -> Float
+  t20 = List<Float>
+  t21 = Bool

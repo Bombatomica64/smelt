@@ -212,6 +212,7 @@ impl ModuleBuilder<'_> {
             mutable: !property.readonly,
             storage: None,
             span: self.span(property.span.start, property.span.end),
+            inherited: None,
         }))
     }
 
@@ -264,6 +265,7 @@ impl ModuleBuilder<'_> {
             mutable: !property.readonly,
             storage: None,
             span: self.span(property.span.start, property.span.end),
+            inherited: None,
         })
     }
 
@@ -319,6 +321,7 @@ impl ModuleBuilder<'_> {
                 mutable: !property.readonly,
                 storage: None,
                 span: self.span(property.span.start, property.span.end),
+                inherited: None,
             },
             hides_undefined,
         ))
@@ -976,11 +979,18 @@ impl ModuleBuilder<'_> {
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name: method_name,
             span: self.span(method.span.start, method.span.end),
-            // Class members take generics from the owning class; per-method
-            // generics are deferred alongside the generic-class increment.
-            // The declared ones are recorded in `erased_item_type_params` below
-            // so calls can still tell them apart from the caller's.
-            type_params: Vec::new(),
+            // A method's own type parameters (`map<U>(..)`) are its own
+            // generics, as a free function's are: codegen emits them as Rust
+            // generics on the method (`fn map<U: ..>(&self, ..)`) when they
+            // lift, and erases only the ones that do not. A constructor takes
+            // its generics from the class. The declared ones are also recorded
+            // in `erased_item_type_params` below so calls can tell them apart
+            // from the caller's.
+            type_params: if is_constructor {
+                Vec::new()
+            } else {
+                method_type_params.clone()
+            },
             params,
             rest: rest.map(|rest| rest.index),
             required_params: None,

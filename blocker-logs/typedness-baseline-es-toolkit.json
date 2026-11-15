@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 13673,
+      "concrete": 13660,
       "generic": 237,
-      "erased": 7612
+      "erased": 7603
     },
     "reads": {
       "concrete": 339,
@@ -12,7 +12,7 @@
       "erased": 1023
     },
     "calls": {
-      "concrete": 2163,
+      "concrete": 2161,
       "generic": 39,
       "erased": 1236
     }
@@ -3063,7 +3063,7 @@
     },
     "src/compat/_internal/arrayViews.ts": {
       "values": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
         "erased": 0
       },
@@ -5154,7 +5154,7 @@
     },
     "src/compat/function/debounce.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 31,
         "generic": 1,
         "erased": 21
       },
@@ -7755,9 +7755,9 @@
     },
     "src/compat/string/template.ts": {
       "values": {
-        "concrete": 146,
+        "concrete": 130,
         "generic": 0,
-        "erased": 37
+        "erased": 30
       },
       "reads": {
         "concrete": 26,
@@ -7765,7 +7765,7 @@
         "erased": 2
       },
       "calls": {
-        "concrete": 9,
+        "concrete": 5,
         "generic": 0,
         "erased": 4
       }
@@ -10781,7 +10781,7 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1029,
+        "concrete": 1022,
         "generic": 0,
         "erased": 410
       },
@@ -11223,9 +11223,9 @@
     },
     "src/predicate/isPlainObject.spec.ts": {
       "values": {
-        "concrete": 145,
+        "concrete": 147,
         "generic": 0,
-        "erased": 33
+        "erased": 31
       },
       "reads": {
         "concrete": 0,
@@ -11233,7 +11233,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 52,
+        "concrete": 54,
         "generic": 0,
         "erased": 2
       }
@@ -11920,7 +11920,7 @@
     },
     "src/string/deburr.spec.ts": {
       "values": {
-        "concrete": 30,
+        "concrete": 33,
         "generic": 0,
         "erased": 0
       },
@@ -11937,7 +11937,7 @@
     },
     "src/string/deburr.ts": {
       "values": {
-        "concrete": 16,
+        "concrete": 17,
         "generic": 0,
         "erased": 0
       },
@@ -11971,7 +11971,7 @@
     },
     "src/string/escape.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 0,
         "erased": 0
       },
@@ -12430,7 +12430,7 @@
     },
     "src/string/unescape.ts": {
       "values": {
-        "concrete": 9,
+        "concrete": 10,
         "generic": 0,
         "erased": 0
       },

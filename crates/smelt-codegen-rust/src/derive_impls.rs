@@ -91,6 +91,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     fields: &[smelt_mir::MirField],
     phantom_args: &str,
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
+    identity: Option<&str>,
 ) -> Result<(), EmitError> {
     // Each field's default expression is computed ONCE and used twice: for the
     // body, and to decide the impl's `where` clause.
@@ -175,6 +176,14 @@ pub(crate) fn emit_default_impl_for_storage_type(
                     }
                     if !phantom_args.is_empty() {
                         self_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
+                    }
+                    // A defaulted instance is one of this class itself
+                    // (`crate::class_identity`).
+                    if let Some(identity_literal) = identity {
+                        self_writer.line(format!(
+                            "{}: {identity_literal},",
+                            crate::class_identity::CLASS_IDENTITY_FIELD
+                        ));
                     }
                 });
             });

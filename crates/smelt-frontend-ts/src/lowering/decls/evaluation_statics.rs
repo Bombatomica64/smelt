@@ -319,6 +319,7 @@ impl ModuleBuilder<'_> {
                         mutable: !property.readonly,
                         storage: None,
                         span,
+                        inherited: None,
                     }
                 }
             }

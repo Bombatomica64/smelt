@@ -290,6 +290,13 @@ impl FunctionEmitter<'_> {
             field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         self.push_phantom_field(&mut field_text, *name, args.len());
+        // An upcast keeps the class the instance was constructed as.
+        let identity_source = if self.is_reference_class_type(source) {
+            "smelt_struct_value.0.borrow()"
+        } else {
+            "smelt_struct_value"
+        };
+        self.push_class_identity_field(&mut field_text, *name, Some((source, identity_source)));
         // A reference-class target is a handle newtype over its `Inner` record,
         // so the field-wise value is built as the record and wrapped in a fresh
         // shared cell. This is the structural conversion between two distinct
@@ -439,6 +446,7 @@ impl FunctionEmitter<'_> {
         if !args.is_empty() {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
+        self.push_class_identity_field(&mut field_text, *name, None);
         // The source is read once per field, so it is bound once: `value_text`
         // may be a call, and re-evaluating it per field would both duplicate
         // its effects and move any by-value argument more than once.
@@ -657,6 +665,20 @@ impl FunctionEmitter<'_> {
             field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
         self.push_phantom_field(&mut field_text, *name, args.len());
+        // An erased instance names its class in its `__smelt_class` marker.
+        if source_is_erased && self.context.carries_class_identity(*name) {
+            field_text.push(format!(
+                "{}: {}",
+                crate::class_identity::CLASS_IDENTITY_FIELD,
+                crate::class_identity::identity_from_marker_expr(
+                    self.mir,
+                    *name,
+                    "smelt_record_map.get_text(\"__smelt_class\")"
+                )
+            ));
+        } else {
+            self.push_class_identity_field(&mut field_text, *name, None);
+        }
         // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field
         // struct. The record round-trip must mint a fresh shared cell around the
         // reconstructed inner record rather than emit a struct literal against a
