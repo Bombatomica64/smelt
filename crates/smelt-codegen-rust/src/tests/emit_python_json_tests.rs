@@ -456,7 +456,10 @@ fn lowers_bare_array_call_like_new_array() {
     // `Array(total)` and `new Array(total)` are identical in ECMAScript; the
     // bare-call form is the dominant es-toolkit preallocation idiom (e.g.
     // `const result = Array(total); result[i] = ...`). Both lower to a list
-    // container that subsequent indexed writes fill.
+    // container that subsequent indexed writes fill. A write past the end
+    // grows the `number[]` with holes (`smelt_number_hole()`), which read as
+    // `undefined` as in JavaScript; it grew with `0.0` before, a value no
+    // JavaScript program wrote.
     let source = source_for(
         r"
 export function build(total: number): number[] {
@@ -479,7 +482,7 @@ let mut i: f64 = 0.0;
 loop {
 _smelt_tmp_4 = i < total;
 if !(_smelt_tmp_4) { break; }
-{ let smelt_assign_index = { let smelt_normalized = i as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = i; if smelt_assign_index >= result.len() { result.borrow_mut().resize(smelt_assign_index.saturating_add(1), 0.0); } result.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
+{ let smelt_assign_index = { let smelt_normalized = i as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = i; if smelt_assign_index >= result.len() { result.borrow_mut().resize(smelt_assign_index.saturating_add(1), smelt_number_hole()); } result.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
 _smelt_tmp_5 = i + 1.0;
 i = _smelt_tmp_5;
 }

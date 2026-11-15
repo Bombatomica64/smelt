@@ -178,11 +178,11 @@ function nested(groups: number[][], limit: number): boolean[] {
     );
 
     assert!(source.contains(".iter().enumerate().map"), "{source}");
-    assert!(
-        source.contains(".iter().enumerate().filter_map"),
-        "{source}"
-    );
-    assert!(source.contains(".iter().enumerate().any"), "{source}");
+    // `filter` and `some` over a `number[]` skip its holes (JavaScript never
+    // calls their callback for one), after `enumerate()` so indices hold.
+    let skip = ".iter().enumerate().filter(|smelt_entry| !smelt_is_number_hole(*smelt_entry.1))";
+    assert!(source.contains(&format!("{skip}.filter_map")), "{source}");
+    assert!(source.contains(&format!("{skip}.any")), "{source}");
     assert!(source.contains("limit.clone()"), "{source}");
     assert!(!source.contains("smelt_array.clone().clone()"), "{source}");
     assert!(!source.contains(".clone().clone()"), "{source}");

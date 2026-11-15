@@ -4,7 +4,7 @@ use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
-    Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, ModuleBuilder,
+    Argument, Body, DictProjectionOp, Expr, ExprKind, Expression, ListCallbackOp, ModuleBuilder,
     ObjectPropertyKind, PrimitiveCastOp, PropertyKey, SetProjectionOp, SmeltError, Span, Type,
 };
 use oxc::span::GetSpan;
@@ -42,78 +42,21 @@ impl ModuleBuilder<'_> {
             // `Array.from(view)` is the view's elements, decoded by the family
             // rather than read back out of an erased record. Asked before the
             // arms below, whose class fallback erases.
-            if mapper_arg.is_none()
-                && let span = self.span(call.span.start, call.span.end)
-                && let Some(elements) = self.typed_array_spread_list(source, span, body)
-            {
-                return Ok(Some(elements));
-            }
-            if mapper_arg.is_none()
-                && let Some(list_ty) = self.sync_generator_list_ty(source_ty)
-            {
-                let span = self.span(call.span.start, call.span.end);
-                return Ok(Some(Self::generator_items_expr(
-                    source, list_ty, span, body,
-                )));
-            }
-            // `Array.from(iterable)` is a NEW array holding the iterable's
-            // elements, never the source itself. An erased source is read as a
-            // list and copied (`ListCopy`), so `Array.from(erasedArray)` is
-            // independent of the array, as `[...erasedArray]` is.
             let span = self.span(call.span.start, call.span.end);
-            let elements = match self.ctx.krate.types.get(source_ty).cloned() {
-                // A typed list keeps its previous lowering (the source
-                // itself): a copy is a new list value, which the typedness
-                // ratchet counts as a new erased value wherever `T` erases,
-                // and no callee summary yet proves it unobservable.
-                Some(Type::List(_)) if mapper_arg.is_none() => source,
-                Some(Type::List(item_ty)) => {
-                    let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                    body.push_expr(Expr {
-                        kind: ExprKind::UnknownCast {
-                            value: source,
-                            target: ty,
-                        },
-                        ty,
-                        span,
-                    })
-                }
-                Some(Type::Set(item_ty)) => {
-                    let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                    body.push_expr(Expr {
-                        kind: ExprKind::SetProjection {
-                            op: SetProjectionOp::Values,
-                            set: source,
-                        },
-                        ty,
-                        span,
-                    })
-                }
-                Some(Type::Dict(key_ty, _)) => {
-                    let ty = self.ctx.krate.types.intern(Type::List(key_ty));
-                    body.push_expr(Expr {
-                        kind: ExprKind::DictProjection {
-                            op: DictProjectionOp::Keys,
-                            dict: source,
-                        },
-                        ty,
-                        span,
-                    })
-                }
-                _ => {
-                    let unknown_ty =
-                        self.erase_with(ErasureReason::UntypedBuiltin, "Array.from(iterable)");
-                    let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
-                    Self::fresh_list_copy(source, list_ty, span, body)
-                }
+            // `Array.from(view)` is the view's elements, decoded by the family
+            // rather than read back out of an erased record. Asked before
+            // `array_from_elements`, whose class fallback erases.
+            let elements = self
+                .typed_array_spread_list(source, span, body)
+                .unwrap_or_else(|| {
+                    self.array_from_elements(source, source_ty, mapper_arg.is_some(), span, body)
+                });
+            let Some(mapper_arg) = mapper_arg else {
+                return Ok(Some(elements));
             };
-            // A mapper keeps its previous lowering (evaluated, not applied),
-            // for the same reason as the typed-list arm above: the mapped
-            // list is a new value the typedness ratchet counts.
-            if let Some(mapper_arg) = mapper_arg {
-                let _ = self.argument(mapper_arg, body)?;
-            }
-            return Ok(Some(elements));
+            return self
+                .array_from_mapped(elements, mapper_arg, span, body)
+                .map(Some);
         }
         let mut length = self.array_from_length_argument(source_arg, body)?;
         let length_ty = Self::expr_ty(body, length);
@@ -177,24 +120,139 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// The `List<yield>` type an iteration of a SYNCHRONOUS generator produces.
+    /// The elements `Array.from(source)` reads, as a list typed by the source.
     ///
-    /// `Array.from(gen)` and `[...gen]` drain the generator's iterator protocol,
-    /// so their element type is the generator's own `yield` type; `None` for
-    /// every other source (an async generator is not sync-iterable).
-    pub(in crate::lowering) fn sync_generator_list_ty(
+    /// `Array.from(iterable)` is a NEW array holding the iterable's elements,
+    /// never the source itself, and each typed source keeps its element type:
+    /// a `T[]` gives a `List<T>` copy (`ListCopy`), a `Set<T>` its values, a
+    /// `Map<K, V>` its `[K, V]` entries, a `string` its code points and a
+    /// synchronous generator its yields. An erased source is read as a list
+    /// and copied (`ListCopy`), so `Array.from(erasedArray)` is independent of
+    /// the array, as `[...erasedArray]` is.
+    ///
+    /// `mapped` says a mapper follows. A mapped typed list is read in place,
+    /// since the map itself builds the new array; every other source already
+    /// yields a fresh list.
+    fn array_from_elements(
         &mut self,
+        source: smelt_hir::ExprId,
         source_ty: smelt_hir::TypeId,
-    ) -> Option<smelt_hir::TypeId> {
-        let Some(Type::Generator {
-            is_async: false,
-            yield_ty,
-            ..
-        }) = self.ctx.krate.types.get(source_ty).cloned()
-        else {
-            return None;
+        mapped: bool,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        match self.ctx.krate.types.get(source_ty).cloned() {
+            Some(Type::List(_)) if mapped => source,
+            Some(Type::List(item_ty)) => {
+                let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                Self::fresh_list_copy(source, ty, span, body)
+            }
+            // An optional list the checker proved present (`Array.from(null)`
+            // does not type-check): copied out of the optional, keeping `T`.
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(inner), Some(Type::List(_))) =>
+            {
+                Self::fresh_list_copy(source, inner, span, body)
+            }
+            Some(Type::Generator {
+                is_async: false,
+                yield_ty,
+                ..
+            }) => {
+                let ty = self.ctx.krate.types.intern(Type::List(yield_ty));
+                Self::generator_items_expr(source, ty, span, body)
+            }
+            Some(Type::Set(item_ty)) => {
+                let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::SetProjection {
+                        op: SetProjectionOp::Values,
+                        set: source,
+                    },
+                    ty,
+                    span,
+                })
+            }
+            // A `Map` iterates its `[key, value]` entries. A `Record` (`Dict`)
+            // is not iterable in JavaScript, so it only reaches here through a
+            // checker-accepted structural type; it reads the way `new
+            // Map(record)` reads one, as entries.
+            Some(Type::Dict(key_ty, value_ty) | Type::JsMap(key_ty, value_ty)) => {
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![key_ty, value_ty]));
+                let ty = self.ctx.krate.types.intern(Type::List(entry_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Entries,
+                        dict: source,
+                    },
+                    ty,
+                    span,
+                })
+            }
+            Some(Type::String) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let ty = self.ctx.krate.types.intern(Type::List(string_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::StringChars { haystack: source },
+                    ty,
+                    span,
+                })
+            }
+            _ => {
+                let unknown_ty =
+                    self.erase_with(ErasureReason::UntypedBuiltin, "Array.from(iterable)");
+                let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                Self::fresh_list_copy(source, list_ty, span, body)
+            }
+        }
+    }
+
+    /// `Array.from(source, mapper)`: the source's elements mapped through
+    /// `mapper(element, index)` into a new `List<U>`, `U` the mapper's return.
+    ///
+    /// JavaScript calls the mapper with the element and its index, so the
+    /// callback is typed `(T, number) => U` from the elements' own type and
+    /// lowered as an ordinary list `map` (`ListCallback::Map`) over them.
+    fn array_from_mapped(
+        &mut self,
+        elements: smelt_hir::ExprId,
+        mapper_arg: &Argument<'_>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list_ty = Self::expr_ty(body, elements);
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "Array.from elements must lower to a list",
+            ));
         };
-        Some(self.ctx.krate.types.intern(Type::List(yield_ty)))
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
+        // not a new erasure: an `unknown` return hint means "no hint" to
+        // closure-body lowering; a return that stays erased is recorded in
+        // `callback_argument_with_return_hint`.
+        let no_hint = self.unknown_type(NotNewErasure::NoHint);
+        let callback = self.callback_argument_with_return_hint(
+            mapper_arg,
+            &[element_ty, index_ty],
+            no_hint,
+            "Array.from mapper",
+            body,
+        )?;
+        let ty = self.ctx.krate.types.intern(Type::List(callback.return_ty));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ListCallback {
+                op: ListCallbackOp::Map,
+                list: elements,
+                callback: callback.expr,
+            },
+            ty,
+            span,
+        }))
     }
 
     /// Drain a synchronous generator into a fresh list of its yielded values.

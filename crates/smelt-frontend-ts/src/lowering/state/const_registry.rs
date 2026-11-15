@@ -182,6 +182,16 @@ impl ConstRegistry {
         self.collections.write().remove(name).is_some()
     }
 
+    /// Drop the folded object value of `name` and its `Object.values`
+    /// projection, returning whether one existed.
+    ///
+    /// A binding lifted to a module slot is read through the slot; a folded
+    /// copy of its initializer would be a second object.
+    pub(in crate::lowering) fn forget_object(&mut self, name: &str) -> bool {
+        self.object_value_collections.write().remove(name);
+        self.objects.write().remove(name).is_some()
+    }
+
     /// Return the `Object.values` projection of the object constant `name`.
     pub(in crate::lowering) fn object_value_collection(
         &self,

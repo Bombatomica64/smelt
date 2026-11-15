@@ -280,6 +280,34 @@ impl ModuleBuilder<'_> {
         collector.names
     }
 
+    /// Collect every name the program reads as a VALUE whose identity can be
+    /// observed, anywhere (module body and items alike).
+    ///
+    /// A folded object/array/collection const is replayed at each item-context
+    /// read: every read builds a new object holding the literal's contents.
+    /// That is the source's value only while no reader can tell two reads
+    /// apart. A bare read hands out the object itself (`return items`, `const
+    /// alias = items`, `f(items)`, `x === items`, `{ items }`), after which a
+    /// write through the received handle, or an identity comparison, sees a
+    /// different object than the next read. Those bindings need the one
+    /// storage a module slot gives them.
+    ///
+    /// Reads that only look INTO the object do not hand it out and are not
+    /// collected: a member access or method call on it (`items.length`,
+    /// `items[0]`, `items.map(f)`), the iterable of a `for...of`, a spread
+    /// (`[...items]` copies), and `typeof items`. A write through it lifts the
+    /// binding on its own (see [`Self::collect_mutated_names`]). The scan
+    /// ignores shadowing, so it over-approximates; a spurious entry costs a
+    /// slot, which still holds the binding's one value.
+    pub(super) fn collect_identity_observed_names(program: &Program<'_>) -> HashSet<String> {
+        use oxc::ast_visit::Visit;
+        let mut collector = IdentityReadCollector {
+            names: HashSet::new(),
+        };
+        collector.visit_program(program);
+        collector.names
+    }
+
     /// Collect every identifier name read inside a hoisted item body.
     ///
     /// Same statement dispatch as [`Self::collect_mutated_names`] — top-level
@@ -390,6 +418,86 @@ impl ModuleBuilder<'_> {
                 collector.visit_expression(init);
             }
         }
+    }
+}
+
+/// Collects the names read as values whose identity a reader can observe; see
+/// [`ModuleBuilder::collect_identity_observed_names`].
+struct IdentityReadCollector {
+    /// Names read as bare values.
+    names: HashSet<String>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for IdentityReadCollector {
+    /// Records every identifier read the overrides below do not skip.
+    fn visit_identifier_reference(&mut self, identifier: &oxc::ast::ast::IdentifierReference<'a>) {
+        self.names.insert(identifier.name.as_str().to_owned());
+    }
+
+    /// `items.k` reads into `items`; any other receiver is walked as usual.
+    fn visit_static_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'a>,
+    ) {
+        if !matches!(member.object, Expression::Identifier(_)) {
+            oxc::ast_visit::walk::walk_static_member_expression(self, member);
+        }
+    }
+
+    /// `items[i]` reads into `items`; the key is still walked.
+    fn visit_computed_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'a>,
+    ) {
+        if matches!(member.object, Expression::Identifier(_)) {
+            self.visit_expression(&member.expression);
+        } else {
+            oxc::ast_visit::walk::walk_computed_member_expression(self, member);
+        }
+    }
+
+    /// `for (.. of items)` iterates `items` without handing it out.
+    fn visit_for_of_statement(&mut self, statement: &oxc::ast::ast::ForOfStatement<'a>) {
+        self.visit_for_statement_left(&statement.left);
+        if !matches!(statement.right, Expression::Identifier(_)) {
+            self.visit_expression(&statement.right);
+        }
+        self.visit_statement(&statement.body);
+    }
+
+    /// `const { a } = items` / `const [x] = items` read INTO `items`; the
+    /// pattern (its defaults, its computed keys) is walked as usual.
+    fn visit_variable_declarator(&mut self, declarator: &oxc::ast::ast::VariableDeclarator<'a>) {
+        if !matches!(declarator.id, BindingPattern::BindingIdentifier(_))
+            && matches!(declarator.init, Some(Expression::Identifier(_)))
+        {
+            self.visit_binding_pattern(&declarator.id);
+        } else {
+            oxc::ast_visit::walk::walk_variable_declarator(self, declarator);
+        }
+    }
+
+    /// `...items` copies the elements out.
+    fn visit_spread_element(&mut self, spread: &oxc::ast::ast::SpreadElement<'a>) {
+        if !matches!(spread.argument, Expression::Identifier(_)) {
+            oxc::ast_visit::walk::walk_spread_element(self, spread);
+        }
+    }
+
+    /// `typeof items` reads only its kind.
+    fn visit_unary_expression(&mut self, unary: &oxc::ast::ast::UnaryExpression<'a>) {
+        if !(unary.operator == oxc::syntax::operator::UnaryOperator::Typeof
+            && matches!(unary.argument, Expression::Identifier(_)))
+        {
+            oxc::ast_visit::walk::walk_unary_expression(self, unary);
+        }
+    }
+
+    /// An export list (`export { items }`) names bindings without reading them.
+    fn visit_export_named_declaration(
+        &mut self,
+        _export: &oxc::ast::ast::ExportNamedDeclaration<'a>,
+    ) {
     }
 }
 

@@ -787,9 +787,15 @@ export function sum(values: number[]): number {
 }
 
 /// A module const whose initializer is an array spread (es-toolkit's
-/// `arrayViews = [...typedArrays, 'DataView']` shape) inlines into a function
-/// body as a concrete `SmeltList<String>` concat chain. The homogeneous
-/// literal keeps its `String` item type.
+/// `arrayViews = [...typedArrays, 'DataView']` shape) keeps its concrete
+/// `SmeltList<JsString>` type in a function body. The homogeneous literal
+/// keeps its `String` item type.
+///
+/// Old requirement: the body replayed the folded literal. New requirement: the
+/// body hands the binding out (`const names = viewNames`), so it reads the one
+/// module slot holding it; a replay gave every read a new array, so a write
+/// through `names` was lost to the next reader. The type requirement, a
+/// concrete `SmeltList<JsString>`, is unchanged and checked on the slot too.
 #[test]
 fn inlined_spread_const_emits_concrete_string_list_concat() {
     let source = source_for(
@@ -805,10 +811,16 @@ export function describeViews(): string {
     assert_eq!(
         rust_items(&source, &["fn describe_views"]),
         r#"fn describe_views() -> JsString {
-let names: SmeltList<JsString> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("Float32Array"), JsString::from("Int8Array"), JsString::from("Uint8Array"), JsString::from("DataView")]; smelt_list_items }));
+let names: SmeltList<JsString> = Into::<SmeltList<_>>::into(SMELT_GLOBAL_VIEW_NAMES_0.with(|smelt_value| smelt_value.borrow().clone()));
 let _smelt_tmp_2: JsString = JsString::join(names.borrow().iter(), &JsString::from(","));
 return _smelt_tmp_2;
 }"#
+    );
+    assert!(
+        source.contains(
+            "static SMELT_GLOBAL_VIEW_NAMES_0: ::std::cell::RefCell<SmeltList<JsString>>"
+        ),
+        "{source}"
     );
 }
 
@@ -957,7 +969,7 @@ let _smelt_tmp_2: f64 = extra.len() as f64;
 let _smelt_tmp_3: f64 = closure_arg_0 + _smelt_tmp_2;
 _smelt_tmp_3
 }
-}); let smelt_array = values.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+}); let smelt_array = values.clone(); let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { if smelt_is_number_hole(*smelt_item) { smelt_number_hole() } else { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) } }).collect::<Vec<_>>(); smelt_value });
 return _smelt_tmp_3;
 }"
     );
@@ -998,7 +1010,7 @@ let _smelt_tmp_2: f64 = acc.len() as f64;
 let _smelt_tmp_3: f64 = _smelt_tmp_2 + closure_arg_0;
 _smelt_tmp_3
 }
-}); let smelt_array = _smelt_tmp_2; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) }).collect::<Vec<_>>(); smelt_value });
+}); let smelt_array = _smelt_tmp_2; let smelt_value = smelt_array.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { if smelt_is_number_hole(*smelt_item) { smelt_number_hole() } else { (smelt_callback)(smelt_item.clone(), smelt_index as i64, &smelt_array) } }).collect::<Vec<_>>(); smelt_value });
 let _smelt_tmp_5: f64 = _smelt_tmp_4.len() as f64;
 return _smelt_tmp_5;
 }"
@@ -1040,7 +1052,7 @@ move |closure_arg_0: f64| {
 let _smelt_tmp_2: f64 = { let smelt_push_item = closure_arg_0; (*smelt_capture_store.borrow()).borrow_mut().push(smelt_push_item); (*smelt_capture_store.borrow()).len() as f64 };
 ()
 }
-}); _smelt_tmp_4.borrow().iter().enumerate().for_each(|(smelt_index, smelt_item)| { let _ = (smelt_callback)(smelt_item.clone()); }); () };
+}); _smelt_tmp_4.borrow().iter().enumerate().filter(|smelt_entry| !smelt_is_number_hole(*smelt_entry.1)).for_each(|(smelt_index, smelt_item)| { let _ = (smelt_callback)(smelt_item.clone()); }); () };
 return ((*smelt_capture_store.borrow())).clone();
 }"
     );
