@@ -929,12 +929,32 @@ impl FunctionEmitter<'_> {
         borrowed: bool,
         callee_bindings: Option<&CalleeTypeParamBindings>,
     ) -> Result<Option<RustExpr>, EmitError> {
-        let (Some(Type::Function(source)), Some(Type::Function(target_function))) = (
+        let (Some(Type::Function(substituted_source)), Some(Type::Function(target_function))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
         ) else {
             return Ok(None);
         };
+        // A slot a nested base level stores holds its callable at that level's
+        // DECLARED ABI (`record_slot_abi`), not at the substituted type MIR
+        // hands this read: the forwarding must take the declared side of the
+        // `&`/`.clone()` seam.
+        let declared_source = match operand {
+            Operand::Copy(Place::Field { base, field })
+            | Operand::Move(Place::Field { base, field }) => {
+                match self.mir.types.get(self.local_decl(*base)?.ty) {
+                    Some(Type::Class { name, .. })
+                        if self.nested_slot_level(*name, *field).is_some() =>
+                    {
+                        self.class_field_declared_function_type(operand)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let source = declared_source.as_ref().unwrap_or(substituted_source);
+        let _declared_abi = self.enter_declared_slot_abi(declared_source.is_some());
         // `SmeltErasedFunction` already erases static return differences at the ABI.
         if self.is_erased_unknown_rest_function(source)
             && !source.may_throw
@@ -1047,7 +1067,7 @@ impl FunctionEmitter<'_> {
         let body_is_static_future = source.is_async
             || matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)))
             || matches!(self.mir.types.get(target_return_ty), Some(Type::Future(_)));
-        let forwarded = source
+        let forwarded = substituted_source
             .params
             .iter()
             .enumerate()
@@ -1390,6 +1410,10 @@ impl FunctionEmitter<'_> {
         substitution: &TypeSubstitution<'_>,
         body_is_static_future: bool,
     ) -> Result<String, EmitError> {
+        // The ABI is the source function's own parameter at this position (a
+        // nested slot's declaration, see `function_shape_adapter`); the type
+        // the argument is converted to is `source_param`.
+        let abi_param = source.params.get(index).copied().unwrap_or(source_param);
         if source.rest == Some(index)
             && target_function.params.len() > source.params.len()
             && let Some(Type::List(source_item)) = self.mir.types.get(source_param)
@@ -1475,7 +1499,7 @@ impl FunctionEmitter<'_> {
             ));
             let arg_text =
                 self.rendered_at_type(&element, *rest_item, source_param, &self.render_scope())?;
-            if self.callback_param_is_shared_reference(source, index, source_param) {
+            if self.callback_param_is_shared_reference(source, index, abi_param) {
                 return Ok(format!("&({arg_text})", arg_text = arg_text.delimited()));
             }
             return Ok(arg_text.into_string());
@@ -1508,7 +1532,7 @@ impl FunctionEmitter<'_> {
                         format!("&mut ({converted})", converted = converted.delimited())
                     });
                 }
-                if self.callback_param_is_shared_reference(source, index, source_param) {
+                if self.callback_param_is_shared_reference(source, index, abi_param) {
                     return Ok(format!("&({converted})", converted = converted.delimited()));
                 }
                 return Ok(converted.into_string());
@@ -1524,7 +1548,7 @@ impl FunctionEmitter<'_> {
             let declares_reference =
                 self.callback_param_is_shared_reference(target_function, index, *target_param);
             let wrapped_takes_reference =
-                self.callback_param_is_shared_reference(source, index, source_param);
+                self.callback_param_is_shared_reference(source, index, abi_param);
             // A declared reference an async adapter has already rebound to
             // an owned clone is, inside the body, an owned value.
             let declared_reference_is_owned_in_body = declares_reference && body_is_static_future;
@@ -1559,7 +1583,7 @@ impl FunctionEmitter<'_> {
             Ok(arg_text.into_string())
         } else {
             let default_text = self.default_value(source_param)?;
-            if self.callback_param_is_shared_reference(source, index, source_param) {
+            if self.callback_param_is_shared_reference(source, index, abi_param) {
                 return Ok(format!(
                     "&({default_text})",
                     default_text = default_text.delimited()

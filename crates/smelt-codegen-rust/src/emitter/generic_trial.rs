@@ -140,6 +140,71 @@ impl<'mir> FunctionEmitter<'mir> {
         }))
     }
 
+    /// Whether the body stores or returns `null` at `T | null` of one of its
+    /// own type parameters, anywhere (its closures included).
+    ///
+    /// The erased `Option<SmeltUnknown>` keeps `null` apart from `undefined`
+    /// (`Some(SmeltUnknown::Null)`); an `Option<T>` has one absent value, so a
+    /// lifted function would read `null` back as `undefined` (radash's
+    /// `draw([]) === null`). Such a function stays erased whichever trial
+    /// would otherwise lift it.
+    pub(crate) fn stores_null_at_own_optional(&self) -> bool {
+        let own: Vec<Symbol> = self
+            .function
+            .type_params
+            .iter()
+            .map(|type_param| type_param.name)
+            .collect();
+        let null_into_own_optional = |ty: TypeId| {
+            matches!(
+                self.mir.types.get(ty),
+                Some(Type::Optional(inner))
+                    if matches!(self.mir.types.get(*inner), Some(Type::TypeParam { name }) if own.contains(name))
+            )
+        };
+        let return_ty = self.body_return_ty();
+        let mut pending: Vec<(&[LocalDecl], &[BasicBlock], bool)> =
+            vec![(&self.function.locals, &self.function.blocks, true)];
+        let mut seen: HashSet<smelt_mir::ClosureId> = HashSet::new();
+        while let Some((locals, blocks, top_level)) = pending.pop() {
+            for block in blocks {
+                for statement in &block.statements {
+                    let Statement::Assign { dest, value } = statement else {
+                        continue;
+                    };
+                    if let Rvalue::Closure { id, .. } = value
+                        && seen.insert(*id)
+                        && let Some(closure) = self
+                            .mir
+                            .closures
+                            .iter()
+                            .find(|candidate| candidate.id == *id)
+                    {
+                        pending.push((&closure.locals, &closure.blocks, false));
+                    }
+                    if matches!(value, Rvalue::Use(Operand::Const(Constant::None)))
+                        && usize::try_from(dest.0)
+                            .ok()
+                            .and_then(|index| locals.get(index))
+                            .is_some_and(|decl| null_into_own_optional(decl.ty))
+                    {
+                        return true;
+                    }
+                }
+                if top_level
+                    && matches!(
+                        &block.terminator,
+                        Some(Terminator::Return(Operand::Const(Constant::None)))
+                    )
+                    && null_into_own_optional(return_ty)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Whether every seam where an own type parameter meets the erased
     /// carrier keeps the value's identity and presence, the precondition for
     /// lifting a body whose render touched the carrier

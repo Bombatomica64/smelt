@@ -143,10 +143,18 @@ impl FunctionEmitter<'_> {
                 .names()
                 .field(self.mir, field.name)
                 .into_string();
-            let Ok(erased) = self.erase_rendered(
-                &RustExpr::chain(format!("self.0.borrow().{field_name}")).cloned_value(),
-                field.ty,
-            ) else {
+            // A slot a nested base level stores holds its callable at that
+            // level's declared ABI (`record_slot_abi`); it is bridged to the
+            // field's own type before it is erased.
+            let stored_read =
+                RustExpr::chain(format!("self.0.borrow().{field_name}")).cloned_value();
+            let read = match self.own_class_record_ty() {
+                Some(record_ty) => self
+                    .record_slot_read_at_substituted_abi(&stored_read, record_ty, field)?
+                    .unwrap_or(stored_read),
+                None => stored_read,
+            };
+            let Ok(erased) = self.erase_rendered(&read, field.ty) else {
                 continue;
             };
             // A closure capturing this instance weakly holds it strongly once
@@ -188,13 +196,26 @@ impl FunctionEmitter<'_> {
             if !field.visibility.is_own_property() {
                 continue;
             }
-            let Ok(converted) = self.rendered_at_type(
+            // A field a subclass redeclares is stored at its declaring level's
+            // type, and a slot a nested base level stores at that level's
+            // declared ABI (`redeclared_field`, `record_slot_abi`).
+            let record_ty = self.own_class_record_ty();
+            let stored_ty = record_ty
+                .and_then(|class_ty| self.redeclared_field_storage(class_ty, field.name))
+                .unwrap_or(field.ty);
+            let Ok(converted_at_storage) = self.rendered_at_type(
                 &RustExpr::path("value"),
                 unknown_ty,
-                field.ty,
+                stored_ty,
                 &self.render_scope(),
             ) else {
                 continue;
+            };
+            let converted = match record_ty {
+                Some(class_ty) if stored_ty == field.ty => self
+                    .record_slot_abi_adapter(&converted_at_storage, class_ty, field)?
+                    .unwrap_or(converted_at_storage),
+                _ => converted_at_storage,
             };
             let key = self.symbol_source_name(field.name)?;
             // The same spelling the inner record's declaration uses.

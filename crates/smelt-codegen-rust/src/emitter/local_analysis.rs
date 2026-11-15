@@ -382,7 +382,10 @@ impl FunctionEmitter<'_> {
         // ask. Hono reaches this through the interface side — `Router<T>`
         // declares `add(method, path, handler: T)` and is instantiated at
         // `Router<[unknown, RouterRoute]>`.
-        let declared_ty = crate::classes::find_class(self.mir, *name)
+        // A slot a nested ancestor level stores is declared there
+        // (`record_slot_abi`), at that level's own type parameters.
+        let storing_class = self.nested_slot_level(*name, *field).unwrap_or(*name);
+        let declared_ty = crate::classes::find_class(self.mir, storing_class)
             .and_then(|class| {
                 crate::classes::effective_class_fields(self.mir, class)
                     .into_iter()

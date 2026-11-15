@@ -88,7 +88,18 @@ impl FunctionEmitter<'_> {
         if source == target || !self.is_structural_record_adapter_target(target) {
             return None;
         }
-        let source_fields = self.structural_record_fields(source)?;
+        // A field the source class redeclares is stored, and so read here, at
+        // its declaring level's type (`redeclared_field`).
+        let source_fields: Vec<MirField> = self
+            .structural_record_fields(source)?
+            .into_iter()
+            .map(|mut field| {
+                if let Some(stored) = self.redeclared_field_storage(source, field.name) {
+                    field.ty = stored;
+                }
+                field
+            })
+            .collect();
         let target_fields = self.structural_record_fields(target)?;
         if target_fields.is_empty() {
             // A field-less base class is still a distinct struct, and an
@@ -805,7 +816,11 @@ impl FunctionEmitter<'_> {
         // access against the newtype.
         let source_is_reference_class = self.is_reference_class_type(source);
         let mut entries = Vec::new();
-        for field in source_fields {
+        for mut field in source_fields {
+            // A redeclared field is read at the type its level stores it at.
+            if let Some(stored) = self.redeclared_field_storage(source, field.name) {
+                field.ty = stored;
+            }
             let key = self.symbol_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
             let source_value = if source_is_reference_class {

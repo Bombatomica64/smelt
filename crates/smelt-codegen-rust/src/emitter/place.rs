@@ -63,7 +63,20 @@ impl FunctionEmitter<'_> {
             Place::Global { .. } => Err(EmitError::new(
                 "internal: a mutable-global place was read as a value;                  reads lower to GlobalGet",
             )),
-            Place::Field { base, field } => self.field_place_expr(*base, *field),
+            // A field a subclass redeclares narrower is stored at its
+            // declaring level's type; reading it is a checked downcast to the
+            // subclass's type (`redeclared_field`). Writes build their target
+            // in `assignment_place_target`, never here.
+            Place::Field { base, field } => {
+                let read = self.field_place_expr(*base, *field)?;
+                match self.redeclared_field_storage(self.local_decl(*base)?.ty, *field) {
+                    Some(stored) => {
+                        let narrow = self.place_ty(place)?;
+                        self.rendered_at_type(&read, stored, narrow, &self.render_scope())
+                    }
+                    None => Ok(read),
+                }
+            }
             Place::Index {
                 base,
                 index,

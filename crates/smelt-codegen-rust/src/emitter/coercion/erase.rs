@@ -961,7 +961,14 @@ impl FunctionEmitter<'_> {
             .iter()
             .filter(|field| !frame && field.visibility.is_own_property())
             .filter(|field| !method_on_prototype(field.name))
-            .map(|field| {
+            .map(|declared_field| {
+                // A redeclared field is read at the type its level stores
+                // it at (`redeclared_field`).
+                let mut stored_field = declared_field.clone();
+                if let Some(stored) = self.redeclared_field_storage(target, declared_field.name) {
+                    stored_field.ty = stored;
+                }
+                let field = &stored_field;
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = self.context.names().field_text(self.mir, field.name);
                 // An error's `name` is inherited from its built-in base's

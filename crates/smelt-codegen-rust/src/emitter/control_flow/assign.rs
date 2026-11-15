@@ -98,6 +98,23 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<bool, EmitError> {
         let base_ty = self.local_decl(base)?.ty;
+        // A field a subclass redeclares narrower is stored at its declaring
+        // level's type: the subclass's value is upcast into it
+        // (`redeclared_field`).
+        if let Some(stored) = self.redeclared_field_storage(base_ty, field) {
+            let place = Place::Field { base, field };
+            let narrow = self.place_ty(&place)?;
+            let rendered_value = self.rvalue_expr_for_dest(value, narrow)?;
+            let stored_value =
+                self.rendered_at_type(&rendered_value, narrow, stored, &self.render_scope())?;
+            let target = self.assignment_place_target(&place)?;
+            out.push_str(&format!(
+                "    {{ let smelt_next_value = {stored_value}; {assignment} = smelt_next_value; }}\n",
+                stored_value = stored_value.delimited(),
+                assignment = target.text().delimited()
+            ));
+            return Ok(true);
+        }
         // A JavaScript `RegExp.lastIndex` write stores into a
         // `RefCell<usize>`, so the numeric right-hand side (typed
         // `f64`) is narrowed back to `usize` at the write seam. The

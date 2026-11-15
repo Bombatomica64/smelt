@@ -233,9 +233,21 @@ impl FunctionEmitter<'_> {
             let receiver = SlotReceiver::WeakSelf {
                 handle: instance.to_owned(),
             };
-            if let Some(closure) =
+            if let Some(substituted_closure) =
                 self.virtual_method_slot_closure(instance_ty, instance_ty, slot, &receiver)?
             {
+                // A slot a nested base level stores keeps that level's
+                // declared ABI (`record_slot_abi`); the closure is spelled at
+                // the substituted type.
+                let closure = match self
+                    .structural_record_fields(instance_ty)
+                    .and_then(|fields| fields.into_iter().find(|field| field.name == slot))
+                {
+                    Some(field) => self
+                        .record_slot_abi_adapter(&substituted_closure, instance_ty, &field)?
+                        .unwrap_or(substituted_closure),
+                    None => substituted_closure,
+                };
                 let name = self.context.names().field_text(self.mir, slot);
                 bindings.push(format!(
                     "{instance}.0.borrow_mut().{name} = {closure};",

@@ -442,21 +442,26 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .find(|(field_name, _)| *field_name == field.name)
             {
-                let value = self.record_field_value_at_slot_abi(
+                let at_slot_abi = self.record_field_value_at_slot_abi(
                     self.operand_expr(field_value)?.into_string(),
                     dest_ty,
                     &field,
                 )?;
+                let value = self.field_value_at_storage(at_slot_abi, dest_ty, &field)?;
                 parts.push(format!("{name}: {}", value.delimited()));
             } else {
-                parts.push(format!(
-                    "{name}: {}",
-                    self.default_value_with_scoped_type_params(
+                // A default callback is spelled at the substituted field type;
+                // a slot a nested base level stores keeps that level's
+                // declared ABI (`record_slot_abi`).
+                let default = self
+                    .default_value_with_scoped_type_params(
                         field.ty,
                         &TypeSubstitution::lexical(&scoped_type_params),
                     )?
-                    .delimited()
-                ));
+                    .into_string();
+                let at_slot_abi = self.record_field_value_at_slot_abi(default, dest_ty, &field)?;
+                let value = self.field_value_at_storage(at_slot_abi, dest_ty, &field)?;
+                parts.push(format!("{name}: {}", value.delimited()));
             }
         }
         self.push_phantom_field(&mut parts, mir_class.name, mir_class.type_params.len());

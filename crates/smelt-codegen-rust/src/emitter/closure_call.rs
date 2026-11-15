@@ -432,7 +432,14 @@ impl FunctionEmitter<'_> {
                         },
                         |function| {
                             function.params.get(index).is_some_and(|declared| {
-                                self.callback_param_is_shared_reference(function, index, *declared)
+                                self.with_declared_slot_abi(
+                                    self.callee_is_nested_slot(callee),
+                                    || {
+                                        self.callback_param_is_shared_reference(
+                                            function, index, *declared,
+                                        )
+                                    },
+                                )
                             })
                         },
                     ) {
