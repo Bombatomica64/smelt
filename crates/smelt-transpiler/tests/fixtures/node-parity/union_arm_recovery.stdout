@@ -1,0 +1,6 @@
+number:number string:string number:boolean
+["two","x"]
+a:2 b:1
+some+data other+data
+b=10 a=2 c=true
+e

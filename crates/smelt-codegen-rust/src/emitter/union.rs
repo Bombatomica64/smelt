@@ -1126,12 +1126,15 @@ impl FunctionEmitter<'_> {
                 matches!(self.mir.types.get(*sibling), Some(Type::Tuple(other)) if other.len() == arity)
             });
             return if ambiguous {
-                None
+                self.tuple_element_kind_guard(items, &siblings)
             } else {
                 Some(self.guard_format(format_args!(
                     "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}))"
                 )))
             };
+        }
+        if let Some(Type::List(item)) = self.mir.types.get(member) {
+            return self.list_element_guard(*item, &siblings);
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
             return None;
@@ -1165,6 +1168,85 @@ impl FunctionEmitter<'_> {
         } else {
             Some(format!("({})", distinguishing.join(" && ")))
         }
+    }
+
+    /// The guard of a list arm that shares the array tag with sibling list
+    /// arms (`{ other: boolean }[] | ({ some: string } | string)[]`): every
+    /// element passes the guard this arm's ITEM type has against the sibling
+    /// arms' item types (a union item contributes each of its members), so the
+    /// arm claims an array only when its elements are of its kind. An empty
+    /// array passes every arm, and every arm reads it alike.
+    ///
+    /// `None` when the item type has no structural guard against those items:
+    /// the arm then recovers on its tag, as before. Without it the first list
+    /// arm claimed every array and its element conversion demanded fields the
+    /// elements do not have (ts-pattern's exhaustive `lists` spec threw
+    /// `expected boolean, got undefined at ...[0].other`).
+    fn list_element_guard(&self, item: TypeId, siblings: &[TypeId]) -> Option<String> {
+        let mut items = vec![item];
+        for sibling in siblings {
+            let Some(Type::List(other)) = self.mir.types.get(*sibling) else {
+                continue;
+            };
+            match self.mir.types.get(*other) {
+                Some(Type::Union(members)) => items.extend(members.iter().copied()),
+                _ => items.push(*other),
+            }
+        }
+        if items.len() < 2 {
+            return None;
+        }
+        let pattern = self.union_member_unknown_pattern(item);
+        // The item guard is written against `value`; each element is tested
+        // under the reserved binder instead, so no program local can shadow it.
+        let element_guard = self
+            .union_member_structural_guard(item, &items, 0)?
+            .replace("&value,", "&smelt_element,");
+        Some(self.guard_format(format_args!(
+            "(matches!(&value, SmeltUnknown::Array(smelt_items) if smelt_items.clone().into_vec().into_iter().all(|smelt_element| matches!(smelt_element, {pattern}) && {element_guard})))"
+        )))
+    }
+
+    /// The guard of a tuple arm that shares its arity with a tag-sharing
+    /// sibling: the arity plus the runtime kind of each element whose kind its
+    /// type fixes (`[1, number] | ['two', string] | [3, boolean]`), emitted
+    /// only when it is decisive, i.e. every same-arity sibling disagrees with
+    /// this arm on some fixed element kind. Otherwise the arms cannot be told
+    /// apart at run time and the arm keeps recovering on its tag.
+    ///
+    /// Without it the first tuple arm claimed every array of that length, and
+    /// its extraction retyped the elements: `['two', 'x']` recovered into
+    /// `[1, number]` read `[null, null]` (ts-pattern's tuple-union specs).
+    fn tuple_element_kind_guard(&self, items: &[TypeId], siblings: &[TypeId]) -> Option<String> {
+        let fixed = |ty: TypeId| {
+            let pattern = self.union_member_unknown_pattern(ty);
+            (pattern != "SmeltUnknown::Null | SmeltUnknown::Undefined").then_some(pattern)
+        };
+        let kinds = items.iter().map(|item| fixed(*item)).collect::<Vec<_>>();
+        let decisive = siblings.iter().all(|sibling| match self.mir.types.get(*sibling) {
+            Some(Type::Tuple(other)) if other.len() == items.len() => {
+                other.iter().zip(&kinds).any(|(other_item, kind)| {
+                    matches!((kind, fixed(*other_item)), (Some(mine), Some(theirs)) if *mine != theirs)
+                })
+            }
+            _ => true,
+        });
+        if !decisive {
+            return None;
+        }
+        let arity = items.len();
+        let element_tests = kinds
+            .iter()
+            .enumerate()
+            .filter_map(|(index, kind)| {
+                kind.map(|element_kind| {
+                    format!(" && matches!(smelt_arms.get({index}), Some({element_kind}))")
+                })
+            })
+            .collect::<String>();
+        Some(self.guard_format(format_args!(
+            "(matches!(&value, SmeltUnknown::Array(smelt_arms) if smelt_arms.len() == {arity}{element_tests}))"
+        )))
     }
 
     /// The structural guard of an object-shaped (interface) union arm.

@@ -95,7 +95,7 @@ impl ModuleBuilder<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        let decode_facts = literal
+        let decode_facts: Vec<smelt_hir::FieldDecodeFacts> = literal
             .members
             .iter()
             .zip(&fields)
@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
                 ))
             })
             .collect();
-        let minted = self.anonymous_record_name(&fields);
+        let minted = self.anonymous_record_name(&fields, &decode_facts);
         let name = self.intern_synthesized_type_name(&minted);
         let name_text = minted.as_str().to_owned();
         let span = self.span(0, 0);
@@ -157,13 +157,30 @@ impl ModuleBuilder<'_> {
     /// Rust field name, which folds `userId` and `user_id` together, so
     /// `{ userId: number }` and `{ user_id: number }` would share one struct
     /// and a value of one would be read through the other's keys.
-    fn anonymous_record_name(&self, fields: &[Field]) -> smelt_hir::SynthesizedName {
+    ///
+    /// A field's LITERAL type is part of the shape too: HIR stores
+    /// `type: 'a'` as its primitive `string` and keeps the literal in the
+    /// field's decode facts, so `{ type: 'a'; v: number }` and
+    /// `{ type: 'b'; v: number }` would otherwise share one struct whose facts
+    /// named only the first literal. A union of such shapes then recovered a
+    /// `'b'` value through the `'a'` guard (ts-pattern's select specs, where
+    /// another test declared the `'a'` shape first).
+    fn anonymous_record_name(
+        &self,
+        fields: &[Field],
+        decode_facts: &[smelt_hir::FieldDecodeFacts],
+    ) -> smelt_hir::SynthesizedName {
         let mut hasher = DefaultHasher::new();
         for field in fields {
             crate::lowering::support::source_spelling(&self.ctx.krate, field.name)
                 .hash(&mut hasher);
             field.ty.hash(&mut hasher);
             field.optional.hash(&mut hasher);
+            if let Some(facts) = decode_facts.iter().find(|facts| facts.name == field.name)
+                && !facts.literals.is_empty()
+            {
+                format!("{:?}", facts.literals).hash(&mut hasher);
+            }
         }
         smelt_hir::SynthesizedName::new(format!("SmeltRecord{:016x}", hasher.finish()))
     }

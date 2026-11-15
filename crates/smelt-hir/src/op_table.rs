@@ -1950,8 +1950,11 @@ macro_rules! op_group_transcribed {
                 actual: one,
                 /// The expected value, possibly an asymmetric matcher or containing one.
                 expected: one,
+                /// `toStrictEqual`: an own property holding `undefined` counts.
+                /// `toEqual` skips such properties on both sides, as Vitest does.
+                strict: [bool],
             }
-                => (format!("vitest_asymmetric_equal {actual} {expected}"));
+                => (format!("vitest_asymmetric_equal{} {actual} {expected}", if *strict { "_strict" } else { "" }));
             /// Whether a Vitest mock's most recent recorded result deep-equals
             /// `expected` after flattening a resolved promise
             /// (`expect(mock).toHaveLastResolvedWith(...)`); true means the assertion
