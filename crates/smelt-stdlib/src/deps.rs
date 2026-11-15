@@ -266,7 +266,7 @@ impl BackendDependency {
             }
             Self::IcuCollator => {
                 const CRATES: &[CrateRequirement] =
-                    &[CrateRequirement::plain("icu_collator", "2.3")];
+                    &[CrateRequirement::plain("icu_collator", "~2.3")];
                 CRATES
             }
             Self::Rand => {

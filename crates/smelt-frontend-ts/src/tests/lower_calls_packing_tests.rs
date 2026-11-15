@@ -7587,10 +7587,8 @@ const router = {
                 .is_some_and(|symbol| symbol_is(&ctx, symbol, "router"))
         })
         .ok_or("no `router` local")?;
-    ensure_eq!(
-        smelt_hir::type_display(&ctx.krate, router.ty).as_str(),
-        "Dict<String, Unknown>"
-    );
+    let router_ty = smelt_hir::type_display(&ctx.krate, router.ty);
+    ensure_eq!(router_ty.as_str(), "Dict<String, Unknown>");
     let marker_wraps_closure = body.exprs.iter().any(|expr| match &expr.kind {
         ExprKind::DictLit(pairs) => pairs.iter().any(|(key, value)| {
             matches!(
@@ -10434,11 +10432,19 @@ function pad(values: number[]): unknown {
 
 #[test]
 fn lowers_matches_property_array_iteratee_callback() -> Result<(), String> {
-    // The lodash array iteratee shorthand `[path, srcValue]` is a
-    // matchesProperty predicate (es-toolkit memoize.spec's
-    // `lodashStable.find(this.__data__, ['key', key])`); it must classify as a
-    // callback instead of failing with "array callback methods currently
-    // require arrow function callbacks".
+    // The lodash array iteratee shorthand `[path, srcValue]` passed to a
+    // namespace member (es-toolkit memoize.spec's
+    // `lodashStable.find(this.__data__, ['key', key])`) must lower instead of
+    // failing with "array callback methods currently require arrow function
+    // callbacks".
+    //
+    // Old requirement: the call was lowered as `Array.prototype.find` with the
+    // shorthand turned into a synthesized closure, and its result was a
+    // fabricated `None` (the namespace's own `find` never ran). New
+    // requirement: a namespace member is that module's function, called as
+    // written, with the iteratee array passed as the list it is; the module
+    // implements the shorthand. Asserting the synthesized closure pinned the
+    // placeholder, not JavaScript's behaviour.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -10452,8 +10458,11 @@ function lookup(entries: Array<{ key: string; value: string }>, key: string): un
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_exprs!(&ctx, Closure, ListLit, BinOp);
-    ensure!(crate_has_field(&ctx, "key"), "no read of field `key`");
+    ensure_exprs!(&ctx, ListLit);
+    ensure!(
+        !crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::ListCallback { .. })),
+        "a namespace member call is not `Array.prototype.find`"
+    );
     Ok(())
 }
 

@@ -751,12 +751,18 @@ const second = counter.value;
 ",
     );
 
+    // A read runs the getter with the object as `this`, without taking
+    // the accessor out of the object.
     assert!(
-        source.contains("match getter.get(\"__smelt_get\")"),
+        source.contains("match accessor.get(\"__smelt_get\")"),
         "{source}"
     );
     assert!(
-        !source.contains("getter.remove(\"__smelt_get\")"),
+        source.contains("fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltUnknown)"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("accessor.remove(\"__smelt_get\")"),
         "{source}"
     );
 }

@@ -816,8 +816,12 @@ impl ModuleBuilder<'_> {
             // `Object.fromEntries(null)` does not type-check, so an optional
             // argument (a field a guard proved present, `this.#var`) holds its
             // payload: read it as that payload.
-            if let Some(Type::Optional(inner)) =
-                self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned()
+            if let Some(Type::Optional(inner)) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, value))
+                .cloned()
             {
                 value = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value },

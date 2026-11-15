@@ -292,12 +292,13 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(RustExpr::loose(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}", value_text = value_text.delimited()))),
-            // A date-time string: RFC 3339 with an offset, `Date.prototype.toString`'s
-            // form, an ISO date-time WITHOUT an offset (local time, which the
-            // generated date model keeps at UTC, as `getHours` reads it), an ISO
-            // or slashed date (midnight), else a number's text.
+            // A date-time string, read by the one date-string rule
+            // (`date_string_parse_text`).
             Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
-                "{{ let smelt_date_text = {date_text}; chrono::DateTime::parse_from_rfc3339(&smelt_date_text).or_else(|_| chrono::DateTime::parse_from_str(&smelt_date_text, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_date_text, \"%Y-%m-%dT%H:%M:%S%.f\").or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_date_text, \"%Y-%m-%dT%H:%M\")).map(|smelt_date| smelt_date.and_utc().timestamp_millis() as f64)).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_date_text.parse::<f64>().unwrap_or(f64::NAN)) }}", date_text = self.host_utf8_text(value_text.clone()).delimited()))),
+                "{{ let smelt_date_text = {date_text}; {parse} }}",
+                date_text = self.host_utf8_text(value_text.clone()).delimited(),
+                parse = date_string_parse_text("smelt_date_text")
+            ))),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_value(&RustExpr::path("smelt_value"), *inner)?;
                 Ok(RustExpr::atom(format!(
@@ -313,7 +314,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match &{value_text} {{ SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if *smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(value),"), value_text = value_text.tight()
+                    "match &{value_text} {{ SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); {erased_parse} }}, SmeltUnknown::Bool(smelt_value) => if *smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", erased_parse = date_string_parse_text("smelt_value"), smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(value),"), value_text = value_text.tight()
                 ))))
             }
             _ => Ok(RustExpr::atom("f64::NAN")),
@@ -583,4 +584,18 @@ impl FunctionEmitter<'_> {
             path_text = path_text.tight()
         )))
     }
+}
+
+/// The Rust text that reads the date string held in the `&str`-like local
+/// `text` as a time value in milliseconds: the one date-string rule both the
+/// typed (`string`) and the erased (`unknown`) `new Date(text)` arms emit.
+///
+/// In order: RFC 3339 with an offset, `Date.prototype.toString`'s form, an
+/// ISO date-time WITHOUT an offset (local time, which the generated date model
+/// keeps at UTC, as `getHours` reads it), an ISO or slashed date (midnight),
+/// else a number's text, else `NaN`.
+fn date_string_parse_text(text: &str) -> String {
+    format!(
+        "chrono::DateTime::parse_from_rfc3339(&{text}).or_else(|_| chrono::DateTime::parse_from_str(&{text}, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&{text}, \"%Y-%m-%dT%H:%M:%S%.f\").or_else(|_| chrono::NaiveDateTime::parse_from_str(&{text}, \"%Y-%m-%dT%H:%M\")).map(|smelt_date| smelt_date.and_utc().timestamp_millis() as f64)).or_else(|_| chrono::NaiveDate::parse_from_str(&{text}, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&{text}, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| {text}.parse::<f64>().unwrap_or(f64::NAN))"
+    )
 }

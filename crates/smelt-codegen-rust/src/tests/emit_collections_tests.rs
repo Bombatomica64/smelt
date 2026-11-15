@@ -1262,7 +1262,7 @@ loop {
 _smelt_tmp_3 = bytes.clone().length();
 _smelt_tmp_4 = index < _smelt_tmp_3;
 if !(_smelt_tmp_4) { break; }
-_smelt_tmp_5 = bytes.get(index).unwrap_or(0.0);
+_smelt_tmp_5 = bytes.get(index).unwrap_or_else(smelt_number_hole);
 _smelt_tmp_6 = JsString::from(smelt_number_to_string_radix(_smelt_tmp_5, 16.0 as u32));
 out = out + &_smelt_tmp_6;
 index = index + 1.0;

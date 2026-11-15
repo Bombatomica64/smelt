@@ -443,10 +443,18 @@ impl FunctionEmitter<'_> {
             if !is_erased_operand {
                 return Ok(RustExpr::path("false"));
             }
+            // Genuine dynamic boundary: the operand is a value whose static type
+            // is erased (a source `unknown`/`any`, an erased union or type
+            // parameter), and the predicate's answer IS the inspection of its
+            // runtime tag: `false` for every tag but Number. No concrete type
+            // can stand in, since the point is to tell a Number from everything
+            // else; a concretely typed operand never reaches here (it is
+            // tested as the `f64` it is, or answers `false` statically).
             let value_text = self.value_at_type(operand, self.type_id(Type::Unknown)?)?;
-            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "(match {value_text} {{ SmeltUnknown::Number(smelt_value) => {test}, _ => false }})", value_text = value_text.delimited()
-            ))));
+            return Ok(RustExpr::chain(format!(
+                "smelt_erased_number_is(&{value_text}, |smelt_value| {test})",
+                value_text = value_text.tight()
+            )));
         }
         let operand_expr = self.float_operand_expr(operand)?;
         Ok(match op {
