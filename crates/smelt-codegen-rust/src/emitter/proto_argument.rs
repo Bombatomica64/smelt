@@ -11,6 +11,7 @@
 //! that type.
 
 use super::FunctionEmitter;
+use super::callback_signature::ParameterPassing;
 use crate::EmitError;
 use crate::rust::RustExpr;
 use smelt_mir::LocalId;
@@ -31,19 +32,18 @@ impl FunctionEmitter<'_> {
         erased: &str,
     ) -> Result<String, EmitError> {
         let ty = self.local_decl(param)?.ty;
-        let declared = self.parameter_decl_type(param)?.into_string();
         let scope = self.render_scope();
         let value = self.extract_rendered(&RustExpr::atom(erased), ty, &scope)?;
-        Ok(if declared.starts_with("&mut ") {
-            format!("&mut ({value})", value = value.delimited())
-        } else if declared.starts_with('&')
-            && matches!(self.mir.types.get(ty), Some(smelt_hir::Type::Function(_)))
-        {
-            format!("&*({value})", value = value.delimited())
-        } else if declared.starts_with('&') {
-            format!("&({value})", value = value.delimited())
-        } else {
-            value.into_string()
+        Ok(match self.parameter_passing(param)? {
+            ParameterPassing::MutableReference => {
+                format!("&mut ({value})", value = value.delimited())
+            }
+            // The extracted callback is an owned `Rc<dyn Fn ..>`; `&*` of it
+            // binds both a `&dyn Fn` and a generic `&F0` (`F0: Fn + ?Sized`).
+            ParameterPassing::BorrowedCallback => {
+                format!("&*({value})", value = value.delimited())
+            }
+            ParameterPassing::Owned => value.into_string(),
         })
     }
 }

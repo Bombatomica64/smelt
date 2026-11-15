@@ -286,6 +286,13 @@ fn contextual_add_and_symbol_keys() -> TestResult {
     verify_node_parity("contextual_add_and_symbol_keys")
 }
 
+/// A subclass upcast to its generic polymorphic base builds the base handle
+/// through a turbofish constructor path.
+#[test]
+fn polymorphic_generic_upcast() -> TestResult {
+    verify_node_parity("polymorphic_generic_upcast")
+}
+
 /// Programs that end with an uncaught throw or rejection, with the message
 /// Node prints for each (see `uncaught_throw_exits_one_with_its_message`).
 /// One uncaught-throw case: its name, its source, and the message on stderr.

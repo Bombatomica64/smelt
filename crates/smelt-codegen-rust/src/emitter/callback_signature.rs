@@ -441,14 +441,31 @@ impl FunctionEmitter<'_> {
         Ok(bounds)
     }
 
+    /// How a function parameter is passed: by `&mut`, by shared reference, or
+    /// owned. The one decision [`Self::parameter_decl_type`] renders and every
+    /// adapter that builds an argument for it (`proto_argument`) reads, so the
+    /// borrow an argument takes is never recovered from rendered type text.
+    pub(super) fn parameter_passing(&self, local: LocalId) -> Result<ParameterPassing, EmitError> {
+        let ty = self.local_decl(local)?.ty;
+        if self.parameter_needs_mutable_reference(local) {
+            return Ok(ParameterPassing::MutableReference);
+        }
+        if matches!(self.mir.types.get(ty), Some(Type::Function(_)))
+            && !self.function_parameter_requires_owned(local)?
+        {
+            return Ok(ParameterPassing::BorrowedCallback);
+        }
+        Ok(ParameterPassing::Owned)
+    }
+
     /// Convert a concrete function parameter declaration to Rust.
     pub(super) fn parameter_decl_type(&self, local: LocalId) -> Result<RustType, EmitError> {
         let ty = self.local_decl(local)?.ty;
-        if self.parameter_needs_mutable_reference(local) {
-            return Ok(RustType::raw(format!("&mut {}", self.rendered_type(ty)?)));
-        }
-        if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
-            if !self.function_parameter_requires_owned(local)? {
+        match self.parameter_passing(local)? {
+            ParameterPassing::MutableReference => {
+                Ok(RustType::raw(format!("&mut {}", self.rendered_type(ty)?)))
+            }
+            ParameterPassing::BorrowedCallback => {
                 // A direct required borrowed callback parameter of a generic free function
                 // is monomorphized as `&F{n}` rather than dispatched dynamically through
                 // `&dyn Fn(..)`. `callback_generic_bounds_text` declares the matching bound
@@ -456,12 +473,29 @@ impl FunctionEmitter<'_> {
                 if let Some(name) = self.callback_generic_name(local)? {
                     return Ok(RustType::raw(format!("&{name}")));
                 }
-                return self.param_type(ty);
+                self.param_type(ty)
             }
-            return self.rendered_type(ty);
+            // An owned callback is its `Rc<dyn Fn ..>` value type; any other
+            // parameter takes its signature type, which is never a reference.
+            ParameterPassing::Owned
+                if matches!(self.mir.types.get(ty), Some(Type::Function(_))) =>
+            {
+                self.rendered_type(ty)
+            }
+            ParameterPassing::Owned => self.param_type(ty),
         }
-        self.param_type(ty)
     }
+}
+
+/// How a function parameter is passed ([`FunctionEmitter::parameter_passing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ParameterPassing {
+    /// `&mut T`: the callee mutates a list or record the caller still holds.
+    MutableReference,
+    /// `&dyn Fn(..)` or a generic `&F{n}`: a callback the callee only calls.
+    BorrowedCallback,
+    /// By value.
+    Owned,
 }
 
 /// Restores the previous declared-slot-ABI state when dropped
