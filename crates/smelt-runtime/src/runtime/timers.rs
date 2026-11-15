@@ -16,6 +16,14 @@ thread_local! {
     //~ Whether a detached promise task finished since the event loop last checked for idleness.
     static SMELT_PROMISE_TASK_SETTLED: ::std::cell::Cell<bool> = const { ::std::cell::Cell::new(false) };
     static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
+    //~ How many promise tasks are being polled right now. A drain started from
+    //~ inside one (a task awaiting a still-pending promise) is nested: the
+    //~ outer task has not finished its turn, so no rejection is judged then.
+    static SMELT_PROMISE_TASK_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    //~ Rejections settled since the last check, each with the handled flag of
+    //~ its promise: reported once the job queue drains if the flag is still
+    //~ unset, as Node reports an unhandled rejection.
+    static SMELT_PENDING_REJECTIONS: ::std::cell::RefCell<Vec<(::std::rc::Rc<::std::cell::Cell<bool>>, SmeltUnknown)>> = const { ::std::cell::RefCell::new(Vec::new()) };
     //~ Non-zero while a `Promise.race` driver owns the event loop; see
     //~ `smelt_promise_race`.
     static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
@@ -58,11 +66,39 @@ fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static))
     if !cfg!(test) { ::std::process::exit(1); }
 }
 
+//~ Record a settled rejection and the flag that says whether anything handles
+//~ it. Typed and erased promises both land here: one rule decides what is
+//~ unhandled, applied when the job queue drains (`smelt_check_rejections`).
+#[allow(dead_code)]
+fn smelt_note_rejection(handled: ::std::rc::Rc<::std::cell::Cell<bool>>, reason: SmeltUnknown) {
+    SMELT_PENDING_REJECTIONS.with(|pending| pending.borrow_mut().push((handled, reason)));
+}
+
+//~ Judge the rejections noted so far: one still unhandled is reported (and
+//~ the process exits 1, as in Node); a handled one is dropped. Called only
+//~ when the job queue has drained at the top level, so a handler attached
+//~ later in the same turn or in a microtask counts, and one attached in a
+//~ later timer does not.
+fn smelt_check_rejections() {
+    let noted = SMELT_PENDING_REJECTIONS.with(|pending| ::std::mem::take(&mut *pending.borrow_mut()));
+    for (handled, reason) in noted {
+        if !handled.get() {
+            smelt_report_unhandled_rejection(&*smelt_throw(reason));
+        }
+    }
+}
+
 fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
     SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
     SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
 }
 
+//~ Run queued promise tasks until the queue is empty. A pass that leaves a
+//~ task pending (it may be advancing its own sleep across polls) or queues a
+//~ new one (a continuation scheduling the next link of a chain) is followed by
+//~ another, up to the pass cap, so the queue is drained before any timer runs.
+//~ A drain at the top level (not inside a task's poll) then judges the
+//~ rejections that settled (`smelt_check_rejections`).
 async fn smelt_drain_promise_tasks() {
     for _ in 0..64 {
         let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));
@@ -71,13 +107,23 @@ async fn smelt_drain_promise_tasks() {
         let mut cx = ::std::task::Context::from_waker(&waker);
         let mut pending = Vec::new();
         for mut task in tasks.drain(..) {
-            if task.as_mut().poll(&mut cx).is_pending() { pending.push(task); } else { SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.set(true)); }
+            SMELT_PROMISE_TASK_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+            let ready = task.as_mut().poll(&mut cx).is_ready();
+            SMELT_PROMISE_TASK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+            if ready { SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.set(true)); } else { pending.push(task); }
         }
+        let queued = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
         let had_pending = !pending.is_empty();
         SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));
-        if !had_pending { break; }
-        tokio::task::yield_now().await;
+        if !had_pending && !queued { break; }
+        //~ Under a `Promise.race` driver the next pass runs without suspending:
+        //~ the driver is the scheduler while it runs, and suspending here made
+        //~ the racer that started this drain look idle, so the driver stepped
+        //~ the clock to the next timer while a continuation was still runnable
+        //~ (hono's timeout middleware won against a handler due before it).
+        if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
     }
+    if SMELT_PROMISE_TASK_DEPTH.with(::std::cell::Cell::get) == 0 { smelt_check_rejections(); }
 }
 
 fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {
@@ -163,6 +209,15 @@ async fn smelt_sleep_ms(delay_ms: f64) {
     //~ handler's 1100ms, firing the deadline before `Promise.race`
     //~ existed; the race then saw the handler resolved and returned 200.
     while SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
+    //~ Inside a promise task's poll, a zero-delay sleep is one microtask turn
+    //~ (`Promise.resolve(x)` lowers to it): it yields back to the drain that
+    //~ is running the queue, and fires no timer, because Node runs every
+    //~ queued microtask before any timer. Advancing the timer phase here ran
+    //~ a `setTimeout(f, 0)` ahead of `Promise.resolve().then(g)`.
+    if !(delay_ms.is_finite() && delay_ms > 0.0) && SMELT_PROMISE_TASK_DEPTH.with(::std::cell::Cell::get) > 0 {
+        tokio::task::yield_now().await;
+        return;
+    }
     smelt_drain_promise_tasks().await;
     let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
     let target_ms = smelt_mono_ms().saturating_add(delay_ms);

@@ -1,5 +1,5 @@
 //! Regression tests for the TypeScript frontend's drifted duplicate helpers
-//! (haiku audit §2.4, `blocker-logs/haiku-audit-followup.md`).
+//! (haiku audit §2.4, `haiku-audit-followup.md` (in git history)).
 //!
 //! Each case is a construct that lowered differently depending on which of two
 //! copies of a helper handled it. The copies are now one definition; these

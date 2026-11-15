@@ -21,12 +21,12 @@
 //   closure typed `Fn(&SmeltUnknown)` whichever way it is spelled — 17
 //   avoidable erasures for four lines. A frontend test asserts that spelling
 //   lowers at all; the erasure itself is
-//   `blocker-logs/hono-h49-builtin-callback-operand.md`.
+//   `hono-h49-builtin-callback-operand.md` (in git history).
 // * an arrow bound to an annotated const (`const p: Predicate = (v) => ...`)
 //   answers WRONG when passed as a callback by name, with or without an
 //   assertion — the captured local keeps the placeholder callback. Pre-existing
 //   and independent of this change; see
-//   `blocker-logs/hono-h50-local-arrow-callback-value.md`.
+//   `hono-h50-local-arrow-callback-value.md` (in git history).
 
 type Predicate = (value: string) => boolean;
 

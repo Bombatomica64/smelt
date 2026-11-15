@@ -100,8 +100,11 @@ impl FunctionEmitter<'_> {
             // `this` is dynamically scoped: the receiver is whatever the
             // innermost active call installed, so the read is a runtime channel
             // read rather than a local. See `Rvalue::BindThis` for the install.
-            Rvalue::ThisRead => Ok(RustExpr::chain("smelt_this()")),
-            Rvalue::BindThis { callee, receiver } => self.bind_this_expr(callee, receiver, dest_ty),
+            Rvalue::ThisRead => Ok(RustExpr::chain(self.this_read_text())),
+            Rvalue::BindThis { callee, receiver } => {
+                self.bind_this_expr(callee, Some(receiver), dest_ty)
+            }
+            Rvalue::BindOwnThis { callee } => self.bind_this_expr(callee, None, dest_ty),
             Rvalue::GeneratorYield {
                 value,
                 unwind,
@@ -321,6 +324,16 @@ impl FunctionEmitter<'_> {
                 target,
                 descriptors,
             } => self.define_properties_expr(target, descriptors),
+            Rvalue::SetPrototypeOf { target, prototype } => {
+                let call = self.set_prototype_of_expr(target, prototype)?;
+                // Lowered as an effect with no value: the source reads the
+                // target again for the call's result.
+                if dest_ty == self.none_ty {
+                    Ok(RustExpr::atom(format!("{{ let _ = {}; }}", call.delimited())))
+                } else {
+                    Ok(call)
+                }
+            }
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,
@@ -552,6 +565,29 @@ impl FunctionEmitter<'_> {
             Rvalue::ListClear { list } => self.collection_clear_expr(list, dest_ty, "list"),
             Rvalue::ListCopy { list } => self.list_copy_expr(list, dest_ty),
             Rvalue::TupleToList { tuple } => self.tuple_to_list_expr(tuple, dest_ty),
+            Rvalue::ErasedIterableTake {
+                value: source,
+                count,
+            } => {
+                let list = coercion::erased_to_bounded_list_expr(
+                    &self.operand_expr(source)?,
+                    None,
+                    &self.carrier_expr(
+                        self.carrier()?,
+                        &RustExpr::atom("SmeltUnknown::String(smelt_ch)"),
+                    ),
+                    *count,
+                );
+                // Taken in place into an erased local, the items are an erased
+                // array (same identity as the list just built).
+                if matches!(self.mir.types.get(dest_ty), Some(Type::Unknown)) {
+                    return Ok(RustExpr::chain(format!(
+                        "IntoSmeltUnknown::into_smelt_unknown({})",
+                        list.delimited()
+                    )));
+                }
+                Ok(list)
+            }
             Rvalue::ListToTuple { list } => self.list_to_tuple_expr(list, dest_ty),
             Rvalue::TupleToSet { tuple } => self.tuple_to_set_expr(tuple, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_expr(list, item, dest_ty),
@@ -611,6 +647,24 @@ impl FunctionEmitter<'_> {
             } => self.callable_object_assign_expr(callable, props, spreads, dest_ty),
             Rvalue::DictCopy { dict } => self.dict_copy_expr(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_expr(*op, dict),
+            Rvalue::CollectionIterator {
+                op,
+                set,
+                collection,
+            } => self.collection_iterator_expr(*op, *set, collection),
+            Rvalue::CollectionLen { collection, .. } => {
+                let collection_text = self.operand_expr(collection)?;
+                Ok(RustExpr::atom(format!(
+                    "({collection}.smelt_live_len() as f64)",
+                    collection = collection_text.delimited()
+                )))
+            }
+            Rvalue::CollectionAt {
+                op,
+                set,
+                collection,
+                index,
+            } => self.collection_at_expr(*op, *set, collection, index),
             Rvalue::StringSplit {
                 haystack,
                 separator,

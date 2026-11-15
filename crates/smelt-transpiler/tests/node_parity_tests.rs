@@ -286,28 +286,52 @@ fn contextual_add_and_symbol_keys() -> TestResult {
     verify_node_parity("contextual_add_and_symbol_keys")
 }
 
+/// Programs that end with an uncaught throw or rejection, with the message
+/// Node prints for each (see `uncaught_throw_exits_one_with_its_message`).
+/// One uncaught-throw case: its name, its source, and the message on stderr.
+type UncaughtCase = (&'static str, &'static str, &'static str);
+
+const UNCAUGHT_PROGRAMS: [UncaughtCase; 6] = [
+    (
+        "returned out of main",
+        "throw new TypeError('top level');\n",
+        "TypeError: top level",
+    ),
+    (
+        "through a callback",
+        "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
+        "RangeError: nope 1",
+    ),
+    (
+        "floating rejection",
+        "async function fail(): Promise<void> { throw new Error('floating'); }\nfail();\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: floating",
+    ),
+    (
+        "floating erased rejection",
+        "const host: any = { async fail(): Promise<void> { throw new Error('erased floating'); } };\nhost.fail();\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: erased floating",
+    ),
+    (
+        "rejection down an unhandled erased chain",
+        "const host: any = { async fail(): Promise<void> { throw new Error('down an unhandled chain'); } };\nhost.fail().then(() => 1);\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: down an unhandled chain",
+    ),
+    (
+        "handler attached in a later timer",
+        "const host: any = { async fail(): Promise<void> { throw new Error('caught too late'); } };\nconst p = host.fail();\nsetTimeout(() => p.catch(() => console.log('late')), 10);\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: caught too late",
+    ),
+];
+
 /// An uncaught throw exits as Node does: status 1, with the thrown class and
-/// message on stderr. Covers a throw returned out of `main` and one that crosses
-/// a callback through the panic route.
+/// message on stderr. Covers a throw returned out of `main`, one that crosses
+/// a callback through the panic route, and a rejection nothing handles by the
+/// time the job queue drains: a floating typed or erased promise, the end of an
+/// erased chain, and a promise whose handler arrives only in a later timer.
 #[test]
 fn uncaught_throw_exits_one_with_its_message() -> TestResult {
-    let programs = [
-        (
-            "returned out of main",
-            "throw new TypeError('top level');\n",
-            "TypeError: top level",
-        ),
-        (
-            "through a callback",
-            "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
-            "RangeError: nope 1",
-        ),
-        (
-            "floating rejection",
-            "async function fail(): Promise<void> { throw new Error('floating'); }\nfail();\nsetTimeout(() => console.log('never'), 50);\n",
-            "Error: floating",
-        ),
-    ];
+    let programs = UNCAUGHT_PROGRAMS;
     for (name, source, message) in programs {
         let project = TempProject::new()?;
         let root = project.path();
@@ -398,6 +422,39 @@ fn imported_type_predicate() -> TestResult {
 #[test]
 fn json_type_only_interface() -> TestResult {
     verify_node_parity_with("json_type_only_interface", &["types.ts"])
+}
+
+/// A class's prototype is one object with identity: `.constructor` is the
+/// class, the chain runs through the base prototype, and `Object.create`,
+/// `setPrototypeOf`, `isPrototypeOf` and `instanceof` agree with it
+/// (docs/design/class-prototypes.md).
+#[test]
+fn class_prototypes() -> TestResult {
+    verify_node_parity("class_prototypes")
+}
+
+/// Methods on the class prototype, shared by instances, clones and
+/// `Object.create(C.prototype)` objects; an early `.constructor` is the class;
+/// host classes have one chained prototype object each
+/// (docs/design/class-prototypes.md, section 7).
+#[test]
+fn prototype_methods_and_hosts() -> TestResult {
+    verify_node_parity("prototype_methods_and_hosts")
+}
+
+/// A host constructor read as a value is the one constructor object: callable
+/// through `new`, `===` across reads and to `instance.constructor`, and an
+/// erased Map or Set built through it answers its methods by name.
+#[test]
+fn host_constructor_values() -> TestResult {
+    verify_node_parity("host_constructor_values")
+}
+
+/// A typed Map's or Set's `keys()`/`values()`/`entries()` is a live,
+/// single-pass iterator that stringifies as `{}` and is its own iterator.
+#[test]
+fn collection_iterators() -> TestResult {
+    verify_node_parity("collection_iterators")
 }
 
 /// A throw from a `map` or `sort` callback reaches the enclosing `try`.
@@ -1275,6 +1332,13 @@ fn erased_record_of_functions() -> TestResult {
     verify_node_parity("erased_record_of_functions")
 }
 
+/// `new (date.constructor)(value)` builds a date from a time value, another
+/// date or an ISO string, as `new Date(value)` does (date-fns' `constructFrom`).
+#[test]
+fn construct_like_date() -> TestResult {
+    verify_node_parity("construct_like_date")
+}
+
 /// Inheritance, reference classes, throwing getters, reassigned methods and dynamic host constructor reads run as Node runs them.
 #[test]
 fn class_inheritance_behaviour() -> TestResult {
@@ -1487,4 +1551,55 @@ fn optional_erased_calls() -> TestResult {
 #[test]
 fn callee_value_calls() -> TestResult {
     verify_node_parity("callee_value_calls")
+}
+
+/// `fn.apply(thisArg, list)` on a typed callee: a fixed-arity callee reads its
+/// parameters from the list by index (`apply(x, [])` on `() => T` is a
+/// zero-argument call), a leading-positional callee splits the list into its
+/// positionals and its rest, and the leading operand is the receiver.
+#[test]
+fn apply_argument_lists() -> TestResult {
+    verify_node_parity("apply_argument_lists")
+}
+
+/// A generator reached through an erased value is iterable: spread, `for...of`,
+/// `Array.from` and destructuring drive its `[Symbol.iterator]`, and a partly
+/// consumed generator resumes where it stopped.
+#[test]
+fn erased_generator_iteration() -> TestResult {
+    verify_node_parity("erased_generator_iteration")
+}
+
+/// A promise reached through an erased value settles and runs its
+/// continuations, and an async method of an `any` object literal returns a
+/// promise rather than its bare value.
+#[test]
+fn erased_async_calls() -> TestResult {
+    verify_node_parity("erased_async_calls")
+}
+
+/// Every call supplies its callee's `this`: a member call, `.call`/`.apply`/
+/// `.bind` supply a receiver and a plain call supplies `undefined`, typed or
+/// erased; an arrow sees its enclosing plain function's `this`; a callable
+/// object forwarding its receiver (es-toolkit's `throttle`) keeps it.
+#[test]
+fn receiver_frames() -> TestResult {
+    verify_node_parity("receiver_frames")
+}
+
+/// A rejection handled before the job queue drains is not reported: a handler
+/// attached later in the same turn, inside a microtask, by awaiting, or on a
+/// derived promise down the chain, for erased and typed promises alike. The
+/// unhandled counterparts exit 1 in `uncaught_throw_exits_one_with_its_message`.
+#[test]
+fn handled_rejections() -> TestResult {
+    verify_node_parity("handled_rejections")
+}
+
+/// A continuation released by a timer runs before the clock reaches the next
+/// timer, inside a `Promise.race` too: work due at 900 ms beats a 1000 ms
+/// timeout, typed or through an erased value (hono's timeout middleware).
+#[test]
+fn race_continuations_before_timers() -> TestResult {
+    verify_node_parity("race_continuations_before_timers")
 }

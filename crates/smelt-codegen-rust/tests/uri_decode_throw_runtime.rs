@@ -22,7 +22,7 @@
 //! `Send` class-plus-message payload (`thrown::emit_panic_route_support`), which
 //! is what `the_callback_value_route_keeps_the_uri_error_identity` pins --
 //! alongside the direct route's assertion, because the two routes recover the
-//! payload through different code. See `blocker-logs/hono-fallible-ops.md` §9.
+//! payload through different code. See `hono-fallible-ops.md` (in git history) §9.
 //!
 //! The tier is `#[ignore]`d because it compiles and executes real crates:
 //!

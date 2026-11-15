@@ -734,6 +734,12 @@ pub struct SmeltPrimSet<T> {
 }
 
 impl<T> SmeltPrimSet<T> {
+    #[allow(dead_code)]
+    fn smelt_live_len(&self) -> usize { self.store.borrow().entries.len() }
+    #[allow(dead_code)]
+    fn smelt_member_at(&self, index: usize) -> Option<T> where T: Clone { self.store.borrow().entries.get(index).cloned() }
+    #[allow(dead_code)]
+    fn smelt_entry_at(&self, index: usize) -> Option<(T, T)> where T: Clone { self.smelt_member_at(index).map(|member| (member.clone(), member)) }
     fn new() -> Self { Self::with_id(smelt_next_object_id()) }
     fn with_id(id: usize) -> Self { Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltPrimSetStore { entries: Vec::new(), index: ::std::collections::HashSet::new() })) } }
     fn len(&self) -> usize { self.store.borrow().entries.len() }

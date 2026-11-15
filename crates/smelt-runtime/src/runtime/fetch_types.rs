@@ -137,7 +137,7 @@ impl SmeltHeaders {
         //~ copied once. (The copying version cloned the list, every
         //~ name and every value before combining: ~6 allocations per
         //~ header, twice per served response;
-        //~ `blocker-logs/hono-crud-perf-round2.md`.)
+        //~ `hono-crud-perf-round2.md` (never committed).)
         let entries = self.entries.borrow();
         let mut order: Vec<usize> = (0..entries.len()).collect();
         order.sort_by(|left, right| entries[*left].0.cmp(&entries[*right].0));

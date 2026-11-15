@@ -409,6 +409,11 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
             {
                 out.push_str(&proto_entries);
             }
+            if needs_unknown
+                && let Some(methods) = class_proto::class_prototype_methods_fn(mir, context, class)?
+            {
+                out.push_str(&methods);
+            }
             if needs_unknown && let Some(host) = field_setter_host(mir, context, class) {
                 let emitter = FunctionEmitter::new(mir, context, host)?;
                 out.push_str(

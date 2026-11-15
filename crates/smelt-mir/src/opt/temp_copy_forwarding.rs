@@ -531,6 +531,7 @@ mod tests {
             can_throw: false,
             is_generator: false,
             function_item_key: None,
+            this_binding: smelt_hir::ClosureThis::Own,
             language: smelt_hir::Language::TypeScript,
         };
         closure.blocks[0].statements = vec![Statement::Assign {

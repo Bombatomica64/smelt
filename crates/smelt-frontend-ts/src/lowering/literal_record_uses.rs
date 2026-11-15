@@ -96,7 +96,7 @@
 //!   cannot prove safe keeps the map, so it can lose typing and never
 //!   behavior.
 //!
-//! Checked by `examples/typescript/end-to-end/196_object_literal_takes_its_checker_record`
+//! Checked by `examples/typescript/end-to-end/197_object_literal_takes_its_checker_record`
 //! (the literal that takes the struct: goldens of the HIR, MIR and Rust, no
 //! erased value), by `smelt-transpiler/tests/literal_record_cli_tests.rs` (one
 //! fixture per disqualifier family: the literal stays a map and the program

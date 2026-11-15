@@ -532,11 +532,12 @@ impl ModuleBuilder<'_> {
         let mark = self.speculation_mark(body);
         let target = self.expression(target_expression, body)?;
         let target_ty = Self::expr_ty(body, target);
-        // An `unknown`/`any` target is not taken yet: its in-place merge copies
-        // the own entries of an erased Error or Blob source that JavaScript
-        // does not enumerate (`Object.keys` of an erased Error lists
-        // `name,message,stack,cause`), which breaks es-toolkit's `clone`.
+        // An `unknown`/`any` target is erased storage too: es-toolkit's
+        // `clone` merges into `Object.create(Object.getPrototypeOf(obj))`,
+        // whose class prototype has to survive the merge
+        // (docs/design/class-prototypes.md).
         let erased = match self.ctx.krate.types.get(target_ty) {
+            Some(Type::Unknown) => true,
             Some(Type::TypeParam { .. }) => !matches!(
                 self.ctx
                     .krate

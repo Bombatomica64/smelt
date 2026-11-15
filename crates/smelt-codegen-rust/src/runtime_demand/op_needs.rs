@@ -15,7 +15,9 @@ impl RuntimeDemand {
             Rvalue::ThisRead => {
                 self.add(Need::ThisRead);
             }
-            Rvalue::BindThis { .. } | Rvalue::ErasedFunctionMethodCall { .. } => {
+            Rvalue::BindThis { .. }
+            | Rvalue::BindOwnThis { .. }
+            | Rvalue::ErasedFunctionMethodCall { .. } => {
                 self.add(Need::ThisChannel);
             }
             Rvalue::Construct { .. } => {
@@ -346,10 +348,17 @@ impl RuntimeDemand {
             Rvalue::TypeofValue { .. } => {
                 self.add(Need::Typeof);
             }
+            // A collection iterator is a generator (`smelt_live_iterator`).
+            Rvalue::CollectionIterator { .. } => {
+                self.add(Need::IteratorResult);
+            }
             Rvalue::DefineProperties { .. } => {
                 self.add(Need::DefineProperties);
             }
-            Rvalue::UnknownCast { .. } => {
+            Rvalue::SetPrototypeOf { .. } => {
+                self.add(Need::SetPrototypeOf);
+            }
+            Rvalue::UnknownCast { .. } | Rvalue::ErasedIterableTake { .. } => {
                 self.add(Need::Unknown);
             }
             Rvalue::AsyncOp { op, .. } => {
@@ -537,6 +546,8 @@ impl RuntimeDemand {
             | Rvalue::CallableObjectAssign { .. }
             | Rvalue::DictCopy { .. }
             | Rvalue::DictProjection { .. }
+            | Rvalue::CollectionLen { .. }
+            | Rvalue::CollectionAt { .. }
             | Rvalue::StringChars { .. }
             | Rvalue::StringJoin { .. }
             | Rvalue::FileReadText { .. }

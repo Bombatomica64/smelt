@@ -241,7 +241,7 @@ impl FunctionEmitter<'_> {
             // set before the next arm is what makes it declare its own copy of
             // a join temporary instead of assigning to the name the first arm
             // declared -- the E0425 in
-            // `blocker-logs/top-level-try-await-tail.md`. The same
+            // `top-level-try-await-tail.md` (in git history). The same
             // snapshot-per-arm rule the closure emitter already follows.
             __smelt_arm_declared.reset();
             out.push_str("        Err(__smelt_panic) => {\n");
@@ -533,7 +533,7 @@ impl FunctionEmitter<'_> {
         // each is its own Rust lexical scope. Restoring the declaration set
         // before the next arm is what makes it declare its own copy of a join
         // temporary instead of assigning to the name the first arm declared --
-        // the E0425 in `blocker-logs/top-level-try-await-tail.md`. The same
+        // the E0425 in `top-level-try-await-tail.md` (in git history). The same
         // snapshot-per-arm rule the closure emitter already follows.
         __smelt_arm_declared.reset();
         out.push_str("        Err(__smelt_error) => {\n");

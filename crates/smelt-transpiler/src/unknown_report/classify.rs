@@ -229,7 +229,7 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 41] = [
+const BOUNDARY_MARKERS: [&str; 43] = [
     boundary::FUNCTION_TAG,
     boundary::PROMISE_TAG,
     // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -416,8 +416,13 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // concrete struct, generated union arm, or scoped generic can carry it:
     // one erased callable is reachable from arbitrarily many unrelated
     // receiver types at runtime, and the callable's Rust signature is fixed
-    // when it is created, before any of them is known. Proven in
-    // `this_receiver_channel_is_a_boundary` below.
+    // when it is created, before any of them is known. `smelt_frame_this` is
+    // the same channel value, taken once at frame entry
+    // (`let smelt_frame_this = smelt_take_this();`) so a nested call cannot
+    // clobber it and a plain call can reset the channel to `undefined`;
+    // every `this` read and every lexical arrow's captured `this` is a copy
+    // of it. Proven in `this_receiver_channel_is_a_boundary` below.
+    boundary::FRAME_THIS,
     boundary::PUSH_THIS_CALL,
     boundary::PUSH_THIS_LAZY_CALL,
     boundary::THIS_CALL,
@@ -440,6 +445,16 @@ const BOUNDARY_MARKERS: [&str; 41] = [
     // `crates/smelt-codegen-rust/tests/erased_class_method_runtime.rs`.
     boundary::PROTO_ENTRIES_LOCAL,
     boundary::PROTO_ENTRIES,
+    // The same slot on the class's ONE prototype object
+    // (`class_proto::class_prototype_methods_fn`): the methods every
+    // instance, clone and `Object.create(C.prototype)` object reaches by
+    // runtime name, each a `this`-taking erased function whose receiver is
+    // recovered through `SmeltFromUnknown` from the dynamically scoped
+    // `this` (itself a boundary, above). The read is by string name on an
+    // erased value, exactly as for `__smelt_proto_entries`; the builder
+    // only moves the slot from each instance to the prototype. Proven in
+    // `erased_class_prototype_slot_is_a_boundary` below.
+    boundary::PROTOTYPE_METHODS,
     // The canonical erased property read (`smelt_get_unknown_field`):
     // a member looked up by STRING NAME on a value whose static type is
     // `unknown` (or an optional / union receiver that erases to it), which
