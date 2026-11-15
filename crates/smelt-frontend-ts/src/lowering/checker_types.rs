@@ -398,9 +398,10 @@ impl ModuleBuilder<'_> {
     /// (see [`Self::checker_literal_binding_type`]).
     /// Whether the argument of `argument` is the caller's object at every
     /// parameter [`Self::checker_argument_shares`] declined: each such
-    /// parameter is a record type the argument's own record type shares with
-    /// ([`Self::record_types_share`]), or holds one where the argument holds
-    /// the other (array elements, tuple members, `T | null | undefined`).
+    /// parameter is the argument's own lowered type, or a record type the
+    /// argument's record type shares with ([`Self::record_types_share`]), or
+    /// holds one where the argument holds the other (array elements, tuple
+    /// members, `T | null | undefined`).
     ///
     /// # Why the lowered types decide
     ///
@@ -500,7 +501,10 @@ impl ModuleBuilder<'_> {
                     .zip(self.respell_and_lower_spelling(facts, slot, span.0, span.1, true))
                     .filter(|_| self.ctx.krate.erasures.len() == records_before);
                 self.ctx.krate.erasures.truncate(records_before);
-                lowered.is_some_and(|(from, to)| self.record_types_share(from, to))
+                // One lowered type on both sides is no conversion at all (two
+                // spellings of `{ id: string }` are one typed dictionary, two
+                // of a mixed record one struct): the slot holds the handle.
+                lowered.is_some_and(|(from, to)| from == to || self.record_types_share(from, to))
             }
             _ => false,
         }

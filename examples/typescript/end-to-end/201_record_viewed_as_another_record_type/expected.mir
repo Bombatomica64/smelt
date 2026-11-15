@@ -1,0 +1,347 @@
+interface Point
+interface Spot
+interface Marker
+interface Named
+interface Titled
+
+fn rename (FuncId(0)) -> Named
+  locals
+    %0 param target: Named
+    %1 param label: String
+    %2 temp: Named
+  bb0:
+    %0.field2 = copy %1
+    %2 = global_set #0 = copy %0
+    return copy %0
+
+fn move (FuncId(1)) -> Spot
+  locals
+    %0 param target: Spot
+    %1 param by: Float
+    %2 temp: Float
+    %3 temp: String
+    %4 temp: String
+    %5 temp: Spot
+  bb0:
+    %2 = copy %0.field1 + copy %1
+    %0.field1 = move %2
+    %3 = copy %0.field2 + "@"
+    %4 = move %3 + copy %0.field1
+    %0.field2 = move %4
+    %5 = global_set #1 = copy %0
+    return copy %0
+
+fn tag (FuncId(2)) -> Marker
+  locals
+    %0 param target: Marker
+    %1 param extra: String
+    %2 temp: List<String>
+    %3 temp: Float
+    %4 temp: String
+    %5 temp: List<String>
+    %6 temp: List<String>
+    %7 temp: Float
+  bb0:
+    %2 = copy %0.field3
+    %3 = list_push copy %2, copy %1
+    %0.field3 = move %2
+    %4 = copy %1 + "!"
+    %5 = [move %4]
+    %6 = list_concat copy %0.field3, move %5
+    %0.field3 = move %6
+    %7 = copy %0.field1 * 2.0
+    %0.field1 = move %7
+    return copy %0
+
+fn entitle (FuncId(3)) -> None
+  locals
+    %0 param target: Titled
+    %1 temp: String
+    %2 temp: String
+  bb0:
+    %1 = "<" + copy %0.field2
+    %2 = move %1 + ">"
+    %0.field2 = move %2
+    return none
+
+fn through_named (FuncId(4)) -> Named
+  locals
+    %0 param target: Named
+    %1 temp: None
+  bb0:
+    %1 = call fn3(copy %0) -> bb1
+  bb1:
+    return copy %0
+
+fn shout (FuncId(5)) -> None
+  locals
+    %0 param all: List<Named>
+    %1 user each: Named
+    %2 temp: usize
+    %3 temp: usize
+    %4 temp: Bool
+    %5 temp: String
+  bb0:
+    %2 = 0
+    goto bb1
+  bb1:
+    %3 = len copy %0
+    %4 = copy %2 < move %3
+    switch move %4 ? bb2 : bb4
+  bb2:
+    %1 = copy %0[copy %2]
+    %5 = string_upper copy %1.field2
+    %1.field2 = move %5
+    goto bb3
+  bb3:
+    %2 = copy %2 + 1
+    goto bb1
+  bb4:
+    return none
+
+fn enroll (FuncId(6)) -> Float
+  locals
+    %0 param member: Named
+    %1 temp: List<Named>
+    %2 temp: Float
+    %3 temp: List<Named>
+    %4 temp: Float
+  bb0:
+    %1 = global_get #2
+    %2 = list_push move %1, copy %0
+    %3 = global_get #2
+    %4 = len move %3
+    return move %4
+
+fn describe (FuncId(7)) -> String
+  locals
+    %0 param target: Named
+    %1 temp: String
+  bb0:
+    %1 = json_stringify copy %0
+    return move %1
+
+fn main_ (FuncId(8)) -> None
+  locals
+    %0 user point: Point
+    %1 user named: Named
+    %2 user spot: Spot
+    %3 user marker: Marker
+    %4 user titled: Named
+    %5 user points: List<Point>
+    %6 user first: Named
+    %7 user own: Named
+    %8 user renamed: Named
+    %9 temp: List<String>
+    %10 temp: Point
+    %11 temp: Named
+    %12 temp: None
+    %13 temp: Named
+    %14 temp: None
+    %15 temp: Named
+    %16 temp: Named
+    %17 temp: None
+    %18 temp: Named
+    %19 temp: Bool
+    %20 temp: Point
+    %21 temp: Bool
+    %22 temp: None
+    %23 temp: String
+    %24 temp: String
+    %25 temp: None
+    %26 temp: Spot
+    %27 temp: None
+    %28 temp: Spot
+    %29 temp: None
+    %30 temp: Spot
+    %31 temp: Float
+    %32 temp: Spot
+    %33 temp: None
+    %34 temp: Spot
+    %35 temp: Bool
+    %36 temp: Point
+    %37 temp: Bool
+    %38 temp: None
+    %39 temp: String
+    %40 temp: None
+    %41 temp: Marker
+    %42 temp: String
+    %43 temp: None
+    %44 temp: List<String>
+    %45 temp: Float
+    %46 temp: Float
+    %47 temp: Point
+    %48 temp: Bool
+    %49 temp: None
+    %50 temp: String
+    %51 temp: None
+    %52 temp: Named
+    %53 temp: Bool
+    %54 temp: None
+    %55 temp: List<String>
+    %56 temp: Point
+    %57 temp: List<String>
+    %58 temp: Point
+    %59 temp: List<Point>
+    %60 temp: None
+    %61 temp: Point
+    %62 temp: Point
+    %63 temp: None
+    %64 temp: Float
+    %65 temp: Float
+    %66 temp: None
+    %67 temp: List<Named>
+    %68 temp: List<Named>
+    %69 temp: Named
+    %70 temp: Bool
+    %71 temp: None
+    %72 temp: Named
+    %73 temp: Named
+    %74 temp: Bool
+    %75 temp: String
+    %76 temp: None
+  bb0:
+    %9 = ["first"]
+    %0 = {"x": 1.0, "label": "a", "tags": move %9}
+    %11 = call fn0(copy %0, "renamed") -> bb1
+  bb1:
+    %1 = move %11
+    %12 = call @console_log(copy %0.field2) -> bb2
+  bb2:
+    %0.field2 = "later"
+    %13 = global_get #0
+    %14 = call @console_log(copy %13.field2, copy %1.field2) -> bb3
+  bb3:
+    %15 = global_get #0
+    %15.field2 = "through"
+    %16 = global_set #0 = move %15
+    %17 = call @console_log(copy %0.field2) -> bb4
+  bb4:
+    %18 = global_get #0
+    %19 = copy %1 == move %18
+    %20 = copy %1
+    %21 = move %20 == copy %0
+    %22 = call @console_log(move %19, move %21) -> bb5
+  bb5:
+    %23 = call fn7(copy %0) -> bb6
+  bb6:
+    %24 = json_stringify copy %1
+    %25 = call @console_log(move %23, move %24) -> bb7
+  bb7:
+    %26 = call fn1(copy %0, 4.0) -> bb8
+  bb8:
+    %2 = move %26
+    %27 = call @console_log(copy %0.field1, copy %0.field2) -> bb9
+  bb9:
+    %0.field1 = 40.0
+    %28 = global_get #1
+    %29 = call @console_log(copy %28.field1, copy %2.field1) -> bb10
+  bb10:
+    %30 = global_get #1
+    %31 = copy %30.field1 + 2.0
+    %30.field1 = move %31
+    %32 = global_set #1 = move %30
+    %33 = call @console_log(copy %0.field1) -> bb11
+  bb11:
+    %34 = global_get #1
+    %35 = copy %2 == move %34
+    %36 = copy %2
+    %37 = move %36 == copy %0
+    %38 = call @console_log(move %35, move %37) -> bb12
+  bb12:
+    %39 = json_stringify move %2
+    %40 = call @console_log(move %39) -> bb13
+  bb13:
+    %41 = call fn2(copy %0, "second") -> bb14
+  bb14:
+    %3 = move %41
+    %42 = string_join copy %0.field3, ","
+    %43 = call @console_log(copy %0.field1, move %42) -> bb15
+  bb15:
+    %44 = copy %0.field3
+    %45 = list_push copy %44, "third"
+    %0.field3 = move %44
+    %46 = len copy %3.field3
+    %47 = copy %3
+    %48 = move %47 == copy %0
+    %49 = call @console_log(move %46, move %48) -> bb16
+  bb16:
+    %50 = json_stringify move %3
+    %51 = call @console_log(move %50) -> bb17
+  bb17:
+    %52 = call fn4(copy %0) -> bb18
+  bb18:
+    %4 = move %52
+    %53 = move %4 == move %1
+    %54 = call @console_log(copy %0.field2, move %53) -> bb19
+  bb19:
+    %55 = []
+    %56 = {"x": 1.0, "label": "p", "tags": move %55}
+    %57 = []
+    %58 = {"x": 2.0, "label": "q", "tags": move %57}
+    %5 = [move %56, move %58]
+    %60 = call fn5(copy %5) -> bb20
+  bb20:
+    %61 = copy %5[0.0]
+    %62 = copy %5[1.0]
+    %63 = call @console_log(copy %61.field2, copy %62.field2) -> bb21
+  bb21:
+    %64 = call fn6(copy %0) -> bb22
+  bb22:
+    %65 = call fn6(copy %5[0.0]) -> bb23
+  bb23:
+    %66 = call @console_log(move %64, move %65) -> bb24
+  bb24:
+    %67 = global_get #2
+    %6 = copy %67[0.0]
+    %6.field2 = "enrolled"
+    %68 = global_get #2
+    %69 = copy %5[0.0]
+    %70 = copy %68[1.0] == move %69
+    %71 = call @console_log(copy %0.field2, move %70) -> bb25
+  bb25:
+    %7 = {"label": "own"}
+    %73 = call fn0(copy %7, "mine") -> bb26
+  bb26:
+    %8 = move %73
+    %74 = move %8 == copy %7
+    %75 = json_stringify copy %7
+    %76 = call @console_log(copy %7.field2, move %74, move %75, copy %0.field2) -> bb27
+  bb27:
+    return none
+
+fn smelt_global_init__kept_named__3 (FuncId(9)) -> Named
+  locals
+    %0 temp: Named
+  bb0:
+    %0 = {"label": "nobody"}
+    return move %0
+
+fn smelt_global_init__kept_spot__4 (FuncId(10)) -> Spot
+  locals
+    %0 temp: Spot
+  bb0:
+    %0 = {"x": 0.0, "label": "nowhere"}
+    return move %0
+
+fn smelt_global_init__roster__5 (FuncId(11)) -> List<Named>
+  locals
+    %0 temp: List<Named>
+  bb0:
+    %0 = []
+    return move %0
+
+fn main (FuncId(12)) -> None
+  locals
+    %0 temp: None
+    %1 temp: None
+    %2 temp: None
+    %3 temp: None
+  bb0:
+    %0 = global_get #0
+    %1 = global_get #1
+    %2 = global_get #2
+    %3 = call fn8() -> bb1
+  bb1:
+    return none
+

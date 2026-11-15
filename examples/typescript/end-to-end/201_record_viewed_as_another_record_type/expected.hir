@@ -1,0 +1,65 @@
+module examples/typescript/end-to-end/201_record_viewed_as_another_record_type/input.ts (ModuleId(0))
+  body BodyId(12)
+  items
+    global mut kept_named: Named
+    global mut kept_spot: Spot
+    global mut roster: List<Named>
+    interface Point fields [Public x: Float, Public label: String, Public tags: List<String>] methods []
+    interface Named fields [Public label: String] methods []
+    interface Spot fields [Public x: Float, Public label: String] methods []
+    interface Marker fields [Public tags: List<String>, Public label: String, Public x: Float] methods []
+    interface Titled fields [Public label: String] methods []
+    fn rename owner Module
+    fn move owner Module
+    fn tag owner Module
+    fn entitle owner Module
+    fn through_named owner Module
+    fn shout owner Module
+    fn enroll owner Module
+    fn describe owner Module
+    fn main owner Module
+  exprs
+    #0: None = global_get @3(kept_named)
+    #1: None = global_get @4(kept_spot)
+    #2: None = global_get @5(roster)
+    #3: fn() -> None = @14(main)
+    #4: None = call #3()
+  stmts
+    s0: #0
+    s1: #1
+    s2: #2
+    s3: #4
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = List<String>
+  t3 = Named
+  t4 = Spot
+  t5 = List<Named>
+  t6 = fn(Named, String) -> Named
+  t7 = fn(Spot, Float) -> Spot
+  t8 = Marker
+  t9 = fn(Marker, String) -> Marker
+  t10 = Titled
+  t11 = None
+  t12 = fn(Titled) -> None
+  t13 = fn(Named) -> Named
+  t14 = fn(List<Named>) -> None
+  t15 = fn(Named) -> Float
+  t16 = fn(Named) -> String
+  t17 = fn() -> None
+  t18 = Unknown
+  t19 = List<Unknown>
+  t20 = fn(Titled) -> None
+  t21 = Point
+  t22 = fn(Named, String) -> Named
+  t23 = Bool
+  t24 = fn(Named) -> String
+  t25 = fn(Spot, Float) -> Spot
+  t26 = fn(Marker, String) -> Marker
+  t27 = fn(Named) -> Named
+  t28 = List<Point>
+  t29 = fn(List<Named>) -> None
+  t30 = fn(Named) -> Float
+  t31 = fn() -> None

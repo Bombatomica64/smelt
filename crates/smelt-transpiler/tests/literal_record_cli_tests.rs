@@ -10,18 +10,22 @@
 //!   with `===`, or handed to `Set.add`/`has`, `push`/`indexOf` or an
 //!   `unknown` parameter, is a struct and keeps its identity there; one
 //!   aliased at an annotated binding keeps the map;
-//! - `keys-stay-a-map`: computed keys, `in`, `for..in`, a spread, integer-like
-//!   keys keep the map;
+//! - `keys-stay-a-map`: computed keys (a WRITE through one is what a struct
+//!   gets wrong), `in`, `for..in`, a spread, integer-like keys keep the map;
 //! - `passed-or-stored-stays-a-map`: a literal passed to callees typed
 //!   `Record<string, unknown>`, `any` or a type parameter is a struct (the
 //!   callee writes the caller's object, and a rebuilt value keeps the callee's
 //!   key order); one stored in a container, returned, or with a record-valued
 //!   property replaced keeps the map;
-//! - `passed-to-another-record-type-stays-a-map`: a literal passed to a
-//!   parameter of another record type keeps the map.
+//! - `passed-to-another-record-type`: a literal passed to a parameter of
+//!   another record type is a struct when the two record types share (the
+//!   parameter holds a view of it,
+//!   `smelt-codegen-rust/src/structural_views.rs`) and keeps the map when
+//!   they do not (a property at a wider type, an optional property the
+//!   literal lacks);
 //! - `stored-at-another-record-type-stays-a-map`: a literal stored in or
-//!   returned at a slot of another record type, or whose record-valued
-//!   property is replaced by another record type, keeps the map.
+//!   returned at a slot of a record type it does not share with, or whose
+//!   record-valued property is replaced by a class instance, keeps the map.
 //!
 //! Two requirements are checked on each, separately:
 //!
@@ -45,6 +49,28 @@
 //!   `expected.stdout` (unchanged) checks.
 //! - **New requirement**: those six literals are structs; the behavior
 //!   requirement is the same one, on the same output.
+//!
+//! # Expectations corrected when records viewed as another record type shared
+//!
+//! - **Old requirement**: a literal passed to a parameter of ANY other record
+//!   type keeps the map (`moved`, passed at `Point`, and `first`, passed at
+//!   the interface `Labelled`, were asserted to be maps), and the `keys`
+//!   family was a precaution no fixture line needed.
+//! - **Evidence**: that requirement existed because a struct converted to
+//!   another struct was copied. It no longer is when the two record types
+//!   share (`smelt-codegen-rust/src/structural_views.rs`): lowered as
+//!   structs, `moved` and `first` print what Node prints. A record type that
+//!   does not share still copies: lowered as structs, `widened` and
+//!   `annotated` (new bindings) print `1` and `second` where Node prints
+//!   `wide` and `noted`. The stored-at fixture's slots were retyped to record
+//!   types that do not share for the same reason: with its former types the
+//!   program prints Node's output as structs too, so it no longer showed why
+//!   an escape keeps the map. For `keys`, a write through a computed key on a
+//!   struct is lost (`scores`, a new binding: `1` where Node prints `11`).
+//! - **New requirement**: a literal passed to a record type it shares with
+//!   is a struct; one passed to, or stored at, a record type it does not
+//!   share with keeps the map. Each fixture's `expected.stdout` is still
+//!   Node's output for its source.
 //!
 //! The fixtures live here and not under `examples/`: a literal that stays a
 //! map is avoidable erasure by definition, and the examples corpus holds none
