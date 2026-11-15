@@ -18,6 +18,9 @@ import ci_pin
 import publish_order
 import check_clippy_ratchet
 import check_library_gate
+import ci_affected_packages
+from pathlib import Path
+import readme_results
 
 
 def write(directory, name, text):
@@ -45,6 +48,7 @@ class LibraryGate(unittest.TestCase):
             "probe_blockers": 2,
             "runtime_passed": 3,
             "runtime_known_failures": ["m::known", "m::also_known"],
+            "runtime_total": 5,
             "test_compile_errors": 2,
         }))
 
@@ -100,10 +104,39 @@ class LibraryGate(unittest.TestCase):
                "test result: \x1b[31mFAILED\x1b[0m. 3 passed; 1 failed; 0 ignored\n")
         self.assertEqual(self.runtime(log), 1)
 
+    def test_runtime_fails_when_a_test_vanishes_behind_a_fixed_pin(self):
+        # Four tests: three pass and `m::pinned` is a pinned failure. In the new
+        # log `m::c` is gone (no longer discovered or lowered) and `m::pinned`
+        # passes, so passes stay at the floor and nothing new fails. Only the
+        # total sees the lost test.
+        self.baseline = write(self.dir, "four.json", json.dumps({
+            "runtime_passed": 3,
+            "runtime_known_failures": ["m::pinned"],
+            "runtime_total": 4,
+        }))
+        log = ("test m::a ... ok\ntest m::b ... ok\ntest m::pinned ... ok\n"
+               "test result: ok. 3 passed; 0 failed; 0 ignored\n")
+        self.assertEqual(self.runtime(log), 1)
+
+    def test_runtime_fails_on_a_new_test_until_the_total_is_bumped(self):
+        log = ("test m::known ... FAILED\ntest m::also_known ... FAILED\n"
+               "test result: FAILED. 4 passed; 2 failed; 0 ignored\n")
+        self.assertEqual(self.runtime(log), 1)
+
+    def test_runtime_passes_a_fixed_pin_at_the_same_total(self):
+        log = ("test m::known ... FAILED\n"
+               "test result: FAILED. 4 passed; 1 failed; 0 ignored\n")
+        self.assertEqual(self.runtime(log), 0)
+
     def test_runtime_stops_on_a_baseline_without_its_fields(self):
         self.baseline = write(self.dir, "old.json", json.dumps({"runtime_passed": 3}))
         with self.assertRaises(SystemExit):
             self.runtime("test result: ok. 3 passed; 0 failed; 0 ignored\n")
+        self.baseline = write(self.dir, "no_total.json", json.dumps({
+            "runtime_passed": 3, "runtime_known_failures": []}))
+        with self.assertRaises(SystemExit) as caught:
+            self.runtime("test result: ok. 3 passed; 0 failed; 0 ignored\n")
+        self.assertIn("runtime_total", str(caught.exception))
 
     def test_compile_pin_is_exact(self):
         two = ("\x1b[1m\x1b[31merror[E0308]\x1b[0m: mismatched\nerror: bad\n"
@@ -111,6 +144,103 @@ class LibraryGate(unittest.TestCase):
         self.assertEqual(self.pin(two), 0)
         self.assertEqual(self.pin("error[E0308]: mismatched\n"), 1)
         self.assertEqual(self.pin(two + "error[E0599]: no method\n"), 1)
+
+
+class AffectedPackages(unittest.TestCase):
+    """`ci_affected_packages.py`: an `examples/`-only change runs every reader."""
+
+    def test_an_examples_change_selects_both_crates_that_read_the_corpus(self):
+        directories = {"smelt-transpiler": Path("crates/smelt-transpiler"),
+                       "smelt-codegen-rust": Path("crates/smelt-codegen-rust")}
+        dependents = {"smelt-codegen-rust": {"smelt-transpiler"}, "smelt-transpiler": set()}
+        mode, packages, _ = ci_affected_packages.select(
+            ["examples/typescript/end-to-end/01_number/expected.rs"], directories, dependents)
+        self.assertEqual((mode, packages), ("some", ["smelt-codegen-rust", "smelt-transpiler"]))
+
+    def test_a_crate_reading_an_unmapped_root_directory_is_named(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("examples", "docs", "crates/a/src", "crates/b/tests", "crates/c/tests/fixtures"):
+                (root / name).mkdir(parents=True)
+            write(directory, "crates/a/src/t.rs", 'let p = dir.join("../../docs");\n')
+            write(directory, "crates/b/tests/t.rs", 'smelt(&["build", "examples/x/Smelt.toml"]);\n'
+                  'let s = scratch.join("docs");\n')
+            write(directory, "crates/c/tests/fixtures/t.rs", '"../../docs"\n')
+            found = ci_affected_packages.uncovered_reads(root)
+        self.assertEqual(len(found), 2, found)
+        self.assertIn("crates/a reads `docs/`", found[0])
+        self.assertIn("crates/b reads `examples/`", found[1])
+
+    def test_the_repository_maps_every_read_it_makes(self):
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(ci_affected_packages.uncovered_reads(root), [])
+
+
+class ReadmeResults(unittest.TestCase):
+    """`readme_results.py`: the README tables follow the CI pins and baselines."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = directory.name
+        os.makedirs(os.path.join(self.root, ".github/workflows"))
+        os.makedirs(os.path.join(self.root, "blocker-logs"))
+        pins = "".join(
+            f'          grep -F "test result: {status}. {passed} passed; {failed} failed;" {lib}-tests.log\n'
+            for lib, status, passed, failed in (
+                ("remeda", "ok", 10, 0), ("radash", "FAILED", 8, 2),
+                ("ts-pattern", "FAILED", 437, 1), ("date-fns", "ok", 330, 0)))
+        write(self.root, readme_results.CI, "jobs:\n" + pins)
+        for _, path, _ in readme_results.RATCHETED_LIBRARIES:
+            write(self.root, path, json.dumps({
+                "runtime_passed": 5, "runtime_known_failures": ["m::x"], "runtime_total": 6}))
+        counts = {"concrete": 3, "generic": 1, "erased": 1}
+        for _, path in readme_results.TYPEDNESS_BASELINES:
+            write(self.root, path, json.dumps({
+                "total": {kind: counts for kind in readme_results.KINDS},
+                "programs": {"a.ts": None, "b.ts": None}}))
+        for _, path, _ in readme_results.UNKNOWN_BASELINES:
+            write(self.root, path, json.dumps({
+                "files_scanned": 2,
+                "category_totals": {"runtime-prelude": 1, "legitimate-boundary": 2,
+                                    "avoidable-erasure": 0}}))
+        regions = "".join(f"<!-- results:{name}:begin -->\nold\n<!-- results:{name}:end -->\n\n"
+                          for name in readme_results.TABLES)
+        write(self.root, readme_results.README, "# Title\n\n" + regions)
+
+    def test_a_stale_table_is_named_and_a_render_is_current(self):
+        self.assertEqual(readme_results.stale_tables(self.root), list(readme_results.TABLES))
+        with open(os.path.join(self.root, readme_results.README), encoding="utf-8") as handle:
+            rendered = readme_results.render(self.root, handle.read())
+        write(self.root, readme_results.README, rendered)
+        self.assertEqual(readme_results.stale_tables(self.root), [])
+        self.assertIn("| ts-pattern | exactly 437 passed, 1 failed (pinned) |", rendered)
+        self.assertIn("| date-fns | exactly 330 passed, 0 failed (pinned) |", rendered)
+        self.assertIn("6 tests; at least 5 passed; 1 named tests allowed to fail", rendered)
+        self.assertIn("examples, 2 programs", rendered)
+        self.assertIn("| values | 3 | 1 | 1 | 20.0% |", rendered)
+
+    def test_a_moved_pin_makes_the_rendered_table_stale(self):
+        with open(os.path.join(self.root, readme_results.README), encoding="utf-8") as handle:
+            write(self.root, readme_results.README, readme_results.render(self.root, handle.read()))
+        ci = os.path.join(self.root, readme_results.CI)
+        with open(ci, encoding="utf-8") as handle:
+            text = handle.read()
+        write(self.root, readme_results.CI, text.replace("437 passed; 1 failed", "438 passed; 0 failed"))
+        self.assertEqual(readme_results.stale_tables(self.root), ["suites"])
+
+    def test_a_lost_pin_or_marker_stops_the_render(self):
+        write(self.root, readme_results.CI, "jobs:\n")
+        with self.assertRaises(SystemExit):
+            readme_results.stale_tables(self.root)
+        write(self.root, readme_results.README, "# no markers\n")
+        with self.assertRaises(SystemExit):
+            readme_results.render(self.root, "# no markers\n")
+
+    def test_a_library_pinned_twice_stops_the_render(self):
+        line = 'grep -F "test result: ok. 1 passed; 0 failed;" remeda-tests.log\n'
+        with self.assertRaises(SystemExit):
+            readme_results.ci_pins(line + line)
 
 
 def message(crate, code, level="warning", line=1, file_name="src/lib.rs"):
