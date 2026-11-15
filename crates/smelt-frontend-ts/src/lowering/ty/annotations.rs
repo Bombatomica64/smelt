@@ -169,8 +169,26 @@ impl ModuleBuilder<'_> {
                 let mut lowered = Vec::new();
                 let mut nullish = Vec::new();
                 let mut saw_never = false;
+                // Whether every absent arm is `null` (the keyword, or a member
+                // that is itself `T | null`): then the optional's absent value
+                // is `null`, not `undefined` (`TypeInterner::intern_null_optional`).
+                let mut absent_only_null = true;
                 for member in &union.types {
                     let mut member_ty = self.ts_type_to_hir(member)?;
+                    if !matches!(member, TSType::TSNullKeyword(_))
+                        && !self.ctx.krate.types.absent_is_null(member_ty)
+                        && (matches!(
+                            self.ctx.krate.types.get(member_ty),
+                            Some(Type::Optional(_) | Type::None)
+                        ) || self
+                            .flatten_union_member_types(member_ty)
+                            .iter()
+                            .any(|flat| {
+                                matches!(self.ctx.krate.types.get(*flat), Some(Type::None))
+                            }))
+                    {
+                        absent_only_null = false;
+                    }
                     if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)))
                         && self.ts_type_is_known_callable_object_surface(member)
                     {
@@ -260,6 +278,9 @@ impl ModuleBuilder<'_> {
                 }
                 if lowered.len() == 1 && !nullish.is_empty() {
                     let single = lowered.remove(0);
+                    if absent_only_null {
+                        return Ok(self.ctx.krate.types.intern_null_optional(single));
+                    }
                     Ok(self.ctx.krate.types.intern(Type::Optional(single)))
                 } else if lowered.len() == 1 {
                     let single = lowered.remove(0);

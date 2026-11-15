@@ -442,7 +442,7 @@ pub(crate) fn substituted_type_id_interning(
     }
     Some(
         mir.types
-            .lookup(&rewritten)
+            .lookup_like(declared, &rewritten)
             .unwrap_or_else(|| mir.types.intern_late(rewritten)),
     )
 }
@@ -500,7 +500,7 @@ fn substitute_type(
     if rewritten == *kind {
         return Some(declared);
     }
-    mir.types.lookup(&rewritten).or(keep)
+    mir.types.lookup_like(declared, &rewritten).or(keep)
 }
 
 /// Return whether `actual` is exactly `declared` with `bindings` applied.

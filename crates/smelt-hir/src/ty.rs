@@ -406,6 +406,22 @@ pub struct TypeInterner {
     /// decisions about it must not depend on the order it renders in.
     #[serde(skip)]
     late: LateTypes,
+    /// `T | null` optionals, keyed by their present type `T`.
+    ///
+    /// `Option<T>` holds `null` and `undefined` as one `None`, which erases
+    /// to `undefined`. A type the source writes `T | null` (and not
+    /// `undefined`) has only `null` as its absent value, so at a dynamic
+    /// boundary its `None` must erase to `null`: ts-pattern's
+    /// `.otherwise(() => null)` result compared with `toEqual(null)`. Such a
+    /// type is a SECOND id whose structure is the same `Type::Optional(T)`:
+    /// every consumer matching `Type::Optional` treats it as the optional it
+    /// is, and only the erase sites ask [`Self::absent_is_null`]. The entry
+    /// sits in `types` but not in `index`, so structural interning keeps
+    /// answering the plain `T | undefined` id. A pass that re-interns an
+    /// optional by structure (a generic substitution) answers the plain id,
+    /// the conservative `undefined`.
+    #[serde(default)]
+    null_absent: std::collections::HashMap<TypeId, TypeId>,
 }
 
 /// The append-only tail of a [`TypeInterner`].
@@ -442,14 +458,17 @@ impl TypeInterner {
         // deduplicating equivalent types, canonical member order gives Rust
         // codegen one stable tagged-enum definition for `A | B` and `B | A`.
         ty = canonical(ty);
-        if self.index.len() != self.types.len() {
+        if !self.index_in_sync() {
             // First occurrence wins, as the scan did, should a deserialized
-            // table ever carry a duplicate.
+            // table ever carry a duplicate. A `T | null` id is never the
+            // structural answer (see `null_absent`).
             let mut index = std::collections::HashMap::with_capacity(self.types.len());
             for (idx, existing) in self.types.iter().enumerate() {
-                index
-                    .entry(existing.clone())
-                    .or_insert_with(|| TypeId(id_index(idx)));
+                let id = TypeId(id_index(idx));
+                if self.absent_is_null(id) {
+                    continue;
+                }
+                index.entry(existing.clone()).or_insert(id);
             }
             self.index = index;
         }
@@ -462,6 +481,96 @@ impl TypeInterner {
         id
     }
 
+    /// Whether `index` names every structurally interned entry of `types`
+    /// (every entry but the `T | null` ids, which it never holds).
+    fn index_in_sync(&self) -> bool {
+        self.index.len() + self.null_absent.len() == self.types.len()
+    }
+
+    /// The id of `T | null`: `Type::Optional(present)` whose absent value is
+    /// `null` (see the `null_absent` field).
+    ///
+    /// `present` is the present type; an optional `present` is unwrapped
+    /// first, as `T | null | null` is `T | null`.
+    pub fn intern_null_optional(&mut self, present: TypeId) -> TypeId {
+        let present = match self.get(present) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => present,
+        };
+        if let Some(id) = self.null_absent.get(&present) {
+            return *id;
+        }
+        // Only a concrete present type takes the tag. A generic one
+        // (`{ value: T } | null`) is rewritten per instantiation by passes
+        // that match ids exactly (codegen's generic bindings), where a tagged
+        // declaration and a plain argument would disagree; it stays the plain
+        // optional, absent as `undefined`.
+        if self.mentions_type_param(present, 0) {
+            return self.intern(Type::Optional(present));
+        }
+        // The plain optional is interned first, so it stays the first
+        // occurrence a rebuilt index finds.
+        self.intern(Type::Optional(present));
+        let id = TypeId(id_index(self.types.len()));
+        self.types.push(Type::Optional(present));
+        self.null_absent.insert(present, id);
+        id
+    }
+
+    /// Whether `id` mentions a type parameter anywhere (bounded, so a cyclic
+    /// table terminates).
+    fn mentions_type_param(&self, id: TypeId, depth: usize) -> bool {
+        if depth > 16 {
+            return true;
+        }
+        match self.get(id) {
+            Some(Type::TypeParam { .. }) => true,
+            Some(other) => other
+                .children()
+                .any(|child| self.mentions_type_param(child, depth + 1)),
+            None => false,
+        }
+    }
+
+    #[must_use]
+    /// Whether `id` is a `T | null` optional, whose absent value is `null`.
+    pub fn absent_is_null(&self, id: TypeId) -> bool {
+        match self.get(id) {
+            Some(Type::Optional(present)) => self.null_absent.get(present) == Some(&id),
+            _ => false,
+        }
+    }
+
+    #[must_use]
+    /// The id `rewritten` is interned under, as [`Self::lookup`], keeping the
+    /// absent value of `like`: when `like` is `T | null` and `rewritten` the
+    /// optional of another present type, its `T | null` id if interned.
+    ///
+    /// For read-only consumers that rewrite a type layer by layer (codegen's
+    /// generic substitution), so `ParseResult<A>` (`{ .. } | null`) substitutes
+    /// to the very id a `ParseResult<number>` argument has.
+    pub fn lookup_like(&self, like: TypeId, rewritten: &Type) -> Option<TypeId> {
+        if self.absent_is_null(like)
+            && let Type::Optional(present) = rewritten
+            && let Some(id) = self.null_absent.get(present)
+        {
+            return Some(*id);
+        }
+        self.lookup(rewritten)
+    }
+
+    /// The optional of `present` with the absent value of `like`: `T | null`
+    /// when `like` is one, otherwise the plain `Option`.
+    ///
+    /// For passes that rebuild an optional around a rewritten present type.
+    pub fn intern_optional_like(&mut self, like: TypeId, present: TypeId) -> TypeId {
+        if self.absent_is_null(like) {
+            self.intern_null_optional(present)
+        } else {
+            self.intern(Type::Optional(present))
+        }
+    }
+
     /// Move the late tail into `types`, keeping every late id's meaning.
     fn absorb_late(&mut self) {
         if self.late.0.is_empty() {
@@ -470,7 +579,7 @@ impl TypeInterner {
         let late = std::mem::take(&mut self.late).0.into_vec();
         for ty in late {
             let id = TypeId(id_index(self.types.len()));
-            if self.index.len() == self.types.len() {
+            if self.index_in_sync() {
                 self.index.entry((*ty).clone()).or_insert(id);
             }
             self.types.push(*ty);
@@ -494,12 +603,15 @@ impl TypeInterner {
         } else {
             ty
         };
-        if self.index.len() == self.types.len() {
+        if self.index_in_sync() {
             return self.index.get(ty).copied();
         }
         self.types
             .iter()
-            .position(|existing| existing == ty)
+            .enumerate()
+            .position(|(idx, existing)| {
+                existing == ty && !self.absent_is_null(TypeId(id_index(idx)))
+            })
             .map(|idx| TypeId(id_index(idx)))
     }
 

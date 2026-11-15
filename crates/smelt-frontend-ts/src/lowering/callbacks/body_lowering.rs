@@ -1038,6 +1038,26 @@ impl ModuleBuilder<'_> {
                                     .map(|value| {
                                         if infer_expression_return {
                                             actual_return_ty = Self::expr_ty(&closure_body, value);
+                                            // `() => null` answers `null`, which a
+                                            // bare `None` return cannot tell from a
+                                            // `void` callback's `undefined` once the
+                                            // closure is erased (ts-pattern's
+                                            // `.otherwise(() => null)`). `null |
+                                            // undefined`'s optional carries it:
+                                            // the present unit is `null`
+                                            // (`conditional::null_or_undefined_join`).
+                                            if Self::nullish_literal_of(&closure_body, value)
+                                                == Some(true)
+                                                && this.ctx.krate.types.get(actual_return_ty)
+                                                    == Some(&Type::None)
+                                            {
+                                                let none = this.ctx.krate.types.intern(Type::None);
+                                                actual_return_ty = this
+                                                    .ctx
+                                                    .krate
+                                                    .types
+                                                    .intern(Type::Optional(none));
+                                            }
                                         }
                                         closure_body.push_stmt(Stmt::Return(Some(value)));
                                     })

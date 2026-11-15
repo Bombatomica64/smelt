@@ -40,6 +40,7 @@ mod ty;
 mod type_param_owners;
 mod type_predicates;
 mod typed_spread;
+mod unchecked_params;
 mod unchecked_returns;
 mod union_flat;
 mod union_member_read;
@@ -1029,6 +1030,9 @@ struct ModuleBuilder<'ctx> {
     /// Span starts of the functions that return such a local by name, whose
     /// declared return type widens the same way.
     any_written_returns: HashSet<u32>,
+    /// Span starts of the parameters of functions defined in an object
+    /// literal cast `as any`, which accept any value; see `unchecked_params`.
+    unchecked_params: HashSet<u32>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///
