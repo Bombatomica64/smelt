@@ -85,21 +85,31 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 /// type and the upcast of the recovered `smelt_subclass_origin`
 /// (`crate::class_polymorphism::subclass_origins_at`); empty for every other
 /// record type.
+///
+/// With `adopt` (a live record, see `emitter::live_view`) the rebuilt record
+/// adopts the object behind the view, so the two are one object from then on.
 pub(crate) fn restore_subclass_or_rebuild_expr(
     record: &RustExpr,
     rebuild: &RustExpr,
     subclass_origins: &[(String, String)],
+    adopt: bool,
 ) -> RustExpr {
-    let mut fallback = rebuild.delimited().to_owned();
+    let view = record.parenthesized_if_needed();
+    let fresh = rebuild.delimited();
+    let mut fallback = if adopt {
+        format!(
+            "{{ let smelt_rebuilt = {fresh}; {view}.smelt_adopt(&smelt_rebuilt); smelt_rebuilt }}"
+        )
+    } else {
+        fresh.to_owned()
+    };
     for (subclass, upcast) in subclass_origins.iter().rev() {
         fallback = format!(
-            "match {record}.smelt_origin::<{subclass}>() {{ Some(smelt_subclass_origin) => {upcast}, None => {fallback} }}",
-            record = record.parenthesized_if_needed(),
+            "match {view}.smelt_origin::<{subclass}>() {{ Some(smelt_subclass_origin) => {upcast}, None => {fallback} }}"
         );
     }
     RustExpr::atom(format!(
-        "match {}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {fallback} }}",
-        record.parenthesized_if_needed(),
+        "match {view}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {fallback} }}"
     ))
 }
 
@@ -123,6 +133,11 @@ pub(crate) fn restore_subclass_or_rebuild_expr(
 ///
 /// `subclass_origins` pairs each subclass handle type a polymorphic handle can
 /// recover (`Sub`) with the upcast of the recovered `smelt_subclass_origin` into `Self`.
+///
+/// For a `live` record (`emitter::live_view`) the rebuilt record then ADOPTS
+/// the object it was read from: a plain erased object cast to the record type
+/// is that record from then on, with one identity, shared writes and the
+/// object's own key order.
 pub(crate) fn emit_reference_from_smelt_unknown_impl(
     writer: &mut crate::rust::CodeWriter,
     mir: &smelt_mir::Mir,
@@ -132,8 +147,20 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     type_args: &str,
     fields: &[smelt_mir::MirField],
     subclass_origins: &[(String, String)],
+    live: bool,
 ) {
     let mut assigns = Vec::new();
+    // A live record adopts the plain object it is rebuilt from (see
+    // `emitter::live_view`), but only when every property was carried over:
+    // a field left at its `Default` would otherwise replace, in every view of
+    // that object, the value the object still holds.
+    let adopts = live
+        && fields.iter().all(|field| {
+            !field.visibility.is_own_property()
+                || crate::emitter::record_coercion::type_supports_from_unknown(
+                    mir, context, field.ty,
+                )
+        });
     for field in fields {
         if !field.visibility.is_own_property()
             || !crate::emitter::record_coercion::type_supports_from_unknown(mir, context, field.ty)
@@ -179,6 +206,9 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
                 fn_writer.line("let result = Self::default();");
                 for assign in &assigns {
                     fn_writer.line(assign);
+                }
+                if adopts {
+                    fn_writer.line("smelt_object.smelt_adopt(&result);");
                 }
                 fn_writer.line("result");
             });

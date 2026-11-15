@@ -105,18 +105,26 @@ pub(crate) struct InspectField {
 /// `constructor` is the source class name Node prints before the braces, or
 /// empty for an object shape (Node shows a plain object). `reference` selects
 /// the shared-cell storage (`struct Name(Rc<RefCell<NameInner>>)`), whose
-/// fields are read through one borrow of the cell.
+/// fields are read through one borrow of the cell. `live` marks a live record
+/// (`emitter::live_view`): once one of its views has added or deleted a
+/// property, or the object's key order is not the declaration's, the fields
+/// no longer describe what Node prints, and the record is inspected through
+/// its erased view instead.
 #[must_use]
 pub(crate) fn struct_impl_text(
     rust_name: &str,
     constructor: &str,
     fields: &[InspectField],
     reference: bool,
+    live: bool,
 ) -> String {
     let receiver = if reference { "__smelt_inner" } else { "self" };
     let mut text = format!(
         "impl {INSPECT_TRAIT} for {rust_name} {{\n    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {{\n"
     );
+    if live {
+        text.push_str("        if smelt_live_is_open(&self.0) { return SmeltInspect::smelt_inspect(&IntoSmeltUnknown::into_smelt_unknown(self.clone()), ctx, depth); }\n");
+    }
     if reference {
         text.push_str("        let __smelt_inner = self.0.borrow();\n");
     }
@@ -209,6 +217,7 @@ mod tests {
                 },
             ],
             false,
+            false,
         );
         assert_eq!(
             text,
@@ -231,6 +240,7 @@ mod tests {
                 skip_when_absent: false,
             }],
             true,
+            false,
         );
         assert_eq!(
             reference,

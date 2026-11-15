@@ -497,7 +497,47 @@ pub(crate) fn emit_reference_record_storage(
         );
     }
 
-    if needs_unknown {
+    if needs_unknown && emitter::live_view::is_live_record(mir, context, *declared_name) {
+        // A live record erases to a view of itself and is recovered from one
+        // (see `emitter::live_view`).
+        let host = mir
+            .functions
+            .first()
+            .ok_or_else(|| EmitError::new("a live record needs a function to render in"))?;
+        let host_emitter = FunctionEmitter::new(mir, context, host)?;
+        writer.line(
+            host_emitter
+                .live_object_impl_text(*declared_name, name)?
+                .trim_end(),
+        );
+        writer.block(
+            format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
+            |impl_writer| {
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line(
+                        "SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))",
+                    );
+                });
+            },
+        );
+        let subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
+            (Some(class_layout), Some(class)) if class_layout.polymorphic => {
+                crate::class_polymorphism::subclass_origins(mir, context, class)?
+            }
+            _ => Vec::new(),
+        };
+        reference_origin::emit_reference_from_smelt_unknown_impl(
+            writer,
+            mir,
+            context,
+            name,
+            impl_generics,
+            type_args,
+            fields,
+            &subclass_origins,
+            true,
+        );
+    } else if needs_unknown {
         emit_reference_class_into_smelt_unknown_impl(
             writer,
             mir,
@@ -534,6 +574,7 @@ pub(crate) fn emit_reference_record_storage(
             type_args,
             fields,
             &subclass_origins,
+            false,
         );
     }
     writer.blank_line();

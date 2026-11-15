@@ -160,7 +160,7 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            let store = values.store.borrow();
+            /*@if live_views*/values.store.sync(); /*@end*/let store = values.store.borrow();
             let mut first = true;
             for entry in store.entries() {
                 if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }

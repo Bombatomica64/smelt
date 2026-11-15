@@ -1,0 +1,4 @@
+{"name":{"first":"a"},"count":"many","enabled":true} object many
+[ 'name', 'count', 'enabled' ]
+back {"name":"back","count":"many","enabled":true}
+{"name":{"x":1},"count":{"y":2},"enabled":{"z":3}} true

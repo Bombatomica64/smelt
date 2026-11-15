@@ -869,7 +869,7 @@ impl FunctionEmitter<'_> {
 
     /// The effective fields of the class or interface named `name`, at their
     /// declared types (empty when `name` is neither).
-    fn class_or_interface_fields(&self, name: Symbol) -> Vec<MirField> {
+    pub(in crate::emitter) fn class_or_interface_fields(&self, name: Symbol) -> Vec<MirField> {
         crate::classes::find_class(self.mir, name)
             .map(|class| crate::classes::effective_class_fields(self.mir, class))
             .or_else(|| {
@@ -884,61 +884,22 @@ impl FunctionEmitter<'_> {
             .unwrap_or_default()
     }
 
-    /// Wrap a generated class or interface value into an erased object.
+    /// One statement per own-property field of the record `target` (named
+    /// `record`), each pushing that field's erased entry onto
+    /// `smelt_object_entries` from the value bound as `smelt_object_value`,
+    /// paired with the property's source spelling.
     ///
-    /// TypeScript structural objects often reach erased helper surfaces through
-    /// callbacks. Preserving their known fields keeps those values observable
-    /// after the type is widened to `unknown` instead of silently replacing the
-    /// object with an empty map.
-    fn class_unknown_object_expr(
+    /// A statement may push nothing: an optional property that is absent has
+    /// no key. Both erasures of a record are built from these statements, so
+    /// they agree field by field: the snapshot view
+    /// ([`Self::class_unknown_object_expr`]) runs them all, and a live record
+    /// (`emitter::live_view`) runs the one a key names.
+    pub(in crate::emitter) fn record_view_field_statements(
         &self,
-        value_text: &RustExpr,
         target: TypeId,
-    ) -> Result<RustExpr, EmitError> {
-        // Re-entering the same record (`friends?: P[]`) cannot expand inline
-        // forever, and the value must not vanish: the struct's generated
-        // `IntoSmeltUnknown` impl erases the nested value.
-        if self
-            .conversions
-            .record_conversion_stack
-            .borrow()
-            .contains(&target)
-        {
-            return Ok(RustExpr::chain(format!(
-                "IntoSmeltUnknown::into_smelt_unknown({})",
-                value_text.delimited()
-            )));
-        }
-        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
-            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
-        };
-        // A polymorphic handle may hold an instance of a subclass, which erases
-        // as that subclass: its generated `IntoSmeltUnknown` dispatches to the
-        // concrete cell (`crate::class_polymorphism`).
-        if self.context.is_polymorphic_class(*name) {
-            return Ok(RustExpr::chain(format!(
-                "IntoSmeltUnknown::into_smelt_unknown({})",
-                value_text.cloned_value().delimited()
-            )));
-        }
-        self.concrete_class_unknown_object_expr(value_text, target)
-    }
-
-    /// The erased object of the class instance `value_text` of type `target`
-    /// projected as an instance of exactly that class (the field-wise
-    /// projection [`Self::class_unknown_object_expr`] answers for every class
-    /// but a polymorphic handle, and the one a polymorphic hierarchy's
-    /// concrete cell erases through, see `crate::class_polymorphism`).
-    pub(in crate::emitter) fn concrete_class_unknown_object_expr(
-        &self,
-        value_text: &RustExpr,
-        target: TypeId,
-    ) -> Result<RustExpr, EmitError> {
-        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
-            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
-        };
-        let conversion_entry =
-            helper_reservation::push_entry(&self.conversions.record_conversion_stack, target);
+        record: Symbol,
+    ) -> Result<Vec<(String, String)>, EmitError> {
+        let name = &record;
         // Field types at the value's own type arguments: `LazyMany<R>` stores
         // `next: SmeltList<R>`, not the declaration's `SmeltList<T>`, and each
         // field erases by what it holds here. Judging the declared `T` against
@@ -1003,85 +964,158 @@ impl FunctionEmitter<'_> {
                         )
                     })
         };
-        let entries_result = fields
+        fields
             .iter()
             .filter(|field| !frame && field.visibility.is_own_property())
             .filter(|field| !method_on_prototype(field.name))
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
-                let field_name = self.context.names().field_text(self.mir, field.name);
-                // An error's `name` is inherited from its built-in base's
-                // prototype unless a constructor assigned one: own, and
-                // enumerable, only then. The erased record answers an absent
-                // `name` from its `__smelt_error` marker, so a `name` still
-                // equal to the base's is left to it rather than listed by
-                // `Object.keys`, a spread or `Object.assign` (which copied it
-                // onto es-toolkit's cloned error).
-                if let Some(base) = &error_base
-                    && source_name == "name"
-                    && matches!(self.mir.types.get(field.ty), Some(Type::String))
-                {
-                    let read = field_base.postfix(format!(".{field_name}")).cloned_value();
-                    let field_value = self.erase_rendered(&read, field.ty)?;
-                    return Ok(format!(
-                        "if {read} != {base:?} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}",
-                        read = read.delimited(),
-                        field_value = field_value.delimited()
-                    ));
-                }
-                // An accessor erases the value its getter answers now.
-                let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
-                let optional_read = if accessor {
-                    crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight())))
-                } else {
-                    field_base.postfix(format!(".{field_name}")).cloned_value()
-                };
-                if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
-                    let field_value = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
-                    // A `p: T | null` field holds `null` when its `Option` is
-                    // empty, so its key is present with a `null` value; an
-                    // absent `undefined` is omitted, as JavaScript omits it.
-                    if self.field_absent_is_null(*name, field.name) {
-                        return Ok(self.carrier_format(self.carrier()?, format_args!(
-                            "smelt_object_entries.push(({source_name:?}.to_owned(), match {optional_read} {{ Some(smelt_value) => {field_value}, None => SmeltUnknown::Null }}));", optional_read = optional_read.delimited(), field_value = field_value.delimited()
-                        )));
+                let statement: Result<String, EmitError> = (|| {
+                    let field_name = self.context.names().field_text(self.mir, field.name);
+                    // An error's `name` is inherited from its built-in base's
+                    // prototype unless a constructor assigned one: own, and
+                    // enumerable, only then. The erased record answers an absent
+                    // `name` from its `__smelt_error` marker, so a `name` still
+                    // equal to the base's is left to it rather than listed by
+                    // `Object.keys`, a spread or `Object.assign` (which copied it
+                    // onto es-toolkit's cloned error).
+                    if let Some(base) = &error_base
+                        && source_name == "name"
+                        && matches!(self.mir.types.get(field.ty), Some(Type::String))
+                    {
+                        let read = field_base.postfix(format!(".{field_name}")).cloned_value();
+                        let field_value = self.erase_rendered(&read, field.ty)?;
+                        return Ok(format!(
+                            "if {read} != {base:?} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}",
+                            read = read.delimited(),
+                            field_value = field_value.delimited()
+                        ));
                     }
-                    return Ok(format!(
-                        "if let Some(smelt_value) = {optional_read} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}", optional_read = optional_read.delimited(), field_value = field_value.delimited()
-                    ));
-                }
-                let field_value = if let Some(value) =
-                    self.virtual_method_storage_field_expr(target, target, field.name)?
-                {
-                    self.erase_rendered(&value, field.ty)?
-                } else if self.is_reference_class_type(target) {
-                    // Reading through `.0.borrow()` yields a `Ref` guard; the value
-                    // must be cloned out rather than moved.
-                    self.erase_rendered(
-                        &field_base.postfix(format!(".{field_name}")).cloned_value(),
-                        field.ty,
-                    )?
-                } else if accessor {
-                    self.erase_rendered(
-                        &RustExpr::atom(format!(
-                            "({})",
-                            crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight()))).delimited()
-                        )),
-                        field.ty,
-                    )?
-                } else {
-                    self.erase_rendered(
-                        &RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight())),
-                        field.ty,
-                    )?
-                };
-                Ok(format!(
-                    "smelt_object_entries.push(({source_name:?}.to_owned(), {field_value}));", field_value = field_value.delimited()
-                ))
+                    // An accessor erases the value its getter answers now.
+                    let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *name, field.name);
+                    let optional_read = if accessor {
+                        crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight())))
+                    } else {
+                        field_base.postfix(format!(".{field_name}")).cloned_value()
+                    };
+                    if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+                        let field_value = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
+                        // A `p: T | null` field holds `null` when its `Option` is
+                        // empty, so its key is present with a `null` value; an
+                        // absent `undefined` is omitted, as JavaScript omits it.
+                        if self.field_absent_is_null(*name, field.name) {
+                            return Ok(self.carrier_format(self.carrier()?, format_args!(
+                                "smelt_object_entries.push(({source_name:?}.to_owned(), match {optional_read} {{ Some(smelt_value) => {field_value}, None => SmeltUnknown::Null }}));", optional_read = optional_read.delimited(), field_value = field_value.delimited()
+                            )));
+                        }
+                        return Ok(format!(
+                            "if let Some(smelt_value) = {optional_read} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}", optional_read = optional_read.delimited(), field_value = field_value.delimited()
+                        ));
+                    }
+                    let field_value = if let Some(value) =
+                        self.virtual_method_storage_field_expr(target, target, field.name)?
+                    {
+                        self.erase_rendered(&value, field.ty)?
+                    } else if self.is_reference_class_type(target) {
+                        // Reading through `.0.borrow()` yields a `Ref` guard; the value
+                        // must be cloned out rather than moved.
+                        self.erase_rendered(
+                            &field_base.postfix(format!(".{field_name}")).cloned_value(),
+                            field.ty,
+                        )?
+                    } else if accessor {
+                        self.erase_rendered(
+                            &RustExpr::atom(format!(
+                                "({})",
+                                crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight()))).delimited()
+                            )),
+                            field.ty,
+                        )?
+                    } else {
+                        self.erase_rendered(
+                            &RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight())),
+                            field.ty,
+                        )?
+                    };
+                    Ok(format!(
+                        "smelt_object_entries.push(({source_name:?}.to_owned(), {field_value}));", field_value = field_value.delimited()
+                    ))
+                })();
+                Ok((source_name.to_owned(), statement?))
             })
-            .collect::<Result<Vec<_>, EmitError>>();
+            .collect()
+    }
+
+    /// Wrap a generated class or interface value into an erased object.
+    ///
+    /// TypeScript structural objects often reach erased helper surfaces through
+    /// callbacks. Preserving their known fields keeps those values observable
+    /// after the type is widened to `unknown` instead of silently replacing the
+    /// object with an empty map.
+    fn class_unknown_object_expr(
+        &self,
+        value_text: &RustExpr,
+        target: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        // Re-entering the same record (`friends?: P[]`) cannot expand inline
+        // forever, and the value must not vanish: the struct's generated
+        // `IntoSmeltUnknown` impl erases the nested value.
+        if self
+            .conversions
+            .record_conversion_stack
+            .borrow()
+            .contains(&target)
+        {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                value_text.delimited()
+            )));
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
+        };
+        // A live record is erased by its own impl: the view it hands out reads
+        // and writes the record itself (`emitter::live_view`).
+        if self.is_live_record_type(target) {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                value_text.delimited()
+            )));
+        }
+        // A polymorphic handle may hold an instance of a subclass, which erases
+        // as that subclass: its generated `IntoSmeltUnknown` dispatches to the
+        // concrete cell (`crate::class_polymorphism`).
+        if self.context.is_polymorphic_class(*name) {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                value_text.cloned_value().delimited()
+            )));
+        }
+        self.concrete_class_unknown_object_expr(value_text, target)
+    }
+
+    /// The erased object of the class instance `value_text` of type `target`
+    /// projected as an instance of exactly that class (the field-wise
+    /// projection [`Self::class_unknown_object_expr`] answers for every class
+    /// but a polymorphic handle, and the one a polymorphic hierarchy's
+    /// concrete cell erases through, see `crate::class_polymorphism`).
+    pub(in crate::emitter) fn concrete_class_unknown_object_expr(
+        &self,
+        value_text: &RustExpr,
+        target: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
+        };
+        let conversion_entry =
+            helper_reservation::push_entry(&self.conversions.record_conversion_stack, target);
+        let entries_result = self.record_view_field_statements(target, *name);
         drop(conversion_entry);
-        let entries = entries_result?.join(" ");
+        let entries = entries_result?
+            .into_iter()
+            .map(|(_, statement)| statement)
+            .collect::<Vec<_>>()
+            .join(" ");
 
         // Inject a hidden provenance marker so an erased class instance is
         // distinguishable from a plain object of the same shape. The marker is

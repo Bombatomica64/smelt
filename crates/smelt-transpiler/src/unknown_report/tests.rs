@@ -805,6 +805,20 @@ fn adapter_bodies_are_boundary_and_end_at_their_brace() {
     );
 }
 
+/// A live record's `SmeltLiveObject` impl is its erasure, property by
+/// property: an adapter. The record's struct, whose fields are typed, and a
+/// program function after it stay judged.
+#[test]
+fn live_object_impl_is_an_adapter() {
+    let text = "struct PointInner {\n    extra: SmeltUnknown,\n}\nimpl SmeltLiveObject for Point {\n    fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {\n        None\n    }\n}\nfn program() -> SmeltUnknown {\n}\n";
+    assert_eq!(
+        adapter_lines(text),
+        [
+            false, false, false, true, true, true, true, true, false, false
+        ]
+    );
+}
+
 /// Program methods beside `from_smelt_unknown` in one `impl` stay judged,
 /// so erasure in them still counts as avoidable.
 #[test]

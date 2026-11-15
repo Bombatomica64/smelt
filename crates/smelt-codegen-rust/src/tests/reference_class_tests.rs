@@ -597,3 +597,83 @@ function run(): void {
         "cycle members are lifted; Forest/Holder/Plain (cycles through a list), Leaf and Wrap stay values"
     );
 }
+
+// ---- Classification: an object shape handed to an erased or map slot ------
+
+/// Rule: an object shape whose value reaches a slot typed `unknown`, a type
+/// parameter or `Record<K, V>` is a reference record, because that slot holds
+/// the caller's object and what it does with it is not visible in the shape's
+/// own typed uses (`classify::collect_view_flow_triggers`).
+#[test]
+fn classifies_a_shape_handed_to_an_erased_or_map_slot_as_reference() {
+    for callee in [
+        "function take(value: unknown): void {}",
+        "function take(value: Record<string, unknown>): void {}",
+        "function take(value: Record<string, number>): void {}",
+        "function take<T>(value: T): T { return value; }",
+    ] {
+        let names = reference_class_names(&format!(
+            "type Size = {{ width: number; height: number }};\n{callee}\nfunction run(): void {{ const size: Size = {{ width: 1, height: 2 }}; take(size); }}\n"
+        ));
+        assert_eq!(names, vec!["Size".to_owned()], "{callee}");
+    }
+    // An assignment and a return into such a slot are the same flow.
+    let names = reference_class_names(
+        "type Size = { width: number; height: number };\nfunction erase(): unknown { const size: Size = { width: 1, height: 2 }; return size; }\n",
+    );
+    assert_eq!(names, vec!["Size".to_owned()]);
+}
+
+/// Rule: a shape put into an erased CONTAINER by a collection operation is a
+/// reference record too: the container holds the caller's object, which
+/// `indexOf`, `has` and a later write through an element must find again
+/// (`classify::for_each_record_beside_an_erased_container`). The same
+/// operation on a container of the shape's own type is not a flow.
+#[test]
+fn classifies_a_shape_put_into_an_erased_container_as_reference() {
+    for body in [
+        "const all: unknown[] = []; all.push(size);",
+        "const seen = new Set<unknown>(); seen.add(size);",
+        "const all: Record<string, unknown>[] = [size];",
+        "const bag: Record<string, unknown> = {}; bag['k'] = size;",
+    ] {
+        let names = reference_class_names(&format!(
+            "type Size = {{ width: number; height: number }};\nfunction run(): void {{ const size: Size = {{ width: 1, height: 2 }}; {body} }}\n"
+        ));
+        assert_eq!(names, vec!["Size".to_owned()], "{body}");
+    }
+    for body in [
+        "const all: Size[] = []; all.push(size);",
+        "const text = JSON.stringify(size);",
+        "const all: Size[] = [size];",
+    ] {
+        let names = reference_class_names(&format!(
+            "type Size = {{ width: number; height: number }};\nfunction run(): void {{ const size: Size = {{ width: 1, height: 2 }}; {body} }}\n"
+        ));
+        assert!(names.is_empty(), "{body}: {names:?}");
+    }
+}
+
+/// A generic shape handed to such a slot keeps the by-value struct: its erased
+/// view is the snapshot, so there is nothing to share, and its instantiations
+/// convert field by field (`collect_view_flow_triggers`).
+#[test]
+fn a_generic_shape_handed_to_an_erased_slot_stays_a_value_record() {
+    let names = reference_class_names(
+        "interface Holder<T> { value: T; label: string }
+function take(value: unknown): void {}
+function run(): void { const holder: Holder<number> = { value: 1, label: 'a' }; take(holder); }
+",
+    );
+    assert!(names.is_empty(), "{names:?}");
+}
+
+/// A shape that only ever meets its own type keeps the by-value struct: the
+/// trigger must not lift what nothing can observe.
+#[test]
+fn a_shape_that_stays_at_its_own_type_is_a_value_record() {
+    let names = reference_class_names(
+        "type Size = { width: number; height: number };\nfunction area(size: Size): number { return size.width * size.height; }\nfunction run(): number { const size: Size = { width: 1, height: 2 }; return area(size); }\n",
+    );
+    assert!(names.is_empty(), "{names:?}");
+}

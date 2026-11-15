@@ -1078,3 +1078,274 @@ mod symbol_family {
         assert_eq!(record.get(&"m".smelt_to_prop_key()), Some(SmeltUnknown::Number(2.0)), "and back");
     }
 }
+
+mod live_view_family {
+    use super::*;
+
+    /// `type Point = { x: number; label: string; tags?: string[] }` as the
+    /// code generator emits a live record: a handle on one shared cell.
+    #[derive(Clone)]
+    struct Point(::std::rc::Rc<::std::cell::RefCell<PointInner>>);
+
+    struct PointInner {
+        x: f64,
+        label: JsString,
+        tags: Option<SmeltList<JsString>>,
+    }
+
+    impl SmeltLiveObject for Point {
+        fn smelt_field_names(&self) -> &'static [&'static str] { &["x", "label", "tags"] }
+        fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {
+            let inner = self.0.borrow();
+            if *key == "x" { return Some(SmeltUnknown::Number(inner.x)); }
+            if *key == "label" { return Some(SmeltUnknown::String(inner.label.clone())); }
+            if *key == "tags" { return inner.tags.clone().map(IntoSmeltUnknown::into_smelt_unknown); }
+            None
+        }
+        fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
+            if *key == "x" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } self.0.borrow_mut().x = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
+            if *key == "label" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } self.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
+            Err(value)
+        }
+        fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
+            ["x", "label", "tags"].into_iter().filter_map(|key| self.smelt_field_get(&JsString::from(key)).map(|value| (key, value))).collect()
+        }
+        fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
+        fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0).cast::<()>() as usize }
+        fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+    }
+
+    fn point(x: f64, label: &str) -> Point {
+        Point(::std::rc::Rc::new(::std::cell::RefCell::new(PointInner { x, label: label.into(), tags: None })))
+    }
+
+    /// The erased view of `record`, as its `IntoSmeltUnknown` builds it.
+    fn view(record: &Point) -> SmeltObject {
+        SmeltObject::smelt_live_view(smelt_reference_object_identity(&record.0), record.clone())
+    }
+
+    fn keys(object: &SmeltObject) -> Vec<String> {
+        object.keys().iter().map(|key| key.to_string_lossy()).collect()
+    }
+
+    impl IntoSmeltUnknown for Point {
+        fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Object(view(&self)) }
+    }
+
+    /// `expect([p]).toEqual([q])`: two records are deeply equal when their own
+    /// properties are, whichever objects they are; one that a view gave a
+    /// property the other lacks is not; and a record equals itself.
+    #[test]
+    fn deep_equality_compares_own_properties_not_identity() {
+        let (left, right) = (point(1.0, "a"), point(1.0, "a"));
+        assert!(smelt_live_deep_eq(left.clone(), right.clone()), "equal fields");
+        assert!(smelt_live_deep_eq(left.clone(), left.clone()), "one object");
+        assert!(!smelt_live_deep_eq(left.clone(), point(2.0, "a")), "a field differs");
+        view(&right).insert("extra", SmeltUnknown::Number(1.0));
+        assert!(!smelt_live_deep_eq(left.clone(), right.clone()), "an added property differs");
+        view(&left).insert("extra", SmeltUnknown::Number(1.0));
+        assert!(smelt_live_deep_eq(left, right), "the same property added to both");
+    }
+
+    /// `function f(p: any) { p.x = 200 }`: the caller's record has the value.
+    #[test]
+    fn a_write_through_a_view_reaches_the_record() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        erased.insert("x", SmeltUnknown::Number(200.0));
+        assert_eq!(record.0.borrow().x, 200.0, "the view wrote the record's own field");
+        assert_eq!(erased.get("x"), Some(SmeltUnknown::Number(200.0)));
+    }
+
+    /// `held = p; p.x = 5; held.x`: an alias kept before the write reads it.
+    #[test]
+    fn a_view_held_before_a_write_reads_it() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        assert_eq!(erased.get("x"), Some(SmeltUnknown::Number(1.0)));
+        assert_eq!(keys(&erased), ["x", "label"], "the first whole read filled the view");
+        record.0.borrow_mut().x = 5.0;
+        record.0.borrow_mut().label = "b".into();
+        assert_eq!(erased.get("x"), Some(SmeltUnknown::Number(5.0)), "a keyed read is the record's field");
+        assert_eq!(erased.iter().map(|(_, value)| value).collect::<Vec<_>>(), [SmeltUnknown::Number(5.0), text("b")], "a whole read is refreshed");
+    }
+
+    /// Two erasures of one record are one object, and a view narrowed back is
+    /// that record.
+    #[test]
+    fn views_of_one_record_share_its_identity() {
+        let record = point(1.0, "a");
+        let (first, second) = (view(&record), view(&record));
+        assert!(SmeltUnknown::Object(first.clone()).js_strict_eq(&SmeltUnknown::Object(second)), "one record, one identity");
+        assert!(!SmeltUnknown::Object(first.clone()).js_strict_eq(&SmeltUnknown::Object(view(&point(1.0, "a")))), "an equal record is another object");
+        let back = first.smelt_origin::<Point>().expect("a view of a Point narrows back to it");
+        assert!(::std::rc::Rc::ptr_eq(&back.0, &record.0), "the narrowed value is the record, not a copy");
+        assert!(first.smelt_shared_record().smelt_origin::<Point>().is_some(), "the dictionary handle on the view narrows back too");
+    }
+
+    /// `p.extra = true` adds a property to the OBJECT: a later view has it.
+    #[test]
+    fn an_undeclared_property_belongs_to_the_object() {
+        let record = point(1.0, "a");
+        view(&record).insert("extra", SmeltUnknown::Bool(true));
+        let later = view(&record);
+        assert_eq!(later.get("extra"), Some(SmeltUnknown::Bool(true)), "a second erasure sees what the first added");
+        assert_eq!(keys(&later), ["x", "label", "extra"]);
+        assert!(smelt_live_is_open(&record.0), "the record's typed inspection must ask its view");
+        assert!(!smelt_live_is_open(&point(1.0, "a").0), "an untouched record has no open shape");
+    }
+
+    /// `delete p.x; p.z = 1; p.x = 9`: own-key order is insertion order.
+    #[test]
+    fn deleting_and_setting_again_moves_the_key_last() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        assert_eq!(erased.remove("x"), Some(SmeltUnknown::Number(1.0)));
+        assert_eq!(erased.get("x"), None, "a deleted declared property is gone from the view");
+        assert!(!erased.contains_key("x"));
+        assert_eq!(keys(&view(&record)), ["label"], "and from every other view");
+        erased.insert("z", SmeltUnknown::Number(1.0));
+        erased.insert("x", SmeltUnknown::Number(9.0));
+        assert_eq!(keys(&view(&record)), ["label", "z", "x"]);
+        assert_eq!(record.0.borrow().x, 9.0, "the re-added property is the record's field again");
+    }
+
+    /// `p.label = { x: 1 }` through an `any` view: the object holds what was
+    /// written, in the property's place, until a string is written again.
+    #[test]
+    fn a_value_the_field_cannot_hold_stays_on_the_object() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        let written = SmeltUnknown::Object(object(&[("x", SmeltUnknown::Number(1.0))]));
+        erased.insert("label", written.clone());
+        assert!(erased.get("label").is_some_and(|read| read.js_strict_eq(&written)), "the view reads the object that was written");
+        assert_eq!(&*record.0.borrow().label, "a", "the typed field was not given a coerced value");
+        let later = view(&record);
+        assert!(later.get("label").is_some_and(|read| read.js_strict_eq(&written)), "every view reads it");
+        assert_eq!(keys(&later), ["x", "label"], "the property keeps its place");
+        assert_eq!(later.iter().count(), 2, "and is listed once");
+        later.insert("label", text("b"));
+        assert_eq!(&*record.0.borrow().label, "b", "a string written later is the field's again");
+        assert_eq!(erased.get("label"), Some(text("b")));
+    }
+
+    /// An optional property that is absent has no key, and one set later by
+    /// the typed side appears.
+    #[test]
+    fn an_absent_optional_property_has_no_key_until_it_is_set() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        assert!(!erased.contains_key("tags"));
+        assert_eq!(keys(&erased), ["x", "label"]);
+        record.0.borrow_mut().tags = Some(SmeltList::new(vec![JsString::from("t")]));
+        assert!(erased.contains_key("tags"));
+        assert_eq!(keys(&erased), ["x", "label", "tags"]);
+    }
+
+    /// An array read twice through one view is one erased array, as it was
+    /// while the view was a snapshot.
+    #[test]
+    fn a_reference_value_read_twice_is_one_value() {
+        let record = point(1.0, "a");
+        record.0.borrow_mut().tags = Some(SmeltList::new(vec![JsString::from("t")]));
+        let erased = view(&record);
+        assert_eq!(keys(&erased).len(), 3);
+        let (Some(SmeltUnknown::Array(first)), Some(SmeltUnknown::Array(second))) = (erased.get("tags"), erased.get("tags")) else { panic!("tags is an array") };
+        first.push(text("u"));
+        assert_eq!(second.len(), 2, "both reads hold the view's one erased array");
+    }
+
+    /// `const typed = plain as Point`: the plain object becomes a view of the
+    /// record built from it, keeping its identity, key order and extras.
+    #[test]
+    fn a_plain_object_adopted_by_a_record_is_that_record() {
+        let plain = object(&[("label", text("p")), ("x", SmeltUnknown::Number(3.0)), ("more", SmeltUnknown::Bool(true))]);
+        let record = point(3.0, "p");
+        plain.smelt_adopt(&record);
+        assert_eq!(smelt_reference_object_identity(&record.0), plain.id, "the record took the object's identity");
+        record.0.borrow_mut().x = 4.0;
+        assert_eq!(plain.get("x"), Some(SmeltUnknown::Number(4.0)), "the object reads the record's write");
+        plain.insert("label", text("q"));
+        assert_eq!(&*record.0.borrow().label, "q", "the record reads the object's write");
+        assert_eq!(keys(&view(&record)), ["label", "x", "more"], "the record keeps the object's key order and extra property");
+        assert!(plain.smelt_origin::<Point>().is_some_and(|back| ::std::rc::Rc::ptr_eq(&back.0, &record.0)));
+    }
+
+    /// An object that already stands for a typed value is not adopted again.
+    #[test]
+    fn a_view_is_not_adopted_by_another_record() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        let other = point(1.0, "a");
+        erased.smelt_adopt(&other);
+        erased.insert("x", SmeltUnknown::Number(2.0));
+        assert_eq!(record.0.borrow().x, 2.0, "the view still stands for its own record");
+        assert_eq!(other.0.borrow().x, 1.0);
+    }
+
+    /// `Record<string, number>` over a record: reads and writes convert at
+    /// each access and reach the record.
+    #[test]
+    fn a_typed_dictionary_view_reads_and_writes_the_record() {
+        let record = point(1.0, "a");
+        let numbers: SmeltRecord<JsString, f64> = view(&record)
+            .smelt_typed_view(|value| match value { SmeltUnknown::Number(number) => number, _ => f64::NAN }, |number| SmeltUnknown::Number(*number))
+            .expect("a view of a record gives a typed view of it");
+        assert_eq!(numbers.get(&JsString::from("x")), Some(1.0));
+        numbers.insert(JsString::from("x"), 7.0);
+        assert_eq!(record.0.borrow().x, 7.0);
+        record.0.borrow_mut().x = 8.0;
+        assert_eq!(numbers.get(&JsString::from("x")), Some(8.0));
+        assert_eq!(numbers.len(), 2, "a whole read lists the record's properties");
+        { let mut slot = numbers.entry_or_insert(JsString::from("x"), || 0.0); let current = *slot; *slot = current + 1.0; }
+        assert_eq!(record.0.borrow().x, 9.0, "the fused read-modify-write reaches the record");
+        assert!(object(&[("x", SmeltUnknown::Number(1.0))]).smelt_typed_view(|_| 0.0, |number: &f64| SmeltUnknown::Number(*number)).is_none(), "a plain object is its own store");
+    }
+
+    /// Property names that share storage (one literal is a slice of another)
+    /// are still distinct keys: the interned key is the name's own text.
+    #[test]
+    fn declared_keys_that_share_storage_stay_distinct() {
+        let text: &'static str = "tag-p";
+        let (whole, tail, head) = (text, &text[4..], &text[..3]);
+        assert_eq!(smelt_live_field_name(whole).to_string_lossy(), "tag-p");
+        assert_eq!(smelt_live_field_name(tail).to_string_lossy(), "p");
+        assert_eq!(smelt_live_field_name(head).to_string_lossy(), "tag");
+        assert_eq!(smelt_live_field_name(tail).to_string_lossy(), "p", "the cached answer is the same");
+    }
+
+    /// A symbol-keyed property is stored under a key in the runtime's own
+    /// namespace and is still the record's field: the view reads it live.
+    #[test]
+    fn a_declared_key_in_the_runtime_namespace_is_the_records() {
+        #[derive(Clone)]
+        struct Marked(::std::rc::Rc<::std::cell::RefCell<f64>>);
+        impl SmeltLiveObject for Marked {
+            fn smelt_field_names(&self) -> &'static [&'static str] { &["__smelt_symbol:mark"] }
+            fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> { (*key == "__smelt_symbol:mark").then(|| SmeltUnknown::Number(*self.0.borrow())) }
+            fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> { if *key == "__smelt_symbol:mark" { *self.0.borrow_mut() = SmeltFromUnknown::smelt_from_unknown(value); Ok(()) } else { Err(value) } }
+            fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> { vec![("__smelt_symbol:mark", SmeltUnknown::Number(*self.0.borrow()))] }
+            fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
+            fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0).cast::<()>() as usize }
+            fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+        }
+        let record = Marked(::std::rc::Rc::new(::std::cell::RefCell::new(1.0)));
+        let erased = SmeltObject::smelt_live_view(smelt_reference_object_identity(&record.0), record.clone());
+        assert_eq!(erased.get("__smelt_symbol:mark"), Some(SmeltUnknown::Number(1.0)), "read without a whole-store refresh");
+        assert!(erased.contains_key("__smelt_symbol:mark"));
+        *record.0.borrow_mut() = 2.0;
+        assert_eq!(erased.get("__smelt_symbol:mark"), Some(SmeltUnknown::Number(2.0)));
+        assert_eq!(erased.get("__smelt_class"), None, "a marker the record does not declare is the store's");
+    }
+
+    /// A store that is not a view behaves exactly as before.
+    #[test]
+    fn a_plain_object_is_untouched_by_the_view_machinery() {
+        let plain = object(&[("b", SmeltUnknown::Number(1.0)), ("a", SmeltUnknown::Number(2.0))]);
+        plain.insert("c", SmeltUnknown::Number(3.0));
+        assert_eq!(plain.remove("b"), Some(SmeltUnknown::Number(1.0)));
+        assert_eq!(keys(&plain), ["a", "c"]);
+        assert_eq!(plain.len(), 2);
+        assert!(plain.smelt_origin::<Point>().is_none());
+    }
+}
