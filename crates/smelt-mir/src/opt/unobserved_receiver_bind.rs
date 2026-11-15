@@ -148,5 +148,10 @@ fn program_reads_this(mir: &Mir) -> bool {
     function_blocks
         .chain(closure_blocks)
         .flat_map(|block| block.statements.iter())
-        .any(|statement| matches!(statement.value(), Rvalue::ThisRead))
+        .any(|statement| {
+            matches!(
+                statement.value(),
+                Rvalue::ThisRead | Rvalue::BindOwnThis { .. }
+            )
+        })
 }

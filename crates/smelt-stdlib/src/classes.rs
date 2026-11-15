@@ -54,6 +54,13 @@ pub enum StdlibClass {
     /// runtime type (the algorithm, its hash, the raw key bytes, and the
     /// extractable/usages state `importKey` fixed).
     CryptoKey,
+    /// A host constructor read as a value (`Date`, `Map`, `TypeError`,
+    /// `Uint8Array`, ...), backed by the generated concrete
+    /// `SmeltHostConstructor` runtime type: the constructor's name, compared
+    /// by name and erased to the one interned constructor object. Every host
+    /// constructor is this one class, so a list of them
+    /// (`[Int8Array, Uint8Array]`) is a concrete list rather than a union.
+    HostConstructor,
     /// WHATWG `Response`, backed by the generated concrete `SmeltResponse`
     /// runtime type (a status line, a `SmeltHeaders`, and a single-use
     /// `SmeltBody`).
@@ -244,6 +251,7 @@ impl StdlibClass {
                 | Self::SqliteStatement
                 | Self::CryptoKey
                 | Self::ReadableStream
+                | Self::HostConstructor
         )
     }
 
@@ -391,6 +399,10 @@ impl StdlibClass {
 /// match shape through the internal type system.
 pub const MATCH_CLASS_NAME: &str = "__SmeltMatch";
 
+/// Synthetic class name of a host constructor read as a value
+/// ([`StdlibClass::HostConstructor`]).
+pub const HOST_CONSTRUCTOR_CLASS_NAME: &str = "__SmeltHostConstructor";
+
 /// Reserved synthetic class name for `matchResult.groups` named-group access.
 pub const MATCH_GROUPS_CLASS_NAME: &str = "__SmeltMatchGroups";
 
@@ -460,6 +472,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         "Headers" => Some(StdlibClass::Headers),
         "Map" => Some(StdlibClass::Map),
         MATCH_CLASS_NAME => Some(StdlibClass::Match),
+        HOST_CONSTRUCTOR_CLASS_NAME => Some(StdlibClass::HostConstructor),
         MATCH_GROUPS_CLASS_NAME => Some(StdlibClass::MatchGroups),
         PY_EXCEPTION_CLASS_NAME => Some(StdlibClass::PyException),
         PY_EXCEPTION_ARGS_CLASS_NAME => Some(StdlibClass::PyExceptionArgs),

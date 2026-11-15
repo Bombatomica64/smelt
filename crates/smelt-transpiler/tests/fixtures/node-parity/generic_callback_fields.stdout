@@ -1,0 +1,6 @@
+apply number 8
+pair number 7+7
+apply string ab
+bound show held:10
+bound apply 20
+interface got 3

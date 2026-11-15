@@ -931,6 +931,14 @@ fn smelt_js_key_order_position<K: SmeltPropertyKey, V>(entries: &[SmeltFieldEntr
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> {
+    #[allow(dead_code)]
+    fn smelt_live_len(&self) -> usize { self.store.borrow().entries().iter().filter(|entry| !entry.key.smelt_is_internal_key()).count() }
+    #[allow(dead_code)]
+    fn smelt_entry_at(&self, index: usize) -> Option<(K, V)> where V: Clone { self.store.borrow().entries().iter().filter(|entry| !entry.key.smelt_is_internal_key()).nth(index).map(|entry| (entry.key.clone(), entry.value.clone())) }
+    #[allow(dead_code)]
+    fn smelt_key_at(&self, index: usize) -> Option<K> where V: Clone { self.smelt_entry_at(index).map(|(key, _)| key) }
+    #[allow(dead_code)]
+    fn smelt_value_at(&self, index: usize) -> Option<V> where V: Clone { self.smelt_entry_at(index).map(|(_, value)| value) }
     fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) } }
     fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
     fn len(&self) -> usize { self.store.borrow().len() }

@@ -32,13 +32,13 @@ edition = "2024"
 # Hono Context, its Request/Response, headers, route params), which is what a
 # thread-caching allocator is built for: libc, almost all of it malloc/free,
 # was ~28% of a served request's CPU samples
-# (blocker-logs/hono-crud-perf-round1.md). This app already builds C
+# (hono-crud-perf-round1.md, in git history). This app already builds C
 # (rusqlite's bundled SQLite), so mimalloc's C build costs it nothing new. See `smelt_codegen_rust::GeneratedAllocator` for why Smelt leaves this
 # choice to the application.
 allocator = "mimalloc"
 # Fat LTO: also optimizes hyper/tokio/serde_json together with the generated
 # code. +3.4% requests/s on `GET /todos/abc` for ~25% more release build time,
-# a trade a long-running server takes (blocker-logs/hono-crud-perf-round2.md).
+# a trade a long-running server takes (hono-crud-perf-round2.md, never committed).
 release-profile = "whole-program"
 
 [rust.dependencies]

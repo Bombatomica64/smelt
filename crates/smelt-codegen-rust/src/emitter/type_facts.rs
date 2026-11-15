@@ -599,6 +599,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Union(items)) => items
                 .iter()
                 .all(|item| self.is_json_serializable_type_seen(*item, seen)),
+            // An iterator object serializes as `{}` through its erasure, whose
+            // `next` and marker are hidden (see the frontend's matching arm).
+            Some(Type::Generator {
+                is_async: false, ..
+            }) => true,
             Some(Type::Class { name, .. }) => {
                 // A host object serializes as `{}` — none of its state is an own
                 // enumerable property (see the frontend's matching arm). The

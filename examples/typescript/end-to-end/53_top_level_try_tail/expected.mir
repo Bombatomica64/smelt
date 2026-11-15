@@ -121,8 +121,7 @@ async fn main (FuncId(1)) -> None throws
   bb26:
     %27 = await move %26 -> bb27 unwind bb20
   bb27:
-    %28 = move %25 + move %27
-    %4 = move %28
+    %4 = move %25 + move %27
     goto bb19
   bb28:
     %5 = "not run"

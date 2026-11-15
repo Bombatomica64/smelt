@@ -51,11 +51,12 @@ export function current(): number {
 }
 
 #[test]
-fn module_map_const_rematerializes_entries_inside_functions() -> Result<(), String> {
-    // A module-level literal `new Map([...])` const is a string-keyed dictionary.
-    // A function that reads it must re-materialize the full dictionary (like the
-    // object-literal const path), not inline an empty default whose real
-    // construction only lives in the never-called module body.
+fn module_map_const_reads_one_shared_slot_inside_functions() -> Result<(), String> {
+    // A module-level literal `new Map([...])` const is ONE map. A function that
+    // reads it reads the module slot holding it (`identity_slots`), whose lazy
+    // initializer builds the full dictionary once -- not an empty default whose
+    // real construction only lives in the never-called module body, and not a
+    // fresh copy per read, which a mutation through one reader would not reach.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -70,17 +71,32 @@ export function lookup(key: string): string {
     let module = module(&ctx, module_id)?;
     let function = named_function_item(&ctx, module, "lookup")?;
     let body = function_body(&ctx, function)?;
-    let dict_entries = body
-        .exprs
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::GlobalGet { .. })),
+        "the function should read the map through its module slot",
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "the function should not rebuild the map",
+    );
+    let dict_entries = ctx
+        .krate
+        .bodies
         .iter()
+        .flat_map(|other| other.exprs.iter())
         .find_map(|expr| match &expr.kind {
             ExprKind::DictLit(entries) => Some(entries.len()),
             _ => None,
         })
-        .ok_or_else(|| "expected a re-materialized dict literal in the function body".to_owned())?;
+        .ok_or_else(|| "expected the slot initializer to build the dict".to_owned())?;
     ensure!(
         dict_entries == 2,
-        "function reading a module Map const should re-materialize all entries, got {dict_entries}",
+        "the slot initializer should build every entry, got {dict_entries}",
     );
     Ok(())
 }
@@ -388,7 +404,7 @@ fn writing_through_a_non_primitive_global_lowers() -> Result<(), String> {
     // mutates the value the cell HOLDS, which used to be a named blocker
     // because a `GlobalGet` yields a copy and the write would land on it. It
     // now lowers to `Place::Global`, which names the cell as the assignment
-    // root so no copy is made. See `blocker-logs/hono-h6-place-global.md`.
+    // root so no copy is made. See `hono-h6-place-global.md` (in git history).
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -585,9 +601,8 @@ export function first(p: string): number {
     let unknown = ctx.krate.types.intern(Type::Unknown);
     let module = module(&ctx, module_id)?;
     let body = function_body(&ctx, named_function_item(&ctx, module, "first")?)?;
-    let tuple_lits = body
-        .exprs
-        .iter()
+    let tuple_lits = reachable_exprs(&ctx, body)
+        .into_iter()
         .filter(|expr| matches!(expr.kind, ExprKind::TupleLit(_)))
         .count();
     ensure!(
@@ -595,7 +610,7 @@ export function first(p: string): number {
         "expected the entry and the assoc pair to recreate as tuples, found {tuple_lits}",
     );
     ensure!(
-        body.exprs.iter().all(|expr| {
+        reachable_exprs(&ctx, body).into_iter().all(|expr| {
             !matches!(ctx.krate.types.get(expr.ty), Some(Type::List(item)) if *item == unknown)
         }),
         "no recreated value should erase to List<Unknown>",

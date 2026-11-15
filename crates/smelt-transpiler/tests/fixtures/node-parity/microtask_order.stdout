@@ -1,0 +1,1 @@
+sync | erased reject | typed resolve | erased chain 1 | typed chain 1 | typed after pending | erased chain 2 | typed chain 2 | pending then catch

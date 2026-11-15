@@ -68,7 +68,17 @@ fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>,
 fn smelt_function_prototype(identity: &SmeltFunctionIdentity, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, "prototype") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), constructor)]))); smelt_set_function_property_key(identity, "prototype", prototype.clone()); prototype }
 
 /// Read one own property of an erased function value (JS `f.prototype`).
-fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == "prototype" { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }
+fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == "prototype" && identity.0.constructor.get() { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }
+
+/// Mark a function value as a JavaScript constructor (a `function`
+/// declaration or expression): it owns a `prototype` object.
+#[allow(dead_code)]
+fn smelt_mark_constructor<F: ?Sized + 'static>(function: &::std::rc::Rc<F>) { smelt_canonical_function_identity(function).0.constructor.set(true); }
+
+/// The prototype `new f()` links its instance to: the function's own
+/// `prototype` (a constructor's is created on first use). A non-constructor
+/// has none to link; it gets a fresh one rather than a throw, as before.
+fn smelt_construct_prototype(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); smelt_function_property_lookup(&identity, "prototype").unwrap_or_else(|| smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone()))) }
 
 // @smelt:item-end
 
@@ -90,7 +100,7 @@ fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknow
 //~ `new F() instanceof F` holds by construction.
 fn smelt_construct(callee: SmeltUnknown, args: Vec<SmeltUnknown>) -> SmeltUnknown {
     let Some(function) = smelt_callable_of(&callee) else { return SmeltUnknown::Undefined; };
-    let prototype = smelt_function_value_property(&function, "prototype");
+    let prototype = smelt_construct_prototype(&function);
     let instance = smelt_object_from_prototype(prototype);
     let result = { let _smelt_this_guard = smelt_push_this(instance.clone()); (function)(args).unwrap_or_else(|error| smelt_panic_throw(error)) };
     match result { SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => result, _ => instance }

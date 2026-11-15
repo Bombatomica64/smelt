@@ -4,9 +4,8 @@ use super::*;
 use smelt_hir::{
     BinOp, DatePart, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp,
     ListProjectionOp, ListSearchOp, Literal, ModuleId, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, SetProjectionOp, SetRemoveOp, Stmt,
-    StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide,
-    Type,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, SetRemoveOp, Stmt, StringAffixOp,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -185,6 +184,38 @@ fn named_function_item<'a>(
     Err(format!("missing function item named `{name}`"))
 }
 
+/// Every expression `body` evaluates: its own, plus the initializer of each
+/// module slot it reads (`GlobalGet`), where a module object read as a value
+/// is built once (`lowering::module_init::identity_slots`).
+fn reachable_exprs<'a>(ctx: &'a HirCtx, body: &'a smelt_hir::Body) -> Vec<&'a smelt_hir::Expr> {
+    let mut exprs: Vec<&smelt_hir::Expr> = body.exprs.iter().collect();
+    for expr in &body.exprs {
+        let ExprKind::GlobalGet { item } = expr.kind else {
+            continue;
+        };
+        let Some(Item::MutableGlobal(global)) = usize::try_from(item.0)
+            .ok()
+            .and_then(|index| ctx.krate.items.get(index))
+        else {
+            continue;
+        };
+        let smelt_hir::MutableGlobalInit::Initializer(init) = global.init else {
+            continue;
+        };
+        if let Some(Item::Function(function)) = usize::try_from(init.0)
+            .ok()
+            .and_then(|index| ctx.krate.items.get(index))
+            && let Some(init_body) = function
+                .body
+                .and_then(|id| usize::try_from(id.0).ok())
+                .and_then(|index| ctx.krate.bodies.get(index))
+        {
+            exprs.extend(init_body.exprs.iter());
+        }
+    }
+    exprs
+}
+
 /// Get the body owned by a function.
 fn function_body<'a>(
     ctx: &'a HirCtx,
@@ -337,6 +368,7 @@ mod closure_argument_hint_tests;
 mod constructor_function_tests;
 mod determinism_tests;
 mod drifted_helper_tests;
+mod element_param_tests;
 mod enum_switch_tests;
 mod erasure_tests;
 mod estk6_coverage_tests;
@@ -348,6 +380,7 @@ mod global_namespace_tests;
 mod host_module_tests;
 mod host_override_tests;
 mod host_resolution_guard_tests;
+mod identity_slot_tests;
 mod int32_tests;
 mod lower_builtin_calls_tests;
 mod lower_calls_packing_tests;

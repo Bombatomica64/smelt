@@ -29,7 +29,7 @@ fn smelt_abort_timeout_reason() -> SmeltUnknown { SmeltUnknown::Object(SmeltObje
 //~ lowers `null` and `undefined` to the same `Type::None`, so the two
 //~ spellings are indistinguishable by the time this helper sees them
 //~ (the deferred `Type::Null` family -- see the round-9 note in
-//~ `blocker-logs/standards-round9-progress.md` section 8, which records
+//~ `standards-round9-progress.md` (in git history) section 8, which records
 //~ the same conflation costing the `Optional` string coercion). Given one
 //~ answer for both, the default is the right one: `abort(undefined)` is a
 //~ spelling real code uses and `abort(null)` is not.

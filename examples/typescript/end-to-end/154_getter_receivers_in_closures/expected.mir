@@ -51,13 +51,9 @@ fn names (FuncId(4)) -> List<String>
   locals
     %0 param this: Request
     %1 temp: List<String>
-    %2 temp: List<String>
-    %3 temp: List<String>
   bb0:
     %1 = dict_keys copy %0.field6
-    %2 = []
-    %3 = list_concat move %1, move %2
-    return move %3
+    return move %1
 
 fn has (FuncId(5)) -> Bool
   locals

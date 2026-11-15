@@ -14,7 +14,7 @@
 // (that spelling is Hono's `Router<[unknown, RouterRoute]>`, the interface half
 // of the same rule; it has no fixture here because constructing such a record
 // from an object literal is a separate open seam — see
-// `blocker-logs/hono-round31-generics.md` — and is asserted as emitted text by
+// `hono-round31-generics.md` (in git history) — and is asserted as emitted text by
 // `a_generic_interface_slot_is_called_with_its_declared_abi` instead.)
 //
 // The value is still rendered at the substituted type — that is what it has to

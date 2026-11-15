@@ -123,7 +123,7 @@ pub enum PrimitiveCastOp {
 /// `SyntaxError`; for a serialized bigint, a `TypeError`) on some input, and JavaScript lets a `try` catch it. MIR's
 /// exception edges live on call terminators, so each lowers to a fallible
 /// builtin call rather than an rvalue; see
-/// `blocker-logs/standards-throwing-rvalue.md`. The infallible bigint
+/// `standards-throwing-rvalue.md` (in git history). The infallible bigint
 /// operators (`+ - * & | ^`, comparisons) stay ordinary rvalues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BigIntOp {

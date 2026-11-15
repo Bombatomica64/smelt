@@ -118,6 +118,11 @@ pub struct Mir {
     /// [`smelt_hir::Crate::accessor_fields`].
     #[serde(default)]
     pub accessor_fields: Vec<(Symbol, Symbol)>,
+    /// Function-item keys (HIR item indexes, as in
+    /// [`MirClosure::function_item_key`]) of JavaScript constructors; see
+    /// [`smelt_hir::Crate::constructible_functions`].
+    #[serde(default)]
+    pub constructible_function_items: std::collections::BTreeSet<usize>,
     /// Name and call-site lookups, built on first use; see [`crate::index`].
     #[serde(skip)]
     pub index: crate::index::MirIndex,
@@ -172,6 +177,7 @@ impl Mir {
             symbols,
             names,
             accessor_fields: Vec::new(),
+            constructible_function_items: std::collections::BTreeSet::new(),
             index: crate::index::MirIndex::default(),
         }
     }
@@ -264,6 +270,11 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
+    /// Where this closure's `this` comes from (carried over from
+    /// `ClosureExpr::this_binding`): its own call's receiver, its enclosing
+    /// function's (an arrow), or forwarded untouched (a function item's value
+    /// wrapper).
+    pub this_binding: smelt_hir::ClosureThis,
     /// The language this closure body came from.
     ///
     /// See `MirFunction::language`. A closure body is emitted through its own
@@ -666,7 +677,7 @@ pub enum Place {
     /// write through a materialized copy is correct for one and silently lost
     /// for the other. Naming the cell as the assignment root avoids having to
     /// answer which case applies. See
-    /// `blocker-logs/hono-h6-place-global.md`.
+    /// `hono-h6-place-global.md` (in git history).
     ///
     /// Whole-binding assignment is NOT this variant: `x = e` lowers to
     /// `ExprKind::GlobalSet`, which replaces the cell's value and needs no

@@ -95,14 +95,16 @@ const SETTER_PREFIX: &str = "__smelt_set_";
 /// `undefined`, which the carrier spells exactly.
 fn return_type_is_erasable(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(
-            Type::Never
-            | Type::Future(_)
-            | Type::Generator { .. }
-            | Type::GeneratorResult { .. }
-            | Type::Function(_),
-        )
-        | None => false,
+        // An async method's promise and a generator method's iterator cross as
+        // their erased handles (`SmeltUnknown::Promise`, the iterator-protocol
+        // object): the payload they settle with or yield must cross too.
+        Some(Type::Future(item)) => return_type_is_erasable(mir, *item),
+        Some(Type::Generator {
+            yield_ty,
+            return_ty,
+            ..
+        }) => return_type_is_erasable(mir, *yield_ty) && return_type_is_erasable(mir, *return_ty),
+        Some(Type::Never | Type::GeneratorResult { .. } | Type::Function(_)) | None => false,
         Some(_) => true,
     }
 }
@@ -113,8 +115,9 @@ fn return_type_is_erasable(mir: &Mir, ty: TypeId) -> bool {
 ///
 /// 1. It is a real instance method (`HirOrigin::ClassMethod`), not a
 ///    constructor or a static.
-/// 2. It is neither `async` nor a generator: both return a suspended handle
-///    that has no erased rendering.
+/// 2. Its return crosses ([`return_type_is_erasable`]): an `async` method's
+///    promise and a generator method's iterator cross as their erased handles,
+///    so either kind qualifies when what it settles with or yields does.
 /// 3. Every parameter can be rebuilt from the erased call's arguments
 ///    ([`param_crosses_erased_call`]): a data parameter through
 ///    `SmeltFromUnknown`, a callback whose own parameters and return cross the
@@ -137,9 +140,6 @@ pub(crate) fn method_is_proto_eligible(
     let HirOrigin::ClassMethod { class, .. } = function.origin else {
         return false;
     };
-    if function.is_async || function.is_generator {
-        return false;
-    }
     let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
         return false;
     };
@@ -358,7 +358,17 @@ fn erased_callable_adapter(
     // A throwing method returns `Result<_, Box<dyn Error>>`; the erased
     // callback's own return type is the same `Result`, so the `?` propagates
     // the thrown value across the seam rather than swallowing it.
-    let try_operator = if function.can_throw { "?" } else { "" };
+    // An async method's throw settles its promise: the Rust method returns
+    // the `SmeltFuture` itself, never a `Result`, so nothing is propagated here.
+    // A generator or async method's throw surfaces through what it returns
+    // (a resume of the generator, the settling of the promise), never as a
+    // `Result` of the call itself, so nothing is propagated for either.
+    let returns_future = function.is_async && !function.is_generator;
+    let try_operator = if function.can_throw && !function.is_async && !function.is_generator {
+        "?"
+    } else {
+        ""
+    };
     let (capture, callee) = match receiver {
         MethodReceiver::Instance => (
             "let smelt_receiver = self.clone(); ",
@@ -373,10 +383,27 @@ fn erased_callable_adapter(
         ""
     };
     let call = format!("{callee}{rust_method}({}){try_operator}", args.join(", "));
-    let result = if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
+    let result = if returns_future {
+        // An async method's MIR return is what its promise settles with; the
+        // Rust method hands back the `SmeltFuture` of it, which crosses as an
+        // erased promise of that payload. An async GENERATOR method returns
+        // its generator (`Type::Generator`), which erases below like any value.
+        let emitter = match &method_emitter {
+            Some(emitter) => emitter,
+            None => method_emitter.insert(crate::emitter::FunctionEmitter::new(
+                mir, context, function,
+            )?),
+        };
+        emitter
+            .erased_future_text(&RustExpr::path("smelt_result"), function.return_ty)?
+            .into_string()
+    } else if matches!(mir.types.get(function.return_ty), Some(Type::None)) {
         // A `void` method evaluates to `undefined` in JavaScript.
         "{ let () = smelt_result; SmeltUnknown::Undefined }".to_owned()
     } else if matches!(
+        mir.types.get(function.return_ty),
+        Some(Type::Future(_) | Type::Generator { .. })
+    ) || matches!(
         mir.types.get(function.return_ty),
         Some(Type::Class { name: returned, args: returned_args }) if returned_args.is_empty()
             && crate::classes::find_class(mir, *returned).is_some_and(|returned_class| returned_class.type_params.is_empty())
@@ -800,6 +827,30 @@ pub(crate) fn class_has_proto_entries(mir: &Mir, context: &EmitContext, class: &
         || constructor_adapter(mir, context, class).is_ok_and(|adapter| adapter.is_some())
 }
 
+/// The Rust path a static member of `class` is called through.
+///
+/// A static member cannot mention the class's type parameters (TS2302), so a
+/// generic class's statics are the same at every instantiation and any one
+/// names them: the erased carrier, which meets every bound the generated
+/// `impl` places on a class parameter. Without it `Box::of(x)` leaves the
+/// class's parameter uninferable (E0283).
+pub(crate) fn static_receiver_path(
+    mir: &Mir,
+    context: &EmitContext,
+    class: smelt_hir::Symbol,
+) -> Result<String, EmitError> {
+    let rust_class = context.names().type_name(class)?.as_str().to_owned();
+    let params = crate::classes::find_class(mir, class).map_or(0, |found| found.type_params.len());
+    Ok(if params == 0 {
+        rust_class
+    } else {
+        format!(
+            "{rust_class}::<{}>",
+            vec!["SmeltUnknown"; params].join(", ")
+        )
+    })
+}
+
 /// A class's static methods as `(property key, erased function)` entries of its
 /// class value.
 ///
@@ -819,13 +870,10 @@ pub(crate) fn class_static_entries(
     context: &EmitContext,
     class: smelt_hir::Symbol,
 ) -> Result<Vec<(String, RustExpr)>, EmitError> {
-    let Some(found) = crate::classes::find_class(mir, class) else {
-        return Ok(Vec::new());
-    };
-    if !found.type_params.is_empty() {
+    if crate::classes::find_class(mir, class).is_none() {
         return Ok(Vec::new());
     }
-    let rust_class = context.names().type_name(class)?.as_str().to_owned();
+    let rust_class = static_receiver_path(mir, context, class)?;
     let mut entries = Vec::new();
     for function in &mir.functions {
         let HirOrigin::ClassStaticMethod {
@@ -838,8 +886,6 @@ pub(crate) fn class_static_entries(
         };
         if owner != class
             || !function.type_params.is_empty()
-            || function.is_async
-            || function.is_generator
             || !return_type_is_erasable(mir, function.return_ty)
             || !function.params.iter().enumerate().all(|(index, param)| {
                 local_decl(function, *param).is_some_and(|local| {

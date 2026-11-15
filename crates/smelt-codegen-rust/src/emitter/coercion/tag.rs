@@ -488,11 +488,15 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::BigInt => "SmeltUnknown::BigInt(_)",
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
             smelt_hir::UnknownKind::Symbol => "SmeltUnknown::Symbol(_)",
+            // The same table as the runtime's `smelt_typeof`: a callable
+            // object (`__smelt_call`: a builtin constructor such as `Date`, a
+            // function carrying own properties) is a `function` too, not an
+            // `object`, so `typeof Date === "function"` holds on both paths.
             smelt_hir::UnknownKind::Function => {
                 return Ok(self.carrier_format(
                     self.carrier()?,
                     format_args!(
-                        "matches!({text}, SmeltUnknown::Function(_))",
+                        "match &{text} {{ SmeltUnknown::Function(_) => true, SmeltUnknown::Object(smelt_object) => smelt_object.contains_key(\"__smelt_call\"), _ => false }}",
                         text = text.delimited()
                     ),
                 ));
@@ -503,7 +507,7 @@ impl FunctionEmitter<'_> {
                 // `null`, and built-in object wrappers such as promises (whose
                 // own representation is the dedicated `Promise` variant).
                 return Ok(self.carrier_format(self.carrier()?, format_args!(
-                    "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_))", text = text.delimited()
+                    "match &{text} {{ SmeltUnknown::Object(smelt_object) => !smelt_object.contains_key(\"__smelt_call\"), SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_) => true, _ => false }}", text = text.delimited()
                 )));
             }
             smelt_hir::UnknownKind::Promise => {

@@ -1,5 +1,6 @@
 //! Statement lowering: control flow, assignments and local declarations.
 
+mod asserted_record_writes;
 mod assignments;
 mod blocks;
 mod control_flow;

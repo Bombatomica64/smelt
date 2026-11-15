@@ -109,8 +109,7 @@ fn count (FuncId(3)) -> Float
     %5 = tuple_index move %3, 1
     %11 = move %4 + move %5
     %12 = len move %11
-    %13 = move %2 + move %12
-    %2 = move %13
+    %2 = move %2 + move %12
     goto bb3
   bb3:
     %6 = copy %6 + 1

@@ -28,8 +28,7 @@ fn as_big_int (FuncId(0)) -> BigInt throws
   bb5:
     %7 = call @BigInt(move %2) -> bb6
   bb6:
-    %8 = move %6 + move %7
-    %1 = move %8
+    %1 = move %6 + move %7
     goto bb3
 
 fn quotient (FuncId(1)) -> BigInt throws
@@ -423,12 +422,9 @@ fn main (FuncId(4)) -> None throws
     %134 = call @console_log("generic:", move %130, move %133) -> bb60
   bb60:
     %3 = copy %0
-    %135 = move %3 + 1n
-    %3 = move %135
-    %136 = move %3 * 3n
-    %3 = move %136
-    %137 = move %3 - copy %0
-    %3 = move %137
+    %3 = move %3 + 1n
+    %3 = move %3 * 3n
+    %3 = move %3 - copy %0
     %138 = call @bigint_div(move %3, 2n) -> bb61
   bb61:
     %3 = move %138
@@ -438,12 +434,9 @@ fn main (FuncId(4)) -> None throws
     %140 = call @console_log("compound:", move %3) -> bb63
   bb63:
     %4 = copy %1
-    %141 = move %4 + 1n
-    %4 = move %141
-    %142 = move %4 + 1n
-    %4 = move %142
-    %143 = move %4 - 1n
-    %4 = move %143
+    %4 = move %4 + 1n
+    %4 = move %4 + 1n
+    %4 = move %4 - 1n
     %144 = copy %4 > copy %1
     %145 = call @console_log("update:", move %4, move %144) -> bb64
   bb64:

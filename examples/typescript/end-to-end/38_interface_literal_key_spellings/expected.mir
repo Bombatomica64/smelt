@@ -78,31 +78,31 @@ fn main (FuncId(2)) -> None
     %1 = {"camelCase": "only"}
     %6 = {"camelCase": "deep", "plain": 2.0}
     %2 = {"innerShape": move %6}
-    %8 = call fn1(copy %0.field6) -> bb1
+    %8 = call fn1(copy %0.field8) -> bb1
   bb1:
     %9 = call @console_log(move %8) -> bb2
   bb2:
-    %10 = call fn0(copy %0.field7) -> bb3
+    %10 = call fn0(copy %0.field9) -> bb3
   bb3:
     %11 = call @console_log(move %10) -> bb4
   bb4:
-    %12 = call fn0(copy %0.field8) -> bb5
+    %12 = call fn0(copy %0.field10) -> bb5
   bb5:
     %13 = call @console_log(move %12) -> bb6
   bb6:
-    %14 = call fn1(copy %0.field9) -> bb7
+    %14 = call fn1(copy %0.field11) -> bb7
   bb7:
     %15 = call @console_log(move %14) -> bb8
   bb8:
-    %16 = call fn0(copy %1.field7) -> bb9
+    %16 = call fn0(copy %1.field9) -> bb9
   bb9:
     %17 = call @console_log(move %16) -> bb10
   bb10:
-    %18 = call fn0(copy %1.field8) -> bb11
+    %18 = call fn0(copy %1.field10) -> bb11
   bb11:
     %19 = call @console_log(move %18) -> bb12
   bb12:
-    %3 = copy %2.field2
+    %3 = copy %2.field4
     %20 = copy %3 == undefined
     switch move %20 ? bb13 : bb14
   bb13:
@@ -110,7 +110,7 @@ fn main (FuncId(2)) -> None
     goto bb16
   bb14:
     %22 = copy %3
-    %23 = call fn0(copy %22.field7) -> bb15
+    %23 = call fn0(copy %22.field9) -> bb15
   bb15:
     %21 = move %23
     goto bb16
@@ -124,7 +124,7 @@ fn main (FuncId(2)) -> None
     goto bb21
   bb19:
     %27 = move %3
-    %28 = call fn1(copy %27.field6) -> bb20
+    %28 = call fn1(copy %27.field8) -> bb20
   bb20:
     %26 = move %28
     goto bb21

@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 
 use crate::lowering::{ConstCollection, ConstLiteral, RestParam};
 use smelt_hir::{
-    Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId, TypeParamDef,
+    Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, Span, TypeId, TypeParamDef,
 };
 
 /// Reusable value stored in a static object constant.
@@ -65,6 +65,17 @@ impl ObjectConstEntry {
     }
 }
 
+/// The declaration a module identity slot evaluates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IdentitySlotKey {
+    /// A folded object constant, by its declaring binding's span.
+    Site(smelt_hir::FileId, u32, u32),
+    /// A const item.
+    Item(ItemId),
+    /// An object namespace of methods, by its first member's function item.
+    Namespace(ItemId),
+}
+
 /// Static object-constant metadata preserved across TypeScript modules.
 #[derive(Debug, Clone)]
 pub struct ObjectConst {
@@ -72,6 +83,11 @@ pub struct ObjectConst {
     pub entries: Vec<ObjectConstEntry>,
     /// HIR type of the object literal.
     pub ty: TypeId,
+    /// The declaring binding of a module-level constant (`None` for a nested
+    /// literal). It names the ONE object the source declares, so every module
+    /// that reads the constant as a value shares a single slot for it (see
+    /// `lowering::module_init::identity_slots`).
+    pub site: Option<Span>,
 }
 
 /// The length a parameter's *source* annotation demands of its argument.
@@ -290,6 +306,19 @@ pub struct HirCtx {
     pub object_namespaces: ExportTable<IndexMap<String, ItemId>>,
     /// Exported object constants with literal data values.
     pub object_consts: ExportTable<ObjectConst>,
+    /// The module slot holding each module-level object value read by
+    /// identity, keyed by the declaration it evaluates (see
+    /// `lowering::module_init::identity_slots`). Crate-wide, so an importer
+    /// and the declaring module read the same object.
+    pub identity_slots: HashMap<IdentitySlotKey, ItemId>,
+    /// Each identity slot in creation order, with the crate's item count
+    /// before it: a discarded speculative lowering removes the slots it
+    /// created (`lowering::speculation`).
+    pub identity_slot_log: Vec<(IdentitySlotKey, usize)>,
+    /// Exported consts, by declaring file and name, whose source annotation
+    /// is itself erased (`export const falsey: unknown[]`); see
+    /// `lowering::module_init::identity_slots`.
+    pub source_erased_consts: HashSet<(smelt_hir::FileId, String)>,
     /// Exported object constants whose values can be projected by `Object.values`.
     pub object_value_collections: ExportTable<ConstCollection>,
     /// Exported array/set constants that can be inlined by later modules.
@@ -351,6 +380,12 @@ pub struct HirCtx {
     /// name, would alias a same-named parameter of the caller. Keyed by the
     /// callee's item id.
     pub erased_item_type_params: HashMap<ItemId, Vec<TypeParamDef>>,
+    /// Function type parameters carried as their element type: the source
+    /// constrains them to an array, and inside their declaration their name
+    /// resolves to a list of the parameter (`lowering/ty/element_params.rs`).
+    /// An explicit type argument for one names the whole list and binds the
+    /// element.
+    pub element_carried_type_params: HashSet<smelt_hir::Symbol>,
     /// Value types declared by class string index signatures (`[k: string]: T`).
     ///
     /// Populated when a class declaration carries a `TSIndexSignature`, and read
@@ -395,7 +430,7 @@ pub struct HirCtx {
     /// Deliberately only the closure GAP: a name imported from a module the
     /// crate does have, from a bare package (`type-fest`), or from a module the
     /// manifest excludes keeps the nominal fallback. See
-    /// `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+    /// `standards-generic-arm-and-typeof-indexed-alias.md` (in git history).
     pub project_sources_outside_crate: HashSet<String>,
     /// Rust-facing class names for source class names that are AMBIGUOUS across
     /// the crate, keyed by module path then by source class name.
@@ -480,6 +515,9 @@ impl HirCtx {
             module_global_object_aliases: HashMap::new(),
             object_namespaces: Published::default(),
             object_consts: Published::default(),
+            identity_slots: HashMap::new(),
+            identity_slot_log: Vec::new(),
+            source_erased_consts: HashSet::new(),
             object_value_collections: Published::default(),
             const_collections: Published::default(),
             enum_members: Published::default(),
@@ -491,6 +529,7 @@ impl HirCtx {
             class_constructor_params: HashMap::new(),
             derived_records: HashMap::new(),
             erased_item_type_params: HashMap::new(),
+            element_carried_type_params: HashSet::new(),
             interface_extends: Published::default(),
             interface_index_values: Published::default(),
             class_index_values: Published::default(),

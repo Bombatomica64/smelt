@@ -34,5 +34,4 @@ interned types
   t3 = Unknown
   t4 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
   t5 = fn(fn(String, fn() -> String) -> String) -> fn(String, fn() -> String) -> String
-  t6 = fn() -> Unknown
-  t7 = None
+  t6 = None

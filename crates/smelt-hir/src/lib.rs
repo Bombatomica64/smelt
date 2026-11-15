@@ -82,7 +82,7 @@ pub use erasure::{
 };
 pub use expr::{
     AbortSignalOp, AsyncOp, Base64Op, BigIntOp, BinOp, BlobOp, BoolFoldOp, ByteArrayOp,
-    CaptureMode, ClosureCapture, ClosureExpr, CryptoOp, DatePart, DictProjectionOp,
+    CaptureMode, ClosureCapture, ClosureExpr, ClosureThis, CryptoOp, DatePart, DictProjectionOp,
     ErasedPatternMethod, EventEmitterOp, Expr, ExprKind, FormDataOp, GeneratorResumeKind, HashOp,
     HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp,
     ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericFormatMethod,

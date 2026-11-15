@@ -1095,7 +1095,7 @@ fn typescript_import_statements(source: &str) -> Vec<String> {
             // `SmeltUnknown`: `import type { BaseMime } from './utils/mime'`
             // sits four lines after a multi-line `import type { ... } from
             // './types'`. See
-            // `blocker-logs/standards-generic-arm-and-typeof-indexed-alias.md`.
+            // `standards-generic-arm-and-typeof-indexed-alias.md` (in git history).
             if trimmed.ends_with(';') || statement_has_module_specifier(buffer) {
                 statements.push(buffer.trim_end_matches(';').trim().to_owned());
                 current = None;

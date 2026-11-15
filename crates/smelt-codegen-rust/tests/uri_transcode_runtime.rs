@@ -25,7 +25,7 @@
 //! malformed input, and that throw is catchable: they lower to a
 //! `Terminator::Call` of `Callee::Op` (the shape `JSON.parse` uses)
 //! rather than a fallible stdlib *rvalue*, which has no throwing edge in MIR.
-//! See `blocker-logs/hono-h10-uri-and-base64-globals.md`. The character-set
+//! See `hono-h10-uri-and-base64-globals.md` (in git history). The character-set
 //! boundary itself is unit-tested in `smelt-runtime`'s
 //! `uri::tests::malformed_input_is_rejected`.
 //!

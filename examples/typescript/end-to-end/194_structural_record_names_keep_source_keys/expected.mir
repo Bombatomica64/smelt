@@ -1,0 +1,52 @@
+interface SmeltRecord04681658c22e8b1f
+interface SmeltRecord579d4210dfbfc85c
+
+fn snake (FuncId(0)) -> SmeltRecord579d4210dfbfc85c
+  locals
+    %0 param input: SmeltRecord04681658c22e8b1f
+    %1 temp: SmeltRecord579d4210dfbfc85c
+  bb0:
+    %1 = {"user_id": copy %0.field1, "first_name": copy %0.field2}
+    return move %1
+
+fn camel (FuncId(1)) -> SmeltRecord04681658c22e8b1f
+  locals
+    %0 param input: SmeltRecord579d4210dfbfc85c
+    %1 temp: SmeltRecord04681658c22e8b1f
+  bb0:
+    %1 = {"userId": copy %0.field4, "firstName": copy %0.field5}
+    return move %1
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user out: SmeltRecord579d4210dfbfc85c
+    %1 user back: SmeltRecord04681658c22e8b1f
+    %2 temp: SmeltRecord04681658c22e8b1f
+    %3 temp: SmeltRecord579d4210dfbfc85c
+    %4 temp: String
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: None
+    %8 temp: SmeltRecord04681658c22e8b1f
+    %9 temp: String
+    %10 temp: Float
+    %11 temp: None
+  bb0:
+    %2 = {"userId": 7.0, "firstName": "Ada"}
+    %3 = call fn0(move %2) -> bb1
+  bb1:
+    %0 = move %3
+    %4 = json_stringify copy %0
+    %5 = copy %0.field4 + 1.0
+    %6 = len copy %0.field5
+    %7 = call @console_log(move %4, move %5, move %6) -> bb2
+  bb2:
+    %8 = call fn1(move %0) -> bb3
+  bb3:
+    %1 = move %8
+    %9 = json_stringify copy %1
+    %10 = copy %1.field1 * 2.0
+    %11 = call @console_log(move %9, move %10) -> bb4
+  bb4:
+    return none
+
