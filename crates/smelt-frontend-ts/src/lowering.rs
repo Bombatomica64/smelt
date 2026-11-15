@@ -1026,6 +1026,9 @@ struct ModuleBuilder<'ctx> {
     /// Binding span starts of locals whose elements are written with an `any`
     /// value, which hold erased elements; see `any_written_locals`.
     any_written_bindings: HashSet<u32>,
+    /// Span starts of the functions that return such a local by name, whose
+    /// declared return type widens the same way.
+    any_written_returns: HashSet<u32>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///

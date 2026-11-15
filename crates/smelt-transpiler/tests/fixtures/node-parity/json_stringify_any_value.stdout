@@ -1,0 +1,13 @@
+undefined undefined true
+undefined undefined undefined
+{"b":1} [null,null,2]
+null undefined {
+  "k": [
+    1
+  ]
+}
+value=undefined
+["1","1"] ["1","2"] null
+undefined [null]
+[1] null 4
+4 4

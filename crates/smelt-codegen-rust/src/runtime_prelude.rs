@@ -279,6 +279,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "uri_encode" => Need::UriEncode,
         "uri_decode" => Need::UriDecode,
         "json_indent" => Need::JsonIndent,
+        "json_stringify_value" => Need::JsonStringifyValue,
         "json_parse" => Need::JsonParse,
         "locale_compare" => Need::LocaleCompare,
         "headers" => Need::Headers,

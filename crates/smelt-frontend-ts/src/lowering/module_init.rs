@@ -46,7 +46,9 @@ impl ModuleBuilder<'_> {
         let mut errors = Vec::new();
         self.presence_widened_bindings =
             super::presence_tested_locals::presence_tested_keyed_bindings(program);
-        self.any_written_bindings = super::any_written_locals::any_written_bindings(program);
+        let any_written = super::any_written_locals::any_written_bindings(program);
+        self.any_written_bindings = any_written.bindings;
+        self.any_written_returns = any_written.returning_functions;
         // Top-level code is the program's ENTRY POINT, so it may await: the
         // module body becomes the emitted `main`, which is a
         // `#[tokio::main] async fn` whenever it needs to be. Awaiting here was

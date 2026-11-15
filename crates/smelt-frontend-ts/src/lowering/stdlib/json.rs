@@ -50,32 +50,20 @@ impl ModuleBuilder<'_> {
             let span = self.span(call.span.start, call.span.end);
             return Ok(Some(self.bigint_json_stringify(value, span, body)));
         }
-        if !self.is_json_serializable_type(value_ty) {
-            // Name the offending type. Without it the diagnostic says only that
-            // SOMETHING in a possibly deep union/record is not serializable,
-            // which is the least actionable form of a true statement.
-            // Name the type, and for a union name the ARM that is not
-            // serializable: interned ids ("Union([TypeId(29), TypeId(196), …])")
-            // say only that something somewhere is wrong, which is the least
-            // actionable form of a true statement, and for a union they hide
-            // the one member that has to change.
-            let unserializable = self.first_unserializable_member(value_ty);
-            return Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                match unserializable {
-                    Some(member) if member != value_ty => format!(
-                        "JSON.stringify() value must be JSON-serializable: `{}` is not, in {}",
-                        smelt_hir::type_display(&self.ctx.krate, member),
-                        Self::argument_type_summary(&self.ctx.krate, value_ty),
-                    ),
-                    _ => format!(
-                        "JSON.stringify() value must be JSON-serializable: `{}` is not",
-                        Self::argument_type_summary(&self.ctx.krate, value_ty),
-                    ),
-                },
-            ));
-        }
-        let ty = self.ctx.krate.types.intern(Type::String);
+        // Every other value has a JSON answer (ECMA-262 `SerializeJSONProperty`:
+        // a function or symbol property is omitted, `null` in an array), which
+        // the runtime serializer gives through the erased carrier; nothing is
+        // rejected. The text is `string | undefined` when the value itself may
+        // be `undefined`, a function or a symbol, whose top-level answer is
+        // `undefined` -- TypeScript's `string` return type does not say so.
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let ty = if self.json_stringify_may_answer_undefined(value_ty, 0)
+            && !self.json_stringify_absent_is_null(value_ty, argument)
+        {
+            self.ctx.krate.types.intern(Type::Optional(string_ty))
+        } else {
+            string_ty
+        };
         let span = self.span(call.span.start, call.span.end);
         let text = body.push_expr(Expr {
             kind: ExprKind::JsonStringify { value },
@@ -90,6 +78,58 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         })))
+    }
+
+    /// Whether the only undefined-answering case of the value is an absent
+    /// case the checker types as `null`, whose JSON text is `"null"`.
+    ///
+    /// The HIR's `None` carries both `null` and `undefined`, so `None` and
+    /// `Optional(T)` alone cannot tell `JSON.stringify(null)` (`"null"`) from
+    /// `JSON.stringify(undefined)` (`undefined`); the checker's type of the
+    /// argument can. Holds for `None`, or `Optional(T)` whose `T` never answers
+    /// `undefined`, when the argument is the `null` literal or the checker
+    /// admits `null` and not `undefined`/`void`.
+    fn json_stringify_absent_is_null(
+        &self,
+        ty: smelt_hir::TypeId,
+        argument: &Argument<'_>,
+    ) -> bool {
+        let present_answers_text = match self.ctx.krate.types.get(ty) {
+            Some(Type::None) => true,
+            Some(Type::Optional(inner)) => !self.json_stringify_may_answer_undefined(*inner, 1),
+            _ => false,
+        };
+        // The `null` keyword carries no recorded checker type; it is `null`.
+        let literal_null = argument.as_expression().is_some_and(|expression| {
+            matches!(expression.without_parentheses(), Expression::NullLiteral(_))
+        });
+        let span = argument.span();
+        present_answers_text && (literal_null || self.checker_absent_is_null(span.start, span.end))
+    }
+
+    /// Whether a value of `ty` may be one whose `JSON.stringify` is
+    /// `undefined`: `undefined`, a function or a symbol, or a value whose type
+    /// does not say (erased, generic, a union holding one of those).
+    fn json_stringify_may_answer_undefined(&self, ty: smelt_hir::TypeId, depth: usize) -> bool {
+        if depth > 8 {
+            return true;
+        }
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::None
+                | Type::Optional(_)
+                | Type::Function(_)
+                | Type::Symbol
+                | Type::PropKey,
+            )
+            | None => true,
+            Some(Type::Union(members)) => members
+                .iter()
+                .any(|member| self.json_stringify_may_answer_undefined(*member, depth + 1)),
+            _ => false,
+        }
     }
 
     /// Lower TypeScript `JSON.parse<T>(text)` calls for JSON-compatible targets.
@@ -478,56 +518,6 @@ impl ModuleBuilder<'_> {
             | Type::Generator { .. }
             | Type::GeneratorResult { .. } => false,
         }
-    }
-
-    /// A short description of the argument's type for a diagnostic.
-    ///
-    /// A union of JSON value types expands to thousands of characters once its
-    /// arms are printed — Hono's `JSONValue` alone renders past 8 KB — and a
-    /// message that long is unreadable whether or not it is accurate. So the
-    /// culprit is named exactly and its container only by shape: `a union of 14
-    /// members`, or the type itself when it is small enough to print.
-    fn argument_type_summary(krate: &smelt_hir::Crate, ty: smelt_hir::TypeId) -> String {
-        /// The longest type text worth inlining in one diagnostic line.
-        const MAX_TYPE_TEXT: usize = 120;
-        if let Some(Type::Union(members)) = krate.types.get(ty) {
-            let count = members.len();
-            let text = smelt_hir::type_display(krate, ty);
-            if text.len() > MAX_TYPE_TEXT {
-                return format!("a union of {count} members");
-            }
-            return format!("`{text}`");
-        }
-        let text = smelt_hir::type_display(krate, ty);
-        if text.len() > MAX_TYPE_TEXT {
-            return "the argument's type".to_owned();
-        }
-        format!("`{text}`")
-    }
-
-    /// The innermost member of `ty` that blocks serialization, if any.
-    ///
-    /// Walks the same shapes [`Self::is_json_serializable_type`] accepts and
-    /// answers the first leaf it rejects, so a diagnostic can name the arm of a
-    /// union (or the item of a list) rather than the whole type. Returns `ty`
-    /// itself when the type is unserializable as a whole and has no narrower
-    /// culprit, and `None` when it is serializable.
-    fn first_unserializable_member(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
-        if self.is_json_serializable_type(ty) {
-            return None;
-        }
-        let members = match self.ctx.krate.types.get(ty).cloned()? {
-            Type::Union(items) | Type::Tuple(items) => items,
-            Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
-                vec![item]
-            }
-            Type::Dict(_, value) | Type::JsMap(_, value) => vec![value],
-            _ => return Some(ty),
-        };
-        members
-            .into_iter()
-            .find_map(|member| self.first_unserializable_member(member))
-            .or(Some(ty))
     }
 
     /// Return fields for class-like TypeScript types that can map to JSON objects.
