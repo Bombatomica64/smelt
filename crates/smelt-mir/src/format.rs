@@ -501,6 +501,7 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
+        Callee::Builtin(BuiltinFn::ErasedListWriteBack) => "@erased_list_write_back".to_owned(),
         Callee::Op(_, Some(_)) => "@callback_op".to_owned(),
         Callee::Op(op, None) => op_call_text(op),
     }
@@ -621,7 +622,10 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
                 .join(", ");
             format!("({item_list})")
         }
-        Type::Optional(item) => format!("Optional<{}>", type_ref(mir, *item)),
+        Type::Optional(item, absence) => match absence {
+            smelt_hir::Absence::Undefined => format!("Optional<{}>", type_ref(mir, *item)),
+            smelt_hir::Absence::Null => format!("Nullable<{}>", type_ref(mir, *item)),
+        },
         Type::Union(items) => items
             .iter()
             .map(|item| type_ref(mir, *item))

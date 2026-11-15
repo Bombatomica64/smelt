@@ -473,7 +473,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Dict(_, _)) => Some(source_ty),
-            Some(Type::Optional(inner)) => self.object_assign_record_source_type(*inner),
+            Some(Type::Optional(inner, _)) => self.object_assign_record_source_type(*inner),
             _ => None,
         }
     }
@@ -482,7 +482,7 @@ impl ModuleBuilder<'_> {
     fn object_assign_object_like_source(&self, source_ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => true,
-            Some(Type::Optional(inner)) => self.object_assign_object_like_source(*inner),
+            Some(Type::Optional(inner, _)) => self.object_assign_object_like_source(*inner),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

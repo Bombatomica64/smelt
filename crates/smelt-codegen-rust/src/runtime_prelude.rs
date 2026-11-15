@@ -336,6 +336,8 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "erased_function" => Need::ErasedFunction,
         "erased_list_alias" => Need::ErasedListAlias,
         "optional_unknown_read" => Need::OptionalUnknownRead,
+        "null_codec" => Need::NullCodec,
+        "erased_list_write_back" => Need::ErasedListWriteBack,
         "accessors" => Need::Accessors,
         "python_number_format" => Need::PythonNumberFormat,
         "number_methods" => Need::NumberMethods,

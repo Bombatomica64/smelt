@@ -54,7 +54,7 @@ impl FunctionEmitter<'_> {
         target_ty: TypeId,
         local_ty: TypeId,
     ) -> bool {
-        let Some(Type::Optional(inner)) = self.mir.types.get(target_ty) else {
+        let Some(Type::Optional(inner, _)) = self.mir.types.get(target_ty) else {
             return false;
         };
         *inner == local_ty

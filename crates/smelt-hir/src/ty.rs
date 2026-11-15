@@ -103,8 +103,19 @@ pub enum Type {
     JsMap(TypeId, TypeId),
     /// Tuple type.
     Tuple(Vec<TypeId>),
-    /// Optional type.
-    Optional(TypeId),
+    /// A value of the inner type, or absent.
+    ///
+    /// The [`Absence`] says which absent value the source type admits: a
+    /// TypeScript `T | undefined` (an optional property or parameter, `find`,
+    /// `Map.get`) and every Python `Optional[T]` are [`Absence::Undefined`],
+    /// a TypeScript `T | null` is [`Absence::Null`]. Both lower to one Rust
+    /// `Option<T>`; the tag is what printing, `===`, `typeof`, JSON and
+    /// erasure read to answer `null` or `undefined` for its `None`.
+    ///
+    /// A type that admits both (`T | null | undefined`, `x?: T | null`) nests
+    /// the two, undefined outside: `Optional(Optional(T, Null), Undefined)`,
+    /// a Rust `Option<Option<T>>` (see [`crate::type_normalize::optional_of`]).
+    Optional(TypeId, Absence),
     /// Union type.
     Union(Vec<TypeId>),
     /// User-defined class type.
@@ -193,7 +204,7 @@ impl Type {
             | Self::Never
             | Self::TypeParam { .. }
             | Self::None => (&[], [None; 3]),
-            Self::List(item) | Self::Set(item) | Self::Optional(item) | Self::Future(item) => {
+            Self::List(item) | Self::Set(item) | Self::Optional(item, _) | Self::Future(item) => {
                 (&[], [Some(*item), None, None])
             }
             Self::Dict(key, value) | Self::JsMap(key, value) => {
@@ -247,7 +258,7 @@ impl Type {
             | Self::None => self.clone(),
             Self::List(item) => Self::List(rewrite(*item)?),
             Self::Set(item) => Self::Set(rewrite(*item)?),
-            Self::Optional(item) => Self::Optional(rewrite(*item)?),
+            Self::Optional(item, absence) => Self::Optional(rewrite(*item)?, *absence),
             Self::Future(item) => Self::Future(rewrite(*item)?),
             Self::Dict(key, value) => Self::Dict(rewrite(*key)?, rewrite(*value)?),
             Self::JsMap(key, value) => Self::JsMap(rewrite(*key)?, rewrite(*value)?),
@@ -322,8 +333,46 @@ impl Type {
             | Self::Never
             | Self::TypeParam { .. }
             | Self::None
-            | Self::Optional(_)
+            | Self::Optional(..)
             | Self::Union(_) => None,
+        }
+    }
+}
+
+/// Which absent value a [`Type::Optional`] admits.
+///
+/// JavaScript has two (`null` and `undefined`) and a program observes which
+/// one it holds: `String(x)`, `console.log(x)`, `x === undefined`, `typeof x`
+/// and `JSON.stringify` all answer differently. The source type decides it,
+/// so it is part of the type rather than of the value: both absences lower to
+/// the same Rust `Option<T>`, whose `None` then means exactly one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Absence {
+    /// The language's own "no value": JavaScript `undefined` (an optional
+    /// slot, a missing element, `find`/`pop`/`Map.get`, `?.`) and Python's
+    /// `None`, its only absent value.
+    Undefined,
+    /// JavaScript `null`. Only a source type that spells `null` (`T | null`)
+    /// carries it; Python never produces it.
+    Null,
+}
+
+impl Absence {
+    /// The JavaScript spelling of this absent value.
+    #[must_use]
+    pub const fn js_text(self) -> &'static str {
+        match self {
+            Self::Undefined => "undefined",
+            Self::Null => "null",
+        }
+    }
+
+    /// The runtime kind of this absent value.
+    #[must_use]
+    pub const fn unknown_kind(self) -> UnknownKind {
+        match self {
+            Self::Undefined => UnknownKind::Undefined,
+            Self::Null => UnknownKind::Null,
         }
     }
 }
@@ -618,7 +667,10 @@ mod tests {
         assert_eq!(Type::Int.runtime_kind(), Some(UnknownKind::Number));
         assert_eq!(Type::BigInt.runtime_kind(), Some(UnknownKind::BigInt));
         assert_eq!(Type::Union(vec![string, float]).runtime_kind(), None);
-        assert_eq!(Type::Optional(float).runtime_kind(), None);
+        assert_eq!(
+            Type::Optional(float, Absence::Undefined).runtime_kind(),
+            None
+        );
         assert_eq!(Type::None.runtime_kind(), None);
         assert_eq!(Type::Unknown.runtime_kind(), None);
     }

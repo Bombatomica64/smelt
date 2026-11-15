@@ -2,12 +2,12 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14229,
-      "generic": 351,
-      "erased": 7072
+      "concrete": 14227,
+      "generic": 352,
+      "erased": 7071
     },
     "reads": {
-      "concrete": 367,
+      "concrete": 366,
       "generic": 50,
       "erased": 979
     },
@@ -5154,7 +5154,7 @@
     },
     "src/compat/function/debounce.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 29,
         "generic": 1,
         "erased": 21
       },
@@ -7760,7 +7760,7 @@
         "erased": 30
       },
       "reads": {
-        "concrete": 26,
+        "concrete": 25,
         "generic": 0,
         "erased": 2
       },
@@ -11139,8 +11139,8 @@
     "src/predicate/isNotNil.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,

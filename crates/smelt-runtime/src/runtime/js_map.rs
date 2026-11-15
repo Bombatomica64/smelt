@@ -174,6 +174,13 @@ impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}
 //~ — and it preserves both the entries (as an array of `[key, value]` pairs)
 //~ and the object identity so `isMap`/`isEqualWith`/`Object.prototype.toString`
 //~ work on the erased value and `SmeltFromUnknown` can restore it losslessly.
-impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(K::into_smelt_unknown, V::into_smelt_unknown) } }
+
+impl<K: Clone, V: Clone> SmeltJsMap<K, V> {
+    //~ Erase this map with the key and value erasures the static type decides
+    //~ (a `Map<K, V | null>` holds `null`, which `Option<V>`'s own
+    //~ `IntoSmeltUnknown` would answer as `undefined`).
+    fn into_smelt_unknown_with(self, key_to: fn(K) -> SmeltUnknown, value_to: fn(V) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key_to(key), value_to(value)]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+}
 
 // @smelt:item-end

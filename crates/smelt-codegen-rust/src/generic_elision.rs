@@ -462,7 +462,7 @@ fn describe(mir: &Mir, ty: TypeId, depth: usize) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Type::Optional(inner) => format!("Optional({})", child(*inner)),
+        Type::Optional(inner, _) => format!("Optional({})", child(*inner)),
         Type::List(inner) => format!("List({})", child(*inner)),
         Type::Future(inner) => format!("Future({})", child(*inner)),
         Type::Set(inner) => format!("Set({})", child(*inner)),

@@ -151,7 +151,10 @@ impl ModuleBuilder<'_> {
                         )
                     })?;
                 let param_ty = if param.optional {
-                    self.ctx.krate.types.intern(Type::Optional(param_ty))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(param_ty, smelt_hir::Absence::Undefined))
                 } else {
                     param_ty
                 };

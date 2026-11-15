@@ -239,7 +239,13 @@ fn smelt_js_set_into_members<T: Clone>(store: ::std::rc::Rc<::std::cell::RefCell
 //~ spreading / iterating an erased Set yields a deterministic order and
 //~ structural equality over two sets with the same members (but different
 //~ insertion order) still compares equal.
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(T::into_smelt_unknown) } }
+
+impl<T: Clone> SmeltJsSet<T> {
+    //~ Erase this set with the member erasure the static type decides (a
+    //~ `Set<T | null>` holds `null`).
+    fn into_smelt_unknown_with(self, to: fn(T) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(to).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+}
 
 //~ The hash side of `SmeltJsKeyEq::same_js_key`, used to bucket `SmeltJsSet`
 //~ members. The contract a hash index needs is one-directional: whenever two

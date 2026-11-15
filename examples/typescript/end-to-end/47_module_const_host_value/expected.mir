@@ -27,7 +27,7 @@ fn round_trip (FuncId(1)) -> String
 fn content_type (FuncId(2)) -> String
   locals
     %0 temp: Headers
-    %1 temp: Optional<String>
+    %1 temp: Nullable<String>
     %2 temp: String
   bb0:
     %0 = global_get #2
@@ -47,7 +47,7 @@ fn add_header (FuncId(3)) -> None
 fn extra (FuncId(4)) -> String
   locals
     %0 temp: Headers
-    %1 temp: Optional<String>
+    %1 temp: Nullable<String>
     %2 temp: String
   bb0:
     %0 = global_get #2
@@ -58,7 +58,7 @@ fn extra (FuncId(4)) -> String
 fn param_a (FuncId(5)) -> String
   locals
     %0 temp: URLSearchParams
-    %1 temp: Optional<String>
+    %1 temp: Nullable<String>
     %2 temp: String
   bb0:
     %0 = global_get #3
@@ -131,7 +131,7 @@ fn main (FuncId(11)) -> None
     %21 temp: String
     %22 temp: None
     %23 temp: Headers
-    %24 temp: Optional<String>
+    %24 temp: Nullable<String>
     %25 temp: String
     %26 temp: None
   bb0:

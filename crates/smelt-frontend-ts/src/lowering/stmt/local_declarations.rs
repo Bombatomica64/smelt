@@ -912,7 +912,12 @@ impl ModuleBuilder<'_> {
         if self.is_nullishable_type(declared) || !(always_truthy || widened_by_comparison) {
             return annotated_ty;
         }
-        Some(self.ctx.krate.types.intern(Type::Optional(declared)))
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(declared, smelt_hir::Absence::Undefined)),
+        )
     }
 
     /// The type of a binding initialized from a read of a static that is
@@ -941,7 +946,7 @@ impl ModuleBuilder<'_> {
             return annotated_ty;
         };
         let value_ty = Self::expr_ty(body, value);
-        let Some(Type::Optional(present)) = self.ctx.krate.types.get(value_ty).cloned() else {
+        let Some(Type::Optional(present, _)) = self.ctx.krate.types.get(value_ty).cloned() else {
             return annotated_ty;
         };
         let declared = annotated_ty.unwrap_or(present);
@@ -953,7 +958,12 @@ impl ModuleBuilder<'_> {
         {
             return annotated_ty;
         }
-        Some(self.ctx.krate.types.intern(Type::Optional(declared)))
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(declared, smelt_hir::Absence::Undefined)),
+        )
     }
 
     /// `value` converted for a slot of type `slot` that cannot hold
@@ -984,7 +994,7 @@ impl ModuleBuilder<'_> {
         if !self.reads_absent_static(body, value) {
             return value;
         }
-        let Some(Type::Optional(present)) = self
+        let Some(Type::Optional(present, _)) = self
             .ctx
             .krate
             .types

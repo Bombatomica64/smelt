@@ -109,8 +109,8 @@ impl ModuleBuilder<'_> {
             | (Some(Type::List(lowered_inner)), Some(Type::List(declared_inner))) => {
                 self.bind_return_through_absence(lowered_inner, declared_inner, bindings)
             }
-            (Some(Type::Optional(lowered_inner)), Some(declared_kind))
-                if !matches!(declared_kind, Type::Optional(_)) =>
+            (Some(Type::Optional(lowered_inner, _)), Some(declared_kind))
+                if !matches!(declared_kind, Type::Optional(..)) =>
             {
                 self.infer_overload_type(lowered_inner, declared, bindings)
             }
@@ -149,9 +149,9 @@ impl ModuleBuilder<'_> {
             | (Some(Type::List(lowered_inner)), Some(Type::List(declared_inner))) => {
                 self.lowered_return_admits_absence(*lowered_inner, *declared_inner)
             }
-            (Some(Type::Optional(_)), Some(declared_kind)) => !matches!(
+            (Some(Type::Optional(..)), Some(declared_kind)) => !matches!(
                 declared_kind,
-                Type::Optional(_) | Type::Unknown | Type::None | Type::TypeParam { .. }
+                Type::Optional(..) | Type::Unknown | Type::None | Type::TypeParam { .. }
             ),
             _ => false,
         }
@@ -391,7 +391,7 @@ impl ModuleBuilder<'_> {
             Some(Type::String) => CheckerValueKind::String,
             Some(Type::Float | Type::Int | Type::FixedInt(_)) => CheckerValueKind::Number,
             Some(Type::Bool) => CheckerValueKind::Boolean,
-            Some(Type::Optional(inner)) => return self.return_may_be_kind(*inner, kind),
+            Some(Type::Optional(inner, _)) => return self.return_may_be_kind(*inner, kind),
             Some(Type::Union(members)) => {
                 return members
                     .iter()
@@ -473,7 +473,7 @@ impl ModuleBuilder<'_> {
         };
         match self.ctx.krate.types.get(expected).cloned() {
             Some(Type::Unknown | Type::TypeParam { .. }) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(argument, Argument::NullLiteral(_))
                     || self.overload_source_arg_matches_param(inner, argument, constraints)
             }
@@ -642,8 +642,8 @@ impl ModuleBuilder<'_> {
                 true
             }
             (Some(Type::Unknown), _) | (_, Some(Type::Unknown | Type::TypeParam { .. })) => true,
-            (Some(Type::Optional(_)), Some(Type::None)) => true,
-            (Some(Type::Optional(inner)), _) => {
+            (Some(Type::Optional(..)), Some(Type::None)) => true,
+            (Some(Type::Optional(inner, _)), _) => {
                 self.loose_overload_type_matches(inner, actual, substitutions)
             }
             (Some(Type::Union(items)), _) => items.into_iter().any(|item| {
@@ -855,7 +855,7 @@ impl ModuleBuilder<'_> {
                 | Type::Dict(..),
             ) => true,
             Some(Type::Tuple(items)) => items.is_empty(),
-            Some(Type::Optional(inner)) => self.type_accepts_empty_array_literal(*inner),
+            Some(Type::Optional(inner, _)) => self.type_accepts_empty_array_literal(*inner),
             Some(Type::Union(items)) => items
                 .clone()
                 .into_iter()
@@ -1069,7 +1069,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::Symbol> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { name }) => Some(*name),
-            Some(Type::Future(inner) | Type::Optional(inner)) => {
+            Some(Type::Future(inner) | Type::Optional(inner, _)) => {
                 self.return_leaf_type_param(*inner)
             }
             _ => None,
@@ -1089,7 +1089,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(constraint) {
             Some(Type::TypeParam { .. }) => true,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.overload_constraint_contains_unresolved_type_param(*item),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.overload_constraint_contains_unresolved_type_param(*key)
@@ -1188,7 +1188,7 @@ impl ModuleBuilder<'_> {
             self.type_assignable_to(actual_value, field.ty)
                 || (field.optional
                     && self.ctx.krate.types.get(field.ty).is_some_and(|ty| {
-                        if let Type::Optional(inner) = ty {
+                        if let Type::Optional(inner, _) = ty {
                             self.type_assignable_to(actual_value, *inner)
                         } else {
                             false

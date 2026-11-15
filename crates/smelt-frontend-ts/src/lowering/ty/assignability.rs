@@ -39,7 +39,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         match (actual_ty, expected_ty) {
-            (Type::Never, _) | (Type::None, Type::Optional(_)) => true,
+            (Type::Never, _) | (Type::None, Type::Optional(..)) => true,
             (_, Type::Never) | (Type::Int, Type::Float) => false,
             (_, Type::Unknown) | (Type::Unknown, _) => true,
             // An unconstrained generic parameter (constrained ones were already
@@ -54,14 +54,14 @@ impl ModuleBuilder<'_> {
             (_, Type::Union(expected_items)) => expected_items
                 .iter()
                 .any(|item| self.type_assignable_to_inner(actual, *item, depth + 1)),
-            (Type::Optional(actual_item), Type::Optional(expected_item))
+            (Type::Optional(actual_item, _), Type::Optional(expected_item, _))
             | (Type::List(actual_item), Type::List(expected_item))
             | (Type::Set(actual_item), Type::Set(expected_item))
             | (Type::Future(actual_item), Type::Future(expected_item)) => {
                 self.type_assignable_to_inner(actual_item, expected_item, depth + 1)
             }
-            (Type::Optional(_), _) => false,
-            (_, Type::Optional(expected_item)) => {
+            (Type::Optional(..), _) => false,
+            (_, Type::Optional(expected_item, _)) => {
                 self.type_assignable_to_inner(actual, expected_item, depth + 1)
             }
             (Type::Tuple(actual_items), Type::Tuple(expected_items)) => {
@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .all(|item| self.map_key_type_compatible(expected, *item));
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(actual) {
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(actual) {
             return self.map_key_type_compatible(expected, *inner);
         }
         // A string-keyed record takes a symbol key too: it stores it under
@@ -295,7 +295,7 @@ impl ModuleBuilder<'_> {
             .types
             .get(self.type_param_constraint_or_self(ty))
         {
-            Some(Type::Optional(inner_ty)) => {
+            Some(Type::Optional(inner_ty, _)) => {
                 self.is_numeric_like_type(*inner_ty) || self.optional_numeric_surface(*inner_ty)
             }
             Some(Type::Union(items)) => {
@@ -339,7 +339,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. }) => true,
-            Some(Type::Optional(item)) => self.erased_or_union_surface(*item),
+            Some(Type::Optional(item, _)) => self.erased_or_union_surface(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

@@ -162,7 +162,7 @@ impl ModuleBuilder<'_> {
                 matches!(self.ctx.krate.types.get(item), Some(Type::None))
                     || self.primitive_cast_accepts_operand(op, item)
             }),
-            Some(Type::Optional(item)) => self.primitive_cast_accepts_operand(op, *item),
+            Some(Type::Optional(item, _)) => self.primitive_cast_accepts_operand(op, *item),
             Some(_) if self.is_numeric_like_type(operand_ty) => true,
             _ => false,
         }

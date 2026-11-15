@@ -61,7 +61,7 @@ module examples/typescript/end-to-end/173_url_object/input.ts (ModuleId(0))
     #48: URL = %0
     #49: URLSearchParams = url_SearchParams #48
     #50: String = "y"
-    #51: Optional<String> = url_search_params_get #49, #50
+    #51: Nullable<String> = url_search_params_get #49, #50
     #52: String = "null"
     #53: String = #51 ?? #52
     #54: None = @7(console_log)
@@ -73,7 +73,7 @@ module examples/typescript/end-to-end/173_url_object/input.ts (ModuleId(0))
     #60: URL = %0
     #61: URLSearchParams = url_SearchParams #60
     #62: String = "q"
-    #63: Optional<String> = url_search_params_get #61, #62
+    #63: Nullable<String> = url_search_params_get #61, #62
     #64: String = "null"
     #65: String = #63 ?? #64
     #66: URL = %0
@@ -205,7 +205,7 @@ interned types
   t6 = Float
   t7 = fn(URL) -> None
   t8 = URLSearchParams
-  t9 = Optional<String>
+  t9 = Nullable<String>
   t10 = Bool
   t11 = Dict<String, String>
   t12 = fn(String) -> String

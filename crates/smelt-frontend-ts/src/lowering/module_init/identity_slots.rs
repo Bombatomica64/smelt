@@ -83,7 +83,7 @@ impl ModuleBuilder<'_> {
         let deeper = |inner: TypeId| self.type_holds_erasure(inner, depth + 1);
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => deeper(*item),
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => deeper(*item),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 deeper(*key) || deeper(*value)
             }

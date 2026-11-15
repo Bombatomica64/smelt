@@ -78,7 +78,7 @@ fn a_heterogeneous_inline_object_type_lowers_to_a_struct_with_typed_fields() -> 
     // `options?.times` tests the parameter for presence, so it is `Option` of
     // the struct (see `presence_tested_locals`); the struct is what this checks.
     let options_ty = match ctx.krate.types.get(param_type(&ctx, "retry", 0)?) {
-        Some(Type::Optional(inner)) => *inner,
+        Some(Type::Optional(inner, _)) => *inner,
         other => {
             return Err(format!(
                 "a presence-tested parameter is Option, got {other:?}"
@@ -87,20 +87,46 @@ fn a_heterogeneous_inline_object_type_lowers_to_a_struct_with_typed_fields() -> 
     };
     let fields = interface_fields(&ctx, options_ty)?;
     let float = ctx.krate.types.intern(Type::Float);
-    let optional_float = ctx.krate.types.intern(Type::Optional(float));
+    let optional_float = ctx
+        .krate
+        .types
+        .intern(Type::Optional(float, smelt_hir::Absence::Undefined));
+    let nullable_float = ctx
+        .krate
+        .types
+        .intern(Type::Optional(float, smelt_hir::Absence::Null));
     let field = |name: &str| {
         fields
             .iter()
             .find(|(field_name, _, _)| field_name == name)
             .map(|(_, ty, optional)| (ctx.krate.types.get(*ty).cloned(), *optional))
     };
-    ensure_eq!(field("times"), Some((Some(Type::Optional(float)), true)));
-    // `number | null` and the optional marker both collapse onto one `Option`.
-    ensure_eq!(field("delay"), Some((Some(Type::Optional(float)), true)));
+    ensure_eq!(
+        field("times"),
+        Some((
+            Some(Type::Optional(float, smelt_hir::Absence::Undefined)),
+            true
+        ))
+    );
+    // Old requirement: `number | null` and the optional marker collapsed
+    // onto one `Option`, so a missing `delay` and a `null` one were the same
+    // value. New requirement: the property admits both, so it keeps both,
+    // `undefined` outside (`Option<Option<f64>>`), and `JSON.stringify`,
+    // printing and `=== null` see which one it holds.
+    ensure_eq!(
+        field("delay"),
+        Some((
+            Some(Type::Optional(
+                nullable_float,
+                smelt_hir::Absence::Undefined
+            )),
+            true
+        ))
+    );
     ensure!(
         matches!(
             field("backoff"),
-            Some((Some(Type::Optional(inner)), true))
+            Some((Some(Type::Optional(inner, _)), true))
                 if matches!(ctx.krate.types.get(inner), Some(Type::Function(_)))
         ),
         "backoff should be an optional function: {:?}",

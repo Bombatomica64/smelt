@@ -3,19 +3,18 @@ fn pick (FuncId(0)) -> String
     %0 param token: String
     %1 param next: String
     %2 param prev: String
-    %3 user pattern: Optional<List<String>>
+    %3 user pattern: Nullable<List<String>>
     %4 temp: Bool
-    %5 temp: Optional<List<String>>
+    %5 temp: Nullable<List<String>>
     %6 temp: Bool
-    %7 temp: Optional<List<String>>
+    %7 temp: Nullable<List<String>>
     %8 temp: Bool
     %9 temp: List<String>
     %10 temp: List<String>
     %11 temp: List<String>
     %12 temp: Bool
-    %13 temp: Optional<String>
-    %14 temp: Optional<List<String>>
-    %15 temp: Optional<String>
+    %13 temp: String
+    %14 temp: List<String>
   bb0:
     %4 = copy %0 == "*"
     switch move %4 ? bb1 : bb2
@@ -45,11 +44,11 @@ fn pick (FuncId(0)) -> String
     goto bb9
   bb9:
     %3 = move %5
-    %12 = primitive_cast_bool copy %3
+    %12 = copy %3 != none
     switch move %12 ? bb10 : bb11
   bb10:
-    %14 = copy %3
-    %13 = move %3?.[2.0]
+    %14 = move %3
+    %13 = copy %14[2.0]
     goto bb12
   bb11:
     %13 = "none"
@@ -106,7 +105,7 @@ async fn response_facts (FuncId(3)) -> None
     %9 temp: None
     %10 temp: Bool
     %11 temp: Response
-    %12 temp: Optional<ReadableStream>
+    %12 temp: Nullable<ReadableStream>
     %13 temp: Optional<Bool>
     %14 temp: Response
     %15 temp: Bool
@@ -115,7 +114,7 @@ async fn response_facts (FuncId(3)) -> None
     %18 temp: Future<String>
     %19 temp: String
     %20 temp: Response
-    %21 temp: Optional<ReadableStream>
+    %21 temp: Nullable<ReadableStream>
     %22 temp: Optional<Bool>
     %23 temp: Response
     %24 temp: Bool

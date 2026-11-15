@@ -113,5 +113,5 @@ pub use krate::{
 /// type HIR does rather than each reaching for the registry crate.
 pub use smelt_stdlib::TypedArrayElement;
 pub use symbol::{OriginalNameTable, SymbolInterner, SymbolOrigin, SynthesizedName};
-pub use ty::{FunctionType, IntWidth, Type, TypeInterner};
+pub use ty::{Absence, FunctionType, IntWidth, Type, TypeInterner};
 pub use validate::{ValidationError, validate};

@@ -83,7 +83,7 @@ fn contains(types: &TypeInterner, ty: TypeId, needle: &Type, depth: usize) -> bo
 /// The types directly inside `ty`.
 fn children(ty: &Type) -> Vec<TypeId> {
     match ty {
-        Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
+        Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item) => {
             vec![*item]
         }
         Type::Dict(key, value) | Type::JsMap(key, value) => vec![*key, *value],
@@ -136,7 +136,7 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
     let mapped = match found {
         Type::List(item) => Type::List(each(types, item)),
         Type::Set(item) => Type::Set(each(types, item)),
-        Type::Optional(item) => Type::Optional(each(types, item)),
+        Type::Optional(item, absence) => Type::Optional(each(types, item), absence),
         Type::Future(item) => Type::Future(each(types, item)),
         Type::Dict(key, value) => Type::Dict(each(types, key), each(types, value)),
         Type::JsMap(key, value) => Type::JsMap(each(types, key), each(types, value)),
@@ -207,10 +207,13 @@ mod tests {
         let py = types.intern(Type::PyStr);
         let float = types.intern(Type::Float);
         let list = types.intern(Type::List(js));
-        let optional = types.intern(Type::Optional(list));
+        let optional = types.intern(Type::Optional(list, crate::Absence::Undefined));
         let viewed = view_in(&mut types, optional, SourceLanguage::Python);
         let py_list = types.intern(Type::List(py));
-        assert_eq!(types.get(viewed), Some(&Type::Optional(py_list)));
+        assert_eq!(
+            types.get(viewed),
+            Some(&Type::Optional(py_list, crate::Absence::Undefined))
+        );
         assert!(crosses_into(&types, optional, SourceLanguage::Python));
         assert!(!crosses_into(&types, optional, SourceLanguage::TypeScript));
         assert_eq!(view_in(&mut types, float, SourceLanguage::Python), float);

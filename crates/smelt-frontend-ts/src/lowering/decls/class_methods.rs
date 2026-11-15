@@ -784,12 +784,11 @@ impl ModuleBuilder<'_> {
                             .filter(|initializer| {
                                 !this.initializer_is_type_zero_default(initializer)
                             });
-                        let abi_ty = if default_initializer.is_some()
-                            && !matches!(
-                                this.ctx.krate.types.get(declared_ty),
-                                Some(Type::Optional(_))
-                            ) {
-                            this.ctx.krate.types.intern(Type::Optional(declared_ty))
+                        let abi_ty = if default_initializer.is_some() {
+                            smelt_hir::type_normalize::admit_undefined(
+                                &mut this.ctx.krate.types,
+                                declared_ty,
+                            )
                         } else {
                             declared_ty
                         };

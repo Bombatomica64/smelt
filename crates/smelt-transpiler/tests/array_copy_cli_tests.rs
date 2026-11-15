@@ -398,7 +398,10 @@ const LIFTED_COPIES_OUTPUT: &str = "3,12 3,3 0 3\n";
 fn copies_keep_the_lifted_type_parameter() -> TestResult {
     let all = agrees_with_node(LIFTED_COPIES_TS, LIFTED_COPIES_OUTPUT, "lifted copies")?;
     ensure(
-        all.contains("fn rows<T: ") && all.contains("array: Option<SmeltList<SmeltList<T>>>"),
+        // `T[][] | null | undefined` keeps both absences: `Option<Option<..>>`
+        // (it was one `Option` while `null` and `undefined` shared it).
+        all.contains("fn rows<T: ")
+            && all.contains("array: Option<Option<SmeltList<SmeltList<T>>>>"),
         "`rows` keeps its `T` through the copies",
     )
 }

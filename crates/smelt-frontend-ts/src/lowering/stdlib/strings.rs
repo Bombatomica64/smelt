@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
             // `string | undefined` surfaces (e.g. `const [first] = words`)
             // come from tsc-checked positions where the payload is a string;
             // treat the optional wrapper as an erased string surface too.
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.string_method_erased_receiver(*inner)
                     || self.ctx.krate.types.get(*inner) == Some(&Type::String)
             }
@@ -930,7 +930,7 @@ impl ModuleBuilder<'_> {
                 let float_ty = self.ctx.krate.types.intern(Type::Float);
                 (
                     ExprKind::StringCodePointAt { operand, index },
-                    Type::Optional(float_ty),
+                    Type::Optional(float_ty, smelt_hir::Absence::Undefined),
                 )
             }
             _ => (ExprKind::StringCharAt { operand, index }, Type::String),
@@ -1183,7 +1183,7 @@ impl ModuleBuilder<'_> {
                 | Type::Unknown
                 | Type::TypeParam { .. },
             ) => true,
-            Some(Type::Optional(item)) => self.array_join_item_type_supported(*item),
+            Some(Type::Optional(item, _)) => self.array_join_item_type_supported(*item),
             // A `symbol` arm of a union (`PropertyKey[]`) joins like the
             // erased value it is; a list of nothing but symbols always throws
             // in JavaScript and stays rejected.
@@ -1540,7 +1540,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Class { name, .. }) => {
                 self.stdlib_class_of_symbol(*name) == Some(smelt_stdlib::StdlibClass::RegExp)
             }
-            Some(Type::Optional(item)) => self.string_split_separator_type_is_supported(*item),
+            Some(Type::Optional(item, _)) => self.string_split_separator_type_is_supported(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -1563,7 +1563,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Int | Type::Float | Type::None | Type::Unknown | Type::TypeParam { .. }) => {
                 true
             }
-            Some(Type::Optional(item)) => self.string_split_limit_type_is_supported(*item),
+            Some(Type::Optional(item, _)) => self.string_split_limit_type_is_supported(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

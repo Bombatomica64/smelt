@@ -44,14 +44,14 @@ impl FunctionEmitter<'_> {
     /// Whether `ty` is an optional whose payload is a union or erased value, so
     /// that only a runtime read can reach the arm a narrowing proved.
     pub(super) fn is_optional_of_dynamic_shape(&self, ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(ty),
-            Some(Type::Optional(inner))
-                if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                )
-        )
+        // Every optional layer, so a `T | null | undefined` asks about `T`.
+        matches!(self.mir.types.get(ty), Some(Type::Optional(..)))
+            && matches!(
+                self.mir
+                    .types
+                    .get(smelt_hir::type_normalize::peel_optional(&self.mir.types, ty).0),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
     }
 
     /// Converts a place to its Rust text representation.
@@ -523,7 +523,7 @@ impl FunctionEmitter<'_> {
                 // READ expression below (`base.as_ref().and_then(..)`), which is
                 // not an lvalue at all (E0070).
                 let (base_ty, base_read_text, base_write_text) =
-                    if let Some(Type::Optional(inner)) = self.mir.types.get(declared_ty) {
+                    if let Some(Type::Optional(inner, _)) = self.mir.types.get(declared_ty) {
                         (
                             *inner,
                             format!(
@@ -893,7 +893,9 @@ impl FunctionEmitter<'_> {
                 // `T[][i]` where the element is itself optional collapses the
                 // two layers the same way JS does: a missing slot and a present
                 // `undefined` are both `undefined`.
-                if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
+                if self.mir.types.get(item_ty)
+                    == Some(&Type::Optional(inner, smelt_hir::Absence::Undefined))
+                {
                     return Ok(Some(read.postfix(".flatten()")));
                 }
                 // A missing slot and a present erased `null`/`undefined` are
@@ -932,7 +934,9 @@ impl FunctionEmitter<'_> {
                 if value_ty == inner {
                     return Ok(Some(read));
                 }
-                if self.mir.types.get(value_ty) == Some(&Type::Optional(inner)) {
+                if self.mir.types.get(value_ty)
+                    == Some(&Type::Optional(inner, smelt_hir::Absence::Undefined))
+                {
                     return Ok(Some(read.postfix(".flatten()")));
                 }
                 let Ok(mapped) = self.rendered_at_type(
@@ -1240,7 +1244,7 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
             let key_text = self.dict_field_key_expr(*key, field)?;
             let base_text = self.local_value(base)?;
-            if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(*value), Some(Type::Optional(..))) {
                 if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
                     return Ok(base_text.postfix(format!(
                         ".get(&{key_text}).flatten()",
@@ -1437,7 +1441,7 @@ impl FunctionEmitter<'_> {
         field: Symbol,
         base_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && (matches!(
                 self.mir.types.get(*inner),
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -1454,7 +1458,7 @@ impl FunctionEmitter<'_> {
             ));
             return self.erased_field_read_expr(&scrutinee, field_name);
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
             && self.mir.types.get(*key_ty).is_some_and(Type::is_text)
         {
@@ -1484,7 +1488,7 @@ impl FunctionEmitter<'_> {
         // a reference class is still record-shaped structurally — that
         // arm emitted `_smelt_value.field` and the generated crate did
         // not compile (E0609).
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && self.is_reference_class_type(*inner)
             && self.class_has_named_field(*inner, field)
             && let Some(field_ty) = self.structural_record_fields(*inner).and_then(|fields| {
@@ -1497,13 +1501,13 @@ impl FunctionEmitter<'_> {
             let base_text = self.local_value(base)?;
             let field_name = self.context.names().field_text(self.mir, field);
             let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
-            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(..))) {
                 Ok(base_text.postfix(format!(".as_ref().and_then(|_smelt_value| {read})")))
             } else {
                 Ok(base_text.postfix(format!(".as_ref().map(|_smelt_value| {read})")))
             };
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && let Some(fields) = self.structural_record_fields(*inner)
             && let Some(field_ty) = fields
                 .iter()
@@ -1520,7 +1524,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::path(format!("_smelt_value.{field_name}")).cloned_value()
                 };
-            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(..))) {
                 Ok(base_text.postfix(format!(
                     ".as_ref().and_then(|_smelt_value| {read})",
                     read = read.delimited()
@@ -1631,7 +1635,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(method_text);
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
         {
             return Ok(self.null_value()?);
@@ -1771,7 +1775,7 @@ impl FunctionEmitter<'_> {
                     missing = missing.delimited()
                 )))
             }
-            Some(Type::Optional(inner_ty))
+            Some(Type::Optional(inner_ty, _))
                 if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
             {
                 let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
@@ -1783,7 +1787,7 @@ impl FunctionEmitter<'_> {
                     index,
                     negative,
                 )?;
-                let flatten = if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
+                let flatten = if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(..))) {
                     ".flatten()"
                 } else {
                     ""
@@ -1831,7 +1835,7 @@ impl FunctionEmitter<'_> {
             }
             // A narrowed optional union or `unknown` holds the value
             // the narrowing proved, whichever arm that is.
-            Some(Type::Optional(_)) if self.is_optional_of_dynamic_shape(base_ty) => {
+            Some(Type::Optional(..)) if self.is_optional_of_dynamic_shape(base_ty) => {
                 let erased = self.erase_rendered(&self.local_value(base)?, base_ty)?;
                 self.unknown_index_expr(&erased, index)
             }
@@ -1857,7 +1861,7 @@ impl FunctionEmitter<'_> {
                 // key and a stored `undefined` are the same `None`. Its
                 // default is that `None`, so defaulting again would try
                 // to `unwrap_or` an `Option<inner>` with an `Option`.
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                     return Ok(optional_read);
                 }
                 let default_value = self.default_value(value_ty)?;

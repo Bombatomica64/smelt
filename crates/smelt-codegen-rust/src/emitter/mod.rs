@@ -989,7 +989,7 @@ fn callee_param_is_owned_callback_sink(mir: &Mir, callee: &MirFunction, param: L
         return false;
     };
     match mir.types.get(local.ty) {
-        Some(Type::Optional(inner)) => {
+        Some(Type::Optional(inner, _)) => {
             matches!(mir.types.get(*inner), Some(Type::Function(_)))
         }
         _ => false,
@@ -1605,7 +1605,7 @@ fn closure_source_for_local(
 fn type_erases_values(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item)) => {
             type_erases_values(mir, *item)
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {

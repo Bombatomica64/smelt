@@ -30,7 +30,7 @@ impl ModuleBuilder<'_> {
         let mut ty = Self::expr_ty(body, left);
         let mut item_ty = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(list_item_ty)) => list_item_ty,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned()
                 else {
                     return Ok(None);
@@ -163,23 +163,33 @@ impl ModuleBuilder<'_> {
         }
         let none_ty = self.ctx.krate.types.intern(Type::None);
         if right_ty == none_ty {
-            if matches!(self.ctx.krate.types.get(item_ty), Some(Type::Optional(_))) {
+            if matches!(self.ctx.krate.types.get(item_ty), Some(Type::Optional(..))) {
                 return Some(item_ty);
             }
-            return Some(self.ctx.krate.types.intern(Type::Optional(item_ty)));
+            return Some(
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(item_ty, smelt_hir::Absence::Undefined)),
+            );
         }
         if item_ty == none_ty {
-            if matches!(self.ctx.krate.types.get(right_ty), Some(Type::Optional(_))) {
+            if matches!(self.ctx.krate.types.get(right_ty), Some(Type::Optional(..))) {
                 return Some(right_ty);
             }
-            return Some(self.ctx.krate.types.intern(Type::Optional(right_ty)));
+            return Some(
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(right_ty, smelt_hir::Absence::Undefined)),
+            );
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(item_ty)
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(item_ty)
             && *inner == right_ty
         {
             return Some(item_ty);
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(right_ty)
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(right_ty)
             && *inner == item_ty
         {
             return Some(right_ty);
@@ -719,7 +729,10 @@ impl ModuleBuilder<'_> {
             }
             ListCallbackOp::Find => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array find")?;
-                self.ctx.krate.types.intern(Type::Optional(element_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined))
             }
             ListCallbackOp::FindIndex => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array findIndex")?;
@@ -727,7 +740,10 @@ impl ModuleBuilder<'_> {
             }
             ListCallbackOp::FindLast => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array findLast")?;
-                self.ctx.krate.types.intern(Type::Optional(element_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined))
             }
             ListCallbackOp::FindLastIndex => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array findLastIndex")?;

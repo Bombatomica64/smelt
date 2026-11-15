@@ -159,7 +159,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let null_into_own_optional = |ty: TypeId| {
             matches!(
                 self.mir.types.get(ty),
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(self.mir.types.get(*inner), Some(Type::TypeParam { name }) if own.contains(name))
             )
         };
@@ -257,7 +257,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let null_into_own_optional = |ty: TypeId| {
             matches!(
                 self.mir.types.get(ty),
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(self.mir.types.get(*inner), Some(Type::TypeParam { name }) if own.contains(name))
             )
         };
@@ -286,10 +286,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // at a typed signature is wrapped, not copied.
             let erased_container = |local: LocalId| {
                 local_ty(local).is_some_and(|ty| {
-                    let list = match self.mir.types.get(ty) {
-                        Some(Type::Optional(inner)) => *inner,
-                        _ => ty,
-                    };
+                    let list = smelt_hir::type_normalize::peel_optional(&self.mir.types, ty).0;
                     matches!(self.mir.types.get(list), Some(Type::List(_))) && holds_carrier(list)
                 })
             };
@@ -429,10 +426,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // cross whole, as every bare `T` does.
             let is_list_local = |local: LocalId| {
                 local_ty(local).is_some_and(|ty| {
-                    let list = match self.mir.types.get(ty) {
-                        Some(Type::Optional(inner)) => *inner,
-                        _ => ty,
-                    };
+                    let list = smelt_hir::type_normalize::peel_optional(&self.mir.types, ty).0;
                     matches!(self.mir.types.get(list), Some(Type::List(_)))
                 })
             };
@@ -557,7 +551,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                     if let Rvalue::Use(operand) = value
                         && let Some(source) = operand_ty(operand)
-                        && let Some(Type::Optional(inner)) = self.mir.types.get(source)
+                        && let Some(Type::Optional(inner, _)) = self.mir.types.get(source)
                         && *inner == dest_ty
                         && matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
                         && mentions_own(dest_ty)
@@ -679,10 +673,7 @@ impl<'mir> FunctionEmitter<'mir> {
 /// parameters erase: `unknown`, a type parameter, or an optional of either.
 /// A value crosses such a slot whole, through `IntoSmeltUnknown`.
 fn whole_erased_slot(mir: &Mir, ty: TypeId) -> bool {
-    let payload = match mir.types.get(ty) {
-        Some(Type::Optional(inner)) => *inner,
-        _ => ty,
-    };
+    let payload = smelt_hir::type_normalize::peel_optional(&mir.types, ty).0;
     matches!(
         mir.types.get(payload),
         Some(Type::Unknown | Type::TypeParam { .. })

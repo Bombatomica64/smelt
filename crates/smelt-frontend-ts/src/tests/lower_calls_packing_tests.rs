@@ -4771,7 +4771,7 @@ interface Logger {
     ensure_eq!(function.required_params, Some(1));
     ensure!(matches!(
         ctx.krate.types.get(function.params[1]),
-        Some(Type::Optional(_))
+        Some(Type::Optional(..))
     ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -4873,7 +4873,7 @@ interface Holder {
     ensure_eq!(function.required_params, Some(1));
     ensure!(matches!(
         ctx.krate.types.get(function.params[1]),
-        Some(Type::Optional(_))
+        Some(Type::Optional(..))
     ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -7976,10 +7976,13 @@ function collect(batches: Array<Array<string | null>>) {
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `string | null` is `Nullable<..>` (it used to print `Optional<..>`,
+    // when `null` and `undefined` shared one optional type): the absent value
+    // the source spells is kept in the type; both render `Option<T>`.
     ensure_signature(
         &ctx,
         "collect",
-        "collect(batches: List<List<Optional<String>>>) -> List<Optional<String>>",
+        "collect(batches: List<List<Nullable<String>>>) -> List<Nullable<String>>",
     )?;
     ensure_exprs!(&ctx, ListExtend, OptionalCoalesce, ListCallback);
     Ok(())
@@ -10379,7 +10382,10 @@ function pad(values: number[]): unknown {
             .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
     }));
     let float_ty = ctx.krate.types.intern(Type::Float);
-    let optional_float = ctx.krate.types.intern(Type::Optional(float_ty));
+    let optional_float = ctx
+        .krate
+        .types
+        .intern(Type::Optional(float_ty, smelt_hir::Absence::Undefined));
     let widened_list = ctx.krate.types.intern(Type::List(optional_float));
     ensure!(
         ctx.krate

@@ -101,7 +101,12 @@ impl<T: Clone + ::std::cmp::Eq + ::std::hash::Hash> PartialEq for SmeltPrimSet<T
 // @smelt:item impl_SmeltFromUnknown_for_SmeltPrimSet_T when prim_set & unknown
 //~ A Set erases to the same `__smelt_set` marker as `SmeltJsSet`: an erased value
 //~ must still be a Set to `instanceof`, `toString`, inspection and snapshots.
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltPrimSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let members = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltPrimSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(T::into_smelt_unknown) } }
+impl<T: Clone> SmeltPrimSet<T> {
+    //~ Erase this set with the member erasure the static type decides (a
+    //~ `Set<T | null>` holds `null`).
+    fn into_smelt_unknown_with(self, to: fn(T) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let members = self.into_iter().map(to).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+}
 /// Recover a primitive `Set` from its erased array, or a `SmeltJsSet` marker.
 impl<T: SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::hash::Hash + 'static> SmeltFromUnknown for SmeltPrimSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let members = match value { SmeltUnknown::Array(members) => members, SmeltUnknown::Object(object) => { /*@if live_containers*/if let Some(set) = smelt_live_container_take::<Self>(&object) { return set; } /*@end*/match object.get("__smelt_set") { Some(SmeltUnknown::Array(members)) => members, _ => return Self::default() } }, _ => return Self::default() }; members.into_vec().into_iter().map(T::smelt_from_unknown).collect() } }
 

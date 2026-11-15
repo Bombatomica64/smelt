@@ -84,19 +84,23 @@ fn smelt_live_container_take<T: 'static>(object: &SmeltObject) -> Option<T> { sm
 impl<K: IntoSmeltUnknown + SmeltFromUnknown + SmeltJsKeyEq + Clone + 'static, V: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsMap<K, V> {
     //~ Erase this map to a LIVE view: the `__smelt_map` marker object, plus the
     //~ hook through which erased reads and writes reach this very store.
-    fn into_live_smelt_unknown(self) -> SmeltUnknown {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { self.into_live_smelt_unknown_with(K::into_smelt_unknown, V::into_smelt_unknown) }
+    //~ `into_live_smelt_unknown` with the key and value erasures the static
+    //~ type decides in place of `K`'s and `V`'s own (a `Map<K, V | null>`
+    //~ reads an absent value as `null`).
+    fn into_live_smelt_unknown_with(self, key_to: fn(K) -> SmeltUnknown, value_to: fn(V) -> SmeltUnknown) -> SmeltUnknown {
         let live = self.clone();
-        smelt_live_stamp(self.into_smelt_unknown(), move |args: Vec<SmeltUnknown>| {
+        smelt_live_stamp(self.into_smelt_unknown_with(key_to, value_to), move |args: Vec<SmeltUnknown>| {
             let mut map = live.clone();
             let (op, first, second) = smelt_live_args(args);
             Ok(match op.as_str() {
-                "get" => smelt_live_key::<K>(&first).and_then(|key| map.get(&key)).map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown),
+                "get" => smelt_live_key::<K>(&first).and_then(|key| map.get(&key)).map_or(SmeltUnknown::Undefined, value_to),
                 "has" => SmeltUnknown::Bool(smelt_live_key::<K>(&first).is_some_and(|key| map.contains_key(&key))),
                 "set" => { map.insert(K::smelt_from_unknown(first), V::smelt_from_unknown(second)); SmeltUnknown::Undefined }
                 "delete" => SmeltUnknown::Bool(smelt_live_key::<K>(&first).is_some_and(|key| map.remove(&key).is_some())),
                 "clear" => { map.clear(); SmeltUnknown::Undefined }
                 "size" => SmeltUnknown::Number(f64::from(u32::try_from(map.len()).unwrap_or(u32::MAX))),
-                "entries" => SmeltUnknown::Array(map.iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>().into()),
+                "entries" => SmeltUnknown::Array(map.iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key_to(key), value_to(value)]))).collect::<Vec<_>>().into()),
                 "handoff" => smelt_live_park(map),
                 "id" => SmeltUnknown::Number(f64::from(u32::try_from(map.id).unwrap_or(u32::MAX))),
                 _ => SmeltUnknown::Undefined,
@@ -107,9 +111,12 @@ impl<K: IntoSmeltUnknown + SmeltFromUnknown + SmeltJsKeyEq + Clone + 'static, V:
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsSet<T> {
     //~ Erase this set to a LIVE view (see `SmeltJsMap::into_live_smelt_unknown`).
-    fn into_live_smelt_unknown(self) -> SmeltUnknown {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { self.into_live_smelt_unknown_with(T::into_smelt_unknown) }
+    //~ `into_live_smelt_unknown` with the member erasure the static type
+    //~ decides (a `Set<T | null>` holds `null`, not `undefined`).
+    fn into_live_smelt_unknown_with(self, to: fn(T) -> SmeltUnknown) -> SmeltUnknown {
         let live = self.clone();
-        smelt_live_stamp(self.into_smelt_unknown(), move |args: Vec<SmeltUnknown>| {
+        smelt_live_stamp(self.into_smelt_unknown_with(to), move |args: Vec<SmeltUnknown>| {
             let mut set = live.clone();
             let (op, first, _) = smelt_live_args(args);
             Ok(match op.as_str() {
@@ -118,7 +125,7 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsSet<T> {
                 "delete" => SmeltUnknown::Bool(smelt_live_key::<T>(&first).is_some_and(|member| set.remove(&member))),
                 "clear" => { set.clear(); SmeltUnknown::Undefined }
                 "size" => SmeltUnknown::Number(f64::from(u32::try_from(set.len()).unwrap_or(u32::MAX))),
-                "entries" => SmeltUnknown::Array(set.iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>().into()),
+                "entries" => SmeltUnknown::Array(set.iter().map(to).collect::<Vec<_>>().into()),
                 "handoff" => smelt_live_park(set),
                 "id" => SmeltUnknown::Number(f64::from(u32::try_from(set.id).unwrap_or(u32::MAX))),
                 _ => SmeltUnknown::Undefined,
@@ -130,9 +137,11 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsSet<T> {
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::hash::Hash + 'static> SmeltPrimSet<T> {
     //~ Erase this set to a LIVE view (see `SmeltJsMap::into_live_smelt_unknown`).
-    fn into_live_smelt_unknown(self) -> SmeltUnknown {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { self.into_live_smelt_unknown_with(T::into_smelt_unknown) }
+    //~ `into_live_smelt_unknown` with the member erasure the static type decides.
+    fn into_live_smelt_unknown_with(self, to: fn(T) -> SmeltUnknown) -> SmeltUnknown {
         let live = self.clone();
-        smelt_live_stamp(self.into_smelt_unknown(), move |args: Vec<SmeltUnknown>| {
+        smelt_live_stamp(self.into_smelt_unknown_with(to), move |args: Vec<SmeltUnknown>| {
             let mut set = live.clone();
             let (op, first, _) = smelt_live_args(args);
             Ok(match op.as_str() {
@@ -141,7 +150,7 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::ha
                 "delete" => SmeltUnknown::Bool(smelt_live_key::<T>(&first).is_some_and(|member| set.remove(&member))),
                 "clear" => { set.clear(); SmeltUnknown::Undefined }
                 "size" => SmeltUnknown::Number(f64::from(u32::try_from(set.len()).unwrap_or(u32::MAX))),
-                "entries" => SmeltUnknown::Array(set.iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>().into()),
+                "entries" => SmeltUnknown::Array(set.iter().map(to).collect::<Vec<_>>().into()),
                 "handoff" => smelt_live_park(set),
                 "id" => SmeltUnknown::Number(f64::from(u32::try_from(set.id).unwrap_or(u32::MAX))),
                 _ => SmeltUnknown::Undefined,
@@ -254,6 +263,7 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     fn into_live_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(self))))) }) }
 }
 
+
 impl SmeltArray {
     //~ The typed list this array is a live view of, when it is a `SmeltList<T>`: the same handle, not a copy.
     fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
@@ -268,5 +278,33 @@ impl SmeltArray {
     //~ the typed list keeps what it had (the copy semantics erasure had before
     //~ live views). `None` once detached, or when the write detaches.
     fn live_view_for(&self, values: &[SmeltUnknown]) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { let live = self.live_view()?; if values.iter().all(|value| live.holds(value)) { return Some(live); } *self.values.borrow_mut() = live.elements(); if let Some(cell) = &self.live { *cell.borrow_mut() = None; } None }
+}
+// @smelt:item-end
+
+// @smelt:item SmeltCodecList when unknown & live_arrays & null_codec
+//~ A typed list seen through a live erased array whose elements erase with
+//~ `to` (see `SmeltList::into_live_smelt_unknown_with`). Writes convert with
+//~ `T`'s own `SmeltFromUnknown`, which already maps `null` to an absent
+//~ `Option`; narrowing back hands out `list` itself.
+struct SmeltCodecList<T> { list: SmeltList<T>, to: fn(T) -> SmeltUnknown }
+
+impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltCodecList<T> {
+    fn element_count(&self) -> usize { self.list.element_count() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { if self.list.is_hole(index) { return Some(SmeltUnknown::Undefined); } self.list.borrow().get(index).cloned().map(self.to) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { self.list.set_element(index, value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { (0..self.element_count()).filter_map(|index| self.element(index)).collect() }
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.list.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(self.to).collect() }
+    fn replace_elements(&self, values: Vec<SmeltUnknown>) { self.list.replace_elements(values); }
+    fn typed_list(&self) -> &dyn ::std::any::Any { &self.list }
+    fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&(self.to)(T::smelt_from_unknown(value.clone())), value, 0) }
+    fn grow_with_holes(&self, len: usize) { self.list.grow_with_holes(len); }
+    fn is_hole(&self, index: usize) -> bool { self.list.is_hole(index) }
+}
+
+impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
+    //~ `into_live_smelt_unknown` with the element erasure the static type
+    //~ decides (`to`) in place of `T`'s own: a `(T | null)[]` reads its empty
+    //~ slots as `null`, which `Option<T>`'s `IntoSmeltUnknown` cannot know.
+    fn into_live_smelt_unknown_with(self, to: fn(T) -> SmeltUnknown) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(SmeltCodecList { list: self, to }))))) }) }
 }
 // @smelt:item-end

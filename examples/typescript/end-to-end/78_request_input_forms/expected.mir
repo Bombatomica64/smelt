@@ -15,7 +15,7 @@ async fn run (FuncId(0)) -> None throws
     %12 temp: String
     %13 temp: String
     %14 temp: Headers
-    %15 temp: Optional<String>
+    %15 temp: Nullable<String>
     %16 temp: String
     %17 temp: None
     %18 temp: Bool
@@ -33,7 +33,7 @@ async fn run (FuncId(0)) -> None throws
     %30 temp: String
     %31 temp: String
     %32 temp: Headers
-    %33 temp: Optional<String>
+    %33 temp: Nullable<String>
     %34 temp: String
     %35 temp: None
     %36 temp: Dict<String, String>
@@ -44,7 +44,7 @@ async fn run (FuncId(0)) -> None throws
     %41 temp: String
     %42 temp: String
     %43 temp: Headers
-    %44 temp: Optional<String>
+    %44 temp: Nullable<String>
     %45 temp: String
     %46 temp: None
     %47 temp: Request
@@ -53,7 +53,7 @@ async fn run (FuncId(0)) -> None throws
     %50 temp: Bool
     %51 temp: Bool
     %52 temp: None
-    %53 temp: Optional<ReadableStream>
+    %53 temp: Nullable<ReadableStream>
     %54 temp: Bool
     %55 temp: None
     %56 temp: Request

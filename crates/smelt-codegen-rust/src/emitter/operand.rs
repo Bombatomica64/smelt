@@ -316,7 +316,7 @@ impl FunctionEmitter<'_> {
                 "JsString::from({value_text}.storage_key())",
                 value_text = value_text.tight()
             ))),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let owned_value_text = value_text.cloned_value();
                 let inner_text =
                     self.property_key_to_string_expr(&RustExpr::path("smelt_value"), *inner)?;
@@ -366,7 +366,7 @@ impl FunctionEmitter<'_> {
                 fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 value_text = value_text.delimited(),
             ))),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_text =
                     self.property_key_rust_string(&RustExpr::path("smelt_value"), *inner)?;
                 Ok(owned_value_text.postfix(format!(

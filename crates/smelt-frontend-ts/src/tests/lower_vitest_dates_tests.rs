@@ -343,7 +343,7 @@ const missing = values[-1];
             matches!(expr.kind, ExprKind::Literal(Literal::None))
                 && matches!(
                     bracket_ctx.krate.types.get(expr.ty),
-                    Some(Type::Optional(_))
+                    Some(Type::Optional(..))
                 )
         }),
         "negative bracket index should lower to an optional None literal",
@@ -2959,10 +2959,13 @@ function parts(pattern: string): string[] | null {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    // `string[] | null` (what `String.prototype.match` returns) is `Nullable<..>` (it used to print `Optional<..>`,
+    // when `null` and `undefined` shared one optional type): the absent value
+    // the source spells is kept in the type; both render `Option<T>`.
     ensure_signature(
         &ctx,
         "parts",
-        "parts(pattern: String) -> Optional<List<String>>",
+        "parts(pattern: String) -> Nullable<List<String>>",
     )?;
     ensure_exprs!(&ctx, RegexFind);
     ensure!(crate_has_new(&ctx, "RegExp"), "no construction of `RegExp`");
@@ -3940,7 +3943,7 @@ fn is_match_array_view_type(ctx: &HirCtx, ty: smelt_hir::TypeId) -> bool {
     let Some(Type::List(item)) = ctx.krate.types.get(ty) else {
         return false;
     };
-    let Some(Type::Optional(inner)) = ctx.krate.types.get(*item) else {
+    let Some(Type::Optional(inner, _)) = ctx.krate.types.get(*item) else {
         return false;
     };
     ctx.krate.types.get(*inner) == Some(&Type::String)
@@ -3969,7 +3972,7 @@ function group(text: string): string | undefined {
     let Some(found) = found else {
         return Err("no RegexFind lowered".to_owned());
     };
-    let Some(Type::Optional(inner)) = ctx.krate.types.get(found.ty) else {
+    let Some(Type::Optional(inner, _)) = ctx.krate.types.get(found.ty) else {
         return Err(format!(
             "RegexFind is not optional: {:?}",
             ctx.krate.types.get(found.ty)
@@ -4219,7 +4222,7 @@ function read(parsers: Record<string, Parser>, key: string): number {
                 matches!(
                     expr.kind,
                     ExprKind::Index { .. }
-                        if matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+                        if matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(..)))
                 )
             }))
     );

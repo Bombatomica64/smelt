@@ -18,7 +18,7 @@ module examples/typescript/end-to-end/32_url_search_params/input.ts (ModuleId(0)
     #9: None = url_search_params_set #6, #7, #8
     #10: URLSearchParams = %0
     #11: String = "a"
-    #12: Optional<String> = url_search_params_get #10, #11
+    #12: Nullable<String> = url_search_params_get #10, #11
     #13: String = "null"
     #14: String = #12 ?? #13
     #15: None = @0(console_log)
@@ -32,7 +32,7 @@ module examples/typescript/end-to-end/32_url_search_params/input.ts (ModuleId(0)
     #23: None = call #22(#21)
     #24: URLSearchParams = %0
     #25: String = "A"
-    #26: Optional<String> = url_search_params_get #24, #25
+    #26: Nullable<String> = url_search_params_get #24, #25
     #27: String = "null"
     #28: String = #26 ?? #27
     #29: None = @2(console_log)
@@ -106,7 +106,7 @@ interned types
   t0 = String
   t1 = URLSearchParams
   t2 = None
-  t3 = Optional<String>
+  t3 = Nullable<String>
   t4 = List<String>
   t5 = Bool
   t6 = Float

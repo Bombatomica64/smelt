@@ -172,7 +172,10 @@ impl ModuleBuilder<'_> {
                         .transpose()?
                         .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                     params.push(if param.optional {
-                        self.ctx.krate.types.intern(Type::Optional(ty))
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
                     } else {
                         ty
                     });
@@ -279,7 +282,10 @@ impl ModuleBuilder<'_> {
             {
                 let value_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
                 member_tys.push(if property.optional {
-                    self.ctx.krate.types.intern(Type::Optional(value_ty))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(value_ty, smelt_hir::Absence::Undefined))
                 } else {
                     value_ty
                 });
@@ -289,7 +295,10 @@ impl ModuleBuilder<'_> {
         let fields = self.type_literal_fields(literal)?;
         for field in &fields {
             member_tys.push(if field.optional {
-                self.ctx.krate.types.intern(Type::Optional(field.ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(field.ty, smelt_hir::Absence::Undefined))
             } else {
                 field.ty
             });
@@ -326,7 +335,10 @@ impl ModuleBuilder<'_> {
         };
         let value_ty =
             if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
-                self.ctx.krate.types.intern(Type::Optional(value_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(value_ty, smelt_hir::Absence::Undefined))
             } else {
                 value_ty
             };

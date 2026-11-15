@@ -151,7 +151,11 @@ impl ModuleBuilder<'_> {
                 // Ignoring it (the erased fallback below) left every such error with
                 // an empty `message` and `name`.
                 let string_ty = this.ctx.krate.types.intern(Type::String);
-                let message_ty = this.ctx.krate.types.intern(Type::Optional(string_ty));
+                let message_ty = this
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
                 let message_symbol = this.ctx.krate.symbols.intern("message");
                 let message_local = body.push_local(LocalDecl {
                     name: Some(message_symbol),
@@ -187,7 +191,11 @@ impl ModuleBuilder<'_> {
                 // A base this lowering cannot reproduce: see the doc comment for why
                 // the forwarded argument is a genuine dynamic boundary here.
                 let unknown_ty = this.erase(ErasureReason::UnmodeledType);
-                let arg_ty = this.ctx.krate.types.intern(Type::Optional(unknown_ty));
+                let arg_ty = this
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(unknown_ty, smelt_hir::Absence::Undefined));
                 let arg_symbol = this
                     .ctx
                     .krate

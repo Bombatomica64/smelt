@@ -51,7 +51,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     .iter()
                     .filter(|field| {
                         field.visibility.is_own_property()
-                            && matches!(mir.types.get(field.ty), Some(Type::Optional(_)))
+                            && matches!(mir.types.get(field.ty), Some(Type::Optional(..)))
                             && decode_facts
                                 .iter()
                                 .any(|facts| facts.name == field.name && facts.may_be_absent)
@@ -91,7 +91,10 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                     // never be absent) holds `null` when its `Option` is empty,
                     // and its erased view says so: `JSON.stringify` prints
                     // `"p":null` rather than omitting the key.
-                    let absent_is_null = decode_facts.iter().any(|facts| {
+                    let absent_is_null = matches!(
+                        mir.types.get(field.ty),
+                        Some(Type::Optional(_, smelt_hir::Absence::Null))
+                    ) || decode_facts.iter().any(|facts| {
                         facts.name == field.name && facts.admits_null && !facts.may_be_absent
                     });
                     // An accessor is read by running its getter now: the erased
@@ -104,7 +107,7 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                         RustExpr::path(format!("self.{field_name}"))
                     };
                     let value = match mir.types.get(field.ty) {
-                        Some(Type::Optional(inner)) if absent_is_null => {
+                        Some(Type::Optional(inner, _)) if absent_is_null => {
                             record_field_unknown_expr(mir, &RustExpr::path("smelt_present"), *inner).map(|present| {
                                 format!(
                                     "{field_source}.map_or(SmeltUnknown::Null, |smelt_present| {present})", field_source = field_source.tight(), present = present.delimited()
@@ -184,7 +187,7 @@ pub(crate) fn type_supports_from_unknown(mir: &Mir, context: &EmitContext, ty: T
             let name = *name;
             !context.is_reference_class(name) && (mir.has_class(name) || mir.has_interface(name))
         }
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
             type_supports_from_unknown(mir, context, *item)
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
@@ -386,7 +389,7 @@ pub(crate) fn type_holds_generated_record(mir: &Mir, ty: TypeId) -> bool {
         Some(Type::Class { name, .. }) => mir.has_class(*name) || mir.has_interface(*name),
         Some(
             Type::List(item)
-            | Type::Optional(item)
+            | Type::Optional(item, _)
             | Type::Set(item)
             | Type::Dict(_, item)
             | Type::JsMap(_, item),
@@ -421,7 +424,7 @@ pub(crate) fn missing_required_field_throw(
         matches!(
             mir.types.get(candidate),
             Some(
-                Type::Optional(_)
+                Type::Optional(..)
                     | Type::Unknown
                     | Type::TypeParam { .. }
                     | Type::None
@@ -510,7 +513,7 @@ fn erased_function_field_expr(
     ty: TypeId,
 ) -> Option<RustExpr> {
     let (optional, function_ty) = match mir.types.get(ty)? {
-        Type::Optional(inner) => (true, *inner),
+        Type::Optional(inner, _) => (true, *inner),
         _ => (false, ty),
     };
     let Type::Function(function) = mir.types.get(function_ty)? else {
@@ -651,11 +654,12 @@ pub(crate) fn record_field_unknown_expr(
             value_text = value_text.delimited()
         )),
         Some(Type::String | Type::PyStr) => erased_string(value_text),
-        Some(Type::Optional(inner)) => {
+        Some(Type::Optional(inner, absence)) => {
             let inner_text =
                 record_field_unknown_expr(mir, &RustExpr::path("smelt_value"), *inner)?;
             value_text.postfix(format!(
-                ".map_or(SmeltUnknown::Undefined, |smelt_value| {inner_text})",
+                ".map_or({absent}, |smelt_value| {inner_text})",
+                absent = super::erase::erased_absent(*absence),
                 inner_text = inner_text.delimited()
             ))
         }

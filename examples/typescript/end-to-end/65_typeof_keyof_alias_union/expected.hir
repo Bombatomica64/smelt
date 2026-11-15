@@ -80,7 +80,7 @@ interned types
   t8 = List<(String, String)> | Dict<String, String> | Headers
   t9 = List<String>
   t10 = fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String
-  t11 = Optional<String>
+  t11 = Nullable<String>
   t12 = Unknown | String
   t13 = fn(List<(String, String)> | Dict<String, String> | Headers, String) -> String
   t14 = None

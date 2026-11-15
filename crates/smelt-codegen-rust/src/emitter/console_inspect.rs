@@ -80,7 +80,7 @@ impl FunctionEmitter<'_> {
                 | Type::Unknown
                 | Type::Union(_),
             ) => true,
-            Some(Type::Optional(inner)) => !matches!(
+            Some(Type::Optional(inner, _)) => !matches!(
                 self.mir.types.get(self.flatten_optional_inner(*inner)),
                 Some(
                     Type::Bool
@@ -137,7 +137,7 @@ impl FunctionEmitter<'_> {
             Some(Type::TypeParam { .. }) => {
                 needs_unknown && self.renders_erased(ty).unwrap_or(false)
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.inspectable_in(self.flatten_optional_inner(*inner), records, visiting)
             }
             Some(Type::List(item)) => {
@@ -335,7 +335,7 @@ pub(crate) fn emit_console_inspect_support(
                     .to_owned(),
                 rust_name: context.names().field(mir, field.name).into_string(),
                 skip_when_absent: record.is_shape
-                    && matches!(mir.types.get(field.ty), Some(Type::Optional(_))),
+                    && matches!(mir.types.get(field.ty), Some(Type::Optional(..))),
             })
             .collect::<Vec<_>>();
         text.push('\n');
@@ -376,7 +376,7 @@ impl FunctionEmitter<'_> {
             Some(
                 Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None,
             ) => true,
-            Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
+            Some(Type::Optional(inner, _) | Type::List(inner)) => self.type_has_py_repr(*inner),
             Some(Type::Tuple(items)) => {
                 !items.is_empty()
                     && items.len() <= 6
@@ -417,7 +417,7 @@ impl FunctionEmitter<'_> {
                 "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()",
                 reference = reference.tight()
             )),
-            Type::Optional(inner) => {
+            Type::Optional(inner, _) => {
                 let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::atom(format!(
                     "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}",
@@ -504,6 +504,56 @@ impl FunctionEmitter<'_> {
                     self.operand_expr(operand)?.tight()
                 ),
             ))
+        } else if absent == AbsentSpelling::Undefined
+            && matches!(
+                self.mir.types.get(ty),
+                Some(Type::Optional(_, smelt_hir::Absence::Null))
+            )
+            && self.console_inspects(ty, absent)
+        {
+            // A `T | null` the inspection trait would draw: its `None` is
+            // `null`, which `Option<T>`'s own impl calls `undefined`; the
+            // present payload is drawn as usual.
+            let Some(&Type::Optional(inner, _)) = self.mir.types.get(ty) else {
+                return Err(EmitError::new(
+                    "console optional rendering requires an optional",
+                ));
+            };
+            let present = if self.console_inspects(inner, absent) {
+                format!(
+                    "{}::{}(smelt_value)",
+                    console_inspect_prelude::INSPECT_TRAIT,
+                    console_inspect_prelude::CONSOLE_TEXT_METHOD
+                )
+            } else {
+                self.console_value(&RustExpr::path("smelt_value"), inner, absent)?
+                    .into_string()
+            };
+            Ok((
+                "{}",
+                format!(
+                    "match &{} {{ Some(smelt_value) => {present}, None => \"null\".to_owned() }}",
+                    self.operand_expr(operand)?.tight()
+                ),
+            ))
+        } else if absent == AbsentSpelling::Undefined
+            && self.type_has_null_absence(ty)
+            && !matches!(self.mir.types.get(ty), Some(Type::Optional(..)))
+            && self.console_inspects(ty, absent)
+        {
+            // A container whose elements admit `null` (`(number | null)[]`):
+            // `Option<T>`'s own inspection would draw an empty slot as
+            // `undefined`, so the value is drawn through its erasure, which
+            // the static type makes say `null`.
+            Ok((
+                "{}",
+                format!(
+                    "{}::{}(&{})",
+                    console_inspect_prelude::INSPECT_TRAIT,
+                    console_inspect_prelude::CONSOLE_TEXT_METHOD,
+                    self.erase(operand)?.tight()
+                ),
+            ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's
             // `util.inspect` draws it (`[ 1, 2 ]`, `{ x: 1 }`, `Map(1) { .. }`),
@@ -576,7 +626,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
         ) {
             Ok(("{:?}", self.operand_expr(operand)?.into_string()))
-        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(_))) {
+        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(..))) {
             // An `Optional<T>` prints the value INSIDE it, never the Rust
             // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
             // program output, which is a shape no JavaScript runtime prints.
@@ -669,34 +719,20 @@ impl FunctionEmitter<'_> {
     /// holding `"ada"` prints `ada`, and a `number[] | undefined` holding
     /// `[1, 2]` prints through the container's `{:?}`.
     ///
-    /// # Why the absent arm prints `undefined`
+    /// # Which word the absent arm prints
     ///
-    /// TypeScript's `null` and `undefined` both intern to `Type::None` (see the
-    /// annotation lowering for `TSNullKeyword`/`TSUndefinedKeyword`), so
-    /// `string | null` and `string | undefined` are the *same*
-    /// `Optional(String)` here. Node prints `null` for the first and
-    /// `undefined` for the second, and this layer cannot tell them apart, so
-    /// one word has to be chosen and it is wrong for the other spelling.
-    ///
-    /// `undefined` is chosen because it is what nearly every operation that
-    /// *produces* an `Optional` in TypeScript returns: `find`, `pop`,
-    /// `Map.get`, an optional property or parameter, an index read, `?.`, and
-    /// `process.env.X`. `null` arrives mostly from annotations spelled `T |
-    /// null` (and from `headers.get`), and a value annotated as plain `null`
-    /// keeps printing `null` through the `Type::None` branch above. The
-    /// end-to-end fixture `33_console_optional_value` pins this against Node
-    /// 22, whose `find()` miss prints `undefined`.
-    ///
-    /// Printing the right word for both spellings needs a distinct
-    /// `Type::Undefined` carried down from the annotation — a type-table
-    /// change, not a console change.
+    /// The optional's own type says which absent value its `None` is
+    /// (`smelt_hir::Absence`): a `string | null` prints `null`, a
+    /// `string | undefined` (`find`, `pop`, `Map.get`, an optional property,
+    /// `?.`) prints `undefined`. A type admitting both is two layers, and each
+    /// layer prints its own word.
     fn console_optional_expr(
         &self,
         operand: &Operand,
         absent: AbsentSpelling,
     ) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(operand)?;
-        let Some(&Type::Optional(inner)) = self.mir.types.get(ty) else {
+        let Some(&Type::Optional(inner, absence)) = self.mir.types.get(ty) else {
             return Err(EmitError::new(
                 "console optional rendering requires an optional operand",
             ));
@@ -705,7 +741,7 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "match &{} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
             self.operand_expr(operand)?.tight(),
-            absent.text(),
+            absent.text_for(absence),
             present = present.delimited()
         )))
     }
@@ -744,11 +780,11 @@ impl FunctionEmitter<'_> {
         }
         // A nested optional recurses, so `Array<string | undefined>`'s element
         // prints its own inner value rather than a wrapper.
-        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+        if let Some(&Type::Optional(inner, absence)) = self.mir.types.get(ty) {
             let present = self.console_value(value_text, inner, absent)?;
             return Ok(RustExpr::atom(format!(
                 "match {value_text} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
-                absent.text(),
+                absent.text_for(absence),
                 value_text = value_text.delimited(),
                 present = present.delimited()
             )));

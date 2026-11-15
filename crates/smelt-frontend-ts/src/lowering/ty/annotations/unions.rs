@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
                     .flat_map(|item| self.flatten_union_member_types(item))
                     .collect()
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_ty = *inner;
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let mut out = self.flatten_union_member_types(inner_ty);
@@ -179,5 +179,34 @@ impl ModuleBuilder<'_> {
             _ => self.ctx.krate.types.intern(Type::Union(element_tys)),
         };
         Some(self.ctx.krate.types.intern(Type::List(element_ty)))
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Which absent values the union member `member` (lowered to `member_ty`)
+    /// contributes: `(undefined, null)`.
+    ///
+    /// The keywords answer for themselves (`void` is `undefined`). A member
+    /// whose lowering is an optional (an alias of `T | null`, a parenthesised
+    /// union) contributes the absences of its optional layers. Any other
+    /// member contributes neither.
+    pub(in crate::lowering) fn ts_member_absences(
+        &self,
+        member: &oxc::ast::ast::TSType<'_>,
+        member_ty: smelt_hir::TypeId,
+    ) -> (bool, bool) {
+        use oxc::ast::ast::TSType;
+        match member {
+            TSType::TSNullKeyword(_) => (false, true),
+            TSType::TSUndefinedKeyword(_) | TSType::TSVoidKeyword(_) => (true, false),
+            TSType::TSParenthesizedType(inner) => {
+                self.ts_member_absences(&inner.type_annotation, member_ty)
+            }
+            _ => {
+                let (_, undefined, null) =
+                    smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, member_ty);
+                (undefined, null)
+            }
+        }
     }
 }

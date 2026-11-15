@@ -179,7 +179,7 @@ value: str | None = obj.id or None
     ensure(
         code.exprs().any(|expr| {
             matches!(expr.kind, ExprKind::Conditional { .. })
-                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(..)))
         }),
         "expected value-returning or to lower to an optional conditional",
     )?;

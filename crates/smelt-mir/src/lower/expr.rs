@@ -256,7 +256,7 @@ impl LoweringCtx<'_> {
             ExprKind::Index { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let index_operand = self.lower_expr(*index)?;
-                if matches!(self.krate.types.get(expr.ty), Some(Type::Optional(_))) {
+                if matches!(self.krate.types.get(expr.ty), Some(Type::Optional(..))) {
                     let dest = self.push_temp(expr.ty, expr.span);
                     let from_end = matches!(
                         self.negative_index_policy(expr.span),
@@ -671,7 +671,7 @@ impl LoweringCtx<'_> {
                 // throw of a present one.
                 let inner_throws = match self.krate.types.get(callee_ty) {
                     Some(Type::Function(function)) => function.may_throw,
-                    Some(Type::Optional(inner)) => matches!(
+                    Some(Type::Optional(inner, _)) => matches!(
                         self.krate.types.get(*inner),
                         Some(Type::Function(function)) if function.may_throw
                     ),
@@ -694,7 +694,7 @@ impl LoweringCtx<'_> {
                     )
                 };
                 let callee_is_async = match self.krate.types.get(callee_ty) {
-                    Some(Type::Optional(inner)) => callee_returns_future(*inner),
+                    Some(Type::Optional(inner, _)) => callee_returns_future(*inner),
                     _ => callee_returns_future(callee_ty),
                 };
                 // Whenever a `try` is active the call needs the unwind-carrying
@@ -785,7 +785,7 @@ impl LoweringCtx<'_> {
             return Ok(None);
         };
         let stored_ty = self.mir_local(local_id)?.ty;
-        Ok(matches!(self.krate.types.get(stored_ty), Some(Type::Optional(inner)) if *inner == receiver_expr.ty)
+        Ok(matches!(self.krate.types.get(stored_ty), Some(Type::Optional(inner, _)) if *inner == receiver_expr.ty)
             .then_some(Operand::Copy(Place::Local(local_id))))
     }
 
@@ -809,12 +809,24 @@ impl LoweringCtx<'_> {
         // local instead kept the payload type `T` in the read: returned where
         // `Option<U>` is declared, it needed a `T` -> `U` conversion that a
         // generic `T`/`U` cannot have.
-        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(_)))
+        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(..)))
             && matches!(self.krate.types.get(expr.ty), Some(Type::None))
         {
             return Ok(Operand::Const(lower_literal(&smelt_hir::Literal::None)));
         }
-        if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty)
+        // A read narrowed to the payload of a local holding optional layers
+        // (`if (x) x.length` on a `T | null | undefined`). The temporary at
+        // the narrowed type is where the emitter unwraps the `Option`s. A
+        // read narrowed to fewer layers but still optional (`x !== null`
+        // leaves `T | undefined`) reads the local itself; its consumer
+        // reshapes it at the use, with no extra binding.
+        let narrowed_layers = expr.ty != local_ty
+            && matches!(self.krate.types.get(local_ty), Some(Type::Optional(..)))
+            && !matches!(self.krate.types.get(expr.ty), Some(Type::Optional(..)))
+            && smelt_hir::type_normalize::peel_optional(&self.krate.types, local_ty).0
+                == smelt_hir::type_normalize::peel_optional(&self.krate.types, expr.ty).0;
+        if narrowed_layers
+            || matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner, _)) if *inner == expr.ty)
         {
             let dest = self.push_temp(expr.ty, expr.span);
             self.block_mut()?.statements.push(Statement::Assign {
@@ -1137,7 +1149,7 @@ impl LoweringCtx<'_> {
         };
         let optional_ty = self.mir_local(*local)?.ty;
         let optional_shape = self.krate.types.get(optional_ty);
-        let shapes_agree = if let Some(Type::Optional(inner)) = optional_shape {
+        let shapes_agree = if let Some(Type::Optional(inner, _)) = optional_shape {
             *inner == ty
         } else {
             optional_shape == Some(&Type::Unknown)
@@ -1218,7 +1230,7 @@ impl LoweringCtx<'_> {
             if from != expr.ty
                 && matches!(
                     self.krate.types.get(from),
-                    Some(Type::Optional(_) | Type::Unknown | Type::Union(_))
+                    Some(Type::Optional(..) | Type::Unknown | Type::Union(_))
                 )
             {
                 return Ok(false);
@@ -1345,7 +1357,18 @@ impl LoweringCtx<'_> {
         // this receiver's writeback lands in a base that is still live. The
         // mutation arms replay the returned entry after the mutation statement.
         self.write_back_place_receivers(writebacks)?;
-        Ok((Operand::Copy(Place::Local(local)), Some((place, local))))
+        // The place's own type, when the receiver asserts another one.
+        let place_ty = if let ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } =
+            &expr.kind
+        {
+            Some(self.hir_expr(*value)?.ty).filter(|ty| *ty != expr.ty)
+        } else {
+            None
+        };
+        Ok((
+            Operand::Copy(Place::Local(local)),
+            Some((place, local, place_ty)),
+        ))
     }
 
     /// Commits every copied projection of a place write back through its own
@@ -1395,12 +1418,73 @@ impl LoweringCtx<'_> {
         &mut self,
         writeback: MutationWriteback,
     ) -> Result<(), LowerError> {
-        if let Some((place, local)) = writeback {
-            self.block_mut()?.statements.push(Statement::AssignPlace {
-                place,
-                value: Rvalue::Use(Operand::Copy(Place::Local(local))),
-            });
+        let Some((place, local, asserted_from)) = writeback else {
+            return Ok(());
+        };
+        // A list mutated through an assertion at another element type
+        // (`(xs as number[]).push(9)` on an `unknown[]`) ran on a converted
+        // copy. JavaScript has one array, so the place keeps its storage and
+        // takes the copy's elements back, converted to its own element type:
+        // `xs.splice(0, xs.length, ...copy)`. Rebinding the place to a new
+        // list would leave every other handle on the old one.
+        if let Some(place_ty) = asserted_from
+            && let Some(Type::List(_)) = self.krate.types.get(place_ty)
+            && let Some(local_decl) = usize::try_from(local.0)
+                .ok()
+                .and_then(|index| self.function.locals.get(index))
+            && matches!(self.krate.types.get(local_decl.ty), Some(Type::List(_)))
+        {
+            let span = local_decl.span;
+            let converted = self.assign_temp(
+                place_ty,
+                span,
+                Rvalue::Use(Operand::Copy(Place::Local(local))),
+            )?;
+            let receiver = self.assign_temp(place_ty, span, Rvalue::Use(Operand::Copy(place)))?;
+            self.assign_temp(
+                place_ty,
+                span,
+                Rvalue::ListSplice {
+                    list: receiver,
+                    start: Operand::Const(Constant::Float(0.0)),
+                    delete_count: None,
+                    items: vec![crate::MirListSpliceItem {
+                        value: converted,
+                        spread: true,
+                    }],
+                    mutate: true,
+                },
+            )?;
+            return Ok(());
         }
+        // The same, through an assertion of an ERASED value
+        // (`(er as unknown[]).push(x)` with `er: unknown`): the erased array
+        // takes the elements in place.
+        if let Some(place_ty) = asserted_from
+            && matches!(self.krate.types.get(place_ty), Some(Type::Unknown))
+            && let Some(local_decl) = usize::try_from(local.0)
+                .ok()
+                .and_then(|index| self.function.locals.get(index))
+            && matches!(self.krate.types.get(local_decl.ty), Some(Type::List(_)))
+        {
+            let span = local_decl.span;
+            let receiver = self.assign_temp(place_ty, span, Rvalue::Use(Operand::Copy(place)))?;
+            let dest = self.push_temp(self.krate.types.intern_late(Type::None), span);
+            let target = self.function.push_block(span);
+            self.terminate(Terminator::Call {
+                callee: Callee::Builtin(BuiltinFn::ErasedListWriteBack),
+                args: vec![receiver, Operand::Copy(Place::Local(local))],
+                dest,
+                target,
+                unwind: self.current_exception_handler(),
+            })?;
+            self.switch_to(target);
+            return Ok(());
+        }
+        self.block_mut()?.statements.push(Statement::AssignPlace {
+            place,
+            value: Rvalue::Use(Operand::Copy(Place::Local(local))),
+        });
         Ok(())
     }
 

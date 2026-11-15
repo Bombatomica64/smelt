@@ -49,3 +49,12 @@ pub const RECORD_ADAPTER_HELPER_PREFIX: &str = "__smelt_adapt_record_";
 /// the helper's name is what lets the SmeltUnknown report classify the call
 /// site as the boundary it is (same reasoning as `erased_list_alias`).
 pub const OPTIONAL_UNKNOWN_OR_UNDEFINED_FN: &str = "smelt_optional_unknown_or_undefined";
+
+/// The runtime helper that reads an erased `T | null | undefined` at the erased carrier.
+///
+/// The input is `Option<Option<SmeltUnknown>>`: the outer `None` is
+/// `undefined`, the inner `None` is `null`, a present value is itself. The
+/// sibling of [`OPTIONAL_UNKNOWN_OR_UNDEFINED_FN`] for a type that admits both
+/// absences, and a boundary adapter for the same reason: both sides are the
+/// erased carrier.
+pub const NULLISH_UNKNOWN_OR_UNDEFINED_FN: &str = "smelt_nullish_unknown_or_undefined";

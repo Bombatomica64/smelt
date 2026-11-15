@@ -184,7 +184,11 @@ impl ModuleBuilder<'_> {
         // Not recorded yet: the erasure is recorded once below, only when the
         // collection is actually built.
         let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
-        let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
+        let optional_unknown_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(unknown_ty, smelt_hir::Absence::Undefined));
         let mut items = Vec::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {

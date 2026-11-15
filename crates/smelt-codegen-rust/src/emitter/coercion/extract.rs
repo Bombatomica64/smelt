@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
-            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
+            Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner)
         );
         // The same holds for a FUNCTION target that is the optional's own inner
         // type: a narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function. The
@@ -54,10 +54,10 @@ impl FunctionEmitter<'_> {
         let target_is_source_inner =
             matches!(
                 self.mir.types.get(source_ty),
-                Some(Type::Optional(inner)) if *inner == target
+                Some(Type::Optional(inner, _)) if *inner == target
             ) && matches!(self.mir.types.get(target), Some(Type::Function(_)));
         if (target_is_primitive || target_is_source_inner)
-            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
+            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(..)))
             && !source_inner_is_erased
         {
             return self.value_at_type(value, target);
@@ -537,7 +537,7 @@ impl FunctionEmitter<'_> {
                 union::union_name(target), text = text.delimited()
             )))),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
-            Some(Type::Optional(inner)) => self.extract_optional(text, *inner, scope),
+            Some(Type::Optional(inner, _)) => self.extract_optional(text, *inner, scope),
             Some(Type::Tuple(items)) => self.extract_tuple(&smelt_owned_text, items, scope),
             // The prelude `SmeltFromUnknown` impl is the single inverse of the
             // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the

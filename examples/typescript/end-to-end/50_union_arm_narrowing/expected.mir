@@ -64,9 +64,9 @@ fn main (FuncId(4)) -> None
   locals
     %0 user chosen: String | Doc
     %1 user form: FormData
-    %2 user entry: Optional<String | File>
-    %3 user text: Optional<String | File>
-    %4 user missing: Optional<String | File>
+    %2 user entry: Nullable<String | File>
+    %3 user text: Nullable<String | File>
+    %4 user missing: Nullable<String | File>
     %5 user value: String | File
     %6 temp: String | Doc
     %7 temp: String
@@ -86,7 +86,7 @@ fn main (FuncId(4)) -> None
     %21 temp: File
     %22 temp: None
     %23 temp: None
-    %24 temp: Optional<String | File>
+    %24 temp: Nullable<String | File>
     %25 temp: Bool
     %26 temp: String | File
     %27 temp: File
@@ -99,11 +99,11 @@ fn main (FuncId(4)) -> None
     %34 temp: Float
     %35 temp: None
     %36 temp: None
-    %37 temp: Optional<String | File>
+    %37 temp: Nullable<String | File>
     %38 temp: Bool
     %39 temp: None
     %40 temp: None
-    %41 temp: Optional<String | File>
+    %41 temp: Nullable<String | File>
     %42 temp: Bool
     %43 temp: None
     %44 temp: None

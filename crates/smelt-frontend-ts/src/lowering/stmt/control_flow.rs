@@ -812,7 +812,7 @@ impl ModuleBuilder<'_> {
                 Type::Unknown
                 | Type::Class { .. }
                 | Type::TypeParam { .. }
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::List(_)
                 | Type::Tuple(_),
             ) => {

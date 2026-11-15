@@ -456,7 +456,7 @@ impl ModuleBuilder<'_> {
             // An optional callable (`compareKeys?: (a, b) => number` used as
             // `keys.sort(compareKeys)`) is a callable surface too; the wrapper
             // closure observes the nullish payload at runtime.
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.callback_local_value_is_callable_surface_depth(inner, depth + 1)
             }
             Some(Type::Union(items)) => items.iter().copied().any(|item| {

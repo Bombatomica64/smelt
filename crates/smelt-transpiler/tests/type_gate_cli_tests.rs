@@ -470,5 +470,7 @@ fn a_node_timer_handle_is_a_number() -> TestResult {
         output.status.success(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )?;
-    ensure(stdout.contains("let timer: Optional<Float>"), stdout)
+    // `| null` is kept in the type: `Nullable<Float>` (it printed
+    // `Optional<Float>` while `null` and `undefined` shared one optional).
+    ensure(stdout.contains("let timer: Nullable<Float>"), stdout)
 }

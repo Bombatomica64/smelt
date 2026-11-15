@@ -380,11 +380,10 @@ impl ModuleBuilder<'_> {
             && item_tys.contains(&none_ty)
             && !Self::array_literal_mixes_nullish_spellings(items, body)
         {
-            return self
-                .ctx
-                .krate
-                .types
-                .intern(Type::Optional(first_non_nullish));
+            return self.ctx.krate.types.intern(Type::Optional(
+                first_non_nullish,
+                smelt_hir::Absence::Undefined,
+            ));
         }
         self.erase_with(ErasureReason::DynamicOperator, "mixed array literal")
     }
@@ -527,7 +526,7 @@ impl ModuleBuilder<'_> {
                 Some(
                     Type::TypeParam { .. }
                     | Type::Class { .. }
-                    | Type::Optional(_)
+                    | Type::Optional(..)
                     | Type::Union(_),
                 ) => self.erase_with(ErasureReason::DynamicOperator, "array spread"),
                 _ => {
@@ -766,7 +765,7 @@ impl ModuleBuilder<'_> {
                 Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::Union(_),
             )
             | None => Ok(body.push_expr(Expr {

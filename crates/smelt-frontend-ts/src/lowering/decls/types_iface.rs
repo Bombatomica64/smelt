@@ -760,7 +760,10 @@ impl ModuleBuilder<'_> {
                             )
                         })?;
                     let field_ty = if prop.optional {
-                        self.ctx.krate.types.intern(Type::Optional(ty))
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
                     } else {
                         ty
                     };
@@ -825,7 +828,10 @@ impl ModuleBuilder<'_> {
                             // method field's arity in sync with the
                             // `required_params` count below.
                             let ty = if param.optional {
-                                self.ctx.krate.types.intern(Type::Optional(ty))
+                                self.ctx
+                                    .krate
+                                    .types
+                                    .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
                             } else {
                                 ty
                             };

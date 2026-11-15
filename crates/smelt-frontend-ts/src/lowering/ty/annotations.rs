@@ -163,14 +163,25 @@ impl ModuleBuilder<'_> {
                     }) =>
             {
                 let none = self.ctx.krate.types.intern(Type::None);
-                Ok(self.ctx.krate.types.intern(Type::Optional(none)))
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(none, smelt_hir::Absence::Undefined)))
             }
             TSType::TSUnionType(union) => {
                 let mut lowered = Vec::new();
                 let mut nullish = Vec::new();
                 let mut saw_never = false;
+                // Which absent values the union admits, so a one-arm result
+                // keeps `null` apart from `undefined` (`Type::Optional`'s tag).
+                let (mut admits_undefined, mut admits_null) = (false, false);
                 for member in &union.types {
                     let mut member_ty = self.ts_type_to_hir(member)?;
+                    let (member_undefined, member_null) =
+                        self.ts_member_absences(member, member_ty);
+                    admits_undefined |= member_undefined;
+                    admits_null |= member_null;
                     if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)))
                         && self.ts_type_is_known_callable_object_surface(member)
                     {
@@ -260,7 +271,12 @@ impl ModuleBuilder<'_> {
                 }
                 if lowered.len() == 1 && !nullish.is_empty() {
                     let single = lowered.remove(0);
-                    Ok(self.ctx.krate.types.intern(Type::Optional(single)))
+                    Ok(smelt_hir::type_normalize::rebuild_optional(
+                        &mut self.ctx.krate.types,
+                        single,
+                        admits_undefined || !admits_null,
+                        admits_null,
+                    ))
                 } else if lowered.len() == 1 {
                     let single = lowered.remove(0);
                     Ok(single)
@@ -408,7 +424,10 @@ impl ModuleBuilder<'_> {
             TSType::TSNamedTupleMember(named) => {
                 let inner = self.tuple_element_type_to_hir(&named.element_type)?;
                 Ok(if named.optional {
-                    self.ctx.krate.types.intern(Type::Optional(inner))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(inner, smelt_hir::Absence::Undefined))
                 } else {
                     inner
                 })

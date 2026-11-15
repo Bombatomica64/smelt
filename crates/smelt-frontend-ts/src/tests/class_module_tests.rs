@@ -352,7 +352,7 @@ export function readBag(bag: StringBag, key: string): string | undefined {
         .ok_or_else(|| "missing read_bag function".to_owned())?;
     ensure!(matches!(
         ctx.krate.types.get(read_bag.return_ty),
-        Some(Type::Optional(inner))
+        Some(Type::Optional(inner, _))
             if matches!(ctx.krate.types.get(*inner), Some(Type::String))
     ));
     Ok(())

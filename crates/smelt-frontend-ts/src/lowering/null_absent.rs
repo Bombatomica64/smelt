@@ -1,8 +1,11 @@
 //! Which nullish value an optional's absent case is.
 //!
-//! Smelt stores `T | null` and `T | undefined` alike, as `Type::Optional(T)`
-//! (a Rust `Option<T>`): the storage has one absent case. JavaScript has two,
-//! and a program can observe which one it holds in three places:
+//! The type of an optional says which absent value its `None` is
+//! (`smelt_hir::Absence`), and codegen prints, compares and erases by it.
+//! This module is the older, checker-driven rule, kept for the places where
+//! the HIR type carries the default `undefined` tag while the checker proves
+//! the expression `null` (an optional Smelt itself introduced). JavaScript
+//! observes which absent value an expression holds in three places:
 //!
 //! - a string conversion: `` `${x}` ``, `String(x)` and `"a" + x` spell `null`
 //!   as `"null"` and `undefined` as `"undefined"`;
@@ -164,7 +167,7 @@ impl ModuleBuilder<'_> {
         let operand_ty = Self::expr_ty(body, operand);
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
-            Some(Type::Optional(_))
+            Some(Type::Optional(..))
         ) || !self.checker_absent_is_null(start, end)
         {
             return operand;
@@ -172,7 +175,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(start, end);
         let string_ty = self.ctx.krate.types.intern(Type::String);
         // A `string | null` needs no conversion when present: `x ?? "null"`.
-        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == string_ty)
+        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == string_ty)
         {
             let fallback = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("null".to_owned())),

@@ -866,7 +866,7 @@ const missing = values[-1];
 
     let none_index_read = body.exprs.iter().find(|expr| {
         matches!(expr.kind, ExprKind::Literal(Literal::None))
-            && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+            && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(..)))
     });
     ensure!(
         none_index_read.is_some(),
@@ -902,7 +902,7 @@ const missing = text[-1];
     ensure!(
         body.exprs.iter().any(|expr| {
             matches!(expr.kind, ExprKind::Literal(Literal::None))
-                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(..)))
         }),
         "expected negative string bracket read to lower to an optional None literal",
     );
@@ -928,7 +928,7 @@ const missing = pair[-1];
     ensure!(
         body.exprs.iter().any(|expr| {
             matches!(expr.kind, ExprKind::Literal(Literal::None))
-                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(..)))
         }),
         "expected negative tuple bracket read to lower to an optional None literal",
     );

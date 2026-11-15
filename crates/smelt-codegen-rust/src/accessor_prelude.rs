@@ -48,7 +48,7 @@ pub(crate) fn is_accessor_field(mir: &Mir, owner: Symbol, field: Symbol) -> bool
 pub(crate) fn is_accessor_field_of_type(mir: &Mir, ty: TypeId, field: Symbol) -> bool {
     match mir.types.get(ty) {
         Some(Type::Class { name, .. }) => is_accessor_field(mir, *name, field),
-        Some(Type::Optional(inner)) => is_accessor_field_of_type(mir, *inner, field),
+        Some(Type::Optional(inner, _)) => is_accessor_field_of_type(mir, *inner, field),
         _ => false,
     }
 }

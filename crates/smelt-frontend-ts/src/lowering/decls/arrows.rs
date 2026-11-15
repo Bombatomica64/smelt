@@ -138,8 +138,8 @@ impl ModuleBuilder<'_> {
                             let param_span = this.span(param.span.start, param.span.end);
                             this.erase_at(ErasureReason::MissingAnnotation, param_span, "")
                         });
-                    if param.optional && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
-                        ty = this.ctx.krate.types.intern(Type::Optional(ty));
+                    if param.optional {
+                        ty = smelt_hir::type_normalize::admit_undefined(&mut this.ctx.krate.types, ty);
                     }
                     // A default initializer (`size: number = 2`) gets the same ABI a
                     // function declaration's does: an `Optional<T>` parameter and a
@@ -153,10 +153,11 @@ impl ModuleBuilder<'_> {
                             .filter(|initializer| !this.initializer_is_type_zero_default(initializer)),
                         _ => None,
                     };
-                    if default_initializer.is_some()
-                        && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-                    {
-                        ty = this.ctx.krate.types.intern(Type::Optional(ty));
+                    // Only `undefined` takes the default, so a `T | null`
+                    // parameter's ABI also admits `undefined` (see
+                    // `function_parameter_abi`).
+                    if default_initializer.is_some() {
+                        ty = smelt_hir::type_normalize::admit_undefined(&mut this.ctx.krate.types, ty);
                     }
                     let (param_name, param_span) = match &param.pattern {
                         BindingPattern::BindingIdentifier(binding) => (

@@ -94,10 +94,13 @@ impl ModuleBuilder<'_> {
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         // `undefined` until the class writes its own value; a static whose
         // type admits `undefined` already is its own shadow type.
-        let shadow_ty = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+        let shadow_ty = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..))) {
             ty
         } else {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
         };
         let own_name = self.intern_synthesized_name(&format!("{class_text}__smelt_own_{spelling}"));
         let own = self

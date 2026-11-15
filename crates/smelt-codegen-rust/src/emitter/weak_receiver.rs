@@ -199,7 +199,7 @@ impl WeakReceiverPlan {
 pub(crate) fn closure_slot(mir: &Mir, ty: smelt_hir::TypeId) -> Option<&'static str> {
     match mir.types.get(ty)? {
         Type::Function(_) | Type::Unknown => Some(""),
-        Type::Optional(inner) if matches!(mir.types.get(*inner), Some(Type::Function(_))) => {
+        Type::Optional(inner, _) if matches!(mir.types.get(*inner), Some(Type::Function(_))) => {
             Some("")
         }
         Type::Class { name, .. } => {

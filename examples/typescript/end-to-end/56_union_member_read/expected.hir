@@ -121,7 +121,7 @@ interned types
   t14 = Optional<Float>
   t15 = None
   t16 = Bool
-  t17 = Optional<String>
+  t17 = Nullable<String>
   t18 = List<String>
   t19 = List<List<String>>
   t20 = fn(InitLike | Response, String) -> String

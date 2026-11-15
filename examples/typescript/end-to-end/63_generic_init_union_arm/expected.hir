@@ -77,7 +77,7 @@ interned types
   t22 = Optional<T>
   t23 = Bool
   t24 = None
-  t25 = Optional<String>
+  t25 = Nullable<String>
   t26 = Optional<Float>
   t27 = String | Unknown
   t28 = Optional<String | Unknown>

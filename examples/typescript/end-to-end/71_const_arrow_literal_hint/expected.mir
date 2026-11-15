@@ -65,7 +65,7 @@ fn main (FuncId(1)) -> None
     %15 = closure_call move %1(move %14)
     %16 = call @console_log(move %15) -> bb5
   bb5:
-    %17 = closure_call move %0(none)
+    %17 = closure_call move %0(undefined)
     %18 = call @console_log(move %17) -> bb6
   bb6:
     %19 = closure ClosureId(2) []

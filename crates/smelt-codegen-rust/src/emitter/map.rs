@@ -120,7 +120,10 @@ impl FunctionEmitter<'_> {
                 && matches!(
                     self.mir.types.get(key_ty_of_operand),
                     Some(
-                        Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Optional(_)
+                        Type::Unknown
+                            | Type::Union(_)
+                            | Type::TypeParam { .. }
+                            | Type::Optional(..)
                     )
                 )
             {
@@ -168,7 +171,7 @@ impl FunctionEmitter<'_> {
         fields
             .iter()
             .find(|field| self.symbol_source_name(field.name) == Ok(key))
-            .filter(|field| matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))))
+            .filter(|field| matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))))
             .map(|field| field.name)
     }
 
@@ -291,7 +294,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         match (self.mir.types.get(*value_ty), self.mir.types.get(dest_ty)) {
-            (Some(Type::Optional(value_inner)), Some(Type::Optional(dest_inner)))
+            (Some(Type::Optional(value_inner, _)), Some(Type::Optional(dest_inner, _)))
                 if value_inner == dest_inner =>
             {
                 let get_text = if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
@@ -317,7 +320,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(get_text.postfix(".flatten()"))
             }
-            (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
+            (_, Some(Type::Optional(dest_inner, _))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
                 {
@@ -473,7 +476,7 @@ impl FunctionEmitter<'_> {
         Ok(matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
-        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty))
+        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == key_ty))
     }
 
     /// Return whether a value operand can be stored into a dict/Map value slot.
@@ -511,7 +514,7 @@ impl FunctionEmitter<'_> {
         Ok(matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
-        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == value_ty))
+        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == value_ty))
     }
 
     /// Return whether a dict/Map key type is erased to `SmeltUnknown` at runtime.
@@ -534,7 +537,7 @@ impl FunctionEmitter<'_> {
     /// Render a dictionary key, unwrapping optional keys after frontend narrowing.
     fn dict_key_operand_expr(&self, key: &Operand, key_ty: TypeId) -> Result<RustExpr, EmitError> {
         let operand_ty = self.operand_ty(key)?;
-        if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty)
+        if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == key_ty)
         {
             let key_text = self.operand_expr(key)?;
             let default = self.default_value(key_ty)?;
@@ -1703,7 +1706,7 @@ impl FunctionEmitter<'_> {
         // undefined` (an `Optional<String>` destination).
         let optional_text = match self.mir.types.get(dest_ty) {
             Some(Type::String | Type::PyStr) => false,
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 true

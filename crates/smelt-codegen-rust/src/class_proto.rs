@@ -225,7 +225,7 @@ fn param_crosses_erased_call(
 fn callback_parameter(mir: &Mir, ty: TypeId) -> Option<&FunctionType> {
     match mir.types.get(ty)? {
         Type::Function(callback) => Some(callback),
-        Type::Optional(inner) => match mir.types.get(*inner)? {
+        Type::Optional(inner, _) => match mir.types.get(*inner)? {
             Type::Function(callback) => Some(callback),
             _ => None,
         },

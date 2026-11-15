@@ -140,7 +140,10 @@ impl FunctionEmitter<'_> {
                 && !is_downcast
                 && !self.is_virtual_method_storage_field(target, target_field.name)
                 && !self.is_interface_method_slot_bound_by_source(source, target, target_field.name)
-                && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))
+                && !matches!(
+                    self.mir.types.get(target_field.ty),
+                    Some(Type::Optional(..))
+                )
             {
                 return None;
             }
@@ -478,7 +481,11 @@ impl FunctionEmitter<'_> {
                 // An optional property the source does not expose is absent;
                 // any other missing member means this is not a structural
                 // conversion at all, so nothing is emitted.
-                None if matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_))) => {
+                None if matches!(
+                    self.mir.types.get(target_field.ty),
+                    Some(Type::Optional(..))
+                ) =>
+                {
                     RustExpr::path("None")
                 }
                 None => return Ok(None),
@@ -610,13 +617,13 @@ impl FunctionEmitter<'_> {
             };
             let value = if let Some(value) = receiver_bound {
                 value
-            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
+            } else if let Some(Type::Optional(inner, _)) = self.mir.types.get(field.ty)
                 && self.record_value_misses_concrete_union(source_value, *inner)
             {
                 // The record's values cannot be this field's type, so the key
                 // is absent from any value the source holds.
                 RustExpr::path("None")
-            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+            } else if let Some(Type::Optional(inner, _)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let rendered = self.rendered_at_type(
                         &RustExpr::path("smelt_value"),
@@ -830,7 +837,7 @@ impl FunctionEmitter<'_> {
             } else {
                 RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value()
             };
-            let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+            let value = if let Some(Type::Optional(inner, _)) = self.mir.types.get(field.ty) {
                 let mapped = self.rendered_at_type(
                     &RustExpr::path("smelt_value"),
                     *inner,
@@ -903,7 +910,7 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
-        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target) {
             // An optional field accepts the inner type (the `get` already supplies
             // the outer `Option`) or an absent value. It must ALSO accept a source
             // that is itself optional-shaped — the checks below reach that through
@@ -1089,7 +1096,7 @@ impl FunctionEmitter<'_> {
             };
             match self.host_class_member_read(&RustExpr::path("smelt_host_value"), source, member) {
                 Ok(Some(_)) => true,
-                Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))),
+                Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))),
                 Err(_) => false,
             }
         })

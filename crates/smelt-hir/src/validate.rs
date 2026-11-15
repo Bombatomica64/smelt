@@ -229,7 +229,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                         continue;
                     };
                     let callback_ty = match krate.types.get(callback_expr.ty) {
-                        Some(Type::Optional(inner)) => krate.types.get(*inner),
+                        Some(Type::Optional(inner, _)) => krate.types.get(*inner),
                         other => other,
                     };
                     if !matches!(callback_ty, Some(Type::Function(_))) {

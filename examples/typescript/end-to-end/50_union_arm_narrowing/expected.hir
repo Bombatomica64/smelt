@@ -8,9 +8,9 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
   locals
     %0 const chosen: String | Doc
     %1 const form: FormData
-    %2 const entry: Optional<String | File>
-    %3 const text: Optional<String | File>
-    %4 const missing: Optional<String | File>
+    %2 const entry: Nullable<String | File>
+    %3 const text: Nullable<String | File>
+    %4 const missing: Nullable<String | File>
     %5 let value: String | File
   exprs
     #0: Bool = true
@@ -60,8 +60,8 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #44: None = form_data_append #41, #42, #43
     #45: FormData = %1
     #46: String = "doc"
-    #47: Optional<String | File> = form_data_get #45, #46
-    #48: Optional<String | File> = %2
+    #47: Nullable<String | File> = form_data_get #45, #46
+    #48: Nullable<String | File> = %2
     #49: Bool = instanceof #48, class15
     #50: File = %2
     #51: String | File = %2
@@ -82,8 +82,8 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #66: None = call #65(#64)
     #67: FormData = %1
     #68: String = "text"
-    #69: Optional<String | File> = form_data_get #67, #68
-    #70: Optional<String | File> = %3
+    #69: Nullable<String | File> = form_data_get #67, #68
+    #70: Nullable<String | File> = %3
     #71: Bool = instanceof #70, class15
     #72: String = "unexpectedly a file"
     #73: None = @10(console_log)
@@ -93,8 +93,8 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     #77: None = call #76(#75)
     #78: FormData = %1
     #79: String = "absent"
-    #80: Optional<String | File> = form_data_get #78, #79
-    #81: Optional<String | File> = %4
+    #80: Nullable<String | File> = form_data_get #78, #79
+    #81: Nullable<String | File> = %4
     #82: Bool = instanceof #81, class15
     #83: String = "unexpectedly a file"
     #84: None = @12(console_log)
@@ -125,15 +125,15 @@ module examples/typescript/end-to-end/50_union_arm_narrowing/input.ts (ModuleId(
     s4: let %1: FormData = #32
     s5: #40
     s6: #44
-    s7: let %2: Optional<String | File> = #47
+    s7: let %2: Nullable<String | File> = #47
     s8: #63
     s9: #66
     s10: if #49 then BlockId(1) else BlockId(2)
-    s11: let %3: Optional<String | File> = #69
+    s11: let %3: Nullable<String | File> = #69
     s12: #74
     s13: #77
     s14: if #71 then BlockId(3) else BlockId(4)
-    s15: let %4: Optional<String | File> = #80
+    s15: let %4: Nullable<String | File> = #80
     s16: #85
     s17: #88
     s18: if #82 then BlockId(5) else BlockId(6)
@@ -158,6 +158,6 @@ interned types
   t12 = Float
   t13 = File
   t14 = String | File
-  t15 = Optional<String | File>
+  t15 = Nullable<String | File>
   t16 = Optional<String>
   t17 = List<String | File>

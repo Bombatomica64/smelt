@@ -23,7 +23,7 @@ fn header_of (FuncId(0)) -> String
     %18 temp: InitLike<Float>
     %19 temp: Optional<List<(String, String)> | Dict<String, String> | Headers>
     %20 temp: Headers
-    %21 temp: Optional<String>
+    %21 temp: Nullable<String>
     %22 temp: String
   bb0:
     %3 = unknown_is Object copy %0

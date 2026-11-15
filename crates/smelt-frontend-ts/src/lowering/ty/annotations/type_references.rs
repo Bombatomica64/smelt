@@ -438,7 +438,7 @@ impl ModuleBuilder<'_> {
                     // named after the alias, which no struct backs, erased it.
                     let alias_is_union = matches!(
                         self.ctx.krate.types.get(alias.ty),
-                        Some(Type::Union(_) | Type::Optional(_))
+                        Some(Type::Union(_) | Type::Optional(..))
                     );
                     let substituted_alias_ty =
                         self.substitute_type_params(alias.ty, &substitutions);

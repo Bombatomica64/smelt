@@ -135,12 +135,16 @@ impl ModuleBuilder<'_> {
         if !Self::generator_root_falls_through(body)
             || matches!(
                 self.ctx.krate.types.get(return_ty),
-                Some(Type::None | Type::Optional(_))
+                Some(Type::None | Type::Optional(..))
             )
         {
             return generator_ty;
         }
-        let return_ty = self.ctx.krate.types.intern(Type::Optional(return_ty));
+        let return_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(return_ty, smelt_hir::Absence::Undefined));
         self.ctx.krate.types.intern(Type::Generator {
             is_async,
             yield_ty,

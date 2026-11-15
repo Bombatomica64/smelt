@@ -10,7 +10,7 @@ fn main (FuncId(0)) -> None
     %7 user first: Optional<String>
     %8 user second: Optional<String>
     %9 user single: RegExp
-    %10 user found: Optional<__SmeltMatch>
+    %10 user found: Nullable<__SmeltMatch>
     %11 temp: RegExp
     %12 temp: List<__SmeltMatch>
     %13 temp: usize
@@ -31,7 +31,7 @@ fn main (FuncId(0)) -> None
     %28 temp: None
     %29 temp: None
     %30 temp: RegExp
-    %31 temp: Optional<__SmeltMatch>
+    %31 temp: Nullable<__SmeltMatch>
     %32 temp: Bool
     %33 temp: __SmeltMatch
     %34 temp: Optional<String>

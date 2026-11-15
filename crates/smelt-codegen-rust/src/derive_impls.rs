@@ -387,7 +387,7 @@ pub(crate) fn type_supports_partial_eq(
             | Type::Generator { .. }
             | Type::GeneratorResult { .. },
         ) => false,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
             type_supports_partial_eq(mir, context, *item, seen)
         }
         // A map keyed by a TYPE PARAMETER is a `SmeltJsMap<P, _>`, whose
@@ -513,7 +513,7 @@ fn type_is_json_serializable(
         Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown) => {
             true
         }
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
             type_is_json_serializable(mir, is_reference, *item, seen)
         }
         Some(Type::Tuple(items)) => items

@@ -4,7 +4,7 @@ fn header_of (FuncId(0)) -> String
     %1 param name: String
     %2 user copied: Headers
     %3 temp: Headers
-    %4 temp: Optional<String>
+    %4 temp: Nullable<String>
     %5 temp: String
   bb0:
     %2 = headers_new copy %0

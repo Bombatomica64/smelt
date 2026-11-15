@@ -563,7 +563,7 @@ impl ModuleBuilder<'_> {
         // payload itself, and their extra temporary would just hold an erased
         // value. A list method also takes its receiver as it
         // stands, and asks for the arm itself ([`Self::narrowed_list_receiver`]).
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(base_ty).cloned()
             && ty != inner
             && ty != base_ty
             && matches!(self.ctx.krate.types.get(inner), Some(Type::Union(_)))
@@ -656,7 +656,7 @@ impl ModuleBuilder<'_> {
             return receiver;
         };
         let base_ty = Self::local_ty(body, local);
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty).cloned()
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(base_ty).cloned()
             && matches!(
                 self.ctx.krate.types.get(inner),
                 Some(Type::Union(_) | Type::Unknown)
@@ -2106,7 +2106,7 @@ impl ModuleBuilder<'_> {
         }
         let kind = match self.ctx.krate.types.get(ty) {
             Some(Type::Dict(_, _) | Type::JsMap(_, _)) => ExprKind::DictLit(Vec::new()),
-            Some(Type::None | Type::Optional(_)) => ExprKind::Literal(Literal::None),
+            Some(Type::None | Type::Optional(..)) => ExprKind::Literal(Literal::None),
             Some(Type::Bool) => ExprKind::Literal(Literal::Bool(false)),
             Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
             Some(Type::Float) => ExprKind::Literal(Literal::Float(0.0)),
@@ -2305,7 +2305,7 @@ impl ModuleBuilder<'_> {
             Some(Type::String) => ExprKind::Literal(Literal::String(String::new())),
             Some(Type::List(_)) => ExprKind::ListLit(Vec::new()),
             Some(Type::Dict(_, _) | Type::JsMap(_, _)) => ExprKind::DictLit(Vec::new()),
-            Some(Type::Optional(_)) => {
+            Some(Type::Optional(..)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),

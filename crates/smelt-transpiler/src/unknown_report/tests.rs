@@ -512,6 +512,24 @@ fn optional_unknown_read_is_a_boundary() {
     assert_eq!(classify_line(by_hand, false), Category::AvoidableErasure);
 }
 
+/// An erased `T | null | undefined` read at the erased carrier is the same
+/// boundary adapter as [`optional_unknown_read_is_a_boundary`]: the payload is
+/// `SmeltUnknown` on both sides, and no concrete type, union or generic can
+/// hold the value instead (the type parameter already renders erased, which
+/// is what made the read land on the carrier).
+#[test]
+fn nullish_unknown_read_is_a_boundary() {
+    let line = "    _smelt_tmp_3 = smelt_nullish_unknown_or_undefined(object.clone());";
+    assert_eq!(
+        classify_line(line, false),
+        Category::LegitimateBoundary,
+        "an erased two-absence value read at the erased carrier adds no erasure"
+    );
+    assert!(line.contains(smelt_codegen_rust::NULLISH_UNKNOWN_OR_UNDEFINED_FN));
+    let by_hand = "    _smelt_tmp_3 = object.clone().map_or(SmeltUnknown::Undefined, |smelt_value| smelt_value.clone().map_or(SmeltUnknown::Null, |smelt_value| smelt_value));";
+    assert_eq!(classify_line(by_hand, false), Category::AvoidableErasure);
+}
+
 /// An erased generic array handed to another erased slot is a boundary
 /// adapter; the general list conversion and a source `unknown[]` wrap are
 /// not.

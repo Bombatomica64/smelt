@@ -51,12 +51,26 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+        let dest_erased = matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
             || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
-                && self.renders_erased(dest_ty).unwrap_or(false))
+                && self.renders_erased(dest_ty).unwrap_or(false);
+        // The same read of a `T | null | undefined`: each absence keeps its
+        // own tag.
+        if dest_erased
+            && let (base, true, true) =
+                smelt_hir::type_normalize::peel_optional(&self.mir.types, self.operand_ty(operand)?)
+            && base == dest_ty
+        {
+            return Ok(RustExpr::atom(format!(
+                "{}({}.clone())",
+                crate::NULLISH_UNKNOWN_OR_UNDEFINED_FN,
+                self.operand_expr(operand)?.tight()
+            )));
+        }
+        if dest_erased
             && matches!(
                 self.mir.types.get(self.operand_ty(operand)?),
-                Some(Type::Optional(inner)) if *inner == dest_ty
+                Some(Type::Optional(inner, _)) if *inner == dest_ty
             )
         {
             return Ok(RustExpr::atom(format!(
@@ -67,7 +81,7 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if *inner == dest_ty
                     && !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
         ) {
@@ -820,7 +834,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => {
                 RustExpr::chain(format!("JsString::from({text})", text = text.delimited()))
             }
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+            Some(Type::Optional(inner, _)) if self.mir.types.get(*inner) == Some(&Type::String) => {
                 RustExpr::atom(format!(
                     "({text}).map(JsString::from)",
                     text = text.delimited()

@@ -734,11 +734,10 @@ pub enum GlobalProjection {
 /// `Some("ada")` / `None`, a shape no source language produces -- so the
 /// present arm prints the value inside and the absent arm prints this word.
 ///
-/// TypeScript's `null` and `undefined` both intern to `Type::None`, so
-/// `T | null` and `T | undefined` are one type by the time this is chosen, and
-/// `Undefined` is the answer for both: it is what nearly every operation that
-/// *produces* an optional in TypeScript returns (`find`, `pop`, `Map.get`, an
-/// optional property or parameter, `?.`, `process.env.X`).
+/// This is the language's word; which absent value an optional's `None` is
+/// comes from its type (`smelt_hir::Absence`), and [`Self::text_for`] joins
+/// the two: a TypeScript `T | null` prints `null`, every other optional the
+/// language's own word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AbsentSpelling {
     /// JavaScript/TypeScript: `undefined`.
@@ -763,6 +762,17 @@ impl AbsentSpelling {
         match self {
             Self::Undefined => "undefined",
             Self::None => "None",
+        }
+    }
+
+    /// The word this language prints for the `None` of an optional whose
+    /// type admits `absence`: JavaScript's `null` for a `T | null`, otherwise
+    /// [`Self::text`] (Python has one absent value, so it never says `null`).
+    #[must_use]
+    pub const fn text_for(self, absence: smelt_hir::Absence) -> &'static str {
+        match (self, absence) {
+            (Self::Undefined, smelt_hir::Absence::Null) => "null",
+            _ => self.text(),
         }
     }
 
@@ -1196,6 +1206,14 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
+    /// Commit a list mutated through an assertion of an erased value back
+    /// into that value: `(er as unknown[]).push(x)` with `er: unknown`.
+    ///
+    /// Arguments: the erased receiver (as read before the mutation) and the
+    /// mutated list. The receiver's array takes the list's elements in place,
+    /// so a typed list it is a live view of sees them too; rebinding the
+    /// receiver to a new array would leave every other handle on the old one.
+    ErasedListWriteBack,
 }
 
 /// Visit every type id a function's emission reads; see

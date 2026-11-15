@@ -98,7 +98,10 @@ impl ModuleBuilder<'_> {
                 .transpose()?
                 .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
             let ty = if param.optional {
-                self.ctx.krate.types.intern(Type::Optional(ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
             } else {
                 ty
             };
@@ -190,7 +193,7 @@ impl ModuleBuilder<'_> {
                 optional = true;
             }
             let param = match self.ctx.krate.types.get(param) {
-                Some(Type::Optional(inner)) => {
+                Some(Type::Optional(inner, _)) => {
                     optional = true;
                     *inner
                 }
@@ -210,7 +213,10 @@ impl ModuleBuilder<'_> {
             _ => self.ctx.krate.types.intern(Type::Union(members)),
         };
         if optional {
-            self.ctx.krate.types.intern(Type::Optional(merged))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(merged, smelt_hir::Absence::Undefined))
         } else {
             merged
         }

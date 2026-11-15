@@ -33,7 +33,7 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             let inner = match self.ctx.krate.types.get(ty) {
-                Some(&Type::Optional(inner)) => inner,
+                Some(&Type::Optional(inner, _)) => inner,
                 _ => ty,
             };
             fields.push(Field {
@@ -117,7 +117,12 @@ impl ModuleBuilder<'_> {
             }
             _ => return None,
         };
-        Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(inner, smelt_hir::Absence::Undefined)),
+        )
     }
 
     /// The ambient `AbortSignal` class type.
@@ -187,7 +192,11 @@ impl ModuleBuilder<'_> {
                     FetchInitKeyKind::HeadersInit => self.headers_init_type(),
                     FetchInitKeyKind::AbortSignal => self.abort_signal_type(),
                 };
-                let optional_ty = self.ctx.krate.types.intern(Type::Optional(field_ty));
+                let optional_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(field_ty, smelt_hir::Absence::Undefined));
                 Field {
                     name: self.intern_source_name(key),
                     ty: optional_ty,

@@ -71,7 +71,7 @@ impl ModuleBuilder<'_> {
             || member_optional
             || matches!(
                 self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Optional(_))
+                Some(Type::Optional(..))
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let (return_ty, method_item) =
@@ -436,11 +436,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Vec<smelt_hir::ExprId> {
         // A missing fixed argument before the rest position is an omitted
-        // optional one: a `None` at the parameter's own type, as the
+        // optional one: `undefined` at the parameter's own type, as the
         // fixed-arity value-call path synthesizes.
         for param_ty in params.iter().copied().take(rest_index).skip(args.len()) {
             args.push(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+                kind: ExprKind::Literal(Literal::Undefined),
                 ty: param_ty,
                 span,
             }));
@@ -644,7 +644,7 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. }
                 | Type::Function(_),
             ) => true,
-            Some(Type::Optional(inner)) => self.type_is_by_value_call_argument(*inner),
+            Some(Type::Optional(inner, _)) => self.type_is_by_value_call_argument(*inner),
             _ => false,
         }
     }
@@ -1834,7 +1834,7 @@ impl ModuleBuilder<'_> {
         let receiver_ty = Self::expr_ty(body, receiver);
         let erased = match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::Unknown) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
                     && matches!(
                         body.expr_at(receiver).map(|expr| &expr.kind),

@@ -791,7 +791,7 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     });
                     if field.visibility.is_own_property()
                         && may_be_absent
-                        && matches!(mir.types.get(field.ty), Some(smelt_hir::Type::Optional(_)))
+                        && matches!(mir.types.get(field.ty), Some(smelt_hir::Type::Optional(..)))
                     {
                         let key = mir.names.get(field.name).or_else(|| mir.symbols.get(field.name)).unwrap_or("field");
                         fn_writer.line(format!(

@@ -329,7 +329,7 @@ impl ModuleBuilder<'_> {
                     // the pieces so far joins them into the erased record
                     // rather than being judged against the first piece.
                     let source_record = match self.ctx.krate.types.get(source_ty) {
-                        Some(Type::Optional(inner)) => *inner,
+                        Some(Type::Optional(inner, _)) => *inner,
                         _ => source_ty,
                     };
                     let joins_erased = !hinted
@@ -521,7 +521,7 @@ impl ModuleBuilder<'_> {
     fn function_arm_count(&self, ty: smelt_hir::TypeId) -> usize {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Function(_)) => 1,
-            Some(Type::Optional(inner)) => self.function_arm_count(*inner),
+            Some(Type::Optional(inner, _)) => self.function_arm_count(*inner),
             Some(Type::Union(members)) => members
                 .iter()
                 .map(|member| self.function_arm_count(*member))
@@ -840,7 +840,7 @@ impl ModuleBuilder<'_> {
                     ))
                 }
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.accept_object_spread_source(*inner, record_ty, span)
             }
             Some(Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => Ok(()),
@@ -874,7 +874,9 @@ impl ModuleBuilder<'_> {
     ) -> bool {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
-            Some(Type::Optional(inner)) => self.object_spread_source_needs_unknown_record(*inner),
+            Some(Type::Optional(inner, _)) => {
+                self.object_spread_source_needs_unknown_record(*inner)
+            }
             _ => false,
         }
     }
@@ -975,7 +977,7 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<smelt_hir::TypeId> {
         let hint = match self.ctx.krate.types.get(type_hint) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => type_hint,
         };
         match self.ctx.krate.types.get(hint).cloned() {
@@ -1147,7 +1149,7 @@ impl ModuleBuilder<'_> {
         if self.type_assignable_to(actual, expected) {
             return true;
         }
-        matches!(self.ctx.krate.types.get(expected), Some(Type::Optional(inner)) if self.contextual_record_field_directly_assignable(actual, *inner))
+        matches!(self.ctx.krate.types.get(expected), Some(Type::Optional(inner, _)) if self.contextual_record_field_directly_assignable(actual, *inner))
     }
 
     /// Return whether direct record emission can initialize one contextual field.
@@ -1162,7 +1164,7 @@ impl ModuleBuilder<'_> {
         if self.contextual_record_field_directly_assignable(actual, expected) {
             return true;
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(expected) {
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(expected) {
             return self.contextual_record_field_assignable(actual, *inner);
         }
         self.contextual_record_literal_fields(actual).is_some()

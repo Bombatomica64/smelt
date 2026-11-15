@@ -177,7 +177,9 @@ impl FunctionEmitter<'_> {
             // Nor a symbol; a property key only ever reaches here as the key of
             // a record, which the dict arm reads.
             Some(Type::Symbol | Type::PropKey) => false,
-            Some(Type::List(item) | Type::Optional(item)) => self.json_decodable(*item, visiting),
+            Some(Type::List(item) | Type::Optional(item, _)) => {
+                self.json_decodable(*item, visiting)
+            }
             Some(Type::Tuple(items)) => items
                 .iter()
                 .all(|item| self.json_decodable(*item, visiting)),
@@ -356,7 +358,7 @@ impl FunctionEmitter<'_> {
                      Ok(SmeltRecord::with_id_from_entries(smelt_next_object_id(), entries))"
                 ))
             }
-            Some(Type::Optional(item)) => {
+            Some(Type::Optional(item, _)) => {
                 let inner = self.flatten_optional_inner(item);
                 let item_call = self.json_decode_call(inner, &RustExpr::path("other"), deps);
                 self.carrier_format(self.carrier()?, format_args!(
@@ -407,7 +409,7 @@ impl FunctionEmitter<'_> {
         interface: &smelt_mir::MirInterface,
         field: &MirField,
     ) -> PropertyFacts {
-        let optional = matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)));
+        let optional = matches!(self.mir.types.get(field.ty), Some(Type::Optional(..)));
         interface
             .decode_facts
             .iter()
@@ -455,7 +457,7 @@ impl FunctionEmitter<'_> {
                 .unwrap_or("field");
             let facts = self.json_property_facts(interface, field);
             let inner_ty = match self.mir.types.get(field.ty) {
-                Some(Type::Optional(inner)) => Some(self.flatten_optional_inner(*inner)),
+                Some(Type::Optional(inner, _)) => Some(self.flatten_optional_inner(*inner)),
                 _ => None,
             };
             let value_ty = inner_ty.unwrap_or(field.ty);
@@ -817,7 +819,7 @@ pub(crate) fn ts_type_text(mir: &Mir, ty: TypeId) -> String {
             let item_text = ts_type_text(mir, *item);
             if matches!(
                 mir.types.get(*item),
-                Some(Type::Union(_) | Type::Optional(_))
+                Some(Type::Union(_) | Type::Optional(..))
             ) {
                 format!("({item_text})[]")
             } else {
@@ -835,7 +837,7 @@ pub(crate) fn ts_type_text(mir: &Mir, ty: TypeId) -> String {
         Some(Type::Dict(_, value)) => {
             format!("Record<string, {}>", ts_type_text(mir, *value))
         }
-        Some(Type::Optional(item)) => {
+        Some(Type::Optional(item, _)) => {
             format!("{} | null", ts_type_text(mir, *item))
         }
         Some(Type::Union(items)) => items

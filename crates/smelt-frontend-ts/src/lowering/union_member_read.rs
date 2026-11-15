@@ -331,7 +331,7 @@ impl ModuleBuilder<'_> {
                 optional = true;
                 continue;
             }
-            if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty).cloned() {
+            if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(ty).cloned() {
                 optional = true;
                 ty = inner;
             }
@@ -356,7 +356,10 @@ impl ModuleBuilder<'_> {
             _ => self.ctx.krate.types.intern(Type::Union(members)),
         };
         Some(if optional {
-            self.ctx.krate.types.intern(Type::Optional(inner))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(inner, smelt_hir::Absence::Undefined))
         } else {
             inner
         })

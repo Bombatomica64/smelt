@@ -3,7 +3,7 @@
 //! Frontends can preserve source-language spelling while these helpers build
 //! the canonical operational shapes that later MIR and Rust codegen expect.
 
-use crate::{FunctionType, Type, TypeId, TypeInterner};
+use crate::{Absence, FunctionType, Type, TypeId, TypeInterner};
 
 /// Options controlling how source-language type shapes are normalized.
 #[derive(Debug, Clone, Copy)]
@@ -28,25 +28,121 @@ impl Default for NormalizeOptions {
 }
 
 /// Intern an optional type after applying canonical optional flattening.
+///
+/// The absent value is JavaScript's `undefined` (Python's `None`); see
+/// [`optional_with`] for a `null`.
 pub fn optional_of(types: &mut TypeInterner, inner: TypeId) -> TypeId {
+    optional_with(types, inner, Absence::Undefined)
+}
+
+/// Intern `inner` or `absence`, in canonical form.
+///
+/// An optional layer of the same absence is absorbed (`(T | null) | null` is
+/// `T | null`). Layers of both absences nest in one fixed order, `undefined`
+/// outside: `Optional(Optional(T, Null), Undefined)`, a Rust
+/// `Option<Option<T>>` whose outer `None` is `undefined` and whose
+/// `Some(None)` is `null`. So `T | null | undefined` has one spelling
+/// whichever way it was assembled, which is what makes a generic `V | null`
+/// at `V = number | undefined` the same type as the source's
+/// `number | null | undefined`.
+pub fn optional_with(types: &mut TypeInterner, inner: TypeId, absence: Absence) -> TypeId {
     let normalized_inner = normalize_type(types, inner, NormalizeOptions::default());
-    if let Some(Type::Optional(nested)) = types.get(normalized_inner).cloned() {
-        return types.intern(Type::Optional(nested));
+    let (base, undefined, null) = peel_optional(types, normalized_inner);
+    let undefined = undefined || absence == Absence::Undefined;
+    let null = null || absence == Absence::Null;
+    rebuild_optional(types, base, undefined, null)
+}
+
+/// Wrap `inner` in one optional layer of `absence`, keeping mixed layers in
+/// canonical order.
+///
+/// Unlike [`optional_with`], a layer of the same absence is not absorbed: a
+/// substitution that rebuilds `Optional(V, a)` keeps exactly the layers it
+/// had. Only a `null` layer around an `undefined` one moves inside it, so
+/// `V | null` at `V = T | undefined` is the canonical
+/// `Optional(Optional(T, Null), Undefined)`.
+pub fn wrap_optional(types: &mut TypeInterner, inner: TypeId, absence: Absence) -> TypeId {
+    if absence == Absence::Null
+        && let Some(Type::Optional(nested, Absence::Undefined)) = types.get(inner).cloned()
+    {
+        let moved = wrap_optional(types, nested, Absence::Null);
+        return types.intern(Type::Optional(moved, Absence::Undefined));
     }
-    types.intern(Type::Optional(normalized_inner))
+    types.intern(Type::Optional(inner, absence))
+}
+
+/// `ty` widened to admit `undefined`, as an optional slot (`x?: T`) is.
+///
+/// A type that admits it already is returned as it is; a `T | null` gains
+/// the outer `undefined` layer (`Optional(Optional(T, Null), Undefined)`).
+pub fn admit_undefined(types: &mut TypeInterner, ty: TypeId) -> TypeId {
+    let (_, undefined, _) = peel_optional(types, ty);
+    if undefined {
+        ty
+    } else {
+        wrap_optional(types, ty, Absence::Undefined)
+    }
+}
+
+/// Split `ty` into its first non-optional type and the absences of the
+/// optional layers around it: `(base, admits undefined, admits null)`.
+#[must_use]
+pub fn peel_optional(types: &TypeInterner, ty: TypeId) -> (TypeId, bool, bool) {
+    let mut base = ty;
+    let (mut undefined, mut null) = (false, false);
+    while let Some(Type::Optional(inner, absence)) = types.get(base) {
+        match absence {
+            Absence::Undefined => undefined = true,
+            Absence::Null => null = true,
+        }
+        base = *inner;
+    }
+    (base, undefined, null)
+}
+
+/// Wrap `base` in the canonical optional layers for the given absences (see
+/// [`optional_with`]); `base` itself when it admits neither.
+pub fn rebuild_optional(
+    types: &mut TypeInterner,
+    base: TypeId,
+    undefined: bool,
+    null: bool,
+) -> TypeId {
+    let mut ty = base;
+    if null {
+        ty = types.intern(Type::Optional(ty, Absence::Null));
+    }
+    if undefined {
+        ty = types.intern(Type::Optional(ty, Absence::Undefined));
+    }
+    ty
+}
+
+/// The single absence `ty` admits as a one-layer optional, or `None` for a
+/// non-optional type and for one that admits both absences (whose two layers
+/// each have their own).
+#[must_use]
+pub fn sole_absence(types: &TypeInterner, ty: TypeId) -> Option<Absence> {
+    match types.get(ty) {
+        Some(Type::Optional(inner, absence)) if !matches!(types.get(*inner), Some(Type::Optional(_, other)) if other != absence) => {
+            Some(*absence)
+        }
+        _ => None,
+    }
 }
 
 /// Return whether `ty` is represented as an optional/nullish value.
 #[must_use]
 pub fn is_optional_like(types: &TypeInterner, ty: TypeId) -> bool {
-    matches!(types.get(ty), Some(Type::Optional(_)))
+    matches!(types.get(ty), Some(Type::Optional(..)))
 }
 
 /// Return the non-nullish part of an optional or `None`-containing union.
 pub fn non_nullish_type(types: &mut TypeInterner, ty: TypeId) -> Option<TypeId> {
     match types.get(ty).cloned() {
-        Some(Type::Optional(inner)) => {
-            Some(normalize_type(types, inner, NormalizeOptions::default()))
+        Some(Type::Optional(..)) => {
+            let (base, _, _) = peel_optional(types, ty);
+            Some(normalize_type(types, base, NormalizeOptions::default()))
         }
         Some(Type::Union(items)) => {
             let none_ty = types.intern(Type::None);
@@ -56,10 +152,7 @@ pub fn non_nullish_type(types: &mut TypeInterner, ty: TypeId) -> Option<TypeId> 
                     continue;
                 }
                 let normalized = normalize_type(types, item, NormalizeOptions::default());
-                let flattened = match types.get(normalized).cloned() {
-                    Some(Type::Optional(inner)) => inner,
-                    _ => normalized,
-                };
+                let (flattened, _, _) = peel_optional(types, normalized);
                 if !remaining.contains(&flattened) {
                     remaining.push(flattened);
                 }
@@ -106,7 +199,7 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
                 .collect();
             types.intern(Type::Tuple(items))
         }
-        Type::Optional(inner) => normalize_optional_type(types, inner, options),
+        Type::Optional(inner, absence) => normalize_optional_type(types, inner, absence, options),
         Type::Union(items) => normalize_union_type(types, items, options),
         Type::Class { name, args } => {
             let args = args
@@ -183,14 +276,21 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
 fn normalize_optional_type(
     types: &mut TypeInterner,
     inner: TypeId,
+    absence: Absence,
     options: NormalizeOptions,
 ) -> TypeId {
     let normalized_inner = normalize_type(types, inner, options);
     if options.flatten_optional
         && !options.preserve_observable_absence
-        && let Some(Type::Optional(nested)) = types.get(normalized_inner).cloned()
+        && matches!(types.get(normalized_inner), Some(Type::Optional(..)))
     {
-        return types.intern(Type::Optional(nested));
+        let (base, undefined, null) = peel_optional(types, normalized_inner);
+        return rebuild_optional(
+            types,
+            base,
+            undefined || absence == Absence::Undefined,
+            null || absence == Absence::Null,
+        );
     }
     if options.flatten_union_none
         && !options.preserve_observable_absence
@@ -198,11 +298,11 @@ fn normalize_optional_type(
     {
         let union_ty = types.intern(Type::Union(items));
         let Some(non_nullish) = non_nullish_type(types, union_ty) else {
-            return types.intern(Type::Optional(normalized_inner));
+            return types.intern(Type::Optional(normalized_inner, absence));
         };
-        return types.intern(Type::Optional(non_nullish));
+        return optional_with(types, non_nullish, absence);
     }
-    types.intern(Type::Optional(normalized_inner))
+    types.intern(Type::Optional(normalized_inner, absence))
 }
 
 /// Normalize unions, including `T | None` into canonical optional values.
@@ -214,18 +314,21 @@ fn normalize_union_type(
     let none_ty = types.intern(Type::None);
     let mut normalized = Vec::new();
     let mut has_none = false;
+    let mut has_null = false;
     for item in items {
         let item = normalize_type(types, item, options);
         if item == none_ty {
             has_none = true;
             continue;
         }
-        let item = if let Some(Type::Optional(inner)) = types.get(item).cloned()
+        let item = if matches!(types.get(item), Some(Type::Optional(..)))
             && options.flatten_union_none
             && !options.preserve_observable_absence
         {
-            has_none = true;
-            inner
+            let (base, undefined, null) = peel_optional(types, item);
+            has_none |= undefined;
+            has_null |= null;
+            base
         } else {
             item
         };
@@ -245,14 +348,20 @@ fn normalize_union_type(
             }
         }
     }
+    // A bare `None` arm is the language's own absent value (`undefined`); a
+    // `null` arrives only inside an optional arm that says so.
     match (
         normalized.as_slice(),
-        has_none && options.flatten_union_none,
+        (has_none || has_null) && options.flatten_union_none,
     ) {
         ([], _) => none_ty,
-        ([single], true) => types.intern(Type::Optional(*single)),
+        ([single], true) => rebuild_optional(types, *single, has_none, has_null),
         ([single], false) => *single,
         (_, true) if !options.preserve_observable_absence => {
+            if has_null {
+                let union = types.intern(Type::Union(normalized));
+                return rebuild_optional(types, union, has_none, true);
+            }
             normalized.push(none_ty);
             types.intern(Type::Union(normalized))
         }
@@ -268,12 +377,15 @@ mod tests {
     fn flattens_nested_optional_types() {
         let mut types = TypeInterner::default();
         let float = types.intern(Type::Float);
-        let optional = types.intern(Type::Optional(float));
-        let nested = types.intern(Type::Optional(optional));
+        let optional = types.intern(Type::Optional(float, Absence::Undefined));
+        let nested = types.intern(Type::Optional(optional, Absence::Undefined));
 
         let normalized = normalize_type(&mut types, nested, NormalizeOptions::default());
 
-        assert_eq!(types.get(normalized), Some(&Type::Optional(float)));
+        assert_eq!(
+            types.get(normalized),
+            Some(&Type::Optional(float, Absence::Undefined))
+        );
     }
 
     #[test]
@@ -285,7 +397,10 @@ mod tests {
 
         let normalized = normalize_type(&mut types, union, NormalizeOptions::default());
 
-        assert_eq!(types.get(normalized), Some(&Type::Optional(string)));
+        assert_eq!(
+            types.get(normalized),
+            Some(&Type::Optional(string, Absence::Undefined))
+        );
     }
 
     #[test]
@@ -293,10 +408,10 @@ mod tests {
         let mut types = TypeInterner::default();
         let float = types.intern(Type::Float);
         let string = types.intern(Type::String);
-        let optional_float = types.intern(Type::Optional(float));
-        let nested_param = types.intern(Type::Optional(optional_float));
-        let optional_string = types.intern(Type::Optional(string));
-        let nested_return = types.intern(Type::Optional(optional_string));
+        let optional_float = types.intern(Type::Optional(float, Absence::Undefined));
+        let nested_param = types.intern(Type::Optional(optional_float, Absence::Undefined));
+        let optional_string = types.intern(Type::Optional(string, Absence::Undefined));
+        let nested_return = types.intern(Type::Optional(optional_string, Absence::Undefined));
         let function = types.intern(Type::Function(FunctionType {
             params: vec![nested_param],
             rest: None,
@@ -312,7 +427,13 @@ mod tests {
         let Some(Type::Function(function)) = types.get(normalized) else {
             panic!("expected normalized function type");
         };
-        assert_eq!(types.get(function.params[0]), Some(&Type::Optional(float)));
-        assert_eq!(types.get(function.return_ty), Some(&Type::Optional(string)));
+        assert_eq!(
+            types.get(function.params[0]),
+            Some(&Type::Optional(float, Absence::Undefined))
+        );
+        assert_eq!(
+            types.get(function.return_ty),
+            Some(&Type::Optional(string, Absence::Undefined))
+        );
     }
 }

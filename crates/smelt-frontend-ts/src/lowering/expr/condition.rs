@@ -362,7 +362,7 @@ impl ModuleBuilder<'_> {
         let Some(hint) = type_hint else {
             return read;
         };
-        let Some(Type::Optional(slot_value)) = self.ctx.krate.types.get(hint).cloned() else {
+        let Some(Type::Optional(slot_value, _)) = self.ctx.krate.types.get(hint).cloned() else {
             return read;
         };
         let read_ty = Self::expr_ty(body, read);

@@ -245,7 +245,9 @@ impl FunctionEmitter<'_> {
                 )))
             }
             smelt_hir::ListCallbackOp::Find | smelt_hir::ListCallbackOp::FindLast => {
-                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
+                if self.mir.types.get(dest_ty)
+                    != Some(&Type::Optional(element_ty, smelt_hir::Absence::Undefined))
+                {
                     return Err(EmitError::new(
                         "array find destination must be optional element type",
                     ));

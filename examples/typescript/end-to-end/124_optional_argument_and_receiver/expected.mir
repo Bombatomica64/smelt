@@ -49,7 +49,7 @@ fn main (FuncId(0)) -> None
   bb0:
     %4 = closure ClosureId(0) []
     %0 = move %4
-    %5 = closure_call copy %0("p", none)
+    %5 = closure_call copy %0("p", undefined)
     %6 = closure_call move %0("p", "q")
     %7 = call @console_log(move %5, move %6) -> bb1
   bb1:

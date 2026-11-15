@@ -455,12 +455,12 @@ class Point:
             .ok_or_else(|| "missing field y".to_owned())?;
         ensure(!x.optional, "required field x must stay non-optional")?;
         ensure(
-            !matches!(ctx.krate.types.get(x.ty), Some(Type::Optional(_))),
+            !matches!(ctx.krate.types.get(x.ty), Some(Type::Optional(..))),
             "required field x must not be Type::Optional",
         )?;
         ensure(y.optional, "field y must be marked optional")?;
         ensure(
-            matches!(ctx.krate.types.get(y.ty), Some(Type::Optional(_))),
+            matches!(ctx.krate.types.get(y.ty), Some(Type::Optional(..))),
             "field y must intern as Type::Optional",
         )?;
     } else {
@@ -497,7 +497,7 @@ class Config:
             .ok_or_else(|| "missing field retries".to_owned())?;
         ensure(retries.optional, "field retries must be marked optional")?;
         ensure(
-            matches!(ctx.krate.types.get(retries.ty), Some(Type::Optional(_))),
+            matches!(ctx.krate.types.get(retries.ty), Some(Type::Optional(..))),
             "field retries must intern as Type::Optional",
         )?;
     } else {

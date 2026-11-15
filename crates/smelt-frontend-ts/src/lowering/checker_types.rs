@@ -470,11 +470,11 @@ impl ModuleBuilder<'_> {
         match (wide_ty, narrow_ty) {
             (_, Type::Unknown) => false,
             (Type::Unknown, _) => true,
-            (Type::Optional(_), Type::None) => true,
-            (Type::Optional(wide_item), Type::Optional(narrow_item)) => {
+            (Type::Optional(..), Type::None) => true,
+            (Type::Optional(wide_item, _), Type::Optional(narrow_item, _)) => {
                 self.type_accepts_all_of(*wide_item, *narrow_item)
             }
-            (Type::Optional(wide_item), _) => self.type_accepts_all_of(*wide_item, narrow),
+            (Type::Optional(wide_item, _), _) => self.type_accepts_all_of(*wide_item, narrow),
             (_, Type::Union(members)) => members
                 .iter()
                 .all(|member| self.type_accepts_all_of(wide, *member)),

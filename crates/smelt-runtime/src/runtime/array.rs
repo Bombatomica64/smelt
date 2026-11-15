@@ -315,11 +315,50 @@ fn smelt_alias_erased_generic_list(list: impl Into<SmeltList<SmeltUnknown>>) -> 
 fn smelt_alias_erased_generic_array(list: impl Into<SmeltArray>) -> SmeltArray { list.into() }
 // @smelt:item-end
 
+// @smelt:item smelt_erased_list_write_back when unknown & erased_list_write_back
+/// Commit a list mutated through an assertion of an erased array
+/// (`(er as unknown[]).push(x)`) back into that array, in place.
+//~
+//~ The assertion ran the mutation on a converted copy; JavaScript has one
+//~ array, so the erased array takes the copy's elements (through its live view,
+//~ when it is one, so the typed list behind it sees them). A receiver that is
+//~ not an array (the assertion lied) is left as it is.
+//~ A copy that already IS the array's own buffer (an erased array cast to
+//~ `unknown[]` aliases it) was mutated in place, and is left alone; a copy
+//~ taken from a live view keeps the id, so the buffers are compared, not ids.
+#[allow(dead_code)]
+fn smelt_erased_list_write_back(receiver: &SmeltUnknown, list: SmeltUnknown) {
+    if let (SmeltUnknown::Array(target), SmeltUnknown::Array(source)) = (receiver, list)
+        && !::std::rc::Rc::ptr_eq(&target.values, &source.values)
+    {
+        target.replace_all(source.into_vec());
+    }
+}
+// @smelt:item-end
+
 // @smelt:item smelt_optional_unknown_or_undefined when optional_unknown_read & unknown
 /// An optional erased value read at the erased carrier: absence is `undefined`.
 #[inline]
 #[allow(dead_code)]
 fn smelt_optional_unknown_or_undefined(value: Option<SmeltUnknown>) -> SmeltUnknown { value.unwrap_or(SmeltUnknown::Undefined) }
+// @smelt:item-end
+
+// @smelt:item smelt_null_or when unknown & null_codec
+/// Erase a `T | null` optional: absent is the `null` tag, present goes through `present`.
+//~ The `null` counterpart of `map_or(SmeltUnknown::Undefined, ..)`: which
+//~ absent value a `None` is comes from the static type, and this is the one
+//~ spelling of its `null` case.
+#[inline]
+#[allow(dead_code)]
+fn smelt_null_or<T>(value: Option<T>, present: impl FnOnce(T) -> SmeltUnknown) -> SmeltUnknown { value.map_or(SmeltUnknown::Null, present) }
+// @smelt:item-end
+
+// @smelt:item smelt_nullish_unknown_or_undefined when optional_unknown_read & unknown & null_codec
+/// An erased `T | null | undefined` read at the erased carrier: each absence is its own tag.
+#[inline]
+#[allow(dead_code)]
+#[expect(clippy::option_option, reason = "the two layers are the two absent values of a `T | null | undefined`, `undefined` outside")]
+fn smelt_nullish_unknown_or_undefined(value: Option<Option<SmeltUnknown>>) -> SmeltUnknown { match value { None => SmeltUnknown::Undefined, Some(None) => SmeltUnknown::Null, Some(Some(value)) => value } }
 // @smelt:item-end
 
 // @smelt:item impl_From_SmeltList_T_for_Vec_T when unknown

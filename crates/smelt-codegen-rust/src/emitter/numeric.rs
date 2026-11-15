@@ -85,7 +85,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String | Type::PyStr) => {
                 self.string_len_text(&receiver_text.parenthesized_if_needed())
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 format!(
@@ -94,7 +94,7 @@ impl FunctionEmitter<'_> {
                     receiver_text = receiver_text.tight()
                 )
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
             {
                 format!(
@@ -102,7 +102,7 @@ impl FunctionEmitter<'_> {
                     receiver_text = receiver_text.tight()
                 )
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
             {
                 self.carrier_format(
@@ -113,7 +113,7 @@ impl FunctionEmitter<'_> {
                     ),
                 )
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Union(_) | Type::TypeParam { .. })
@@ -361,7 +361,7 @@ impl FunctionEmitter<'_> {
         // `Number.*` predicate (the frontend asserts presence for the
         // coercing global ones): absent is "not a number", so the predicate
         // is `false` there and tested on the value where present.
-        if let Some(Type::Optional(inner)) = self.mir.types.get(operand_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(operand_ty)
             && matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float))
         {
             let test = match op {
@@ -384,7 +384,7 @@ impl FunctionEmitter<'_> {
         // number coercion the other predicates here use.
         if matches!(op, smelt_hir::NumericPredicateOp::IsSafeInteger) && !is_numeric_operand {
             let carries_runtime_tag = is_erased_operand
-                || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(_)));
+                || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(..)));
             if !carries_runtime_tag {
                 return Ok(RustExpr::path("false"));
             }
@@ -713,7 +713,7 @@ impl FunctionEmitter<'_> {
         let operand_is_string = matches!(operand_ty, Some(Type::String | Type::PyStr));
         let operand_is_optional_string = matches!(
             operand_ty,
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr))
+            Some(Type::Optional(inner, _)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr))
         );
         if !(operand_is_string || operand_is_optional_string)
             || !matches!(

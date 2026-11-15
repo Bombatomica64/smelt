@@ -875,7 +875,7 @@ impl ModuleBuilder<'_> {
             }
             // A value is an `Optional` of its own type (a defaulted parameter).
             let optional_of_supplied =
-                matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner)) if *inner == supplied);
+                matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner, _)) if *inner == supplied);
             // A value of one arm is a value of the union declaring that arm.
             let arm_of_union = matches!(self.ctx.krate.types.get(*expected), Some(Type::Union(arms)) if arms.contains(&supplied));
             if supplied != *expected
@@ -905,7 +905,7 @@ impl ModuleBuilder<'_> {
                     names.push(text.to_owned());
                 }
             }
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item)) => {
                 self.collect_type_param_names(item, names);
             }
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
@@ -936,7 +936,7 @@ impl ModuleBuilder<'_> {
             Some(Type::TypeParam { name }) => {
                 self.ctx.krate.symbols.get(*name).is_some_and(|text| params.iter().any(|param| param == text))
             }
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item)) => {
                 self.mentions_type_params(*item, params)
             }
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
@@ -979,11 +979,11 @@ impl ModuleBuilder<'_> {
             }
             (Type::List(expected_item), Type::List(supplied_item))
             | (Type::Set(expected_item), Type::Set(supplied_item))
-            | (Type::Optional(expected_item), Type::Optional(supplied_item))
+            | (Type::Optional(expected_item, _), Type::Optional(supplied_item, _))
             | (Type::Future(expected_item), Type::Future(supplied_item)) => {
                 self.solve_type_params(expected_item, supplied_item, params, solved);
             }
-            (Type::Optional(expected_item), _) => self.solve_type_params(expected_item, supplied, params, solved),
+            (Type::Optional(expected_item, _), _) => self.solve_type_params(expected_item, supplied, params, solved),
             (Type::Dict(expected_key, expected_value), Type::Dict(supplied_key, supplied_value))
             | (Type::JsMap(expected_key, expected_value), Type::JsMap(supplied_key, supplied_value)) => {
                 self.solve_type_params(expected_key, supplied_key, params, solved);

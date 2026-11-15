@@ -189,7 +189,7 @@ impl FunctionEmitter<'_> {
             } else {
                 format!("get({field_name:?})")
             };
-            if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(*value), Some(Type::Optional(..))) {
                 if self.dict_uses_smelt_record(*key) {
                     return Ok(receiver_text.postfix(format!(".{lookup}.flatten()")));
                 }
@@ -736,7 +736,7 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type(index, key_ty)?
         };
-        let flatten = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+        let flatten = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
             ".flatten()"
         } else {
             ""
