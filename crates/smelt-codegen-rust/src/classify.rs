@@ -543,7 +543,10 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
 
 /// An object shape whose value is handed to a slot of an erased or dictionary
 /// type: an argument, an assignment or a return whose destination is
-/// `unknown`/`any`, a type parameter or `Record<K, V>`.
+/// `unknown`/`any`, a type parameter or `Record<K, V>`
+/// ([`for_each_record_flow`]), or an operation that puts it into an erased
+/// container (`unknown[]`, `Set<unknown>`, a dictionary;
+/// [`for_each_record_beside_an_erased_container`]).
 ///
 /// JavaScript hands that slot the object itself. Whoever holds it can write a
 /// property, add or delete one, keep it and read it later, or compare it by
@@ -568,22 +571,122 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
 /// reaches such a slot some other way keeps the representation its other uses
 /// give it, as before this trigger existed.
 fn collect_view_flow_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    let liftable = |name: Symbol| {
+        mir.interfaces.iter().any(|interface| {
+            interface.name == name
+                && interface.type_params.is_empty()
+                && !is_callable_shape(mir, interface)
+                && !has_accessor_fields(mir, interface)
+        })
+    };
     for_each_record_flow(mir, |name, slot| {
         let view_slot = matches!(
             mir.types.get(slot),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Dict(_, _))
         );
-        if view_slot
-            && mir.interfaces.iter().any(|interface| {
-                interface.name == name
-                    && interface.type_params.is_empty()
-                    && !is_callable_shape(mir, interface)
-                    && !has_accessor_fields(mir, interface)
-            })
-        {
+        if view_slot && liftable(name) {
             references.insert(name);
         }
     });
+    for_each_record_beside_an_erased_container(mir, |name| {
+        if liftable(name) {
+            references.insert(name);
+        }
+    });
+}
+
+/// Whether a value of type `ty` holds, at any depth of its element types, a
+/// slot an object crosses into erased: `unknown`/`any`, a type parameter, or a
+/// dictionary. A record's own fields are not looked into (a record is a
+/// record), nor a function's signature (a call is judged at the call).
+fn holds_erased_slot(mir: &Mir, ty: smelt_hir::TypeId, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    match mir.types.get(ty) {
+        Some(Type::Unknown | Type::TypeParam { .. } | Type::Dict(_, _)) => true,
+        Some(Type::Class { .. } | Type::Function(_)) | None => false,
+        Some(other) => other
+            .children()
+            .any(|child| holds_erased_slot(mir, child, depth.saturating_add(1))),
+    }
+}
+
+/// Call `beside(record)` for every record value an operation reads next to an
+/// erased container: the operation's destination, the container it assigns
+/// into, or another of its operands has a type that holds an erased slot
+/// ([`holds_erased_slot`]).
+///
+/// This is how a record reaches an erased slot WITHOUT a call, assignment or
+/// return ([`for_each_record_flow`]): `registry.push(record)` into an
+/// `unknown[]`, `seen.add(record)` on a `Set<unknown>`, `[record]` built at
+/// `Record<string, unknown>[]`, `bag[key] = record`. No operation is named:
+/// the IR's own traversal ([`Statement::reads`]) says what each one reads, so
+/// a new collection operation is covered the day it is added. An operation
+/// whose types hold no erased slot (`records.push(record)` on a `Point[]`,
+/// `JSON.stringify(record)`) hands the record to nothing that could keep or
+/// write it erased, and is not a flow.
+fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(Symbol)) {
+    let strip = |mut ty: smelt_hir::TypeId| {
+        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+            ty = *inner;
+        }
+        ty
+    };
+    let local_ty = |locals: &[smelt_mir::LocalDecl], local: LocalId| {
+        usize::try_from(local.0)
+            .ok()
+            .and_then(|index| locals.get(index))
+            .map(|decl| decl.ty)
+    };
+    let mut scan = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        for statement in blocks.iter().flat_map(|block| &block.statements) {
+            // A plain move or copy between locals is a flow of its own kind.
+            if matches!(
+                statement,
+                Statement::Assign {
+                    value: Rvalue::Use(_),
+                    ..
+                }
+            ) {
+                continue;
+            }
+            let mut records = Vec::new();
+            let mut erased = match statement {
+                Statement::Assign { dest, .. } => {
+                    local_ty(locals, *dest).is_some_and(|ty| holds_erased_slot(mir, ty, 0))
+                }
+                _ => false,
+            };
+            statement.reads(|read| {
+                let local = match read {
+                    smelt_mir::Read::Base(local) => Some(local),
+                    smelt_mir::Read::Operand(
+                        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)),
+                    ) => Some(*local),
+                    smelt_mir::Read::Operand(_) => None,
+                };
+                let Some(ty) = local.and_then(|read_local| local_ty(locals, read_local)) else {
+                    return;
+                };
+                match mir.types.get(strip(ty)) {
+                    Some(Type::Class { name, .. }) if is_record_type_symbol(mir, *name) => {
+                        records.push(*name);
+                    }
+                    _ => erased |= holds_erased_slot(mir, ty, 0),
+                }
+            });
+            if erased {
+                records.into_iter().for_each(&mut beside);
+            }
+        }
+    };
+    for function in &mir.functions {
+        scan(&function.locals, &function.blocks);
+    }
+    for closure in &mir.closures {
+        scan(&closure.locals, &closure.blocks);
+    }
 }
 
 /// Call `flow(record, slot)` for every value of a record type (a class or an

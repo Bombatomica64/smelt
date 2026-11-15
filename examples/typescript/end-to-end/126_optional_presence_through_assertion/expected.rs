@@ -4175,40 +4175,79 @@ impl SmeltFromUnknown for SmeltMatch {
 
 // @smelt:prelude-end — generated program below
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct HandlerSet {
+#[allow(dead_code)]
+struct HandlerSet(::std::rc::Rc<::std::cell::RefCell<HandlerSetInner>>);
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct HandlerSetInner {
     handler: JsString,
     score: f64,
 }
-impl IntoSmeltUnknown for HandlerSet {
-    fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
-        ("handler".to_owned(), SmeltUnknown::String(self.handler.into())),
-        ("score".to_owned(), SmeltUnknown::Number(self.score as f64)),
-        ])))
+impl Clone for HandlerSet {
+    fn clone(&self) -> Self {
+        HandlerSet(::std::rc::Rc::clone(&self.0))
     }
 }
+impl PartialEq for HandlerSet {
+    fn eq(&self, other: &Self) -> bool {
+        ::std::rc::Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Default for HandlerSet {
+    fn default() -> Self {
+        HandlerSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerSetInner::default())))
+    }
+}
+impl ::std::fmt::Debug for HandlerSet {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::std::fmt::Debug::fmt(&*self.0.borrow(), formatter)
+    }
+}
+/// `HandlerSet` as its erased and map views read and write it (`SmeltLiveObject`).
+impl SmeltLiveObject for HandlerSet {
+    fn smelt_field_names(&self) -> &'static [&'static str] { &["handler", "score"] }
+    #[allow(unused_mut, unused_variables)]
+    fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {
+        let smelt_object_value = self;
+        let smelt_struct_value = self;
+        let mut smelt_object_entries = SmeltLiveSlot(None);
+        if *key == "handler" { smelt_object_entries.push(("handler", SmeltUnknown::String((smelt_object_value.0.borrow().handler.clone()).into()))); } else if *key == "score" { smelt_object_entries.push(("score", SmeltUnknown::Number(smelt_object_value.0.borrow().score.clone() as f64))); }
+        smelt_object_entries.0
+    }
+    #[allow(unused_variables)]
+    fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
+        if *key == "handler" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().handler = smelt_field_value; return Ok(()); }
+        if *key == "score" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; self.0.borrow_mut().score = smelt_field_value; return Ok(()); }
+        Err(value)
+    }
+    #[allow(unused_mut, unused_variables)]
+    fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
+        let smelt_object_value = self;
+        let smelt_struct_value = self;
+        let mut smelt_object_entries = Vec::<(&'static str, SmeltUnknown)>::new();
+        smelt_object_entries.push(("handler", SmeltUnknown::String((smelt_object_value.0.borrow().handler.clone()).into()))); smelt_object_entries.push(("score", SmeltUnknown::Number(smelt_object_value.0.borrow().score.clone() as f64)));
+        smelt_object_entries
+    }
+    fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
+    fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
+    fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+}
+impl IntoSmeltUnknown for HandlerSet {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))
+    }
+}
+/// Recover this reference record from an erased value: the live instance
+/// when the value is an erasure of one, else a fresh object rebuilt from it.
 impl SmeltFromUnknown for HandlerSet {
     const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
-        let mut result = Self::default();
-        if let SmeltUnknown::Object(object) = value.clone() {
-            if let Some(smelt_field) = smelt_erased_member(&object, "handler") {
-                result.handler = SmeltFromUnknown::smelt_from_unknown(smelt_field);
-            }
-            else {
-                smelt_throw_missing_record_field("string", "HandlerSet", "handler");
-            }
-            if let Some(smelt_field) = smelt_erased_member(&object, "score") {
-                result.score = SmeltFromUnknown::smelt_from_unknown(smelt_field);
-            }
-            else {
-                smelt_throw_missing_record_field("number", "HandlerSet", "score");
-            }
-        }
-        else {
-            smelt_throw_not_a_record("HandlerSet", &value);
-        }
+        let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("HandlerSet", &value) };
+        if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
+        let result = Self::default();
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "handler") { result.0.borrow_mut().handler = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("string", "HandlerSet", "handler"); }
+        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "score") { result.0.borrow_mut().score = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("number", "HandlerSet", "score"); }
+        smelt_object.smelt_adopt(&result);
         result
     }
 }
@@ -4343,7 +4382,6 @@ impl SmeltFromUnknown for Table {
         let SmeltUnknown::Object(smelt_object) = value.clone() else { smelt_throw_not_a_record("Table", &value) };
         if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }
         let result = Self::default();
-        if let Some(smelt_field) = smelt_erased_member(&smelt_object, "methods") { let _smelt_conv_frame = smelt_conv_enter("Table", "methods"); result.0.borrow_mut().methods = SmeltFromUnknown::smelt_from_unknown(smelt_field); } else { smelt_throw_missing_record_field("Record<string, HandlerSet>[]", "Table", "methods"); }
         result
     }
 }
@@ -4386,7 +4424,7 @@ fn main() {
     let _smelt_tmp_16: SmeltList<JsString> = table.lookup(JsString::from("put"));
     _smelt_tmp_17 = JsString::join(_smelt_tmp_16.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_17); };
-    _smelt_tmp_19 = HandlerSet { handler: JsString::from("first"), score: 1.0 };
+    _smelt_tmp_19 = HandlerSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerSetInner { handler: JsString::from("first"), score: 1.0 })));
     entries = SmeltRecord::from([(JsString::from("a"), _smelt_tmp_19)]);
     _smelt_tmp_21 = entries.clone().get(&JsString::from("missing"));
     _smelt_tmp_22 = entries.clone().get(&JsString::from("a"));
@@ -4395,7 +4433,7 @@ fn main() {
     let mut _smelt_tmp_25: JsString = JsString::new();
     if _smelt_tmp_24 {
     _smelt_tmp_26 = picked.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_25 = _smelt_tmp_26.handler.clone();
+    _smelt_tmp_25 = _smelt_tmp_26.0.borrow().handler.clone();
     } else {
     _smelt_tmp_25 = JsString::from("none");
     }
@@ -4407,13 +4445,13 @@ fn main() {
     let mut _smelt_tmp_32: JsString = JsString::new();
     if _smelt_tmp_31 {
     _smelt_tmp_33 = absent.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_32 = _smelt_tmp_33.handler.clone();
+    _smelt_tmp_32 = _smelt_tmp_33.0.borrow().handler.clone();
     } else {
     _smelt_tmp_32 = JsString::from("none");
     }
     let _ = { println!("{}", _smelt_tmp_32); };
-    base = HandlerSet { handler: JsString::from("h"), score: 1.0 };
-    full = { let smelt_struct_value = base.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) };
+    base = HandlerSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerSetInner { handler: JsString::from("h"), score: 1.0 })));
+    full = { let smelt_struct_value = base.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.0.borrow().handler.clone(), score: smelt_struct_value.0.borrow().score.clone(), params: SmeltRecord::new() }))) };
     _smelt_tmp_37 = SmeltRecord::from([]);
     full.0.borrow_mut().params = _smelt_tmp_37;
     _smelt_tmp_38 = full.0.borrow().params.clone();
@@ -4433,7 +4471,7 @@ impl Table {
     }
     fn add(&self, method: JsString, handler: JsString, score: f64) -> () {
     let mut _smelt_tmp_4: SmeltList<SmeltRecord<JsString, HandlerSet>> = Into::<SmeltList<_>>::into(self.0.borrow().methods.clone());
-    let _smelt_tmp_5: HandlerSet = HandlerSet { handler: handler.clone(), score: score };
+    let _smelt_tmp_5: HandlerSet = HandlerSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerSetInner { handler: handler.clone(), score: score })));
     let _smelt_tmp_6: SmeltRecord<JsString, HandlerSet> = SmeltRecord::from([(method.clone(), _smelt_tmp_5)]);
     let _smelt_tmp_7: f64 = { let smelt_push_item = _smelt_tmp_6; _smelt_tmp_4.borrow_mut().push(smelt_push_item); _smelt_tmp_4.len() as f64 };
     self.0.borrow_mut().methods = Into::<SmeltList<_>>::into(_smelt_tmp_4);
@@ -4466,7 +4504,7 @@ impl Table {
     _smelt_tmp_10 = m.clone().get(&method.clone());
     _smelt_tmp_11 = m.get(&JsString::from("ALL"));
     _smelt_tmp_12 = _smelt_tmp_10.clone().or(_smelt_tmp_11);
-    set = _smelt_tmp_12.map(|smelt_value| { let smelt_struct_value = smelt_value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.handler.clone(), score: smelt_struct_value.score.clone(), params: SmeltRecord::new() }))) });
+    set = _smelt_tmp_12.map(|smelt_value| { let smelt_struct_value = smelt_value.clone(); HandlerParamsSet(::std::rc::Rc::new(::std::cell::RefCell::new(HandlerParamsSetInner { handler: smelt_struct_value.0.borrow().handler.clone(), score: smelt_struct_value.0.borrow().score.clone(), params: SmeltRecord::new() }))) });
     _smelt_tmp_14 = !(set.clone().is_none());
     if _smelt_tmp_14 {
     _smelt_tmp_15 = set.clone().expect("optional value was absent after narrowing");

@@ -16,6 +16,9 @@
 //!   writes it through a cast back; identity both ways;
 //! - `shared-as-an-open-dictionary`: a callee typed `Record<string, unknown>`
 //!   writes, adds, deletes and keeps the value; key order afterwards;
+//! - `held-in-an-erased-collection`: `Set<unknown>.add`, `unknown[].push`
+//!   and an array literal at `Record<string, unknown>[]` hold the record
+//!   itself;
 //! - `written-through-any`: a callee typed `any` writes, adds and deletes
 //!   properties and keeps the value;
 //! - `written-with-another-type-through-any`: a callee stores a value the
@@ -137,6 +140,18 @@ fn record_shared_as_an_open_dictionary_is_the_callers_record() -> TestResult {
         "shared-as-an-open-dictionary",
         &Typing {
             records: &[("point", "Point"), ("back", "Point")],
+        },
+    )
+}
+
+/// A record put into an erased collection is found again by identity and
+/// written through an element.
+#[test]
+fn record_held_in_an_erased_collection_is_the_callers_record() -> TestResult {
+    verify_fixture(
+        "held-in-an-erased-collection",
+        &Typing {
+            records: &[("origin", "Point"), ("other", "Point")],
         },
     )
 }

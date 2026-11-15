@@ -624,6 +624,36 @@ fn classifies_a_shape_handed_to_an_erased_or_map_slot_as_reference() {
     assert_eq!(names, vec!["Size".to_owned()]);
 }
 
+/// Rule: a shape put into an erased CONTAINER by a collection operation is a
+/// reference record too: the container holds the caller's object, which
+/// `indexOf`, `has` and a later write through an element must find again
+/// (`classify::for_each_record_beside_an_erased_container`). The same
+/// operation on a container of the shape's own type is not a flow.
+#[test]
+fn classifies_a_shape_put_into_an_erased_container_as_reference() {
+    for body in [
+        "const all: unknown[] = []; all.push(size);",
+        "const seen = new Set<unknown>(); seen.add(size);",
+        "const all: Record<string, unknown>[] = [size];",
+        "const bag: Record<string, unknown> = {}; bag['k'] = size;",
+    ] {
+        let names = reference_class_names(&format!(
+            "type Size = {{ width: number; height: number }};\nfunction run(): void {{ const size: Size = {{ width: 1, height: 2 }}; {body} }}\n"
+        ));
+        assert_eq!(names, vec!["Size".to_owned()], "{body}");
+    }
+    for body in [
+        "const all: Size[] = []; all.push(size);",
+        "const text = JSON.stringify(size);",
+        "const all: Size[] = [size];",
+    ] {
+        let names = reference_class_names(&format!(
+            "type Size = {{ width: number; height: number }};\nfunction run(): void {{ const size: Size = {{ width: 1, height: 2 }}; {body} }}\n"
+        ));
+        assert!(names.is_empty(), "{body}: {names:?}");
+    }
+}
+
 /// A generic shape handed to such a slot keeps the by-value struct: its erased
 /// view is the snapshot, so there is nothing to share, and its instantiations
 /// convert field by field (`collect_view_flow_triggers`).
