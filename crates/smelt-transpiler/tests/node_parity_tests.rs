@@ -1612,3 +1612,11 @@ fn race_continuations_before_timers() -> TestResult {
 fn microtask_order() -> TestResult {
     verify_node_parity("microtask_order")
 }
+
+/// A generic class's or interface's callback-typed field keeps the ABI its
+/// declaration gives it at every instantiation (`(value: T) => T` takes `T`
+/// by reference), called directly or through a receiver bind.
+#[test]
+fn generic_callback_fields() -> TestResult {
+    verify_node_parity("generic_callback_fields")
+}
