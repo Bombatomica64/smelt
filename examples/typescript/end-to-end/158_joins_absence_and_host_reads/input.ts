@@ -1,4 +1,4 @@
-// Joins, absence and host data reads — blocker-logs/hono-v5-phase4.md.
+// Joins, absence and host data reads — hono-v5-phase4.md (in git history).
 //
 // Four general rules Hono v5's core (`hono-base.ts`, `router/reg-exp-router`)
 // needed, each checked against Node line by line:

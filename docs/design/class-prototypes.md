@@ -239,3 +239,19 @@ Each item below is one of the known gaps, fixed by a general rule rather than a 
 * Still open (gap 5): a host constructor used as a plain value lowers wrongly. `const c: unknown = Date` is
   `null`, `TypeError` is a string, and `Map` is a factory closure. So `Date.prototype.constructor === Date` is
   false.
+
+### Typedness: manual `next()` on a source-`any` collection
+
+`compat/_internal/mapToEntries.ts` (+2 erased calls) and `setToEntries.ts` (+1) in es-toolkit call
+`keys.next()` by hand on a `Map<any, any>` / `Set<any>`.
+
+* **Old requirement.** `next()` was emulated over a copied list, by removing its first element. It was not
+  counted as a call, and it was not live.
+* **New requirement.** `next()` is a live iterator step on a collection whose element type is `any` in the
+  source. It is counted as an erased call. Node re-reads the collection at every `next()`: an entry added after
+  the iterator was made is yielded. The `collection_iterators` and `host_constructor_values` Node-parity
+  fixtures pin that behaviour.
+
+The user approved the rise for exactly these two records. Their baseline entries, and the corpus total they
+feed, were raised by an explicit edit. Every other record is as the ratchet computes it. The emit site
+(`FunctionEmitter::collection_iterator_expr`) documents the boundary.

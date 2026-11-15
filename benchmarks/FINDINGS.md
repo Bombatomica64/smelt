@@ -167,7 +167,7 @@ per op.
 Four generated es-toolkit modules construct a `SmeltRegExp` this way. A module-level
 `const` whose initializer has construction cost wants to be a lazily-initialized
 static, not an inlined expression. (There is an existing note on adjacent behaviour in
-`blocker-logs/estk-const-item-inlining.md`.)
+`estk-const-item-inlining.md` (in git history).)
 
 ## 4. Erasure is expensive, and it is measurable in isolation
 

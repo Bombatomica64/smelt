@@ -3,36 +3,22 @@ fn param_index_map (FuncId(0)) -> Dict<String, Float>
     %0 param path: String
     %1 user path_data: Optional<(Float, List<(String, Float)>)>
     %2 user seed: Dict<String, Float>
-    %3 temp: (String, Float)
-    %4 temp: (String, Float)
-    %5 temp: List<(String, Float)>
+    %3 temp: Dict<String, (Float, List<(String, Float)>)>
+    %4 temp: Optional<(Float, List<(String, Float)>)>
+    %5 temp: Dict<String, Float>
     %6 temp: (Float, List<(String, Float)>)
-    %7 temp: (String, Float)
-    %8 temp: List<(String, Float)>
-    %9 temp: (Float, List<(String, Float)>)
-    %10 temp: Dict<String, (Float, List<(String, Float)>)>
-    %11 temp: Optional<(Float, List<(String, Float)>)>
-    %12 temp: Dict<String, Float>
-    %13 temp: (Float, List<(String, Float)>)
-    %14 temp: List<(String, Float)>
-    %15 temp: fn(Dict<String, Float>, (String, Float), Int, List<(String, Float)>) -> Dict<String, Float>
-    %16 temp: Dict<String, Float>
+    %7 temp: List<(String, Float)>
+    %8 temp: fn(Dict<String, Float>, (String, Float), Int, List<(String, Float)>) -> Dict<String, Float>
+    %9 temp: Dict<String, Float>
   bb0:
-    %3 = ("id", 0.0)
-    %4 = ("post", 1.0)
-    %5 = [move %3, move %4]
-    %6 = (0.0, move %5)
-    %7 = ("tag", 2.0)
-    %8 = [move %7]
-    %9 = (1.0, move %8)
-    %10 = {"/users/:id/posts/:post": move %6, "/tags/:tag": move %9}
-    %1 = move %10?.[copy %0]
+    %3 = global_get #0
+    %1 = move %3?.[copy %0]
     %2 = {}
-    %13 = copy %1
-    %14 = tuple_index move %13, 1
-    %15 = closure ClosureId(0) [copy %1]
-    %16 = list_reduce_right move %14, move %2, move %15
-    return move %16
+    %6 = copy %1
+    %7 = tuple_index move %6, 1
+    %8 = closure ClosureId(0) [copy %1]
+    %9 = list_reduce_right move %7, move %2, move %8
+    return move %9
 
 fn visit_order (FuncId(1)) -> String
   locals
@@ -67,32 +53,39 @@ fn last_minus_rest (FuncId(3)) -> Float
 fn handler_index (FuncId(4)) -> Float
   locals
     %0 param path: String
-    %1 temp: (String, Float)
-    %2 temp: (String, Float)
-    %3 temp: List<(String, Float)>
-    %4 temp: (Float, List<(String, Float)>)
-    %5 temp: (String, Float)
-    %6 temp: List<(String, Float)>
-    %7 temp: (Float, List<(String, Float)>)
-    %8 temp: Dict<String, (Float, List<(String, Float)>)>
-    %9 temp: Optional<(Float, List<(String, Float)>)>
-    %10 temp: (Float, List<(String, Float)>)
-    %11 temp: Float
+    %1 temp: Dict<String, (Float, List<(String, Float)>)>
+    %2 temp: Optional<(Float, List<(String, Float)>)>
+    %3 temp: (Float, List<(String, Float)>)
+    %4 temp: Float
   bb0:
-    %1 = ("id", 0.0)
-    %2 = ("post", 1.0)
-    %3 = [move %1, move %2]
-    %4 = (0.0, move %3)
-    %5 = ("tag", 2.0)
-    %6 = [move %5]
-    %7 = (1.0, move %6)
-    %8 = {"/users/:id/posts/:post": move %4, "/tags/:tag": move %7}
-    %9 = move %8?.[copy %0]
-    %10 = move %9
-    %11 = tuple_index move %10, 0
-    return move %11
+    %1 = global_get #0
+    %2 = move %1?.[copy %0]
+    %3 = move %2
+    %4 = tuple_index move %3, 0
+    return move %4
 
-fn main (FuncId(5)) -> None
+fn smelt_global_init__paths__10 (FuncId(5)) -> Dict<String, (Float, List<(String, Float)>)>
+  locals
+    %0 temp: (String, Float)
+    %1 temp: (String, Float)
+    %2 temp: List<(String, Float)>
+    %3 temp: (Float, List<(String, Float)>)
+    %4 temp: (String, Float)
+    %5 temp: List<(String, Float)>
+    %6 temp: (Float, List<(String, Float)>)
+    %7 temp: Dict<String, (Float, List<(String, Float)>)>
+  bb0:
+    %0 = ("id", 0.0)
+    %1 = ("post", 1.0)
+    %2 = [move %0, move %1]
+    %3 = (0.0, move %2)
+    %4 = ("tag", 2.0)
+    %5 = [move %4]
+    %6 = (1.0, move %5)
+    %7 = {"/users/:id/posts/:post": move %3, "/tags/:tag": move %6}
+    return move %7
+
+fn main (FuncId(6)) -> None
   locals
     %0 user paths: Dict<String, (Float, List<(String, Float)>)>
     %1 user replacement: List<Float>

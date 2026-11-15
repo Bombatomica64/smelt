@@ -35,6 +35,8 @@ pub(in crate::lowering) struct SpeculationMark {
     items: usize,
     /// Erasure records of the crate.
     erasures: usize,
+    /// Identity slots created (`HirCtx::identity_slot_log`).
+    identity_slots: usize,
 }
 
 impl ModuleBuilder<'_> {
@@ -45,6 +47,7 @@ impl ModuleBuilder<'_> {
             bodies: self.ctx.krate.bodies.len(),
             items: self.ctx.krate.items.len(),
             erasures: self.ctx.krate.erasures.len(),
+            identity_slots: self.ctx.identity_slot_log.len(),
         }
     }
 
@@ -58,11 +61,43 @@ impl ModuleBuilder<'_> {
         let grew = body.exprs.len() > mark.exprs;
         body.exprs.truncate(mark.exprs);
         self.discard_kept_receivers_after(mark.exprs);
+        self.discard_identity_slots_after(mark);
         if self.ctx.krate.items.len() == mark.items {
             self.ctx.krate.bodies.truncate(mark.bodies);
             self.ctx.krate.erasures.truncate(mark.erasures);
         }
         grew
+    }
+
+    /// Remove the identity slots a discarded probe created, when they are the
+    /// only items it added: a value read the probe lowered and dropped must
+    /// not leave a slot (and its initializer) that nothing reads.
+    fn discard_identity_slots_after(&mut self, mark: SpeculationMark) {
+        let Some(&(_, first_items)) = self.ctx.identity_slot_log.get(mark.identity_slots) else {
+            return;
+        };
+        // Items the probe declared before its first slot, or between slots,
+        // are registered by name and keep everything (see the module docs).
+        let only_slots = first_items == mark.items
+            && self
+                .ctx
+                .identity_slot_log
+                .get(mark.identity_slots..)
+                .unwrap_or_default()
+                .windows(2)
+                .all(|pair| matches!(pair, [(_, before), (_, after)] if *after == before + 2))
+            && self
+                .ctx
+                .identity_slot_log
+                .last()
+                .is_some_and(|&(_, last)| self.ctx.krate.items.len() == last + 2);
+        if !only_slots {
+            return;
+        }
+        for (key, _) in self.ctx.identity_slot_log.drain(mark.identity_slots..) {
+            self.ctx.identity_slots.remove(&key);
+        }
+        self.ctx.krate.items.truncate(mark.items);
     }
 
     /// Run `probe` and keep what it lowered only when it returns `Ok(Some(_))`.

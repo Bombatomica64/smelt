@@ -37,8 +37,7 @@ fn cluster (FuncId(0)) -> List<List<Float>>
     %16 = list_push copy %4, move %15
     goto bb3
   bb3:
-    %17 = move %5 + 1.0
-    %5 = move %17
+    %5 = move %5 + 1.0
     goto bb1
   bb4:
     return move %4

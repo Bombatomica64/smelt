@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_spreads/input.ts (ModuleId(0))
-  body BodyId(30)
+  body BodyId(31)
   items
     class Shape fields [Public name: fn() -> String, Public sides: fn() -> Float] constructor Some(ItemId(9)) methods [ItemId(6), ItemId(7), ItemId(8)] implements []
     class Square fields [] constructor Some(ItemId(13)) methods [ItemId(11), ItemId(12)] implements []
@@ -38,7 +38,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #8: Tile = new Tile()
     #9: fn() -> String = #8.describe
     #10: String = #8.describe()
-    #11: None = @39(console_log)
+    #11: None = @41(console_log)
     #12: None = call #11(#2, #3, #6, #7, #10)
     #13: Plain = new Plain()
     #14: Plain = %0
@@ -57,7 +57,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #27: Plain = %0
     #28: Float = 5.0
     #29: Float = #27.push(#28)
-    #30: None = @40(console_log)
+    #30: None = @42(console_log)
     #31: None = call #30(#18, #24, #29)
     #32: YearParser = new YearParser()
     #33: fn(String) -> Float = #32.run
@@ -71,7 +71,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #41: fn(String) -> Float = #40.run
     #42: String = "1999"
     #43: Float = #40.run(#42)
-    #44: None = @41(console_log)
+    #44: None = @43(console_log)
     #45: None = call #44(#35, #39, #43)
     #46: StrictYear = new StrictYear()
     #47: Parser<Float> = %1
@@ -84,7 +84,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #54: Parser<Float> = %1
     #55: String = "1950"
     #56: Float = #54.run(#55)
-    #57: None = @42(console_log)
+    #57: None = @44(console_log)
     #58: None = call #57(#51, #56)
     #59: Float = 1.0
     #60: Float = 2.0
@@ -105,18 +105,18 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #75: Pair<Float> = %2
     #76: Pair<Float> = closure_call #74()
     #77: Float = #76.left
-    #78: None = @43(console_log)
+    #78: None = @45(console_log)
     #79: None = call #78(#70, #72, #77)
-    #80: fn(List<String>) -> String = closure BodyId(28) captures 0 -> String
+    #80: fn(List<String>) -> String = closure BodyId(29) captures 0 -> String
     #81: fn(fn(List<String>) -> String) -> String = @4(apply)
     #82: String = call #81(#80)
     #83: Lists = new Lists()
     #84: fn(fn(List<String>) -> String) -> List<String> = #83.map
-    #85: fn(List<String>) -> String = closure BodyId(29) captures 0 -> String
+    #85: fn(List<String>) -> String = closure BodyId(30) captures 0 -> String
     #86: List<String> = #83.map(#85)
     #87: String = ","
     #88: String = string_join #86, #87
-    #89: None = @44(console_log)
+    #89: None = @46(console_log)
     #90: None = call #89(#82, #88)
     #91: String = "origin"
     #92: String = "*"
@@ -135,7 +135,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #105: Optional<Bool> = #104.credentials
     #106: Options = %4
     #107: Optional<Float> = #106.max_age
-    #108: None = @45(console_log)
+    #108: None = @47(console_log)
     #109: None = call #108(#102, #105, #107)
     #110: String = "origin"
     #111: String = "a"
@@ -151,7 +151,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #121: Optional<Bool> = #120.credentials
     #122: Options = %5
     #123: Optional<Float> = #122.max_age
-    #124: None = @46(console_log)
+    #124: None = @48(console_log)
     #125: None = call #124(#118, #121, #123)
     #126: Options = %3
     #127: Options = %6
@@ -173,7 +173,7 @@ module examples/typescript/end-to-end/180_virtual_slots_partial_records_typed_sp
     #143: Options = %8
     #144: Options = %8
     #145: Optional<Bool> = #144.credentials
-    #146: None = @47(console_log)
+    #146: None = @49(console_log)
     #147: None = call #146(#140, #142, #145)
   stmts
     s0: #12

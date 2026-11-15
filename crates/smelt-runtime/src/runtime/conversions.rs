@@ -164,7 +164,7 @@ impl<T: SmeltFromUnknown + Clone + IntoSmeltUnknown + 'static> SmeltFromUnknown 
 //~ the runtime carrier: a `T` recovered as `<T as
 //~ SmeltFromUnknown>::smelt_from_unknown(..)` (the recovery arm the
 //~ render scope selects when the position CAN spell the parameter — see
-//~ `blocker-logs/hono-h42-erasure-substitution.md`) failed to compile the
+//~ `hono-h42-erasure-substitution.md` (in git history)) failed to compile the
 //~ moment `T` was instantiated at a tuple, which is what Hono's
 //~ `Router<[unknown, RouterRoute]>` is. The recovery rule was general;
 //~ the trait's coverage of the type it recovers INTO was not, and a

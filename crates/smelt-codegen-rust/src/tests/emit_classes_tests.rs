@@ -238,7 +238,6 @@ export function make(count: number): number[] {
         r#"fn make(count: f64) -> SmeltList<f64> {
 let mut _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: f64;
-let mut _smelt_tmp_6: f64;
 let mut output: SmeltTypedArray = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((count) as f64).max(0.0) as usize);
 let mut index: f64 = 0.0;
 loop {
@@ -246,8 +245,7 @@ _smelt_tmp_4 = index < count;
 if !(_smelt_tmp_4) { break; }
 _smelt_tmp_5 = index + 1.0;
 output.set_index(index, _smelt_tmp_5);
-_smelt_tmp_6 = index + 1.0;
-index = _smelt_tmp_6;
+index = index + 1.0;
 }
 return { let smelt_item = |smelt_value: SmeltUnknown| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; { let smelt_src = ((output.clone()).into_smelt_unknown()).clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => match smelt_values.live_list() { Some(smelt_live) => smelt_live, None => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list } }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_item(SmeltUnknown::String(smelt_ch))).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } } };
 }"#
@@ -1277,6 +1275,7 @@ fn a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor() {
     assert_eq!(
         rust_items(&source, &["fn f"]),
         r"fn f(name: SmeltUnknown) -> SmeltUnknown {
+smelt_reset_this();
 let _smelt_tmp_1: SmeltUnknown = smelt_global_object();
 return { let smelt_index_base = _smelt_tmp_1.clone(); match name.clone() { SmeltUnknown::String(smelt_name) if smelt_name.to_string().parse::<usize>().map_or(true, |smelt_position| smelt_position.to_string() != smelt_name.to_string()) => smelt_get_unknown_field(&smelt_index_base, &smelt_name), _ => match smelt_index_base {
 SmeltUnknown::String(smelt_value) => {
@@ -1302,15 +1301,26 @@ _ => SmeltUnknown::Undefined,
 /// JavaScript exposes one object per global builtin name, so a bare host
 /// constructor reference evaluates to the interned namespace value; the identity
 /// itself is observed in `class_inheritance_behaviour`.
+///
+/// Requirement refined: the reference keeps the concrete
+/// `SmeltHostConstructor` (its name) while it is held at its own type, and
+/// becomes the interned object where it crosses into `unknown`, here the
+/// `any` return (`IntoSmeltUnknown` is `smelt_builtin_namespace`).
 #[test]
 fn a_bare_host_constructor_reference_is_interned() {
     let source = source_for("export function f(): any { return Blob; }");
     assert_eq!(
         rust_items(&source, &["fn f"]),
         r#"fn f() -> SmeltUnknown {
-let _smelt_tmp_0: SmeltUnknown = smelt_builtin_namespace("Blob");
-return _smelt_tmp_0;
+let _smelt_tmp_0: SmeltHostConstructor = SmeltHostConstructor("Blob");
+return _smelt_tmp_0.clone().into_smelt_unknown();
 }"#
+    );
+    assert!(
+        source.contains(
+            "fn into_smelt_unknown(self) -> SmeltUnknown { smelt_builtin_namespace(self.0) }"
+        ),
+        "the concrete constructor erases to the interned object:\n{source}"
     );
 }
 
@@ -1581,15 +1591,11 @@ console.log(counter.step(true, 2));
     assert_eq!(
         rust_items(&source, &["fn step"]),
         r"fn step(&self, flag: bool, amount: f64) -> f64 {
-let _smelt_tmp_4: f64;
-let _smelt_tmp_5: f64;
 let mut next: f64 = 0.0;
 if flag {
-_smelt_tmp_4 = self.0.borrow().total.clone() + amount;
-next = _smelt_tmp_4;
+next = self.0.borrow().total.clone() + amount;
 } else {
-_smelt_tmp_5 = self.0.borrow().total.clone() - amount;
-next = _smelt_tmp_5;
+next = self.0.borrow().total.clone() - amount;
 }
 self.0.borrow_mut().total = next;
 return next;
@@ -1677,7 +1683,6 @@ let mut key: JsString;
 let mut _smelt_tmp_5: usize;
 let mut _smelt_tmp_6: bool;
 let mut _smelt_tmp_7: SmeltRecord<JsString, f64>;
-let mut _smelt_tmp_8: f64;
 let mut sum: f64 = 0.0;
 let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().entries.clone().keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&self.0.borrow().entries.clone(), smelt_key)).collect::<Vec<_>>());
 let mut _smelt_tmp_4: usize = 0;
@@ -1687,8 +1692,7 @@ _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
 if !(_smelt_tmp_6) { break; }
 key = _smelt_tmp_3.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| JsString::new());
 _smelt_tmp_7 = self.0.borrow().entries.clone();
-_smelt_tmp_8 = sum + _smelt_tmp_7.get(&key.clone()).unwrap_or(0.0);
-sum = _smelt_tmp_8;
+sum = sum + _smelt_tmp_7.get(&key.clone()).unwrap_or(0.0);
 _smelt_tmp_4 = _smelt_tmp_4 + 1;
 }
 return sum;
@@ -1741,7 +1745,7 @@ return { let smelt_source_value = (({ let smelt_receiver = self.clone(); let sme
 /// only travels where the enclosing function returns `Result`: a reader that is
 /// itself fallible propagates with `?`, and one that is not takes the panic
 /// path, the floor every non-fallible callback seam uses
-/// (`blocker-logs/hono-fallible-ops.md`). The program stops at the throw rather
+/// (`hono-fallible-ops.md`, in git history). The program stops at the throw rather
 /// than continuing with a fabricated value.
 #[test]
 fn a_throwing_getter_read_is_fallible_in_both_enclosures() {

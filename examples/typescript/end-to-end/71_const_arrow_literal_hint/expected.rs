@@ -806,7 +806,6 @@ fn main() {
     let mut _smelt_tmp_4: usize;
     let mut _smelt_tmp_5: bool;
     let mut _smelt_tmp_6: f64;
-    let mut _smelt_tmp_7: f64;
     let mut sum: f64 = 0.0;
     let mut _smelt_tmp_3: usize = 0;
     loop {
@@ -815,8 +814,7 @@ fn main() {
     if _smelt_tmp_5 {
     item = closure_arg_0.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| Default::default());
     _smelt_tmp_6 = item.status.clone().unwrap_or(0.0);
-    _smelt_tmp_7 = sum + _smelt_tmp_6;
-    sum = _smelt_tmp_7;
+    sum = sum + _smelt_tmp_6;
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     } else {
     return sum;

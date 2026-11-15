@@ -41,6 +41,16 @@ impl FunctionEmitter<'_> {
             && !self.is_erased_class_type(dict_ty)
             && let Some(field) = self.operand_string_literal(key)
         {
+            // An OPTIONAL data field is a property the value may not carry:
+            // `"era" in flags` on a `{}` typed `{ era?: number }` is `false`.
+            // Its `Option` slot is `None` exactly when the property is absent
+            // (an explicit `undefined` is the same slot; see
+            // docs/design: `Option<T>` stands for `T | undefined`).
+            if let Some(symbol) = self.optional_data_field_symbol(dict_ty, &field) {
+                let receiver = self.operand_borrow_expr(dict)?;
+                let read = self.field_access_expr(&receiver, dict_ty, symbol)?;
+                return Ok(read.postfix(".is_some()"));
+            }
             return Ok(RustExpr::path(
                 self.type_has_property_statically(dict_ty, &field)
                     .to_string(),
@@ -113,6 +123,30 @@ impl FunctionEmitter<'_> {
                 self.dict_key_reference_expr(key, *key_ty)?.delimited()
             ))
         })
+    }
+
+    /// The declared data field of interface/shape `ty` whose JavaScript key is
+    /// `key`, when its type is optional (a property the value may lack).
+    ///
+    /// A CLASS field is not one: its declaration defines the property on every
+    /// instance (as `undefined` when nothing initializes it), so `"label" in
+    /// point` is `true` for `class Point { label?: string }`.
+    fn optional_data_field_symbol(&self, ty: TypeId, key: &str) -> Option<Symbol> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        // Only interface shapes are searched: a class is never one.
+        let fields = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)
+            .map(|interface| crate::classes::effective_interface_fields(self.mir, interface))?;
+        fields
+            .iter()
+            .find(|field| self.symbol_source_name(field.name) == Ok(key))
+            .filter(|field| matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))))
+            .map(|field| field.name)
     }
 
     /// Whether a string-keyed dict's values are the erased dynamic type.
@@ -1064,6 +1098,70 @@ impl FunctionEmitter<'_> {
         Ok(self.operand_borrow_expr(dict)?.cloned_value())
     }
 
+    /// Emit a live collection iterator (`Rvalue::CollectionIterator`): a
+    /// `smelt_live_iterator` generator stepping the collection's store by
+    /// insertion position through its typed accessor (`smelt_key_at`,
+    /// `smelt_value_at`, `smelt_entry_at`, `smelt_member_at`). The generator
+    /// holds a handle on the collection, so it reads it live.
+    ///
+    /// # Dynamic boundary
+    ///
+    /// The generator yields the collection's own element type, so it is
+    /// `SmeltGenerator<K, (), ()>` with `K` as concrete as the source makes it.
+    /// When the source collection is `Map<any, any>` or `Set<any>`, its
+    /// elements ARE `any`: each `next()` on the iterator is then a resume whose
+    /// result carries `SmeltUnknown`, and the typedness report counts the call
+    /// as erased. That is the source's own erasure, not one this lowering adds:
+    /// the step is a real, live iterator step (Node re-reads the collection at
+    /// every `next()`, so an entry added after the iterator was made is
+    /// yielded), and no concrete type, union or scoped generic can type an
+    /// `any` element. es-toolkit's `compat/_internal/mapToEntries.ts` and
+    /// `setToEntries.ts` call `next()` by hand this way; before this lowering
+    /// the iterator was a copied list whose `next()` was emulated by removing
+    /// its first element, which was no call at all (and not live). Their
+    /// typedness records were raised for exactly this, with the user's
+    /// approval (docs/design/class-prototypes.md, gap 5).
+    pub(super) fn collection_iterator_expr(
+        &self,
+        op: smelt_hir::DictProjectionOp,
+        set: bool,
+        collection: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let accessor = match (set, op) {
+            (true, smelt_hir::DictProjectionOp::Entries)
+            | (false, smelt_hir::DictProjectionOp::Entries) => "smelt_entry_at",
+            (true, _) => "smelt_member_at",
+            (false, smelt_hir::DictProjectionOp::Values) => "smelt_value_at",
+            (false, _) => "smelt_key_at",
+        };
+        let collection_text = self.operand_expr(collection)?;
+        Ok(RustExpr::chain(format!(
+            "smelt_live_iterator({{ let smelt_source = {collection}.clone(); move |smelt_index| smelt_source.{accessor}(smelt_index) }})",
+            collection = collection_text.delimited()
+        )))
+    }
+
+    /// Emit `Rvalue::CollectionAt`: the item at a position below the live
+    /// length, through the collection's typed accessor (see
+    /// [`Self::collection_iterator_expr`]). The `for...of` lowering reads it
+    /// only after testing the position against `CollectionLen`.
+    pub(super) fn collection_at_expr(
+        &self,
+        op: smelt_hir::DictProjectionOp,
+        set: bool,
+        collection: &Operand,
+        index: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let accessor = collection_accessor(op, set);
+        let collection_text = self.operand_expr(collection)?;
+        let index_text = self.operand_expr(index)?;
+        Ok(RustExpr::chain(format!(
+            "{collection}.{accessor}({index} as usize).expect(\"for...of reads a position below the live length\")",
+            collection = collection_text.delimited(),
+            index = index_text.delimited()
+        )))
+    }
+
     /// Converts a dictionary projection operation to Rust text.
     pub(super) fn dict_projection_expr(
         &self,
@@ -1617,5 +1715,17 @@ impl FunctionEmitter<'_> {
             json = smelt_stdlib::runtime_symbols::boundary::JSON_TO_STRING,
             value_text = value_text.delimited()
         ))))
+    }
+}
+
+/// The typed accessor a collection read goes through for `op`: a Map's
+/// `smelt_key_at`/`smelt_value_at`/`smelt_entry_at`, a Set's `smelt_member_at`
+/// or (for its `[value, value]` entries) `smelt_entry_at`.
+fn collection_accessor(op: smelt_hir::DictProjectionOp, set: bool) -> &'static str {
+    match (set, op) {
+        (_, smelt_hir::DictProjectionOp::Entries) => "smelt_entry_at",
+        (true, _) => "smelt_member_at",
+        (false, smelt_hir::DictProjectionOp::Values) => "smelt_value_at",
+        (false, _) => "smelt_key_at",
     }
 }

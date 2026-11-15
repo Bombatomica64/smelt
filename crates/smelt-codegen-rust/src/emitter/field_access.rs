@@ -314,9 +314,16 @@ impl FunctionEmitter<'_> {
             return self.match_field_expr(receiver_text, kind, field);
         }
         if self.storage_field_is_function(receiver_ty, field) {
+            // A reference class keeps a function-typed field behind its handle
+            // too (see the reference-class read below).
+            let handle = if self.is_reference_class_type(receiver_ty) {
+                ".0.borrow()"
+            } else {
+                ""
+            };
             return Ok(receiver_text
                 .postfix(format!(
-                    ".{}",
+                    "{handle}.{}",
                     self.context.names().field_text(self.mir, field)
                 ))
                 .cloned_value());

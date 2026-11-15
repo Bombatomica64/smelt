@@ -46,7 +46,7 @@ fn main (FuncId(0)) -> None
     %43 temp: RegExp
     %44 temp: Bool
     %45 temp: Float
-    %46 temp: usize
+    %46 temp: Float
     %47 temp: None
     %48 temp: List<String>
     %49 temp: fn(String, Int, List<String>) -> Bool
@@ -119,14 +119,12 @@ c"
     %44 = regex_test move %43 "aa"
     switch move %44 ? bb16 : bb17
   bb14:
-    %46 = move %4 + 1
-    %4 = move %46
+    %4 = move %4 + 1
     goto bb12
   bb15:
     %47 = call @console_log(move %3) -> bb18
   bb16:
-    %45 = move %3 + 1.0
-    %3 = move %45
+    %3 = move %3 + 1.0
     goto bb17
   bb17:
     goto bb14

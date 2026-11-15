@@ -5,7 +5,7 @@
 ## 1. Classification + baseline status
 `smelt smelt-unknown-report third_party/es-toolkit/dist-smelt/src --baseline blocker-logs/smelt-unknown-baseline.json`:
 files 745 · runtime-prelude 1,968 · legitimate-boundary 36,525 · **avoidable-erasure 39,224**.
-The committed baseline is the EXAMPLES corpus (27 files, avoidable=0) — comparing es-toolkit against it is meaningless; the methodology doc (blocker-logs/smelt-unknown-report.md:84-88) anticipated per-corpus baselines.
+The committed baseline is the EXAMPLES corpus (27 files, avoidable=0) — comparing es-toolkit against it is meaningless; the methodology doc (blocker-logs/smelt-unknown-report.md, "Baselines") anticipated per-corpus baselines.
 **Recommendation:** keep the examples baseline as a hard invariant (avoidable stays 0 there) and snapshot a second corpus baseline now:
 `./target/release/smelt smelt-unknown-report third_party/es-toolkit/dist-smelt/src --format json --output blocker-logs/smelt-unknown-baseline-es-toolkit.json`
 (record: 1,968 / 36,525 / 39,224 over 745 files; the classifier is conservative — ambiguous lines count avoidable — so this is a ceiling.)

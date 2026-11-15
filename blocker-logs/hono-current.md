@@ -144,7 +144,7 @@ reproduce; the per-family breakdown and owners are in `hono-round30-brief.md`.
 Committed overlay, fresh clone at the pinned ref, full-feature `smelt`: the complete closure (258
 files) transpiles and the crate is emitted. `cargo check` on `dist-smelt`: **326 errors**, down from
 883 — 74% of the previous total was one wrongly resolved type name (H71,
-`blocker-logs/hono-h71-cross-kind-type-name-collision.md`).
+`hono-h71-cross-kind-type-name-collision.md` (in git history)).
 
 | code | round 27 | round 28 |
 | --- | ---: | ---: |

@@ -1,5 +1,5 @@
 // A derived constructor's `super(..)` runs the base constructor ON THE DERIVED
-// INSTANCE — round 8 of blocker-logs/hono-phase3-round5.md.
+// INSTANCE — round 8 of hono-phase3-round5.md (in git history).
 //
 // JavaScript has one object. The base constructor's field initializers and body
 // initialise the instance the derived constructor is building, so:

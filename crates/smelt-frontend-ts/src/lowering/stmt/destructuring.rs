@@ -204,7 +204,14 @@ impl ModuleBuilder<'_> {
                         "array destructuring requires an initializer",
                     ));
                 };
-                let mut receiver = initial_receiver;
+                let count = array.rest.is_none().then_some(array.elements.len());
+                let mut receiver = self.erased_destructuring_source(
+                    initial_receiver,
+                    count,
+                    body,
+                    block,
+                    self.span(array.span.start, array.span.end),
+                );
                 let mut receiver_ty = Self::expr_ty(body, receiver);
                 if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
                 {
@@ -849,6 +856,90 @@ impl ModuleBuilder<'_> {
             .or_else(|| body.blocks.first())
             .map_or(Span::new(FileId(0), 0, 0), |block| block.span);
         body.expr_at(expr).map_or(root_span, |expr| expr.span)
+    }
+
+    /// The source array destructuring reads from: an erased value becomes the
+    /// list of its first `count` items (all with a rest element).
+    ///
+    /// JavaScript destructures through the iterator protocol, not by index:
+    /// `const [a, b] = gen` steps `gen` twice. Indexing an erased generator,
+    /// Set or Map read `undefined` for every item. Only a source of unknown
+    /// static type needs this: a typed list, tuple or string keeps its indexed
+    /// reads, which are what its iteration yields.
+    ///
+    /// A compiler-introduced slot that holds nothing but the value being
+    /// destructured (the `for...of` item, a destructured parameter's
+    /// `__paramN`) takes the items in place (an erased array, still `unknown`)
+    /// rather than a second erased local. A user variable is never
+    /// overwritten: `const [a] = gen; gen.next()` must still see the generator.
+    pub(in crate::lowering) fn erased_destructuring_source(
+        &mut self,
+        value: smelt_hir::ExprId,
+        count: Option<usize>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        let value_ty = Self::expr_ty(body, value);
+        if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
+            return value;
+        }
+        let for_item = self.intern_synthesized_name("__smelt_for_item");
+        let item_local = match usize::try_from(value.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map(|expr| &expr.kind)
+        {
+            Some(ExprKind::Local(local))
+                if usize::try_from(local.0)
+                    .ok()
+                    .and_then(|index| body.locals.get(index))
+                    .is_some_and(|decl| {
+                        decl.name.is_some_and(|name| {
+                            name == for_item
+                                || self
+                                    .ctx
+                                    .krate
+                                    .symbols
+                                    .get(name)
+                                    .is_some_and(|text| text.starts_with("__param"))
+                        })
+                    }) =>
+            {
+                Some(*local)
+            }
+            _ => None,
+        };
+        let Some(local) = item_local else {
+            let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
+            return body.push_expr(Expr {
+                kind: ExprKind::ErasedIterableTake { value, count },
+                ty: list_ty,
+                span,
+            });
+        };
+        let taken = body.push_expr(Expr {
+            kind: ExprKind::ErasedIterableTake { value, count },
+            ty: value_ty,
+            span,
+        });
+        let target = body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty: value_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            block,
+            Stmt::Assign {
+                target,
+                value: taken,
+            },
+        );
+        body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty: value_ty,
+            span,
+        })
     }
 
     /// Collect source names introduced by a binding pattern.

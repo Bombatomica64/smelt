@@ -300,6 +300,7 @@ mod fetch_types_tests;
 mod function_semantics_tests;
 mod generic_call_site_tests;
 mod generics_tests;
+mod host_constructor_and_iteration_tests;
 mod host_override_tests;
 mod keyed_presence_and_receiver_tests;
 mod labelled_loop_tests;

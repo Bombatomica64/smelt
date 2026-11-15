@@ -69,10 +69,39 @@ impl FunctionEmitter<'_> {
         let target = self.assignment_place_target(place)?;
         let assignment = target.text();
         // The target's guard is taken after the value is evaluated, so a value
-        // that holds its own guard on the same cell has to finish first.
-        if target
-            .guarded_cell()
-            .is_some_and(|cell| value_mut_borrows.contains(&cell.cell))
+        // that holds its own guard on the same cell has to finish first. A
+        // value that reads the very local it is stored into finishes first too:
+        // a borrow it takes (`values.borrow().iter()..` in
+        // `values = values.slice(1)`) lives to the end of its statement, and
+        // the store would conflict with it (E0506). Bound by a `let`, the
+        // value's temporaries are dropped before the store.
+        // A scalar (`i = i + 1`) is read by copy and a string is consumed by
+        // value (`out = out + &part`): neither holds a borrow of the target,
+        // unless the target is itself a guarded cell (a shared capture), whose
+        // `borrow_mut()` must not overlap the value's `borrow()` of it.
+        let reads_target = match place {
+            Place::Local(local) => {
+                let scalar = matches!(
+                    self.mir.types.get(self.local_decl(*local)?.ty),
+                    Some(
+                        Type::Bool
+                            | Type::Int
+                            | Type::Float
+                            | Type::FixedInt(_)
+                            | Type::String
+                            | Type::PyStr
+                    )
+                );
+                let mut reads = false;
+                value.reads(|operand| reads |= operand.reads_local(*local));
+                reads && (!scalar || target.guarded_cell().is_some())
+            }
+            _ => false,
+        };
+        if reads_target
+            || target
+                .guarded_cell()
+                .is_some_and(|cell| value_mut_borrows.contains(&cell.cell))
         {
             out.push_str(&format!(
                 "    {{ let smelt_next_value = {rendered_value}; {assignment} = smelt_next_value; }}\n", rendered_value = rendered_value.delimited(), assignment = assignment.delimited()

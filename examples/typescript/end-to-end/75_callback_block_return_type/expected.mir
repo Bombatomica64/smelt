@@ -172,8 +172,7 @@ closure ClosureId(0) -> String
   bb2:
     %7 = primitive_cast_float copy %3
     %2 = copy %0[move %7]
-    %6 = copy %1 + copy %2
-    %1 = copy %6
+    %1 = copy %1 + copy %2
     goto bb3
   bb3:
     %3 = copy %3 + 1
@@ -188,8 +187,7 @@ closure ClosureId(1) -> String
     %2 temp: String
   bb0:
     %1 = copy %0
-    %2 = copy %1 + "!"
-    %1 = copy %2
+    %1 = copy %1 + "!"
     return copy %1
 
 closure ClosureId(2) -> String
@@ -235,8 +233,7 @@ closure ClosureId(4) -> Float
     %8 = primitive_cast_float copy %3
     %2 = copy %0[move %8]
     %6 = len copy %2
-    %7 = copy %1 + copy %6
-    %1 = copy %7
+    %1 = copy %1 + copy %6
     goto bb3
   bb3:
     %3 = copy %3 + 1

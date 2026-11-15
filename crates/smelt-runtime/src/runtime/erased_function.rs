@@ -76,7 +76,7 @@ impl SmeltErasedFunction {
         if let Some(value) = self.object.as_ref().and_then(|object| object.get(name)) { return value; }
         let identity = smelt_canonical_function_identity(&self.callback);
         if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; }
-        if name == "prototype" { return smelt_function_prototype(&identity, self.clone().into_smelt_unknown()); }
+        if name == "prototype" && identity.0.constructor.get() { return smelt_function_prototype(&identity, self.clone().into_smelt_unknown()); }
         SmeltUnknown::Undefined
     }
     //~ Restore an erased callable value without dropping callable-object fields.

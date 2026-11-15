@@ -674,11 +674,35 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.intern(Type::List(entry_ty))
             }
         };
+        // A Map's `keys()`/`values()`/`entries()` is a live iterator over it,
+        // typed as a generator of what the projection's list held.
+        let yield_ty = match self.ctx.krate.types.get(ty) {
+            Some(Type::List(item)) => *item,
+            _ => ty,
+        };
+        let iterator_ty = self.collection_iterator_type(yield_ty);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DictProjection { op, dict },
-            ty,
+            kind: ExprKind::CollectionIterator {
+                op,
+                set: false,
+                collection: dict,
+            },
+            ty: iterator_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// The type of a collection iterator yielding `yield_ty`: a synchronous
+    /// generator that returns `undefined` and takes nothing on resume, which
+    /// is what `MapIterator<T>`/`SetIterator<T>` are in TypeScript.
+    fn collection_iterator_type(&mut self, yield_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        self.ctx.krate.types.intern(Type::Generator {
+            is_async: false,
+            yield_ty,
+            return_ty: none_ty,
+            next_ty: none_ty,
+        })
     }
 
     /// Lower utility-style `keys(value)`, `values(value)`, and `entries(value)` calls.
@@ -808,19 +832,25 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let item_ty = *set_item_ty;
-        let ty = match op {
-            SetProjectionOp::Values => self.ctx.krate.types.intern(Type::List(item_ty)),
-            SetProjectionOp::Entries => {
-                let entry_ty = self
-                    .ctx
+        // A Set's `keys()`/`values()`/`entries()` is a live iterator over it
+        // (see `map_projection_with_receiver`).
+        let (yield_ty, op) = match op {
+            SetProjectionOp::Values => (item_ty, DictProjectionOp::Values),
+            SetProjectionOp::Entries => (
+                self.ctx
                     .krate
                     .types
-                    .intern(Type::Tuple(vec![item_ty, item_ty]));
-                self.ctx.krate.types.intern(Type::List(entry_ty))
-            }
+                    .intern(Type::Tuple(vec![item_ty, item_ty])),
+                DictProjectionOp::Entries,
+            ),
         };
+        let ty = self.collection_iterator_type(yield_ty);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::SetProjection { op, set },
+            kind: ExprKind::CollectionIterator {
+                op,
+                set: true,
+                collection: set,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1095,6 +1125,23 @@ impl ModuleBuilder<'_> {
                     // `list_expr_from_spread_value`, the same helper that lowers
                     // `[...iterable]`, so `new Set(x)` and `new Set([...x])`
                     // cannot disagree about what iterating `x` means.
+                    // A synchronous generator, a collection iterator among
+                    // them (`new Set(map.keys())`), is drained into a list of
+                    // what it yields, as `Array.from(gen)` does.
+                    Some(Type::Generator {
+                        is_async: false,
+                        yield_ty,
+                        ..
+                    }) => {
+                        let items_ty = self.ctx.krate.types.intern(Type::List(yield_ty));
+                        list = Self::generator_items_expr(
+                            list,
+                            items_ty,
+                            self.span(argument.span().start, argument.span().end),
+                            body,
+                        );
+                        yield_ty
+                    }
                     Some(Type::String) => {
                         let string_ty = self.ctx.krate.types.intern(Type::String);
                         let chars_ty = self.ctx.krate.types.intern(Type::List(string_ty));
@@ -1350,6 +1397,17 @@ impl ModuleBuilder<'_> {
             .absent_iterable_as_empty(value, span, body)
             .unwrap_or(value);
         let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+        // A synchronous generator of entries (`new Map(other.entries())`, a
+        // `function*` of pairs) is drained into the list of entries it yields,
+        // as `Array.from(gen)` does, and then read as that list.
+        let (value, value_ty) =
+            self.sync_generator_list_ty(value_ty)
+                .map_or((value, value_ty), |list_ty| {
+                    (
+                        Self::generator_items_expr(value, list_ty, hir_span, body),
+                        list_ty,
+                    )
+                });
         let (list, key_ty, value_item_ty) = match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::Dict(key_ty, item_ty) | Type::JsMap(key_ty, item_ty)) => {
                 let entry_ty = self

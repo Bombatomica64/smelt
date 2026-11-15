@@ -1244,8 +1244,6 @@ let mut _smelt_tmp_3: f64;
 let mut _smelt_tmp_4: bool;
 let mut _smelt_tmp_5: f64;
 let mut _smelt_tmp_6: JsString;
-let mut _smelt_tmp_7: JsString;
-let mut _smelt_tmp_8: f64;
 let mut out: JsString = JsString::new();
 let mut index: f64 = 0.0;
 loop {
@@ -1254,10 +1252,8 @@ _smelt_tmp_4 = index < _smelt_tmp_3;
 if !(_smelt_tmp_4) { break; }
 _smelt_tmp_5 = bytes.get(index).unwrap_or(0.0);
 _smelt_tmp_6 = JsString::from(smelt_number_to_string_radix(_smelt_tmp_5, 16.0 as u32));
-_smelt_tmp_7 = out + &_smelt_tmp_6;
-out = _smelt_tmp_7;
-_smelt_tmp_8 = index + 1.0;
-index = _smelt_tmp_8;
+out = out + &_smelt_tmp_6;
+index = index + 1.0;
 }
 return out;
 }"
