@@ -227,6 +227,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
             return Ok(None);
         };
+        self.trace_record_copy(source, target);
         // Field-wise adaptation recurses through each field's own coercion, and
         // a callable interface's `__smelt_call` field is a function whose return
         // value can be the record again (es-toolkit's

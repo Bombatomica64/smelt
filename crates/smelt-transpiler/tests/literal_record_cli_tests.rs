@@ -150,13 +150,14 @@ fn literal_with_observed_identity_keeps_its_identity() -> TestResult {
     )
 }
 
-/// A literal whose key set or key order is observed keeps the map.
+/// A literal whose key set or key order is observed keeps the map. `scores`
+/// is written through a computed key, the use a struct gets wrong.
 #[test]
 fn literal_with_observed_keys_stays_a_map() -> TestResult {
     verify_fixture(
         "keys-stay-a-map",
         &Lowering {
-            maps: &["counters", "settings", "listed", "mixed"],
+            maps: &["counters", "scores", "settings", "listed", "mixed"],
             structs: &[],
         },
     )
@@ -178,10 +179,9 @@ fn literal_passed_or_stored_stays_a_map() -> TestResult {
     )
 }
 
-/// A literal stored in or returned at a slot of another record type, or whose
-/// record-valued property is replaced by a value of another record type,
-/// keeps the map. `replacement` is annotated with a type alias, so it is a
-/// struct named after the alias, not one of the literal structs this checks.
+/// A literal stored in or returned at a slot of a record type it does not
+/// share with (a wider property, an optional property it lacks), or whose
+/// record-valued property is replaced by a class instance, keeps the map.
 #[test]
 fn literal_stored_at_another_record_type_stays_a_map() -> TestResult {
     verify_fixture(
@@ -193,16 +193,19 @@ fn literal_stored_at_another_record_type_stays_a_map() -> TestResult {
     )
 }
 
-/// A literal passed to a parameter of another record type keeps the map, which
-/// the callee's record adopts; `viewed`, passed only to a `Record<..>`
-/// parameter, is a struct.
+/// A literal passed to a parameter of another record type is a struct when
+/// the two record types share (`moved`: the same properties under another
+/// name; `first`: an interface naming a subset), and keeps the map, which the
+/// callee's record adopts, when they do not (`widened`: a property at a wider
+/// type; `annotated`: an optional property the literal lacks). `viewed`,
+/// passed only to a `Record<..>` parameter, is a struct.
 #[test]
-fn literal_passed_to_another_record_type_stays_a_map() -> TestResult {
+fn literal_passed_to_another_record_type_shares_or_stays_a_map() -> TestResult {
     verify_fixture(
-        "passed-to-another-record-type-stays-a-map",
+        "passed-to-another-record-type",
         &Lowering {
-            maps: &["moved", "first"],
-            structs: &["viewed"],
+            maps: &["widened", "annotated"],
+            structs: &["moved", "first", "viewed"],
         },
     )
 }

@@ -272,10 +272,16 @@ impl ModuleBuilder<'_> {
         // can say (`checker_argument_shares`).
         let decision = match decision {
             LiteralDecision::Struct(arguments) => {
-                match arguments
-                    .iter()
-                    .find(|argument| !self.checker_argument_shares(argument))
-                {
+                let mut declined = None;
+                for argument in &arguments {
+                    if !self.checker_argument_shares(argument)
+                        && !self.checker_argument_fits(argument)
+                    {
+                        declined = Some(argument);
+                        break;
+                    }
+                }
+                match declined {
                     Some(argument) => {
                         #[expect(
                             clippy::print_stderr,
@@ -390,6 +396,201 @@ impl ModuleBuilder<'_> {
     /// The checker's type for the binding at `start..end`, lowered with
     /// plain-data object types as records, when it is fully representable
     /// (see [`Self::checker_literal_binding_type`]).
+    /// Whether the argument of `argument` is the caller's object at every
+    /// parameter [`Self::checker_argument_shares`] declined: each such
+    /// parameter is a record type the argument's own record type shares with
+    /// ([`Self::record_types_share`]), or holds one where the argument holds
+    /// the other (array elements, tuple members, `T | null | undefined`).
+    ///
+    /// # Why the lowered types decide
+    ///
+    /// Whether two record types share is a fact about the two structs the
+    /// generated Rust declares, and a conversion the backend does not make in
+    /// place is a copy. So the question is asked of the types as LOWERED, by
+    /// the predicate the backend plans its views with
+    /// (`smelt-codegen-rust/src/structural_views.rs`, `shares`), not of the
+    /// checker's: both types are lowered through the same annotation path
+    /// ([`Self::respell_and_lower_spelling`]) and compared field by field.
+    /// A pair this cannot prove keeps the map.
+    fn checker_argument_fits(&mut self, argument: &ArgumentUse) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        let Some(callee) = facts.type_id_at(&self.path, argument.callee_start, argument.callee_end)
+        else {
+            return false;
+        };
+        let Some(value) = facts.type_id_at(&self.path, argument.value_start, argument.value_end)
+        else {
+            return false;
+        };
+        let Some(signatures) = callee_signatures(facts, callee, argument.construct, 0) else {
+            return false;
+        };
+        let span = (argument.value_start, argument.value_end);
+        signatures.iter().all(|signature| {
+            signature_parameter(facts, signature, argument.index).is_none_or(|parameter| {
+                checker_slot_shares(facts, parameter, 0)
+                    || self.checker_slot_fits(facts, value, parameter, span, 0)
+            })
+        })
+    }
+
+    /// Whether a value the checker types `value`, handed to a slot it types
+    /// `slot`, is the caller's object there (see
+    /// [`Self::checker_argument_fits`]).
+    fn checker_slot_fits(
+        &mut self,
+        facts: &TsTypeFacts,
+        value: TsTypeId,
+        slot: TsTypeId,
+        span: (u32, u32),
+        depth: usize,
+    ) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        if checker_slot_shares(facts, slot, depth) {
+            return true;
+        }
+        let (Some(value_ty), Some(slot_ty)) = (facts.types.get(value), facts.types.get(slot))
+        else {
+            return false;
+        };
+        match (&value_ty.kind, &slot_ty.kind) {
+            // `T | null | undefined`: the one member a record is assigned to.
+            (_, TsTypeKind::Union { members, .. }) => {
+                let mut holders = members
+                    .iter()
+                    .filter(|member| !checker_slot_shares(facts, **member, depth + 1));
+                match (holders.next(), holders.next()) {
+                    (Some(holder), None) => {
+                        self.checker_slot_fits(facts, value, *holder, span, depth + 1)
+                    }
+                    _ => false,
+                }
+            }
+            (
+                TsTypeKind::Array { element: from, .. },
+                TsTypeKind::Array { element: to, .. },
+            ) => self.checker_slot_fits(facts, *from, *to, span, depth + 1),
+            (
+                TsTypeKind::Tuple { elements: from, .. },
+                TsTypeKind::Tuple { elements: to, .. },
+            ) => {
+                from.len() == to.len()
+                    && from.iter().zip(to).all(|(from_element, to_element)| {
+                        self.checker_slot_fits(
+                            facts,
+                            from_element.ty,
+                            to_element.ty,
+                            span,
+                            depth + 1,
+                        )
+                    })
+            }
+            (
+                TsTypeKind::Object(_) | TsTypeKind::Named { .. },
+                TsTypeKind::Object(_) | TsTypeKind::Named { .. },
+            ) => {
+                // A trial lowering must leave no erasure record behind.
+                let records_before = self.ctx.krate.erasures.len();
+                let lowered = self
+                    .respell_and_lower_spelling(facts, value, span.0, span.1, true)
+                    .zip(self.respell_and_lower_spelling(facts, slot, span.0, span.1, true))
+                    .filter(|_| self.ctx.krate.erasures.len() == records_before);
+                self.ctx.krate.erasures.truncate(records_before);
+                lowered.is_some_and(|(from, to)| self.record_types_share(from, to))
+            }
+            _ => false,
+        }
+    }
+
+    /// The object shape named `name`, when a view can stand for or over it:
+    /// a non-generic interface or object type literal that extends nothing,
+    /// declares no method, call signature, accessor or index signature, and
+    /// is not also a class.
+    ///
+    /// At least as strict as the backend's `structural_views::is_viewable_shape`
+    /// (which reads the MIR, where heritage and methods are already folded
+    /// into the fields): a shape this refuses keeps the map.
+    fn viewable_shape(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::Interface> {
+        let krate = &self.ctx.krate;
+        let mut shape = None;
+        for item in &krate.items {
+            match item {
+                Item::Class(class) if class.name == name => return None,
+                Item::Interface(interface) if interface.name == name => shape = Some(interface),
+                _ => {}
+            }
+        }
+        let shape = shape?;
+        let spelled = |symbol: smelt_hir::Symbol| {
+            krate
+                .names
+                .get(symbol)
+                .or_else(|| krate.symbols.source(symbol))
+        };
+        (shape.type_params.is_empty()
+            && shape.extends.is_empty()
+            && shape.methods.is_empty()
+            && !krate.accessor_fields.iter().any(|(owner, _)| *owner == name)
+            && shape.fields.iter().all(|field| {
+                !matches!(
+                    spelled(field.name),
+                    Some(
+                        smelt_stdlib::runtime_symbols::markers::SMELT_CALL
+                            | smelt_hir::CLASS_INDEX_STORE_FIELD
+                    )
+                )
+            }))
+        .then_some(shape)
+    }
+
+    /// Whether a value of the lowered record type `value` is the same object
+    /// in a slot of the lowered record type `slot`: they are one type, or two
+    /// object shapes ([`Self::viewable_shape`]) and every property `slot`
+    /// declares is declared by `value` at the same type.
+    ///
+    /// Behavior: holds exactly for the pairs the generated Rust converts in
+    /// place (`smelt-codegen-rust/src/structural_views.rs`), so admitting the
+    /// argument cannot introduce a copy. Type preservation: nothing is
+    /// lowered differently by asking.
+    fn record_types_share(&self, value: TypeId, slot: TypeId) -> bool {
+        let types = &self.ctx.krate.types;
+        let (
+            Some(Type::Class {
+                name: from,
+                args: from_args,
+            }),
+            Some(Type::Class {
+                name: to,
+                args: to_args,
+            }),
+        ) = (types.get(value), types.get(slot))
+        else {
+            return false;
+        };
+        if !from_args.is_empty() || !to_args.is_empty() {
+            return false;
+        }
+        if from == to {
+            return true;
+        }
+        let (Some(from_shape), Some(to_shape)) =
+            (self.viewable_shape(*from), self.viewable_shape(*to))
+        else {
+            return false;
+        };
+        !to_shape.fields.is_empty()
+            && to_shape.fields.iter().all(|wanted| {
+                from_shape
+                    .fields
+                    .iter()
+                    .any(|held| held.name == wanted.name && held.ty == wanted.ty)
+            })
+    }
+
     fn checker_record_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
         let facts = self.ts_facts?;
         let id = facts.type_id_at(&self.path, start, end)?;
@@ -1005,11 +1206,13 @@ fn signature_parameter(
 /// `object`, `{}`, an index-signature dictionary, a type the checker left
 /// unevaluated, a type parameter, which is either a real Rust generic holding
 /// the record itself or erased) and for the types a record is never assigned
-/// to (primitives, `null`, `undefined`: the other members of a union). False
-/// for a type with declared properties or a class or interface name, where
-/// the generated Rust builds that other record, and for anything not judged
-/// here (an intersection, a truncated type). An array or a tuple is judged by
-/// its elements.
+/// to (primitives, `null`, `undefined`, a function type: the other members of
+/// a union, or the parameter of an overload the call did not resolve to).
+/// False for a type with declared properties or a class or interface name,
+/// which is another record type (`ModuleBuilder::checker_slot_fits` then asks
+/// whether the two share), and for anything not judged here (an
+/// intersection, a truncated type). An array or a tuple is judged by its
+/// elements.
 fn checker_slot_shares(facts: &TsTypeFacts, ty: TsTypeId, depth: usize) -> bool {
     if depth > 8 {
         return false;
@@ -1043,11 +1246,12 @@ fn checker_slot_shares(facts: &TsTypeFacts, ty: TsTypeId, depth: usize) -> bool 
             .all(|member| checker_slot_shares(facts, *member, depth + 1)),
         // An array of records crosses element by element.
         TsTypeKind::Array { element, .. } => checker_slot_shares(facts, *element, depth + 1),
-        TsTypeKind::Object(object) => {
-            object.properties.is_empty()
-                && object.call_signatures.is_empty()
-                && object.construct_signatures.is_empty()
-        }
+        // An object type with no declared property: an index-signature
+        // dictionary or `{}` holds a view; a function type (call or construct
+        // signatures only) is a slot a record is never assigned to, like the
+        // primitives above, so an overload that takes a callback at this
+        // position says nothing about a record passed there.
+        TsTypeKind::Object(object) => object.properties.is_empty(),
         // A tuple of records crosses element by element, like an array.
         TsTypeKind::Tuple { elements, .. } => elements
             .iter()

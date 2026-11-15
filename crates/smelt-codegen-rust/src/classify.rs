@@ -796,7 +796,7 @@ pub(crate) fn for_each_value_flow(
 }
 
 /// [`for_each_value_flow`], and also the flows into a slot that is part of
-/// another value: a field initializer of a record literal against the field's
+/// another value: a property of a record literal against the property's
 /// declared type, an element of an array literal against the array's element
 /// type, a store into a field (`holder.part = value`) or a module-level
 /// binding against its declared type.
@@ -828,6 +828,29 @@ fn record_field_type(mir: &Mir, record: Symbol, field: Symbol) -> Option<smelt_h
         .map(|candidate| candidate.ty)
 }
 
+/// The declared type of the property spelled `key` in source of the record
+/// type named `record`.
+fn record_property_type(mir: &Mir, record: Symbol, key: &str) -> Option<smelt_hir::TypeId> {
+    let fields = match crate::classes::find_class(mir, record) {
+        Some(class) => crate::classes::effective_class_fields(mir, class),
+        None => crate::classes::effective_interface_fields(
+            mir,
+            mir.interfaces
+                .iter()
+                .find(|interface| interface.name == record)?,
+        ),
+    };
+    fields
+        .into_iter()
+        .find(|candidate| {
+            mir.names
+                .get(candidate.name)
+                .or_else(|| mir.symbols.get(candidate.name))
+                == Some(key)
+        })
+        .map(|candidate| candidate.ty)
+}
+
 /// The scan behind [`for_each_value_flow`] (`parts` off) and
 /// [`for_each_value_flow_into_parts`] (`parts` on).
 fn scan_value_flows(
@@ -851,9 +874,28 @@ fn scan_value_flows(
                     blocks: &[smelt_mir::BasicBlock],
                     return_ty: smelt_hir::TypeId| {
         let mut hand = |operand: &Operand, slot: smelt_hir::TypeId| {
-            if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand
-                && let Some(source) = local_ty(locals, *local)
-            {
+            let (Operand::Copy(place) | Operand::Move(place)) = operand else {
+                return;
+            };
+            let source = match place {
+                Place::Local(local) => local_ty(locals, *local),
+                // A value read out of a record's field or a container's
+                // element, handed on without a local of its own.
+                Place::Field { base, field } if parts => {
+                    match local_ty(locals, *base).and_then(|ty| mir.types.get(strip(ty))) {
+                        Some(Type::Class { name, .. }) => record_field_type(mir, *name, *field),
+                        _ => None,
+                    }
+                }
+                Place::Index { base, .. } if parts => {
+                    match local_ty(locals, *base).and_then(|ty| mir.types.get(strip(ty))) {
+                        Some(Type::List(element) | Type::Dict(_, element)) => Some(*element),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let Some(source) = source {
                 flow(source, slot);
             }
         };
@@ -878,6 +920,25 @@ fn scan_value_flows(
                         for (field, operand) in fields {
                             if let Some(slot) = record_field_type(mir, *class, *field) {
                                 hand(operand, slot);
+                            }
+                        }
+                    }
+                    // A record literal is a keyed aggregate at a record
+                    // type: each value lands in the property its key names.
+                    Statement::Assign {
+                        dest,
+                        value: Rvalue::Dict(entries),
+                    } => {
+                        if let Some(Type::Class { name, .. }) =
+                            local_ty(locals, *dest).and_then(|ty| mir.types.get(strip(ty)))
+                        {
+                            for (key, operand) in entries {
+                                let Operand::Const(smelt_mir::Constant::String(key)) = key else {
+                                    continue;
+                                };
+                                if let Some(slot) = record_property_type(mir, *name, key) {
+                                    hand(operand, slot);
+                                }
                             }
                         }
                     }

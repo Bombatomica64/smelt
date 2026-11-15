@@ -144,9 +144,72 @@ impl FunctionEmitter<'_> {
         if !views.converts(from, to) {
             return Ok(None);
         }
+        if std::env::var_os("SMELT_STRUCT_VIEW_TRACE").is_some() {
+            let name = |symbol: Symbol| self.mir.symbols.get(symbol).unwrap_or("?").to_owned();
+            #[expect(
+                clippy::print_stderr,
+                reason = "SMELT_STRUCT_VIEW_TRACE is an opt-in developer trace"
+            )]
+            {
+                eprintln!("struct-view share {} -> {}", name(from), name(to));
+            }
+        }
         Ok(Some(RustExpr::atom(
             crate::structural_views::upcast_handle_expr(self.context, from, to, &value.tight())?,
         )))
+    }
+
+    /// With `SMELT_STRUCT_VIEW_TRACE` set, print one line to stderr for the
+    /// record-to-record conversion `source -> target` the adapter is about to
+    /// emit as a field-wise copy, naming why it is not a view. A measurement
+    /// aid, the counterpart of `SMELT_LITERAL_RECORD_TRACE`: it is how the
+    /// conversions that still copy are counted per cause.
+    pub(super) fn trace_record_copy(&self, source: TypeId, target: TypeId) {
+        if std::env::var_os("SMELT_STRUCT_VIEW_TRACE").is_none() {
+            return;
+        }
+        let (Some(Type::Class { name: from, args: from_args }), Some(Type::Class { name: to, args: to_args })) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        else {
+            return;
+        };
+        let class = |name: Symbol| crate::classes::find_class(self.mir, name).is_some();
+        let reason = if from == to {
+            "same-record-other-arguments"
+        } else if class(*from) || class(*to) {
+            "class"
+        } else if !from_args.is_empty() || !to_args.is_empty() {
+            "generic"
+        } else if crate::structural_views::is_viewable_shape(self.mir, *from).is_none()
+            || crate::structural_views::is_viewable_shape(self.mir, *to).is_none()
+        {
+            "callable-accessor-or-index-shape"
+        } else if crate::structural_views::shares(self.mir, *from, *to) {
+            "shares-but-no-flow-seen"
+        } else {
+            let fields = |name: Symbol| {
+                crate::structural_views::is_viewable_shape(self.mir, name)
+                    .map(|shape| crate::classes::effective_interface_fields(self.mir, shape))
+                    .unwrap_or_default()
+            };
+            let held = fields(*from);
+            if fields(*to)
+                .iter()
+                .all(|wanted| held.iter().any(|field| field.name == wanted.name))
+            {
+                "property-at-another-type"
+            } else {
+                "property-the-source-lacks"
+            }
+        };
+        let name = |symbol: Symbol| self.mir.symbols.get(symbol).unwrap_or("?").to_owned();
+        #[expect(
+            clippy::print_stderr,
+            reason = "SMELT_STRUCT_VIEW_TRACE is an opt-in developer trace"
+        )]
+        {
+            eprintln!("struct-view copy {} -> {} {reason}", name(*from), name(*to));
+        }
     }
 
     /// The checked cast of the handle bound to `smelt_struct_value` (of view

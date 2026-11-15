@@ -324,6 +324,7 @@ mod snapshot_family_tests;
 mod snapshot_tests;
 mod static_call_arg_precedence_tests;
 mod stdlib_boundary_tests;
+mod structural_view_tests;
 mod tail_r3_tests;
 mod tail_r7_tests;
 mod tail_r8_tests;

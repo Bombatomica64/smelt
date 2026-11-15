@@ -24,10 +24,14 @@
 //! callee rebuilt comes back with the key order it was given. So passing a
 //! literal to a call is not, by itself, a reason to keep the map.
 //!
-//! What still copies is a slot of a DIFFERENT record type: a parameter typed
-//! by an interface or by an object type with properties is built as that
-//! other struct. A literal passed there keeps the map, where the callee's
-//! write reaches the caller as it does in JavaScript.
+//! A slot of a DIFFERENT record type (a parameter typed by an interface or by
+//! an object type with properties) holds a view of it too when the two
+//! records share: every property the slot's type declares is a property of
+//! the value's type, at the same type
+//! (`smelt-codegen-rust/src/structural_views.rs`). What still copies is a
+//! record type that does not share (a property at a wider type, an optional
+//! property the value lacks, a class). A literal passed there keeps the map,
+//! where the callee's write reaches the caller as it does in JavaScript.
 //!
 //! # The rule
 //!
@@ -57,12 +61,14 @@
 //!    - an equality comparison (`===`, `!==`, `==`, `!=`), `typeof`, or a
 //!      statement of its own.
 //! 3. **Every callee it is passed to shares it**
-//!    (`ModuleBuilder::checker_argument_shares`): at that argument position,
+//!    (`ModuleBuilder::checker_argument_shares`,
+//!    `ModuleBuilder::checker_argument_fits`): at that argument position,
 //!    every signature the checker resolved for the callee takes a slot that
-//!    holds a view of the record or cannot hold a record at all. No callee is
-//!    named: `console.log`, `JSON.stringify`, `Object.keys` and the test
-//!    framework's matchers pass because their parameters are `any` or generic,
-//!    exactly like a user function's.
+//!    holds a view of the record, the record's own type, another record type
+//!    it shares with, or cannot hold a record at all. No callee is named:
+//!    `console.log`, `JSON.stringify`, `Object.keys` and the test framework's
+//!    matchers pass because their parameters are `any` or generic, exactly
+//!    like a user function's.
 //!
 //! Anything else disqualifies the binding, classified for reporting as a
 //! [`Disqualifier`]: a key-set or key-order operation spelled on the typed
@@ -126,8 +132,9 @@ pub(in crate::lowering) enum Disqualifier {
     /// which would convert the assigned value.
     PartWrite,
     /// The value is an argument of a call or constructor whose parameter
-    /// there does not share the caller's object: another record type, or a
-    /// callee the checker cannot type (`checker_argument_shares`).
+    /// there does not share the caller's object: a record type it does not
+    /// share with, or a callee the checker cannot type
+    /// (`checker_argument_shares`, `checker_argument_fits`).
     Call,
     /// The value leaves the binding: returned, thrown, stored in a container
     /// or another variable, exported, or the binding is reassigned.
@@ -155,9 +162,10 @@ impl Disqualifier {
 ///
 /// The callee's parameter decides what happens to it, and that is the
 /// checker's knowledge, not this syntactic pass's: a parameter that holds a
-/// view of the record (`unknown`, `any`, a type parameter, `Record<K, V>`) or
-/// the record itself shares the object, a parameter of another record type
-/// converts it. `checker_literal_binding_type` asks, per use.
+/// view of the record (`unknown`, `any`, a type parameter, `Record<K, V>`),
+/// the record itself, or another record type it shares with, shares the
+/// object; any other record type converts it. `checker_literal_binding_type`
+/// asks, per use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::lowering) struct ArgumentUse {
     /// Start of the callee expression (the function called or constructed).
@@ -168,6 +176,12 @@ pub(in crate::lowering) struct ArgumentUse {
     pub(in crate::lowering) index: usize,
     /// `new callee(..)` rather than `callee(..)`.
     pub(in crate::lowering) construct: bool,
+    /// Start of the argument expression: the flow as it is spelled there (the
+    /// binding, a part read from it, an alias), whose own type a parameter of
+    /// another record type is compared with.
+    pub(in crate::lowering) value_start: u32,
+    /// End of the argument expression.
+    pub(in crate::lowering) value_end: u32,
 }
 
 /// The decision for one candidate binding.
@@ -201,6 +215,7 @@ impl LiteralRecordUses {
             nodes: semantic.nodes(),
             scoping: semantic.scoping(),
             arguments: RefCell::new(Vec::new()),
+            ignored: ignored_disqualifiers(),
         };
         let mut decisions = HashMap::new();
         for node in analysis.nodes.iter() {
@@ -231,6 +246,31 @@ impl LiteralRecordUses {
     pub(in crate::lowering) fn decision(&self, binding_start: u32) -> Option<LiteralDecision> {
         self.decisions.get(&binding_start).cloned()
     }
+}
+
+/// The disqualifiers named in `SMELT_LITERAL_RECORD_IGNORE` (a comma-separated
+/// list of [`Disqualifier::name`]s), which the analysis then does not apply.
+///
+/// A measurement switch, the companion of `SMELT_LITERAL_RECORD_TRACE`: it is
+/// how a disqualifier is shown to be required (a fixture prints something
+/// else than Node with it off) or not, and how its cost is counted. A build
+/// made with it set is for that comparison, not for shipping. `shape` cannot
+/// be switched off: a literal with no part structure has no uses to follow.
+fn ignored_disqualifiers() -> Vec<Disqualifier> {
+    let Some(names) = std::env::var_os("SMELT_LITERAL_RECORD_IGNORE") else {
+        return Vec::new();
+    };
+    let names = names.to_string_lossy();
+    [
+        Disqualifier::Keys,
+        Disqualifier::PartWrite,
+        Disqualifier::Call,
+        Disqualifier::Escape,
+        Disqualifier::Other,
+    ]
+    .into_iter()
+    .filter(|disqualifier| names.split(',').any(|name| name.trim() == disqualifier.name()))
+    .collect()
 }
 
 /// Whether `expression` is an object literal, or an array literal holding one
@@ -365,6 +405,9 @@ struct Analysis<'model, 'ast> {
     scoping: &'model Scoping,
     /// The argument positions the binding being decided is passed at.
     arguments: RefCell<Vec<ArgumentUse>>,
+    /// Disqualifiers switched off for a measurement
+    /// ([`ignored_disqualifiers`]); empty in every ordinary build.
+    ignored: Vec<Disqualifier>,
 }
 
 impl<'ast> Analysis<'_, 'ast> {
@@ -419,7 +462,12 @@ impl<'ast> Analysis<'_, 'ast> {
                 // `typeof x` in a type position names the type, not the value.
                 continue;
             }
-            self.classify(reference.node_id(), shape, visiting)?;
+            match self.classify(reference.node_id(), shape, visiting) {
+                // Measurement only: the use is admitted as if it kept the
+                // value typed ([`ignored_disqualifiers`]).
+                Err(disqualifier) if self.ignored.contains(&disqualifier) => {}
+                other => other?,
+            }
         }
         Ok(())
     }
@@ -499,7 +547,7 @@ impl<'ast> Analysis<'_, 'ast> {
                     .iter()
                     .position(|argument| argument.span() == span)
                     .ok_or(Disqualifier::Call)?;
-                self.passed(new.callee.span(), index, true);
+                self.passed(new.callee.span(), index, true, span);
                 Ok(())
             }
             AstKind::BinaryExpression(binary) => {
@@ -626,14 +674,16 @@ impl<'ast> Analysis<'_, 'ast> {
         self.symbol_flows(symbol, element, visiting)
     }
 
-    /// Record that the flow being classified is argument `index` of the call
-    /// (or `new`) whose callee spans `callee`.
-    fn passed(&self, callee: Span, index: usize, construct: bool) {
+    /// Record that the flow being classified, spelled at `value`, is argument
+    /// `index` of the call (or `new`) whose callee spans `callee`.
+    fn passed(&self, callee: Span, index: usize, construct: bool, value: Span) {
         self.arguments.borrow_mut().push(ArgumentUse {
             callee_start: callee.start,
             callee_end: callee.end,
             index,
             construct,
+            value_start: value.start,
+            value_end: value.end,
         });
     }
 
@@ -650,7 +700,7 @@ impl<'ast> Analysis<'_, 'ast> {
             .iter()
             .position(|argument| argument.span() == span)
             .ok_or(Disqualifier::Call)?;
-        self.passed(call.callee.span(), index, false);
+        self.passed(call.callee.span(), index, false, span);
         Ok(())
     }
 }
@@ -746,6 +796,8 @@ mod tests {
                 callee_end: plain_start.saturating_add(1),
                 index: 1,
                 construct: false,
+                value_start: plain_start.saturating_add(5),
+                value_end: plain_start.saturating_add(6),
             }]
         );
         let constructed = "const x = { a: 1, s: 'v' }; new Box(x);";
