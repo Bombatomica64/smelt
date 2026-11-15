@@ -38,6 +38,22 @@
 // stringifies a number carries it unused, which is inert under the generated
 // crate's `#![allow(dead_code)]` — the same trade the `typeof` helper makes.
 // @smelt:item smelt_number_to_string
+/// The bits a hole of a `number[]` is stored as: a signaling NaN.
+//~
+//~ A slot JavaScript leaves empty reads as `undefined`, which a `number`
+//~ cannot hold. A signaling NaN is a value no arithmetic produces: every
+//~ operation on it answers a quiet NaN, exactly what `undefined` becomes in a
+//~ JS number context, so only an untouched slot keeps these bits. Its text is
+//~ `undefined`, `console.log` shows the slot as an empty item, and JSON writes
+//~ `null` as it does for any NaN.
+const SMELT_NUMBER_HOLE_BITS: u64 = 0x7FF4_0000_0000_0000;
+
+/// A hole of a `number[]`; see `SMELT_NUMBER_HOLE_BITS`.
+const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
+
+/// Whether `value` is a hole of a `number[]`.
+const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 //~
 //~ Exponential notation at `n > 21` and `n <= -6`, where `n` is the
@@ -52,7 +68,7 @@
 //~ examples and fails on the first library.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
-    if value.is_nan() { return "NaN".to_owned(); }
+    if value.is_nan() { return if smelt_is_number_hole(value) { "undefined" } else { "NaN" }.to_owned(); }
     //~ `-0.0 == 0.0` is true, so negative zero takes this arm and prints
     //~ `0`, which is what `String(-0)` is in JavaScript.
     if value == 0.0 { return "0".to_owned(); }

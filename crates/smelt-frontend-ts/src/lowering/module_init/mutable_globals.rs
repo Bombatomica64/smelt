@@ -164,6 +164,7 @@ impl ModuleBuilder<'_> {
             return;
         }
         let called = Self::collect_called_identifiers(program);
+        let identity_observed = Self::collect_identity_observed_names(program);
         for statement in &program.body {
             match statement {
                 Statement::VariableDeclaration(variable) => {
@@ -171,6 +172,7 @@ impl ModuleBuilder<'_> {
                         variable,
                         read_in_items,
                         &called,
+                        &identity_observed,
                         Visibility::Private,
                         module,
                     );
@@ -181,6 +183,7 @@ impl ModuleBuilder<'_> {
                             variable,
                             read_in_items,
                             &called,
+                            &identity_observed,
                             Visibility::Public,
                             module,
                         );
@@ -202,6 +205,7 @@ impl ModuleBuilder<'_> {
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
         read_in_items: &HashSet<String>,
         called: &HashSet<String>,
+        identity_observed: &HashSet<String>,
         visibility: Visibility,
         module: &mut Module,
     ) {
@@ -254,10 +258,19 @@ impl ModuleBuilder<'_> {
             // reading of `const P = /x/g` (JavaScript really does have ONE
             // object there), but changing it is that note's decision to revisit,
             // not this pass's to override silently.
+            //
+            // A folded object/array/collection literal is replayed at each
+            // item-context read, which is the source's value only while no
+            // reader can tell two reads apart. Once the program hands the
+            // object out (`return items`, `const alias = items`, `f(items)`,
+            // `x === items`; see `collect_identity_observed_names`), each read
+            // must be the ONE object, so the binding takes a slot and its fold
+            // is dropped.
+            let folded_aggregate =
+                self.consts.object(name).is_some() || self.consts.collection(name).is_some();
             if self.consts.regexp(name).is_some()
                 || self.consts.literal(name).is_some()
-                || self.consts.object(name).is_some()
-                || self.consts.collection(name).is_some()
+                || (folded_aggregate && !identity_observed.contains(name))
             {
                 continue;
             }
@@ -310,6 +323,9 @@ impl ModuleBuilder<'_> {
                 )
             {
                 continue;
+            }
+            if folded_aggregate {
+                self.forget_folded_aggregate(name);
             }
             let span = self.span(binding.span.start, binding.span.end);
             let symbol = self.intern_source_name(name);
@@ -415,6 +431,15 @@ impl ModuleBuilder<'_> {
                     .or(fallback),
                 (None, fallback) => fallback,
             };
+            // An unannotated container literal (`const conf = { a: 1 }`) has
+            // the type `collect_module_globals` already inferred from it, the
+            // one every module-body read of the binding sees. Only an erased
+            // or missing type is left to the blocker below.
+            let ty = ty.or_else(|| {
+                self.module_globals.get(name).copied().filter(|recorded| {
+                    !matches!(self.ctx.krate.types.get(*recorded), Some(Type::Unknown))
+                })
+            });
             let Some(ty) = ty else {
                 // No annotation and no literal to infer from: the cell's type
                 // is genuinely unknown at this point in the pass order. An

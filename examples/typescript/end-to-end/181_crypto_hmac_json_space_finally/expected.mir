@@ -132,9 +132,9 @@ async fn get_key__module_main (FuncId(1)) -> CryptoKey
     goto bb3
   bb3:
     %1 = move %3
-    %8 = {"name": "HMAC", "hash": "SHA-256"}
+    %8 = global_get #0
     %9 = ["sign", "verify"]
-    %10 = crypto_import_key "raw", move %1, copy %8.field8, copy %8.field9, false, move %9
+    %10 = crypto_import_key "raw", move %1, copy %8.field9, copy %8.field10, false, move %9
     %11 = await move %10
     return move %11
 
@@ -158,10 +158,10 @@ async fn sign__module_main (FuncId(2)) -> String throws
     %4 = call fn1(copy %1) -> bb1
   bb1:
     %2 = await move %4
-    %6 = {"name": "HMAC", "hash": "SHA-256"}
+    %6 = global_get #0
     %7 = text_encoder_new
     %8 = text_encoder_encode move %7 copy %0
-    %9 = crypto_sign copy %6.field8, move %2, move %8
+    %9 = crypto_sign copy %6.field9, move %2, move %8
     %3 = await move %9
     %11 = typed_array_new Uint8Array move %3
     %12 = primitive_cast_from_char_codes move %11
@@ -187,16 +187,16 @@ async fn verify__module_main (FuncId(3)) -> Bool
     %13 temp: Future<Bool>
     %14 temp: Bool
   bb0:
-    %4 = {"name": "HMAC", "hash": "SHA-256"}
+    %4 = global_get #0
     %5 = text_encoder_new
     %6 = text_encoder_encode move %5 copy %1
-    %7 = crypto_sign copy %4.field8, copy %2, move %6
+    %7 = crypto_sign copy %4.field9, copy %2, move %6
     %3 = await move %7
-    %9 = {"name": "HMAC", "hash": "SHA-256"}
+    %9 = global_get #0
     %10 = typed_array_new Uint8Array move %3
     %11 = text_encoder_new
     %12 = text_encoder_encode move %11 copy %0
-    %13 = crypto_verify copy %9.field8, copy %2, move %10, move %12
+    %13 = crypto_verify copy %9.field9, copy %2, move %10, move %12
     %14 = await move %13
     return move %14
 
@@ -291,21 +291,27 @@ fn rethrow_through__module_main (FuncId(6)) -> String
   bb10:
     goto bb3
 
-async fn main (FuncId(7)) -> None throws
+fn smelt_global_init__algorithm__0 (FuncId(7)) -> Dict<String, String>
   locals
-    %0 user algorithm: Dict<String, String>
-    %1 temp: Dict<String, String>
-    %2 temp: Future<None>
-    %3 temp: None
-    %4 temp: Future<None>
-    %5 temp: None
+    %0 temp: Dict<String, String>
   bb0:
     %0 = {"name": "HMAC", "hash": "SHA-256"}
-    %2 = call fn0() -> bb1
+    return move %0
+
+async fn main (FuncId(8)) -> None throws
+  locals
+    %0 temp: None
+    %1 temp: Future<None>
+    %2 temp: None
+    %3 temp: Future<None>
+    %4 temp: None
+  bb0:
+    %0 = global_get #0
+    %1 = call fn0() -> bb1
   bb1:
-    %3 = async_spawn_local(move %2)
-    %4 = async_exit_drain()
-    %5 = await move %4
+    %2 = async_spawn_local(move %1)
+    %3 = async_exit_drain()
+    %4 = await move %3
     return none
 
 closure ClosureId(0) -> Future<None> throws

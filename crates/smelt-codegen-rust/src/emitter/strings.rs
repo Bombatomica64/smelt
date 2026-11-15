@@ -1889,6 +1889,12 @@ impl FunctionEmitter<'_> {
                 "{fn_name}(*smelt_item as f64)",
                 fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
             ),
+            // A hole of a TypeScript `number[]` (`smelt_number_hole`) joins as
+            // the empty string, as `undefined` does: `[1, , 3].join()` is `1,,3`.
+            Some(Type::Float) if self.indexes_utf16() => format!(
+                "if smelt_is_number_hole(*smelt_item) {{ String::new() }} else {{ {fn_name}(*smelt_item) }}",
+                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
+            ),
             Some(Type::Float) => format!(
                 "{fn_name}(*smelt_item)",
                 fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,

@@ -1051,7 +1051,19 @@ export const lazyIdentityEvaluator = <T>(value: T) =>
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    ensure_eq!(module.items.len(), 4);
+    // Four items were the two exported consts and the two evaluators. The
+    // evaluator RETURNS `EMPTY_PIPE`, so every call must answer the one
+    // object (`lazyEmptyEvaluator() === lazyEmptyEvaluator()` is true in
+    // JavaScript) rather than a fresh replay of its literal: `EMPTY_PIPE` is
+    // now a module slot, the fifth item.
+    ensure_eq!(module.items.len(), 5);
+    ensure!(
+        module.items.iter().any(|item| matches!(
+            usize::try_from(item.0).ok().and_then(|index| ctx.krate.items.get(index)),
+            Some(Item::MutableGlobal(global)) if ctx.krate.symbols.get(global.name) == Some("empty_pipe")
+        )),
+        "expected the returned `EMPTY_PIPE` to be one module slot"
+    );
     ensure!(
         ctx.krate
             .bodies

@@ -14,8 +14,11 @@ fn the_helper_implements_the_four_layouts() {
         // One helper for both call shapes: a by-value number and the
         // `&f64` a borrowed erased match binds.
         "let value = *value.borrow();",
-        // NaN, zero, sign and infinity come before the digit work.
-        "if value.is_nan() { return \"NaN\".to_owned(); }",
+        // NaN, zero, sign and infinity come before the digit work. A NaN is
+        // `NaN`, except the reserved bits a hole of a `number[]` is stored as,
+        // which is `undefined` (`String(undefined)`), the value a hole reads as.
+        "if value.is_nan() { return if smelt_is_number_hole(value) { \"undefined\" } else { \"NaN\" }.to_owned(); }",
+        "const SMELT_NUMBER_HOLE_BITS: u64 = 0x7FF4_0000_0000_0000;",
         "if value == 0.0 { return \"0\".to_owned(); }",
         "if value.is_infinite() { return \"Infinity\".to_owned(); }",
         // The digits are Rust's shortest round-trip ones, not hand-rolled.

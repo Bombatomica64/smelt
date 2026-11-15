@@ -1,6 +1,7 @@
 module examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (ModuleId(0))
-  body BodyId(9)
+  body BodyId(10)
   items
+    global mut algorithm: Dict<String, String>
     fn get_key__module_main owner Module
     fn sign__module_main owner Module
     fn verify__module_main owner Module
@@ -8,26 +9,20 @@ module examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.t
     fn failing__module_main owner Module
     fn rethrow_through__module_main owner Module
     fn run owner Module
-  locals
-    %0 const algorithm: Dict<String, String>
   exprs
-    #0: String = "name"
-    #1: String = "HMAC"
-    #2: String = "hash"
-    #3: String = "SHA-256"
-    #4: Dict<String, String> = {#0: #1, #2: #3}
-    #5: async fn() -> Future<None> = @0(run)
-    #6: Future<None> = call #5()
-    #7: None = async_spawn_local(#6)
-    #8: Future<None> = async_exit_drain()
-    #9: None = await #8
+    #0: None = global_get @0(algorithm)
+    #1: async fn() -> Future<None> = @1(run)
+    #2: Future<None> = call #1()
+    #3: None = async_spawn_local(#2)
+    #4: Future<None> = async_exit_drain()
+    #5: None = await #4
   stmts
-    s0: let %0: Dict<String, String> = #4
-    s1: #7
-    s2: #9
+    s0: #0
+    s1: #3
+    s2: #5
   async state machine
     states [state0, state1]
-    suspend #9 on #8 -> state10
+    suspend #5 on #4 -> state6
 
 interned types
   t0 = String

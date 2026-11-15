@@ -3343,7 +3343,10 @@ function locale(options?: Options): Locale {
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let function = function_item(&ctx, module, 2)?;
+    // `locale` returns `defaultLocale` itself, so that binding is one module
+    // slot (pushed before the items it serves) rather than a literal replayed
+    // per call; the function moved from index 2 to 3.
+    let function = function_item(&ctx, module, 3)?;
     let body = function_body(&ctx, function)?;
 
     ensure!(

@@ -237,7 +237,8 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::from(iteration_block(
                     &prefix,
                     &format!(
-                        "{iter_text}.iter().enumerate().filter_map(|(smelt_index, smelt_item)| if {call_text} {{ Some(smelt_item.clone()) }} else {{ None }}).collect::<Vec<_>>()",
+                        "{iter_text}.iter().enumerate(){skip}.filter_map(|(smelt_index, smelt_item)| if {call_text} {{ Some(smelt_item.clone()) }} else {{ None }}).collect::<Vec<_>>()",
+                        skip = self.hole_skip(element_ty),
                         call_text = call_text.delimited()
                     ),
                     borrows_snapshot,
@@ -297,7 +298,8 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::from(iteration_block(
                     &prefix,
                     &format!(
-                        "{iter_text}.iter().enumerate().{method}(|(smelt_index, smelt_item)| {call_text})",
+                        "{iter_text}.iter().enumerate(){skip}.{method}(|(smelt_index, smelt_item)| {call_text})",
+                        skip = self.hole_skip(element_ty),
                         call_text = call_text.delimited()
                     ),
                     borrows_snapshot,
@@ -349,6 +351,21 @@ impl FunctionEmitter<'_> {
             *dest_item_ty,
             &self.render_scope(),
         )?;
+        // `map` does not call the callback on a hole and leaves a hole at the
+        // same index of its result. Only a `number[]` result holds a hole
+        // (`array_hole_value`); mapping to any other element type calls the
+        // callback with the hole, which reads as `undefined` text and as NaN in
+        // arithmetic (a known limit: such a result has no hole to keep).
+        let keeps_holes = self.mir.types.get(*dest_item_ty) == Some(&Type::Float);
+        let mapped_text = if self.hole_skip(element_ty).is_empty() || !keeps_holes {
+            value_text
+        } else {
+            RustExpr::atom(format!(
+                "if smelt_is_number_hole(*smelt_item) {{ {hole} }} else {{ {value} }}",
+                hole = self.array_hole_value(*dest_item_ty)?.delimited(),
+                value = value_text.delimited()
+            ))
+        };
         Ok(RustExpr::from(iteration_block(
             &format!(
                 "let smelt_callback = {closure_expr}; {}",
@@ -356,9 +373,9 @@ impl FunctionEmitter<'_> {
                 closure_expr = closure_expr.delimited()
             ),
             &format!(
-                "{}.iter().enumerate().map(|(smelt_index, smelt_item)| {{ {value_text} }}).collect::<Vec<_>>()",
+                "{}.iter().enumerate().map(|(smelt_index, smelt_item)| {{ {mapped_text} }}).collect::<Vec<_>>()",
                 list_iteration.iter_text,
-                value_text = value_text.delimited()
+                mapped_text = mapped_text.delimited()
             ),
             list_iteration.borrows_snapshot,
         )))
@@ -399,9 +416,10 @@ impl FunctionEmitter<'_> {
             callback_call
         };
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_callback = {closure_expr}; {}{}.iter().enumerate().for_each(|(smelt_index, smelt_item)| {{ let _ = {call_text}; }}); () }}",
+            "{{ let smelt_callback = {closure_expr}; {}{}.iter().enumerate(){}.for_each(|(smelt_index, smelt_item)| {{ let _ = {call_text}; }}); () }}",
             list_iteration.prefix,
             list_iteration.iter_text,
+            self.hole_skip(element_ty),
             closure_expr = closure_expr.delimited(),
             call_text = call_text.delimited()
         )))
@@ -479,6 +497,22 @@ impl FunctionEmitter<'_> {
             ),
             list_iteration.borrows_snapshot,
         )))
+    }
+
+    /// The iterator adapter that drops the holes of a `number[]` from an array
+    /// callback's iteration, or nothing.
+    ///
+    /// JavaScript's `forEach`, `map`, `filter`, `some` and `every` never call
+    /// their callback for a hole (`find`/`findIndex` do, with `undefined`). Only
+    /// a TypeScript `number[]` stores holes (`smelt_number_hole`), so every other
+    /// list iterates unchanged. Placed after `enumerate()`, so the callback still
+    /// sees each element's own index.
+    fn hole_skip(&self, element_ty: TypeId) -> &'static str {
+        if self.indexes_utf16() && self.mir.types.get(element_ty) == Some(&Type::Float) {
+            ".filter(|smelt_entry| !smelt_is_number_hole(*smelt_entry.1))"
+        } else {
+            ""
+        }
     }
 
     /// Renders an invocation of the `smelt_callback` binding used by the array

@@ -6,10 +6,19 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// The bits a hole of a `number[]` is stored as: a signaling NaN.
+const SMELT_NUMBER_HOLE_BITS: u64 = 0x7FF4_0000_0000_0000;
+
+/// A hole of a `number[]`; see `SMELT_NUMBER_HOLE_BITS`.
+const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
+
+/// Whether `value` is a hole of a `number[]`.
+const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
-    if value.is_nan() { return "NaN".to_owned(); }
+    if value.is_nan() { return if smelt_is_number_hole(value) { "undefined" } else { "NaN" }.to_owned(); }
     if value == 0.0 { return "0".to_owned(); }
     if value < 0.0 { return format!("-{}", smelt_number_to_string(-value)); }
     if value.is_infinite() { return "Infinity".to_owned(); }

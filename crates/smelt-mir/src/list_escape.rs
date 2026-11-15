@@ -397,6 +397,28 @@ enum OperandRole {
     Escapes(EscapeReason),
 }
 
+/// Whether `value` reads its operand at `position` (in [`Rvalue::reads`]
+/// order) only for its elements: the operation keeps no handle on that list's
+/// buffer and does not write through it ([`OperandRole::Read`] or a
+/// non-mutating [`OperandRole::Receiver`] in the op table).
+///
+/// An operand the table gives no role, or any other role, answers `false`, so
+/// an unmodelled operation never looks like a pure read.
+pub(crate) fn reads_list_elements_only(value: &Rvalue, position: usize) -> bool {
+    let mut operands = Vec::new();
+    value.reads(|operand| operands.push(std::ptr::from_ref(operand)));
+    let Some(target) = operands.get(position).copied() else {
+        return false;
+    };
+    operand_roles(value).into_iter().any(|(operand, role)| {
+        std::ptr::eq(operand, target)
+            && matches!(
+                role,
+                OperandRole::Read | OperandRole::Receiver { mutating: false }
+            )
+    })
+}
+
 /// A [`LocalId`] index as a slice index, saturating rather than wrapping.
 fn index_of(local: u32) -> usize {
     usize::try_from(local).unwrap_or(usize::MAX)

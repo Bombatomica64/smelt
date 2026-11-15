@@ -265,6 +265,22 @@ impl FunctionEmitter<'_> {
         Ok(None)
     }
 
+    /// The operand of a nullish test against an erased value, as a
+    /// `SmeltUnknown` the `matches!` patterns can name.
+    ///
+    /// A dynamically shaped union (one with an arm only the erased value
+    /// carries, such as `symbol`) is still rendered as its generated union
+    /// enum, which has no `SmeltUnknown::Null` arm to match; it is erased first.
+    /// An operand already rendered as `SmeltUnknown` is used as is.
+    fn erased_nullish_scrutinee(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        let value = self.operand_expr(operand)?;
+        if self.renders_erased(ty)? {
+            return Ok(value);
+        }
+        self.erase_rendered(&value, ty)
+    }
+
     /// Emits equality checks for erased `SmeltUnknown` operands.
     pub(super) fn unknown_binary_expr(
         &self,
@@ -329,13 +345,13 @@ impl FunctionEmitter<'_> {
         } else if lhs_is_erased && rhs_is_none {
             RustExpr::atom(format!(
                 "matches!({}, {})",
-                self.operand_expr(lhs)?.delimited(),
+                self.erased_nullish_scrutinee(lhs)?.delimited(),
                 nullish_pattern(rhs)
             ))
         } else if rhs_is_erased && lhs_is_none {
             RustExpr::atom(format!(
                 "matches!({}, {})",
-                self.operand_expr(rhs)?.delimited(),
+                self.erased_nullish_scrutinee(rhs)?.delimited(),
                 nullish_pattern(lhs)
             ))
         } else if lhs_is_none || rhs_is_none {

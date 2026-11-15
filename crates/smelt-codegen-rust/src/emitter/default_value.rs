@@ -12,9 +12,17 @@ impl FunctionEmitter<'_> {
     /// that hole yields `undefined` — never `null`. At an erased element type the
     /// two are distinguishable, and deep-equality code sees the difference:
     /// es-toolkit's `isEqualWith` compares `[1, <hole>, 3]` against an explicitly
-    /// written `[1, undefined, 3]` and must call them equal. Typed element types
-    /// cannot represent a hole at all, so they keep their ordinary default.
+    /// written `[1, undefined, 3]` and must call them equal. A TypeScript `number`
+    /// element stores the hole itself; other typed element types cannot represent
+    /// a hole at all, so they keep their ordinary default.
     pub(super) fn array_hole_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
+        // A TypeScript `number[]` stores a real hole (`smelt_number_hole`), which
+        // reads as `undefined` and shows as an empty item; Python has no holes.
+        if self.function.language == smelt_hir::Language::TypeScript
+            && matches!(self.mir.types.get(item_ty), Some(Type::Float))
+        {
+            return Ok(RustExpr::chain("smelt_number_hole()"));
+        }
         if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
             return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
         }
