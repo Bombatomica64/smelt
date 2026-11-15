@@ -49,6 +49,12 @@ pub trait SmeltLiveObject {
     //~ The typed handle itself, so a view narrowed back to the record type
     //~ hands out this record rather than a copy.
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any;
+    //~ Whether every declared property is present in every value of the
+    //~ record type (none is optional). The own keys of such a record are
+    //~ then `smelt_field_names` until a view gives it an open shape, so a
+    //~ view can list them without reading a value (`smelt_live_keys`).
+    //~ Generated `true` where it holds; the default asks the values.
+    fn smelt_fields_always_present(&self) -> bool { false }
 }
 
 /// Where a live record's `smelt_field_get` leaves the one value it reads.
@@ -218,6 +224,20 @@ fn smelt_live_entries(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<(JsStr
     }
     entries.extend(fields.into_iter().flatten());
     entries
+}
+
+/// The data keys of the record behind a view, in the object's own-key order.
+//~
+//~ What `Object.keys`, a `for..in` and a length ask. A record whose
+//~ properties are all always present and that has no open shape answers
+//~ from its declared names: no field is erased to be dropped again, which is
+//~ what a refresh of the whole view (`SmeltStoreCell::sync`) would do. Any
+//~ other record answers from its entries, as before.
+fn smelt_live_keys(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<JsString> {
+    if object.smelt_fields_always_present() && smelt_open_shape_read(object.smelt_live_address(), |_| ()).is_none() {
+        return object.smelt_field_names().iter().map(|name| smelt_live_field_name(name)).collect();
+    }
+    smelt_live_entries(object).into_iter().map(|(key, _)| key).collect()
 }
 
 /// Give `record`, just built from the erased object `id` with `entries`, that

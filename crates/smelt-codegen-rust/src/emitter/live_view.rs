@@ -265,6 +265,19 @@ impl FunctionEmitter<'_> {
                 converted = converted.delimited()
             ));
         }
+        // Every statement that is an unconditional push names a property
+        // no value of the record can lack, so the record's own keys are its
+        // declared names and a view lists them without reading a value
+        // (`smelt_live_keys` in the runtime). A statement that may push
+        // nothing (an optional property) leaves the default, which asks.
+        let always_present = statements
+            .iter()
+            .all(|(_, statement)| statement.starts_with("smelt_object_entries.push(("));
+        let always_present_method = if always_present {
+            "    fn smelt_fields_always_present(&self) -> bool { true }\n"
+        } else {
+            ""
+        };
         // The cell the object is: a view target's handle holds it as its
         // trait object (`crate::structural_views`).
         let live_cell = if self.is_view_target_type(target) {
@@ -305,6 +318,7 @@ impl FunctionEmitter<'_> {
                  \x20   fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> {{ {live_cell} }}\n\
                  \x20   fn smelt_live_address(&self) -> usize {{ ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }}\n\
                  \x20   fn smelt_live_handle(&self) -> &dyn ::std::any::Any {{ self }}\n\
+                 {always_present_method}\
                  }}\n"
             ),
         ))

@@ -1132,6 +1132,66 @@ mod live_view_family {
         fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Object(view(&self)) }
     }
 
+    /// `type Pin = { x: number; label: string }`: no property is optional, so
+    /// the generated impl answers `smelt_fields_always_present`. `reads`
+    /// counts the whole-record erasures (`smelt_field_entries`).
+    #[derive(Clone)]
+    struct Pin(::std::rc::Rc<::std::cell::RefCell<(f64, JsString)>>, ::std::rc::Rc<::std::cell::Cell<usize>>);
+
+    impl SmeltLiveObject for Pin {
+        fn smelt_field_names(&self) -> &'static [&'static str] { &["x", "label"] }
+        fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {
+            let inner = self.0.borrow();
+            if *key == "x" { return Some(SmeltUnknown::Number(inner.0)); }
+            if *key == "label" { return Some(SmeltUnknown::String(inner.1.clone())); }
+            None
+        }
+        fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
+            if *key == "x" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } self.0.borrow_mut().0 = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
+            Err(value)
+        }
+        fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
+            self.1.set(self.1.get() + 1);
+            ["x", "label"].into_iter().filter_map(|key| self.smelt_field_get(&JsString::from(key)).map(|value| (key, value))).collect()
+        }
+        fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
+        fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0).cast::<()>() as usize }
+        fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+        fn smelt_fields_always_present(&self) -> bool { true }
+    }
+
+    /// `Object.keys(view)` and its length on a record that cannot lack a
+    /// property list the declared names without erasing a field; once a view
+    /// gives the object an open shape, or for a record with an optional
+    /// property, the keys are the entries' (which omit an absent one).
+    #[test]
+    fn keys_of_a_view_read_no_value_until_the_shape_is_open() {
+        let reads = ::std::rc::Rc::new(::std::cell::Cell::new(0));
+        let pin = Pin(::std::rc::Rc::new(::std::cell::RefCell::new((1.0, "a".into()))), ::std::rc::Rc::clone(&reads));
+        let erased = SmeltObject::smelt_live_view(smelt_reference_object_identity(&pin.0), pin.clone());
+        assert_eq!(keys(&erased), ["x", "label"]);
+        assert_eq!(erased.len(), 2);
+        assert_eq!(erased.smelt_shared_record().keys().count(), 2);
+        assert_eq!(reads.get(), 0, "listing the keys erased no field");
+        // A write through the view is still read back, key list or not.
+        erased.insert("x", SmeltUnknown::Number(7.0));
+        assert_eq!(pin.0.borrow().0, 7.0);
+        assert_eq!(keys(&erased), ["x", "label"]);
+        assert_eq!(reads.get(), 0);
+        // An added property opens the shape: the keys are the object's own.
+        erased.insert("extra", SmeltUnknown::Bool(true));
+        assert_eq!(keys(&erased), ["x", "label", "extra"]);
+        erased.remove("x");
+        assert_eq!(keys(&erased), ["label", "extra"]);
+        assert_eq!(erased.len(), 2);
+        assert!(reads.get() > 0, "an open shape is answered from the entries");
+        // A record with an optional property asks its values: `tags` is absent.
+        let record = point(1.0, "a");
+        assert_eq!(keys(&view(&record)), ["x", "label"]);
+        record.0.borrow_mut().tags = Some(SmeltList::from(Vec::<JsString>::new()));
+        assert_eq!(keys(&view(&record)), ["x", "label", "tags"]);
+    }
+
     /// `expect([p]).toEqual([q])`: two records are deeply equal when their own
     /// properties are, whichever objects they are; one that a view gave a
     /// property the other lacks is not; and a record equals itself.

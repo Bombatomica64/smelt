@@ -388,6 +388,20 @@ impl<K, V> SmeltStoreCell<K, V> {
     fn sync(&self) {
         if self.live.borrow().is_some() { self.sync_live(); }
     }
+    //~ The keys of a live view: its record's data keys (`smelt_live_keys`,
+    //~ which reads no value when the record cannot lack one) followed by the
+    //~ runtime's own `__smelt` keys, the order a refresh gives the store.
+    //~ `None` for any other store, whose keys are its entries'. The view's
+    //~ cached values are left as they are: every read of a value asks the
+    //~ record (`live_get`) or refreshes first (`sync`).
+    fn live_keys(&self) -> Option<Vec<K>> where K: Clone + SmeltPropertyKey {
+        let (object, key) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key))?;
+        let mut keys = smelt_live_keys(&object).into_iter().map(key).collect::<Vec<_>>();
+        if let Ok(store) = self.cell.try_borrow() {
+            if store.has_internal_keys() { keys.extend(store.entries().iter().filter(|entry| entry.key.smelt_is_internal_key()).map(|entry| entry.key.clone())); }
+        }
+        Some(keys)
+    }
     fn sync_live(&self) {
         let Some((object, key, wrap, same, apply)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key, ::std::rc::Rc::clone(&link.wrap), link.same, link.apply)) else { return };
         if self.cell.try_borrow_mut().is_err() { return; }

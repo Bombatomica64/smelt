@@ -101,7 +101,7 @@ impl SmeltObject {
 //=     fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
 // @smelt:end
     fn from_unknown_record(record: SmeltRecord<JsString, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }
-    fn len(&self) -> usize { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().len() }
+    fn len(&self) -> usize { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys.len(); } /*@end*/self.store.borrow().len() }
     #[inline]
     fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| /*@if live_views*/self.store.live_has(key).unwrap_or_else(|| /*@end*/self.store.borrow().contains_key(key)/*@if live_views*/)/*@end*/) }
     #[inline]
@@ -127,7 +127,7 @@ impl SmeltObject {
 // @smelt:end
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| /*@if live_views*/{ self.store.sync(); self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key)/*@if live_views*/ }/*@end*/) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<JsString> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
+    fn keys(&self) -> Vec<JsString> { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys; } /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
     fn values(&self) -> Vec<SmeltUnknown> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
 // @smelt:if reference_origins
     //~ Record the live typed value this erased object is a view of.

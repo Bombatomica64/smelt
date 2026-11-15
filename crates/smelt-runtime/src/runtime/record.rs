@@ -167,13 +167,13 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
 // @smelt:else
 //=     fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
 // @smelt:end
-    fn len(&self) -> usize { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().len() }
+    fn len(&self) -> usize { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys.len(); } /*@end*/self.store.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { /*@if live_views*/if let Some(found) = self.store.live_has(key) { return found; } /*@end*/self.store.borrow().contains_key(key) }
     fn insert(&self, key: K, value: V) -> Option<V> { /*@if live_views*/self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key, value) }
     fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { /*@if live_views*/self.store.sync(); /*@end*//*@if live_views*/self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key) }
     fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { /*@if live_views*/self.store.live_get(key).or_store(|| /*@end*/self.store.borrow().get(key).cloned()/*@if live_views*/)/*@end*/ }
     fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys.into_iter(); } /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
     fn clear(&self) { /*@if live_views*/if self.store.is_live() { for key in self.keys() { self.remove(&key); } return; } /*@end*/*self.store.borrow_mut() = SmeltFieldStore::default(); }
