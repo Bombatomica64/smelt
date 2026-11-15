@@ -1620,3 +1620,11 @@ fn microtask_order() -> TestResult {
 fn generic_callback_fields() -> TestResult {
     verify_node_parity("generic_callback_fields")
 }
+
+/// `Promise.race` settles at the union of its racers' types and with the racer
+/// that settles first, and a promise handed to `race` or `all` can be awaited,
+/// raced or collected again afterwards.
+#[test]
+fn promise_combinator_operands() -> TestResult {
+    verify_node_parity("promise_combinator_operands")
+}

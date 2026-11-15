@@ -218,7 +218,7 @@ async function run(): Promise<[number, number]> {
 ",
     );
 
-    assert!(source.contains("tokio::join!(biased; _smelt_tmp_0, _smelt_tmp_1)"));
+    assert!(source.contains("tokio::join!(biased; smelt_awaited_0, smelt_awaited_1)"));
     assert!(source.contains("Ok::<_, Box<dyn std::error::Error>>"));
 }
 

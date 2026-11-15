@@ -15,7 +15,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         match op {
             smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => self.promise_all_expr(args),
-            smelt_hir::AsyncOp::Race => self.promise_race_expr(args),
+            smelt_hir::AsyncOp::Race => self.promise_race_expr(args, dest_ty),
             smelt_hir::AsyncOp::ExitDrain => Ok(RustExpr::atom(format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, {ERROR_BOX}>(()) }}))",
                 exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
@@ -537,10 +537,7 @@ impl FunctionEmitter<'_> {
                 list = list.delimited()
             )));
         }
-        let rendered_args = args
-            .iter()
-            .map(|arg| self.await_operand_expr(arg))
-            .collect::<Result<Vec<_>, _>>()?;
+        let (hoisted, rendered_args) = self.hoisted_awaited_operands(args)?;
         // Per-element: an awaited erased value may settle to a nested
         // `SmeltUnknown::Promise` (an `async` fn returning a `Promise`),
         // so flatten those. `tokio::join!` still polls every future first,
@@ -586,16 +583,104 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }}))"
+            "{{ {hoisted}SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }})) }}"
         )))
     }
 
+    /// The operands of a combinator (`Promise.race`, `Promise.all`), each
+    /// bound to a local BEFORE the `async move` block that awaits them.
+    ///
+    /// A promise may be raced or collected and then awaited again (MIR keeps a
+    /// `Copy` operand exactly where a later use exists), so a copied operand is
+    /// bound to a handle clone of the same shared promise; cloning it inside
+    /// the block would come too late, since `async move` has already captured,
+    /// and so moved, the variable it clones. The last use moves it. Returns the
+    /// bindings and the local each operand is then read through.
+    fn hoisted_awaited_operands(
+        &self,
+        args: &[Operand],
+    ) -> Result<(String, Vec<RustExpr>), EmitError> {
+        let mut prelude = String::new();
+        let mut locals = Vec::new();
+        for (index, arg) in args.iter().enumerate() {
+            let rendered = match arg {
+                Operand::Copy(_) => self.await_operand_expr(arg)?.cloned_value(),
+                _ => self.await_operand_expr(arg)?,
+            };
+            prelude.push_str(&format!(
+                "let smelt_awaited_{index} = {rendered}; ",
+                rendered = rendered.delimited()
+            ));
+            locals.push(RustExpr::path(format!("smelt_awaited_{index}")));
+        }
+        Ok((prelude, locals))
+    }
+
     /// `Promise.race`.
-    fn promise_race_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
+    fn promise_race_expr(&self, args: &[Operand], dest_ty: TypeId) -> Result<RustExpr, EmitError> {
+        // `Promise.race([a, b])` settles with whichever racer wins, so its
+        // result is `Promise<A | B>`: every racer settles AT the race's own
+        // item type. A racer of another item type (`Promise<void>` against
+        // `Promise<unknown>`, `Promise<string>` against `Promise<number>`) is
+        // converted as it settles; one already at the item type races as is.
+        let output_ty = match self.mir.types.get(dest_ty) {
+            Some(Type::Future(item)) => Some(*item),
+            _ => None,
+        };
+        let (hoisted, awaited) = self.hoisted_awaited_operands(args)?;
+        // Every racer runs on its own driver job, as a JavaScript promise runs
+        // whether or not a race is watching it: the race only waits for the
+        // racers to settle (`smelt_when_settled`). Awaiting a racer directly
+        // took its future into the race, and the race drops a losing racer
+        // when another wins, which stranded that promise half-run (a later
+        // `await` of it never settled) and let the racer polled first claim the
+        // win.
+        let watched = awaited
+            .into_iter()
+            .map(|racer| {
+                RustExpr::atom(format!(
+                    "SmeltFuture::from_future({racer}.smelt_when_settled())",
+                    racer = racer.tight()
+                ))
+            })
+            .collect::<Vec<_>>();
         let rendered_args = args
             .iter()
-            .map(|arg| self.await_operand_expr(arg))
-            .collect::<Result<Vec<_>, _>>()?;
+            .zip(watched)
+            .map(|(arg, future)| {
+                let racer_ty = match self.mir.types.get(self.operand_ty(arg)?) {
+                    Some(Type::Future(item)) => Some(*item),
+                    _ => None,
+                };
+                match (racer_ty, output_ty) {
+                    // A `Promise<never>` racer (a timeout that only rejects)
+                    // never settles with a value, so it needs no conversion:
+                    // it races its rejection and nothing else.
+                    (Some(never_ty), Some(_))
+                        if matches!(self.mir.types.get(never_ty), Some(Type::Never)) =>
+                    {
+                        Ok(RustExpr::atom(format!(
+                            "SmeltFuture::from_future(Box::pin(async move {{ let _ = {future}.await?; Ok(::std::unreachable!(\"a promise of `never` settled with a value\")) }}))",
+                            future = future.tight(),
+                        )))
+                    }
+                    (Some(from_ty), Some(to_ty)) if from_ty != to_ty => {
+                        let settled = self.rendered_at_type(
+                            &RustExpr::path("smelt_raced"),
+                            from_ty,
+                            to_ty,
+                            &self.render_scope(),
+                        )?;
+                        Ok(RustExpr::atom(format!(
+                            "SmeltFuture::from_future(Box::pin(async move {{ let smelt_raced = {future}.await?; Ok::<_, {ERROR_BOX}>({settled}) }}))",
+                            future = future.tight(),
+                            settled = settled.delimited(),
+                        )))
+                    }
+                    _ => Ok(future),
+                }
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?;
         let body = match rendered_args.as_slice() {
             [] => {
                 return Err(EmitError::new(
@@ -628,7 +713,7 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }}))"
+            "{{ {hoisted}SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }})) }}"
         )))
     }
 

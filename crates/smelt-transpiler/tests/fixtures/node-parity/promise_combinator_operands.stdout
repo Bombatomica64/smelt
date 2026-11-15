@@ -1,0 +1,7 @@
+race unknown|void value
+race number|string 1
+all after race [ 1, 'late' ]
+awaited again 1 late
+race same type 3
+race again 3
+all same type [ 2, 3 ]
