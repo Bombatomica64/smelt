@@ -2452,6 +2452,19 @@ impl<T> SmeltFuture<T> {
         let driver = self.clone();
         smelt_spawn_promise_task(Box::pin(async move { let _ = driver.smelt_await().await; }));
     }
+    fn smelt_when_settled(self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>> where T: Clone + 'static {
+        self.smelt_drive();
+        Box::pin(async move {
+            loop {
+                match &*self.state.borrow() {
+                    SmeltFutureState::Resolved(value) => return Ok(value.clone()),
+                    SmeltFutureState::Rejected(payload) => return Err(smelt_throw(payload.clone())),
+                    _ => {}
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+    }
     fn reaction<U: Clone + 'static>(&self, body: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<U, Box<dyn std::error::Error>>>>>) -> SmeltFuture<U> where T: Clone + 'static {
         let derived = SmeltFuture::from_future(body);
         self.tick.set(false);

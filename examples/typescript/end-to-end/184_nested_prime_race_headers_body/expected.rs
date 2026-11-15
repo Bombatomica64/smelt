@@ -2508,6 +2508,19 @@ impl<T> SmeltFuture<T> {
         let driver = self.clone();
         smelt_spawn_promise_task(Box::pin(async move { let _ = driver.smelt_await().await; }));
     }
+    fn smelt_when_settled(self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>> where T: Clone + 'static {
+        self.smelt_drive();
+        Box::pin(async move {
+            loop {
+                match &*self.state.borrow() {
+                    SmeltFutureState::Resolved(value) => return Ok(value.clone()),
+                    SmeltFutureState::Rejected(payload) => return Err(smelt_throw(payload.clone())),
+                    _ => {}
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+    }
     fn reaction<U: Clone + 'static>(&self, body: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<U, Box<dyn std::error::Error>>>>>) -> SmeltFuture<U> where T: Clone + 'static {
         let derived = SmeltFuture::from_future(body);
         self.tick.set(false);
@@ -4734,7 +4747,7 @@ pub(crate) async fn with_deadline(ms: f64) -> Result<JsString, Box<dyn std::erro
 });
     let deadline: SmeltFuture<JsString> = { let smelt_promise_callback = (_smelt_tmp_3).clone(); let smelt_reaction_source = _smelt_tmp_2; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move { let smelt_value = smelt_source.await?; let smelt_callback_value = ({ let _ = smelt_value; (smelt_promise_callback)() }); Ok::<_, Box<dyn std::error::Error>>(smelt_callback_value) })) };
     let _smelt_tmp_5 = SmeltFuture::from_future(Box::pin(dispatch_outer()));
-    let _smelt_tmp_6: SmeltFuture<JsString> = SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(_smelt_tmp_5))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(deadline))); smelt_promise_race(smelt_racers).await? }) }));
+    let _smelt_tmp_6: SmeltFuture<JsString> = { let smelt_awaited_0 = _smelt_tmp_5; let smelt_awaited_1 = deadline; SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>({ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, Box<dyn std::error::Error>>>>>> = Vec::new(); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(SmeltFuture::from_future(smelt_awaited_0.smelt_when_settled())))); smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future(SmeltFuture::from_future(smelt_awaited_1.smelt_when_settled())))); smelt_promise_race(smelt_racers).await? }) })) };
     _smelt_tmp_7 = _smelt_tmp_6.await?;
     return Ok(_smelt_tmp_7);
 }
