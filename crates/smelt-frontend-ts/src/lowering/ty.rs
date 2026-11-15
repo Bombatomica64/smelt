@@ -9,3 +9,4 @@ mod decode_facts;
 pub(in crate::lowering) mod element_params;
 mod generics;
 mod interface_lookup;
+mod primitive_params;
