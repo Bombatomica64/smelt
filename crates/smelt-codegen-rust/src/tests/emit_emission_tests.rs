@@ -1375,6 +1375,12 @@ fn strict_null_comparison_distinguishes_a_stored_null_from_an_absent_slot() {
     // `T` tests `is_none()`). A present erased payload may still carry a
     // `null` tag of its own, so `=== null` accepts both. The guarantee is
     // unchanged: `slot !== null` is false after `slot = null`.
+    //
+    // Likewise an erased value assigned into the slot (`slot = handle`) puts
+    // a `null` tag on the slot's `None` rather than inside `Some(..)`
+    // (`extract_optional`): the same shape at a generic seam
+    // (`isNonNull<T>(data: T | null)` at `T = unknown`, remeda) tests
+    // `is_none()`, so the tag must be the absent case.
     let source = source_for(
         r"
 export function clearSlot(handle: unknown): number {
@@ -1393,7 +1399,7 @@ export function clearSlot(handle: unknown): number {
         rust_items(&source, &["fn clear_slot"]),
         r"fn clear_slot(handle: SmeltUnknown) -> f64 {
 let mut slot: Option<SmeltUnknown> = None::<SmeltUnknown>;
-slot = Some(handle.clone());
+slot = { let smelt_optional_source = handle.clone(); if matches!(smelt_optional_source, SmeltUnknown::Null) { None } else { Some(smelt_optional_source) } };
 slot = None::<SmeltUnknown>;
 let _smelt_tmp_2: bool = !(slot.as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Null)));
 if _smelt_tmp_2 {

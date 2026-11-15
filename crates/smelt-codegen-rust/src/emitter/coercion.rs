@@ -541,7 +541,8 @@ impl FunctionEmitter<'_> {
             }
             // An erased value carries its own tag: the slot's absence is its
             // `None` (`extract_optional`). A generic callee's `is_none()`
-            // reads exactly that.
+            // reads exactly that, also when the slot's payload is erased
+            // (`isDefined<T>(data: T | undefined)` at `T = unknown`).
             if matches!(self.mir.types.get(operand_ty), Some(Type::Unknown)) {
                 return self.extract(operand, target, scope);
             }

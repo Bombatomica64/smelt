@@ -145,7 +145,18 @@ function maybe(value: unknown): unknown | undefined {
 ",
     );
 
-    assert!(source.contains("Some(value.clone())"), "{source}");
+    // Old requirement: the erased value is wrapped as `Some(value)`. New
+    // requirement: an `undefined` tag becomes the slot's `None`
+    // (`extract_optional`), every other value is `Some(value)`. The same
+    // slot at a generic seam (`isDefined<T>(data: T | undefined)` at
+    // `T = unknown`, remeda's `filter(isDefined)`) is read with `is_none()`,
+    // which must answer JavaScript's `data === undefined`.
+    assert!(
+        source.contains(
+            "if smelt_unknown_is_undefined(&smelt_optional_source) { None } else { Some("
+        ),
+        "{source}"
+    );
 }
 
 #[test]
