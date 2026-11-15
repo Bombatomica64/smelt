@@ -231,13 +231,20 @@ impl ModuleBuilder<'_> {
     /// The property keys the literal arguments of a call fix: for each
     /// declared parameter whose type is a bare type parameter, the string (or
     /// number, as its property-key spelling) literal passed for it.
+    ///
+    /// Only the arguments before the first spread are read: a spread supplies
+    /// an unknown number of parameters, so a literal after it is not at the
+    /// position it is written at.
     pub(in crate::lowering) fn literal_key_arguments_of(
         &self,
         params: &[TypeId],
         arguments: &[Argument<'_>],
     ) -> LiteralKeys {
         let mut keys = LiteralKeys::new();
-        for (param, argument) in params.iter().zip(arguments) {
+        let positional = arguments
+            .iter()
+            .take_while(|argument| !argument.is_spread());
+        for (param, argument) in params.iter().zip(positional) {
             let Some(Type::TypeParam { name }) = self.ctx.krate.types.get(*param) else {
                 continue;
             };

@@ -67,6 +67,16 @@ function pluckTwice<T, A extends keyof T, B extends keyof T[A]>(obj: T, a: A, b:
   return obj[a][b];
 }
 
+interface Tagged {
+  a: Point;
+  b: number;
+}
+
+// Two keys, of which the result reads only the first.
+function pluckTagged<T, A extends keyof T, B extends keyof T>(obj: T, a: A, _b: B): T[A] {
+  return obj[a];
+}
+
 function run(): void {
   const point: Point = { x: 1, y: 2 };
   const person: Person = { name: "ada", age: 36 };
@@ -100,6 +110,13 @@ function run(): void {
   }
   const byKey = pluck(point, key);
   console.log(byKey + 1);
+
+  // A literal after a spread is not at the position it is written at: `"b"`
+  // is the third parameter here, so the key of the result is `"a"`.
+  const tagged: Tagged = { a: point, b: 5 };
+  const head: [Tagged, "a"] = [tagged, "a"];
+  const afterSpread = pluckTagged(...head, "b");
+  console.log(afterSpread.x + afterSpread.y);
 }
 
 run();
@@ -249,12 +266,13 @@ fn ensure_locals(generated: &str, locals: &[(&str, &str)]) -> TestResult {
 /// one), a `Record<string, number>` gives its value, `T[keyof T]` over a
 /// record whose properties share a type gives that type, the access keeps
 /// its place under `| undefined` and `Array<..>`, an access over an access
-/// evaluates inside out, and a key that is no literal takes the type the
-/// TypeScript checker resolved for the call.
+/// evaluates inside out, a key that is no literal takes the type the
+/// TypeScript checker resolved for the call, and a literal written after a
+/// spread argument is not read as the key at its written position.
 #[test]
 fn indexed_access_return_is_typed_at_each_call() -> TestResult {
     let source = ITEM_CALLS;
-    let expected = "2 ADA 3 true 40\n3 none\n3 number 2 3\n3\n3\n";
+    let expected = "2 ADA 3 true 40\n3 none\n3 number 2 3\n3\n3\n3\n";
     let (generated, stdout) = build_and_run("indexed_access_return_is_typed_at_each_call", source)?;
     ensure(
         generated.contains(
@@ -276,6 +294,7 @@ fn indexed_access_return_is_typed_at_each_call() -> TestResult {
             ("values", "SmeltList<f64>"),
             ("from_y", "f64"),
             ("by_key", "f64"),
+            ("after_spread", "Point"),
         ],
     )?;
     // `string | number`: a generated union, not the erased value.
