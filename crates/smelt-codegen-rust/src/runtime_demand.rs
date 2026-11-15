@@ -79,6 +79,8 @@ declare_needs! {
     Generator,
     /// The timer queue and promise task queue.
     Timers,
+    /// The `{ status, value | reason }` record of `Promise.allSettled`.
+    AllSettled,
     /// `Date.now()` override state.
     DateNow,
     /// `getTimezoneOffset()` override state.
@@ -335,6 +337,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
         &[Need::Unknown, Need::IteratorResult, Need::DepGenawaiter],
     ),
     (Need::Timers, &[Need::Unknown]),
+    (Need::AllSettled, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
     (Need::SetPrototypeOf, &[Need::Unknown]),

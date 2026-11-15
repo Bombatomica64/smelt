@@ -56,6 +56,19 @@ impl FunctionEmitter<'_> {
         if !function.params.contains(&local) {
             return false;
         }
+        // An async function's body is a `'static` boxed future that outlives
+        // the call (`SmeltFuture`), and a generator's is a `'static` resumable
+        // state machine, so neither can hold a borrow of the caller's value:
+        // two pending calls over one list were two live `&mut` borrows (E0499)
+        // of a local the future outlived (E0597), and a generator's `&mut`
+        // parameter could not be returned inside it. Every collection
+        // type that reaches here is a shared handle (`SmeltList`, `SmeltRecord`,
+        // `SmeltJsMap`, the set containers, a reference class), so the owned
+        // parameter is another handle on the caller's object and its writes
+        // reach the caller, as in JavaScript.
+        if function.is_async || function.is_generator {
+            return false;
+        }
         if !self
             .function_local_decl(function, local)
             .is_ok_and(|decl| self.parameter_type_has_shared_mutation_semantics(decl.ty))
