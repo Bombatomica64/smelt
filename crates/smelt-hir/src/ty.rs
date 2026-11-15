@@ -136,6 +136,33 @@ pub enum Type {
         /// Value type when the generator completed.
         return_ty: TypeId,
     },
+    /// A TypeScript indexed access `T[K]` over a type that is not known yet,
+    /// kept unevaluated: the type of the property `index` names on `object`.
+    ///
+    /// # Where it lives
+    ///
+    /// Only in the CALLER-SIDE view of a signature: the return type a
+    /// TypeScript frontend keeps beside a generic function or overload
+    /// (`smelt-frontend-ts`, `lowering/ty/deferred_index.rs`) so a call that
+    /// binds `T` can evaluate it. `object` mentions a type parameter of that
+    /// signature; `index` is a string-like type for "any key" (`T[keyof T]`)
+    /// or a type parameter that the call binds (`T[K]`).
+    ///
+    /// # Invariant
+    ///
+    /// It is never the type of a value: no item signature, local, expression
+    /// or MIR type holds one, because the declaration it comes from is still
+    /// lowered and emitted with the access erased (reason `type-level`), and a
+    /// call that cannot evaluate it keeps that erased type. Passes after the
+    /// frontend therefore treat it exactly as they treat `unknown`, the type
+    /// that declaration emits; the Rust backend records the erasure by reason
+    /// if one ever reaches it.
+    IndexedAccess {
+        /// The indexed type, mentioning a type parameter of the signature.
+        object: TypeId,
+        /// The key type.
+        index: TypeId,
+    },
 }
 
 /// The direct child types of a [`Type`], in declaration order.
@@ -212,6 +239,7 @@ impl Type {
                 yield_ty,
                 return_ty,
             } => (&[], [Some(*yield_ty), Some(*return_ty), None]),
+            Self::IndexedAccess { object, index } => (&[], [Some(*object), Some(*index), None]),
         };
         TypeChildren {
             list: list.iter(),
@@ -280,6 +308,10 @@ impl Type {
                 yield_ty: rewrite(*yield_ty)?,
                 return_ty: rewrite(*return_ty)?,
             },
+            Self::IndexedAccess { object, index } => Self::IndexedAccess {
+                object: rewrite(*object)?,
+                index: rewrite(*index)?,
+            },
         })
     }
 
@@ -316,8 +348,10 @@ impl Type {
             | Self::Generator { .. }
             | Self::GeneratorResult { .. } => Some(UnknownKind::Object),
             Self::Future(_) => Some(UnknownKind::Promise),
-            // A property key is a string or a symbol, two kinds.
+            // A property key is a string or a symbol, two kinds. An unevaluated
+            // indexed access names a property whose type is not known yet.
             Self::PropKey
+            | Self::IndexedAccess { .. }
             | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }

@@ -94,6 +94,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ts_facts: None,
             trust: crate::lowering::SourceTrust::Unchecked,
             int32_type_depth: 0,
+            defer_indexed_access: false,
             tuple_rest_arrows: HashMap::new(),
             type_param_owners: HashMap::new(),
             receiver_frames: Vec::new(),

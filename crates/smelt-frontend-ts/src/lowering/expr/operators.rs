@@ -991,6 +991,8 @@ impl ModuleBuilder<'_> {
             }
             Some(Type::TypeParam { .. }) => kinds.parameter = true,
             Some(Type::Unknown) | None => kinds.any = true,
+            // Not a value's type; the `unknown` it erases to holds any kind.
+            Some(Type::IndexedAccess { .. }) => kinds.any = true,
             Some(
                 Type::List(_)
                 | Type::Set(_)

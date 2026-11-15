@@ -512,7 +512,7 @@ impl FunctionEmitter<'_> {
         // it reads), so take an owned copy rather than deep-copying it a second time.
         let smelt_owned_value = value_text.cloned_value();
         match self.mir.types.get(ty) {
-            Some(Type::Unknown) => Ok(value_text.to_owned()),
+            Some(Type::Unknown | Type::IndexedAccess { .. }) => Ok(value_text.to_owned()),
             // Unconditional, and correct for both spellings of a type
             // parameter: a monomorphized `T` converts through the
             // `IntoSmeltUnknown` bound its signature declares, and an erased one

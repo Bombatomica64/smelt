@@ -976,6 +976,17 @@ impl ModuleBuilder<'_> {
                     return_ty,
                 })
             }
+            // Substituted position by position and left unevaluated: only
+            // `ty/deferred_index.rs` evaluates, after it has read the keys a
+            // call spells.
+            Type::IndexedAccess { object, index } => {
+                let object = self.substitute_type_params(object, substitutions);
+                let index = self.substitute_type_params(index, substitutions);
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::IndexedAccess { object, index })
+            }
             Type::Bool
             | Type::Int
             | Type::FixedInt(_)

@@ -409,6 +409,9 @@ impl ModuleBuilder<'_> {
             | Type::Symbol
             | Type::Unknown
             | Type::TypeParam { .. } => true,
+            // An unevaluated indexed access is never a value's type (see
+            // `Type::IndexedAccess`); it answers as the `unknown` it erases to.
+            Type::IndexedAccess { .. } => true,
             // Never a value on its own; only a record key.
             Type::PropKey => true,
             // `JSON.stringify(1n)` throws `TypeError: Do not know how to

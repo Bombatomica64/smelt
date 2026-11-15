@@ -682,6 +682,10 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             type_ref(mir, *yield_ty),
             type_ref(mir, *return_ty)
         ),
+        // Never a MIR type (see `Type::IndexedAccess`); spelled as in source.
+        Type::IndexedAccess { object, index } => {
+            format!("{}[{}]", type_ref(mir, *object), type_ref(mir, *index))
+        }
     }
 }
 

@@ -618,7 +618,9 @@ pub(crate) fn record_field_unknown_expr(
     ty: TypeId,
 ) -> Result<RustExpr, EmitError> {
     Ok(match mir.types.get(ty) {
-        Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => RustExpr::atom(format!(
+        Some(
+            Type::Unknown | Type::IndexedAccess { .. } | Type::Union(_) | Type::TypeParam { .. },
+        ) => RustExpr::atom(format!(
             "({value_text}).into_smelt_unknown()",
             value_text = value_text.delimited()
         )),

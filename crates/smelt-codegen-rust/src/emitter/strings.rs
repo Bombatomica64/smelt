@@ -1217,7 +1217,12 @@ impl FunctionEmitter<'_> {
                 fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 text = self.operand_expr(operand)?.delimited(),
             ))),
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+            Some(
+                Type::Unknown
+                | Type::IndexedAccess { .. }
+                | Type::Union(_)
+                | Type::TypeParam { .. },
+            ) => {
                 let operand_ty = self.operand_ty(operand)?;
                 // A type parameter this scope spells as a real Rust generic
                 // (`impl<T> Box<T>`) is a `T`, not the carrier: it crosses into

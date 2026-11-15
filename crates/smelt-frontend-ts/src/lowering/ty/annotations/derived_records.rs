@@ -28,12 +28,12 @@ use std::collections::HashMap;
 type ShapeEntry = (Symbol, bool);
 
 /// The own properties a record can be derived from.
-struct RecordSource {
+pub(in crate::lowering) struct RecordSource {
     /// Source spelling of the base type, used to name the generated struct.
     name: String,
     /// Own and inherited properties with type arguments applied, base-most last
     /// overridden by nearer declarations.
-    fields: Vec<Field>,
+    pub(in crate::lowering) fields: Vec<Field>,
     /// What the base's declaration records per property beyond its storage.
     decode_facts: Vec<FieldDecodeFacts>,
 }
@@ -398,7 +398,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// The property table of `base`, when it is a class or interface record.
-    fn record_source(
+    pub(in crate::lowering) fn record_source(
         &mut self,
         base: TypeId,
         span: smelt_hir::Span,

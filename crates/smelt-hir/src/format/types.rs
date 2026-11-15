@@ -276,6 +276,10 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
             type_ref(krate, *yield_ty),
             type_ref(krate, *return_ty)
         ),
+        // Source spelling: `T[K]`.
+        Type::IndexedAccess { object, index } => {
+            format!("{}[{}]", type_ref(krate, *object), type_ref(krate, *index))
+        }
     }
 }
 

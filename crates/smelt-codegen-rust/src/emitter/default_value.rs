@@ -66,7 +66,7 @@ impl FunctionEmitter<'_> {
             // source value is ever this default.
             Type::Symbol => Ok(RustExpr::atom("SmeltSymbol::default()").delegating_default()),
             Type::PropKey => Ok(RustExpr::atom("SmeltPropKey::default()").delegating_default()),
-            Type::Unknown => Ok(self.null_value()?),
+            Type::Unknown | Type::IndexedAccess { .. } => Ok(self.null_value()?),
             Type::Never => Ok(self.null_value()?),
             Type::None => Ok(RustExpr::unit()),
             // Annotate the element type: a bare `Vec::new()` is uninferable when

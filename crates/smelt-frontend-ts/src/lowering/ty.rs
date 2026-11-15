@@ -6,6 +6,7 @@ mod assignability;
 mod callable_members;
 pub(in crate::lowering) mod computed_key_symbols;
 mod decode_facts;
+pub(in crate::lowering) mod deferred_index;
 pub(in crate::lowering) mod element_params;
 mod generics;
 mod interface_lookup;

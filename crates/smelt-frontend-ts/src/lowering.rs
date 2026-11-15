@@ -1114,6 +1114,11 @@ struct ModuleBuilder<'ctx> {
     /// nested type, so depth `0` is exactly the whole-type position. See
     /// `lowering::int32`.
     int32_type_depth: usize,
+    /// Whether an indexed access over a type parameter is kept unevaluated
+    /// (`Type::IndexedAccess`) by the annotation being lowered: on only while
+    /// a signature's return is lowered for its callers
+    /// (`ty/deferred_index.rs`).
+    defer_indexed_access: bool,
     /// Arrow parameter lists (by source span) whose rest parameter is a
     /// fixed-width tuple, with that tuple type; see `lowering::tuple_rest`.
     tuple_rest_arrows: HashMap<(u32, u32), smelt_hir::TypeId>,
