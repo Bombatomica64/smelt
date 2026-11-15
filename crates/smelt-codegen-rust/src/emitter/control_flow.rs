@@ -406,6 +406,10 @@ impl FunctionEmitter<'_> {
                 // A `typeof` whose destination was narrowed to `&'static str`
                 // skips the owned copy entirely -- the borrowed spelling IS the
                 // value. See `emitter::typeof_str_locals`.
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "two rvalue shapes have a destination-specific rendering; every other rvalue renders through `rvalue_expr_for_dest`"
+                )]
                 let rendered_value = match value {
                     // A base initializer copy is handed its instance: the
                     // constructor's allocation of `this` becomes the receiver.

@@ -162,6 +162,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a list callback operation through a normal MIR closure body.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "three callback ops have a dedicated closure; every other op takes the shared predicate path below"
+    )]
     fn list_callback_closure(
         &self,
         op: smelt_hir::ListCallbackOp,

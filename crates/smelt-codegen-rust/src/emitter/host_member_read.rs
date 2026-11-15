@@ -143,7 +143,15 @@ impl FunctionEmitter<'_> {
             ResponseOp::StatusText => self.find_type_id(&Type::String),
             ResponseOp::Ok | ResponseOp::BodyUsed => self.find_type_id(&Type::Bool),
             ResponseOp::Headers => self.stdlib_class_ty(smelt_stdlib::StdlibClass::Headers),
-            _ => None,
+            // Not in `RESPONSE_MEMBERS`: this path never reads them off a
+            // value (the body is a stream, the rest are method calls).
+            ResponseOp::Body
+            | ResponseOp::Text
+            | ResponseOp::Json
+            | ResponseOp::FormData
+            | ResponseOp::ArrayBuffer
+            | ResponseOp::Bytes
+            | ResponseOp::Clone => None,
         }
     }
 
@@ -158,12 +166,10 @@ impl FunctionEmitter<'_> {
             .types
             .all()
             .iter()
-            .position(|ty| match ty {
-                Type::Class { name, args } => {
-                    args.is_empty()
-                        && self.stdlib_class_of_symbol(*name).ok().flatten() == Some(class)
-                }
-                _ => false,
+            .position(|ty| {
+                matches!(ty, Type::Class { name, args }
+                    if args.is_empty()
+                        && self.stdlib_class_of_symbol(*name).ok().flatten() == Some(class))
             })
             .and_then(|index| u32::try_from(index).ok())
             .map(TypeId)

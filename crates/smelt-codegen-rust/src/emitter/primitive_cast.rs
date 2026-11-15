@@ -14,6 +14,10 @@ impl FunctionEmitter<'_> {
     /// Rust `String` spelling and decodes to U+FFFD. `fromCodePoint`: each
     /// number is one code point; the spec's `RangeError` for a non-integer or
     /// out-of-range value becomes U+FFFD here.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "sub-dispatch: callers route only the two code-list conversions here; any other op is an internal error"
+    )]
     fn primitive_cast_list_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
@@ -50,6 +54,10 @@ impl FunctionEmitter<'_> {
     /// text through `JsString::from`. The arms that already answer this
     /// body's string type (a string operand, and everything
     /// `string_like_operand_expr` renders) are left as they are.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recognisers: only a few casts have a symbol spelling or answer a Rust `String`"
+    )]
     pub(super) fn primitive_cast_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,

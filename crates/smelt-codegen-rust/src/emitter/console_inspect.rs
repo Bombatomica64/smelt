@@ -408,6 +408,10 @@ impl FunctionEmitter<'_> {
     /// Converts an operand to console.log argument format and returns format string and value.
     /// Python's `repr` of the value `reference` borrows, as a `String`, for a type
     /// built of primitives, lists, tuples and options; `None` for any other type.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the types not listed have no Python `repr` the emitter renders statically: the caller falls back"
+    )]
     fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         let item = RustExpr::path("smelt_item");
         Some(match self.mir.types.get(ty)? {

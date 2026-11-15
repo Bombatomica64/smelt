@@ -100,11 +100,21 @@ impl FunctionEmitter<'_> {
                         },
                     ..
                 } if *candidate == local => true,
-                Statement::Assign { value, .. } => {
+                // The stored value of any assignment can mutate the parameter
+                // or forward it into a mutable callback slot, whatever the
+                // target is.
+                Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     self.rvalue_mutates_local(value, local)
                         || self.rvalue_forwards_local_to_mutable_callback(function, value, local)
                 }
-                _ => false,
+                // A fused entry update writes through a `Dict` base, and every
+                // dict representation (`SmeltRecord`, `SmeltPropKeyRecord`,
+                // `SmeltJsMap`) is a shared handle: the owned parameter's
+                // write already reaches the caller, and the `mut` binding the
+                // entry accessor needs comes from the local mutability scan.
+                // Its stored value is a `Use`/`Unary`/`Binary` over constants
+                // and the entry itself, which mutates and forwards nothing.
+                Statement::DictEntryUpdate { .. } => false,
             }) {
                 return true;
             }
@@ -128,14 +138,12 @@ impl FunctionEmitter<'_> {
                                 .unwrap_or(false)
                     }),
                     Callee::Indirect(operand) => {
-                        let callee_ty = match operand {
-                            Operand::Copy(Place::Local(callee_local))
-                            | Operand::Move(Place::Local(callee_local)) => self
+                        let callee_ty = match operand.place() {
+                            Some(Place::Local(callee_local)) => self
                                 .function_local_decl(function, *callee_local)
                                 .ok()
                                 .map(|decl| decl.ty),
-                            Operand::Copy(Place::Field { base, field })
-                            | Operand::Move(Place::Field { base, field }) => self
+                            Some(Place::Field { base, field }) => self
                                 .function_local_decl(function, *base)
                                 .ok()
                                 .and_then(|decl| self.structural_record_fields(decl.ty))
@@ -145,14 +153,13 @@ impl FunctionEmitter<'_> {
                                         .find(|candidate| candidate.name == *field)
                                         .map(|candidate| candidate.ty)
                                 }),
+                            // An element or global slot names no declared callback type.
+                            Some(Place::Index { .. } | Place::Global { .. }) | None => None,
+                        };
+                        let function_ty = match callee_ty.and_then(|ty| self.mir.types.get(ty)) {
+                            Some(Type::Function(function_ty)) => Some(function_ty),
                             _ => None,
                         };
-                        let function_ty = callee_ty.and_then(|ty| self.mir.types.get(ty)).and_then(
-                            |ty| match ty {
-                                Type::Function(function_ty) => Some(function_ty),
-                                _ => None,
-                            },
-                        );
                         function_ty.is_some_and(|callback_ty| {
                             args.iter().enumerate().any(|(index, arg)| {
                                 Self::operand_originates_from_local(
@@ -183,14 +190,12 @@ impl FunctionEmitter<'_> {
         let Rvalue::ClosureCall { callee, args } = value else {
             return false;
         };
-        let callee_ty = match callee {
-            Operand::Copy(Place::Local(callee_local))
-            | Operand::Move(Place::Local(callee_local)) => self
+        let callee_ty = match callee.place() {
+            Some(Place::Local(callee_local)) => self
                 .function_local_decl(function, *callee_local)
                 .ok()
                 .map(|decl| decl.ty),
-            Operand::Copy(Place::Field { base, field })
-            | Operand::Move(Place::Field { base, field }) => self
+            Some(Place::Field { base, field }) => self
                 .function_local_decl(function, *base)
                 .ok()
                 .and_then(|decl| self.structural_record_fields(decl.ty))
@@ -200,14 +205,10 @@ impl FunctionEmitter<'_> {
                         .find(|candidate| candidate.name == *field)
                         .map(|candidate| candidate.ty)
                 }),
-            _ => None,
+            // An element or global slot names no declared callback type.
+            Some(Place::Index { .. } | Place::Global { .. }) | None => None,
         };
-        let Some(function_ty) = callee_ty
-            .and_then(|ty| self.mir.types.get(ty))
-            .and_then(|ty| match ty {
-                Type::Function(function_ty) => Some(function_ty),
-                _ => None,
-            })
+        let Some(Type::Function(function_ty)) = callee_ty.and_then(|ty| self.mir.types.get(ty))
         else {
             return false;
         };
@@ -566,7 +567,13 @@ impl FunctionEmitter<'_> {
                         place: Place::Local(candidate),
                         ..
                     } if observed_capture && *candidate == local => return true,
-                    _ => {}
+                    // Other writes rebind some other local or write into a
+                    // projection, which leaves the captured binding itself in
+                    // place; a fused entry update binds only its own scalar
+                    // `current` temporary, which no closure captures.
+                    Statement::Assign { .. }
+                    | Statement::AssignPlace { .. }
+                    | Statement::DictEntryUpdate { .. } => {}
                 }
             }
         }
@@ -693,12 +700,12 @@ impl FunctionEmitter<'_> {
             .blocks
             .iter()
             .flat_map(|block| &block.statements)
-            .filter_map(|statement| match statement {
-                Statement::Assign {
-                    value: Rvalue::Closure { id, .. },
-                    ..
-                } => Some(*id),
-                _ => None,
+            .filter_map(|statement| {
+                if let Rvalue::Closure { id, .. } = statement.value() {
+                    Some(*id)
+                } else {
+                    None
+                }
             })
             .collect::<HashSet<_>>();
         created_here
@@ -756,7 +763,18 @@ impl FunctionEmitter<'_> {
                         },
                     ..
                 } if *candidate == target => true,
-                Statement::Assign { value, .. } => {
+                // A fused entry update writes into its base's entry and binds
+                // its `current` local.
+                Statement::DictEntryUpdate { base, current, .. }
+                    if *base == target || *current == target =>
+                {
+                    true
+                }
+                // Whatever the target, the stored value can itself write the
+                // capture.
+                Statement::Assign { value, .. }
+                | Statement::AssignPlace { value, .. }
+                | Statement::DictEntryUpdate { value, .. } => {
                     self.rvalue_mutates_local(value, target)
                         || self.rvalue_borrows_local_mutably(value, target)
                         || self.closure_rvalue_forwards_local_to_mutable_callback(
@@ -764,7 +782,6 @@ impl FunctionEmitter<'_> {
                         )
                         || self.nested_closure_writes_capture(value, target)
                 }
-                _ => false,
             });
             statement_writes
                 || self.closure_terminator_writes_local(closure, block.terminator.as_ref(), target)
@@ -893,14 +910,12 @@ impl FunctionEmitter<'_> {
         closure: &MirClosure,
         operand: &Operand,
     ) -> Option<&FunctionType> {
-        let callee_ty = match operand {
-            Operand::Copy(Place::Local(callee_local))
-            | Operand::Move(Place::Local(callee_local)) => closure
+        let callee_ty = match operand.place() {
+            Some(Place::Local(callee_local)) => closure
                 .locals
                 .get(id_index(callee_local.0, "closure local index does not fit usize").ok()?)
                 .map(|decl| decl.ty),
-            Operand::Copy(Place::Field { base, field })
-            | Operand::Move(Place::Field { base, field }) => closure
+            Some(Place::Field { base, field }) => closure
                 .locals
                 .get(id_index(base.0, "closure local index does not fit usize").ok()?)
                 .and_then(|decl| self.structural_record_fields(decl.ty))
@@ -910,7 +925,8 @@ impl FunctionEmitter<'_> {
                         .find(|candidate| candidate.name == *field)
                         .map(|candidate| candidate.ty)
                 }),
-            _ => None,
+            // An element or global slot names no declared callback type.
+            Some(Place::Index { .. } | Place::Global { .. }) | None => None,
         }?;
         match self.mir.types.get(callee_ty) {
             Some(Type::Function(function_ty)) => Some(function_ty),

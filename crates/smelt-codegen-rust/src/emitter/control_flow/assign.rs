@@ -96,7 +96,11 @@ impl FunctionEmitter<'_> {
                 value.reads(|operand| reads |= operand.reads_local(*local));
                 reads && (!scalar || target.guarded_cell().is_some())
             }
-            _ => false,
+            // Only a field store reaches this tail among the projected
+            // targets (an index or global store is emitted above); it stores
+            // into the container rather than replacing the local the value
+            // borrows, so only its guarded cell matters, checked below.
+            Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => false,
         };
         if reads_target
             || target

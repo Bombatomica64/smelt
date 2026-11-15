@@ -174,9 +174,10 @@ impl RustExpr {
     /// `text`, a postfix applied to `receiver`: it binds as `receiver` does.
     #[must_use]
     pub fn postfix_on(receiver: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
-        let precedence = match receiver.precedence() {
-            Precedence::Path => Precedence::Chain,
-            other => other,
+        let precedence = if receiver.precedence() == Precedence::Path {
+            Precedence::Chain
+        } else {
+            receiver.precedence()
         };
         Self::with_precedence(text, precedence)
     }

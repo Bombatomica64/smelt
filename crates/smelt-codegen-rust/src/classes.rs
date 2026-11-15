@@ -380,11 +380,17 @@ fn class_method_names(mir: &Mir, class: &MirClass) -> HashSet<Symbol> {
     effective_class_methods(mir, class)
         .into_iter()
         .filter_map(|method| mir.functions.get(usize::try_from(method.0).ok()?))
-        .filter_map(|function| match function.origin {
-            smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
-            _ => None,
-        })
+        .filter_map(class_method_name)
         .collect()
+}
+
+/// The source method name of a class method, `None` for any other origin.
+const fn class_method_name(function: &MirFunction) -> Option<Symbol> {
+    if let smelt_mir::HirOrigin::ClassMethod { method, .. } = function.origin {
+        Some(method)
+    } else {
+        None
+    }
 }
 
 /// Map each class in an inheritance `chain` (`chain[0]` the receiving class,
@@ -457,7 +463,12 @@ fn inherited_member_declaring_class(function: &MirFunction, owner: Symbol) -> Op
         {
             Some(class)
         }
-        _ => None,
+        // The owner's own members, static methods (never copied into an
+        // instance `impl`) and free bodies declare no generic ancestor.
+        smelt_mir::HirOrigin::ClassMethod { .. }
+        | smelt_mir::HirOrigin::ClassConstructor { .. }
+        | smelt_mir::HirOrigin::ClassStaticMethod { .. }
+        | smelt_mir::HirOrigin::Body(_) => None,
     }
 }
 
@@ -590,10 +601,7 @@ pub(crate) fn own_virtual_slot_names(mir: &Mir, class: &MirClass) -> Vec<Symbol>
     let mut method_names: HashSet<Symbol> = effective_class_methods(mir, class)
         .into_iter()
         .filter_map(|id| mir.functions.get(usize::try_from(id.0).ok()?))
-        .filter_map(|function| match function.origin {
-            smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
-            _ => None,
-        })
+        .filter_map(class_method_name)
         .collect();
     let mut current = Some(class);
     let mut seen = HashSet::new();
@@ -680,13 +688,8 @@ fn base_class<'mir>(mir: &'mir Mir, class: &MirClass) -> Option<&'mir MirClass> 
 /// Whether two method functions declare the same method name, i.e. one
 /// overrides the other.
 fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
-    let method_name = |id: FuncId| {
-        let function = mir.functions.get(usize::try_from(id.0).ok()?)?;
-        match function.origin {
-            smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
-            _ => None,
-        }
-    };
+    let method_name =
+        |id: FuncId| class_method_name(mir.functions.get(usize::try_from(id.0).ok()?)?);
     match (method_name(left), method_name(right)) {
         (Some(left_name), Some(right_name)) => left_name == right_name,
         _ => false,

@@ -39,6 +39,10 @@ use crate::{EmitError, GeneratedAllocator, stdlib};
 ///
 /// Returns an [`EmitError`] when an entry names an item the runtime does not
 /// define.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "`Entry` and `RenderedLine` are `#[non_exhaustive]` in their crate, so a catch-all is mandatory; a disabled item or blank line is skipped"
+)]
 pub(crate) fn emit_entries(
     writer: &mut CodeWriter,
     entries: &[Entry],
@@ -77,6 +81,10 @@ pub(crate) fn rendered_text(flags: &dyn Fn(&str) -> bool) -> String {
 ///
 /// Slots hold program text, so they render as nothing here.
 #[cfg(test)]
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "`Entry` is `#[non_exhaustive]` in `smelt-runtime`, so a catch-all is mandatory; a disabled item or blank line is skipped"
+)]
 pub(crate) fn rendered_entries(entries: &[Entry], flags: &dyn Fn(&str) -> bool) -> String {
     let mut text = String::new();
     for entry in entries {

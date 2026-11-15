@@ -238,7 +238,10 @@ impl FunctionEmitter<'_> {
             .inherited_impl_owner()
             .or(match self.function.origin {
                 HirOrigin::ClassMethod { class, .. } => Some(class),
-                _ => None,
+                // Only an instance method renders into a class's `impl` here.
+                HirOrigin::ClassConstructor { .. }
+                | HirOrigin::ClassStaticMethod { .. }
+                | HirOrigin::Body(_) => None,
             })
     }
 

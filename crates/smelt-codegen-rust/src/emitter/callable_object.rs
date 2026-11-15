@@ -575,11 +575,11 @@ impl FunctionEmitter<'_> {
             };
             for block in &self.function.blocks {
                 for statement in &block.statements {
-                    match statement.value() {
-                        Rvalue::ClosureCall { callee, .. }
-                        | Rvalue::ClosureCallSpread { callee, .. }
-                        | Rvalue::ClosureCallRest { callee, .. } => note(callee),
-                        _ => {}
+                    if let Rvalue::ClosureCall { callee, .. }
+                    | Rvalue::ClosureCallSpread { callee, .. }
+                    | Rvalue::ClosureCallRest { callee, .. } = statement.value()
+                    {
+                        note(callee);
                     }
                 }
                 if let Some(Terminator::Call {
@@ -601,9 +601,10 @@ impl FunctionEmitter<'_> {
         let Place::Local(local) = place else {
             return None;
         };
-        match self.temp_call_receiver(*local, depth) {
-            ErasedCallReceiver::Snapshot(slot) => Some(slot),
-            _ => None,
+        if let ErasedCallReceiver::Snapshot(slot) = self.temp_call_receiver(*local, depth) {
+            Some(slot)
+        } else {
+            None
         }
     }
 
@@ -680,10 +681,7 @@ impl FunctionEmitter<'_> {
             .blocks
             .iter()
             .flat_map(|block| &block.statements)
-            .filter_map(|statement| match statement {
-                Statement::Assign { dest, value } if *dest == local => Some(value),
-                _ => None,
-            });
+            .filter_map(|statement| local_analysis::temp_assigned_value(statement, local));
         let value = assigned.next()?;
         assigned.next().is_none().then_some(value)
     }
@@ -691,6 +689,10 @@ impl FunctionEmitter<'_> {
     /// The receiver of the member read a temporary is assigned, when that read
     /// is off an erased value: `base` of `base.m` / `base[k]`, and the
     /// receiver of an optional `receiver?.m`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a projected read, a receiver bind of one, or an optional member read is a member read"
+    )]
     fn member_read_receiver(&self, local: LocalId) -> Option<Operand> {
         match self.single_assigned_temp_value(local)? {
             Rvalue::Use(

@@ -183,6 +183,10 @@ fn merged_override(requirement: &CrateRequirement, value: &str) -> String {
 }
 
 /// `value` as one line of TOML: tables inline (`{ k = v }`), arrays inline.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "only `toml::Value::Table` and `Array` nest; every scalar renders through its own `Display`"
+)]
 fn inline_toml(value: &toml::Value) -> String {
     match value {
         toml::Value::Table(table) => {

@@ -70,11 +70,10 @@ impl FunctionEmitter<'_> {
 
     /// The mutable place a dict-mutating fallible op works on.
     fn dict_receiver_text(&self, dict: &Operand) -> Result<RustExpr, EmitError> {
-        match dict {
-            Operand::Copy(smelt_mir::Place::Local(local))
-            | Operand::Move(smelt_mir::Place::Local(local)) => self.local_mut_value(*local),
-            _ => Err(EmitError::new("a dict pop needs a local receiver")),
-        }
+        let Some(local) = dict.local() else {
+            return Err(EmitError::new("a dict pop needs a local receiver"));
+        };
+        self.local_mut_value(local)
     }
 
     /// Renders Python's `d.pop(k)` with no default: the value, or a raised
@@ -267,6 +266,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Renders the call of a fallible operation and states what it answers.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "dispatch over the fallible subset of `Rvalue` (`Rvalue::is_fallible`); a non-fallible rvalue reaching here is an internal error, reported by the catch-all"
+    )]
     pub(super) fn fallible_op_call(
         &self,
         op: &Rvalue,

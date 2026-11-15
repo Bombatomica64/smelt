@@ -502,6 +502,10 @@ pub(crate) fn record_field_from_unknown_expr(
 /// converted value. Declined: rest, async and mutable-parameter signatures, an
 /// `impl` or `&mut` in the rendered type, and a parameter type that cannot be
 /// produced from an erased value.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only `Type::Optional` wraps the function type"
+)]
 fn erased_function_field_expr(
     mir: &Mir,
     context: &EmitContext,

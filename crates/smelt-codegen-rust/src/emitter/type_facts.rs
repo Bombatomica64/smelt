@@ -174,6 +174,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return a discriminant for a map/dict type's backing container.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `JsMap` and `Dict` have a map backing; every other type shares the one non-map tag"
+    )]
     fn map_backing_tag(&self, ty: &Type) -> u8 {
         match ty {
             Type::JsMap(_, _) => 0,

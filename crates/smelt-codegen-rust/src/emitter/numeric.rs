@@ -44,11 +44,9 @@ impl FunctionEmitter<'_> {
         };
         let receiver_text = self.len_operand_expr(operand)?;
         let operand_ty = self.operand_ty(operand)?;
-        let emitted_ty = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                self.local_decl(*local)?.ty
-            }
-            _ => operand_ty,
+        let emitted_ty = match operand.local() {
+            Some(local) => self.local_decl(local)?.ty,
+            None => operand_ty,
         };
         let len_ty = if matches!(
             self.mir.types.get(emitted_ty),
