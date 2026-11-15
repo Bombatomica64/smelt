@@ -1313,6 +1313,16 @@ mod live_view_family {
         let (Some(SmeltUnknown::Array(first)), Some(SmeltUnknown::Array(second))) = (erased.get("tags"), erased.get("tags")) else { panic!("tags is an array") };
         first.push(text("u"));
         assert_eq!(second.len(), 2, "both reads hold the view's one erased array");
+        // The same holds for a view nothing has listed or iterated yet: the
+        // first read is the one that keeps the handle.
+        let untouched = view(&record);
+        let (Some(SmeltUnknown::Array(first)), Some(SmeltUnknown::Array(second))) = (untouched.get("tags"), untouched.get("tags")) else { panic!("tags is an array") };
+        first.push(text("v"));
+        assert_eq!(second.len(), first.len(), "two reads of a fresh view are one array too");
+        // A field replaced in the record is read as the new value, not the kept one.
+        record.0.borrow_mut().tags = Some(SmeltList::new(Vec::new()));
+        let Some(SmeltUnknown::Array(replaced)) = untouched.get("tags") else { panic!("tags is an array") };
+        assert_eq!(replaced.len(), 0, "the record's new array, not the view's kept one");
     }
 
     /// `const typed = plain as Point`: the plain object becomes a view of the
