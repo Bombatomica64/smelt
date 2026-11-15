@@ -124,9 +124,15 @@ impl FunctionEmitter<'_> {
         &self,
         actual: &Operand,
         expected: &Operand,
+        strict: bool,
     ) -> Result<RustExpr, EmitError> {
+        let helper = if strict {
+            "smelt_vitest_asymmetric_equals"
+        } else {
+            "smelt_vitest_loose_equals"
+        };
         Ok(RustExpr::chain(format!(
-            "smelt_vitest_asymmetric_equals(&({}), &({}), &mut ::std::collections::HashSet::new())",
+            "{helper}(&({}), &({}), &mut ::std::collections::HashSet::new())",
             self.value_at_type(actual, self.type_id(Type::Unknown)?)?
                 .delimited(),
             self.value_at_type(expected, self.type_id(Type::Unknown)?)?
