@@ -26,320 +26,335 @@ async fn read_or_report (FuncId(0)) -> None
 async fn main (FuncId(1)) -> None throws
   locals
     %0 user form: FormData
-    %1 user __smelt_for_item: (String, String | File)
-    %2 user name: String
-    %3 user value: String | File
-    %4 user with_files: FormData
-    %5 user entry: String | File
-    %6 user urlencoded: Response
-    %7 user parsed: FormData
-    %8 user __smelt_for_item: (String, String | File)
-    %9 user name: String
-    %10 user value: String | File
-    %11 user boundary: String
-    %12 user multipart: String
-    %13 user request: Request
-    %14 user uploaded: FormData
-    %15 user __smelt_for_item: (String, String | File)
-    %16 user name: String
-    %17 user value: String | File
-    %18 temp: FormData
-    %19 temp: None
+    %1 user __smelt_nullable: Optional<String | File>
+    %2 user __smelt_for_item: (String, String | File)
+    %3 user name: String
+    %4 user value: String | File
+    %5 user with_files: FormData
+    %6 user entry: String | File
+    %7 user urlencoded: Response
+    %8 user parsed: FormData
+    %9 user __smelt_for_item: (String, String | File)
+    %10 user name: String
+    %11 user value: String | File
+    %12 user boundary: String
+    %13 user multipart: String
+    %14 user request: Request
+    %15 user uploaded: FormData
+    %16 user __smelt_for_item: (String, String | File)
+    %17 user name: String
+    %18 user value: String | File
+    %19 temp: FormData
     %20 temp: None
     %21 temp: None
-    %22 temp: Optional<String | File>
-    %23 temp: None
-    %24 temp: List<String | File>
-    %25 temp: List<String | File>
-    %26 temp: List<String | File>
-    %27 temp: Float
-    %28 temp: None
-    %29 temp: Bool
-    %30 temp: Bool
-    %31 temp: None
+    %22 temp: None
+    %23 temp: Optional<String | File>
+    %24 temp: Bool
+    %25 temp: None
+    %26 temp: None
+    %27 temp: None
+    %28 temp: List<String | File>
+    %29 temp: List<String | File>
+    %30 temp: List<String | File>
+    %31 temp: Float
     %32 temp: None
-    %33 temp: List<String>
-    %34 temp: List<String>
-    %35 temp: List<String>
-    %36 temp: String
-    %37 temp: None
-    %38 temp: List<(String, String | File)>
-    %39 temp: usize
-    %40 temp: usize
-    %41 temp: Bool
-    %42 temp: String
-    %43 temp: String | File
-    %44 temp: None
-    %45 temp: None
-    %46 temp: List<String>
-    %47 temp: List<String>
-    %48 temp: List<String>
-    %49 temp: String
-    %50 temp: None
-    %51 temp: Optional<String | File>
-    %52 temp: String | File
-    %53 temp: None
-    %54 temp: FormData
-    %55 temp: List<String>
-    %56 temp: Blob
+    %33 temp: Bool
+    %34 temp: Bool
+    %35 temp: None
+    %36 temp: None
+    %37 temp: List<String>
+    %38 temp: List<String>
+    %39 temp: List<String>
+    %40 temp: String
+    %41 temp: None
+    %42 temp: List<(String, String | File)>
+    %43 temp: usize
+    %44 temp: usize
+    %45 temp: Bool
+    %46 temp: String
+    %47 temp: String | File
+    %48 temp: None
+    %49 temp: None
+    %50 temp: List<String>
+    %51 temp: List<String>
+    %52 temp: List<String>
+    %53 temp: String
+    %54 temp: None
+    %55 temp: Optional<String | File>
+    %56 temp: String | File
     %57 temp: None
-    %58 temp: List<String>
-    %59 temp: Blob
-    %60 temp: None
-    %61 temp: List<String>
-    %62 temp: File
-    %63 temp: None
-    %64 temp: List<String | File>
-    %65 temp: usize
-    %66 temp: usize
-    %67 temp: Bool
-    %68 temp: Bool
-    %69 temp: String
-    %70 temp: None
-    %71 temp: File
-    %72 temp: String
-    %73 temp: File
-    %74 temp: String
+    %58 temp: FormData
+    %59 temp: List<String>
+    %60 temp: Blob
+    %61 temp: None
+    %62 temp: List<String>
+    %63 temp: Blob
+    %64 temp: None
+    %65 temp: List<String>
+    %66 temp: File
+    %67 temp: None
+    %68 temp: List<String | File>
+    %69 temp: usize
+    %70 temp: usize
+    %71 temp: Bool
+    %72 temp: Bool
+    %73 temp: String
+    %74 temp: None
     %75 temp: File
-    %76 temp: Float
+    %76 temp: String
     %77 temp: File
-    %78 temp: Future<String>
-    %79 temp: String
-    %80 temp: None
-    %81 temp: Dict<String, String>
-    %82 temp: Response
-    %83 temp: Future<FormData>
-    %84 temp: FormData
-    %85 temp: List<(String, String | File)>
-    %86 temp: usize
-    %87 temp: usize
-    %88 temp: Bool
-    %89 temp: String
-    %90 temp: String | File
-    %91 temp: None
+    %78 temp: String
+    %79 temp: File
+    %80 temp: Float
+    %81 temp: File
+    %82 temp: Future<String>
+    %83 temp: String
+    %84 temp: None
+    %85 temp: Dict<String, String>
+    %86 temp: Response
+    %87 temp: Future<FormData>
+    %88 temp: FormData
+    %89 temp: List<(String, String | File)>
+    %90 temp: usize
+    %91 temp: usize
     %92 temp: Bool
-    %93 temp: None
-    %94 temp: String
-    %95 temp: String
-    %96 temp: String
-    %97 temp: String
-    %98 temp: List<String>
+    %93 temp: String
+    %94 temp: String | File
+    %95 temp: None
+    %96 temp: Bool
+    %97 temp: None
+    %98 temp: String
     %99 temp: String
     %100 temp: String
-    %101 temp: Dict<String, String>
-    %102 temp: Request
-    %103 temp: Future<FormData>
-    %104 temp: FormData
-    %105 temp: List<(String, String | File)>
-    %106 temp: usize
-    %107 temp: usize
-    %108 temp: Bool
-    %109 temp: String
-    %110 temp: String | File
-    %111 temp: Bool
-    %112 temp: String
-    %113 temp: None
-    %114 temp: File
-    %115 temp: String
-    %116 temp: File
-    %117 temp: String
+    %101 temp: String
+    %102 temp: List<String>
+    %103 temp: String
+    %104 temp: String
+    %105 temp: Dict<String, String>
+    %106 temp: Request
+    %107 temp: Future<FormData>
+    %108 temp: FormData
+    %109 temp: List<(String, String | File)>
+    %110 temp: usize
+    %111 temp: usize
+    %112 temp: Bool
+    %113 temp: String
+    %114 temp: String | File
+    %115 temp: Bool
+    %116 temp: String
+    %117 temp: None
     %118 temp: File
-    %119 temp: Float
+    %119 temp: String
     %120 temp: File
-    %121 temp: Future<String>
-    %122 temp: String
-    %123 temp: None
-    %124 temp: Dict<String, String>
-    %125 temp: Response
-    %126 temp: Future<None>
+    %121 temp: String
+    %122 temp: File
+    %123 temp: Float
+    %124 temp: File
+    %125 temp: Future<String>
+    %126 temp: String
     %127 temp: None
-    %128 temp: Future<None>
-    %129 temp: None
+    %128 temp: Dict<String, String>
+    %129 temp: Response
     %130 temp: Future<None>
     %131 temp: None
+    %132 temp: Future<None>
+    %133 temp: None
+    %134 temp: Future<None>
+    %135 temp: None
   bb0:
     %0 = form_data_new
-    %19 = form_data_append copy %0, "a", "1"
-    %20 = form_data_append copy %0, "a", "2"
-    %21 = form_data_append copy %0, "b", "x"
-    %22 = form_data_get copy %0, "a"
-    %23 = call @console_log(move %22) -> bb1
+    %20 = form_data_append copy %0, "a", "1"
+    %21 = form_data_append copy %0, "a", "2"
+    %22 = form_data_append copy %0, "b", "x"
+    %1 = form_data_get copy %0, "a"
+    %24 = copy %1 != undefined
+    switch move %24 ? bb1 : bb2
   bb1:
-    %24 = form_data_get_all copy %0, "a"
-    %25 = []
-    %26 = list_concat move %24, move %25
-    %27 = len move %26
-    %28 = call @console_log(move %27) -> bb2
+    %26 = call @console_log(move %1) -> bb3
   bb2:
-    %29 = form_data_has copy %0, "b"
-    %30 = form_data_has copy %0, "B"
-    %31 = call @console_log(move %29, move %30) -> bb3
+    %27 = call @console_log(none) -> bb4
   bb3:
-    %32 = form_data_set copy %0, "a", "9"
-    %33 = form_data_keys copy %0
-    %34 = []
-    %35 = list_concat move %33, move %34
-    %36 = string_join move %35, ","
-    %37 = call @console_log(move %36) -> bb4
+    %25 = move %26
+    goto bb5
   bb4:
-    %38 = form_data_entries copy %0
-    %39 = 0
+    %25 = move %27
     goto bb5
   bb5:
-    %40 = len copy %38
-    %41 = copy %39 < move %40
-    switch move %41 ? bb6 : bb8
+    %28 = form_data_get_all copy %0, "a"
+    %29 = []
+    %30 = list_concat move %28, move %29
+    %31 = len move %30
+    %32 = call @console_log(move %31) -> bb6
   bb6:
-    %1 = copy %38[copy %39]
-    %2 = tuple_index copy %1, 0
-    %3 = tuple_index move %1, 1
-    %44 = call @console_log(move %2, move %3) -> bb9
+    %33 = form_data_has copy %0, "b"
+    %34 = form_data_has copy %0, "B"
+    %35 = call @console_log(move %33, move %34) -> bb7
   bb7:
-    %39 = copy %39 + 1
-    goto bb5
+    %36 = form_data_set copy %0, "a", "9"
+    %37 = form_data_keys copy %0
+    %38 = []
+    %39 = list_concat move %37, move %38
+    %40 = string_join move %39, ","
+    %41 = call @console_log(move %40) -> bb8
   bb8:
-    %45 = form_data_delete copy %0, "a"
-    %46 = form_data_keys copy %0
-    %47 = []
-    %48 = list_concat move %46, move %47
-    %49 = string_join move %48, ","
-    %50 = call @console_log(move %49) -> bb10
+    %42 = form_data_entries copy %0
+    %43 = 0
+    goto bb9
   bb9:
-    goto bb7
+    %44 = len copy %42
+    %45 = copy %43 < move %44
+    switch move %45 ? bb10 : bb12
   bb10:
-    %51 = form_data_get move %0, "a"
-    %52 = move %51 ?? "absent"
-    %53 = call @console_log(move %52) -> bb11
+    %2 = copy %42[copy %43]
+    %3 = tuple_index copy %2, 0
+    %4 = tuple_index move %2, 1
+    %48 = call @console_log(move %3, move %4) -> bb13
   bb11:
-    %4 = form_data_new
-    %55 = ["hello"]
-    %56 = blob_from_parts move %55, "text/plain", none, none
-    %57 = form_data_append copy %4, "plain", move %56
-    %58 = ["hello"]
-    %59 = blob_from_parts move %58, "text/plain", none, none
-    %60 = form_data_append copy %4, "named", move %59, "note.txt"
-    %61 = ["bye"]
-    %62 = blob_from_parts move %61, "text/plain", "given.txt", none
-    %63 = form_data_append copy %4, "file", move %62
-    %64 = form_data_values move %4
-    %65 = 0
-    goto bb12
+    %43 = copy %43 + 1
+    goto bb9
   bb12:
-    %66 = len copy %64
-    %67 = copy %65 < move %66
-    switch move %67 ? bb13 : bb15
+    %49 = form_data_delete copy %0, "a"
+    %50 = form_data_keys copy %0
+    %51 = []
+    %52 = list_concat move %50, move %51
+    %53 = string_join move %52, ","
+    %54 = call @console_log(move %53) -> bb14
   bb13:
-    %5 = copy %64[copy %65]
-    %68 = unknown_is String copy %5
-    switch move %68 ? bb16 : bb17
+    goto bb11
   bb14:
-    %65 = copy %65 + 1
-    goto bb12
+    %55 = form_data_get move %0, "a"
+    %56 = move %55 ?? "absent"
+    %57 = call @console_log(move %56) -> bb15
   bb15:
-    %81 = {"content-type": "application/x-www-form-urlencoded"}
-    %6 = response_new body="a=1&b=hello+world&a=2" headers=move %81
-    %83 = response_form_data copy %6
-    %7 = await move %83
-    %85 = form_data_entries move %7
-    %86 = 0
-    goto bb21
+    %5 = form_data_new
+    %59 = ["hello"]
+    %60 = blob_from_parts move %59, "text/plain", none, none
+    %61 = form_data_append copy %5, "plain", move %60
+    %62 = ["hello"]
+    %63 = blob_from_parts move %62, "text/plain", none, none
+    %64 = form_data_append copy %5, "named", move %63, "note.txt"
+    %65 = ["bye"]
+    %66 = blob_from_parts move %65, "text/plain", "given.txt", none
+    %67 = form_data_append copy %5, "file", move %66
+    %68 = form_data_values move %5
+    %69 = 0
+    goto bb16
   bb16:
-    %69 = unknown_cast move %5 as t1
-    %70 = call @console_log("text", move %69) -> bb18
+    %70 = len copy %68
+    %71 = copy %69 < move %70
+    switch move %71 ? bb17 : bb19
   bb17:
-    %71 = unknown_cast copy %5 as t11
-    %72 = blob_name move %71
-    %73 = unknown_cast copy %5 as t11
-    %74 = blob_type move %73
-    %75 = unknown_cast copy %5 as t11
-    %76 = blob_size move %75
-    %77 = unknown_cast move %5 as t11
-    %78 = blob_text move %77
-    %79 = await move %78
-    %80 = call @console_log("file", move %72, move %74, move %76, move %79) -> bb20
+    %6 = copy %68[copy %69]
+    %72 = unknown_is String copy %6
+    switch move %72 ? bb20 : bb21
   bb18:
-    goto bb19
+    %69 = copy %69 + 1
+    goto bb16
   bb19:
-    goto bb14
+    %85 = {"content-type": "application/x-www-form-urlencoded"}
+    %7 = response_new body="a=1&b=hello+world&a=2" headers=move %85
+    %87 = response_form_data copy %7
+    %8 = await move %87
+    %89 = form_data_entries move %8
+    %90 = 0
+    goto bb25
   bb20:
-    goto bb19
+    %73 = unknown_cast move %6 as t1
+    %74 = call @console_log("text", move %73) -> bb22
   bb21:
-    %87 = len copy %85
-    %88 = copy %86 < move %87
-    switch move %88 ? bb22 : bb24
+    %75 = unknown_cast copy %6 as t11
+    %76 = blob_name move %75
+    %77 = unknown_cast copy %6 as t11
+    %78 = blob_type move %77
+    %79 = unknown_cast copy %6 as t11
+    %80 = blob_size move %79
+    %81 = unknown_cast move %6 as t11
+    %82 = blob_text move %81
+    %83 = await move %82
+    %84 = call @console_log("file", move %76, move %78, move %80, move %83) -> bb24
   bb22:
-    %8 = copy %85[copy %86]
-    %9 = tuple_index copy %8, 0
-    %10 = tuple_index move %8, 1
-    %91 = call @console_log(move %9, move %10) -> bb25
-  bb23:
-    %86 = copy %86 + 1
-    goto bb21
-  bb24:
-    %92 = response_body_used copy %6
-    %93 = call @console_log(move %92) -> bb26
-  bb25:
     goto bb23
+  bb23:
+    goto bb18
+  bb24:
+    goto bb23
+  bb25:
+    %91 = len copy %89
+    %92 = copy %90 < move %91
+    switch move %92 ? bb26 : bb28
   bb26:
-    %11 = "----SmeltBoundary"
-    %94 = "--" + copy %11
-    %95 = "--" + copy %11
-    %96 = "--" + copy %11
-    %97 = move %96 + "--"
-    %98 = [move %94, "Content-Disposition: form-data; name="title"", "", "hello", move %95, "Content-Disposition: form-data; name="doc"; filename="a.txt"", "Content-Type: text/plain", "", "file body", move %97, ""]
-    %12 = string_join move %98, "
-"
-    %100 = "multipart/form-data; boundary=" + move %11
-    %101 = {"content-type": move %100}
-    %13 = request_new input="https://forms.test/upload" method="POST" headers=move %101 body=move %12
-    %103 = request_form_data move %13
-    %14 = await move %103
-    %105 = form_data_entries move %14
-    %106 = 0
-    goto bb27
+    %9 = copy %89[copy %90]
+    %10 = tuple_index copy %9, 0
+    %11 = tuple_index move %9, 1
+    %95 = call @console_log(move %10, move %11) -> bb29
   bb27:
-    %107 = len copy %105
-    %108 = copy %106 < move %107
-    switch move %108 ? bb28 : bb30
+    %90 = copy %90 + 1
+    goto bb25
   bb28:
-    %15 = copy %105[copy %106]
-    %16 = tuple_index copy %15, 0
-    %17 = tuple_index move %15, 1
-    %111 = unknown_is String copy %17
-    switch move %111 ? bb31 : bb32
+    %96 = response_body_used copy %7
+    %97 = call @console_log(move %96) -> bb30
   bb29:
-    %106 = copy %106 + 1
     goto bb27
   bb30:
-    %124 = {"content-type": "text/plain"}
-    %125 = response_new body="plain" headers=move %124
-    %126 = call fn0(move %125, "wrong type") -> bb36
+    %12 = "----SmeltBoundary"
+    %98 = "--" + copy %12
+    %99 = "--" + copy %12
+    %100 = "--" + copy %12
+    %101 = move %100 + "--"
+    %102 = [move %98, "Content-Disposition: form-data; name="title"", "", "hello", move %99, "Content-Disposition: form-data; name="doc"; filename="a.txt"", "Content-Type: text/plain", "", "file body", move %101, ""]
+    %13 = string_join move %102, "
+"
+    %104 = "multipart/form-data; boundary=" + move %12
+    %105 = {"content-type": move %104}
+    %14 = request_new input="https://forms.test/upload" method="POST" headers=move %105 body=move %13
+    %107 = request_form_data move %14
+    %15 = await move %107
+    %109 = form_data_entries move %15
+    %110 = 0
+    goto bb31
   bb31:
-    %112 = unknown_cast move %17 as t1
-    %113 = call @console_log(move %16, "text", move %112) -> bb33
+    %111 = len copy %109
+    %112 = copy %110 < move %111
+    switch move %112 ? bb32 : bb34
   bb32:
-    %114 = unknown_cast copy %17 as t11
-    %115 = blob_name move %114
-    %116 = unknown_cast copy %17 as t11
-    %117 = blob_type move %116
-    %118 = unknown_cast copy %17 as t11
-    %119 = blob_size move %118
-    %120 = unknown_cast move %17 as t11
-    %121 = blob_text move %120
-    %122 = await move %121
-    %123 = call @console_log(move %16, "file", move %115, move %117, move %119, move %122) -> bb35
+    %16 = copy %109[copy %110]
+    %17 = tuple_index copy %16, 0
+    %18 = tuple_index move %16, 1
+    %115 = unknown_is String copy %18
+    switch move %115 ? bb35 : bb36
   bb33:
-    goto bb34
+    %110 = copy %110 + 1
+    goto bb31
   bb34:
-    goto bb29
+    %128 = {"content-type": "text/plain"}
+    %129 = response_new body="plain" headers=move %128
+    %130 = call fn0(move %129, "wrong type") -> bb40
   bb35:
-    goto bb34
+    %116 = unknown_cast move %18 as t1
+    %117 = call @console_log(move %17, "text", move %116) -> bb37
   bb36:
-    %127 = await move %126
-    %128 = call fn0(move %6, "second read") -> bb37
+    %118 = unknown_cast copy %18 as t11
+    %119 = blob_name move %118
+    %120 = unknown_cast copy %18 as t11
+    %121 = blob_type move %120
+    %122 = unknown_cast copy %18 as t11
+    %123 = blob_size move %122
+    %124 = unknown_cast move %18 as t11
+    %125 = blob_text move %124
+    %126 = await move %125
+    %127 = call @console_log(move %17, "file", move %119, move %121, move %123, move %126) -> bb39
   bb37:
-    %129 = await move %128
-    %130 = async_exit_drain()
+    goto bb38
+  bb38:
+    goto bb33
+  bb39:
+    goto bb38
+  bb40:
     %131 = await move %130
+    %132 = call fn0(move %7, "second read") -> bb41
+  bb41:
+    %133 = await move %132
+    %134 = async_exit_drain()
+    %135 = await move %134
     return none
 

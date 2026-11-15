@@ -688,6 +688,13 @@ impl<T: SmeltHostText + ?Sized> SmeltHostText for &T {
     }
 }
 
+/// JavaScript `Math.max` of two numbers.
+#[allow(dead_code)]
+fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_negative() { right } else { left } } else if left > right { left } else { right } }
+
+/// JavaScript `Math.min` of two numbers.
+#[allow(dead_code)]
+fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_positive() { right } else { left } } else if left < right { left } else { right } }
 thread_local! {
     static SMELT_NEXT_OBJECT_ID: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
 }
@@ -797,7 +804,7 @@ fn main() {
     _smelt_tmp_29 = values.len();
     _smelt_tmp_30 = _smelt_tmp_28 < _smelt_tmp_29;
     if !(_smelt_tmp_30) { break; }
-    value = values.borrow().get(_smelt_tmp_28).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_28).cloned().unwrap_or_else(|| smelt_number_hole());
     hash = ({ let smelt_bit_lhs = { let smelt_bit_v = (hash as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (value as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     _smelt_tmp_28 = _smelt_tmp_28 + 1;
     }
@@ -830,7 +837,7 @@ pub(crate) fn constant_time_equal_string(a: JsString, b: JsString) -> bool {
     let mut _smelt_tmp_23: bool;
     let a_len: f64 = a.len() as f64;
     let b_len: f64 = b.len() as f64;
-    let max_len: f64 = a_len.max(b_len);
+    let max_len: f64 = smelt_math_max(a_len, b_len);
     let mut diff: f64 = ({ let smelt_bit_lhs = { let smelt_bit_v = (a_len as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (b_len as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs ^ smelt_bit_rhs) as f64 });
     let mut i: f64 = 0.0;
     loop {

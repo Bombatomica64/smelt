@@ -813,6 +813,18 @@ impl ModuleBuilder<'_> {
         }
         if let [argument] = call.arguments.as_slice() {
             let mut value = self.argument(argument, body)?;
+            // `Object.fromEntries(null)` does not type-check, so an optional
+            // argument (a field a guard proved present, `this.#var`) holds its
+            // payload: read it as that payload.
+            if let Some(Type::Optional(inner)) =
+                self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned()
+            {
+                value = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value },
+                    ty: inner,
+                    span: self.span(call.span.start, call.span.end),
+                });
+            }
             // `Object.fromEntries` takes any iterable of entries: a generator,
             // a `Set`, an iterator such as `map.entries()`. It reads them as
             // `Array.from` does (`array_from_elements`), and the list of entries

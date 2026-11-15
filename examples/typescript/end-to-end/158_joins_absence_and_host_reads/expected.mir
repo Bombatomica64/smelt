@@ -78,18 +78,24 @@ fn port_of (FuncId(2)) -> Float
   locals
     %0 param ports: List<Float>
     %1 temp: Bool
-    %2 temp: Float
+    %2 temp: Bool
+    %3 temp: Bool
+    %4 temp: Bool
+    %5 temp: Float
   bb0:
     %1 = copy %0[0.0] != 0.0
-    switch move %1 ? bb1 : bb2
+    %2 = numeric_is_nan copy %0[0.0]
+    %3 = !move %2
+    %4 = move %1 && move %3
+    switch move %4 ? bb1 : bb2
   bb1:
-    %2 = copy %0[0.0]
+    %5 = copy %0[0.0]
     goto bb3
   bb2:
-    %2 = 80.0
+    %5 = 80.0
     goto bb3
   bb3:
-    return move %2
+    return move %5
 
 async fn response_facts (FuncId(3)) -> None
   locals

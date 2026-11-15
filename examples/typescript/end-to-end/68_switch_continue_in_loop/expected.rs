@@ -872,7 +872,7 @@ pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
     _smelt_tmp_4 = values.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| smelt_number_hole());
     _smelt_tmp_6 = value % 2.0;
     match _smelt_tmp_6 {
         0.0 => {
@@ -899,7 +899,7 @@ pub(crate) fn classify(values: SmeltList<f64>) -> JsString {
     _smelt_tmp_4 = values.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| smelt_number_hole());
     match value {
         1.0 => {
     seen = seen + &JsString::from("one");

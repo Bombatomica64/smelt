@@ -1055,7 +1055,7 @@ fn main() {
     _smelt_tmp_5 = codes.len();
     _smelt_tmp_6 = i < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![codes.borrow().get(i).cloned().unwrap_or_else(|| 0.0)]; smelt_list_items }));
+    _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![codes.borrow().get(i).cloned().unwrap_or_else(|| smelt_number_hole())]; smelt_list_items }));
     _smelt_tmp_8 = { let smelt_units: Vec<u16> = _smelt_tmp_7.borrow().iter().map(|smelt_code| { let smelt_code = *smelt_code; if smelt_code.is_finite() { smelt_code.trunc().rem_euclid(65536.0) as u16 } else { 0 } }).collect(); JsString::from(smelt_units) };
     text = text + &_smelt_tmp_8;
     i = i + 1;

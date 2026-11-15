@@ -808,20 +808,8 @@ impl ModuleBuilder<'_> {
         if !self.numeric_type_compatible(value_ty, fallback_ty) {
             return Ok(None);
         }
-        let zero = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Float(0.0)),
-            ty: self.ctx.krate.types.intern(Type::Float),
-            span: self.span(logical.span.start, logical.span.end),
-        });
-        let cond = body.push_expr(Expr {
-            kind: ExprKind::BinOp {
-                op: BinOp::NotEq,
-                lhs: value,
-                rhs: zero,
-            },
-            ty: self.ctx.krate.types.intern(Type::Bool),
-            span: self.span(logical.span.start, logical.span.end),
-        });
+        let span = self.span(logical.span.start, logical.span.end);
+        let cond = self.number_truthiness(value, value_ty, span, body);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Conditional {
                 cond,

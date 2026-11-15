@@ -190,6 +190,16 @@ fn generator_protocol() -> TestResult {
     verify_node_parity("generator_protocol")
 }
 
+/// An out-of-range number read is `undefined` (falsy, `NaN` in arithmetic,
+/// `null` in JSON) and `NaN` is falsy; a `T | null` holding `null` is never
+/// `=== undefined` and prints `null`; `localeCompare` uses the root collation;
+/// an ISO date-time without an offset is local time; an object-literal
+/// method passes a callback on; an optional interface method builds from `{}`.
+#[test]
+fn absence_collation_dates() -> TestResult {
+    verify_node_parity("absence_collation_dates")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

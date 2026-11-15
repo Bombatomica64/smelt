@@ -808,7 +808,7 @@ fn main() {
     i_1 = 0;
     len_1 = row.len();
     while i_1 < len_1 {
-    _smelt_tmp_23 = JsString::new() + &JsString::from(smelt_number_to_string(row.borrow().get(i_1).cloned().unwrap_or_else(|| 0.0)));
+    _smelt_tmp_23 = JsString::new() + &JsString::from(smelt_number_to_string(row.borrow().get(i_1).cloned().unwrap_or_else(|| smelt_number_hole())));
     _smelt_tmp_24 = { let smelt_push_item = _smelt_tmp_23; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     i_1 = i_1 + 1;
     }

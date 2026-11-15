@@ -2906,7 +2906,7 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
     
     match target {
         SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
-        SmeltUnknown::Object(map) => {  map.insert(key, value); }
+        SmeltUnknown::Object(map) => {  smelt_object_put(map, key, value); }
         SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
             let key_text = key.to_string_lossy();
@@ -2949,24 +2949,79 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&*JsString::from(format!("__smelt_proto:{key}"))).or_else(|| record.get(&*JsString::from(format!("__smelt_method:{key}")))).unwrap_or(SmeltUnknown::Undefined) }
 
-/// What a property read answers for the stored `value`: an accessor record
-/// (`{ __smelt_get: getter }`, an object literal's `get`) is called.
+/// Whether `object` is an accessor marker: the erased form of an object
+/// literal's `get`/`set`, holding its getter under `__smelt_get`, its setter
+/// under `__smelt_set`, or both, and nothing else.
 #[allow(dead_code)]
-fn smelt_resolve_accessor(value: SmeltUnknown) -> SmeltUnknown {
+fn smelt_is_accessor(object: &SmeltObject) -> bool {
+    let keys = object.keys();
+    !keys.is_empty() && keys.len() <= 2 && keys.iter().all(|key| key.eq_str("__smelt_get") || key.eq_str("__smelt_set"))
+}
+
+/// What a property read of an object answers for the stored `value`: an
+/// accessor (`{ __smelt_get: getter }`, an object literal's `get`) is
+/// called, with the object the property was read from as its `this`, as
+/// JavaScript's [[Get]] passes the receiver to a getter; an accessor with a
+/// setter and no getter reads as `undefined`. `receiver` builds that object's
+/// erased view and runs only for a getter.
+#[allow(dead_code)]
+fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltUnknown) -> SmeltUnknown {
     match value {
-        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
-            _ => SmeltUnknown::Null,
+        SmeltUnknown::Object(accessor) if smelt_is_accessor(&accessor) => match accessor.get("__smelt_get") {
+            Some(SmeltUnknown::Function(smelt_getter)) => {
+                drop(receiver);
+                (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error))
+            }
+            _ => SmeltUnknown::Undefined,
         },
         value => value,
     }
+}
+
+/// `object[key] = value` as JavaScript's [[Set]] does it on an object
+/// literal's own properties: a stored accessor runs its setter with `object`
+/// as `this` (an accessor without one ignores the write, as sloppy-mode
+/// JavaScript does), and any other key stores the value.
+#[allow(dead_code)]
+fn smelt_object_put(object: &SmeltObject, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
+    if let Some(SmeltUnknown::Object(accessor)) = object.get(&*key) && smelt_is_accessor(&accessor) && !matches!(&value, SmeltUnknown::Object(new) if smelt_is_accessor(new)) {
+        if let Some(SmeltUnknown::Function(smelt_setter)) = accessor.get("__smelt_set") {
+            (smelt_setter)(Vec::from([value])).unwrap_or_else(|error| smelt_panic_throw(error));
+        }
+        return;
+    }
+    object.insert(key, value);
+}
+
+impl SmeltRecord<JsString, SmeltUnknown> {
+    /// This record as an erased object over the SAME store: the identity and
+    /// every write are shared, which is what a getter's or setter's `this`
+    /// must be.
+    #[allow(dead_code)]
+    fn shared_object(&self) -> SmeltObject { SmeltObject { id: self.id, store: self.store.clone() } }
+}
+
+/// `record[key] = value` on a string-keyed record of erased values, with
+/// [[Set]]'s accessor rule (see `smelt_object_put`).
+#[allow(dead_code)]
+fn smelt_record_put(record: &SmeltRecord<JsString, SmeltUnknown>, key: impl Into<JsString>, value: SmeltUnknown) {
+    smelt_object_put(&record.shared_object(), key, value);
+}
+
+/// An own value of the erased record `record`, read as a property read reads
+/// it (`Object.values`, `Object.entries`): an accessor runs with the record as
+/// its `this`, any other value is itself.
+#[allow(dead_code)]
+fn smelt_record_own_value(record: &SmeltRecord<JsString, SmeltUnknown>, value: SmeltUnknown) -> SmeltUnknown {
+    smelt_resolve_accessor(value, || SmeltUnknown::Object(record.shared_object()))
 }
 
 /// A dotted property read on a string-keyed record of erased values: the own
 /// entry, else the prototype entries, with an accessor called.
 #[allow(dead_code)]
 fn smelt_record_property(record: &SmeltRecord<JsString, SmeltUnknown>, key: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let key = key.host_text(); let key: &str = &key;
-    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)))
+    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)), || SmeltUnknown::Object(record.shared_object()))
 }
 fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
@@ -3013,7 +3068,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
         }
     }
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")).or_else(|| match map.get("__smelt_class") { Some(SmeltUnknown::String(tag)) => smelt_class_inherited_method(&tag.to_string_lossy(), field), _ => None }) } };
-    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
+    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined), || SmeltUnknown::Object(map.clone()))
 }
 
 thread_local! {
@@ -3172,7 +3227,25 @@ fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
     match value {
         SmeltUnknown::String(text) => text.clone(),
         SmeltUnknown::Array(values) => JsString::join(values.iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => JsString::new(), other => smelt_erased_to_js_string(&other) }), &JsString::from(",")),
+        SmeltUnknown::Object(object) if !object.contains_key("__smelt_error") => JsString::from(smelt_erased_object_to_string(object)),
         other => JsString::from(smelt_builtin_receiver_text(other)),
+    }
+}
+
+/// JavaScript `ToString` of an erased plain object: `ToPrimitive` calls its
+/// `toString` (own, inherited through `Object.create`, or its class's method)
+/// with the object as `this`, and the answer is that call's string; an
+/// object with no `toString` of its own is `[object Object]`.
+#[allow(dead_code)]
+fn smelt_erased_object_to_string(object: &SmeltObject) -> String {
+    let method = object.get("toString").or_else(|| object.get("__smelt_proto:toString")).or_else(|| object.get("__smelt_method:toString"));
+    let Some(SmeltUnknown::Function(to_string)) = method else {
+        return "[object Object]".to_owned();
+    };
+    match to_string(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)) {
+        SmeltUnknown::String(text) => text.to_string(),
+        SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => "[object Object]".to_owned(),
+        other => smelt_erased_to_js_string(&other).to_string(),
     }
 }
 
@@ -3444,7 +3517,7 @@ fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("Type
 /// Throw JavaScript's `TypeError` for a call of a value that holds no function,
 /// where the source spelling of the callee is not known.
 fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
-fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(getter)) if getter.contains_key("__smelt_get") => Some(smelt_resolve_accessor(SmeltUnknown::Object(getter))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
+fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(accessor)) if smelt_is_accessor(&accessor) => Some(smelt_resolve_accessor(SmeltUnknown::Object(accessor), || SmeltUnknown::Object(object.clone()))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
 /// [`smelt_erased_member`] on a string-keyed record view of an erased object.
 fn smelt_erased_record_member(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> Option<SmeltUnknown> { smelt_erased_member(&SmeltObject::from_unknown_record(record.clone()), key) }
 /// The placeholder an erased class view holds for a method it cannot bridge
@@ -5663,56 +5736,62 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let params: SmeltUrlSearchParams;
     let form: SmeltFormData;
     let parsed: SmeltFormData;
+    let __smelt_nullable: Option<SmeltUnion20>;
+    let __smelt_nullable_1: Option<SmeltUnion20>;
     let form_type: JsString;
     let blob: SmeltBlob;
     let request: SmeltRequest;
     let as_buffer: SmeltArrayBuffer;
     let second: SmeltRequest;
-    let _smelt_tmp_20: SmeltTypedArray;
-    let _smelt_tmp_21: SmeltResponse;
-    let _smelt_tmp_23: JsString;
-    let _smelt_tmp_25: SmeltTypedArray;
-    let _smelt_tmp_26: SmeltResponse;
-    let _smelt_tmp_29: f64;
-    let _smelt_tmp_31: SmeltList<f64>;
-    let _smelt_tmp_33: SmeltResponse;
-    let _smelt_tmp_35: SmeltArrayBuffer;
-    let _smelt_tmp_36: f64;
-    let _smelt_tmp_38: SmeltResponse;
-    let _smelt_tmp_39: SmeltHeaders;
-    let _smelt_tmp_40: Option<JsString>;
-    let _smelt_tmp_41: bool;
-    let _smelt_tmp_44: ();
-    let _smelt_tmp_45: ();
-    let _smelt_tmp_46: SmeltResponse;
-    let _smelt_tmp_48: JsString;
-    let _smelt_tmp_50: SmeltResponse;
-    let _smelt_tmp_51: SmeltHeaders;
-    let _smelt_tmp_52: Option<JsString>;
-    let _smelt_tmp_53: JsString;
-    let _smelt_tmp_56: ();
-    let _smelt_tmp_57: ();
-    let _smelt_tmp_58: SmeltRequest;
-    let _smelt_tmp_61: Option<SmeltUnion20>;
-    let _smelt_tmp_62: Option<SmeltUnion20>;
-    let _smelt_tmp_64: SmeltRequest;
-    let _smelt_tmp_65: SmeltHeaders;
-    let _smelt_tmp_66: Option<JsString>;
-    let _smelt_tmp_68: JsString;
-    let _smelt_tmp_69: JsString;
-    let _smelt_tmp_70: bool;
-    let _smelt_tmp_72: SmeltList<JsString>;
-    let _smelt_tmp_74: SmeltResponse;
-    let _smelt_tmp_75: SmeltHeaders;
-    let _smelt_tmp_76: Option<JsString>;
-    let _smelt_tmp_77: JsString;
-    let _smelt_tmp_79: SmeltResponse;
-    let _smelt_tmp_81: SmeltTypedArray;
-    let _smelt_tmp_82: f64;
-    let _smelt_tmp_87: f64;
-    let _smelt_tmp_91: SmeltTypedArray;
-    let _smelt_tmp_92: f64;
-    let _smelt_tmp_93: bool;
+    let _smelt_tmp_22: SmeltTypedArray;
+    let _smelt_tmp_23: SmeltResponse;
+    let _smelt_tmp_25: JsString;
+    let _smelt_tmp_27: SmeltTypedArray;
+    let _smelt_tmp_28: SmeltResponse;
+    let _smelt_tmp_31: f64;
+    let _smelt_tmp_33: SmeltList<f64>;
+    let _smelt_tmp_35: SmeltResponse;
+    let _smelt_tmp_37: SmeltArrayBuffer;
+    let _smelt_tmp_38: f64;
+    let _smelt_tmp_40: SmeltResponse;
+    let _smelt_tmp_41: SmeltHeaders;
+    let _smelt_tmp_42: Option<JsString>;
+    let _smelt_tmp_43: bool;
+    let _smelt_tmp_46: ();
+    let _smelt_tmp_47: ();
+    let _smelt_tmp_48: SmeltResponse;
+    let _smelt_tmp_50: JsString;
+    let _smelt_tmp_52: SmeltResponse;
+    let _smelt_tmp_53: SmeltHeaders;
+    let _smelt_tmp_54: Option<JsString>;
+    let _smelt_tmp_55: JsString;
+    let _smelt_tmp_58: ();
+    let _smelt_tmp_59: ();
+    let _smelt_tmp_60: SmeltRequest;
+    let _smelt_tmp_65: bool;
+    let mut _smelt_tmp_66: ();
+    let _smelt_tmp_67: bool;
+    let mut _smelt_tmp_68: ();
+    let _smelt_tmp_71: bool;
+    let mut _smelt_tmp_72: ();
+    let _smelt_tmp_75: SmeltRequest;
+    let _smelt_tmp_76: SmeltHeaders;
+    let _smelt_tmp_77: Option<JsString>;
+    let _smelt_tmp_79: JsString;
+    let _smelt_tmp_80: JsString;
+    let _smelt_tmp_81: bool;
+    let _smelt_tmp_83: SmeltList<JsString>;
+    let _smelt_tmp_85: SmeltResponse;
+    let _smelt_tmp_86: SmeltHeaders;
+    let _smelt_tmp_87: Option<JsString>;
+    let _smelt_tmp_88: JsString;
+    let _smelt_tmp_90: SmeltResponse;
+    let _smelt_tmp_92: SmeltTypedArray;
+    let _smelt_tmp_93: f64;
+    let _smelt_tmp_98: f64;
+    let _smelt_tmp_102: SmeltTypedArray;
+    let _smelt_tmp_103: f64;
+    let _smelt_tmp_104: bool;
     let buffer: SmeltArrayBuffer = SmeltArrayBuffer::new(((4.0) as f64).max(0.0) as usize);
     let mut bytes: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer.clone(), 0, None);
     bytes.set_index(0.0, 104.0);
@@ -5720,84 +5799,203 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     bytes.set_index(2.0, 33.0);
     bytes.set_index(3.0, 63.0);
     let from_buffer: SmeltResponse = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(buffer.clone().to_bytes()));
-    let _smelt_tmp_16: SmeltFuture<SmeltArrayBuffer> = { let smelt_response = from_buffer.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) })) };
-    let _smelt_tmp_17: SmeltArrayBuffer = _smelt_tmp_16.await?;
-    let _smelt_tmp_18: f64 = _smelt_tmp_17.byte_length();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_18)); };
-    _smelt_tmp_20 = bytes.clone().subarray((0.0) as i64, Some((2.0) as i64));
-    _smelt_tmp_21 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(_smelt_tmp_20.to_bytes()));
-    let _smelt_tmp_22: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_21.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_23 = _smelt_tmp_22.await?;
-    let _ = { println!("{}", _smelt_tmp_23); };
-    _smelt_tmp_25 = bytes.clone().subarray((1.0) as i64, Some((3.0) as i64));
-    _smelt_tmp_26 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(_smelt_tmp_25.to_bytes()));
-    let _smelt_tmp_27: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_26.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
-    window = _smelt_tmp_27.await?;
-    _smelt_tmp_29 = window.clone().length();
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_29), smelt_console_number(window.get(0.0).unwrap_or(0.0)), true); };
-    _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
-    wide = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint32, &_smelt_tmp_31.to_vec());
-    _smelt_tmp_33 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(wide.to_bytes()));
-    let _smelt_tmp_34: SmeltFuture<SmeltArrayBuffer> = { let smelt_response = _smelt_tmp_33.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) })) };
-    _smelt_tmp_35 = _smelt_tmp_34.await?;
-    _smelt_tmp_36 = _smelt_tmp_35.byte_length();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_36)); };
-    _smelt_tmp_38 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(buffer.to_bytes()));
-    _smelt_tmp_39 = _smelt_tmp_38.headers();
-    _smelt_tmp_40 = (_smelt_tmp_39.get(&JsString::from("content-type"))).map(JsString::from);
-    _smelt_tmp_41 = _smelt_tmp_40.is_none();
-    let _ = { println!("{}", _smelt_tmp_41); };
+    let _smelt_tmp_18: SmeltFuture<SmeltArrayBuffer> = { let smelt_response = from_buffer.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    let _smelt_tmp_19: SmeltArrayBuffer = _smelt_tmp_18.await?;
+    let _smelt_tmp_20: f64 = _smelt_tmp_19.byte_length();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_20)); };
+    _smelt_tmp_22 = bytes.clone().subarray((0.0) as i64, Some((2.0) as i64));
+    _smelt_tmp_23 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(_smelt_tmp_22.to_bytes()));
+    let _smelt_tmp_24: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_23.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_25 = _smelt_tmp_24.await?;
+    let _ = { println!("{}", _smelt_tmp_25); };
+    _smelt_tmp_27 = bytes.clone().subarray((1.0) as i64, Some((3.0) as i64));
+    _smelt_tmp_28 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(_smelt_tmp_27.to_bytes()));
+    let _smelt_tmp_29: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_28.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    window = _smelt_tmp_29.await?;
+    _smelt_tmp_31 = window.clone().length();
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_31), smelt_console_number(window.get(0.0).unwrap_or_else(smelt_number_hole)), true); };
+    _smelt_tmp_33 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
+    wide = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint32, &_smelt_tmp_33.to_vec());
+    _smelt_tmp_35 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(wide.to_bytes()));
+    let _smelt_tmp_36: SmeltFuture<SmeltArrayBuffer> = { let smelt_response = _smelt_tmp_35.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    _smelt_tmp_37 = _smelt_tmp_36.await?;
+    _smelt_tmp_38 = _smelt_tmp_37.byte_length();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_38)); };
+    _smelt_tmp_40 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(buffer.to_bytes()));
+    _smelt_tmp_41 = _smelt_tmp_40.headers();
+    _smelt_tmp_42 = (_smelt_tmp_41.get(&JsString::from("content-type"))).map(JsString::from);
+    _smelt_tmp_43 = _smelt_tmp_42.is_none();
+    let _ = { println!("{}", _smelt_tmp_43); };
     params = SmeltUrlSearchParams::new();
-    _smelt_tmp_44 = params.clone().append(&JsString::from("a"), &JsString::from("1"));
-    _smelt_tmp_45 = params.clone().append(&JsString::from("b"), &JsString::from("two"));
-    _smelt_tmp_46 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(params.clone().to_text().into_bytes(), "application/x-www-form-urlencoded;charset=UTF-8".to_owned()));
-    let _smelt_tmp_47: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_46.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_48 = _smelt_tmp_47.await?;
-    let _ = { println!("{}", _smelt_tmp_48); };
-    _smelt_tmp_50 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(params.to_text().into_bytes(), "application/x-www-form-urlencoded;charset=UTF-8".to_owned()));
-    _smelt_tmp_51 = _smelt_tmp_50.headers();
-    _smelt_tmp_52 = (_smelt_tmp_51.get(&JsString::from("content-type"))).map(JsString::from);
-    _smelt_tmp_53 = _smelt_tmp_52.clone().unwrap_or(JsString::from("null"));
-    let _ = { println!("{}", _smelt_tmp_53); };
+    _smelt_tmp_46 = params.clone().append(&JsString::from("a"), &JsString::from("1"));
+    _smelt_tmp_47 = params.clone().append(&JsString::from("b"), &JsString::from("two"));
+    _smelt_tmp_48 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(params.clone().to_text().into_bytes(), "application/x-www-form-urlencoded;charset=UTF-8".to_owned()));
+    let _smelt_tmp_49: SmeltFuture<JsString> = { let smelt_response = _smelt_tmp_48.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_50 = _smelt_tmp_49.await?;
+    let _ = { println!("{}", _smelt_tmp_50); };
+    _smelt_tmp_52 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(params.to_text().into_bytes(), "application/x-www-form-urlencoded;charset=UTF-8".to_owned()));
+    _smelt_tmp_53 = _smelt_tmp_52.headers();
+    _smelt_tmp_54 = (_smelt_tmp_53.get(&JsString::from("content-type"))).map(JsString::from);
+    _smelt_tmp_55 = _smelt_tmp_54.clone().unwrap_or(JsString::from("null"));
+    let _ = { println!("{}", _smelt_tmp_55); };
     form = SmeltFormData::new();
-    _smelt_tmp_56 = form.clone().append(&JsString::from("name"), SmeltFormDataValue::Text((JsString::from("smelt")).to_string()));
-    _smelt_tmp_57 = form.clone().append(&JsString::from("kind"), SmeltFormDataValue::Text((JsString::from("codec")).to_string()));
-    _smelt_tmp_58 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.clone().to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_59: SmeltFuture<SmeltFormData> = { let smelt_request = _smelt_tmp_58.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_request.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) })) };
-    parsed = _smelt_tmp_59.await?;
-    _smelt_tmp_61 = parsed.clone().get(&JsString::from("name")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
-    _smelt_tmp_62 = parsed.get(&JsString::from("kind")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
-    let _ = { println!("{} {}", match &_smelt_tmp_61 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }, match &_smelt_tmp_62 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
-    _smelt_tmp_64 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    _smelt_tmp_65 = _smelt_tmp_64.headers();
-    _smelt_tmp_66 = (_smelt_tmp_65.get(&JsString::from("content-type"))).map(JsString::from);
-    form_type = _smelt_tmp_66.clone().unwrap_or(JsString::new());
-    _smelt_tmp_68 = form_type.clone();
-    _smelt_tmp_69 = JsString::from("multipart/form-data; boundary=");
-    _smelt_tmp_70 = form_type.starts_with(&_smelt_tmp_69);
-    let _ = { println!("{}", _smelt_tmp_70); };
-    _smelt_tmp_72 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hi")]; smelt_list_items }));
-    blob = SmeltBlob::from_string_parts((_smelt_tmp_72).clone().into(), (JsString::from("text/plain")).clone(), None::<String>, None);
-    _smelt_tmp_74 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.clone().to_bytes(), blob.clone().blob_type()));
-    _smelt_tmp_75 = _smelt_tmp_74.headers();
-    _smelt_tmp_76 = (_smelt_tmp_75.get(&JsString::from("content-type"))).map(JsString::from);
-    _smelt_tmp_77 = _smelt_tmp_76.clone().unwrap_or(JsString::from("null"));
-    let _ = { println!("{}", _smelt_tmp_77); };
-    _smelt_tmp_79 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.to_bytes(), blob.blob_type()));
-    let _smelt_tmp_80: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_79.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
-    _smelt_tmp_81 = _smelt_tmp_80.await?;
-    _smelt_tmp_82 = _smelt_tmp_81.length();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_82)); };
+    _smelt_tmp_58 = form.clone().append(&JsString::from("name"), SmeltFormDataValue::Text((JsString::from("smelt")).to_string()));
+    _smelt_tmp_59 = form.clone().append(&JsString::from("kind"), SmeltFormDataValue::Text((JsString::from("codec")).to_string()));
+    _smelt_tmp_60 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.clone().to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_61: SmeltFuture<SmeltFormData> = { let smelt_request = _smelt_tmp_60.clone(); SmeltFuture::from_future(Box::pin(async move { let smelt_content_type = smelt_request.headers().get("content-type"); Ok::<_, Box<dyn std::error::Error>>(smelt_form_data_from_body(smelt_content_type, smelt_request.body().take_bytes()?)?) })) };
+    parsed = _smelt_tmp_61.await?;
+    __smelt_nullable = parsed.clone().get(&JsString::from("name")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
+    __smelt_nullable_1 = parsed.get(&JsString::from("kind")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
+    _smelt_tmp_65 = !(__smelt_nullable.clone().is_none());
+    if _smelt_tmp_65 {
+    _smelt_tmp_67 = !(__smelt_nullable_1.clone().is_none());
+    if _smelt_tmp_67 {
+    let _smelt_tmp_69: () = { println!("{} {}", match &__smelt_nullable { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }, match &__smelt_nullable_1 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
+    _smelt_tmp_68 = _smelt_tmp_69;
+    _smelt_tmp_66 = _smelt_tmp_68;
+    _smelt_tmp_75 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    _smelt_tmp_76 = _smelt_tmp_75.headers();
+    _smelt_tmp_77 = (_smelt_tmp_76.get(&JsString::from("content-type"))).map(JsString::from);
+    form_type = _smelt_tmp_77.clone().unwrap_or(JsString::new());
+    _smelt_tmp_79 = form_type.clone();
+    _smelt_tmp_80 = JsString::from("multipart/form-data; boundary=");
+    _smelt_tmp_81 = form_type.starts_with(&_smelt_tmp_80);
+    let _ = { println!("{}", _smelt_tmp_81); };
+    _smelt_tmp_83 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hi")]; smelt_list_items }));
+    blob = SmeltBlob::from_string_parts((_smelt_tmp_83).clone().into(), (JsString::from("text/plain")).clone(), None::<String>, None);
+    _smelt_tmp_85 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.clone().to_bytes(), blob.clone().blob_type()));
+    _smelt_tmp_86 = _smelt_tmp_85.headers();
+    _smelt_tmp_87 = (_smelt_tmp_86.get(&JsString::from("content-type"))).map(JsString::from);
+    _smelt_tmp_88 = _smelt_tmp_87.clone().unwrap_or(JsString::from("null"));
+    let _ = { println!("{}", _smelt_tmp_88); };
+    _smelt_tmp_90 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.to_bytes(), blob.blob_type()));
+    let _smelt_tmp_91: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_90.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    _smelt_tmp_92 = _smelt_tmp_91.await?;
+    _smelt_tmp_93 = _smelt_tmp_92.length();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_93)); };
     request = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.clone().to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_85: SmeltFuture<SmeltArrayBuffer> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) })) };
-    as_buffer = _smelt_tmp_85.await?;
-    _smelt_tmp_87 = as_buffer.byte_length();
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_87), false); };
+    let _smelt_tmp_96: SmeltFuture<SmeltArrayBuffer> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    as_buffer = _smelt_tmp_96.await?;
+    _smelt_tmp_98 = as_buffer.byte_length();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_98), false); };
     second = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_90: SmeltFuture<SmeltTypedArray> = { let smelt_request = second.clone().clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) })) };
-    _smelt_tmp_91 = _smelt_tmp_90.await?;
-    _smelt_tmp_92 = _smelt_tmp_91.length();
-    _smelt_tmp_93 = second.body_used();
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_92), _smelt_tmp_93); };
+    let _smelt_tmp_101: SmeltFuture<SmeltTypedArray> = { let smelt_request = second.clone().clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    _smelt_tmp_102 = _smelt_tmp_101.await?;
+    _smelt_tmp_103 = _smelt_tmp_102.length();
+    _smelt_tmp_104 = second.body_used();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_103), _smelt_tmp_104); };
     return Ok(());
+    } else {
+    let _smelt_tmp_70: () = { println!("{} {}", match &__smelt_nullable { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }, "null"); };
+    _smelt_tmp_68 = _smelt_tmp_70;
+    _smelt_tmp_66 = _smelt_tmp_68;
+    _smelt_tmp_75 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    _smelt_tmp_76 = _smelt_tmp_75.headers();
+    _smelt_tmp_77 = (_smelt_tmp_76.get(&JsString::from("content-type"))).map(JsString::from);
+    form_type = _smelt_tmp_77.clone().unwrap_or(JsString::new());
+    _smelt_tmp_79 = form_type.clone();
+    _smelt_tmp_80 = JsString::from("multipart/form-data; boundary=");
+    _smelt_tmp_81 = form_type.starts_with(&_smelt_tmp_80);
+    let _ = { println!("{}", _smelt_tmp_81); };
+    _smelt_tmp_83 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hi")]; smelt_list_items }));
+    blob = SmeltBlob::from_string_parts((_smelt_tmp_83).clone().into(), (JsString::from("text/plain")).clone(), None::<String>, None);
+    _smelt_tmp_85 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.clone().to_bytes(), blob.clone().blob_type()));
+    _smelt_tmp_86 = _smelt_tmp_85.headers();
+    _smelt_tmp_87 = (_smelt_tmp_86.get(&JsString::from("content-type"))).map(JsString::from);
+    _smelt_tmp_88 = _smelt_tmp_87.clone().unwrap_or(JsString::from("null"));
+    let _ = { println!("{}", _smelt_tmp_88); };
+    _smelt_tmp_90 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.to_bytes(), blob.blob_type()));
+    let _smelt_tmp_91: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_90.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    _smelt_tmp_92 = _smelt_tmp_91.await?;
+    _smelt_tmp_93 = _smelt_tmp_92.length();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_93)); };
+    request = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.clone().to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_96: SmeltFuture<SmeltArrayBuffer> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    as_buffer = _smelt_tmp_96.await?;
+    _smelt_tmp_98 = as_buffer.byte_length();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_98), false); };
+    second = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_101: SmeltFuture<SmeltTypedArray> = { let smelt_request = second.clone().clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    _smelt_tmp_102 = _smelt_tmp_101.await?;
+    _smelt_tmp_103 = _smelt_tmp_102.length();
+    _smelt_tmp_104 = second.body_used();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_103), _smelt_tmp_104); };
+    return Ok(());
+    }
+    } else {
+    _smelt_tmp_71 = !(__smelt_nullable_1.clone().is_none());
+    if _smelt_tmp_71 {
+    let _smelt_tmp_73: () = { println!("{} {}", "null", match &__smelt_nullable_1 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
+    _smelt_tmp_72 = _smelt_tmp_73;
+    _smelt_tmp_66 = _smelt_tmp_72;
+    _smelt_tmp_75 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    _smelt_tmp_76 = _smelt_tmp_75.headers();
+    _smelt_tmp_77 = (_smelt_tmp_76.get(&JsString::from("content-type"))).map(JsString::from);
+    form_type = _smelt_tmp_77.clone().unwrap_or(JsString::new());
+    _smelt_tmp_79 = form_type.clone();
+    _smelt_tmp_80 = JsString::from("multipart/form-data; boundary=");
+    _smelt_tmp_81 = form_type.starts_with(&_smelt_tmp_80);
+    let _ = { println!("{}", _smelt_tmp_81); };
+    _smelt_tmp_83 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hi")]; smelt_list_items }));
+    blob = SmeltBlob::from_string_parts((_smelt_tmp_83).clone().into(), (JsString::from("text/plain")).clone(), None::<String>, None);
+    _smelt_tmp_85 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.clone().to_bytes(), blob.clone().blob_type()));
+    _smelt_tmp_86 = _smelt_tmp_85.headers();
+    _smelt_tmp_87 = (_smelt_tmp_86.get(&JsString::from("content-type"))).map(JsString::from);
+    _smelt_tmp_88 = _smelt_tmp_87.clone().unwrap_or(JsString::from("null"));
+    let _ = { println!("{}", _smelt_tmp_88); };
+    _smelt_tmp_90 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.to_bytes(), blob.blob_type()));
+    let _smelt_tmp_91: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_90.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    _smelt_tmp_92 = _smelt_tmp_91.await?;
+    _smelt_tmp_93 = _smelt_tmp_92.length();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_93)); };
+    request = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.clone().to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_96: SmeltFuture<SmeltArrayBuffer> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    as_buffer = _smelt_tmp_96.await?;
+    _smelt_tmp_98 = as_buffer.byte_length();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_98), false); };
+    second = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_101: SmeltFuture<SmeltTypedArray> = { let smelt_request = second.clone().clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    _smelt_tmp_102 = _smelt_tmp_101.await?;
+    _smelt_tmp_103 = _smelt_tmp_102.length();
+    _smelt_tmp_104 = second.body_used();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_103), _smelt_tmp_104); };
+    return Ok(());
+    } else {
+    let _smelt_tmp_74: () = { println!("{} {}", "null", "null"); };
+    _smelt_tmp_72 = _smelt_tmp_74;
+    _smelt_tmp_66 = _smelt_tmp_72;
+    _smelt_tmp_75 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    _smelt_tmp_76 = _smelt_tmp_75.headers();
+    _smelt_tmp_77 = (_smelt_tmp_76.get(&JsString::from("content-type"))).map(JsString::from);
+    form_type = _smelt_tmp_77.clone().unwrap_or(JsString::new());
+    _smelt_tmp_79 = form_type.clone();
+    _smelt_tmp_80 = JsString::from("multipart/form-data; boundary=");
+    _smelt_tmp_81 = form_type.starts_with(&_smelt_tmp_80);
+    let _ = { println!("{}", _smelt_tmp_81); };
+    _smelt_tmp_83 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("hi")]; smelt_list_items }));
+    blob = SmeltBlob::from_string_parts((_smelt_tmp_83).clone().into(), (JsString::from("text/plain")).clone(), None::<String>, None);
+    _smelt_tmp_85 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.clone().to_bytes(), blob.clone().blob_type()));
+    _smelt_tmp_86 = _smelt_tmp_85.headers();
+    _smelt_tmp_87 = (_smelt_tmp_86.get(&JsString::from("content-type"))).map(JsString::from);
+    _smelt_tmp_88 = _smelt_tmp_87.clone().unwrap_or(JsString::from("null"));
+    let _ = { println!("{}", _smelt_tmp_88); };
+    _smelt_tmp_90 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_blob(blob.to_bytes(), blob.blob_type()));
+    let _smelt_tmp_91: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_90.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
+    _smelt_tmp_92 = _smelt_tmp_91.await?;
+    _smelt_tmp_93 = _smelt_tmp_92.length();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_93)); };
+    request = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.clone().to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_96: SmeltFuture<SmeltArrayBuffer> = { let smelt_request = request.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltArrayBuffer::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    as_buffer = _smelt_tmp_96.await?;
+    _smelt_tmp_98 = as_buffer.byte_length();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_98), false); };
+    second = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_bytes(bytes.to_bytes()), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_101: SmeltFuture<SmeltTypedArray> = { let smelt_request = second.clone().clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_request.body().take_bytes()?)) })) };
+    _smelt_tmp_102 = _smelt_tmp_101.await?;
+    _smelt_tmp_103 = _smelt_tmp_102.length();
+    _smelt_tmp_104 = second.body_used();
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_103), _smelt_tmp_104); };
+    return Ok(());
+    }
+    }
 }

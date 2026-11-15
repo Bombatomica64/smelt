@@ -16,96 +16,92 @@ async fn main (FuncId(0)) -> None throws
     %11 temp: Bool
     %12 temp: Bool
     %13 temp: Bool
-    %14 temp: Bool
-    %15 temp: Bool
-    %16 temp: Float
-    %17 temp: AddressInfo
+    %14 temp: Float
+    %15 temp: AddressInfo
+    %16 temp: String
+    %17 temp: String
     %18 temp: String
-    %19 temp: String
-    %20 temp: String
-    %21 temp: Request
-    %22 temp: Future<Response>
-    %23 temp: Response
-    %24 temp: Float
-    %25 temp: None
-    %26 temp: Future<String>
+    %19 temp: Request
+    %20 temp: Future<Response>
+    %21 temp: Response
+    %22 temp: Float
+    %23 temp: None
+    %24 temp: Future<String>
+    %25 temp: String
+    %26 temp: None
     %27 temp: String
-    %28 temp: None
-    %29 temp: String
-    %30 temp: String
-    %31 temp: Future<Response>
-    %32 temp: Response
-    %33 temp: Float
-    %34 temp: None
-    %35 temp: Future<String>
-    %36 temp: String
-    %37 temp: None
-    %38 temp: Server
-    %39 temp: Optional<AddressInfo>
-    %40 temp: Float
-    %41 temp: Float | AddressInfo
+    %28 temp: String
+    %29 temp: Future<Response>
+    %30 temp: Response
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: Future<String>
+    %34 temp: String
+    %35 temp: None
+    %36 temp: Server
+    %37 temp: Optional<AddressInfo>
+    %38 temp: Float
+    %39 temp: Float | AddressInfo
+    %40 temp: None
+    %41 temp: Future<None>
     %42 temp: None
-    %43 temp: Future<None>
-    %44 temp: None
   bb0:
     %6 = closure ClosureId(0) []
     %0 = http_create_server move %6
     %8 = closure ClosureId(3) []
     %9 = http_server_listen copy %0 0.0 "127.0.0.1" move %8
     %1 = http_server_address copy %0
-    %11 = unknown_is Null copy %1
-    %12 = !move %11
-    switch move %12 ? bb1 : bb2
+    switch true ? bb1 : bb2
   bb1:
-    %14 = unknown_is Null copy %1
-    %13 = !move %14
+    %12 = unknown_is Null copy %1
+    %11 = !move %12
     goto bb3
   bb2:
-    %13 = false
+    %11 = false
     goto bb3
   bb3:
-    switch move %13 ? bb4 : bb5
+    switch move %11 ? bb4 : bb5
   bb4:
-    %17 = move %1
-    %16 = copy %17.field14
+    %15 = move %1
+    %14 = copy %15.field14
     goto bb6
   bb5:
-    %16 = 0.0
+    %14 = 0.0
     goto bb6
   bb6:
-    %2 = move %16
+    %2 = move %14
     %3 = "http://127.0.0.1:" + move %2
-    %19 = "" + copy %3
-    %20 = move %19 + "/echo?q=1"
-    %21 = request_new input=move %20 method="POST" body="hello body"
-    %22 = async_http_fetch(move %21)
-    %4 = await move %22
-    %24 = response_status copy %4
-    %25 = call @console_log(move %24) -> bb7
+    %17 = "" + copy %3
+    %18 = move %17 + "/echo?q=1"
+    %19 = request_new input=move %18 method="POST" body="hello body"
+    %20 = async_http_fetch(move %19)
+    %4 = await move %20
+    %22 = response_status copy %4
+    %23 = call @console_log(move %22) -> bb7
   bb7:
-    %26 = response_text move %4
-    %27 = await move %26
-    %28 = call @console_log(move %27) -> bb8
+    %24 = response_text move %4
+    %25 = await move %24
+    %26 = call @console_log(move %25) -> bb8
   bb8:
-    %29 = "" + move %3
-    %30 = move %29 + "/again"
-    %31 = async_http_fetch(move %30)
-    %5 = await move %31
-    %33 = response_status copy %5
-    %34 = call @console_log(move %33) -> bb9
+    %27 = "" + move %3
+    %28 = move %27 + "/again"
+    %29 = async_http_fetch(move %28)
+    %5 = await move %29
+    %31 = response_status copy %5
+    %32 = call @console_log(move %31) -> bb9
   bb9:
-    %35 = response_text move %5
-    %36 = await move %35
-    %37 = call @console_log(move %36) -> bb10
+    %33 = response_text move %5
+    %34 = await move %33
+    %35 = call @console_log(move %34) -> bb10
   bb10:
-    %38 = http_server_close copy %0
-    %39 = http_server_address move %0
-    %40 = -1.0
-    %41 = move %39 ?? move %40
-    %42 = call @console_log(move %41) -> bb11
+    %36 = http_server_close copy %0
+    %37 = http_server_address move %0
+    %38 = -1.0
+    %39 = move %37 ?? move %38
+    %40 = call @console_log(move %39) -> bb11
   bb11:
-    %43 = async_exit_drain()
-    %44 = await move %43
+    %41 = async_exit_drain()
+    %42 = await move %41
     return none
 
 closure ClosureId(0) -> None

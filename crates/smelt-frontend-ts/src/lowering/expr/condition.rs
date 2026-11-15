@@ -10,6 +10,71 @@ use oxc::ast::ast::Expression;
 use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, PrimitiveCastOp, Span, Type};
 
 impl ModuleBuilder<'_> {
+    /// Whether the number `value` (of `value_ty`: `Int`, `Float` or
+    /// `BigInt`) is truthy, as JavaScript's `ToBoolean` answers: neither zero
+    /// nor, for a float, `NaN` (`0n` for a bigint). The one rule every
+    /// numeric truthiness test lowers through: a condition, and the `||`
+    /// fallback that keeps a truthy left value. `NaN != 0` holds, so a plain
+    /// `!= 0` test took `NaN` (`parseFloat("x") || d`, an out-of-range
+    /// `number[]` read) for a truthy value.
+    pub(in crate::lowering) fn number_truthiness(
+        &mut self,
+        value: smelt_hir::ExprId,
+        value_ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let zero = body.push_expr(Expr {
+            kind: match self.ctx.krate.types.get(value_ty) {
+                Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+                // `0n` is the one falsy bigint.
+                Some(Type::BigInt) => ExprKind::Literal(Literal::BigInt("0".to_owned())),
+                _ => ExprKind::Literal(Literal::Float(0.0)),
+            },
+            ty: value_ty,
+            span,
+        });
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let nonzero = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: value,
+                rhs: zero,
+            },
+            ty: bool_ty,
+            span,
+        });
+        if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Float)) {
+            return nonzero;
+        }
+        // The operand is read again only on the path where `!= 0` read it.
+        let is_nan = body.push_expr(Expr {
+            kind: ExprKind::NumericPredicate {
+                op: smelt_hir::NumericPredicateOp::IsNaN,
+                operand: value,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let not_nan = body.push_expr(Expr {
+            kind: ExprKind::UnaryOp {
+                op: smelt_hir::UnaryOp::Not,
+                operand: is_nan,
+            },
+            ty: bool_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::And,
+                lhs: nonzero,
+                rhs: not_nan,
+            },
+            ty: bool_ty,
+            span,
+        })
+    }
+
     /// Lower a JavaScript condition to a boolean expression.
     ///
     /// TypeScript permits optional values in truthiness positions. Smelt models
@@ -128,26 +193,7 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.get(cond_ty),
             Some(Type::Int | Type::Float | Type::BigInt)
         ) {
-            let zero = body.push_expr(Expr {
-                kind: match self.ctx.krate.types.get(cond_ty) {
-                    Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
-                    // `0n` is the one falsy bigint.
-                    Some(Type::BigInt) => ExprKind::Literal(Literal::BigInt("0".to_owned())),
-                    _ => ExprKind::Literal(Literal::Float(0.0)),
-                },
-                ty: cond_ty,
-                span,
-            });
-            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::BinOp {
-                    op: BinOp::NotEq,
-                    lhs: cond,
-                    rhs: zero,
-                },
-                ty: bool_ty,
-                span,
-            }));
+            return Ok(self.number_truthiness(cond, cond_ty, span, body));
         }
         if let Some(condition) = self.optional_known_date_presence_condition(cond, span, body) {
             return Ok(condition);

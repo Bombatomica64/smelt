@@ -8,93 +8,104 @@ async fn run (FuncId(0)) -> None
     %5 user params: URLSearchParams
     %6 user form: FormData
     %7 user parsed: FormData
-    %8 user form_type: String
-    %9 user blob: Blob
-    %10 user request: Request
-    %11 user as_buffer: ArrayBuffer
-    %12 user second: Request
-    %13 temp: ArrayBuffer
-    %14 temp: Uint8Array
-    %15 temp: Response
-    %16 temp: Future<ArrayBuffer>
-    %17 temp: ArrayBuffer
-    %18 temp: Float
-    %19 temp: None
-    %20 temp: Uint8Array
-    %21 temp: Response
-    %22 temp: Future<String>
-    %23 temp: String
-    %24 temp: None
-    %25 temp: Uint8Array
-    %26 temp: Response
-    %27 temp: Future<Uint8Array>
-    %28 temp: Uint8Array
-    %29 temp: Float
-    %30 temp: None
-    %31 temp: List<Float>
-    %32 temp: Uint32Array
-    %33 temp: Response
-    %34 temp: Future<ArrayBuffer>
-    %35 temp: ArrayBuffer
-    %36 temp: Float
-    %37 temp: None
-    %38 temp: Response
-    %39 temp: Headers
-    %40 temp: Optional<String>
-    %41 temp: Bool
-    %42 temp: None
-    %43 temp: URLSearchParams
+    %8 user __smelt_nullable: Optional<String | File>
+    %9 user __smelt_nullable: Optional<String | File>
+    %10 user form_type: String
+    %11 user blob: Blob
+    %12 user request: Request
+    %13 user as_buffer: ArrayBuffer
+    %14 user second: Request
+    %15 temp: ArrayBuffer
+    %16 temp: Uint8Array
+    %17 temp: Response
+    %18 temp: Future<ArrayBuffer>
+    %19 temp: ArrayBuffer
+    %20 temp: Float
+    %21 temp: None
+    %22 temp: Uint8Array
+    %23 temp: Response
+    %24 temp: Future<String>
+    %25 temp: String
+    %26 temp: None
+    %27 temp: Uint8Array
+    %28 temp: Response
+    %29 temp: Future<Uint8Array>
+    %30 temp: Uint8Array
+    %31 temp: Float
+    %32 temp: None
+    %33 temp: List<Float>
+    %34 temp: Uint32Array
+    %35 temp: Response
+    %36 temp: Future<ArrayBuffer>
+    %37 temp: ArrayBuffer
+    %38 temp: Float
+    %39 temp: None
+    %40 temp: Response
+    %41 temp: Headers
+    %42 temp: Optional<String>
+    %43 temp: Bool
     %44 temp: None
-    %45 temp: None
-    %46 temp: Response
-    %47 temp: Future<String>
-    %48 temp: String
-    %49 temp: None
-    %50 temp: Response
-    %51 temp: Headers
-    %52 temp: Optional<String>
-    %53 temp: String
-    %54 temp: None
-    %55 temp: FormData
+    %45 temp: URLSearchParams
+    %46 temp: None
+    %47 temp: None
+    %48 temp: Response
+    %49 temp: Future<String>
+    %50 temp: String
+    %51 temp: None
+    %52 temp: Response
+    %53 temp: Headers
+    %54 temp: Optional<String>
+    %55 temp: String
     %56 temp: None
-    %57 temp: None
-    %58 temp: Request
-    %59 temp: Future<FormData>
-    %60 temp: FormData
-    %61 temp: Optional<String | File>
-    %62 temp: Optional<String | File>
-    %63 temp: None
-    %64 temp: Request
-    %65 temp: Headers
-    %66 temp: Optional<String>
-    %67 temp: String
-    %68 temp: String
-    %69 temp: String
-    %70 temp: Bool
-    %71 temp: None
-    %72 temp: List<String>
-    %73 temp: Blob
-    %74 temp: Response
-    %75 temp: Headers
-    %76 temp: Optional<String>
-    %77 temp: String
-    %78 temp: None
-    %79 temp: Response
-    %80 temp: Future<Uint8Array>
-    %81 temp: Uint8Array
-    %82 temp: Float
-    %83 temp: None
-    %84 temp: Request
-    %85 temp: Future<ArrayBuffer>
-    %86 temp: ArrayBuffer
-    %87 temp: Float
-    %88 temp: None
-    %89 temp: Request
-    %90 temp: Future<Uint8Array>
-    %91 temp: Uint8Array
-    %92 temp: Float
-    %93 temp: Bool
+    %57 temp: FormData
+    %58 temp: None
+    %59 temp: None
+    %60 temp: Request
+    %61 temp: Future<FormData>
+    %62 temp: FormData
+    %63 temp: Optional<String | File>
+    %64 temp: Optional<String | File>
+    %65 temp: Bool
+    %66 temp: None
+    %67 temp: Bool
+    %68 temp: None
+    %69 temp: None
+    %70 temp: None
+    %71 temp: Bool
+    %72 temp: None
+    %73 temp: None
+    %74 temp: None
+    %75 temp: Request
+    %76 temp: Headers
+    %77 temp: Optional<String>
+    %78 temp: String
+    %79 temp: String
+    %80 temp: String
+    %81 temp: Bool
+    %82 temp: None
+    %83 temp: List<String>
+    %84 temp: Blob
+    %85 temp: Response
+    %86 temp: Headers
+    %87 temp: Optional<String>
+    %88 temp: String
+    %89 temp: None
+    %90 temp: Response
+    %91 temp: Future<Uint8Array>
+    %92 temp: Uint8Array
+    %93 temp: Float
     %94 temp: None
+    %95 temp: Request
+    %96 temp: Future<ArrayBuffer>
+    %97 temp: ArrayBuffer
+    %98 temp: Float
+    %99 temp: None
+    %100 temp: Request
+    %101 temp: Future<Uint8Array>
+    %102 temp: Uint8Array
+    %103 temp: Float
+    %104 temp: Bool
+    %105 temp: None
   bb0:
     %0 = typed_array_new ArrayBuffer 4.0
     %1 = typed_array_new Uint8Array copy %0
@@ -103,98 +114,131 @@ async fn run (FuncId(0)) -> None
     %1[2.0] = 33.0
     %1[3.0] = 63.0
     %2 = response_new body=copy %0
-    %16 = response_array_buffer move %2
-    %17 = await move %16
-    %18 = byte_array_byte_length move %17
-    %19 = call @console_log(move %18) -> bb1
+    %18 = response_array_buffer move %2
+    %19 = await move %18
+    %20 = byte_array_byte_length move %19
+    %21 = call @console_log(move %20) -> bb1
   bb1:
-    %20 = byte_array_subarray copy %1 0.0 2.0
-    %21 = response_new body=move %20
-    %22 = response_text move %21
-    %23 = await move %22
-    %24 = call @console_log(move %23) -> bb2
+    %22 = byte_array_subarray copy %1 0.0 2.0
+    %23 = response_new body=move %22
+    %24 = response_text move %23
+    %25 = await move %24
+    %26 = call @console_log(move %25) -> bb2
   bb2:
-    %25 = byte_array_subarray copy %1 1.0 3.0
-    %26 = response_new body=move %25
-    %27 = response_bytes move %26
-    %3 = await move %27
-    %29 = byte_array_length copy %3
-    %30 = call @console_log(move %29, copy %3[0.0], true) -> bb3
+    %27 = byte_array_subarray copy %1 1.0 3.0
+    %28 = response_new body=move %27
+    %29 = response_bytes move %28
+    %3 = await move %29
+    %31 = byte_array_length copy %3
+    %32 = call @console_log(move %31, copy %3[0.0], true) -> bb3
   bb3:
-    %31 = [1.0]
-    %4 = typed_array_new Uint32Array move %31
-    %33 = response_new body=move %4
-    %34 = response_array_buffer move %33
-    %35 = await move %34
-    %36 = byte_array_byte_length move %35
-    %37 = call @console_log(move %36) -> bb4
+    %33 = [1.0]
+    %4 = typed_array_new Uint32Array move %33
+    %35 = response_new body=move %4
+    %36 = response_array_buffer move %35
+    %37 = await move %36
+    %38 = byte_array_byte_length move %37
+    %39 = call @console_log(move %38) -> bb4
   bb4:
-    %38 = response_new body=move %0
-    %39 = response_headers move %38
-    %40 = headers_get move %39, "content-type"
-    %41 = move %40 == none
-    %42 = call @console_log(move %41) -> bb5
+    %40 = response_new body=move %0
+    %41 = response_headers move %40
+    %42 = headers_get move %41, "content-type"
+    %43 = move %42 == none
+    %44 = call @console_log(move %43) -> bb5
   bb5:
     %5 = url_search_params_new
-    %44 = url_search_params_append copy %5, "a", "1"
-    %45 = url_search_params_append copy %5, "b", "two"
-    %46 = response_new body=copy %5
-    %47 = response_text move %46
-    %48 = await move %47
-    %49 = call @console_log(move %48) -> bb6
+    %46 = url_search_params_append copy %5, "a", "1"
+    %47 = url_search_params_append copy %5, "b", "two"
+    %48 = response_new body=copy %5
+    %49 = response_text move %48
+    %50 = await move %49
+    %51 = call @console_log(move %50) -> bb6
   bb6:
-    %50 = response_new body=move %5
-    %51 = response_headers move %50
-    %52 = headers_get move %51, "content-type"
-    %53 = move %52 ?? "null"
-    %54 = call @console_log(move %53) -> bb7
+    %52 = response_new body=move %5
+    %53 = response_headers move %52
+    %54 = headers_get move %53, "content-type"
+    %55 = move %54 ?? "null"
+    %56 = call @console_log(move %55) -> bb7
   bb7:
     %6 = form_data_new
-    %56 = form_data_append copy %6, "name", "smelt"
-    %57 = form_data_append copy %6, "kind", "codec"
-    %58 = request_new input="https://a.test" method="POST" body=copy %6
-    %59 = request_form_data move %58
-    %7 = await move %59
-    %61 = form_data_get copy %7, "name"
-    %62 = form_data_get move %7, "kind"
-    %63 = call @console_log(move %61, move %62) -> bb8
+    %58 = form_data_append copy %6, "name", "smelt"
+    %59 = form_data_append copy %6, "kind", "codec"
+    %60 = request_new input="https://a.test" method="POST" body=copy %6
+    %61 = request_form_data move %60
+    %7 = await move %61
+    %8 = form_data_get copy %7, "name"
+    %9 = form_data_get move %7, "kind"
+    %65 = copy %8 != undefined
+    switch move %65 ? bb8 : bb9
   bb8:
-    %64 = request_new input="https://a.test" method="POST" body=move %6
-    %65 = request_headers move %64
-    %66 = headers_get move %65, "content-type"
-    %8 = move %66 ?? ""
-    %68 = copy %8
-    %69 = "multipart/form-data; boundary="
-    %70 = string_starts_with move %8, move %69
-    %71 = call @console_log(move %70) -> bb9
+    %67 = copy %9 != undefined
+    switch move %67 ? bb10 : bb11
   bb9:
-    %72 = ["hi"]
-    %9 = blob_from_parts move %72, "text/plain", none, none
-    %74 = response_new body=copy %9
-    %75 = response_headers move %74
-    %76 = headers_get move %75, "content-type"
-    %77 = move %76 ?? "null"
-    %78 = call @console_log(move %77) -> bb10
+    %71 = copy %9 != undefined
+    switch move %71 ? bb15 : bb16
   bb10:
-    %79 = response_new body=move %9
-    %80 = response_bytes move %79
-    %81 = await move %80
-    %82 = byte_array_length move %81
-    %83 = call @console_log(move %82) -> bb11
+    %69 = call @console_log(move %8, move %9) -> bb12
   bb11:
-    %10 = request_new input="https://a.test" method="POST" body=copy %1
-    %85 = request_array_buffer move %10
-    %11 = await move %85
-    %87 = byte_array_byte_length move %11
-    %88 = call @console_log(move %87, false) -> bb12
+    %70 = call @console_log(move %8, none) -> bb13
   bb12:
-    %12 = request_new input="https://a.test" method="POST" body=move %1
-    %90 = request_bytes copy %12
-    %91 = await move %90
-    %92 = byte_array_length move %91
-    %93 = request_body_used move %12
-    %94 = call @console_log(move %92, move %93) -> bb13
+    %68 = move %69
+    goto bb14
   bb13:
+    %68 = move %70
+    goto bb14
+  bb14:
+    %66 = move %68
+    goto bb20
+  bb15:
+    %73 = call @console_log(none, move %9) -> bb17
+  bb16:
+    %74 = call @console_log(none, none) -> bb18
+  bb17:
+    %72 = move %73
+    goto bb19
+  bb18:
+    %72 = move %74
+    goto bb19
+  bb19:
+    %66 = move %72
+    goto bb20
+  bb20:
+    %75 = request_new input="https://a.test" method="POST" body=move %6
+    %76 = request_headers move %75
+    %77 = headers_get move %76, "content-type"
+    %10 = move %77 ?? ""
+    %79 = copy %10
+    %80 = "multipart/form-data; boundary="
+    %81 = string_starts_with move %10, move %80
+    %82 = call @console_log(move %81) -> bb21
+  bb21:
+    %83 = ["hi"]
+    %11 = blob_from_parts move %83, "text/plain", none, none
+    %85 = response_new body=copy %11
+    %86 = response_headers move %85
+    %87 = headers_get move %86, "content-type"
+    %88 = move %87 ?? "null"
+    %89 = call @console_log(move %88) -> bb22
+  bb22:
+    %90 = response_new body=move %11
+    %91 = response_bytes move %90
+    %92 = await move %91
+    %93 = byte_array_length move %92
+    %94 = call @console_log(move %93) -> bb23
+  bb23:
+    %12 = request_new input="https://a.test" method="POST" body=copy %1
+    %96 = request_array_buffer move %12
+    %13 = await move %96
+    %98 = byte_array_byte_length move %13
+    %99 = call @console_log(move %98, false) -> bb24
+  bb24:
+    %14 = request_new input="https://a.test" method="POST" body=move %1
+    %101 = request_bytes copy %14
+    %102 = await move %101
+    %103 = byte_array_length move %102
+    %104 = request_body_used move %14
+    %105 = call @console_log(move %103, move %104) -> bb25
+  bb25:
     return none
 
 async fn main (FuncId(1)) -> None throws
