@@ -32,3 +32,8 @@ console.log(Number([5]), Number([]), Number([1, 2]), Number(["7"]));
 const nested = [[1, 2], [3]];
 const ys: (number | null)[] = [1, null];
 console.log(nested.join(","), ys.join(","));
+// A separator typed `string | RegExp` reaches the erased-separator split.
+function splitBy(text: string, separator: string | RegExp): string[] {
+  return text.split(separator);
+}
+console.log(splitBy("a,b;c", ","), splitBy("a,b;c", /[,;]/));
