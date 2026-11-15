@@ -290,3 +290,70 @@ fn build_writes_a_typedness_sidecar() -> TestResult {
     ensure(count(record, "values", "erased") == 0, stdout.clone())?;
     ensure(count(record, "values", "concrete") > 0, stdout)
 }
+
+/// An input the report cannot measure stops it with an error naming the input,
+/// instead of being recorded as `null` and passing: a source that fails to
+/// lower, and a file of no supported kind.
+#[test]
+fn an_unmeasurable_input_fails_loudly() -> TestResult {
+    let project = TempProject::new()?;
+    let dir = project.path();
+    fs::create_dir_all(dir)?;
+    // `eval` has no static meaning, so lowering rejects it.
+    fs::write(dir.join("broken.ts"), "console.log(eval(\"1\"));\n")?;
+    fs::write(dir.join("notes.txt"), "not a program\n")?;
+    fs::write(dir.join("fine.ts"), "console.log(1);\n")?;
+    for input in ["broken.ts", "notes.txt"] {
+        let (ok, stdout, stderr) = run(
+            dir,
+            &["typedness-report", "fine.ts", input, "--format", "json"],
+        )?;
+        ensure(!ok, format!("{input} passed: {stdout}"))?;
+        ensure(
+            stderr.contains(&format!("cannot measure `{input}`")),
+            format!("{input}: {stderr}"),
+        )?;
+        ensure(!stdout.contains("null"), format!("{input}: {stdout}"))?;
+    }
+    // `--update-baseline` never snapshots an unmeasurable program either.
+    let baseline = dir.join("baseline.json");
+    let (ok, _, _) = run(
+        dir,
+        &[
+            "typedness-report",
+            "fine.ts",
+            "broken.ts",
+            "--baseline",
+            "baseline.json",
+            "--update-baseline",
+        ],
+    )?;
+    ensure(!ok && !baseline.exists(), "a baseline was written")
+}
+
+/// A manifest is recognised by its `.toml` extension, not only by the exact
+/// name `Smelt.toml`.
+#[test]
+fn a_manifest_of_any_name_is_lowered_as_a_manifest() -> TestResult {
+    let project = TempProject::new()?;
+    let dir = project.path();
+    fs::create_dir_all(dir)?;
+    fs::write(
+        dir.join("main.ts"),
+        "const n: number = 2;\nconsole.log(n * 3);\n",
+    )?;
+    fs::write(
+        dir.join("Smelt-alt.toml"),
+        "[project]\nname = \"typedness-alt\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"main.ts\"]\n\n[output]\ntarget = \"out\"\n",
+    )?;
+    let (ok, stdout, stderr) = run(
+        dir,
+        &["typedness-report", "Smelt-alt.toml", "--format", "json"],
+    )?;
+    ensure(ok, stderr)?;
+    let report: serde_json::Value = serde_json::from_str(&stdout)?;
+    let programs = report.get("programs").cloned().unwrap_or_default();
+    let record = programs.get("main.ts").cloned().unwrap_or_default();
+    ensure(count(&record, "values", "concrete") > 0, stdout.clone())?;
+    ensure(programs.get("Smelt-alt.toml").is_none(), stdout)
+}

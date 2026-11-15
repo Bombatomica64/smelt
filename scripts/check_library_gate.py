@@ -12,9 +12,12 @@ a mode that cannot read what it judges fails rather than passing.
   message. All output is echoed to stdout and appended to ``$GITHUB_STEP_SUMMARY``.
 
 * ``runtime-ratchet`` — parse a captured ``cargo test`` log. Every failing test
-  must be pinned in ``baseline.runtime_known_failures`` and the passed count may
-  not fall below ``baseline.runtime_passed``, so a new failure fails even when
-  another test was fixed, and a killed or uncompiled suite fails on its count.
+  must be pinned in ``baseline.runtime_known_failures``, the passed count may
+  not fall below ``baseline.runtime_passed``, and the number of tests run
+  (passed + failed) must equal ``baseline.runtime_total``. So a new failure
+  fails even when another test was fixed, a killed or uncompiled suite fails on
+  its count, and a test that vanishes (a spec no longer discovered or lowered)
+  fails even when a pinned failure is fixed in the same change.
 
 * ``compile-pin`` — count the rustc errors in a captured ``cargo test`` log and
   fail unless it equals ``baseline.test_compile_errors``. The pin is exact: a
@@ -197,6 +200,7 @@ def runtime_ratchet(args):
     baseline = _load_baseline(args.baseline)
     base_passed = int(_required(baseline, "runtime_passed", args.baseline))
     known = set(_required(baseline, "runtime_known_failures", args.baseline))
+    base_total = int(_required(baseline, "runtime_total", args.baseline))
     passed, failed, failing, summarized = _parse_runtime(args.log)
 
     _emit("## Runtime ratchet")
@@ -206,8 +210,9 @@ def runtime_ratchet(args):
         _emit("Runtime ratchet: **FAIL**.")
         return 1
 
-    _emit(f"Runtime: **{passed} passed / {failed} failed** "
-          f"(floor {base_passed} passed, {len(known)} pinned failures).")
+    _emit(f"Runtime: **{passed} passed / {failed} failed** of {passed + failed} "
+          f"(floor {base_passed} passed, {len(known)} pinned failures, "
+          f"{base_total} tests pinned).")
     new = sorted(failing - known)
     if len(failing) != failed:
         _emit(f"The log names {len(failing)} failing test(s) but its summaries "
@@ -223,7 +228,15 @@ def runtime_ratchet(args):
         _emit(f"Improvement: {passed - base_passed} more passing test(s); "
               "raise `runtime_passed`.")
 
-    if new or passed < base_passed or len(failing) != failed:
+    total = passed + failed
+    if total < base_total:
+        _emit(f"Test count fell {base_total} -> {total}: {base_total - total} "
+              "test(s) no longer run.")
+    elif total > base_total:
+        _emit(f"Test count rose {base_total} -> {total}: pin the new tests by "
+              "raising `runtime_total` (and `runtime_passed`).")
+
+    if new or passed < base_passed or len(failing) != failed or total != base_total:
         _emit("Runtime ratchet: **FAIL**.")
         return 1
     _emit("Runtime ratchet: **PASS**.")

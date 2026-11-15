@@ -55,6 +55,13 @@ impl TypeErrorPolicy {
 
 /// What one language's checker made of a run's sources.
 #[derive(Debug, Clone)]
+#[cfg_attr(
+    not(any(feature = "ts7", feature = "ty", test)),
+    expect(
+        dead_code,
+        reason = "a build with neither checker (no `ts7`, no `ty`) never gets a checker's report"
+    )
+)]
 pub(crate) enum LanguageCheck {
     /// The run has no source in this language.
     Absent,

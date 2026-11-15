@@ -23,8 +23,11 @@ dependency (`KNOWN_BLOCKED` in [`scripts/publish-crates.sh`](scripts/publish-cra
 For the current code, install from a checkout with
 `cargo install --locked --path crates/smelt-transpiler`. The default features
 include the TypeScript frontend, the Python frontend with ty-backed type
-resolution, and the TypeScript 7 checker; `--no-default-features` builds a
-TypeScript-only CLI.
+resolution, and the TypeScript 7 checker (feature `ts7`), which every
+TypeScript lowering and the type gate use. `--no-default-features --features ts7`
+builds a TypeScript-only CLI; plain `--no-default-features` also drops the
+checker, and such a `smelt` refuses every TypeScript build unless
+`--allow-type-errors` is given.
 
 ## North star
 
@@ -49,19 +52,24 @@ preservation (the typedness and SmeltUnknown reports below).
 
 Pre-alpha. The main line of work is conformance on real TypeScript utility
 libraries and a web framework (Hono), with type preservation measured on every
-change. Every number below names its source file; dates are the last commit
-that changed that file.
+change. Every number below names its source file. The three tables are
+rendered from those files by
+[`scripts/readme_results.py`](scripts/readme_results.py), and CI
+(`scripts/check_ci_gates.py`) fails when they differ, so they cannot fall
+behind a pin or a baseline.
 
 ### Generated test suites
 
+<!-- results:suites:begin -->
 | Library | Result | Gate | Source |
 | --- | --- | --- | --- |
-| remeda | 1789 passed, 0 failed | blocking on `main` pushes | `.github/workflows/ci.yml` job `remeda-regression` |
-| es-toolkit | at least 1048 passed; 11 named tests allowed to fail | blocking ratchet | [`blocker-logs/es-toolkit-ci-baseline.json`](blocker-logs/es-toolkit-ci-baseline.json) (2026-11-07) |
-| hono | at least 444 passed; 10 named tests allowed to fail; test target builds with 0 rustc errors | blocking ratchet | [`blocker-logs/hono-ci-baseline.json`](blocker-logs/hono-ci-baseline.json) (2026-11-08) |
+| remeda | exactly 1789 passed, 0 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `remeda-regression` |
+| es-toolkit | 1059 tests; at least 1048 passed; 11 named tests allowed to fail | blocking ratchet | [`blocker-logs/es-toolkit-ci-baseline.json`](blocker-logs/es-toolkit-ci-baseline.json), `.github/workflows/ci.yml` job `es-toolkit-regression` |
+| hono | 454 tests; at least 444 passed; 10 named tests allowed to fail; test target builds with 0 rustc errors | blocking ratchet | [`blocker-logs/hono-ci-baseline.json`](blocker-logs/hono-ci-baseline.json), `.github/workflows/ci.yml` job `hono` |
 | radash | exactly 381 passed, 6 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `radash-regression` |
-| ts-pattern | exactly 419 passed, 19 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `ts-pattern-build` |
-| date-fns | exactly 287 passed, 43 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `date-fns-build` |
+| ts-pattern | exactly 437 passed, 1 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `ts-pattern-build` |
+| date-fns | exactly 330 passed, 0 failed (pinned) | blocking pin | `.github/workflows/ci.yml` job `date-fns-build` |
+<!-- results:suites:end -->
 
 Each library is checked out at the commit pinned in
 [`.github/compat/libraries.json`](.github/compat/libraries.json). These jobs
@@ -70,8 +78,8 @@ always run on pushes to `main`; on a pull request they run only with the
 blockers and zero `cargo check` / `cargo test --no-run` errors in the generated
 crate. The hono failures pinned in the baseline are `mount` routing,
 pretty-json's indent argument and RegExpRouter parameter capture; the radash
-failures are type-violating test inputs (`as any`, `null as unknown as []`) and
-`Proxy` traps, see [`blocker-logs/globals-suite-failures.md`](blocker-logs/globals-suite-failures.md).
+failures are four type-violating test inputs (`as any`, `null as unknown as T[]`)
+and two assertions on V8 stack-trace text, see [`blocker-logs/globals-suite-failures.md`](blocker-logs/globals-suite-failures.md).
 
 [`COMPAT.md`](COMPAT.md) holds the last run of the manual Compatibility
 workflow: remeda at `3c80f28bb394`, 1789 passed, 0 failed, dated
@@ -91,22 +99,24 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 (`SmeltUnknown` or `SmeltErasedFunction` anywhere in the type). Methodology:
 [`blocker-logs/typedness-report.md`](blocker-logs/typedness-report.md).
 
-| Corpus (baseline file, date) | Kind | Concrete | Generic | Erased | Erased share |
+<!-- results:typedness:begin -->
+| Corpus (baseline file) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| examples, 168 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json), 2026-11-14) | values | 8292 | 139 | 56 | 0.7% |
-| | reads | 858 | 39 | 20 | 2.2% |
-| | calls | 2273 | 14 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json), 2026-11-14) | values | 13829 | 228 | 7803 | 35.7% |
-| | reads | 341 | 33 | 1028 | 73.3% |
-| | calls | 2141 | 39 | 1258 | 36.6% |
-| remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json), 2026-11-05) | values | 12960 | 204 | 10147 | 43.5% |
-| | reads | 365 | 22 | 842 | 68.5% |
-| | calls | 1576 | 47 | 2838 | 63.6% |
+| examples, 178 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8604 | 162 | 56 | 0.6% |
+|  | reads | 970 | 47 | 20 | 1.9% |
+|  | calls | 2383 | 16 | 2 | 0.1% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14229 | 351 | 7072 | 32.7% |
+|  | reads | 367 | 50 | 979 | 70.1% |
+|  | calls | 2191 | 63 | 1182 | 34.4% |
+| remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
+|  | reads | 345 | 29 | 800 | 68.1% |
+|  | calls | 1733 | 51 | 2655 | 59.8% |
+<!-- results:typedness:end -->
 
-The examples corpus is almost fully typed. The libraries are not: on es-toolkit
-more than a third of values and calls are erased, and on remeda erased calls
-outnumber concrete ones. The generated suites pass, but much of the code that
-makes them pass runs through `SmeltUnknown`. Closing this gap is the main open
+The examples corpus is almost fully typed. The libraries are not: see the
+erased share of es-toolkit's and remeda's values, reads and calls. The
+generated suites pass, but much of the code that makes them pass runs through
+`SmeltUnknown`. Closing this gap is the main open
 problem. CI blocks any rise in an erased count on the examples and es-toolkit;
 the remeda report is advisory.
 
@@ -116,12 +126,14 @@ crate), legitimate boundary (erased closures, promises, explicit adapters,
 narrowing guards) or avoidable erasure (everything else). Methodology:
 [`blocker-logs/smelt-unknown-report.md`](blocker-logs/smelt-unknown-report.md).
 
-| Corpus (baseline file, date) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
+<!-- results:unknown:begin -->
+| Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
-| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json), 2026-11-09) | 168 | 132775 | 6951 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json), 2026-11-14) | 744 | 2164 | 33230 | 15071 | blocking, may only fall |
-| remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json), 2026-11-08) | 391 | 1506 | 62265 | 20086 | advisory |
-| hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json), 2026-11-08) | 78 | 7445 | 78054 | 10078 | advisory |
+| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 168 | 132775 | 6951 | 0 | blocking, must stay 0 |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2391 | 34691 | 12839 | blocking, may only fall |
+| remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 391 | 1506 | 62265 | 20086 | advisory |
+| hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 78 | 7445 | 78054 | 10078 | advisory |
+<!-- results:unknown:end -->
 
 Every erasure site in the frontends names an `ErasureReason`
 ([`docs/erasure-reasons.md`](docs/erasure-reasons.md)); `smelt build` writes
@@ -139,9 +151,9 @@ is listed as v2.0 work in [`specs/architecture.md`](specs/architecture.md).
 
 ### Python
 
-The Python frontend (Ruff parser, types resolved by Astral's ty) has 11
-golden end-to-end programs under `examples/python/end-to-end`, against 168 for
-TypeScript.
+The Python frontend (Ruff parser, types resolved by Astral's ty) has a golden
+end-to-end corpus under `examples/python/end-to-end` about a tenth the size of
+TypeScript's (`examples/typescript/end-to-end`).
 No third-party Python library is gated in CI. In the 2026-11-13 library-probes
 run, none of the six probed Python libraries (returns, result, more-itertools,
 funcy, toolz, cachetools) transpiles. Definition-time metaprogramming
@@ -349,28 +361,29 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 79.48% |
-| Lines | 82.27% |
-| Regions | 75.22% |
-| Branches | 70.09% |
+| Functions | 79.51% |
+| Lines | 82.28% |
+| Regions | 75.23% |
+| Branches | 70.10% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 91.10% | 85.77% | 73.10% |
+| `smelt-codegen-rust` | 91.10% | 85.77% | 73.13% |
 | `smelt-frontend-py` | 87.04% | 79.92% | 71.78% |
-| `smelt-frontend-ts` | 90.53% | 84.08% | 72.78% |
-| `smelt-hir` | 85.64% | 80.98% | 72.50% |
+| `smelt-frontend-ts` | 90.54% | 84.10% | 72.80% |
+| `smelt-hir` | 86.10% | 81.00% | 70.83% |
 | `smelt-mir` | 92.75% | 91.89% | 78.15% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
 | `smelt-runtime` | 30.48% | 34.04% | 31.04% |
-| `smelt-specialize` | 70.02% | 79.04% | 62.31% |
+| `smelt-specialize` | 70.02% | 78.90% | 62.31% |
 | `smelt-stdlib` | 88.11% | 85.55% | 93.90% |
 | `smelt-transpiler` | 82.79% | 81.84% | 70.92% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
 
