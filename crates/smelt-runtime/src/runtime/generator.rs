@@ -31,7 +31,7 @@ impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     //~ `.next()` catches it, and the generator is done from then on (a later
     //~ `next()` answers `{ value: undefined, done: true }`).
     fn try_resume(&self, command: SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> {
-        if let Some(value) = self.completed.borrow().clone() { return Ok(SmeltGeneratorResult::Complete(value)); }
+        if self.completed.borrow().is_some() { return Ok(SmeltGeneratorResult::Complete(R::default())); }
         let result = (self.resume.borrow_mut())(command);
         match &result {
             Ok(SmeltGeneratorResult::Complete(value)) => *self.completed.borrow_mut() = Some(value.clone()),

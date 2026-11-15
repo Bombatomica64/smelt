@@ -181,6 +181,15 @@ fn json_serialize_property() -> TestResult {
     verify_node_parity("json_serialize_property")
 }
 
+/// The generator protocol: a finished generator answers `undefined`, leaving a
+/// `for...of` early closes it (its `finally` runs), `.next(v)` sends `v` at
+/// the type its `yield` result is used at, and an object with a
+/// `*[Symbol.iterator]()` is iterated, spread and `Array.from`ed through it.
+#[test]
+fn generator_protocol() -> TestResult {
+    verify_node_parity("generator_protocol")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {
