@@ -1718,6 +1718,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn json_stringify_expr(
         &self,
         value: &Operand,
+        replacer: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         // `JSON.stringify` answers `undefined` for a top-level `undefined`,
@@ -1756,6 +1757,24 @@ impl FunctionEmitter<'_> {
         // The operand-based erasure keeps a constant's own value (`undefined`
         // stays `undefined`, where its `None` type alone would say `null`).
         let value_text = self.erase(value)?;
+        // A replacer (a function or a key array) is read by the runtime at
+        // its erased form; see `smelt_json_stringify_with`.
+        if let Some(replacer) = replacer {
+            let replacer_text = self.erase(replacer)?;
+            if optional_text {
+                let text = self.text_from_string("smelt_text");
+                return Ok(RustExpr::chain(format!(
+                    "smelt_json_stringify_value_with(&{value_text}, &{replacer_text}).expect(\"JSON serialization failed\").map(|smelt_text| {text})",
+                    value_text = value_text.delimited(),
+                    replacer_text = replacer_text.delimited()
+                )));
+            }
+            return Ok(RustExpr::chain(self.text_from_string(&format!(
+                "smelt_json_stringify_with(&{value_text}, &{replacer_text}).expect(\"JSON serialization failed\")",
+                value_text = value_text.delimited(),
+                replacer_text = replacer_text.delimited()
+            ))));
+        }
         if optional_text {
             let text = self.text_from_string("smelt_text");
             return Ok(RustExpr::chain(format!(

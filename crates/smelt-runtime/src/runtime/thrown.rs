@@ -208,19 +208,25 @@ fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown
 
 // @smelt:item smelt_json_parse when json_parse & unknown
 /// `JSON.parse`: parse JSON text, throwing a catchable `SyntaxError`.
-fn smelt_json_parse(text: &(impl SmeltHostText + ?Sized)) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> { let text = text.host_text(); let text: &str = &text; let parsed = serde_json::from_str::<SmeltUnknown>(text); let parsed = match parsed { Err(error) => if smelt_json_has_surrogate_escape(text) { SmeltJsonReader::read(text).ok_or(error) } else { Err(error) }, ok => ok }; match parsed { Ok(value) => Ok(value), Err(error) => Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("SyntaxError".into())), ("message".to_owned(), SmeltUnknown::String(error.to_string().into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) } }
+//~ The text is read by `SmeltJsonReader`, which reads what `JSON.parse` reads:
+//~ any nesting depth, a number beyond `f64`'s range as `Infinity`, `-0`, and
+//~ lone surrogate escapes. `serde_json` only words the error of text that is
+//~ not JSON.
+fn smelt_json_parse(text: &(impl SmeltHostText + ?Sized)) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> { let text = text.host_text(); let text: &str = &text; if let Some(value) = SmeltJsonReader::read(text) { return Ok(value); } let message = match serde_json::from_str::<serde_json::Value>(text) { Err(error) => error.to_string(), Ok(_) => "Unexpected token in JSON".to_owned() }; Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("SyntaxError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))))) }
 
-/// Whether JSON text holds a `\uD800`-`\uDFFF` escape: `serde_json` rejects a
-/// lone one, which JavaScript's `JSON.parse` reads as a lone surrogate.
-fn smelt_json_has_surrogate_escape(text: &str) -> bool {
-    text.as_bytes().windows(3).any(|window| window[0] == b'\\' && window[1] == b'u' && matches!(window[2], b'd' | b'D'))
-}
-
-/// A JSON reader that keeps every `\uXXXX` escape as the code unit it names,
-/// lone surrogates included (ECMA-262 `JSON.parse`).
-//~ `smelt_json_parse` uses it
-//~ only for text `serde_json` rejects because of such an escape.
+/// The JSON reader of `JSON.parse` (ECMA-262): every `\uXXXX` escape is the
+/// code unit it names (lone surrogates included), a number is read as an
+/// `f64` as JavaScript reads it, and nesting is followed on an explicit stack,
+/// so no depth of arrays and objects exhausts the Rust stack.
 struct SmeltJsonReader<'a> { text: &'a [u8], at: usize }
+
+/// An array or object [`SmeltJsonReader`] is in the middle of.
+enum SmeltJsonFrame {
+    /// The items read so far.
+    Array(Vec<SmeltUnknown>),
+    /// The object, and the key whose value is being read.
+    Object(SmeltObject, JsString),
+}
 
 impl SmeltJsonReader<'_> {
     //~ The value of the whole of `text`, or `None` when it is not JSON.
@@ -238,25 +244,80 @@ impl SmeltJsonReader<'_> {
     fn eat(&mut self, word: &[u8]) -> bool {
         if self.text.get(self.at..self.at + word.len()) == Some(word) { self.at += word.len(); true } else { false }
     }
-    //~ One JSON value.
+    //~ One JSON value, nested arrays and objects included.
     fn value(&mut self) -> Option<SmeltUnknown> {
-        self.skip_space();
-        match *self.text.get(self.at)? {
-            b'{' => self.object(),
-            b'[' => self.array(),
-            b'"' => self.string().map(SmeltUnknown::String),
-            b't' => self.eat(b"true").then_some(SmeltUnknown::Bool(true)),
-            b'f' => self.eat(b"false").then_some(SmeltUnknown::Bool(false)),
-            b'n' => self.eat(b"null").then_some(SmeltUnknown::Null),
-            _ => self.number(),
+        let mut stack: Vec<SmeltJsonFrame> = Vec::new();
+        loop {
+            self.skip_space();
+            let mut value = match *self.text.get(self.at)? {
+                b'[' => {
+                    self.at += 1;
+                    self.skip_space();
+                    if self.eat(b"]") { SmeltUnknown::Array(Vec::new().into()) } else { stack.push(SmeltJsonFrame::Array(Vec::new())); continue; }
+                }
+                b'{' => {
+                    self.at += 1;
+                    self.skip_space();
+                    let object = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new());
+                    if self.eat(b"}") { SmeltUnknown::Object(object) } else { let key = self.key()?; stack.push(SmeltJsonFrame::Object(object, key)); continue; }
+                }
+                b'"' => SmeltUnknown::String(self.string()?),
+                b't' => self.eat(b"true").then_some(SmeltUnknown::Bool(true))?,
+                b'f' => self.eat(b"false").then_some(SmeltUnknown::Bool(false))?,
+                b'n' => self.eat(b"null").then_some(SmeltUnknown::Null)?,
+                _ => self.number()?,
+            };
+            //~ Hand the finished value to the enclosing frames, closing every
+            //~ one that ends here, until one expects another member.
+            loop {
+                match stack.last_mut() {
+                    None => return Some(value),
+                    Some(SmeltJsonFrame::Array(items)) => {
+                        items.push(value);
+                        self.skip_space();
+                        if self.eat(b",") { break; }
+                        if !self.eat(b"]") { return None; }
+                        let Some(SmeltJsonFrame::Array(items)) = stack.pop() else { return None };
+                        value = SmeltUnknown::Array(items.into());
+                    }
+                    //~ A repeated key keeps its first position and its last value.
+                    Some(SmeltJsonFrame::Object(object, key)) => {
+                        object.insert(key.clone(), value);
+                        self.skip_space();
+                        if self.eat(b",") { *key = self.key()?; break; }
+                        if !self.eat(b"}") { return None; }
+                        let Some(SmeltJsonFrame::Object(object, _)) = stack.pop() else { return None };
+                        value = SmeltUnknown::Object(object);
+                    }
+                }
+            }
         }
     }
+    //~ An object member's key and the `:` after it.
+    fn key(&mut self) -> Option<JsString> {
+        self.skip_space();
+        if self.text.get(self.at) != Some(&b'"') { return None; }
+        let key = self.string()?;
+        self.skip_space();
+        self.eat(b":").then_some(key)
+    }
     //~ A JSON number, read as an `f64` as JavaScript reads it.
+    //~ The grammar is JSON's (`-?(0|[1-9][0-9]*)(.[0-9]+)?([eE][+-]?[0-9]+)?`);
+    //~ a value beyond the range of an `f64` is `Infinity`, and `-0` keeps its
+    //~ sign.
     fn number(&mut self) -> Option<SmeltUnknown> {
         let start = self.at;
-        while matches!(self.text.get(self.at), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) { self.at += 1; }
-        let digits = ::std::str::from_utf8(self.text.get(start..self.at)?).ok()?;
-        serde_json::from_str::<f64>(digits).ok().map(SmeltUnknown::Number)
+        let digits = |reader: &mut Self| { let from = reader.at; while matches!(reader.text.get(reader.at), Some(b'0'..=b'9')) { reader.at += 1; } reader.at > from };
+        self.eat(b"-");
+        if !self.eat(b"0") && !digits(self) { return None; }
+        if self.eat(b".") && !digits(self) { return None; }
+        if matches!(self.text.get(self.at), Some(b'e' | b'E')) {
+            self.at += 1;
+            if !self.eat(b"+") { self.eat(b"-"); }
+            if !digits(self) { return None; }
+        }
+        let text = ::std::str::from_utf8(self.text.get(start..self.at)?).ok()?;
+        text.parse::<f64>().ok().map(SmeltUnknown::Number)
     }
     //~ A JSON string, as code units.
     fn string(&mut self) -> Option<JsString> {
@@ -295,38 +356,6 @@ impl SmeltJsonReader<'_> {
                     self.at += ch.len_utf8();
                 }
             }
-        }
-    }
-    //~ A JSON array.
-    fn array(&mut self) -> Option<SmeltUnknown> {
-        self.at += 1;
-        let mut items = Vec::new();
-        self.skip_space();
-        if self.eat(b"]") { return Some(SmeltUnknown::Array(items.into())); }
-        loop {
-            items.push(self.value()?);
-            self.skip_space();
-            if self.eat(b"]") { return Some(SmeltUnknown::Array(items.into())); }
-            if !self.eat(b",") { return None; }
-        }
-    }
-    //~ A JSON object; a repeated key keeps its first position and its last value.
-    fn object(&mut self) -> Option<SmeltUnknown> {
-        self.at += 1;
-        let object = SmeltObject::new(Vec::<(JsString, SmeltUnknown)>::new());
-        self.skip_space();
-        if self.eat(b"}") { return Some(SmeltUnknown::Object(object)); }
-        loop {
-            self.skip_space();
-            if self.text.get(self.at) != Some(&b'"') { return None; }
-            let key = self.string()?;
-            self.skip_space();
-            if !self.eat(b":") { return None; }
-            let value = self.value()?;
-            object.insert(key, value);
-            self.skip_space();
-            if self.eat(b"}") { return Some(SmeltUnknown::Object(object)); }
-            if !self.eat(b",") { return None; }
         }
     }
 }

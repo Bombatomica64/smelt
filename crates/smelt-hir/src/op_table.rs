@@ -1815,8 +1815,11 @@ macro_rules! op_group_transcribed {
             JsonStringify {
                 /// Value to serialize.
                 value: one @READ,
+                /// The source `replacer`: a function or an array of keys
+                /// (`None` when the source passed none, `null` or `undefined`).
+                replacer: opt,
             }
-                => (format!("json_stringify {value}"));
+                => (format!("json_stringify {value}{}", tail(", ", ", ", &replacer.iter().cloned().collect::<Vec<_>>())));
             /// The `space` argument of `JSON.stringify(value, replacer, space)`:
             /// re-indent compact JSON `text` the way JavaScript lays out an indented
             /// result. `space` is the source argument (a number clamped to 10, a

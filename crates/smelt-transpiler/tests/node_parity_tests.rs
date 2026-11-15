@@ -172,6 +172,15 @@ fn math_extrema() -> TestResult {
     verify_node_parity("math_extrema")
 }
 
+/// `JSON.stringify` applies `toJSON` (a class method, an object literal's, a
+/// `Date`'s), getters and a replacer function or key array per property;
+/// `JSON.parse` reads deep nesting, `1e400`, `-0` and lone surrogates, and
+/// throws `SyntaxError` on non-JSON numbers and trailing commas.
+#[test]
+fn json_serialize_property() -> TestResult {
+    verify_node_parity("json_serialize_property")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {
