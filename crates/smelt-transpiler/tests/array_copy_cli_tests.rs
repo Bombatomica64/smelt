@@ -636,23 +636,23 @@ fn library_gate_shapes_agree_with_node() -> TestResult {
 
 /// Module `a`: a private `patterns` handed out by `return`, so it is one module
 /// slot.
-const SHADOW_A_TS: &str = r#"const patterns: Record<string, number> = { x: 1 };
+const SHADOW_A_TS: &str = r"const patterns: Record<string, number> = { x: 1 };
 export function getA(): Record<string, number> {
   return patterns;
 }
-"#;
+";
 
 /// Module `b`: its OWN private `patterns`, read inside an object literal
 /// argument as date-fns' locales read `matchMonthPatterns`. It is not handed
 /// out, so it stays a folded constant.
-const SHADOW_B_TS: &str = r#"const patterns: Record<string, number> = { x: 2 };
+const SHADOW_B_TS: &str = r"const patterns: Record<string, number> = { x: 2 };
 function pick(o: { p: Record<string, number> }): number {
   return o.p.x;
 }
 export function getB(): number {
   return pick({ p: patterns });
 }
-"#;
+";
 
 /// The entry: lowers `a` before `b`.
 const SHADOW_MAIN_TS: &str = r#"import { getA } from "./a.ts";
