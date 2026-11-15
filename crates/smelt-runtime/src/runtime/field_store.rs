@@ -401,9 +401,7 @@ impl<K, V> SmeltStoreCell<K, V> {
     fn live_keys(&self) -> Option<Vec<K>> where K: Clone + SmeltPropertyKey {
         let (object, key) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key))?;
         let mut keys = smelt_live_keys(&object).into_iter().map(key).collect::<Vec<_>>();
-        if let Ok(store) = self.cell.try_borrow() {
-            if store.has_internal_keys() { keys.extend(store.entries().iter().filter(|entry| entry.key.smelt_is_internal_key()).map(|entry| entry.key.clone())); }
-        }
+        if let Ok(store) = self.cell.try_borrow() && store.has_internal_keys() { keys.extend(store.entries().iter().filter(|entry| entry.key.smelt_is_internal_key()).map(|entry| entry.key.clone())); }
         Some(keys)
     }
     //~ The data entries of a live view, read from its record and not from
