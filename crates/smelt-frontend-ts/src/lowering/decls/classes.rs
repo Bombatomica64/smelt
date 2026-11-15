@@ -945,8 +945,7 @@ impl ModuleBuilder<'_> {
                                 continue;
                             }
                             if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition
-                                && !(method.value.type_parameters.is_some()
-                                    && matches!(method.kind, MethodDefinitionKind::Method))
+                                && !Self::abstract_method_lowers_as_method(method)
                             {
                                 if !matches!(method.kind, MethodDefinitionKind::Method) {
                                     return Err(SmeltError::unsupported(

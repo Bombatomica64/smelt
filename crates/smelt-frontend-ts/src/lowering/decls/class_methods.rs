@@ -56,8 +56,7 @@ impl ModuleBuilder<'_> {
             };
             if method.kind != MethodDefinitionKind::Method
                 || method.r#static
-                || (method.value.body.is_none()
-                    && method.r#type != MethodDefinitionType::TSAbstractMethodDefinition)
+                || (method.value.body.is_none() && !Self::abstract_method_lowers_as_method(method))
                 || method.value.type_parameters.is_none()
             {
                 continue;
@@ -65,6 +64,31 @@ impl ModuleBuilder<'_> {
             names.insert(self.property_key_symbol(&method.key)?);
         }
         Ok(names)
+    }
+
+    /// Whether an ABSTRACT method is lowered as a method with a throwing body
+    /// that its implementations override, rather than as a virtual slot (a
+    /// stored callable each subclass fills).
+    ///
+    /// Only a method with an UNCONSTRAINED own type parameter (`map<U>`): a
+    /// stored `Rc<dyn Fn>` cannot be generic, so no slot can hold it, and the
+    /// polymorphic class handle dispatches the call to the override with the
+    /// parameter kept. A method whose own parameters are all constrained
+    /// (`set<D extends Date>`) is fixed at its bounds and stays a slot, which
+    /// reaches the subclass's implementation whatever the class's layout:
+    /// a hierarchy whose subclasses fix the base's type parameters
+    /// (`YearParser extends Parser<number>`) has no polymorphic handle to
+    /// dispatch through, so a throwing method there was all a call reached.
+    pub(in crate::lowering) fn abstract_method_lowers_as_method(
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> bool {
+        method.r#type == MethodDefinitionType::TSAbstractMethodDefinition
+            && method.kind == MethodDefinitionKind::Method
+            && method
+                .value
+                .type_parameters
+                .as_ref()
+                .is_some_and(|params| params.params.iter().any(|param| param.constraint.is_none()))
     }
 
     /// Return whether a bodyless class overload has a matching runtime method.

@@ -176,7 +176,10 @@ fn implemented_traits(texts: &[String]) -> BTreeSet<String> {
             // defined on (those live on the handle), so no name can collide.
             let target_type = target.split([' ', '{']).next().unwrap_or(target);
             if target_type.starts_with("::std::cell::RefCell<")
-                || target_type.split('<').next().is_some_and(|name| name.ends_with("Inner"))
+                || target_type
+                    .split('<')
+                    .next()
+                    .is_some_and(|name| name.ends_with("Inner"))
             {
                 continue;
             }

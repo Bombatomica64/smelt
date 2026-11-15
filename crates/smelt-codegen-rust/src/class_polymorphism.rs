@@ -847,3 +847,52 @@ pub(crate) fn own_erasure_method(
     let emitter = crate::emitter::FunctionEmitter::new(mir, context, host)?;
     emitter.own_erasure_method_text(class_ty, &fallback)
 }
+
+/// The function implementing the method named `method` for instances of
+/// `class`: its own declaration, else the nearest ancestor's.
+pub(crate) fn implementing_method(
+    mir: &Mir,
+    class: Symbol,
+    method: Symbol,
+) -> Option<smelt_mir::FuncId> {
+    let mut current = Some(class);
+    let mut seen = HashSet::new();
+    while let Some(name) = current
+        && seen.insert(name)
+    {
+        let found = find_class(mir, name)?;
+        for id in &found.methods {
+            let function = mir.functions.get(usize::try_from(id.0).ok()?)?;
+            if matches!(function.origin, smelt_mir::HirOrigin::ClassMethod { method: own, .. } if own == method)
+            {
+                return Some(*id);
+            }
+        }
+        current = found.base;
+    }
+    None
+}
+
+/// Whether the method `method` of the polymorphic class `class` is
+/// overridden by some instance class below it, so the class's own method
+/// forwards to that override (`FunctionEmitter::override_dispatch_prologue`).
+///
+/// A class prototype's method (`Animal.prototype.speak.call(dog)`) runs the
+/// class's own body whatever the receiver is, so such a method gets a copy
+/// that does not forward, named by [`crate::classes::super_copy_name`] (the
+/// copy a `super` call reaches is the same body).
+pub(crate) fn method_overridden_below(
+    mir: &Mir,
+    polymorphic: &HashSet<Symbol>,
+    class: Symbol,
+    method: Symbol,
+) -> bool {
+    if !polymorphic.contains(&class) {
+        return false;
+    }
+    let own = implementing_method(mir, class, method);
+    concrete_classes(mir, polymorphic, class)
+        .into_iter()
+        .filter(|concrete| *concrete != class)
+        .any(|concrete| implementing_method(mir, concrete, method) != own)
+}

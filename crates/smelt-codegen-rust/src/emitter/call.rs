@@ -705,6 +705,14 @@ impl FunctionEmitter<'_> {
         if let HirOrigin::ClassConstructor { class, .. } = function.origin {
             let class_name = self.type_rust_name(class)?;
             let class_type_params = self.callee_class_type_params(function);
+            // The class's parameters are bound from every argument at once
+            // (`callee_generic_argument_expr_with`).
+            let mut declared_evidence = Vec::new();
+            let mut actual_evidence = Vec::new();
+            for (arg, param) in args.iter().zip(&function.params) {
+                declared_evidence.push(self.function_local_decl(function, *param)?.ty);
+                actual_evidence.push(Some(self.operand_ty(arg)?));
+            }
             let mut rendered_args = args
                 .iter()
                 .enumerate()
@@ -713,7 +721,13 @@ impl FunctionEmitter<'_> {
                         return self.operand_expr(arg);
                     };
                     let target_ty = self.function_local_decl(function, param)?.ty;
-                    self.callee_generic_argument_expr(arg, function, target_ty, &class_type_params)
+                    self.callee_generic_argument_expr_with(
+                        arg,
+                        function,
+                        target_ty,
+                        &class_type_params,
+                        Some((&declared_evidence, &actual_evidence)),
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             for param in function.params.iter().skip(args.len()) {

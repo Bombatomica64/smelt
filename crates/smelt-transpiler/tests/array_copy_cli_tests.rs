@@ -365,3 +365,185 @@ fn nullish_test_of_a_symbol_union_compiles() -> TestResult {
         "the key keeps its union type",
     )
 }
+
+/// A generic function whose `T` is only moved and copied, beside erased
+/// values that never mention it: an `unknown` presence test, an `any[]`
+/// result, a spread into an erased callback, a mapped `Array.from` copy.
+const LIFTED_COPIES_TS: &str = r#"function isArrayLikeValue(value: unknown): boolean {
+  return value != null && typeof value === "object";
+}
+function rows<T>(array: T[][] | null | undefined, iteratee?: ((...args: any[]) => unknown) | null): any[] {
+  if (!isArrayLikeValue(array) || !array || !array.length) {
+    return [];
+  }
+  const copied = Array.from(array, row => Array.from(row));
+  const result: any[] = [];
+  for (let i = 0; i < copied.length; i++) {
+    result.push(iteratee ? iteratee(...copied[i]) : copied[i].length);
+  }
+  return result;
+}
+const source = [[1, 2], [3, 4, 5]];
+const out = rows(source, (...xs: number[]) => xs.reduce((a, b) => a + b, 0));
+source[0].push(100);
+console.log(out.join(","), rows(source).join(","), rows(null).length, source[0].length);
+"#;
+
+/// What Node prints for [`LIFTED_COPIES_TS`].
+const LIFTED_COPIES_OUTPUT: &str = "3,12 3,3 0 3\n";
+
+/// Erasure that never touches `T` leaves the function generic, so its copies
+/// are typed `SmeltList<SmeltList<T>>` rather than erased.
+#[test]
+fn copies_keep_the_lifted_type_parameter() -> TestResult {
+    let all = agrees_with_node(LIFTED_COPIES_TS, LIFTED_COPIES_OUTPUT, "lifted copies")?;
+    ensure(
+        all.contains("fn rows<T: ") && all.contains("array: Option<SmeltList<SmeltList<T>>>"),
+        "`rows` keeps its `T` through the copies",
+    )
+}
+
+/// Seams where a lifted `T` would meet the erased carrier. Erasing a
+/// `SmeltList<T>` builds a new buffer that keeps the array's identity, so a
+/// lifted function may hand its array only to a callee that just reads it.
+/// `mutating` hands it to a callee that pushes, and `forward` returns it as
+/// `unknown`, so both stay erased and share the caller's buffer. `reading`
+/// only feeds a predicate and keeps its `T`. `share` recovers its erased
+/// parameter as a `T[]` for a callback that pushes, so it stays erased too:
+/// the recovered copy would hide the push. `retained` and
+/// `grownThroughResult` hand their array to generic callees whose call sites
+/// demote (a packed rest): `keep` keeps a handle on it and `passBack` returns
+/// it to be pushed through, so a copy there would hide the later push from
+/// one side; both stay erased. `orDefault` reads an absent
+/// optional `D` as `D`, which only the erased carrier can hold (`undefined`).
+const ERASED_SEAMS_TS: &str = r"function grow(value: unknown): void {
+  (value as unknown[]).push(9);
+}
+function peek(value: unknown): boolean {
+  return Array.isArray(value);
+}
+function mutating<T>(xs: T[]): number {
+  grow(xs);
+  return xs.length;
+}
+function reading<T>(xs: T[]): number {
+  return peek(xs) ? xs.length : -1;
+}
+function forward<T>(xs: T[]): unknown {
+  return xs;
+}
+function share<T>(u: unknown[], seed: T[], cb: (xs: T[]) => void): number {
+  cb(seed);
+  cb(u as T[]);
+  return u.length;
+}
+let kept: unknown[] = [];
+function keep<U>(arr: U[], ...rest: U[]): number {
+  kept = arr as unknown[];
+  return rest.length;
+}
+function retained<T>(xs: T[], v: T): number {
+  keep(xs, v);
+  xs.push(v);
+  return kept.length;
+}
+function passBack<U>(x: U[], ...rest: U[]): U[] {
+  return rest.length > 0 ? x : x;
+}
+function grownThroughResult<T>(xs: T[], v: T): number {
+  const back = passBack(xs, v);
+  back.push(v);
+  return xs.length;
+}
+function orDefault<D = unknown>(value: any, fallback?: D): D {
+  if (value === null) return fallback as D;
+  return value;
+}
+const u: unknown[] = [1, 2];
+console.log(mutating(u), u.length);
+console.log(reading(u), reading([1, 2, 3, 4]));
+const f = forward(u) as unknown[];
+f.push(4);
+console.log(u.length, f === u);
+console.log(String(orDefault(null)), String(orDefault(null, 7)));
+const shared: unknown[] = [1];
+const seed: unknown[] = [];
+console.log(share(shared, seed, (xs: unknown[]) => { xs.push(2); }), shared.length, seed.length);
+const held: unknown[] = [1];
+console.log(retained(held, 2), grownThroughResult(held, 3));
+";
+
+/// What Node prints for [`ERASED_SEAMS_TS`].
+const ERASED_SEAMS_OUTPUT: &str = "3 3\n3 4\n4 true\nundefined 7\n2 2 1\n2 3\n";
+
+/// A lifted function keeps `T` only where no seam with the erased carrier
+/// copies its array or needs `undefined` in a `T` slot.
+#[test]
+fn erased_seams_keep_shared_storage() -> TestResult {
+    let all = agrees_with_node(ERASED_SEAMS_TS, ERASED_SEAMS_OUTPUT, "erased seams")?;
+    ensure(
+        all.contains("fn reading<T: ") && all.contains("(xs: SmeltList<T>) -> f64"),
+        "`reading` only hands its array to a read-only predicate and keeps `T`",
+    )?;
+    ensure(
+        all.contains("fn mutating(xs: SmeltList<SmeltUnknown>)"),
+        "`mutating` hands its array to a callee that pushes, so it shares the erased buffer",
+    )?;
+    ensure(
+        all.contains("fn forward(xs: SmeltList<SmeltUnknown>)"),
+        "`forward` returns its array as `unknown`, so it shares the erased buffer",
+    )?;
+    ensure(
+        all.contains("fn retained(") && !all.contains("fn retained<"),
+        "`retained` hands its array to a callee that keeps it, so it stays erased",
+    )?;
+    ensure(
+        all.contains("fn grown_through_result(") && !all.contains("fn grown_through_result<"),
+        "`grownThroughResult` pushes through the array a callee handed back, so it stays erased",
+    )?;
+    ensure(
+        all.contains("fn share(") && !all.contains("fn share<"),
+        "`share` recovers a shared erased list as `T[]`, so it stays erased",
+    )?;
+    ensure(
+        all.contains(
+            "fn or_default(value: SmeltUnknown, fallback: Option<SmeltUnknown>) -> SmeltUnknown",
+        ),
+        "`orDefault` returns an absent optional as `undefined`, which a real `D` cannot hold",
+    )
+}
+
+/// A `&mut` list argument that monomorphizes its callee binds the callee's
+/// type parameter for the other arguments too: `ys: T[]` of `addAll(nums,
+/// [7, 8])` is passed as the caller's `SmeltList<f64>`, not erased to the
+/// unbound `T[]` (which was E0308 against the instantiated parameter).
+const MUT_LIST_BINDING_TS: &str = r#"function addAll<T>(xs: T[], ys: T[]): number {
+  for (const y of ys) xs.push(y);
+  return xs.length;
+}
+const nums: number[] = [1];
+const alias = nums;
+console.log(addAll(nums, [7, 8]), alias.length, nums.join(","));
+"#;
+
+/// What Node prints for [`MUT_LIST_BINDING_TS`].
+const MUT_LIST_BINDING_OUTPUT: &str = "3 3 1,7,8\n";
+
+/// The mutable-list call adapter renders every argument under the bindings
+/// its monomorphized list argument fixes.
+#[test]
+fn mut_list_argument_binds_the_other_arguments() -> TestResult {
+    let all = agrees_with_node(
+        MUT_LIST_BINDING_TS,
+        MUT_LIST_BINDING_OUTPUT,
+        "mut list binding",
+    )?;
+    ensure(
+        all.contains("fn add_all<T: ") && all.contains("ys: SmeltList<T>"),
+        "`addAll` keeps its `T`",
+    )?;
+    ensure(
+        !all.contains("SmeltUnknown::Number(smelt_value as f64)"),
+        "`ys` reaches the instantiated `SmeltList<f64>` without being erased",
+    )
+}

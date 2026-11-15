@@ -475,6 +475,28 @@ impl FunctionEmitter<'_> {
         target_ty: TypeId,
         class_type_params: &HashSet<Symbol>,
     ) -> Result<RustExpr, EmitError> {
+        self.callee_generic_argument_expr_with(arg, function, target_ty, class_type_params, None)
+    }
+
+    /// [`Self::callee_generic_argument_expr`], with `evidence` (every
+    /// declared parameter type and argument type of the call) binding the
+    /// callee's parameters jointly instead of from this argument alone.
+    ///
+    /// A constructor call binds its class's parameters from all its
+    /// arguments, as Rust's inference does: `new ValueSetter<Value>(
+    /// result.value, this.validate, this.set, ..)` binds `ValueSetter`'s
+    /// `Value` from `result.value` even where `this.set` (an erased method
+    /// value) carries no evidence of its own. Bound from that argument alone,
+    /// the callback slot kept the callee's unbound `Value` and its adapter
+    /// took `&SmeltUnknown` against the instantiated `&Value` (E0308).
+    pub(super) fn callee_generic_argument_expr_with(
+        &self,
+        arg: &Operand,
+        function: &MirFunction,
+        target_ty: TypeId,
+        class_type_params: &HashSet<Symbol>,
+        evidence: Option<(&[TypeId], &[Option<TypeId>])>,
+    ) -> Result<RustExpr, EmitError> {
         if let Some(Type::TypeParam { name }) = self.mir.types.get(target_ty)
             && class_type_params.contains(name)
         {
@@ -506,11 +528,15 @@ impl FunctionEmitter<'_> {
             // A parameter bound to one of the CALLER's own generics is that
             // generic (`new Holder<Value>(.., this.validate)` inside
             // `Parser<Value>` binds `Holder`'s `Value` to `Parser`'s).
+            let own_actual = [Some(self.operand_ty(arg)?)];
+            let own_declared = [target_ty];
+            let (declared_evidence, actual_evidence) =
+                evidence.unwrap_or((&own_declared, &own_actual));
             let bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
                 self.mir,
                 &declared_names,
-                &[target_ty],
-                &[Some(self.operand_ty(arg)?)],
+                declared_evidence,
+                actual_evidence,
                 &self.current_function_type_params(),
             );
             // A callback is adapted at this site, and the adapter DECLARES the
@@ -534,13 +560,28 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(adapter);
                 }
+                // An erased value (a method read as a value, `this.set` of a
+                // generic method) has no shape of its own: it is extracted at
+                // the parameter's type under this site's bindings.
+                let arg_ty = self.operand_ty(arg)?;
+                if crate::generic_bindings::actual_type_is_erased(self.mir, arg_ty)
+                    && let Some(Type::Function(declared_function)) = self.mir.types.get(target_ty)
+                {
+                    let owned_function = declared_function.clone();
+                    return self.extract_function_with_bindings(
+                        &self.operand_expr(arg)?,
+                        target_ty,
+                        &owned_function,
+                        &bindings,
+                    );
+                }
                 // Under this site's bindings the callback already has the
                 // parameter's shape (`this.set` handed to `new ValueSetter<
                 // Value>(..)` inside `Parser<Value>`: both `Value`s are the
                 // caller's), so it passes as it is. Falling through instead
                 // re-coerced it WITHOUT the bindings, and that adapter
                 // declared the callee's `Value` erased (E0631).
-                return self.value_at_type(arg, self.operand_ty(arg)?);
+                return self.value_at_type(arg, arg_ty);
             }
             if let Some(substituted) = substituted_type_id(self.mir, target_ty, &bindings)
                 && substituted != target_ty

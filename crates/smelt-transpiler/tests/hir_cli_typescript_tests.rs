@@ -3050,13 +3050,21 @@ console.log(applyAll([new DaySetter(3)], bad) === bad, isNaN(bad.getTime()));
             }),
         format!("the `set` slot is fixed at the `Date` bound, got {set_slots:?}"),
     )?;
+    // Old requirement: `validate` (a method with a body that `DaySetter`
+    // overrides) was a slot fixed at the `Date` bound too. New requirement:
+    // it is an ordinary method, and the override is reached through the
+    // polymorphic `Setter` handle's dispatch (`class_polymorphism`), so it
+    // has no slot; it still takes the concrete date handle (asserted below)
+    // and Node's output is unchanged (`true true` needs the override's
+    // `isNaN` check). The abstract `set` keeps its slot: an abstract method
+    // whose own parameters are all bounded is stored at its bounds
+    // (`abstract_method_lowers_as_method`).
     let validate_slots = generated_lines_with(&generated, "validate: ::std::rc::Rc<dyn Fn(");
     ensure(
-        !validate_slots.is_empty()
-            && validate_slots
-                .iter()
-                .all(|line| *line == "validate: ::std::rc::Rc<dyn Fn(SmeltDate) -> bool>,"),
-        format!("the `validate` slot is fixed at the `Date` bound, got {validate_slots:?}"),
+        validate_slots.is_empty(),
+        format!(
+            "`validate` dispatches through the polymorphic handle, got slots {validate_slots:?}"
+        ),
     )?;
     for method in ["fn set(", "fn validate("] {
         let heads = generated_lines_with(&generated, method);

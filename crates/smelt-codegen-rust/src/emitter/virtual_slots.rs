@@ -589,7 +589,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Find a concrete method implementation on a class or its base chain.
-    fn find_class_method_function(
+    pub(super) fn find_class_method_function(
         &self,
         class_name: Symbol,
         method: Symbol,

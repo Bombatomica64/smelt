@@ -160,6 +160,110 @@ fn body_only_moves(
         local_mentions(base)
     };
 
+    let operand_is_erased = |operand: &Operand| -> bool {
+        // A projection reads out of its base local, whose type says whether
+        // the element is erased (an element of `unknown[]`).
+        let local = match operand {
+            Operand::Copy(
+                Place::Local(local)
+                | Place::Field { base: local, .. }
+                | Place::Index { base: local, .. },
+            )
+            | Operand::Move(
+                Place::Local(local)
+                | Place::Field { base: local, .. }
+                | Place::Index { base: local, .. },
+            ) => local,
+            _ => return false,
+        };
+        id_index(local.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| locals.get(index))
+            .is_some_and(|decl| type_mentions_erasure(mir, decl.ty, name))
+    };
+    // Whether a compared operand's presence is all `== null` reads: an
+    // optional whose payload is not itself a bare type parameter (a bare `T`
+    // may hold `null`, which the comparison then inspects).
+    let payload_never_nullish = |operand: &Operand| -> bool {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return false;
+        };
+        let Some(decl) = id_index(local.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| locals.get(index))
+        else {
+            return false;
+        };
+        let payload = match mir.types.get(decl.ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => decl.ty,
+        };
+        !matches!(
+            mir.types.get(payload),
+            Some(Type::TypeParam { .. } | Type::Unknown | Type::Union(_)) | None
+        )
+    };
+    // Whether an operand's JavaScript truthiness is only its presence: an
+    // optional (or a plain value) of a payload that is always truthy (a list,
+    // set, map, record, class instance or function), so `!x` and a branch on
+    // `x` never read into a `T` it holds.
+    let truthiness_is_presence = |operand: &Operand| -> bool {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return false;
+        };
+        let Some(decl) = id_index(local.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| locals.get(index))
+        else {
+            return false;
+        };
+        let payload = match mir.types.get(decl.ty) {
+            Some(Type::Optional(inner)) => *inner,
+            _ => decl.ty,
+        };
+        matches!(
+            mir.types.get(payload),
+            Some(
+                Type::List(_)
+                    | Type::Set(_)
+                    | Type::Dict(..)
+                    | Type::JsMap(..)
+                    | Type::Tuple(_)
+                    | Type::Class { .. }
+                    | Type::Function(_)
+            )
+        )
+    };
+    // A destination holding the erased carrier (`unknown`, `any[]`): storing
+    // a `T`-typed value there crosses `IntoSmeltUnknown`. Whether a container
+    // of `T` may cross without losing its shared storage is judged where the
+    // render is known (`FunctionEmitter::erased_seams_keep_identity`).
+    let destination_erased = |local: LocalId| -> bool {
+        id_index(local.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| locals.get(index))
+            .is_some_and(|decl| {
+                type_mentions_erasure(mir, decl.ty, name)
+                    && !generic_bindings::type_param_occurs(mir, decl.ty, name)
+            })
+    };
+    // Locals that only ever hold an absent value (`t = none`), the operand a
+    // lowered `x === undefined` compares against.
+    let mut absent_locals: HashSet<LocalId> = HashSet::new();
+    for block in blocks {
+        for statement in &block.statements {
+            if let Statement::Assign {
+                dest,
+                value: Rvalue::Use(operand),
+            } = statement
+                && is_absent_constant(operand)
+            {
+                absent_locals.insert(*dest);
+            }
+        }
+    }
     for block in blocks {
         for statement in &block.statements {
             let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) =
@@ -167,6 +271,12 @@ fn body_only_moves(
             else {
                 continue;
             };
+            // Filling a slot with the absent value carries no `T` at all.
+            if let Rvalue::Use(operand) = value
+                && is_absent_constant(operand)
+            {
+                continue;
+            }
             // A closure body is part of the enclosing body's dataflow: whatever
             // it does to a captured `T` decides whether that `T` can stay
             // opaque. Recurse before the opacity rules below, which treat
@@ -178,7 +288,14 @@ fn body_only_moves(
             {
                 return false;
             }
-            if rvalue_preserves_opacity(value) {
+            if rvalue_preserves_opacity(value)
+                || is_absence_test(value, &absent_locals, &payload_never_nullish)
+                || matches!(
+                    value,
+                    Rvalue::Unary { op: smelt_hir::UnaryOp::Not, operand }
+                        if truthiness_is_presence(operand)
+                )
+            {
                 continue;
             }
             // A member read or method call through the parameter's bound
@@ -209,9 +326,23 @@ fn body_only_moves(
                 if reads_t {
                     continue;
                 }
+                // A `T` slot filled from an ERASED value is a checked recovery
+                // (`SmeltFromUnknown`, which every lifted parameter carries):
+                // `unknown_cast` of an erased element `as T[]`, or an erased
+                // callable adapted to a `T`-typed signature. Only a slot filled
+                // from a concrete value of another type, or from nothing, leaks.
+                let mut reads_erased = false;
+                value.reads(|operand| reads_erased |= operand_is_erased(operand));
+                if reads_erased {
+                    continue;
+                }
                 return false;
             }
-            if reads_t {
+            // A `T` value stored into an ERASED destination (an `unknown`
+            // slot, an `any[]` rest) crosses the `IntoSmeltUnknown` boundary
+            // every lifted parameter carries: an adapter at that statement,
+            // not an inspection of `T`.
+            if reads_t && !statement_destination_is_erased(statement, &destination_erased) {
                 return false;
             }
         }
@@ -224,6 +355,7 @@ fn body_only_moves(
             },
         ) = &block.terminator
             && mentions(probe)
+            && !truthiness_is_presence(probe)
         {
             return false;
         }
@@ -246,6 +378,114 @@ fn body_only_moves(
         }
     }
     true
+}
+
+/// Whether `operand` is the absent value (`none`, `undefined`).
+const fn is_absent_constant(operand: &Operand) -> bool {
+    matches!(
+        operand,
+        Operand::Const(smelt_mir::Constant::None | smelt_mir::Constant::Undefined)
+    )
+}
+
+/// Whether `rvalue` compares a value with `null`/`undefined` (`x == null`,
+/// `x === undefined`, directly or through a local holding only the absent
+/// value) whose other side is an optional of a payload that cannot itself be
+/// nullish: it reads only whether the optional is present, never into the
+/// `T` it may hold.
+fn is_absence_test(
+    rvalue: &Rvalue,
+    absent_locals: &HashSet<LocalId>,
+    payload_never_nullish: &impl Fn(&Operand) -> bool,
+) -> bool {
+    let Rvalue::Binary { op, lhs, rhs } = rvalue else {
+        return false;
+    };
+    let absent = |operand: &Operand| {
+        is_absent_constant(operand)
+            || matches!(
+                operand,
+                Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
+                    if absent_locals.contains(local)
+            )
+    };
+    matches!(
+        op,
+        smelt_hir::BinOp::Eq
+            | smelt_hir::BinOp::NotEq
+            | smelt_hir::BinOp::StrictEq
+            | smelt_hir::BinOp::StrictNotEq
+            | smelt_hir::BinOp::JsStrictEq
+            | smelt_hir::BinOp::JsStrictNotEq
+    ) && ((absent(lhs) && payload_never_nullish(rhs))
+        || (absent(rhs) && payload_never_nullish(lhs)))
+}
+
+/// Whether `ty` is the erased carrier itself (`unknown`, `any`), possibly
+/// optional.
+pub(crate) fn type_is_erased_whole(mir: &Mir, ty: TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Unknown) => true,
+        Some(Type::Optional(inner)) => matches!(mir.types.get(*inner), Some(Type::Unknown)),
+        _ => false,
+    }
+}
+
+/// Whether `ty` holds the erased carrier anywhere inside it.
+pub(crate) fn type_mentions_unknown(mir: &Mir, ty: TypeId) -> bool {
+    let mut pending = vec![ty];
+    let mut seen = HashSet::new();
+    while let Some(current) = pending.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+        match mir.types.get(current) {
+            Some(Type::Unknown) => return true,
+            Some(other) => pending.extend(other.children()),
+            None => {}
+        }
+    }
+    false
+}
+
+/// Whether `ty` holds the erased carrier anywhere inside it, or a type
+/// parameter other than `own` (another generic's parameter, as a generic
+/// function VALUE carries: it reaches this body through an adapter, never
+/// as `own`).
+fn type_mentions_erasure(mir: &Mir, ty: TypeId, own: Symbol) -> bool {
+    let mut pending = vec![ty];
+    let mut seen = HashSet::new();
+    while let Some(current) = pending.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+        match mir.types.get(current) {
+            Some(Type::Unknown) => return true,
+            Some(Type::TypeParam { name }) if *name != own => return true,
+            Some(other) => pending.extend(other.children()),
+            None => {}
+        }
+    }
+    false
+}
+
+/// Whether a statement's destination local is erased (per `erased`), for
+/// [`body_only_moves`].
+fn statement_destination_is_erased(
+    statement: &Statement,
+    erased: &impl Fn(LocalId) -> bool,
+) -> bool {
+    let local = match statement {
+        Statement::Assign { dest, .. } => *dest,
+        Statement::AssignPlace { place, .. } => match place {
+            Place::Local(local)
+            | Place::Field { base: local, .. }
+            | Place::Index { base: local, .. } => *local,
+            Place::Global { .. } => return false,
+        },
+        Statement::DictEntryUpdate { base, .. } => *base,
+    };
+    erased(local)
 }
 
 /// Whether a statement's destination local carries `name`, for
@@ -433,6 +673,28 @@ pub(crate) fn liftable_type_params(
                 && !type_param_used_as_map_key(mir, function, *name)
         })
         .collect()
+}
+
+/// Whether every type parameter of `function` is only ever moved, copied or
+/// handed on in its body (closures included) and never keys a map: no
+/// operation reads into a `T` value, so the body renders with each `T` kept
+/// generic whatever else in it is erased.
+///
+/// The body-cleanliness trial ([`FunctionEmitter::renders_real_generics`])
+/// rejects a body that touches the erased carrier ANYWHERE, including a local
+/// whose type never mentions a type parameter (`result: any[]`, the erased
+/// answer of an erased callee). That erased every `T` of es-toolkit's
+/// `unzipWith` and `intersectionWith`, and with it every typed copy their
+/// `Array.from` calls make. This asks the attribution question the trial
+/// cannot: `T` stays opaque exactly when [`type_param_only_moved`] holds for
+/// it.
+pub(crate) fn type_params_stay_opaque(mir: &Mir, function: &MirFunction) -> bool {
+    !function.type_params.is_empty()
+        && function.type_params.iter().all(|type_param| {
+            type_param.constraint.is_none()
+                && type_param_only_moved(mir, function, type_param.name)
+                && !type_param_used_as_map_key(mir, function, type_param.name)
+        })
 }
 
 /// Whether `name` is used as a map key anywhere in this function's locals.

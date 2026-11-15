@@ -583,16 +583,67 @@ fn prototype_method_entries(
         let Some(rust_method) = context.names().method(name) else {
             continue;
         };
-        let adapter = erased_callable_adapter(
+        // A method an instance class below overrides forwards to the
+        // override; the prototype's method is this class's own body, which
+        // its non-forwarding copy carries (`prototype_own_copies`).
+        let callee = if crate::class_polymorphism::method_overridden_below(
             mir,
-            context,
-            function,
-            &MethodReceiver::This,
-            rust_method.as_str(),
-        )?;
+            context.polymorphic_classes(),
+            class.name,
+            name,
+        ) {
+            crate::classes::super_copy_name(context, function)
+                .ok_or_else(|| EmitError::new("class method has no planned copy name"))?
+        } else {
+            rust_method.as_str().to_owned()
+        };
+        let adapter =
+            erased_callable_adapter(mir, context, function, &MethodReceiver::This, &callee)?;
         entries.push((format!("{METHOD_KEY_PREFIX}{source_name}"), adapter));
     }
     Ok(entries)
+}
+
+/// The methods `class`'s prototype object names whose own body a subclass
+/// overrides: each is emitted once more in the class's `impl`, under its
+/// [`crate::classes::super_copy_name`], without the dispatch to the override
+/// (see [`crate::class_polymorphism::method_overridden_below`]). Empty when
+/// the program never reaches a class prototype reflectively.
+pub(crate) fn prototype_own_copies(
+    mir: &Mir,
+    context: &EmitContext,
+    class: &MirClass,
+) -> Result<Vec<FuncId>, EmitError> {
+    if !class_has_prototype_methods(mir, context, class)? {
+        return Ok(Vec::new());
+    }
+    let mut copies = Vec::new();
+    for method in effective_class_methods(mir, class) {
+        let Some(function) = function_by_id(mir, method) else {
+            continue;
+        };
+        let HirOrigin::ClassMethod { method: name, .. } = function.origin else {
+            continue;
+        };
+        let Some(source_name) = mir.names.get(name).or_else(|| mir.symbols.get(name)) else {
+            continue;
+        };
+        if source_name.starts_with(SETTER_PREFIX)
+            || source_name.starts_with(GETTER_PREFIX)
+            || !method_is_proto_eligible(mir, context, class.name, function)
+        {
+            continue;
+        }
+        if crate::class_polymorphism::method_overridden_below(
+            mir,
+            context.polymorphic_classes(),
+            class.name,
+            name,
+        ) {
+            copies.push(method);
+        }
+    }
+    Ok(copies)
 }
 
 /// Whether `class` gets a `__smelt_prototype_methods` function, which the

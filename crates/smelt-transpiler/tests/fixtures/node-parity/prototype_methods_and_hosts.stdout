@@ -3,6 +3,7 @@ shared true true false
 create made barks made woofs function
 clone rex barks true rex
 call b barks rex speaks
+override pup barks pup yips pup speaks
 host true true true true
 host chain true true
 host constructor true true

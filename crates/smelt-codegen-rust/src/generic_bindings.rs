@@ -409,6 +409,44 @@ pub(crate) fn substituted_type_id(
     substitute_type(mir, declared, &resolve, Unrewritable::FailClosed)
 }
 
+/// [`substituted_type_id`], interning a rewritten layer the frozen interner
+/// does not hold yet (`intern_late`) instead of failing.
+///
+/// For a site that must NAME the instantiated type to extract an erased value
+/// at it: an erased method value handed to a generic class's callback slot is
+/// recovered at the slot's type with the class's parameters bound, a type no
+/// earlier phase had reason to intern. A parameter left unbound, or a union
+/// whose members the bindings would change, still answers `None`.
+pub(crate) fn substituted_type_id_interning(
+    mir: &Mir,
+    declared: TypeId,
+    bindings: &CalleeTypeParamBindings,
+) -> Option<TypeId> {
+    let kind = mir.types.get(declared)?;
+    if let Type::TypeParam { name } = kind {
+        return match bindings.get(*name) {
+            Some(TypeParamBinding::Concrete(bound)) => Some(bound),
+            // A parameter this call does not bind is not the callee's.
+            None => Some(declared),
+            _ => None,
+        };
+    }
+    let rewritten =
+        kind.try_map_children(|child| substituted_type_id_interning(mir, child, bindings))?;
+    if rewritten == *kind {
+        return Some(declared);
+    }
+    // A union whose members moved names a generated enum no phase planned.
+    if matches!(kind, Type::Union(_)) {
+        return None;
+    }
+    Some(
+        mir.types
+            .lookup(&rewritten)
+            .unwrap_or_else(|| mir.types.intern_late(rewritten)),
+    )
+}
+
 /// Substitutes `substitutions` through `ty`, keeping the declared type of any
 /// layer whose rewrite is not interned.
 ///

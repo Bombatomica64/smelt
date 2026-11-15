@@ -233,26 +233,7 @@ impl FunctionEmitter<'_> {
     }
 }
 
-/// The function implementing the method named `method` for instances of
-/// `class`: its own declaration, else the nearest ancestor's.
-fn implementing_method(mir: &Mir, class: Symbol, method: Symbol) -> Option<FuncId> {
-    let mut current = Some(class);
-    let mut seen = HashSet::new();
-    while let Some(name) = current
-        && seen.insert(name)
-    {
-        let found = crate::classes::find_class(mir, name)?;
-        for id in &found.methods {
-            let function = mir.functions.get(usize::try_from(id.0).ok()?)?;
-            if matches!(function.origin, HirOrigin::ClassMethod { method: own, .. } if own == method)
-            {
-                return Some(*id);
-            }
-        }
-        current = found.base;
-    }
-    None
-}
+use crate::class_polymorphism::implementing_method;
 
 impl FunctionEmitter<'_> {
     /// The class whose `impl` this method emitter renders into.
@@ -285,6 +266,12 @@ impl FunctionEmitter<'_> {
         let HirOrigin::ClassMethod { method, .. } = self.function.origin else {
             return Ok(String::new());
         };
+        // A copy emitted under another name is one specific class's body, the
+        // one a `super` call or a class prototype's method names: JavaScript
+        // runs exactly that body, never the receiver's override.
+        if self.method_name.is_some() {
+            return Ok(String::new());
+        }
         let Some(owner) = self.method_impl_owner() else {
             return Ok(String::new());
         };

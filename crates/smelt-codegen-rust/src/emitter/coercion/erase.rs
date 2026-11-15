@@ -932,9 +932,35 @@ impl FunctionEmitter<'_> {
         // (`emitter::statics_frame`), never copied into the object.
         let frame = self.is_statics_frame_class(*name);
         let error_base = self.error_base_name(*name);
+        // A method's virtual slot (the stored closure a polymorphic class
+        // dispatches through, `virtual_slots`) is not an own property in
+        // JavaScript: the method lives on the prototype, and the erased
+        // object answers it from its `__smelt_method:` prototype entries
+        // with the class-wide identity (`a.bark === b.bark`). A slot listed
+        // here shadowed them with a closure minted per instance. A method
+        // with no bridged prototype entry keeps its slot.
+        let proto_entries_present =
+            crate::classes::find_class(self.mir, *name).is_some_and(|class| {
+                crate::class_proto::class_has_proto_entries(self.mir, self.context, class)
+            });
+        let method_on_prototype = |field: Symbol| {
+            proto_entries_present
+                && self.is_virtual_method_storage_field(target, field)
+                && self
+                    .find_class_method_function(*name, field)
+                    .is_some_and(|function| {
+                        crate::class_proto::method_is_proto_eligible(
+                            self.mir,
+                            self.context,
+                            *name,
+                            function,
+                        )
+                    })
+        };
         let entries_result = fields
             .iter()
             .filter(|field| !frame && field.visibility.is_own_property())
+            .filter(|field| !method_on_prototype(field.name))
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = self.context.names().field_text(self.mir, field.name);

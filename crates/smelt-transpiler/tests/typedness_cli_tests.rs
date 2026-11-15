@@ -71,6 +71,17 @@ fn generic_function_values_are_generic() -> TestResult {
     ensure(count(&record, "values", "erased") == 0, record.to_string())
 }
 
+/// A generic function whose body erases values that never mention its `T`
+/// (an `any[]` result, an `unknown` argument) still lifts `T`: its copies and
+/// mapped copies count as generic, not erased.
+#[test]
+fn copies_of_a_lifted_parameter_are_generic() -> TestResult {
+    let record = measure(
+        "function present(value: unknown): boolean {\n  return value != null;\n}\nfunction rows<T>(array: T[][] | null | undefined): any[] {\n  if (!present(array) || !array || !array.length) {\n    return [];\n  }\n  const copied = Array.from(array, row => Array.from(row));\n  const result: any[] = [];\n  for (let i = 0; i < copied.length; i++) {\n    result.push(copied[i].length);\n  }\n  return result;\n}\nconsole.log(rows([[1, 2]]).join(\",\"));\n",
+    )?;
+    ensure(count(&record, "values", "generic") >= 4, record.to_string())
+}
+
 /// `unknown` and `any` values are erased, and so is a read through them.
 #[test]
 fn unknown_values_are_erased() -> TestResult {

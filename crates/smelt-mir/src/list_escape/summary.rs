@@ -140,6 +140,10 @@ pub(super) enum FunctionSummary {
 pub(super) struct ParamEffect {
     /// Whether a handle on the argument may outlive the call.
     pub(super) escapes: bool,
+    /// Whether a handle may outlive the call other than as the call's own
+    /// result (stored into a container, a global, a closure, an unknown
+    /// callee). Implies `escapes`.
+    pub(super) escapes_external: bool,
     /// Whether the body writes through it in place.
     pub(super) mutated: bool,
 }
@@ -182,6 +186,7 @@ impl SummaryFacts {
             function,
             |_| ParamEffect {
                 escapes: false,
+                escapes_external: false,
                 mutated: false,
             },
             true,
@@ -209,19 +214,34 @@ impl SummaryFacts {
     /// site passes `arg_count` arguments.
     ///
     /// Anything that breaks the positional mapping — a packed rest parameter,
-    /// an argument count that does not match the parameter count, an index past
-    /// the end — degrades to [`ArgumentEffect::Escapes`].
+    /// more arguments than parameters, an index past the end — degrades to
+    /// [`ArgumentEffect::Escapes`]. Fewer arguments keep it: an omitted
+    /// trailing parameter takes its default, and every passed argument still
+    /// lands on the parameter of its position.
     pub(super) fn argument_effect(&self, index: usize, arg_count: usize) -> ArgumentEffect {
-        if self.packs_rest || arg_count != self.params.len() {
+        if self.packs_rest || arg_count > self.params.len() {
             return ArgumentEffect::Escapes;
         }
         match self.params.get(index) {
             Some(ParamEffect {
                 escapes: false,
                 mutated,
+                ..
             }) => ArgumentEffect::Confined { mutated: *mutated },
             _ => ArgumentEffect::Escapes,
         }
+    }
+
+    /// Whether the call never writes through its argument at `index` and
+    /// keeps no handle on it except, possibly, as the call's own result.
+    /// Anything that breaks the positional mapping answers `false`.
+    pub(super) fn argument_only_returned_unmutated(&self, index: usize, arg_count: usize) -> bool {
+        !self.packs_rest
+            && arg_count <= self.params.len()
+            && self
+                .params
+                .get(index)
+                .is_some_and(|param| !param.mutated && !param.escapes_external)
     }
 }
 
@@ -232,6 +252,11 @@ pub(super) struct CallSummaries {
     summaries: Vec<FunctionSummary>,
     /// How many body summarizations the fixpoint performed; read only by the test-only `analyses()` accessor.
     analyses: usize,
+    /// Whether the walks also track values that may hold a list without
+    /// being typed as one (the erased carrier, an optional list), see
+    /// [`super::ReadOnlyArguments`]. Off for the escape report, whose
+    /// population is list-typed locals only.
+    carriers: bool,
 }
 
 impl CallSummaries {
@@ -248,6 +273,7 @@ impl CallSummaries {
                 .map(|_| FunctionSummary::Unresolvable)
                 .collect(),
             analyses: 0,
+            carriers: false,
         }
     }
 
@@ -277,6 +303,17 @@ impl CallSummaries {
     /// `O(sum over callees of callers(callee) * fields(callee))` rather than by
     /// the quadratic `bodies * bodies` a round-robin loop would cost.
     pub(super) fn compute(mir: &Mir) -> Self {
+        Self::compute_tracking(mir, false)
+    }
+
+    /// Whether the walks also track carrier-typed locals (see the field).
+    pub(super) const fn tracks_carriers(&self) -> bool {
+        self.carriers
+    }
+
+    /// [`Self::compute`], with `carriers` deciding whether values that may
+    /// hold a list without being typed as one are tracked too.
+    pub(super) fn compute_tracking(mir: &Mir, carriers: bool) -> Self {
         let overridable = overridable_methods(mir);
         let mut table = Self {
             summaries: mir
@@ -292,6 +329,7 @@ impl CallSummaries {
                 })
                 .collect(),
             analyses: 0,
+            carriers,
         };
 
         let callers = reverse_call_graph(mir);
