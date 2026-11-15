@@ -1125,7 +1125,7 @@ async function race(): Promise<number> {
   return await Promise.race([lift(1), lift(2)]);
 }
 
-async function settled(): Promise<[number, number]> {
+async function settled(): Promise<[PromiseSettledResult<number>, PromiseSettledResult<number>]> {
   return await Promise.allSettled([lift(1), lift(2)]);
 }
 "),
@@ -1133,7 +1133,14 @@ async function settled(): Promise<[number, number]> {
     )?;
     ensure_signature(&ctx, "lift", "async lift(value: Float) -> Future<Float>")?;
     ensure_signature(&ctx, "race", "async race() -> Future<Float>")?;
-    ensure_signature(&ctx, "settled", "async settled() -> Future<(Float, Float)>")?;
+    // `Promise.allSettled` answers settled-result records, not the values
+    // (`Promise<[number, number]>` was invalid TypeScript the old lowering
+    // accepted by treating it as `Promise.all`).
+    ensure_signature(
+        &ctx,
+        "settled",
+        "async settled() -> Future<(PromiseSettledResult<Float>, PromiseSettledResult<Float>)>",
+    )?;
     ensure_exprs!(&ctx, AsyncOp, Await);
     Ok(())
 }

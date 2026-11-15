@@ -81,6 +81,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             asymmetric_matchers_lowered: 0,
             presence_widened_bindings: HashMap::new(),
             any_written_bindings: HashSet::new(),
+            any_written_returns: HashSet::new(),
             test_counts_assertions: false,
             defining_local_functions: Vec::new(),
             unknown_index_access,
