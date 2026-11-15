@@ -147,6 +147,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("SMELT_BUILTIN_MEMBERS"),
     Entry::Item("SmeltDynCallable"),
     Entry::Item("smelt_get_array_field"),
+    Entry::Item("SmeltDeepEq"),
     Entry::Item("smelt_unknown_structural_eq"),
     Entry::Item("smelt_is_own_structural_key"),
     Entry::Item("smelt_unknown_structural_hash"),

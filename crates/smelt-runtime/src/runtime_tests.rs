@@ -1419,3 +1419,105 @@ mod live_view_family {
         assert!(plain.smelt_origin::<Point>().is_none());
     }
 }
+
+mod deep_eq_family {
+    use super::*;
+
+    /// `interface Ring<T> { value: T; next: Ring<T> | null }` as the code
+    /// generator emits a generic reference record and its `SmeltDeepEq`:
+    /// one object, then the pair of cells entered, then field with field.
+    #[derive(Clone)]
+    struct Ring<T>(::std::rc::Rc<::std::cell::RefCell<RingInner<T>>>);
+
+    struct RingInner<T> {
+        value: T,
+        next: Option<Ring<T>>,
+    }
+
+    impl<T: SmeltDeepEq> SmeltDeepEq for Ring<T> {
+        fn smelt_deep_eq(&self, other: &Self, smelt_seen: &mut SmeltDeepSeen) -> bool {
+            if ::std::rc::Rc::ptr_eq(&self.0, &other.0) { return true; }
+            if let Some(smelt_answer) = smelt_seen.enter(::std::rc::Rc::as_ptr(&self.0).cast::<()>() as usize, ::std::rc::Rc::as_ptr(&other.0).cast::<()>() as usize) { return smelt_answer; }
+            let (smelt_left, smelt_right) = (self.0.borrow(), other.0.borrow());
+            let smelt_equal = SmeltDeepEq::smelt_deep_eq(&smelt_left.value, &smelt_right.value, smelt_seen) && SmeltDeepEq::smelt_deep_eq(&smelt_left.next, &smelt_right.next, smelt_seen);
+            smelt_seen.leave();
+            smelt_equal
+        }
+    }
+
+    fn ring<T>(value: T) -> Ring<T> {
+        Ring(::std::rc::Rc::new(::std::cell::RefCell::new(RingInner { value, next: None })))
+    }
+
+    #[test]
+    fn a_number_leaf_equals_itself_when_it_is_nan() {
+        assert!(smelt_deep_eq(&f64::NAN, &f64::NAN));
+        assert!(smelt_deep_eq(&1.0, &1.0));
+        assert!(!smelt_deep_eq(&1.0, &2.0));
+        assert!(smelt_deep_eq(&Some(f64::NAN), &Some(f64::NAN)));
+        assert!(!smelt_deep_eq(&Some(1.0), &None));
+    }
+
+    #[test]
+    fn a_list_argument_is_compared_item_by_item() {
+        let list = |items: &[f64]| SmeltList::from(items.to_vec());
+        assert!(smelt_deep_eq(&list(&[1.0, f64::NAN]), &list(&[1.0, f64::NAN])));
+        assert!(!smelt_deep_eq(&list(&[1.0, 2.0]), &list(&[1.0, 3.0])));
+        assert!(!smelt_deep_eq(&list(&[1.0]), &list(&[1.0, 1.0])));
+        assert!(smelt_deep_eq(&JsString::from("a"), &JsString::from("a")));
+        assert!(!smelt_deep_eq(&JsString::from("a"), &JsString::from("b")));
+    }
+
+    #[test]
+    fn a_borrowed_value_compares_as_the_value() {
+        let (left, right) = (ring(1.0), ring(1.0));
+        assert!(smelt_deep_eq(&&left, &&right));
+    }
+
+    #[test]
+    fn two_cells_with_equal_fields_are_deeply_equal_and_not_identical() {
+        let (left, right) = (ring(JsString::from("a")), ring(JsString::from("a")));
+        assert!(!::std::rc::Rc::ptr_eq(&left.0, &right.0));
+        assert!(smelt_deep_eq(&left, &right));
+        assert!(!smelt_deep_eq(&left, &ring(JsString::from("b"))));
+        right.0.borrow_mut().next = Some(ring(JsString::from("a")));
+        assert!(!smelt_deep_eq(&left, &right));
+    }
+
+    #[test]
+    fn cycles_are_equal_when_they_close_at_the_same_depth() {
+        let cycle = |value: f64| { let node = ring(value); node.0.borrow_mut().next = Some(node.clone()); node };
+        let (left, right) = (cycle(1.0), cycle(1.0));
+        assert!(smelt_deep_eq(&left, &right));
+        assert!(!smelt_deep_eq(&left, &cycle(2.0)));
+        // A one-cell cycle against a two-cell cycle of the same values:
+        // vitest's `toEqual` answers unequal (fixture case
+        // `F_generic_cycle_of_another_length`).
+        let two = ring(1.0);
+        let second = ring(1.0);
+        second.0.borrow_mut().next = Some(two.clone());
+        two.0.borrow_mut().next = Some(second);
+        assert!(!smelt_deep_eq(&left, &two));
+        assert!(!smelt_deep_eq(&two, &left));
+        // A cycle against a chain that ends.
+        let chain = ring(1.0);
+        chain.0.borrow_mut().next = Some(ring(1.0));
+        assert!(!smelt_deep_eq(&left, &chain));
+        // Break the cycles so the cells are freed.
+        for node in [&left, &right, &two] { node.0.borrow_mut().next = None; }
+    }
+
+    #[test]
+    fn the_in_progress_set_answers_for_a_cell_met_again() {
+        let mut seen = SmeltDeepSeen::default();
+        assert_eq!(seen.enter(1, 2), None);
+        assert_eq!(seen.enter(1, 2), Some(true));
+        assert_eq!(seen.enter(1, 3), Some(false));
+        assert_eq!(seen.enter(4, 2), Some(false));
+        assert_eq!(seen.enter(5, 6), None);
+        seen.leave();
+        seen.leave();
+        // A pair that was left can be compared again from the start.
+        assert_eq!(seen.enter(1, 2), None);
+    }
+}

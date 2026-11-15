@@ -31,8 +31,8 @@ use crate::{EmitError, accessor_prelude};
 /// fully qualified calls (serde) or the language itself (`Drop`) lists no
 /// method: a source `add` or `drop` method shadows nothing there and keeps its
 /// name. The derives and impls are written in this module, `program_types`,
-/// `reference_storage`, `weak_receiver`, `record_coercion` and
-/// `emitter::live_view`;
+/// `reference_storage`, `weak_receiver`, `record_coercion`,
+/// `emitter::live_view` and `emitter::deep_equality`;
 /// `tests/reserved_name_tests.rs` checks every `impl Trait for` of a committed
 /// example crate against this table.
 pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
@@ -68,6 +68,7 @@ pub(crate) const EMITTED_TRAITS: &[(&str, &[&str])] = &[
             "smelt_live_handle",
         ],
     ),
+    ("SmeltDeepEq", &["smelt_deep_eq"]),
     ("Drop", &[]),
     ("serde::Serialize", &[]),
     ("serde::Deserialize", &[]),
@@ -380,6 +381,18 @@ pub(crate) fn type_supports_partial_eq(
     ty: TypeId,
     seen: &mut Vec<smelt_hir::Symbol>,
 ) -> bool {
+    type_supports_partial_eq_where(mir, &|name| context.is_reference_class(name), ty, seen)
+}
+
+/// [`type_supports_partial_eq`] with the reference classes answered by
+/// `is_reference`, for a caller that runs before the emit context exists
+/// (`crate::deep_equality`).
+pub(crate) fn type_supports_partial_eq_where(
+    mir: &Mir,
+    is_reference: &dyn Fn(smelt_hir::Symbol) -> bool,
+    ty: TypeId,
+    seen: &mut Vec<smelt_hir::Symbol>,
+) -> bool {
     match mir.types.get(ty) {
         Some(
             Type::Function(_)
@@ -388,7 +401,7 @@ pub(crate) fn type_supports_partial_eq(
             | Type::GeneratorResult { .. },
         ) => false,
         Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-            type_supports_partial_eq(mir, context, *item, seen)
+            type_supports_partial_eq_where(mir, is_reference, *item, seen)
         }
         // A map keyed by a TYPE PARAMETER is a `SmeltJsMap<P, _>`, whose
         // `PartialEq` needs `P: SmeltJsKeyEq`. A `#[derive(PartialEq)]` only
@@ -400,8 +413,8 @@ pub(crate) fn type_supports_partial_eq(
             false
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
-            type_supports_partial_eq(mir, context, *key, seen)
-                && type_supports_partial_eq(mir, context, *value, seen)
+            type_supports_partial_eq_where(mir, is_reference, *key, seen)
+                && type_supports_partial_eq_where(mir, is_reference, *value, seen)
         }
         // A concrete union lowers to a generated enum with a hand-written
         // `PartialEq` (and an erased union falls back to `SmeltUnknown`, which is
@@ -410,12 +423,12 @@ pub(crate) fn type_supports_partial_eq(
         Some(Type::Union(_)) => true,
         Some(Type::Tuple(items)) => items
             .iter()
-            .all(|item| type_supports_partial_eq(mir, context, *item, seen)),
+            .all(|item| type_supports_partial_eq_where(mir, is_reference, *item, seen)),
         Some(Type::Class { name, .. }) => {
             let name = *name;
             // A reference class compares by identity (`Rc::ptr_eq`) with no
             // constraint on its inner fields, so it is always comparable.
-            if context.is_reference_class(name) {
+            if is_reference(name) {
                 return true;
             }
             let Some(class) = crate::classes::find_class(mir, name) else {
@@ -436,7 +449,7 @@ pub(crate) fn type_supports_partial_eq(
                     seen.push(name);
                     let comparable = effective_interface_fields(mir, interface)
                         .iter()
-                        .all(|field| type_supports_partial_eq(mir, context, field.ty, seen));
+                        .all(|field| type_supports_partial_eq_where(mir, is_reference, field.ty, seen));
                     seen.pop();
                     return comparable;
                 }
@@ -450,7 +463,7 @@ pub(crate) fn type_supports_partial_eq(
             seen.push(name);
             let comparable = effective_class_fields(mir, class)
                 .iter()
-                .all(|field| type_supports_partial_eq(mir, context, field.ty, seen));
+                .all(|field| type_supports_partial_eq_where(mir, is_reference, field.ty, seen));
             seen.pop();
             comparable
         }

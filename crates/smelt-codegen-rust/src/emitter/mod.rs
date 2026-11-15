@@ -158,6 +158,7 @@ mod list_mutation;
 mod list_ordering;
 mod list_query;
 pub(crate) mod literals;
+pub(crate) mod deep_equality;
 pub(crate) mod live_view;
 mod local_analysis;
 mod local_declaration;
@@ -326,6 +327,8 @@ pub(crate) struct EmitContext {
     /// The reference records whose erased and map views read and write the
     /// record itself (see [`live_view`]), computed once from the set above.
     live_records: HashSet<Symbol>,
+    /// The records with a generated `impl SmeltDeepEq` (`crate::deep_equality`).
+    deep_equality: crate::deep_equality::DeepEquality,
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
@@ -481,6 +484,7 @@ impl EmitContext {
             polymorphic_classes,
             structural_views: crate::structural_views::StructuralViews::plan(mir),
             live_records: live_view::live_records(mir, &reference_classes, &demand),
+            deep_equality: crate::deep_equality::DeepEquality::plan(mir, &reference_classes),
             reference_classes,
             static_receivers: crate::static_receiver::StaticReceiverPlan::compute(mir),
             type_param_elision: crate::generic_elision::compute(mir),
@@ -602,6 +606,12 @@ impl EmitContext {
     /// Whether `symbol` is a live record (see [`live_view`]).
     pub(crate) fn is_live_record(&self, symbol: Symbol) -> bool {
         self.live_records.contains(&symbol)
+    }
+
+    /// The records the program's deep comparisons compare field with field
+    /// (see [`crate::deep_equality`]).
+    pub(crate) fn deep_equality(&self) -> &crate::deep_equality::DeepEquality {
+        &self.deep_equality
     }
 
     /// Whether the crate emits any live record, which is what the live-view

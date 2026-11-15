@@ -80,6 +80,7 @@ pub(crate) mod class_polymorphism;
 pub(crate) mod class_proto;
 pub(crate) mod classes;
 pub(crate) mod classify;
+pub(crate) mod deep_equality;
 mod console_inspect_prelude;
 mod contract;
 mod crate_builder;

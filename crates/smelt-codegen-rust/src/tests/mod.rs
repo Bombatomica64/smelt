@@ -272,6 +272,7 @@ mod class_prototype_methods_tests;
 mod closure_binding_tests;
 mod closure_capture_frame_tests;
 mod console_inspect_tests;
+mod deep_equality_tests;
 mod discriminated_union_tests;
 mod drifted_helper_tests;
 mod edition_tests;

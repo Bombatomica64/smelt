@@ -1,6 +1,7 @@
 //! JavaScript binary-operator semantics: optional/unknown/erased arithmetic, equality, and relational comparison text emission.
 
 use super::*;
+use crate::deep_equality::Scope;
 use crate::rust::RustExpr;
 
 /// Whether `op` is an equality operator, in either polarity.
@@ -953,9 +954,10 @@ impl FunctionEmitter<'_> {
     /// preservation: both operands keep their types; no value is erased to be
     /// compared.
     ///
-    /// Not covered: a reference record that is not live (generic, callable,
-    /// accessor-backed) and a by-value struct holding a record still compare
-    /// with their `PartialEq`.
+    /// A record that is not live (a generic reference record, a by-value
+    /// struct holding a record) compares field with field through its
+    /// generated `impl SmeltDeepEq` (`crate::deep_equality`, which also lists
+    /// what still compares with its `PartialEq`).
     ///
     /// Rust's derived `PartialEq` compares an `f64` leaf with IEEE `==`, so
     /// `SmeltList<f64> == SmeltList<f64>` answers `false` for two lists that
@@ -977,7 +979,12 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         if lhs_ty != self.operand_ty(rhs)?
-            || !(self.type_nests_float(lhs_ty) || self.type_holds_live_record(lhs_ty, 0))
+            || !(self.type_nests_float(lhs_ty)
+                || self.type_holds_live_record(lhs_ty, 0)
+                || self
+                    .context
+                    .deep_equality()
+                    .holds_trait_record(self.mir, lhs_ty, 0))
         {
             return Ok(None);
         }
@@ -1062,12 +1069,29 @@ impl FunctionEmitter<'_> {
     ///   ordinary IEEE comparison in JavaScript too, and the test matchers
     ///   already route a scalar `toEqual(NaN)` through the SameValue path;
     /// * a **live record** leaf compares own properties through its views
-    ///   (`smelt_live_deep_eq`): the handle's `PartialEq` is identity.
+    ///   (`smelt_live_deep_eq`): the handle's `PartialEq` is identity;
+    /// * a **record with an `impl SmeltDeepEq`** leaf compares field with
+    ///   field through it (`crate::deep_equality`).
     fn structural_leaf_equality_expr(
         &self,
         left: &RustExpr,
         right: &RustExpr,
         ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        self.structural_leaf_equality_in(left, right, ty, Scope::Body)
+    }
+
+    /// [`Self::structural_leaf_equality_expr`] written in `scope`: a function
+    /// body, or a record's own `impl SmeltDeepEq`
+    /// (`emitter::deep_equality`), where the comparison continues the one it
+    /// is part of and a field of the record's type parameter is compared
+    /// through the parameter's bound.
+    pub(in crate::emitter) fn structural_leaf_equality_in(
+        &self,
+        left: &RustExpr,
+        right: &RustExpr,
+        ty: TypeId,
+        scope: Scope,
     ) -> Result<RustExpr, EmitError> {
         let (left_operand, right_operand) = (left.as_binary_operand(), right.as_binary_operand());
         let (left_receiver, right_receiver) = (
@@ -1081,16 +1105,28 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) if self.is_live_record_type(ty) => RustExpr::atom(format!(
                 "smelt_live_deep_eq({left_receiver}.clone(), {right_receiver}.clone())"
             )),
+            Some(Type::Class { .. })
+                if self
+                    .context
+                    .deep_equality()
+                    .compares_through_trait(self.mir, ty, scope) =>
+            {
+                Self::trait_deep_equality_expr(left, right, scope)
+            }
+            Some(Type::TypeParam { .. }) if scope == Scope::Impl => {
+                Self::trait_deep_equality_expr(left, right, scope)
+            }
             Some(Type::Float) => RustExpr::atom(format!(
                 "({left_operand} == {right_operand} || ({left_receiver}.is_nan() && {right_receiver}.is_nan()))"
             )),
             Some(Type::Tuple(items)) => {
                 let mut parts = Vec::with_capacity(items.len());
                 for (index, item) in items.iter().enumerate() {
-                    let part = self.structural_leaf_equality_expr(
+                    let part = self.structural_leaf_equality_in(
                         &RustExpr::tuple_field(left, index),
                         &RustExpr::tuple_field(right, index),
                         *item,
+                        scope,
                     )?;
                     parts.push(part.as_binary_operand());
                 }
@@ -1101,10 +1137,11 @@ impl FunctionEmitter<'_> {
                 }
             }
             Some(Type::List(item)) => {
-                let item_equal = self.structural_leaf_equality_expr(
+                let item_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_item"),
                     &RustExpr::path("smelt_right_item"),
                     *item,
+                    scope,
                 )?;
                 // `.len()` is the list's own inherent method; `.iter()` reads
                 // the shared buffer. Both are shared borrows, so comparing a
@@ -1123,10 +1160,11 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key).is_some_and(Type::is_text)
                     || self.is_prop_key_record_key(*key) =>
             {
-                let value_equal = self.structural_leaf_equality_expr(
+                let value_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),
                     *value,
+                    scope,
                 )?;
                 RustExpr::loose(format!(
                     "{left_receiver}.len() == {right_receiver}.len() && {left_receiver}.iter().all(|(smelt_key, smelt_left_value)| {right_receiver}.get(&smelt_key).is_some_and(|smelt_right_value| {value_equal}))",
@@ -1134,10 +1172,11 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Optional(inner)) => {
-                let item_equal = self.structural_leaf_equality_expr(
+                let item_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),
                     *inner,
+                    scope,
                 )?;
                 RustExpr::atom(format!(
                     "match ({left_receiver}.as_ref(), {right_receiver}.as_ref()) {{ (Some(smelt_left_value), Some(smelt_right_value)) => {item_equal}, (None, None) => true, _ => false }}",
